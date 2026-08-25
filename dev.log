@@ -1,0 +1,125 @@
+   ▲ Next.js 15.5.19
+   - Local:        http://localhost:3001
+   - Network:      http://169.254.8.1:3001
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 2.5s
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 2s (213 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (102kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (250kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+ ○ Compiling /login ...
+ ✓ Compiled /login in 7.6s (816 modules)
+ GET /login 200 in 8275ms
+ ✓ Compiled in 477ms (239 modules)
+ ✓ Compiled in 160ms (238 modules)
+ ○ Compiling /login ...
+ ✓ Compiled /login in 780ms (568 modules)
+ ⨯ [Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json',
+  page: '/login'
+}
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 3.6s (1139 modules)
+ ⨯ [Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json',
+  page: '/login'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json'
+}
+ GET /login 500 in 10648ms
+ GET /login 500 in 331ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json',
+  page: '/login'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json',
+  page: '/login'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json'
+}
+ GET /login 500 in 1456ms
+ GET /login 500 in 325ms
+ ⨯ [Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json',
+  page: '/login'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json',
+  page: '/login'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json'
+}
+[Error: ENOENT: no such file or directory, open '/app/applet/.next/prerender-manifest.json'] {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/app/applet/.next/prerender-manifest.json'
+}
+ GET /login 500 in 1255ms
+ GET /login 500 in 316ms
+ ✓ Compiled in 1058ms (1142 modules)
+ ✓ Compiled in 1356ms (1156 modules)
+ ✓ Compiled in 1114ms (390 modules)
