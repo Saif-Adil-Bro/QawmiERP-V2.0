@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 export async function createClient() {
@@ -42,29 +43,24 @@ export async function createClient() {
   );
 }
 
-// For Admin tasks like creating users
+// For Admin tasks like creating classes, subjects, users, bypassing RLS
 export async function createAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim();
 
   if (!supabaseUrl || !serviceKey) {
-    throw new Error("Supabase service role credentials are not configured in environment variables.");
+    throw new Error("Supabase credentials are not configured in environment variables.");
   }
 
   if (!supabaseUrl.startsWith("http")) {
     throw new Error(`Invalid Supabase URL: ${supabaseUrl}. It must start with https://`);
   }
 
-  return createServerClient(
-    supabaseUrl,
-    serviceKey,
-    {
-      cookies: {
-        getAll() {
-          return [];
-        },
-        setAll() {},
-      },
-    }
-  );
+  return createSupabaseJsClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
+
