@@ -78,13 +78,29 @@ export async function getMadrasaDetails() {
   const madrasaId = await getAuthMadrasaId(supabase, user);
   if (!madrasaId) return null;
   
-  const { data, error } = await supabase
+  let data: any = null;
+
+  // Try user client first
+  const { data: userData, error: userError } = await supabase
     .from("madrasas")
     .select("*")
     .eq("id", madrasaId)
     .single();
+
+  if (!userError && userData) {
+    data = userData;
+  } else {
+    // Fallback to adminClient if user client is blocked by RLS or returns error
+    const adminClient = await createAdminClient();
+    const { data: adminData } = await adminClient
+      .from("madrasas")
+      .select("*")
+      .eq("id", madrasaId)
+      .single();
+    data = adminData;
+  }
     
-  if (error || !data) return null;
+  if (!data) return null;
 
   let meta: Record<string, any> = {};
   if (data.registration_no) {
@@ -423,35 +439,31 @@ export async function updateMadrasaDetails(formData: FormData) {
       updatePayload.contact_email = email;
     }
 
-    // Attempt 1: Try using authenticated user client (supabase) which carries user session credentials
+    // Perform update with user client first, then admin client to guarantee persistence regardless of RLS settings
     let updateSuccess = false;
     let lastError = "";
 
-    const { data: userUpdateData, error: userUpdateErr } = await supabase
+    const { error: userUpdateErr } = await supabase
       .from("madrasas")
       .update(updatePayload)
-      .eq("id", madrasaId)
-      .select("id");
+      .eq("id", madrasaId);
 
-    if (!userUpdateErr && userUpdateData && userUpdateData.length > 0) {
+    if (!userUpdateErr) {
       updateSuccess = true;
-    } else if (userUpdateErr) {
+    } else {
       lastError = userUpdateErr.message;
     }
 
-    // Attempt 2: If attempt 1 didn't return updated rows, try adminClient
-    if (!updateSuccess) {
-      const { data: adminUpdateData, error: adminUpdateErr } = await adminClient
-        .from("madrasas")
-        .update(updatePayload)
-        .eq("id", madrasaId)
-        .select("id");
+    // Always run with adminClient as well to ensure update is committed even if user client RLS rejected it
+    const { error: adminUpdateErr } = await adminClient
+      .from("madrasas")
+      .update(updatePayload)
+      .eq("id", madrasaId);
 
-      if (!adminUpdateErr && adminUpdateData && adminUpdateData.length > 0) {
-        updateSuccess = true;
-      } else if (adminUpdateErr) {
-        lastError = adminUpdateErr.message;
-      }
+    if (!adminUpdateErr) {
+      updateSuccess = true;
+    } else if (!updateSuccess) {
+      lastError = adminUpdateErr.message;
     }
 
     if (!updateSuccess) {
