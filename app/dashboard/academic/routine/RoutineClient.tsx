@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarDays, Clock, MapPin, User, BookOpen, Palette, LayoutTemplate } from "lucide-react";
+import { CalendarDays, Clock, MapPin, User, BookOpen, Palette, LayoutTemplate, Type } from "lucide-react";
 import PrintButton from "@/app/components/PrintButton";
 
 export default function RoutineClient({ routines, routineType, className, madrasaInfo }: { routines: any[], routineType: string, className?: string, madrasaInfo?: {name: string, address: string, phone: string} }) {
   const [template, setTemplate] = useState("grid");
   const [themeColor, setThemeColor] = useState("indigo");
+  const [banglaFont, setBanglaFont] = useState("font-solaiman");
 
   // Group by day_of_week
   const days = ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -81,11 +82,24 @@ export default function RoutineClient({ routines, routineType, className, madras
             </select>
           </div>
 
+          <div className="flex items-center gap-2">
+            <Type className="w-4 h-4 text-slate-500" />
+            <select 
+              value={banglaFont} 
+              onChange={(e) => setBanglaFont(e.target.value)}
+              className="text-sm bg-white border border-slate-200 rounded p-1 font-medium"
+            >
+              <option value="font-solaiman">সোলাইমান লিপি</option>
+              <option value="font-shorif">শরীফ শিশির</option>
+              <option value="font-hindsiliguri">হিন্দ শিলিগুড়ি</option>
+            </select>
+          </div>
+
           <PrintButton targetId="printable-routine-content" fileName="routine.pdf" />
         </div>
       </div>
 
-      <div id="printable-routine-content" className="print:m-0 print:p-0">
+      <div id="printable-routine-content" className={`print:m-0 print:p-0 ${banglaFont}`}>
         <div className="hidden print:block mb-6 border-b pb-4">
           <h1 className={`text-3xl font-bold ${currentTheme.text} text-center uppercase tracking-wider`}>{madrasaInfo?.name || "Qawmi Madrasa"}</h1>
           <p className="text-center text-slate-500 mb-2">{madrasaInfo?.address || "Address"}</p>

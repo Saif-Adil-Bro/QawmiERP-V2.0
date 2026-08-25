@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import PrintButton from "@/app/components/PrintButton";
-import { IdCard, Palette, LayoutTemplate, Sliders, FileText, Settings, Sparkles, Plus, Trash2 } from "lucide-react";
+import { IdCard, Palette, LayoutTemplate, Sliders, FileText, Settings, Sparkles, Plus, Trash2, Type } from "lucide-react";
 import { getStudentIdNumber, convertToBanglaNumber } from "@/lib/student-utils";
 
 
@@ -26,6 +26,8 @@ export default function IdCardClient({ users, userType, madrasaInfo }: { users: 
   const [template, setTemplate] = useState("modern");
   const [themeColor, setThemeColor] = useState("blue");
   const [cardSide, setCardSide] = useState<"front" | "back" | "both">("both");
+  const [banglaFont, setBanglaFont] = useState("font-solaiman");
+  const [arabicFont, setArabicFont] = useState("font-amiri");
   
   // Customization States for sizes and spacing
   const [titleFontSize, setTitleFontSize] = useState(12); // px
@@ -99,6 +101,19 @@ export default function IdCardClient({ users, userType, madrasaInfo }: { users: 
               <option value="indigo">ইন্ডিগো (Indigo)</option>
               <option value="rose">লাল (Rose)</option>
               <option value="slate">কালো (Dark)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Type className="w-4 h-4 text-slate-500" />
+            <select 
+              value={banglaFont} 
+              onChange={(e) => setBanglaFont(e.target.value)}
+              className="text-sm bg-white border border-slate-200 rounded p-1 text-slate-700 font-medium"
+            >
+              <option value="font-solaiman">বাংলা: সোলাইমান লিপি</option>
+              <option value="font-shorif">বাংলা: শরীফ শিশির</option>
+              <option value="font-hindsiliguri">বাংলা: হিন্দ শিলিগুড়ি</option>
             </select>
           </div>
 
@@ -310,7 +325,7 @@ export default function IdCardClient({ users, userType, madrasaInfo }: { users: 
         </div>
       )}
 
-      <div id="id-cards-print-area" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 print:grid-cols-2 print:gap-x-4 print:gap-y-8">
+      <div id="id-cards-print-area" className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 print:grid-cols-2 print:gap-x-4 print:gap-y-8 ${banglaFont}`}>
         {users.flatMap((user) => {
           const cards = [];
           if (cardSide === "front" || cardSide === "both") {

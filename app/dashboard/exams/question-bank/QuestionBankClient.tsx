@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { saveQuestion, deleteQuestion } from "@/app/actions/questions";
-import { Plus, Trash2, Loader2, Save } from "lucide-react";
+import { Plus, Trash2, Loader2, Save, Printer, FileText, Type, X } from "lucide-react";
 
 export default function QuestionBankClient({
   classes,
@@ -19,6 +19,14 @@ export default function QuestionBankClient({
   const [classFilter, setClassFilter] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+
+  // Paper preview modal state
+  const [showPaperModal, setShowPaperModal] = useState(false);
+  const [paperTitle, setPaperTitle] = useState("বার্ষিক পরীক্ষা - ২০২৬");
+  const [paperTime, setPaperTime] = useState("২ ঘণ্টা ৩০ মিনিট");
+  const [paperFullMarks, setPaperFullMarks] = useState("১০০");
+  const [banglaFont, setBanglaFont] = useState("font-solaiman");
+  const [arabicFont, setArabicFont] = useState("font-amiri");
 
   // New question form state
   const [isAdding, setIsAdding] = useState(false);
@@ -130,13 +138,22 @@ export default function QuestionBankClient({
             </select>
           </div>
         </div>
-        <button
-          onClick={() => setIsAdding(!isAdding)}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition flex items-center space-x-2 w-full md:w-auto justify-center"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Question</span>
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+          <button
+            onClick={() => setShowPaperModal(true)}
+            className="bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700 transition flex items-center justify-center space-x-2 text-sm font-medium"
+          >
+            <Printer className="w-4 h-4" />
+            <span>প্রশ্নপত্র তৈরি ও প্রিন্ট</span>
+          </button>
+          <button
+            onClick={() => setIsAdding(!isAdding)}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition flex items-center justify-center space-x-2 text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            <span>নতুন প্রশ্ন যুক্ত করুন</span>
+          </button>
+        </div>
       </div>
 
       {/* Add New Question Form */}
@@ -316,6 +333,156 @@ export default function QuestionBankClient({
           </table>
         </div>
       </div>
+
+      {/* Question Paper Preview Modal */}
+      {showPaperModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-bold text-lg">প্রশ্নপত্র কাস্টমাইজ ও প্রিন্ট</h3>
+              </div>
+              <button 
+                onClick={() => setShowPaperModal(false)}
+                className="p-1 hover:bg-slate-800 rounded-lg text-slate-300 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Controls */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">পরীক্ষার শিরোনাম</label>
+                <input 
+                  type="text" 
+                  value={paperTitle} 
+                  onChange={(e) => setPaperTitle(e.target.value)}
+                  className="w-full text-xs p-2 bg-white border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">সময়</label>
+                <input 
+                  type="text" 
+                  value={paperTime} 
+                  onChange={(e) => setPaperTime(e.target.value)}
+                  className="w-full text-xs p-2 bg-white border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">পূর্ণমান</label>
+                <input 
+                  type="text" 
+                  value={paperFullMarks} 
+                  onChange={(e) => setPaperFullMarks(e.target.value)}
+                  className="w-full text-xs p-2 bg-white border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1 flex items-center gap-1">
+                  <Type className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>বাংলা ফন্ট</span>
+                </label>
+                <select 
+                  value={banglaFont} 
+                  onChange={(e) => setBanglaFont(e.target.value)}
+                  className="w-full text-xs p-2 bg-white border border-slate-300 rounded-lg font-medium"
+                >
+                  <option value="font-solaiman">সোলাইমান লিপি (ডিফল্ট)</option>
+                  <option value="font-shorif">শরীফ শিশির</option>
+                  <option value="font-hindsiliguri">হিন্দ শিলিগুড়ি</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Paper Live Preview */}
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-200 flex justify-center">
+              <div 
+                id="question-paper-print" 
+                className={`bg-white p-8 shadow-md rounded-lg w-full max-w-3xl border border-slate-300 ${banglaFont}`}
+              >
+                {/* Paper Header */}
+                <div className="text-center border-b-2 border-slate-800 pb-4 mb-6">
+                  <h1 className="text-2xl font-bold text-slate-900">জামিয়া কাসেমিয়া মাদরাসা</h1>
+                  <h2 className="text-lg font-bold text-slate-800 mt-1">{paperTitle}</h2>
+                  <div className="flex justify-between items-center text-sm font-semibold text-slate-700 mt-3 pt-2 border-t border-slate-300">
+                    <span>বিষয়: {subjects.find(s => s.id === subjectFilter)?.name || "সকল বিষয়"}</span>
+                    <span>সময়: {paperTime}</span>
+                    <span>পূর্ণমান: {paperFullMarks}</span>
+                  </div>
+                </div>
+
+                {/* Question List */}
+                <div className="space-y-6">
+                  {filteredQuestions.map((q, idx) => (
+                    <div key={q.id} className="space-y-1">
+                      <div className="flex justify-between items-start">
+                        <p className="font-semibold text-slate-900 text-start text-base" dir="auto">
+                          {idx + 1}. {q.question_text}
+                        </p>
+                        <span className="font-bold text-slate-700 text-sm shrink-0 ml-2">[{q.marks}]</span>
+                      </div>
+                      {q.question_type === "MCQ" && q.options && (
+                        <div className="grid grid-cols-2 gap-2 pl-6 mt-2 text-sm text-slate-800">
+                          {q.options.map((opt: string, i: number) => (
+                            <div key={i} dir="auto" className="text-start">
+                              ({String.fromCharCode(2453 + i)}) {opt}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {filteredQuestions.length === 0 && (
+                    <p className="text-center text-slate-500 py-8">কোনো প্রশ্ন নির্বাচন করা হয়নি।</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-white border-t border-slate-200 flex justify-end space-x-3">
+              <button 
+                onClick={() => setShowPaperModal(false)}
+                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition"
+              >
+                বন্ধ করুন
+              </button>
+              <button 
+                onClick={() => window.print()}
+                className="flex items-center space-x-2 bg-emerald-600 text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-emerald-700 transition shadow-sm"
+              >
+                <Printer className="w-4 h-4" />
+                <span>প্রিন্ট প্রশ্নপত্র</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Printable Area for CSS @media print */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          #question-paper-print, #question-paper-print * {
+            visibility: visible;
+          }
+          #question-paper-print {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 20px !important;
+          }
+        }
+      `}} />
     </div>
   );
 }

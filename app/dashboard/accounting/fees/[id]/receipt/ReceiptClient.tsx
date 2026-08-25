@@ -1,9 +1,12 @@
 "use client";
 
-import { Printer, ArrowLeft } from "lucide-react";
+import { useState } from "react";
+import { Printer, ArrowLeft, Type } from "lucide-react";
 import Link from "next/link";
 
 export default function ReceiptClient({ fee, madrasaInfo }: { fee: any, madrasaInfo?: any }) {
+  const [banglaFont, setBanglaFont] = useState("font-solaiman");
+
   const printReceipt = () => {
     window.print();
   };
@@ -25,16 +28,32 @@ export default function ReceiptClient({ fee, madrasaInfo }: { fee: any, madrasaI
             <p className="text-slate-500 text-sm">রিসিট নং: {fee.receipt_no}</p>
           </div>
         </div>
-        <button 
-          onClick={printReceipt}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition shadow-sm"
-        >
-          <Printer className="w-4 h-4" />
-          <span>প্রিন্ট করুন</span>
-        </button>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-md px-2 py-1.5 shadow-xs">
+            <Type className="w-4 h-4 text-slate-500 shrink-0" />
+            <select 
+              value={banglaFont} 
+              onChange={(e) => setBanglaFont(e.target.value)}
+              className="text-xs font-medium text-slate-700 bg-transparent focus:outline-none"
+            >
+              <option value="font-solaiman">বাংলা: সোলাইমান লিপি</option>
+              <option value="font-shorif">বাংলা: শরীফ শিশির</option>
+              <option value="font-hindsiliguri">বাংলা: হিন্দ শিলিগুড়ি</option>
+            </select>
+          </div>
+
+          <button 
+            onClick={printReceipt}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition shadow-sm"
+          >
+            <Printer className="w-4 h-4" />
+            <span>প্রিন্ট করুন</span>
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white p-8 md:p-12 rounded-xl shadow-sm border border-slate-200 max-w-3xl mx-auto" id="receipt-area">
+      <div className={`bg-white p-8 md:p-12 rounded-xl shadow-sm border border-slate-200 max-w-3xl mx-auto ${banglaFont}`} id="receipt-area">
         <div className="text-center mb-8 pb-8 border-b border-slate-200 flex flex-col items-center">
           {madrasaInfo?.logo_url && (
             <img src={madrasaInfo.logo_url} alt="Logo" className="w-20 h-20 object-contain mb-3" onError={(e) => { e.currentTarget.style.display = 'none'; }} />

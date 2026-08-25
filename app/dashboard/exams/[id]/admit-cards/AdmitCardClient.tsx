@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { getStudentsByClass } from "@/app/actions/exams";
-import { Printer, User } from "lucide-react";
+import { Printer, User, Type } from "lucide-react";
 
 const getDirectPhotoUrl = (url: string | null | undefined): string | undefined => {
   if (!url) return undefined;
@@ -36,6 +36,7 @@ export default function AdmitCardClient({
   const [classId, setClassId] = useState("");
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [banglaFont, setBanglaFont] = useState("font-solaiman");
 
   const selectedClassName = classes.find(c => c.id === classId)?.name || '';
 
@@ -67,7 +68,20 @@ export default function AdmitCardClient({
             ))}
           </select>
         </div>
-        <div className="w-full sm:w-auto flex space-x-3">
+        <div className="w-full sm:w-auto flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-md px-2 py-1.5">
+            <Type className="w-4 h-4 text-slate-500 shrink-0" />
+            <select 
+              value={banglaFont} 
+              onChange={(e) => setBanglaFont(e.target.value)}
+              className="text-xs font-medium text-slate-700 bg-transparent focus:outline-none"
+            >
+              <option value="font-solaiman">বাংলা: সোলাইমান লিপি</option>
+              <option value="font-shorif">বাংলা: শরীফ শিশির</option>
+              <option value="font-hindsiliguri">বাংলা: হিন্দ শিলিগুড়ি</option>
+            </select>
+          </div>
+
           <button 
             onClick={loadStudents}
             disabled={loading || !classId}
@@ -101,7 +115,7 @@ export default function AdmitCardClient({
       )}
 
       {/* Print View: Grid layout for admit cards */}
-      <div className="hidden print:block print:w-full space-y-12">
+      <div className={`hidden print:block print:w-full space-y-12 ${banglaFont}`}>
         <div className="grid grid-cols-1 gap-12">
           {students.map((student, index) => (
             <div key={student.id} className="border-4 border-slate-800 p-8 rounded-xl break-inside-avoid relative h-[45vh] flex flex-col bg-white">

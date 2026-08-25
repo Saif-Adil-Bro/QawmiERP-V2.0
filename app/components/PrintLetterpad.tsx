@@ -12,6 +12,13 @@ interface MadrasaInfo {
   address?: string;
   phone?: string;
   contact_phone?: string;
+  established_year?: string;
+  registration_no?: string;
+  reg_no?: string;
+  principal_name?: string;
+  principal_signature_url?: string;
+  signature_url?: string;
+  slogan?: string;
 }
 
 interface PrintLetterpadProps {
@@ -62,8 +69,8 @@ const themes = [
 
 export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }: PrintLetterpadProps) {
   const [padEnabled, setPadEnabled] = useState(true);
-  const [establishedYear, setEstablishedYear] = useState("২০০২");
-  const [registrationNumber, setRegistrationNumber] = useState("১২৪৫/বি");
+  const [establishedYear, setEstablishedYear] = useState(madrasaInfo?.established_year || "২০০২");
+  const [registrationNumber, setRegistrationNumber] = useState(madrasaInfo?.registration_no || madrasaInfo?.reg_no || "১২৪৫/বি");
   const [selectedQuoteIndex, setSelectedQuoteIndex] = useState(0);
   const [selectedThemeId, setSelectedThemeId] = useState("green");
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
@@ -81,8 +88,16 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
       const savedMemo = localStorage.getItem("pad_print_memo");
 
       if (savedPadEnabled !== null) setPadEnabled(savedPadEnabled === "true");
-      if (savedEstYear !== null) setEstablishedYear(savedEstYear);
-      if (savedRegNum !== null) setRegistrationNumber(savedRegNum);
+      if (savedEstYear !== null) {
+        setEstablishedYear(savedEstYear);
+      } else if (madrasaInfo?.established_year) {
+        setEstablishedYear(madrasaInfo.established_year);
+      }
+      if (savedRegNum !== null) {
+        setRegistrationNumber(savedRegNum);
+      } else if (madrasaInfo?.registration_no || madrasaInfo?.reg_no) {
+        setRegistrationNumber(madrasaInfo.registration_no || madrasaInfo.reg_no || "");
+      }
       if (savedQuoteIdx !== null) setSelectedQuoteIndex(parseInt(savedQuoteIdx, 10));
       if (savedTheme !== null) setSelectedThemeId(savedTheme);
       if (savedMemo !== null) setMemoNumber(savedMemo);

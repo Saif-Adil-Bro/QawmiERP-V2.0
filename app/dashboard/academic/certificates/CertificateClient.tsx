@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { 
   Award, Palette, LayoutTemplate, Printer, FileText, 
-  BookOpen, Search, GraduationCap, ChevronRight, UserCheck
+  BookOpen, Search, GraduationCap, ChevronRight, UserCheck, Type
 } from "lucide-react";
 import { getStudentReportCard } from "@/app/actions/exams";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
@@ -35,6 +35,8 @@ export default function CertificateClient({
   // Certificate Settings
   const [template, setTemplate] = useState("ornate");
   const [themeColor, setThemeColor] = useState("slate");
+  const [banglaFont, setBanglaFont] = useState("font-solaiman");
+  const [arabicFont, setArabicFont] = useState("font-amiri");
 
   // Marksheet Settings
   const [msExamId, setMsExamId] = useState("");
@@ -317,6 +319,31 @@ export default function CertificateClient({
                     </select>
                   </div>
 
+                  <div className="flex items-center gap-2">
+                    <Type className="w-4 h-4 text-slate-500" />
+                    <select 
+                      value={banglaFont} 
+                      onChange={(e) => setBanglaFont(e.target.value)}
+                      className="text-xs bg-white border border-slate-200 rounded-lg p-2 font-medium"
+                    >
+                      <option value="font-solaiman">বাংলা: সোলাইমান লিপি (ডিফল্ট)</option>
+                      <option value="font-shorif">বাংলা: শরীফ শিশির</option>
+                      <option value="font-hindsiliguri">বাংলা: হিন্দ শিলিগুড়ি</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Type className="w-4 h-4 text-slate-500" />
+                    <select 
+                      value={arabicFont} 
+                      onChange={(e) => setArabicFont(e.target.value)}
+                      className="text-xs bg-white border border-slate-200 rounded-lg p-2 font-medium"
+                    >
+                      <option value="font-amiri">আরবি: আমীরী (Amiri)</option>
+                      <option value="font-shahrazad">আরবি: শাহরাজাদ (Shahrazad)</option>
+                    </select>
+                  </div>
+
                   <button 
                     onClick={triggerPrint}
                     className="flex items-center space-x-1 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-sm transition"
@@ -330,7 +357,7 @@ export default function CertificateClient({
               {/* On-Screen Certificate Canvas Wrapper */}
               <div className="p-4 sm:p-8 flex justify-center bg-slate-100 overflow-x-auto print:bg-white print:p-0">
                 <div className="bg-white p-6 shadow-md rounded-lg border print:border-none print:shadow-none print:p-0">
-                  <div id="printable-certificate-container" className="w-[10.5in] h-[7.5in] flex items-center justify-center bg-white">
+                  <div id="printable-certificate-container" className={`w-[10.5in] h-[7.5in] flex items-center justify-center bg-white ${banglaFont}`}>
                     {/* Ornate Template */}
                     {template === 'ornate' && (
                       <div className={`border-[12px] border-double ${currentTheme.main} p-12 text-center relative w-full h-full bg-white flex flex-col justify-between`}>
@@ -369,14 +396,28 @@ export default function CertificateClient({
                           </p>
                         </div>
 
-                        <div className="flex justify-between mt-8 px-12">
+                        <div className="flex justify-between mt-8 px-12 items-end">
                            <div className="text-center">
                               <div className={`border-t-2 ${currentTheme.border} pt-1.5 w-40 mx-auto`}></div>
                               <p className={`text-xs font-bold ${currentTheme.text} mt-1`}>শ্রেণী শিক্ষক</p>
                            </div>
                            <div className="text-center">
-                              <div className={`border-t-2 ${currentTheme.border} pt-1.5 w-40 mx-auto`}></div>
-                              <p className={`text-xs font-bold ${currentTheme.text} mt-1`}>মুহতামিম / প্রিন্সিপাল</p>
+                              {profileAndLogo?.signatureUrl && (
+                                <div className="h-10 flex items-center justify-center mb-1">
+                                  <img 
+                                    src={profileAndLogo.signatureUrl} 
+                                    alt="Principal Signature" 
+                                    className="max-h-full max-w-[130px] object-contain"
+                                  />
+                                </div>
+                              )}
+                              <div className={`border-t-2 ${currentTheme.border} pt-1 w-40 mx-auto`}></div>
+                              <p className={`text-xs font-bold ${currentTheme.text} mt-0.5`}>
+                                {profileAndLogo?.principalName || "মুহতামিম / প্রিন্সিপাল"}
+                              </p>
+                              {profileAndLogo?.principalName && (
+                                <p className="text-[10px] text-slate-500">মুহতামিম</p>
+                              )}
                            </div>
                         </div>
                       </div>
@@ -409,14 +450,25 @@ export default function CertificateClient({
                           </p>
                         </div>
 
-                        <div className="flex justify-between mt-8 px-12">
+                        <div className="flex justify-between mt-8 px-12 items-end">
                            <div className="text-center">
                               <div className="border-t border-slate-700 pt-1.5 w-40 mx-auto"></div>
                               <p className="text-xs font-bold text-slate-800 mt-1">পরীক্ষক</p>
                            </div>
                            <div className="text-center">
-                              <div className="border-t border-slate-700 pt-1.5 w-40 mx-auto"></div>
-                              <p className="text-xs font-bold text-slate-800 mt-1">মুহতামিম</p>
+                              {profileAndLogo?.signatureUrl && (
+                                <div className="h-10 flex items-center justify-center mb-1">
+                                  <img 
+                                    src={profileAndLogo.signatureUrl} 
+                                    alt="Principal Signature" 
+                                    className="max-h-full max-w-[130px] object-contain"
+                                  />
+                                </div>
+                              )}
+                              <div className="border-t border-slate-700 pt-1 w-40 mx-auto"></div>
+                              <p className="text-xs font-bold text-slate-800 mt-0.5">
+                                {profileAndLogo?.principalName || "মুহতামিম"}
+                              </p>
                            </div>
                         </div>
                       </div>
@@ -1025,8 +1077,24 @@ export default function CertificateClient({
                     <div className="text-center w-40 border-t-2 border-slate-800 pt-1">
                       <p className="font-bold text-slate-900 text-xs">পরীক্ষা নিয়ন্ত্রক</p>
                     </div>
-                    <div className="text-center w-40 border-t-2 border-slate-800 pt-1">
-                      <p className="font-bold text-slate-900 text-xs">মুহতামিম / প্রিন্সিপাল</p>
+                    <div className="text-center w-40">
+                      {profileAndLogo?.signatureUrl && (
+                        <div className="h-9 flex items-center justify-center mb-1">
+                          <img 
+                            src={profileAndLogo.signatureUrl} 
+                            alt="Principal Signature" 
+                            className="max-h-full max-w-[120px] object-contain"
+                          />
+                        </div>
+                      )}
+                      <div className="border-t-2 border-slate-800 pt-1">
+                        <p className="font-bold text-slate-900 text-xs">
+                          {profileAndLogo?.principalName || "মুহতামিম / প্রিন্সিপাল"}
+                        </p>
+                        {profileAndLogo?.principalName && (
+                          <p className="text-[10px] text-slate-600">মুহতামিম</p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1105,8 +1173,21 @@ export default function CertificateClient({
               <div className="text-center w-48 border-t border-slate-500 pt-1.5">
                 <p className="font-bold text-slate-900 text-xs">পরীক্ষা নিয়ন্ত্রক</p>
               </div>
-              <div className="text-center w-48 border-t border-slate-500 pt-1.5">
-                <p className="font-bold text-slate-900 text-xs">মুহতামিম / প্রিন্সিপাল</p>
+              <div className="text-center w-48">
+                {profileAndLogo?.signatureUrl && (
+                  <div className="h-9 flex items-center justify-center mb-1">
+                    <img 
+                      src={profileAndLogo.signatureUrl} 
+                      alt="Principal Signature" 
+                      className="max-h-full max-w-[130px] object-contain"
+                    />
+                  </div>
+                )}
+                <div className="border-t border-slate-500 pt-1.5">
+                  <p className="font-bold text-slate-900 text-xs">
+                    {profileAndLogo?.principalName || "মুহতামিম / প্রিন্সিপাল"}
+                  </p>
+                </div>
               </div>
             </div>
           </PrintLetterpad>

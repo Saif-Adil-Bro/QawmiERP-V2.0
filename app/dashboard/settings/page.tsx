@@ -14,9 +14,14 @@ export default async function SettingsPage() {
   }
   
   const supabase = await createClient();
-  const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(`madrasa_logo_${madrasa.id}.png`);
+  const { data: logoData } = supabase.storage.from('logos').getPublicUrl(`madrasa_logo_${madrasa.id}.png`);
+  const { data: sigData } = supabase.storage.from('signatures').getPublicUrl(`madrasa_signature_${madrasa.id}.png`);
   
   return (
-    <SettingsClient madrasa={madrasa} initialLogoUrl={publicUrl} />
+    <SettingsClient 
+      madrasa={madrasa} 
+      initialLogoUrl={madrasa.logo_url || logoData?.publicUrl || ""} 
+      initialSignatureUrl={madrasa.principal_signature_url || sigData?.publicUrl || ""}
+    />
   );
 }

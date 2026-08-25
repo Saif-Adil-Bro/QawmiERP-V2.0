@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import ImageUploader from "@/components/ImageUploader";
 
 const initialState: { error?: string; success?: boolean } = {};
 
@@ -152,19 +153,14 @@ export default function NewStudentPage() {
               />
             </div>
 
-            <div className="space-y-2 md:col-span-2">
-              <label
-                htmlFor="photo_url"
-                className="text-sm font-medium text-slate-700"
-              >
-                ছবি (URL)
-              </label>
-              <input
-                type="url"
-                id="photo_url"
+            <div className="md:col-span-2">
+              <ImageUploader
                 name="photo_url"
-                placeholder="https://example.com/photo.jpg"
-                className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 transition"
+                label="শিক্ষার্থীর ছবি (Photo)"
+                subLabel="পাসপোর্ট বা স্কয়ার সাইজ ছবি আপলোড করুন (স্বয়ংক্রিয়ভাবে iili.io / Catbox ক্লাউডে সেভ হবে)"
+                type="general"
+                aspectRatio="portrait"
+                placeholder="উদা: https://iili.io/xyz.png অথবা https://files.catbox.moe/abc.jpg"
               />
             </div>
 

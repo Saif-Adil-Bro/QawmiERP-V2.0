@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getStudentReportCard } from "@/app/actions/exams";
-import { FileText, Printer } from "lucide-react";
+import { FileText, Printer, Type } from "lucide-react";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
 import PrintLetterpad from "@/app/components/PrintLetterpad";
 
@@ -23,6 +23,7 @@ export default function ReportCardsClient({
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [profileAndLogo, setProfileAndLogo] = useState<any>(null);
+  const [banglaFont, setBanglaFont] = useState("font-solaiman");
 
   useEffect(() => {
     async function load() {
@@ -64,7 +65,20 @@ export default function ReportCardsClient({
             ))}
           </select>
         </div>
-        <div className="w-full sm:w-auto flex space-x-3">
+        <div className="w-full sm:w-auto flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-md px-2 py-1.5 shadow-xs">
+            <Type className="w-4 h-4 text-slate-500 shrink-0" />
+            <select 
+              value={banglaFont} 
+              onChange={(e) => setBanglaFont(e.target.value)}
+              className="text-xs font-medium text-slate-700 bg-transparent focus:outline-none"
+            >
+              <option value="font-solaiman">বাংলা: সোলাইমান লিপি</option>
+              <option value="font-shorif">বাংলা: শরীফ শিশির</option>
+              <option value="font-hindsiliguri">বাংলা: হিন্দ শিলিগুড়ি</option>
+            </select>
+          </div>
+
           <button 
             onClick={loadResults}
             disabled={loading || !classId}
@@ -91,7 +105,7 @@ export default function ReportCardsClient({
       )}
 
       {/* Print View: One report card per page or 2 per page depending on size */}
-      <div className="hidden print:block print:w-full space-y-12">
+      <div className={`hidden print:block print:w-full space-y-12 ${banglaFont}`}>
         {results.map((student, index) => (
           <div key={student.id} className="print:break-after-page print:w-full print:min-h-[100vh] print:py-6">
             <PrintLetterpad madrasaInfo={profileAndLogo?.madrasa || madrasaInfo} logoUrl={profileAndLogo?.logoUrl}>

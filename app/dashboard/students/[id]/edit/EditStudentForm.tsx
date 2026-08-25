@@ -4,6 +4,7 @@ import { useActionState, useEffect } from "react";
 import { updateStudent } from "@/app/actions/students";
 import { useRouter } from "next/navigation";
 import { getStudentIdNumber, convertToBanglaNumber } from "@/lib/student-utils";
+import ImageUploader from "@/components/ImageUploader";
 
 const initialState: { error?: string; success?: boolean } = {};
 
@@ -160,20 +161,15 @@ export default function EditStudentForm({
             />
           </div>
 
-          <div className="space-y-2 md:col-span-2">
-            <label
-              htmlFor="photo_url"
-              className="text-sm font-medium text-slate-700"
-            >
-              ছবি (URL)
-            </label>
-            <input
-              type="url"
-              id="photo_url"
+          <div className="md:col-span-2">
+            <ImageUploader
               name="photo_url"
-              placeholder="https://example.com/photo.jpg"
+              label="শিক্ষার্থীর ছবি (Photo)"
+              subLabel="পাসপোর্ট বা স্কয়ার সাইজ ছবি আপলোড করুন (স্বয়ংক্রিয়ভাবে iili.io / Catbox ক্লাউডে সেভ হবে)"
               defaultValue={student.photo_url || ""}
-              className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 transition"
+              type="general"
+              aspectRatio="portrait"
+              placeholder="উদা: https://iili.io/xyz.png অথবা https://files.catbox.moe/abc.jpg"
             />
           </div>
 
