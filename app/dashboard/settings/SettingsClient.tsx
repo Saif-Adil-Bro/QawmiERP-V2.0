@@ -247,6 +247,40 @@ export default function SettingsClient({
     setError("");
 
     try {
+      // 1. Ensure logo image is uploaded to cloud CDN first if a file was selected
+      let currentLogoUrl = logoUrl.trim();
+      if (selectedLogoFile && !currentLogoUrl) {
+        setUploadingLogo(true);
+        try {
+          const res = await uploadImageAuto(selectedLogoFile, "logo");
+          if (res.success && res.url) {
+            currentLogoUrl = res.url;
+            setLogoUrl(res.url);
+          }
+        } catch {
+          // ignore error and proceed
+        } finally {
+          setUploadingLogo(false);
+        }
+      }
+
+      // 2. Ensure signature image is uploaded to cloud CDN first if a file was selected
+      let currentSigUrl = signatureUrl.trim();
+      if (selectedSigFile && !currentSigUrl) {
+        setUploadingSig(true);
+        try {
+          const res = await uploadImageAuto(selectedSigFile, "signature");
+          if (res.success && res.url) {
+            currentSigUrl = res.url;
+            setSignatureUrl(res.url);
+          }
+        } catch {
+          // ignore error and proceed
+        } finally {
+          setUploadingSig(false);
+        }
+      }
+
       const formData = new FormData();
       formData.append("name", name);
       formData.append("establishedYear", establishedYear);
@@ -259,31 +293,41 @@ export default function SettingsClient({
       formData.append("email", email);
       formData.append("website", website);
 
-      // Logo
-      if (logoMethod === "file" && selectedLogoFile) {
+      // Logo handling: prefer lightweight URL to avoid server action body overflow
+      if (currentLogoUrl) {
+        formData.append("logoUrl", normalizeImageUrl(currentLogoUrl));
+      } else if (logoMethod === "file" && selectedLogoFile) {
         formData.append("logo", selectedLogoFile);
-      } else if (logoMethod === "url" && logoUrl.trim()) {
+      } else if (logoUrl.trim()) {
         formData.append("logoUrl", normalizeImageUrl(logoUrl));
       }
 
-      // Signature
-      if (sigMethod === "file" && selectedSigFile) {
+      // Signature handling: prefer lightweight URL
+      if (currentSigUrl) {
+        formData.append("signatureUrl", normalizeImageUrl(currentSigUrl));
+      } else if (sigMethod === "file" && selectedSigFile) {
         formData.append("signature", selectedSigFile);
-      } else if (sigMethod === "url" && signatureUrl.trim()) {
+      } else if (signatureUrl.trim()) {
         formData.append("signatureUrl", normalizeImageUrl(signatureUrl));
       }
 
       const response = await updateMadrasaDetails(formData);
 
-      if (response.error) {
+      if (response?.error) {
         setError(response.error);
-      } else if (response.success) {
+      } else if (response?.success) {
         setMessage(response.message || "মাদরাসার তথ্য ও স্বাক্ষর সফলভাবে আপডেট করা হয়েছে।");
         setSelectedLogoFile(null);
         setSelectedSigFile(null);
       }
     } catch (err: any) {
-      setError(err?.message || "একটি আকস্মিক সমস্যা দেখা দিয়েছে। আবার চেষ্টা করুন।");
+      console.error("Settings save error:", err);
+      const errTxt = err?.message || "";
+      if (errTxt.includes("fetch") || errTxt.includes("Failed to fetch")) {
+        setError("নেটওয়ার্ক ড্রপ বা ব্রাউজার বিচ্ছিন্নতার কারণে ডাটা পাঠানো যায়নি। অনুগ্রহ করে সংযোগ চেক করে আবার চেষ্টা করুন। (প্রয়োজনে ছবি তুলে বা Catbox/iili.io লিংক দিয়ে চেষ্টা করুন)");
+      } else {
+        setError(errTxt || "একটি আকস্মিক সমস্যা দেখা দিয়েছে। আবার চেষ্টা করুন।");
+      }
     } finally {
       setLoading(false);
     }

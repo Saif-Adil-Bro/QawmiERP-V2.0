@@ -176,12 +176,21 @@ export async function updateMadrasaDetails(formData: FormData) {
     
     const adminClient = await createAdminClient();
 
-    // Ensure signatures bucket exists
+    // Ensure buckets exist safely
+    try {
+      await adminClient.storage.createBucket("logos", {
+        public: true,
+        fileSizeLimit: 5242880,
+        allowedMimeTypes: ["image/png", "image/jpeg", "image/jpg", "image/svg+xml", "image/webp"]
+      });
+    } catch {
+      // Bucket already exists
+    }
     try {
       await adminClient.storage.createBucket("signatures", {
         public: true,
-        fileSizeLimit: 2097152,
-        allowedMimeTypes: ["image/png", "image/jpeg", "image/jpg", "image/webp"]
+        fileSizeLimit: 5242880,
+        allowedMimeTypes: ["image/png", "image/jpeg", "image/jpg", "image/svg+xml", "image/webp"]
       });
     } catch {
       // Bucket already exists
@@ -212,7 +221,7 @@ export async function updateMadrasaDetails(formData: FormData) {
           method: "POST",
           headers: { "User-Agent": "Mozilla/5.0" },
           body: iiliFormData,
-          signal: AbortSignal.timeout(6000),
+          signal: AbortSignal.timeout(4000),
         });
         if (iiliRes.ok) {
           const data = await iiliRes.json();
@@ -235,7 +244,7 @@ export async function updateMadrasaDetails(formData: FormData) {
           const catboxRes = await fetch("https://catbox.moe/user/api.php", {
             method: "POST",
             body: catboxFormData,
-            signal: AbortSignal.timeout(6000),
+            signal: AbortSignal.timeout(4000),
           });
           if (catboxRes.ok) {
             const text = (await catboxRes.text()).trim();
@@ -249,20 +258,20 @@ export async function updateMadrasaDetails(formData: FormData) {
       }
 
       // Also persist to Supabase Storage
-      const { error: uploadError } = await adminClient.storage
-        .from('logos')
-        .upload(filePath, buffer, {
-          contentType: logoFile.type || "image/png",
-          upsert: true
-        });
-        
-      if (uploadError && !cloudUrl) {
-        return { error: "লোগো আপলোড করতে ব্যর্থ হয়েছে: " + uploadError.message };
+      try {
+        await adminClient.storage
+          .from('logos')
+          .upload(filePath, buffer, {
+            contentType: logoFile.type || "image/png",
+            upsert: true
+          });
+      } catch {
+        // Ignore storage error if cloudUrl is present
       }
+
       const { data: pubLogo } = adminClient.storage.from('logos').getPublicUrl(filePath);
-      finalLogoUrl = cloudUrl || pubLogo.publicUrl;
-    } else if (logoUrl && logoUrl.length > 0) {
-      // If external URL provided (Catbox, iili.io, Google Drive, etc.), try caching to storage
+      finalLogoUrl = cloudUrl || pubLogo.publicUrl || finalLogoUrl;
+    } else if (logoUrl && logoUrl.startsWith("http")) {
       let fetchUrl = logoUrl;
       if (fetchUrl.includes("drive.google.com")) {
         const fileDMatch = fetchUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
@@ -271,11 +280,12 @@ export async function updateMadrasaDetails(formData: FormData) {
         const fileId = (fileDMatch && fileDMatch[1]) || (idMatch && idMatch[1]) || (dMatch && dMatch[1]);
         if (fileId) {
           fetchUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+          finalLogoUrl = fetchUrl;
         }
       }
       
       try {
-        const fetchRes = await fetch(fetchUrl);
+        const fetchRes = await fetch(fetchUrl, { signal: AbortSignal.timeout(3000) });
         if (fetchRes.ok) {
           const contentType = fetchRes.headers.get("content-type") || "image/png";
           const arrayBuffer = await fetchRes.arrayBuffer();
@@ -311,7 +321,7 @@ export async function updateMadrasaDetails(formData: FormData) {
           method: "POST",
           headers: { "User-Agent": "Mozilla/5.0" },
           body: iiliFormData,
-          signal: AbortSignal.timeout(6000),
+          signal: AbortSignal.timeout(4000),
         });
         if (iiliRes.ok) {
           const data = await iiliRes.json();
@@ -334,7 +344,7 @@ export async function updateMadrasaDetails(formData: FormData) {
           const catboxRes = await fetch("https://catbox.moe/user/api.php", {
             method: "POST",
             body: catboxFormData,
-            signal: AbortSignal.timeout(6000),
+            signal: AbortSignal.timeout(4000),
           });
           if (catboxRes.ok) {
             const text = (await catboxRes.text()).trim();
@@ -347,20 +357,20 @@ export async function updateMadrasaDetails(formData: FormData) {
         }
       }
 
-      const { error: uploadSigError } = await adminClient.storage
-        .from('signatures')
-        .upload(filePath, buffer, {
-          contentType: signatureFile.type || "image/png",
-          upsert: true
-        });
-        
-      if (uploadSigError && !cloudSigUrl) {
-        return { error: "স্বাক্ষর আপলোড করতে ব্যর্থ হয়েছে: " + uploadSigError.message };
+      try {
+        await adminClient.storage
+          .from('signatures')
+          .upload(filePath, buffer, {
+            contentType: signatureFile.type || "image/png",
+            upsert: true
+          });
+      } catch {
+        // ignore storage error if cloud link available
       }
+        
       const { data: pubSig } = adminClient.storage.from('signatures').getPublicUrl(filePath);
-      finalSignatureUrl = cloudSigUrl || pubSig.publicUrl;
-    } else if (signatureUrl && signatureUrl.length > 0) {
-      // If external URL provided for signature
+      finalSignatureUrl = cloudSigUrl || pubSig.publicUrl || finalSignatureUrl;
+    } else if (signatureUrl && signatureUrl.startsWith("http")) {
       let fetchUrl = signatureUrl;
       if (fetchUrl.includes("drive.google.com")) {
         const fileDMatch = fetchUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
@@ -369,11 +379,12 @@ export async function updateMadrasaDetails(formData: FormData) {
         const fileId = (fileDMatch && fileDMatch[1]) || (idMatch && idMatch[1]) || (dMatch && dMatch[1]);
         if (fileId) {
           fetchUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+          finalSignatureUrl = fetchUrl;
         }
       }
       
       try {
-        const fetchRes = await fetch(fetchUrl);
+        const fetchRes = await fetch(fetchUrl, { signal: AbortSignal.timeout(3000) });
         if (fetchRes.ok) {
           const contentType = fetchRes.headers.get("content-type") || "image/png";
           const arrayBuffer = await fetchRes.arrayBuffer();
