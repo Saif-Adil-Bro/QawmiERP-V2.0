@@ -67,12 +67,21 @@ const themes = [
   { id: "slate", name: "অফিসিয়াল ব্ল্যাক (Slate)", border: "border-slate-700", text: "text-slate-800", bg: "bg-slate-50", line: "bg-slate-700", lightText: "text-slate-600/80" }
 ];
 
+const fontOptions = [
+  { id: "font-solaiman", name: "সোলাইমানলিপি (SolaimanLipi - প্রমিত)" },
+  { id: "font-shorif", name: "শরীফ শিশির (Shorif Shishir)" },
+  { id: "font-hindsiliguri", name: "হিন্দ শিলিগুড়ি (Hind Siliguri)" },
+  { id: "font-amiri", name: "আমিরী আরবি (Amiri Arabic)" },
+  { id: "font-shahrazad", name: "শেহরেযাদ আরবি (Scheherazade New)" }
+];
+
 export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }: PrintLetterpadProps) {
   const [padEnabled, setPadEnabled] = useState(true);
   const [establishedYear, setEstablishedYear] = useState(madrasaInfo?.established_year || "২০০২");
   const [registrationNumber, setRegistrationNumber] = useState(madrasaInfo?.registration_no || madrasaInfo?.reg_no || "১২৪৫/বি");
   const [selectedQuoteIndex, setSelectedQuoteIndex] = useState(0);
   const [selectedThemeId, setSelectedThemeId] = useState("green");
+  const [selectedFont, setSelectedFont] = useState("font-solaiman");
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
   const [memoNumber, setMemoNumber] = useState("মাপ্র/২০২৬/");
   const [currentDate, setCurrentDate] = useState("");
@@ -85,6 +94,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
       const savedRegNum = localStorage.getItem("pad_print_reg_num");
       const savedQuoteIdx = localStorage.getItem("pad_print_quote_idx");
       const savedTheme = localStorage.getItem("pad_print_theme");
+      const savedFont = localStorage.getItem("pad_print_font");
       const savedMemo = localStorage.getItem("pad_print_memo");
 
       if (savedPadEnabled !== null) setPadEnabled(savedPadEnabled === "true");
@@ -100,6 +110,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
       }
       if (savedQuoteIdx !== null) setSelectedQuoteIndex(parseInt(savedQuoteIdx, 10));
       if (savedTheme !== null) setSelectedThemeId(savedTheme);
+      if (savedFont !== null) setSelectedFont(savedFont);
       if (savedMemo !== null) setMemoNumber(savedMemo);
 
       // Generate current date in Bengali
@@ -139,6 +150,11 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
   const handleThemeChange = (id: string) => {
     setSelectedThemeId(id);
     localStorage.setItem("pad_print_theme", id);
+  };
+
+  const handleFontChange = (fontClass: string) => {
+    setSelectedFont(fontClass);
+    localStorage.setItem("pad_print_font", fontClass);
   };
 
   const handleMemoChange = (val: string) => {
@@ -252,6 +268,20 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
                 ))}
               </select>
             </div>
+
+            {/* Font Family Selector */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">ডকুমেন্ট ফন্ট (Font Family)</label>
+              <select
+                value={selectedFont}
+                onChange={(e) => handleFontChange(e.target.value)}
+                className="w-full bg-white px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition font-semibold text-slate-700"
+              >
+                {fontOptions.map((font) => (
+                  <option key={font.id} value={font.id}>{font.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Hadith / Ayat quote selector */}
@@ -281,7 +311,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
       {/* 2. Main Printable Area Wrapper */}
       {/* If padEnabled is active, on print we insert the pad wrapper. We can also show it on screen if desired, or let it only render elegantly on paper.
           Let's render it on screen inside a clean border box so it acts as an authentic live preview! */}
-      <div className={`relative ${padEnabled ? 'bg-white shadow-sm border border-slate-200 rounded-xl p-6 sm:p-10 print:p-0 print:border-none print:shadow-none' : ''}`}>
+      <div className={`relative ${selectedFont} ${padEnabled ? 'bg-white shadow-sm border border-slate-200 rounded-xl p-6 sm:p-10 print:p-0 print:border-none print:shadow-none' : ''}`}>
         
         {/* Dynamic Watermark in center (only shown if padEnabled) */}
         {padEnabled && (

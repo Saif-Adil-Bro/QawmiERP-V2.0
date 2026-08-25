@@ -26,6 +26,7 @@ export default function PaperGeneratorClient({
   const [examTime, setExamTime] = useState("");
   const [totalMarks, setTotalMarks] = useState(100);
   const [selectedQuestions, setSelectedQuestions] = useState<any[]>([]);
+  const [selectedFont, setSelectedFont] = useState("font-solaiman");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -270,11 +271,25 @@ export default function PaperGeneratorClient({
                     placeholder="উদা: ১০০"
                   />
                 </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">প্রশ্নপত্রের ফন্ট (Font)</label>
+                  <select
+                    value={selectedFont}
+                    onChange={(e) => setSelectedFont(e.target.value)}
+                    className="p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-xs w-full text-slate-800 bg-white"
+                  >
+                    <option value="font-solaiman">সোলাইমানলিপি (SolaimanLipi - প্রমিত)</option>
+                    <option value="font-shorif">শরীফ শিশির (Shorif Shishir)</option>
+                    <option value="font-hindsiliguri">হিন্দ শিলিগুড়ি (Hind Siliguri)</option>
+                    <option value="font-amiri">আমিরী আরবি (Amiri Arabic)</option>
+                    <option value="font-shahrazad">শেহরেযাদ আরবি (Scheherazade New)</option>
+                  </select>
+                </div>
               </div>
             </div>
             
             <div className="p-6 overflow-y-auto flex-1 bg-slate-50">
-              <div className="bg-white p-6 shadow-sm border border-slate-200 min-h-full" style={{ fontFamily: 'inherit' }}>
+              <div className={`bg-white p-6 shadow-sm border border-slate-200 min-h-full ${selectedFont}`}>
                 <div className="text-center border-b-2 border-slate-800 pb-3 mb-6">
                   <h1 className="text-xl font-bold mb-1 text-slate-900" dir="auto">{madrasa?.name || 'Madrasa Name'}</h1>
                   {examName && <h2 className="text-md font-bold mb-0.5 text-slate-800" dir="auto">{examName}</h2>}
