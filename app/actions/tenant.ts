@@ -78,29 +78,14 @@ export async function getMadrasaDetails() {
   const madrasaId = await getAuthMadrasaId(supabase, user);
   if (!madrasaId) return null;
   
-  let data: any = null;
-
-  // Try user client first
-  const { data: userData, error: userError } = await supabase
+  const adminClient = await createAdminClient();
+  const { data, error } = await adminClient
     .from("madrasas")
     .select("*")
     .eq("id", madrasaId)
     .single();
-
-  if (!userError && userData) {
-    data = userData;
-  } else {
-    // Fallback to adminClient if user client is blocked by RLS or returns error
-    const adminClient = await createAdminClient();
-    const { data: adminData } = await adminClient
-      .from("madrasas")
-      .select("*")
-      .eq("id", madrasaId)
-      .single();
-    data = adminData;
-  }
     
-  if (!data) return null;
+  if (error || !data) return null;
 
   let meta: Record<string, any> = {};
   if (data.registration_no) {
@@ -115,8 +100,8 @@ export async function getMadrasaDetails() {
     }
   }
 
-  const { data: logoData } = supabase.storage.from('logos').getPublicUrl(`madrasa_logo_${data.id}.png`);
-  const { data: sigData } = supabase.storage.from('signatures').getPublicUrl(`madrasa_signature_${data.id}.png`);
+  const { data: logoData } = adminClient.storage.from('logos').getPublicUrl(`madrasa_logo_${data.id}.png`);
+  const { data: sigData } = adminClient.storage.from('signatures').getPublicUrl(`madrasa_signature_${data.id}.png`);
 
   return {
     ...data,
@@ -439,35 +424,19 @@ export async function updateMadrasaDetails(formData: FormData) {
       updatePayload.contact_email = email;
     }
 
-    // Perform update with user client first, then admin client to guarantee persistence regardless of RLS settings
-    let updateSuccess = false;
-    let lastError = "";
-
-    const { error: userUpdateErr } = await supabase
+    // Perform update with adminClient to bypass RLS and guarantee persistence
+    const { data: updatedRows, error: updateErr } = await adminClient
       .from("madrasas")
       .update(updatePayload)
-      .eq("id", madrasaId);
+      .eq("id", madrasaId)
+      .select();
 
-    if (!userUpdateErr) {
-      updateSuccess = true;
-    } else {
-      lastError = userUpdateErr.message;
+    if (updateErr) {
+      return { error: "ডেটাবেজে তথ্য সেভ করা সম্ভব হয়নি: " + updateErr.message };
     }
 
-    // Always run with adminClient as well to ensure update is committed even if user client RLS rejected it
-    const { error: adminUpdateErr } = await adminClient
-      .from("madrasas")
-      .update(updatePayload)
-      .eq("id", madrasaId);
-
-    if (!adminUpdateErr) {
-      updateSuccess = true;
-    } else if (!updateSuccess) {
-      lastError = adminUpdateErr.message;
-    }
-
-    if (!updateSuccess) {
-      return { error: "ডেটাবেজে তথ্য সেভ করা সম্ভব হয়নি: " + (lastError || "অনুমতির সমস্যা হতে পারে।") };
+    if (!updatedRows || updatedRows.length === 0) {
+      return { error: "মাদরাসা আইডি ডাটাবেজে পাওয়া যায়নি। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।" };
     }
     
     // Clear cache to show the updated settings immediately across all routes

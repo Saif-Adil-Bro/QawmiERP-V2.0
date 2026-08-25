@@ -44,7 +44,11 @@ export async function getStudentById(id: string) {
 }
 
 export async function getAuthMadrasaId(supabase: any, user: any) {
-  const { data: userData } = await supabase
+  if (!user) return null;
+  const adminClient = await createAdminClient();
+
+  // 1. Try getting user's madrasa_id from users table using adminClient (bypasses RLS)
+  const { data: userData } = await adminClient
     .from("users")
     .select("madrasa_id")
     .eq("id", user.id)
@@ -52,12 +56,47 @@ export async function getAuthMadrasaId(supabase: any, user: any) {
 
   let finalMadrasaId = userData?.madrasa_id;
 
+  // Verify if finalMadrasaId actually exists in madrasas table
+  if (finalMadrasaId) {
+    const { data: exists } = await adminClient
+      .from("madrasas")
+      .select("id")
+      .eq("id", finalMadrasaId)
+      .single();
+
+    if (!exists) {
+      finalMadrasaId = null;
+    }
+  }
+
+  // 2. If user doesn't have a valid madrasa_id, find or create the primary madrasa
   if (!finalMadrasaId) {
-    const { data: anyMadrasa } = await supabase.from("madrasas").select("id").limit(1).single();
-    if (anyMadrasa) {
-      finalMadrasaId = anyMadrasa.id;
-      const { createAdminClient: getAdminClient } = await import("@/lib/supabase/server");
-      const adminClient = await getAdminClient();
+    const { data: firstMadrasa } = await adminClient
+      .from("madrasas")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .single();
+
+    if (firstMadrasa) {
+      finalMadrasaId = firstMadrasa.id;
+    } else {
+      // Create new madrasa if table is completely empty
+      const { data: newMadrasa } = await adminClient
+        .from("madrasas")
+        .insert({
+          name: "মাদ্রাসাতুল মুসলিমীন",
+          subscription_plan: "free",
+        })
+        .select("id")
+        .single();
+
+      if (newMadrasa) {
+        finalMadrasaId = newMadrasa.id;
+      }
+    }
+
+    if (finalMadrasaId) {
       await adminClient.from("users").upsert({
         id: user.id,
         madrasa_id: finalMadrasaId,
@@ -67,6 +106,7 @@ export async function getAuthMadrasaId(supabase: any, user: any) {
       });
     }
   }
+
   return finalMadrasaId;
 }
 
