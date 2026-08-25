@@ -423,18 +423,45 @@ export async function updateMadrasaDetails(formData: FormData) {
       updatePayload.contact_email = email;
     }
 
-    const { error: updateError } = await adminClient
+    // Attempt 1: Try using authenticated user client (supabase) which carries user session credentials
+    let updateSuccess = false;
+    let lastError = "";
+
+    const { data: userUpdateData, error: userUpdateErr } = await supabase
       .from("madrasas")
       .update(updatePayload)
-      .eq("id", madrasaId);
-      
-    if (updateError) {
-      return { error: "তথ্য আপডেট করতে ব্যর্থ হয়েছে: " + updateError.message };
+      .eq("id", madrasaId)
+      .select("id");
+
+    if (!userUpdateErr && userUpdateData && userUpdateData.length > 0) {
+      updateSuccess = true;
+    } else if (userUpdateErr) {
+      lastError = userUpdateErr.message;
+    }
+
+    // Attempt 2: If attempt 1 didn't return updated rows, try adminClient
+    if (!updateSuccess) {
+      const { data: adminUpdateData, error: adminUpdateErr } = await adminClient
+        .from("madrasas")
+        .update(updatePayload)
+        .eq("id", madrasaId)
+        .select("id");
+
+      if (!adminUpdateErr && adminUpdateData && adminUpdateData.length > 0) {
+        updateSuccess = true;
+      } else if (adminUpdateErr) {
+        lastError = adminUpdateErr.message;
+      }
+    }
+
+    if (!updateSuccess) {
+      return { error: "ডেটাবেজে তথ্য সেভ করা সম্ভব হয়নি: " + (lastError || "অনুমতির সমস্যা হতে পারে।") };
     }
     
-    // Clear cache to show the updated settings immediately
-    revalidatePath("/dashboard/settings");
+    // Clear cache to show the updated settings immediately across all routes
+    revalidatePath("/", "layout");
     revalidatePath("/dashboard", "layout");
+    revalidatePath("/dashboard/settings");
     revalidatePath("/dashboard/academic/certificates");
     revalidatePath("/dashboard/academic/id-cards");
     revalidatePath("/dashboard/academic/routine");

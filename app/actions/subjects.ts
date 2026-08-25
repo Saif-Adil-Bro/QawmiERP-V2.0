@@ -5,22 +5,27 @@ import { revalidatePath } from "next/cache";
 
 export async function getSubjects() {
   try {
-    const adminClient = await createAdminClient();
-    const { data, error } = await adminClient
+    const supabase = await createClient();
+    const { data: userData, error: userError } = await supabase
       .from("subjects")
       .select("*")
       .order("name");
 
-    if (error) {
-      console.error("Error fetching subjects with admin client:", error);
-      const supabase = await createClient();
-      const { data: userFetchData } = await supabase
-        .from("subjects")
-        .select("*")
-        .order("name");
-      return userFetchData || [];
+    if (!userError && userData && userData.length > 0) {
+      return userData;
     }
-    return data || [];
+
+    const adminClient = await createAdminClient();
+    const { data: adminData, error: adminError } = await adminClient
+      .from("subjects")
+      .select("*")
+      .order("name");
+
+    if (!adminError && adminData && adminData.length > 0) {
+      return adminData;
+    }
+
+    return userData || [];
   } catch (err) {
     console.error("Exception in getSubjects:", err);
     return [];
@@ -29,11 +34,11 @@ export async function getSubjects() {
 
 export async function createSubject(prevState: any, formData: FormData) {
   try {
+    const supabase = await createClient();
     const adminClient = await createAdminClient();
 
     let madrasaId = "";
     try {
-      const supabase = await createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { getAuthMadrasaId } = await import("./students");
@@ -60,15 +65,27 @@ export async function createSubject(prevState: any, formData: FormData) {
       return { error: "বিষয়ের নাম আবশ্যক।" };
     }
 
-    const { error } = await adminClient.from("subjects").insert({
+    const { error: userError } = await supabase.from("subjects").insert({
       madrasa_id: madrasaId,
       name,
       code,
       description,
     });
 
-    if (error) {
-      return { error: error.message };
+    if (!userError) {
+      revalidatePath("/dashboard/subjects");
+      return { success: true };
+    }
+
+    const { error: adminError } = await adminClient.from("subjects").insert({
+      madrasa_id: madrasaId,
+      name,
+      code,
+      description,
+    });
+
+    if (adminError) {
+      return { error: userError?.message || adminError.message };
     }
 
     revalidatePath("/dashboard/subjects");
@@ -80,14 +97,26 @@ export async function createSubject(prevState: any, formData: FormData) {
 
 export async function deleteSubject(subjectId: string) {
   try {
+    const supabase = await createClient();
     const adminClient = await createAdminClient();
-    const { error } = await adminClient
+
+    const { error: userError } = await supabase
       .from("subjects")
       .delete()
       .eq("id", subjectId);
 
-    if (error) {
-      return { error: error.message };
+    if (!userError) {
+      revalidatePath("/dashboard/subjects");
+      return { success: true };
+    }
+
+    const { error: adminError } = await adminClient
+      .from("subjects")
+      .delete()
+      .eq("id", subjectId);
+
+    if (adminError) {
+      return { error: userError?.message || adminError.message };
     }
 
     revalidatePath("/dashboard/subjects");

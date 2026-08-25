@@ -82,6 +82,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
   const [selectedQuoteIndex, setSelectedQuoteIndex] = useState(0);
   const [selectedThemeId, setSelectedThemeId] = useState("green");
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
   const [memoNumber, setMemoNumber] = useState("মাপ্র/২০২৬/");
   const [currentDate, setCurrentDate] = useState("");
@@ -95,6 +96,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
       const savedQuoteIdx = localStorage.getItem("pad_print_quote_idx");
       const savedTheme = localStorage.getItem("pad_print_theme");
       const savedFont = localStorage.getItem("pad_print_font");
+      const savedOrientation = localStorage.getItem("pad_print_orientation");
       const savedMemo = localStorage.getItem("pad_print_memo");
 
       if (savedPadEnabled !== null) setPadEnabled(savedPadEnabled === "true");
@@ -111,6 +113,9 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
       if (savedQuoteIdx !== null) setSelectedQuoteIndex(parseInt(savedQuoteIdx, 10));
       if (savedTheme !== null) setSelectedThemeId(savedTheme);
       if (savedFont !== null) setSelectedFont(savedFont);
+      if (savedOrientation === "portrait" || savedOrientation === "landscape") {
+        setOrientation(savedOrientation);
+      }
       if (savedMemo !== null) setMemoNumber(savedMemo);
 
       // Generate current date in Bengali
@@ -162,6 +167,11 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
     localStorage.setItem("pad_print_memo", val);
   };
 
+  const handleOrientationChange = (val: "portrait" | "landscape") => {
+    setOrientation(val);
+    localStorage.setItem("pad_print_orientation", val);
+  };
+
   const currentTheme = themes.find(t => t.id === selectedThemeId) || themes[0];
   const activeQuote = quotes[selectedQuoteIndex] || quotes[0];
 
@@ -174,6 +184,18 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
 
   return (
     <div className="w-full relative">
+      {/* Dynamic Print Page Orientation */}
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          @media print {
+            @page {
+              size: A4 ${orientation};
+              margin: 10mm;
+            }
+          }
+        `
+      }} />
+
       {/* 1. Print Controller Panel (Screen-only, floating or top bar) */}
       <div className="print:hidden mb-6 bg-white border border-slate-200/80 rounded-xl shadow-sm transition-all duration-200 overflow-hidden">
         <div 
@@ -201,7 +223,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
 
         {/* Panel Expanded Controls */}
         <div className={`border-t border-slate-100 bg-slate-50/50 p-4 sm:p-6 space-y-6 ${isPanelExpanded ? 'block' : 'hidden'}`}>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {/* Toggle Switch */}
             <div className="space-y-2">
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">লেটারপ্যাড ব্যবহার</label>
@@ -282,27 +304,18 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
                 ))}
               </select>
             </div>
-          </div>
 
-          {/* Hadith / Ayat quote selector */}
-          <div className="space-y-2 pt-2 border-t border-slate-100">
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">নিচের হাদিস বা আয়াত (এলেম অর্জনের ফজিলত)</label>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {quotes.map((q, idx) => (
-                <div 
-                  key={idx}
-                  onClick={() => handleQuoteChange(idx)}
-                  className={`p-3 rounded-lg border text-left cursor-pointer transition flex flex-col justify-between ${
-                    selectedQuoteIndex === idx 
-                      ? 'bg-emerald-50 border-emerald-300 ring-2 ring-emerald-500/20 text-emerald-950' 
-                      : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
-                  }`}
-                >
-                  <p className="text-[11px] font-mono text-slate-500 mb-1 leading-snug truncate" dir="rtl">{q.arabic}</p>
-                  <p className="text-xs font-semibold leading-relaxed line-clamp-2 mb-1">"{q.bengali}"</p>
-                  <span className="text-[10px] text-slate-400 font-bold mt-1 block text-right">{q.source}</span>
-                </div>
-              ))}
+            {/* Orientation Selector */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">প্রিন্ট মোড (Orientation)</label>
+              <select
+                value={orientation}
+                onChange={(e) => handleOrientationChange(e.target.value as "portrait" | "landscape")}
+                className="w-full bg-white px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition font-semibold text-slate-700"
+              >
+                <option value="portrait">📄 পোর্ট্রেট (Portrait - লম্বালম্বি)</option>
+                <option value="landscape">📜 ল্যান্ডস্কেপ (Landscape - আড়াআড়ি)</option>
+              </select>
             </div>
           </div>
         </div>
@@ -311,7 +324,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
       {/* 2. Main Printable Area Wrapper */}
       {/* If padEnabled is active, on print we insert the pad wrapper. We can also show it on screen if desired, or let it only render elegantly on paper.
           Let's render it on screen inside a clean border box so it acts as an authentic live preview! */}
-      <div className={`relative ${selectedFont} ${padEnabled ? 'bg-white shadow-sm border border-slate-200 rounded-xl p-6 sm:p-10 print:p-0 print:border-none print:shadow-none' : ''}`}>
+      <div className={`relative ${selectedFont} ${padEnabled ? 'bg-white shadow-sm border border-slate-200 rounded-xl p-6 sm:p-10 print:p-0 print:border-none print:shadow-none print-pad-container' : ''}`}>
         
         {/* Dynamic Watermark in center (only shown if padEnabled) */}
         {padEnabled && (
@@ -324,15 +337,15 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
 
         {/* PRINT PAD HEADER */}
         {padEnabled && (
-          <div className="w-full mb-8 print:block relative">
+          <div className="w-full mb-6 print:mb-3 print:block relative shrink-0">
             {/* Top decorative bar */}
-            <div className={`h-2.5 w-full ${currentTheme.line} rounded-t-sm mb-4`}></div>
+            <div className={`h-2.5 print:h-2 w-full ${currentTheme.line} rounded-t-sm mb-3 print:mb-2`}></div>
             
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b pb-4 border-slate-200">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 print:gap-2 border-b pb-3 print:pb-2 border-slate-200">
               
               {/* Left Column: Logo & Established */}
               <div className="flex items-center space-x-3 shrink-0">
-                <div className={`w-16 h-16 rounded-full border-2 ${currentTheme.border} p-1.5 bg-white flex items-center justify-center shadow-sm relative shrink-0`}>
+                <div className={`w-16 h-16 print:w-12 print:h-12 rounded-full border-2 ${currentTheme.border} p-1.5 bg-white flex items-center justify-center shadow-sm relative shrink-0`}>
                   {logoUrl ? (
                     <img 
                       src={logoUrl} 
@@ -342,7 +355,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
                     />
                   ) : (
                     <div className={`w-full h-full rounded-full ${currentTheme.bg} flex items-center justify-center`}>
-                      <GraduationCap className={`w-8 h-8 ${currentTheme.text}`} />
+                      <GraduationCap className={`w-8 h-8 print:w-6 print:h-6 ${currentTheme.text}`} />
                     </div>
                   )}
                 </div>
@@ -354,13 +367,13 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
 
               {/* Center Column: Name and Address */}
               <div className="text-center flex-1 max-w-xl">
-                <h1 className={`text-2xl sm:text-3xl font-extrabold tracking-wide ${currentTheme.text} mb-1.5 text-center`}>
+                <h1 className={`text-2xl sm:text-3xl print:text-xl font-extrabold tracking-wide ${currentTheme.text} mb-1 print:mb-0 text-center`}>
                   {mName}
                 </h1>
-                <p className="text-xs sm:text-sm text-slate-600 font-medium text-center line-clamp-1">
+                <p className="text-xs sm:text-sm print:text-[11px] text-slate-600 font-medium text-center line-clamp-1">
                   {mAddress}
                 </p>
-                <div className="flex items-center justify-center space-x-4 text-[10px] sm:text-xs text-slate-500 mt-1.5 flex-wrap">
+                <div className="flex items-center justify-center space-x-4 text-[10px] sm:text-xs text-slate-500 mt-1 flex-wrap">
                   <span className="flex items-center gap-1">
                     <Phone className="w-3 h-3 text-slate-400" />
                     {mPhone}
@@ -374,14 +387,14 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
               </div>
 
               {/* Right Column: Dynamic Print Date & Memo Placeholder */}
-              <div className="text-right shrink-0 min-w-[120px] leading-relaxed text-xs text-slate-500 border-l pl-4 border-slate-100 hidden sm:block">
+              <div className="text-right shrink-0 min-w-[120px] leading-relaxed text-xs text-slate-500 border-l pl-4 border-slate-100 hidden sm:block print:block">
                 <div>স্মারক নং: <span className="font-semibold text-slate-800 font-mono">{memoNumber}</span></div>
                 <div className="mt-1">তারিখ: <span className="font-semibold text-slate-800">{currentDate}</span></div>
               </div>
             </div>
 
             {/* Mobile View / Fallback print details */}
-            <div className="sm:hidden flex justify-between items-center text-[10px] text-slate-500 mt-2 border-b pb-2">
+            <div className="sm:hidden print:hidden flex justify-between items-center text-[10px] text-slate-500 mt-2 border-b pb-2">
               <div>স্মারক: <span className="font-semibold text-slate-800">{memoNumber}</span></div>
               <div>তারিখ: <span className="font-semibold text-slate-800">{currentDate}</span></div>
             </div>
@@ -389,47 +402,9 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
         )}
 
         {/* REPORT CONTENT GOES HERE */}
-        <div className={`relative z-10 w-full min-h-[3.5in] ${padEnabled ? 'px-1 sm:px-2' : ''}`}>
+        <div className={`relative z-10 w-full flex-1 ${padEnabled ? 'px-1 sm:px-2' : ''}`}>
           {children}
         </div>
-
-        {/* PRINT PAD FOOTER */}
-        {padEnabled && (
-          <div className="w-full mt-12 print:block relative border-t pt-4 border-slate-200">
-            {/* Ayat/Hadith Quote Box */}
-            <div className={`p-4 rounded-xl ${currentTheme.bg} border ${currentTheme.border}/20 text-center relative overflow-hidden flex flex-col items-center justify-center max-w-2xl mx-auto shadow-inner`}>
-              <div className="absolute top-0 right-0 p-2 opacity-5 pointer-events-none">
-                <Heart className="w-16 h-16 text-slate-900" />
-              </div>
-              
-              {activeQuote.arabic && (
-                <p className={`text-sm sm:text-base font-medium tracking-wide mb-1 text-slate-700/90 font-mono`} dir="rtl">
-                  {activeQuote.arabic}
-                </p>
-              )}
-              
-              <p className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed italic max-w-lg">
-                "{activeQuote.bengali}"
-              </p>
-              
-              <span className={`text-[9px] font-bold tracking-wider uppercase mt-2 px-2.5 py-0.5 rounded-full bg-white/70 ${currentTheme.text} shadow-sm`}>
-                — {activeQuote.source}
-              </span>
-            </div>
-
-            {/* Bottom Credit line & traditional footer line */}
-            <div className="mt-4 flex flex-col sm:flex-row items-center justify-between text-[10px] text-slate-400 px-1">
-              <div>মাদরাসা অটোমেশন সফটওয়্যার (QawmiERP) দ্বারা প্রণীত।</div>
-              <div className="font-bold flex items-center gap-1 mt-1 sm:mt-0">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                শিক্ষা অর্জনের সোনালী সোপান
-              </div>
-            </div>
-
-            {/* Bottom line */}
-            <div className={`h-1.5 w-full ${currentTheme.line} rounded-b-sm mt-3`}></div>
-          </div>
-        )}
       </div>
     </div>
   );

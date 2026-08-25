@@ -24,20 +24,32 @@ function formatClassDescription(sequence: number, actualDescription: string | nu
 
 export async function getClasses() {
   try {
-    const adminClient = await createAdminClient();
-    const { data, error } = await adminClient
+    const supabase = await createClient();
+    const { data: userData, error: userError } = await supabase
       .from("classes")
       .select("*")
       .order("name");
 
-    if (error) {
-      console.error("Error fetching classes with admin client:", error);
-      const supabase = await createClient();
-      const { data: userFetchData } = await supabase.from("classes").select("*").order("name");
-      return processClassesData(userFetchData || []);
+    if (!userError && userData && userData.length > 0) {
+      return processClassesData(userData);
     }
 
-    return processClassesData(data || []);
+    // Fallback to adminClient if user client returns empty or fails
+    const adminClient = await createAdminClient();
+    const { data: adminData, error: adminError } = await adminClient
+      .from("classes")
+      .select("*")
+      .order("name");
+
+    if (!adminError && adminData && adminData.length > 0) {
+      return processClassesData(adminData);
+    }
+
+    if (userData) {
+      return processClassesData(userData);
+    }
+
+    return [];
   } catch (err) {
     console.error("Exception in getClasses:", err);
     try {
@@ -72,11 +84,11 @@ function processClassesData(data: any[]) {
 
 export async function createClass(prevState: any, formData: FormData) {
   try {
+    const supabase = await createClient();
     const adminClient = await createAdminClient();
 
     let madrasaId = "";
     try {
-      const supabase = await createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { getAuthMadrasaId } = await import("./students");
@@ -105,17 +117,33 @@ export async function createClass(prevState: any, formData: FormData) {
 
     const formattedDescription = formatClassDescription(sequenceVal, description);
 
-    const { error } = await adminClient.from("classes").insert({
+    // Try insert via user authenticated client first
+    const { error: userError } = await supabase.from("classes").insert({
       madrasa_id: madrasaId,
       name,
       description: formattedDescription,
     });
 
-    if (error) {
-      return { error: error.message };
+    if (!userError) {
+      revalidatePath("/dashboard/classes");
+      revalidatePath("/dashboard/academic");
+      return { success: true };
+    }
+
+    // Fallback to adminClient if user insert fails
+    const { error: adminError } = await adminClient.from("classes").insert({
+      madrasa_id: madrasaId,
+      name,
+      description: formattedDescription,
+    });
+
+    if (adminError) {
+      console.error("Create class error:", userError || adminError);
+      return { error: userError?.message || adminError.message };
     }
 
     revalidatePath("/dashboard/classes");
+    revalidatePath("/dashboard/academic");
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "সার্ভার এরর হয়েছে।" };
@@ -124,17 +152,31 @@ export async function createClass(prevState: any, formData: FormData) {
 
 export async function deleteClass(classId: string) {
   try {
+    const supabase = await createClient();
     const adminClient = await createAdminClient();
-    const { error } = await adminClient
+
+    const { error: userError } = await supabase
       .from("classes")
       .delete()
       .eq("id", classId);
 
-    if (error) {
-      return { error: error.message };
+    if (!userError) {
+      revalidatePath("/dashboard/classes");
+      revalidatePath("/dashboard/academic");
+      return { success: true };
+    }
+
+    const { error: adminError } = await adminClient
+      .from("classes")
+      .delete()
+      .eq("id", classId);
+
+    if (adminError) {
+      return { error: userError?.message || adminError.message };
     }
 
     revalidatePath("/dashboard/classes");
+    revalidatePath("/dashboard/academic");
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "সার্ভার এরর হয়েছে।" };
@@ -144,30 +186,49 @@ export async function deleteClass(classId: string) {
 // Update sequence ordering for classes
 export async function updateClassSequences(sequences: { id: string; sequence: number }[]) {
   try {
+    const supabase = await createClient();
     const adminClient = await createAdminClient();
 
     for (const item of sequences) {
-      const { data: cls } = await adminClient
+      let currentDesc = "";
+      const { data: clsUser } = await supabase
         .from("classes")
         .select("description")
         .eq("id", item.id)
         .single();
-      
-      const currentDesc = cls ? cls.description : "";
+
+      if (clsUser) {
+        currentDesc = clsUser.description || "";
+      } else {
+        const { data: clsAdmin } = await adminClient
+          .from("classes")
+          .select("description")
+          .eq("id", item.id)
+          .single();
+        currentDesc = clsAdmin ? clsAdmin.description : "";
+      }
+
       const { actualDescription } = parseClassDescription(currentDesc);
       const newFormattedDescription = formatClassDescription(item.sequence, actualDescription);
 
-      const { error } = await adminClient
+      const { error: userError } = await supabase
         .from("classes")
         .update({ description: newFormattedDescription })
         .eq("id", item.id);
-      
-      if (error) {
-        console.error(`Error updating sequence for class ${item.id}:`, error);
+
+      if (userError) {
+        const { error: adminError } = await adminClient
+          .from("classes")
+          .update({ description: newFormattedDescription })
+          .eq("id", item.id);
+        if (adminError) {
+          console.error(`Error updating sequence for class ${item.id}:`, userError || adminError);
+        }
       }
     }
 
     revalidatePath("/dashboard/classes");
+    revalidatePath("/dashboard/academic");
     return { success: true };
   } catch (err: any) {
     console.error("Exception in updateClassSequences:", err);
@@ -178,24 +239,25 @@ export async function updateClassSequences(sequences: { id: string; sequence: nu
 // Get student list by class ID
 export async function getStudentsByClass(classId: string) {
   try {
-    const adminClient = await createAdminClient();
-    const { data, error } = await adminClient
+    const supabase = await createClient();
+    const { data: userData, error: userError } = await supabase
       .from("students")
       .select("id, first_name, last_name, roll_number, father_name")
       .eq("class_id", classId)
       .order("roll_number", { ascending: true });
 
-    if (error) {
-      console.error("Error fetching students with admin client:", error);
-      const supabase = await createClient();
-      const { data: userFetchData } = await supabase
-        .from("students")
-        .select("id, first_name, last_name, roll_number, father_name")
-        .eq("class_id", classId)
-        .order("roll_number", { ascending: true });
-      return userFetchData || [];
+    if (!userError && userData) {
+      return userData;
     }
-    return data || [];
+
+    const adminClient = await createAdminClient();
+    const { data: adminData } = await adminClient
+      .from("students")
+      .select("id, first_name, last_name, roll_number, father_name")
+      .eq("class_id", classId)
+      .order("roll_number", { ascending: true });
+
+    return adminData || [];
   } catch (err) {
     console.error("Exception in getStudentsByClass:", err);
     return [];
@@ -209,21 +271,30 @@ export async function promoteStudents(studentIds: string[], nextClassId: string 
       return { error: "কোনো শিক্ষার্থী নির্বাচন করা হয়নি।" };
     }
 
+    const supabase = await createClient();
     const adminClient = await createAdminClient();
     const targetClassId = nextClassId === "graduated" ? null : nextClassId;
 
-    const { error } = await adminClient
+    const { error: userError } = await supabase
       .from("students")
       .update({ class_id: targetClassId })
       .in("id", studentIds);
 
-    if (error) {
-      console.error("Error promoting students:", error);
-      return { error: error.message || "প্রমোশন ব্যর্থ হয়েছে।" };
+    if (userError) {
+      const { error: adminError } = await adminClient
+        .from("students")
+        .update({ class_id: targetClassId })
+        .in("id", studentIds);
+
+      if (adminError) {
+        console.error("Error promoting students:", userError || adminError);
+        return { error: userError?.message || adminError.message || "প্রমোশন ব্যর্থ হয়েছে।" };
+      }
     }
 
     revalidatePath("/dashboard/classes");
     revalidatePath("/dashboard/students");
+    revalidatePath("/dashboard/academic");
     return { success: true };
   } catch (err: any) {
     console.error("Exception in promoteStudents:", err);

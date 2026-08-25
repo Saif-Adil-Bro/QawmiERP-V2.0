@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, DragEvent } from "react";
+import { useRouter } from "next/navigation";
 import { updateMadrasaDetails } from "@/app/actions/tenant";
 import { uploadImageAuto } from "@/lib/uploadHelper";
 import { 
@@ -37,6 +38,7 @@ export default function SettingsClient({
   initialLogoUrl: string;
   initialSignatureUrl?: string;
 }) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -319,6 +321,7 @@ export default function SettingsClient({
         setMessage(response.message || "মাদরাসার তথ্য ও স্বাক্ষর সফলভাবে আপডেট করা হয়েছে।");
         setSelectedLogoFile(null);
         setSelectedSigFile(null);
+        router.refresh();
       }
     } catch (err: any) {
       console.error("Settings save error:", err);

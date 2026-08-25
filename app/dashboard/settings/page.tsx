@@ -2,6 +2,9 @@ import { getMadrasaDetails } from "@/app/actions/tenant";
 import SettingsClient from "./SettingsClient";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function SettingsPage() {
   const madrasa = await getMadrasaDetails();
   

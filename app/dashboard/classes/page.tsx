@@ -1,6 +1,9 @@
 import { getClasses } from "@/app/actions/classes";
 import ClassesClient from "./ClassesClient";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function ClassesPage() {
   const classes = await getClasses();
 
