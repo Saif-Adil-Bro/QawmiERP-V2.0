@@ -46,6 +46,7 @@ export default function PaperGeneratorClient({
   const [selectedQuestions, setSelectedQuestions] = useState<any[]>([]);
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
   const [textDirectionMode, setTextDirectionMode] = useState<"auto" | "rtl" | "ltr">("auto");
+  const [arabicNumbering, setArabicNumbering] = useState<"auto" | "bengali" | "arabic" | "english">("auto");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -150,7 +151,13 @@ export default function PaperGeneratorClient({
 
   const formatQuestionNumber = (idx: number, isRTL: boolean): string => {
     const num = idx + 1;
-    return isRTL ? `${toArabicNumerals(num)}.` : `${toBengaliNumerals(num)}.`;
+    if (arabicNumbering === "arabic" || (isRTL && arabicNumbering === "auto")) {
+      return `${toArabicNumerals(num)}.`;
+    }
+    if (arabicNumbering === "english") {
+      return `${num}.`;
+    }
+    return `${toBengaliNumerals(num)}.`;
   };
 
   const getOptionLabel = (idx: number, isRTL: boolean): string => {
@@ -382,12 +389,12 @@ export default function PaperGeneratorClient({
                         return (
                           <div key={idx} dir={isRTL ? "rtl" : "ltr"} className={`space-y-1 group relative p-2 rounded-lg hover:bg-slate-50 transition border border-transparent hover:border-slate-200 ${isRTL ? "font-amiri text-right" : "text-left"}`}>
                             <div className="flex justify-between items-start gap-2">
-                              <p className={`font-semibold text-slate-900 flex-1 ${isRTL ? "text-lg leading-loose" : "text-sm leading-relaxed"}`}>
-                                <span className="font-bold ml-1 mr-1">{formatQuestionNumber(idx, isRTL)}</span>
+                              <p className={`font-semibold text-slate-900 flex-1 ${isRTL ? "text-lg leading-loose font-amiri" : "text-sm leading-relaxed"}`}>
+                                <span className={`font-bold ml-1 mr-1 ${isRTL ? "font-amiri" : ""}`}>{formatQuestionNumber(idx, isRTL)}</span>
                                 {q.question_text}
                               </p>
                               <div className="flex items-center gap-1.5 shrink-0">
-                                <span className="text-xs font-bold px-1.5 py-0.5 bg-slate-100 rounded border border-slate-300">
+                                <span className={`text-xs font-bold px-1.5 py-0.5 bg-slate-100 rounded border border-slate-300 ${isRTL ? "font-amiri" : ""}`}>
                                   [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
                                 </span>
                                 <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
@@ -483,11 +490,11 @@ export default function PaperGeneratorClient({
               return (
                 <div key={idx} dir={isRTL ? "rtl" : "ltr"} className={`break-inside-avoid space-y-1 ${isRTL ? "font-amiri text-right" : "text-left"}`}>
                   <div className="flex justify-between items-start gap-4">
-                    <p className={`font-semibold ${isRTL ? "text-xl leading-[2.2]" : "text-base leading-relaxed"}`}>
-                      <span className="font-bold ml-1.5 mr-1.5 inline-block">{formatQuestionNumber(idx, isRTL)}</span>
+                    <p className={`font-semibold ${isRTL ? "text-xl leading-[2.2] font-amiri" : "text-base leading-relaxed"}`}>
+                      <span className={`font-bold ml-1.5 mr-1.5 inline-block ${isRTL ? "font-amiri" : ""}`}>{formatQuestionNumber(idx, isRTL)}</span>
                       {q.question_text}
                     </p>
-                    <span className="text-sm font-bold shrink-0 px-2 py-0.5 border border-black rounded">
+                    <span className={`text-sm font-bold shrink-0 px-2 py-0.5 border border-black rounded ${isRTL ? "font-amiri" : ""}`}>
                       [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
                     </span>
                   </div>

@@ -107,9 +107,9 @@ export default function ReportCardsClient({
       {/* Print View: One report card per page or 2 per page depending on size */}
       <div className={`hidden print:block print:w-full space-y-12 ${banglaFont}`}>
         {results.map((student, index) => (
-          <div key={student.id} className="print:break-after-page print:w-full print:min-h-[100vh] print:py-6">
+          <div key={student.id} className="print:break-after-page print:w-full print:pt-4">
             <PrintLetterpad madrasaInfo={profileAndLogo?.madrasa || madrasaInfo} logoUrl={profileAndLogo?.logoUrl}>
-              <div className="border-4 border-double border-slate-800 p-8 m-4 rounded-xl relative bg-white">
+              <div className="border-4 border-double border-slate-800 p-8 m-4 print:m-0 print:mb-2 rounded-xl relative bg-white print:break-inside-avoid">
                 {/* Header */}
                 <div className="text-center border-b-2 border-slate-800 pb-4 mb-6 relative">
                   <div className="mt-2 inline-block bg-slate-800 text-white px-6 py-2 rounded-full font-bold text-xl uppercase tracking-wider">
@@ -168,7 +168,7 @@ export default function ReportCardsClient({
                 </table>
 
                 {/* Final Grade / Result */}
-                <div className="flex justify-between items-center bg-slate-50 border-2 border-slate-800 p-4 rounded-lg mb-16">
+                <div className="flex justify-between items-center bg-slate-50 border-2 border-slate-800 p-4 rounded-lg mb-16 print:mb-8">
                   <div className="text-xl">
                     <span className="font-semibold text-slate-700">প্রাপ্ত বিভাগ (Grade): </span>
                     <span className="font-bold text-slate-900 text-2xl">{student.grade}</span>
@@ -180,7 +180,7 @@ export default function ReportCardsClient({
                 </div>
 
                 {/* Signatures */}
-                <div className="flex justify-between items-end mt-12 pt-8">
+                <div className="flex justify-between items-end mt-12 pt-8 print:mt-8 print:pt-4">
                   <div className="text-center w-48 border-t-2 border-slate-800 pt-2">
                     <p className="font-bold text-slate-900">শ্রেণী শিক্ষকের স্বাক্ষর</p>
                   </div>

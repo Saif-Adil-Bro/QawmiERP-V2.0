@@ -325,7 +325,7 @@ export default function IdCardClient({ users, userType, madrasaInfo }: { users: 
         </div>
       )}
 
-      <div id="id-cards-print-area" className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 print:grid-cols-2 print:gap-x-4 print:gap-y-8 ${banglaFont}`}>
+      <div id="id-cards-print-area" className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 print:flex print:flex-wrap print:justify-center print:gap-x-4 print:gap-y-6 ${banglaFont}`}>
         {users.flatMap((user) => {
           const cards = [];
           if (cardSide === "front" || cardSide === "both") {

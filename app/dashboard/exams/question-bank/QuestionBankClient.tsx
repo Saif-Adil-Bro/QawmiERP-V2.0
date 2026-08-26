@@ -54,7 +54,7 @@ export default function QuestionBankClient({
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
   const [selectedArabicFont, setSelectedArabicFont] = useState("font-amiri");
   const [textDirectionMode, setTextDirectionMode] = useState<"auto" | "rtl" | "ltr">("auto");
-  const [arabicNumbering, setArabicNumbering] = useState<"bengali" | "arabic" | "english">("bengali");
+  const [arabicNumbering, setArabicNumbering] = useState<"auto" | "bengali" | "arabic" | "english">("auto");
   const [fontSizeClass, setFontSizeClass] = useState<"text-sm" | "text-base" | "text-lg">("text-base");
 
   // New question form state
@@ -774,6 +774,20 @@ export default function QuestionBankClient({
                   </select>
                 </div>
               </div>
+              
+              <div className="mt-3">
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <FileText className="w-3.5 h-3.5 text-slate-500" />
+                  <span>নির্দেশনা (Instructions)</span>
+                </label>
+                <input 
+                  type="text" 
+                  value={paperInstructions} 
+                  onChange={(e) => setPaperInstructions(e.target.value)}
+                  placeholder="যেমন: সকল প্রশ্নের উত্তর দেওয়া আবশ্যক। ডান পাশের সংখ্যা পূর্ণমান জ্ঞাপক।"
+                  className="w-full text-xs p-2 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
             </div>
 
             {/* Paper Live Preview Area */}
@@ -836,11 +850,11 @@ export default function QuestionBankClient({
                             <p 
                               className={`font-semibold text-slate-900 ${
                                 isRTL 
-                                  ? "text-xl leading-[2.2] tracking-wide" 
+                                  ? "text-xl leading-[2.2] tracking-wide font-amiri" 
                                   : "text-base leading-relaxed"
                               }`}
                             >
-                              <span className="font-bold text-slate-900 ml-1.5 mr-1.5 inline-block">
+                              <span className={`font-bold text-slate-900 ml-1.5 mr-1.5 inline-block ${isRTL ? "font-amiri" : ""}`}>
                                 {formatQuestionNumber(idx, isRTL)}
                               </span>
                               {q.question_text}
@@ -848,7 +862,7 @@ export default function QuestionBankClient({
                           </div>
                           
                           <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="font-bold text-slate-800 text-sm px-2 py-0.5 bg-slate-100 rounded border border-slate-300">
+                            <span className={`font-bold text-slate-800 text-sm px-2 py-0.5 bg-slate-100 rounded border border-slate-300 ${isRTL ? "font-amiri" : ""}`}>
                               [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
                             </span>
                             <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 print:hidden absolute right-2 top-2 bg-white/90 backdrop-blur-sm p-1 rounded-md shadow-sm border border-emerald-100">

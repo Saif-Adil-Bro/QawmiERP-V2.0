@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getExamSubjects, saveExamSubjects } from "@/app/actions/exams";
+import { getClassSubjects } from "@/app/actions/class_subjects";
 import { Plus, Trash2, Save } from "lucide-react";
 
 export default function ExamSetupClient({ examId, classes }: { examId: string, classes: any[] }) {
@@ -24,7 +25,22 @@ export default function ExamSetupClient({ examId, classes }: { examId: string, c
     if (data && data.length > 0) {
       setSubjects(data);
     } else {
-      setSubjects([{ subject_name: "", total_marks: 100, pass_marks: 33, exam_type: "Written" }]);
+      try {
+        const classSubjectsData = await getClassSubjects(classId);
+        if (classSubjectsData && classSubjectsData.length > 0) {
+          const autoSubjects = classSubjectsData.map((cs: any) => ({
+            subject_name: cs.subjects?.name || "",
+            total_marks: 100,
+            pass_marks: 33,
+            exam_type: "Written"
+          }));
+          setSubjects(autoSubjects);
+        } else {
+          setSubjects([{ subject_name: "", total_marks: 100, pass_marks: 33, exam_type: "Written" }]);
+        }
+      } catch (err) {
+        setSubjects([{ subject_name: "", total_marks: 100, pass_marks: 33, exam_type: "Written" }]);
+      }
     }
     setLoading(false);
   };

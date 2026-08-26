@@ -58,7 +58,7 @@
 }
 
 /* Default App Font is SolaimanLipi with Arabic & Bangla fallbacks */
-body, input, textarea, select, button, table, p, span, div, h1, h2, h3, h4, h5, h6 {
+body, input, textarea, select, button {
   font-family: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'Noto Sans Arabic', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
