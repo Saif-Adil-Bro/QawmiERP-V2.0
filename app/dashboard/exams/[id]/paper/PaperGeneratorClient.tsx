@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getExamPaper, saveExamPaper } from "@/app/actions/questions";
-import { Plus, Trash2, Printer, Loader2, Save, FileSignature, CheckCircle2, Globe, Building2, BookOpen, Clock, Award } from "lucide-react";
+import { Plus, Trash2, Printer, Loader2, Save, FileSignature, CheckCircle2, Globe, Building2, BookOpen, Clock, Award, ArrowUp, ArrowDown } from "lucide-react";
 
 // Helper function to detect Arabic script in text
 function isArabicText(text: string): boolean {
@@ -42,6 +42,7 @@ export default function PaperGeneratorClient({
   const [examName, setExamName] = useState(exam?.title || "");
   const [examTime, setExamTime] = useState("২ ঘণ্টা ৩০ মিনিট");
   const [totalMarks, setTotalMarks] = useState(100);
+  const [paperInstructions, setPaperInstructions] = useState("সকল প্রশ্নের উত্তর দেওয়া আবশ্যক। ডান পাশের সংখ্যা পূর্ণমান জ্ঞাপক।");
   const [selectedQuestions, setSelectedQuestions] = useState<any[]>([]);
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
   const [textDirectionMode, setTextDirectionMode] = useState<"auto" | "rtl" | "ltr">("auto");
@@ -87,6 +88,24 @@ export default function PaperGeneratorClient({
     } else {
       setSelectedQuestions([...selectedQuestions, question]);
     }
+  };
+
+  const moveQuestionUp = (index: number) => {
+    if (index === 0) return;
+    const newQuestions = [...selectedQuestions];
+    const temp = newQuestions[index - 1];
+    newQuestions[index - 1] = newQuestions[index];
+    newQuestions[index] = temp;
+    setSelectedQuestions(newQuestions);
+  };
+
+  const moveQuestionDown = (index: number) => {
+    if (index === selectedQuestions.length - 1) return;
+    const newQuestions = [...selectedQuestions];
+    const temp = newQuestions[index + 1];
+    newQuestions[index + 1] = newQuestions[index];
+    newQuestions[index] = temp;
+    setSelectedQuestions(newQuestions);
   };
 
   const currentTotalMarks = selectedQuestions.reduce((sum, q) => sum + (q.marks || 0), 0);
@@ -316,6 +335,16 @@ export default function PaperGeneratorClient({
                     />
                   </div>
                 </div>
+                <div className="mt-3">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">নির্দেশনা (ঐচ্ছিক)</label>
+                  <input
+                    type="text"
+                    value={paperInstructions}
+                    onChange={(e) => setPaperInstructions(e.target.value)}
+                    className="p-1.5 border border-slate-300 rounded-md outline-none text-xs w-full text-slate-800 bg-white"
+                    placeholder="উদা: সকল প্রশ্নের উত্তর দেওয়া আবশ্যক..."
+                  />
+                </div>
               </div>
               
               <div className="p-6 overflow-y-auto flex-1 bg-slate-100">
@@ -335,6 +364,12 @@ export default function PaperGeneratorClient({
                       <span>পূর্ণমান: {toBengaliNumerals(totalMarks)}</span>
                     </div>
                   </div>
+                  
+                  {paperInstructions && (
+                    <div className="text-center text-xs text-slate-600 mb-6 italic border-t border-b border-dashed border-slate-300 py-2" dir="auto">
+                      [{paperInstructions}]
+                    </div>
+                  )}
 
                   <div className="space-y-5">
                     {selectedQuestions.length === 0 ? (
@@ -345,15 +380,45 @@ export default function PaperGeneratorClient({
                       selectedQuestions.map((q, idx) => {
                         const isRTL = getQuestionDir(q.question_text) === "rtl";
                         return (
-                          <div key={idx} dir={isRTL ? "rtl" : "ltr"} className={`space-y-1 ${isRTL ? "font-amiri text-right" : "text-left"}`}>
+                          <div key={idx} dir={isRTL ? "rtl" : "ltr"} className={`space-y-1 group relative p-2 rounded-lg hover:bg-slate-50 transition border border-transparent hover:border-slate-200 ${isRTL ? "font-amiri text-right" : "text-left"}`}>
                             <div className="flex justify-between items-start gap-2">
-                              <p className={`font-semibold text-slate-900 ${isRTL ? "text-lg leading-loose" : "text-sm leading-relaxed"}`}>
+                              <p className={`font-semibold text-slate-900 flex-1 ${isRTL ? "text-lg leading-loose" : "text-sm leading-relaxed"}`}>
                                 <span className="font-bold ml-1 mr-1">{formatQuestionNumber(idx, isRTL)}</span>
                                 {q.question_text}
                               </p>
-                              <span className="text-xs font-bold px-1.5 py-0.5 bg-slate-100 rounded border border-slate-300 shrink-0">
-                                [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
-                              </span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-xs font-bold px-1.5 py-0.5 bg-slate-100 rounded border border-slate-300">
+                                  [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
+                                </span>
+                                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => moveQuestionUp(idx)}
+                                    disabled={idx === 0}
+                                    className="p-1 text-slate-500 hover:bg-slate-200 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                    title="উপরে নিন"
+                                  >
+                                    <ArrowUp className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveQuestionDown(idx)}
+                                    disabled={idx === selectedQuestions.length - 1}
+                                    className="p-1 text-slate-500 hover:bg-slate-200 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                    title="নিচে নিন"
+                                  >
+                                    <ArrowDown className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleQuestion(q)}
+                                    className="p-1 text-red-500 hover:bg-red-50 rounded transition cursor-pointer"
+                                    title="প্রশ্নপত্র থেকে বাদ দিন"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                             {q.question_type === "MCQ" && q.options && (
                               <div className={`grid grid-cols-2 gap-2 mt-2 ${isRTL ? "pr-6 text-sm" : "pl-6 text-xs"}`}>
@@ -405,6 +470,12 @@ export default function PaperGeneratorClient({
               <span>পূর্ণমান: {toBengaliNumerals(totalMarks)}</span>
             </div>
           </div>
+
+          {paperInstructions && (
+            <div className="text-center text-xs mb-6 italic border-t border-b border-dashed border-gray-400 py-1.5" dir="auto">
+              [{paperInstructions}]
+            </div>
+          )}
 
           <div className="space-y-6 px-2">
             {selectedQuestions.map((q, idx) => {

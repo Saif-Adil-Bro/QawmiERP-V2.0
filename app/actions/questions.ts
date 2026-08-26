@@ -104,6 +104,30 @@ export async function saveQuestion(data: {
   return { success: true };
 }
 
+export async function updateQuestion(
+  id: string,
+  data: {
+    class_id: string;
+    subject_id: string;
+    question_type: string;
+    question_text: string;
+    options?: any;
+    marks: number;
+  }
+) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("question_bank")
+    .update(data)
+    .eq("id", id);
+  if (error) {
+    console.error("Error updating question:", error);
+    return { error: error.message };
+  }
+  revalidatePath(`/dashboard/exams/question-bank`);
+  return { success: true };
+}
+
 export async function deleteQuestion(id: string) {
   const supabase = await createClient();
   const { error } = await supabase.from("question_bank").delete().eq("id", id);

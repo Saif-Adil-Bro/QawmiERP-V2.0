@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { saveQuestion, deleteQuestion } from "@/app/actions/questions";
-import { Plus, Trash2, Loader2, Save, Printer, FileText, Type, X, Globe, Building2, BookOpen, Clock, Award, Check } from "lucide-react";
+import { saveQuestion, deleteQuestion, updateQuestion } from "@/app/actions/questions";
+import { Plus, Trash2, Loader2, Save, Printer, FileText, Type, X, Globe, Building2, BookOpen, Clock, Award, Check, Pencil, CheckSquare, RotateCcw, ArrowUp, ArrowDown, CheckCircle2 } from "lucide-react";
 
 // Helper function to detect Arabic script in text
 function isArabicText(text: string): boolean {
@@ -59,6 +59,7 @@ export default function QuestionBankClient({
 
   // New question form state
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newClassId, setNewClassId] = useState("");
   const [newSubjectId, setNewSubjectId] = useState("");
   const [newType, setNewType] = useState("Broad");
@@ -70,12 +71,72 @@ export default function QuestionBankClient({
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Selection state
+  const [selectedQuestions, setSelectedQuestions] = useState<any[]>([]);
+
   const filteredQuestions = questions.filter(q => {
     if (classFilter && q.class_id !== classFilter) return false;
     if (subjectFilter && q.subject_id !== subjectFilter) return false;
     if (typeFilter && q.question_type !== typeFilter) return false;
     return true;
   });
+
+  const toggleQuestionSelection = (question: any) => {
+    const isSelected = selectedQuestions.some(q => q.id === question.id);
+    if (isSelected) {
+      setSelectedQuestions(selectedQuestions.filter(q => q.id !== question.id));
+    } else {
+      setSelectedQuestions([...selectedQuestions, question]);
+    }
+  };
+
+  const handleSelectAllFiltered = () => {
+    const newSelected = [...selectedQuestions];
+    filteredQuestions.forEach(q => {
+      if (!newSelected.some(sq => sq.id === q.id)) {
+        newSelected.push(q);
+      }
+    });
+    setSelectedQuestions(newSelected);
+  };
+
+  const handleDeselectAllFiltered = () => {
+    const filteredIds = new Set(filteredQuestions.map(q => q.id));
+    setSelectedQuestions(selectedQuestions.filter(q => !filteredIds.has(q.id)));
+  };
+
+  const moveQuestionUp = (index: number) => {
+    if (index === 0) return;
+    const newQuestions = [...selectedQuestions];
+    const temp = newQuestions[index - 1];
+    newQuestions[index - 1] = newQuestions[index];
+    newQuestions[index] = temp;
+    setSelectedQuestions(newQuestions);
+  };
+
+  const moveQuestionDown = (index: number) => {
+    if (index === selectedQuestions.length - 1) return;
+    const newQuestions = [...selectedQuestions];
+    const temp = newQuestions[index + 1];
+    newQuestions[index + 1] = newQuestions[index];
+    newQuestions[index] = temp;
+    setSelectedQuestions(newQuestions);
+  };
+
+  const totalSelectedMarks = selectedQuestions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
+
+  const handleEditClick = (q: any) => {
+    setIsAdding(true);
+    setEditingId(q.id);
+    setNewClassId(q.class_id);
+    setNewSubjectId(q.subject_id);
+    setNewType(q.question_type);
+    setNewText(q.question_text);
+    setNewMarks(q.marks || 10);
+    setNewOptions(q.options && q.options.length ? [...q.options, "", "", "", ""].slice(0, 4) : ["", "", "", ""]);
+    setNewTextDirection("auto");
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // When opening modal, update initial class & subject names based on active filters
   const handleOpenPaperModal = () => {
@@ -115,14 +176,21 @@ export default function QuestionBankClient({
       }
     }
 
-    const result = await saveQuestion({
+    const questionData = {
       class_id: newClassId,
       subject_id: newSubjectId,
       question_type: newType,
       question_text: newText,
       marks: Number(newMarks),
       options: optionsData
-    });
+    };
+
+    let result;
+    if (editingId) {
+      result = await updateQuestion(editingId, questionData);
+    } else {
+      result = await saveQuestion(questionData);
+    }
 
     if (result.error) {
       alert(result.error);
@@ -234,7 +302,7 @@ export default function QuestionBankClient({
             className="bg-emerald-600 text-white px-4 py-2.5 rounded-lg hover:bg-emerald-700 transition flex items-center justify-center space-x-2 text-sm font-semibold shadow-sm cursor-pointer"
           >
             <Printer className="w-4 h-4" />
-            <span>প্রশ্নপত্র তৈরি ও প্রিন্ট</span>
+            <span>প্রশ্নপত্র তৈরি ও প্রিন্ট ({toBengaliNumerals(selectedQuestions.length)})</span>
           </button>
           <button
             onClick={() => setIsAdding(!isAdding)}
@@ -246,13 +314,49 @@ export default function QuestionBankClient({
         </div>
       </div>
 
+      {/* Selection Summary */}
+      <div className="bg-emerald-50/90 border border-emerald-300 p-3.5 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs print:hidden">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 font-bold text-emerald-950 text-sm">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            <span>প্রশ্নপত্রে যোগ করা হয়েছে:</span>
+            <span className="bg-emerald-600 text-white px-2.5 py-0.5 rounded-full text-xs font-extrabold shadow-xs">
+              {toBengaliNumerals(selectedQuestions.length)} টি প্রশ্ন
+            </span>
+          </div>
+          <span className="text-emerald-300 font-bold">|</span>
+          <div className="font-bold text-slate-800 text-sm">
+            মোট নম্বর: <span className="text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-200">{toBengaliNumerals(totalSelectedMarks)}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleSelectAllFiltered}
+            className="px-3 py-1.5 bg-white border border-emerald-300 text-emerald-800 rounded-lg hover:bg-emerald-100 font-bold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+          >
+            <CheckSquare className="w-3.5 h-3.5" />
+            <span>সব সিলেক্ট করুন</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleDeselectAllFiltered}
+            className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-bold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>সব আনচেক করুন</span>
+          </button>
+        </div>
+      </div>
+
       {/* Add New Question Form */}
       {isAdding && (
         <div className="bg-slate-50 p-6 rounded-xl border border-slate-300 shadow-sm print:hidden">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <Plus className="w-5 h-5 text-emerald-600" />
-              <span>নতুন প্রশ্ন সংযোজন (New Question)</span>
+              {editingId ? <Pencil className="w-5 h-5 text-emerald-600" /> : <Plus className="w-5 h-5 text-emerald-600" />}
+              <span>{editingId ? "প্রশ্ন সম্পাদন (Edit Question)" : "নতুন প্রশ্ন সংযোজন (New Question)"}</span>
             </h3>
             <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 text-xs">
               <Globe className="w-3.5 h-3.5 text-slate-500" />
@@ -389,7 +493,10 @@ export default function QuestionBankClient({
               <div className="flex space-x-3 w-full sm:w-auto justify-end">
                 <button
                   type="button"
-                  onClick={() => setIsAdding(false)}
+                  onClick={() => {
+                    setIsAdding(false);
+                    setEditingId(null);
+                  }}
                   className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 transition text-sm font-medium"
                 >
                   বাতিল
@@ -400,7 +507,7 @@ export default function QuestionBankClient({
                   className="flex items-center space-x-2 bg-slate-900 text-white px-5 py-2 rounded-lg hover:bg-slate-800 transition disabled:opacity-50 text-sm font-semibold shadow-sm cursor-pointer"
                 >
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  <span>প্রশ্ন সংরক্ষণ করুন</span>
+                  <span>{editingId ? "আপডেট করুন" : "প্রশ্ন সংরক্ষণ করুন"}</span>
                 </button>
               </div>
             </div>
@@ -412,21 +519,45 @@ export default function QuestionBankClient({
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm text-slate-600">
-            <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+            <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
               <tr>
-                <th className="px-6 py-4 w-1/2">প্রশ্নের বিবরণ</th>
-                <th className="px-6 py-4">শ্রেণি ও বিষয়</th>
-                <th className="px-6 py-4">ধরণ</th>
-                <th className="px-6 py-4">নম্বর</th>
-                <th className="px-6 py-4 text-right">অ্যাকশন</th>
+                <th className="px-4 py-4 w-12 text-center">
+                  <input
+                    type="checkbox"
+                    checked={filteredQuestions.length > 0 && filteredQuestions.every(q => selectedQuestions.some(sq => sq.id === q.id))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        handleSelectAllFiltered();
+                      } else {
+                        handleDeselectAllFiltered();
+                      }
+                    }}
+                    className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-slate-400 cursor-pointer"
+                    title="সকল দৃশ্যমান প্রশ্ন সিলেক্ট/আনচেক করুন"
+                  />
+                </th>
+                <th className="px-4 py-4 w-1/2">প্রশ্নের বিবরণ</th>
+                <th className="px-4 py-4">শ্রেণি ও বিষয়</th>
+                <th className="px-4 py-4">ধরণ</th>
+                <th className="px-4 py-4">নম্বর</th>
+                <th className="px-4 py-4 text-right">অ্যাকশন</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredQuestions.map((q, idx) => {
                 const qIsArabic = isArabicText(q.question_text);
+                const isSelected = selectedQuestions.some(sq => sq.id === q.id);
                 return (
-                  <tr key={q.id} className="hover:bg-slate-50 transition">
-                    <td className="px-6 py-4">
+                  <tr key={q.id} className={`transition ${isSelected ? "bg-emerald-50/40 hover:bg-emerald-50/70" : "hover:bg-slate-50"}`}>
+                    <td className="px-4 py-4 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleQuestionSelection(q)}
+                        className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 border-slate-400 cursor-pointer"
+                      />
+                    </td>
+                    <td className="px-4 py-4">
                       <div 
                         dir={qIsArabic ? "rtl" : "auto"}
                         className={`font-semibold text-slate-900 mb-1 ${
@@ -454,27 +585,36 @@ export default function QuestionBankClient({
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-4">
                       <div className="font-bold text-slate-800">{q.class?.name || "শ্রেণি অনির্ধারিত"}</div>
                       <div className="text-xs text-slate-500 font-medium">{q.subject?.name || "বিষয় অনির্ধারিত"}</div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-4">
                       <span className="inline-block px-2.5 py-1 bg-slate-100 text-slate-700 rounded-md text-xs font-semibold">
                         {q.question_type === "MCQ" ? "বহুনির্বাচনী" : (q.question_type === "Short" ? "সংক্ষিপ্ত" : "রচনামূলক")}
                       </span>
                     </td>
-                    <td className="px-6 py-4 font-bold text-slate-800">
+                    <td className="px-4 py-4 font-bold text-slate-800">
                       {toBengaliNumerals(q.marks || 0)}
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => handleDelete(q.id)}
-                        disabled={deletingId === q.id}
-                        className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition disabled:opacity-50 cursor-pointer"
-                        title="প্রশ্ন মুছুন"
-                      >
-                        {deletingId === q.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                      </button>
+                    <td className="px-4 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleEditClick(q)}
+                          className="text-emerald-600 hover:bg-emerald-50 p-2 rounded-lg transition cursor-pointer"
+                          title="প্রশ্ন সম্পাদনা করুন"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(q.id)}
+                          disabled={deletingId === q.id}
+                          className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition disabled:opacity-50 cursor-pointer"
+                          title="প্রশ্ন মুছুন"
+                        >
+                          {deletingId === q.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -683,13 +823,13 @@ export default function QuestionBankClient({
 
                 {/* Questions Content */}
                 <div className="space-y-6">
-                  {filteredQuestions.map((q, idx) => {
+                  {selectedQuestions.map((q, idx) => {
                     const isRTL = getQuestionDir(q.question_text) === "rtl";
                     return (
                       <div 
-                        key={q.id} 
+                        key={`${q.id}-${idx}`} 
                         dir={isRTL ? "rtl" : "ltr"}
-                        className={`space-y-1.5 ${isRTL ? "font-amiri text-right" : "text-left"}`}
+                        className={`space-y-1.5 group relative ${isRTL ? "font-amiri text-right" : "text-left"} border border-transparent hover:border-emerald-200 hover:bg-emerald-50/50 p-2 -mx-2 rounded-lg transition-all`}
                       >
                         <div className="flex justify-between items-start gap-3">
                           <div className="flex-1">
@@ -706,9 +846,40 @@ export default function QuestionBankClient({
                               {q.question_text}
                             </p>
                           </div>
-                          <span className="font-bold text-slate-800 text-sm shrink-0 px-2 py-0.5 bg-slate-100 rounded border border-slate-300">
-                            [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
-                          </span>
+                          
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="font-bold text-slate-800 text-sm px-2 py-0.5 bg-slate-100 rounded border border-slate-300">
+                              [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
+                            </span>
+                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 print:hidden absolute right-2 top-2 bg-white/90 backdrop-blur-sm p-1 rounded-md shadow-sm border border-emerald-100">
+                              <button
+                                type="button"
+                                onClick={() => moveQuestionUp(idx)}
+                                disabled={idx === 0}
+                                className="p-1 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="উপরে নিন"
+                              >
+                                <ArrowUp className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveQuestionDown(idx)}
+                                disabled={idx === selectedQuestions.length - 1}
+                                className="p-1 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="নিচে নিন"
+                              >
+                                <ArrowDown className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleQuestionSelection(q)}
+                                className="p-1 text-red-500 hover:bg-red-50 rounded transition cursor-pointer"
+                                title="প্রশ্নপত্র থেকে বাদ দিন"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
                         </div>
 
                         {/* MCQ Options */}
@@ -730,9 +901,9 @@ export default function QuestionBankClient({
                     );
                   })}
 
-                  {filteredQuestions.length === 0 && (
+                  {selectedQuestions.length === 0 && (
                     <p className="text-center text-slate-500 py-12 italic">
-                      কোনো প্রশ্ন নির্বাচন করা হয়নি। দয়া করে ফিল্টার চেক করুন।
+                      কোনো প্রশ্ন নির্বাচন করা হয়নি। দয়া করে লিস্ট থেকে প্রশ্ন সিলেক্ট করুন।
                     </p>
                   )}
                 </div>
@@ -742,7 +913,7 @@ export default function QuestionBankClient({
             {/* Modal Footer */}
             <div className="p-4 bg-white border-t border-slate-200 flex justify-between items-center">
               <div className="text-xs text-slate-500 font-medium">
-                মোট প্রশ্ন সংখ্যা: <span className="font-bold text-slate-800">{filteredQuestions.length}</span> টি
+                মোট প্রশ্ন সংখ্যা: <span className="font-bold text-slate-800">{selectedQuestions.length}</span> টি
               </div>
               <div className="flex space-x-3">
                 <button 
@@ -805,11 +976,11 @@ export default function QuestionBankClient({
 
           {/* Question Items */}
           <div className="space-y-6 px-2">
-            {filteredQuestions.map((q, idx) => {
+            {selectedQuestions.map((q, idx) => {
               const isRTL = getQuestionDir(q.question_text) === "rtl";
               return (
                 <div 
-                  key={q.id} 
+                  key={`${q.id}-${idx}`} 
                   dir={isRTL ? "rtl" : "ltr"}
                   className={`break-inside-avoid space-y-1.5 ${isRTL ? "font-amiri text-right" : "text-left"}`}
                 >
