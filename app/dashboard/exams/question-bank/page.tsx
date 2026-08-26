@@ -3,18 +3,20 @@ import { ArrowLeft } from "lucide-react";
 import { getClasses } from "@/app/actions/students";
 import { getSubjects } from "@/app/actions/subjects";
 import { getQuestions } from "@/app/actions/questions";
+import { getMadrasaDetails } from "@/app/actions/tenant";
 import QuestionBankClient from "./QuestionBankClient";
 
 export default async function QuestionBankPage() {
-  const [classes, subjects, questions] = await Promise.all([
+  const [classes, subjects, questions, madrasa] = await Promise.all([
     getClasses(),
     getSubjects(),
-    getQuestions()
+    getQuestions(),
+    getMadrasaDetails()
   ]);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center space-x-4 print:hidden">
         <Link
           href="/dashboard/exams"
           className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition"
@@ -30,7 +32,8 @@ export default async function QuestionBankPage() {
       <QuestionBankClient 
         classes={classes} 
         subjects={subjects} 
-        initialQuestions={questions} 
+        initialQuestions={questions}
+        madrasa={madrasa}
       />
     </div>
   );

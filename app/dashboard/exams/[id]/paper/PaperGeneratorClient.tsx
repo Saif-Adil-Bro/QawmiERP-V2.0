@@ -1,8 +1,24 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { getExamPaper, saveExamPaper } from "@/app/actions/questions";
-import { Plus, Trash2, Printer, Loader2, Save, FileSignature, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Printer, Loader2, Save, FileSignature, CheckCircle2, Globe, Building2, BookOpen, Clock, Award } from "lucide-react";
+
+// Helper function to detect Arabic script in text
+function isArabicText(text: string): boolean {
+  if (!text) return false;
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
+}
+
+function toBengaliNumerals(num: number): string {
+  const digits = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
+  return num.toString().split("").map(d => digits[parseInt(d)] || d).join("");
+}
+
+function toArabicNumerals(num: number): string {
+  const digits = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
+  return num.toString().split("").map(d => digits[parseInt(d)] || d).join("");
+}
 
 export default function PaperGeneratorClient({
   examId,
@@ -21,12 +37,14 @@ export default function PaperGeneratorClient({
 }) {
   const [classId, setClassId] = useState("");
   const [subjectId, setSubjectId] = useState("");
-  const [paperTitle, setPaperTitle] = useState("Final Exam Paper");
-  const [examName, setExamName] = useState("");
-  const [examTime, setExamTime] = useState("");
+  const [customMadrasaName, setCustomMadrasaName] = useState(madrasa?.name || "মাদ্রাসাতুল মুসলিমীন");
+  const [paperTitle, setPaperTitle] = useState("বার্ষিক পরীক্ষা - ২০২৬");
+  const [examName, setExamName] = useState(exam?.title || "");
+  const [examTime, setExamTime] = useState("২ ঘণ্টা ৩০ মিনিট");
   const [totalMarks, setTotalMarks] = useState(100);
   const [selectedQuestions, setSelectedQuestions] = useState<any[]>([]);
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
+  const [textDirectionMode, setTextDirectionMode] = useState<"auto" | "rtl" | "ltr">("auto");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -53,10 +71,10 @@ export default function PaperGeneratorClient({
       setExamTime(paper.exam_time || "");
       setSelectedQuestions(paper.questions || []);
     } else {
-      setPaperTitle(`${exam.title} - Question Paper`);
+      setPaperTitle(`${exam.title} - প্রশ্নপত্র`);
       setTotalMarks(100);
       setExamName(exam.title || "");
-      setExamTime("");
+      setExamTime("২ ঘণ্টা ৩০ মিনিট");
       setSelectedQuestions([]);
     }
     setLoading(false);
@@ -105,289 +123,349 @@ export default function PaperGeneratorClient({
     window.print();
   };
 
+  const getQuestionDir = (text: string): "rtl" | "ltr" => {
+    if (textDirectionMode === "rtl") return "rtl";
+    if (textDirectionMode === "ltr") return "ltr";
+    return isArabicText(text) ? "rtl" : "ltr";
+  };
+
+  const formatQuestionNumber = (idx: number, isRTL: boolean): string => {
+    const num = idx + 1;
+    return isRTL ? `${toArabicNumerals(num)}.` : `${toBengaliNumerals(num)}.`;
+  };
+
+  const getOptionLabel = (idx: number, isRTL: boolean): string => {
+    if (isRTL) {
+      const arabicLetters = ["(أ)", "(ب)", "(ج)", "(د)", "(هـ)"];
+      return arabicLetters[idx] || `(${idx + 1})`;
+    }
+    const bengaliLetters = ["(ক)", "(খ)", "(গ)", "(ঘ)", "(ঙ)"];
+    return bengaliLetters[idx] || `(${idx + 1})`;
+  };
+
+  const selectedClassName = classes.find((c) => c.id === classId)?.name || "";
+  const selectedSubjectName = subjects.find((s) => s.id === subjectId)?.name || "";
+
   return (
     <div>
       {/* Interactive Layout: Hidden when printing */}
       <div className="space-y-6 print:hidden">
         {/* Filters & Actions */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-end">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full md:w-1/2">
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">শ্রেণি (Class)</label>
-            <select
-              value={classId}
-              onChange={(e) => setClassId(e.target.value)}
-              className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-white"
-            >
-              <option value="">শ্রেণি নির্বাচন করুন</option>
-              {classes.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">বিষয় (Subject)</label>
-            <select
-              value={subjectId}
-              onChange={(e) => setSubjectId(e.target.value)}
-              className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-white"
-            >
-              <option value="">বিষয় নির্বাচন করুন</option>
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="flex space-x-2 w-full md:w-auto">
-          <button
-            onClick={handleSave}
-            disabled={saving || loading || !classId || !subjectId}
-            className="flex items-center space-x-2 px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition disabled:opacity-50 flex-1 md:flex-none justify-center cursor-pointer font-medium text-sm"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            <span>প্রশ্নপত্র সংরক্ষণ করুন</span>
-          </button>
-          <button
-            onClick={handlePrint}
-            disabled={selectedQuestions.length === 0}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 transition disabled:opacity-50 flex-1 md:flex-none justify-center cursor-pointer font-medium text-sm"
-          >
-            <Printer className="w-4 h-4" />
-            <span>প্রিন্ট করুন / PDF</span>
-          </button>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center p-12">
-          <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
-        </div>
-      ) : classId && subjectId ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Side: Question Bank Selection */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
-              <h3 className="font-bold text-slate-800">প্রশ্ন ব্যাংক (Question Bank)</h3>
-              <span className="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded-full font-medium">
-                {availableQuestions.length}টি প্রশ্ন রয়েছে
-              </span>
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-end">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full md:w-1/2">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">শ্রেণি / জামাত (Class)</label>
+              <select
+                value={classId}
+                onChange={(e) => setClassId(e.target.value)}
+                className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 outline-none text-sm text-slate-800 bg-white"
+              >
+                <option value="">শ্রেণি নির্বাচন করুন</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             </div>
-            <div className="p-4 overflow-y-auto flex-1 space-y-3">
-              {availableQuestions.map((q) => {
-                const isSelected = selectedQuestions.some((sq) => sq.id === q.id);
-                return (
-                  <div
-                    key={q.id}
-                    onClick={() => handleToggleQuestion(q)}
-                    className={`p-3 rounded-lg border cursor-pointer transition ${
-                      isSelected 
-                        ? "border-indigo-500 bg-indigo-50" 
-                        : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex items-center space-x-2">
-                        {isSelected && <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
-                        <span className="text-xs font-medium px-2 py-1 bg-white border border-slate-200 rounded text-slate-600">
-                          {q.question_type}
-                        </span>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">বিষয় (Subject)</label>
+              <select
+                value={subjectId}
+                onChange={(e) => setSubjectId(e.target.value)}
+                className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 outline-none text-sm text-slate-800 bg-white"
+              >
+                <option value="">বিষয় নির্বাচন করুন</option>
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex space-x-2 w-full md:w-auto">
+            <button
+              onClick={handleSave}
+              disabled={saving || loading || !classId || !subjectId}
+              className="flex items-center space-x-2 px-4 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition disabled:opacity-50 flex-1 md:flex-none justify-center cursor-pointer font-semibold text-sm shadow-sm"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span>প্রশ্নপত্র সংরক্ষণ</span>
+            </button>
+            <button
+              onClick={handlePrint}
+              disabled={selectedQuestions.length === 0}
+              className="flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition disabled:opacity-50 flex-1 md:flex-none justify-center cursor-pointer font-semibold text-sm shadow-sm"
+            >
+              <Printer className="w-4 h-4" />
+              <span>প্রিন্ট প্রশ্নপত্র</span>
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center p-12">
+            <Loader2 className="w-8 h-8 animate-spin text-slate-900" />
+          </div>
+        ) : classId && subjectId ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left Side: Question Bank Selection */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[650px]">
+              <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
+                <h3 className="font-bold text-slate-800">প্রশ্ন ব্যাংক থেকে নির্বাচন করুন</h3>
+                <span className="text-xs bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-bold">
+                  {availableQuestions.length}টি প্রশ্ন উপলব্ধ
+                </span>
+              </div>
+              <div className="p-4 overflow-y-auto flex-1 space-y-3">
+                {availableQuestions.map((q) => {
+                  const isSelected = selectedQuestions.some((sq) => sq.id === q.id);
+                  const isRTL = isArabicText(q.question_text);
+                  return (
+                    <div
+                      key={q.id}
+                      onClick={() => handleToggleQuestion(q)}
+                      className={`p-3 rounded-lg border cursor-pointer transition ${
+                        isSelected 
+                          ? "border-emerald-500 bg-emerald-50/50 shadow-xs" 
+                          : "border-slate-200 hover:border-slate-400 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center space-x-2">
+                          {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                          <span className="text-xs font-semibold px-2 py-0.5 bg-white border border-slate-200 rounded text-slate-700">
+                            {q.question_type === "MCQ" ? "বহুনির্বাচনী" : (q.question_type === "Short" ? "সংক্ষিপ্ত" : "রচনামূলক")}
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold text-slate-600">{toBengaliNumerals(q.marks)} Marks</span>
                       </div>
-                      <span className="text-xs font-semibold text-slate-500">{q.marks} Marks</span>
+                      <p 
+                        className={`text-sm font-semibold text-slate-800 ${
+                          isRTL ? "font-amiri text-right text-base leading-loose" : "font-solaiman text-left"
+                        }`} 
+                        dir={isRTL ? "rtl" : "auto"}
+                      >
+                        {q.question_text}
+                      </p>
+                      {q.question_type === "MCQ" && q.options && (
+                        <div className={`mt-2 text-xs text-slate-600 grid grid-cols-2 gap-1 ${isRTL ? "font-amiri text-right" : ""}`} dir={isRTL ? "rtl" : "auto"}>
+                          {q.options.map((opt: string, i: number) => (
+                            <div key={i} className="text-start">• {opt}</div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <p className="text-sm font-medium text-slate-800 text-start" dir="auto">{q.question_text}</p>
-                    {q.question_type === "MCQ" && q.options && (
-                      <div className="mt-2 text-xs text-slate-500 grid grid-cols-2 gap-1">
-                        {q.options.map((opt: string, i: number) => (
-                          <div key={i} dir="auto" className="text-start">• {opt}</div>
-                        ))}
+                  );
+                })}
+                {availableQuestions.length === 0 && (
+                  <div className="text-center p-8 text-slate-500 text-sm">
+                    এই শ্রেণি ও বিষয়ের কোনো প্রশ্ন প্রশ্নব্যাংকে পাওয়া যায়নি।
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Side: Paper Preview & Customizer */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[650px]">
+              <div className="p-4 border-b border-slate-200 bg-slate-50 shrink-0">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <FileSignature className="w-4 h-4 text-emerald-600" /> 
+                    প্রশ্নপত্র প্রিভিউ ও সেটিংস
+                  </h3>
+                  <div className={`text-xs font-bold px-2.5 py-1 rounded-full ${currentTotalMarks > totalMarks ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-800'}`}>
+                    মোট নম্বর: {toBengaliNumerals(currentTotalMarks)} / {toBengaliNumerals(totalMarks)}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">মাদরাসার নাম</label>
+                    <input
+                      type="text"
+                      value={customMadrasaName}
+                      onChange={(e) => setCustomMadrasaName(e.target.value)}
+                      className="p-1.5 border border-slate-300 rounded-md outline-none text-xs w-full text-slate-800 bg-white"
+                      placeholder="মাদরাসার নাম"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">পরীক্ষার নাম</label>
+                    <input
+                      type="text"
+                      value={examName}
+                      onChange={(e) => setExamName(e.target.value)}
+                      className="p-1.5 border border-slate-300 rounded-md outline-none text-xs w-full text-slate-800 bg-white"
+                      placeholder="উদা: ১ম সাময়িক পরীক্ষা ২০২৬"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">সময়</label>
+                    <input
+                      type="text"
+                      value={examTime}
+                      onChange={(e) => setExamTime(e.target.value)}
+                      className="p-1.5 border border-slate-300 rounded-md outline-none text-xs w-full text-slate-800 bg-white"
+                      placeholder="২ ঘণ্টা ৩০ মিনিট"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">পূর্ণমান</label>
+                    <input
+                      type="number"
+                      value={totalMarks}
+                      onChange={(e) => setTotalMarks(Number(e.target.value))}
+                      className="p-1.5 border border-slate-300 rounded-md outline-none text-xs w-full text-slate-800 bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div className="p-6 overflow-y-auto flex-1 bg-slate-100">
+                <div className={`bg-white p-6 shadow-md rounded-lg border border-slate-300 min-h-full ${selectedFont}`}>
+                  <div className="text-center border-b-2 border-slate-800 pb-3 mb-6">
+                    <div className="font-amiri text-sm text-slate-700 mb-1" dir="rtl">
+                      بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيْمِ
+                    </div>
+                    <h1 className="text-xl font-bold mb-1 text-slate-900" dir="auto">{customMadrasaName}</h1>
+                    {examName && <h2 className="text-md font-bold mb-0.5 text-slate-800" dir="auto">{examName}</h2>}
+                    <div className="flex justify-between text-xs mt-3 pt-2 border-t border-slate-300 font-bold text-slate-700">
+                      <span>শ্রেণি: {selectedClassName}</span>
+                      <span>বিষয়: {selectedSubjectName}</span>
+                    </div>
+                    <div className="flex justify-between text-xs mt-1 font-bold text-slate-700">
+                      <span>সময়: {examTime}</span>
+                      <span>পূর্ণমান: {toBengaliNumerals(totalMarks)}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-5">
+                    {selectedQuestions.length === 0 ? (
+                      <div className="text-center p-8 text-slate-400 italic">
+                        বাম পাশের তালিকা থেকে প্রশ্ন নির্বাচন করে এখানে যোগ করুন।
                       </div>
+                    ) : (
+                      selectedQuestions.map((q, idx) => {
+                        const isRTL = getQuestionDir(q.question_text) === "rtl";
+                        return (
+                          <div key={idx} dir={isRTL ? "rtl" : "ltr"} className={`space-y-1 ${isRTL ? "font-amiri text-right" : "text-left"}`}>
+                            <div className="flex justify-between items-start gap-2">
+                              <p className={`font-semibold text-slate-900 ${isRTL ? "text-lg leading-loose" : "text-sm leading-relaxed"}`}>
+                                <span className="font-bold ml-1 mr-1">{formatQuestionNumber(idx, isRTL)}</span>
+                                {q.question_text}
+                              </p>
+                              <span className="text-xs font-bold px-1.5 py-0.5 bg-slate-100 rounded border border-slate-300 shrink-0">
+                                [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
+                              </span>
+                            </div>
+                            {q.question_type === "MCQ" && q.options && (
+                              <div className={`grid grid-cols-2 gap-2 mt-2 ${isRTL ? "pr-6 text-sm" : "pl-6 text-xs"}`}>
+                                {q.options.map((opt: string, i: number) => (
+                                  <div key={i} className="flex items-center gap-1">
+                                    <span className="font-bold">{getOptionLabel(i, isRTL)}</span>
+                                    <span>{opt}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
                     )}
                   </div>
-                );
-              })}
-              {availableQuestions.length === 0 && (
-                <div className="text-center p-8 text-slate-500 text-sm">
-                  No questions found for this class and subject in the Question Bank.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Right Side: Paper Preview */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
-            <div className="p-4 border-b border-slate-200 bg-slate-50 shrink-0">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-slate-800 flex items-center gap-1.5">
-                  <FileSignature className="w-4 h-4 text-indigo-600" /> 
-                  প্রশ্নপত্র প্রিভিউ (Paper Preview)
-                </h3>
-                <div className={`text-xs font-semibold px-2 py-1 rounded-full ${currentTotalMarks > totalMarks ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                  নির্বাচিত মার্কস: {currentTotalMarks} / {totalMarks}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-1">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">পরীক্ষার নাম (উদা: ১ম সাময়িক / টেস্ট পরীক্ষা)</label>
-                  <input
-                    type="text"
-                    value={examName}
-                    onChange={(e) => setExamName(e.target.value)}
-                    dir="auto"
-                    className="p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-xs w-full text-slate-800 text-start"
-                    placeholder="উদা: অর্ধবার্ষিক পরীক্ষা ২০২৬"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">প্রশ্নের শিরোনাম/বিষয় (উদা: আল-কুরআন ১ম পত্র)</label>
-                  <input
-                    type="text"
-                    value={paperTitle}
-                    onChange={(e) => setPaperTitle(e.target.value)}
-                    dir="auto"
-                    className="p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-xs w-full text-slate-800 text-start"
-                    placeholder="উদা: আল-কুরআন"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">পরীক্ষার সময় (উদা: ২ ঘণ্টা ৩০ মিনিট)</label>
-                  <input
-                    type="text"
-                    value={examTime}
-                    onChange={(e) => setExamTime(e.target.value)}
-                    dir="auto"
-                    className="p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-xs w-full text-slate-800 text-start"
-                    placeholder="উদা: ২ ঘণ্টা ৩০ মিনিট"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">পূর্ণমান / মোট নম্বর</label>
-                  <input
-                    type="number"
-                    value={totalMarks}
-                    onChange={(e) => setTotalMarks(Number(e.target.value))}
-                    dir="auto"
-                    className="p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-xs w-full text-slate-800 text-start"
-                    placeholder="উদা: ১০০"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">প্রশ্নপত্রের ফন্ট (Font)</label>
-                  <select
-                    value={selectedFont}
-                    onChange={(e) => setSelectedFont(e.target.value)}
-                    className="p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none text-xs w-full text-slate-800 bg-white"
-                  >
-                    <option value="font-solaiman">সোলাইমানলিপি (SolaimanLipi - প্রমিত)</option>
-                    <option value="font-shorif">শরীফ শিশির (Shorif Shishir)</option>
-                    <option value="font-hindsiliguri">হিন্দ শিলিগুড়ি (Hind Siliguri)</option>
-                    <option value="font-amiri">আমিরী আরবি (Amiri Arabic)</option>
-                    <option value="font-shahrazad">শেহরেযাদ আরবি (Scheherazade New)</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            
-            <div className="p-6 overflow-y-auto flex-1 bg-slate-50">
-              <div className={`bg-white p-6 shadow-sm border border-slate-200 min-h-full ${selectedFont}`}>
-                <div className="text-center border-b-2 border-slate-800 pb-3 mb-6">
-                  <h1 className="text-xl font-bold mb-1 text-slate-900" dir="auto">{madrasa?.name || 'Madrasa Name'}</h1>
-                  {examName && <h2 className="text-md font-bold mb-0.5 text-slate-800" dir="auto">{examName}</h2>}
-                  <h3 className="text-sm font-semibold text-slate-700" dir="auto">{paperTitle}</h3>
-                  <div className="flex justify-between text-xs mt-4 font-medium text-slate-600">
-                    <span>শ্রেণি: {classes.find((c) => c.id === classId)?.name}</span>
-                    <span>বিষয়: {subjects.find((s) => s.id === subjectId)?.name}</span>
-                  </div>
-                  <div className="flex justify-between text-xs mt-1 font-medium text-slate-600">
-                    <span>সময়: {examTime || "_________________"}</span>
-                    <span>পূর্ণমান: {totalMarks}</span>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  {selectedQuestions.length === 0 ? (
-                    <div className="text-center p-8 text-slate-400 italic">
-                      Select questions from the left panel to add to this paper.
-                    </div>
-                  ) : (
-                    selectedQuestions.map((q, idx) => (
-                      <div key={idx} className="flex gap-4">
-                        <div className="font-semibold">{idx + 1}.</div>
-                        <div className="flex-1">
-                          <div className="flex justify-between items-start">
-                            <p className="font-medium text-slate-900 text-start" dir="auto">{q.question_text}</p>
-                            <span className="text-sm font-semibold ml-4">[{q.marks}]</span>
-                          </div>
-                          {q.question_type === "MCQ" && q.options && (
-                            <div className="grid grid-cols-2 gap-2 mt-3 ml-2">
-                              {q.options.map((opt: string, i: number) => (
-                                <div key={i} className="flex items-center text-sm text-start" dir="auto">
-                                  <span className="mr-2 shrink-0">({String.fromCharCode(97 + i)})</span> <span>{opt}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      ) : (
-        <div className="bg-white p-12 text-center rounded-xl shadow-sm border border-slate-200">
-          <FileSignature className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-slate-600">Select Class and Subject</h3>
-          <p className="text-slate-400">Choose a class and subject above to start generating a question paper.</p>
-        </div>
-      )}
+        ) : (
+          <div className="bg-white p-12 text-center rounded-xl shadow-sm border border-slate-200">
+            <FileSignature className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-lg font-bold text-slate-700">শ্রেণি ও বিষয় নির্বাচন করুন</h3>
+            <p className="text-slate-500 text-sm mt-1">উপরে শ্রেণি এবং বিষয় নির্বাচন করলে প্রশ্নপত্র প্রস্তুত ও কাস্টমাইজ করা যাবে।</p>
+          </div>
+        )}
       </div>
 
       {/* Printable Layout: Visible ONLY when printing */}
-      <div className="hidden print:block print:bg-white print:text-black print:p-0 print:m-0 w-full">
-        <div className="p-8 max-w-4xl mx-auto text-black bg-white" style={{ fontFamily: 'inherit' }}>
-          <div className="text-center border-b-[3px] border-black pb-4 mb-6">
-            <h1 className="text-3xl font-bold mb-2" dir="auto">{madrasa?.name || 'Madrasa Name'}</h1>
-            {madrasa?.address && <p className="text-base mb-2" dir="auto">{madrasa.address}</p>}
-            {examName && <h2 className="text-2xl font-bold mb-1" dir="auto">{examName}</h2>}
-            <h3 className="text-xl font-bold mb-2" dir="auto">{paperTitle}</h3>
-            
-            <div className="flex justify-between text-base mt-6 font-bold px-4">
-              <span>শ্রেণি: {classes.find((c) => c.id === classId)?.name}</span>
-              <span>বিষয়: {subjects.find((s) => s.id === subjectId)?.name}</span>
+      <div 
+        id="exam-paper-print-view" 
+        className={`hidden print:block print:w-full print:bg-white print:text-black print:p-0 print:m-0 ${selectedFont}`}
+      >
+        <div className="p-4 max-w-4xl mx-auto text-black bg-white">
+          <div className="text-center border-b-2 border-black pb-3 mb-6">
+            <div className="font-amiri text-base mb-1" dir="rtl">
+              بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيْمِ
             </div>
-            <div className="flex justify-between text-base mt-2 font-bold px-4">
-              <span>সময়: {examTime || "__________________"}</span>
-              <span>পূর্ণমান: {totalMarks}</span>
+            <h1 className="text-3xl font-extrabold mb-1" dir="auto">{customMadrasaName}</h1>
+            {examName && <h2 className="text-xl font-bold mb-1" dir="auto">{examName}</h2>}
+            
+            <div className="flex justify-between text-sm mt-4 pt-2 border-t border-black font-bold px-2">
+              <span>শ্রেণি: {selectedClassName}</span>
+              <span>বিষয়: {selectedSubjectName}</span>
+            </div>
+            <div className="flex justify-between text-sm mt-1 font-bold px-2">
+              <span>সময়: {examTime}</span>
+              <span>পূর্ণমান: {toBengaliNumerals(totalMarks)}</span>
             </div>
           </div>
 
-          <div className="space-y-6 px-4">
-            {selectedQuestions.map((q, idx) => (
-              <div key={idx} className="flex gap-4 break-inside-avoid">
-                <div className="font-bold text-lg">{idx + 1}.</div>
-                <div className="flex-1">
-                  <div className="flex justify-between items-start">
-                    <p className="text-lg leading-relaxed text-start" dir="auto">{q.question_text}</p>
-                    <span className="text-base font-bold ml-4 shrink-0">[{q.marks}]</span>
+          <div className="space-y-6 px-2">
+            {selectedQuestions.map((q, idx) => {
+              const isRTL = getQuestionDir(q.question_text) === "rtl";
+              return (
+                <div key={idx} dir={isRTL ? "rtl" : "ltr"} className={`break-inside-avoid space-y-1 ${isRTL ? "font-amiri text-right" : "text-left"}`}>
+                  <div className="flex justify-between items-start gap-4">
+                    <p className={`font-semibold ${isRTL ? "text-xl leading-[2.2]" : "text-base leading-relaxed"}`}>
+                      <span className="font-bold ml-1.5 mr-1.5 inline-block">{formatQuestionNumber(idx, isRTL)}</span>
+                      {q.question_text}
+                    </p>
+                    <span className="text-sm font-bold shrink-0 px-2 py-0.5 border border-black rounded">
+                      [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
+                    </span>
                   </div>
                   {q.question_type === "MCQ" && q.options && (
-                    <div className="grid grid-cols-2 gap-4 mt-4 ml-2">
+                    <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 ${isRTL ? "pr-6 text-base" : "pl-6 text-sm"}`}>
                       {q.options.map((opt: string, i: number) => (
-                        <div key={i} className="flex items-center text-base text-start" dir="auto">
-                          <span className="mr-2 font-medium shrink-0">({String.fromCharCode(97 + i)})</span> <span>{opt}</span>
+                        <div key={i} className="flex items-center gap-1.5">
+                          <span className="font-bold">{getOptionLabel(i, isRTL)}</span>
+                          <span>{opt}</span>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
+
+      <style jsx global>{`
+        @media print {
+          html, body {
+            background: #ffffff !important;
+            color: #000000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          #exam-paper-print-view, #exam-paper-print-view * {
+            visibility: visible !important;
+          }
+          #exam-paper-print-view {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            display: block !important;
+            background: white !important;
+            padding: 10mm 15mm !important;
+          }
+          @page {
+            size: A4 portrait;
+            margin: 10mm;
+          }
+        }
+      `}</style>
     </div>
   );
 }
