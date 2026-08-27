@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { BookUp, BookOpen, User, Calendar, CheckCircle2, AlertCircle, Search } from "lucide-react";
 import { issueBook } from "@/app/actions/library";
+import StudentSearchSelector from "@/components/common/StudentSearchSelector";
 import { convertToBanglaNumber } from "@/lib/student-utils";
 
 interface Book {
@@ -157,30 +158,16 @@ export default function IssueClient({ books, students, initialIssues }: IssueCli
               )}
             </div>
 
-            {/* Student Select */}
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center">
-                <User className="w-3.5 h-3.5 mr-1" />
-                শিক্ষার্থী নির্বাচন করুন <span className="text-red-500 ml-1">*</span>
-              </label>
-              <select
-                required
-                className="w-full px-3 py-2 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                value={selectedStudentId}
-                onChange={(e) => setSelectedStudentId(e.target.value)}
-              >
-                <option value="">শিক্ষার্থী বেছে নিন...</option>
-                {students.map((s) => {
-                  const rollStr = s.roll_number ? ` (রোল: ${convertToBanglaNumber(s.roll_number)})` : "";
-                  const classStr = s.classes?.name ? ` - ${s.classes.name}` : "";
-                  return (
-                    <option key={s.id} value={s.id}>
-                      {s.first_name} {s.last_name}{rollStr}{classStr}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+            {/* Student Search & Select */}
+            <StudentSearchSelector
+              students={students}
+              value={selectedStudentId}
+              onChange={(id) => setSelectedStudentId(id)}
+              name="student_id"
+              label="শিক্ষার্থী নির্বাচন করুন"
+              placeholder="শিক্ষার্থী বেছে নিন (নাম বা রোল লিখে খুঁজুন)..."
+              required
+            />
 
             {/* Issue Date */}
             <div className="space-y-1">

@@ -96,19 +96,56 @@ body, input, textarea, select, button {
 @media print {
   @page {
     size: auto;
-    margin: 10mm;
+    margin: 8mm;
   }
-  * {
+  *, *::before, *::after {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    box-sizing: border-box !important;
   }
-  body {
+  html, body {
     background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
   }
   .print-pad-container {
     box-sizing: border-box !important;
     padding: 0 !important;
     margin: 0 !important;
+    width: 100% !important;
+  }
+  /* Page break helpers */
+  .page-break-after {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+  .page-break-after:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  .page-break-avoid, .print-break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  /* Single-page fit container */
+  .print-single-page {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    max-height: 100% !important;
+    box-sizing: border-box !important;
+  }
+  /* Landscape auto-centering helper */
+  .print-landscape-fit {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
   }
 }
 

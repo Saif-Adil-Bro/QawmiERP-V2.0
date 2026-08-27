@@ -86,10 +86,117 @@ export async function saveMealEntries(date: string, mealData: { student_id: stri
 }
 
 // ==========================================
-// 2. BAZAR EXPENSES
+// 2. BAZAR EXPENSES & VOUCHER SYSTEM
 // ==========================================
 
-export async function getBazarExpenses(startDate?: string, endDate?: string) {
+export interface BazarExpenseItem {
+  id: string;
+  madrasa_id?: string;
+  amount: number | string;
+  expense_date: string;
+  items_details: string;
+  voucher_no: string;
+  buyer_name?: string;
+  payment_method?: string;
+  fund_id?: string;
+  fund_name?: string;
+  created_at?: string;
+}
+
+// Parse metadata tag from items_details if stored there
+function parseExpenseMetadata(rawDetails: string | null | undefined, fallbackId: string, expenseDate: string, index: number): {
+  cleanDetails: string;
+  voucherNo: string;
+  buyerName: string;
+  paymentMethod: string;
+  fundId: string;
+  fundName: string;
+} {
+  let cleanDetails = (rawDetails || "").trim();
+  let voucherNo = "";
+  let buyerName = "";
+  let paymentMethod = "Cash";
+  let fundId = "fund-lillah";
+  let fundName = "লিল্লাহ বোর্ডিং ফান্ড";
+
+  // Check [VOUCHER: ... | BUYER: ... | METHOD: ... | FUND: ... | FUND_NAME: ...]
+  if (cleanDetails.includes("[VOUCHER:")) {
+    const matchVoucher = cleanDetails.match(/\[VOUCHER:\s*([^\]|]+)/i);
+    if (matchVoucher && matchVoucher[1]) {
+      voucherNo = matchVoucher[1].trim();
+    }
+    const matchBuyer = cleanDetails.match(/BUYER:\s*([^\]|]+)/i);
+    if (matchBuyer && matchBuyer[1]) {
+      buyerName = matchBuyer[1].trim();
+    }
+    const matchMethod = cleanDetails.match(/METHOD:\s*([^\]|]+)/i);
+    if (matchMethod && matchMethod[1]) {
+      paymentMethod = matchMethod[1].trim();
+    }
+    const matchFund = cleanDetails.match(/FUND:\s*([^\]|]+)/i);
+    if (matchFund && matchFund[1]) {
+      fundId = matchFund[1].trim();
+    }
+    const matchFundName = cleanDetails.match(/FUND_NAME:\s*([^\]|]+)/i);
+    if (matchFundName && matchFundName[1]) {
+      fundName = matchFundName[1].trim();
+    }
+    // Remove the metadata tag from display details
+    cleanDetails = cleanDetails.replace(/\[VOUCHER:[^\]]+\]\s*/i, "").trim();
+  }
+
+  // Fallback auto-generated voucher number if none found
+  if (!voucherNo) {
+    const d = expenseDate ? new Date(expenseDate) : new Date();
+    const yy = String(d.getFullYear()).slice(-2);
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const suffix = fallbackId ? fallbackId.replace(/-/g, "").substring(0, 4).toUpperCase() : String(index + 1).padStart(3, "0");
+    voucherNo = `BV-${yy}${mm}${suffix}`;
+  }
+
+  return {
+    cleanDetails,
+    voucherNo,
+    buyerName,
+    paymentMethod,
+    fundId,
+    fundName,
+  };
+}
+
+export async function getNextBazarVoucherNo(): Promise<string> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return `BV-${new Date().toISOString().slice(2, 7).replace("-", "")}001`;
+
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) return `BV-${new Date().toISOString().slice(2, 7).replace("-", "")}001`;
+
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const currentPrefix = `BV-${yy}${mm}`;
+
+    // Get count of expenses in current month
+    const startOfMonth = `${now.getFullYear()}-${mm}-01`;
+    const { count } = await supabase
+      .from("bazar_expenses")
+      .select("id", { count: "exact", head: true })
+      .eq("madrasa_id", finalMadrasaId)
+      .gte("expense_date", startOfMonth);
+
+    const nextSeq = String((count || 0) + 1).padStart(3, "0");
+    return `${currentPrefix}${nextSeq}`;
+  } catch (e) {
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    return `BV-${yy}${mm}001`;
+  }
+}
+
+export async function getBazarExpenses(startDate?: string, endDate?: string): Promise<BazarExpenseItem[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
@@ -115,10 +222,36 @@ export async function getBazarExpenses(startDate?: string, endDate?: string) {
     console.error("Error fetching bazar expenses:", error);
     return [];
   }
-  return data;
+
+  return (data || []).map((row: any, index: number) => {
+    const meta = parseExpenseMetadata(row.items_details, row.id, row.expense_date, index);
+    return {
+      id: row.id,
+      madrasa_id: row.madrasa_id,
+      amount: row.amount,
+      expense_date: row.expense_date,
+      items_details: meta.cleanDetails,
+      voucher_no: row.voucher_no || meta.voucherNo,
+      buyer_name: row.buyer_name || meta.buyerName,
+      payment_method: row.payment_method || meta.paymentMethod,
+      fund_id: row.fund_id || meta.fundId,
+      fund_name: row.fund_name || meta.fundName,
+      created_at: row.created_at,
+    };
+  });
 }
 
-export async function saveBazarExpense(expense: { id?: string; amount: number; expense_date: string; items_details: string }) {
+export async function saveBazarExpense(expense: {
+  id?: string;
+  amount: number;
+  expense_date: string;
+  items_details: string;
+  voucher_no?: string;
+  buyer_name?: string;
+  payment_method?: string;
+  fund_id?: string;
+  fund_name?: string;
+}) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Unauthorized" };
@@ -126,37 +259,119 @@ export async function saveBazarExpense(expense: { id?: string; amount: number; e
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
-  const record: any = {
+  // Determine or generate voucher number
+  let voucherNo = (expense.voucher_no || "").trim();
+  if (!voucherNo) {
+    const d = expense.expense_date ? new Date(expense.expense_date) : new Date();
+    const yy = String(d.getFullYear()).slice(-2);
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const rand = Math.floor(100 + Math.random() * 900);
+    voucherNo = `BV-${yy}${mm}${rand}`;
+  }
+
+  const buyerName = (expense.buyer_name || "").trim();
+  const paymentMethod = (expense.payment_method || "Cash").trim();
+  const cleanItems = (expense.items_details || "").trim();
+  const fundId = (expense.fund_id || "fund-lillah").trim();
+  const fundName = (expense.fund_name || "লিল্লাহ বোর্ডিং ফান্ড").trim();
+
+  // Construct metadata wrapper for items_details (ensures 100% data persistence without schema changes)
+  const wrappedDetails = `[VOUCHER: ${voucherNo} | BUYER: ${buyerName} | METHOD: ${paymentMethod} | FUND: ${fundId} | FUND_NAME: ${fundName}]\n${cleanItems}`.trim();
+
+  const recordWithDirectCols: any = {
     madrasa_id: finalMadrasaId,
     amount: expense.amount,
     expense_date: expense.expense_date,
-    items_details: expense.items_details
+    items_details: wrappedDetails,
+    voucher_no: voucherNo,
+    buyer_name: buyerName,
+    payment_method: paymentMethod,
+    fund_id: fundId,
+    fund_name: fundName,
   };
 
-  if (expense.id) {
-    const { error } = await supabase
-      .from("bazar_expenses")
-      .update(record)
-      .eq("id", expense.id)
-      .eq("madrasa_id", finalMadrasaId);
+  const fallbackRecord: any = {
+    madrasa_id: finalMadrasaId,
+    amount: expense.amount,
+    expense_date: expense.expense_date,
+    items_details: wrappedDetails,
+  };
 
-    if (error) {
-      console.error("Error updating bazar expense:", error);
-      return { error: error.message };
+  let savedRow: any = null;
+
+  if (expense.id) {
+    // Try updating with direct columns
+    const { data: updatedData, error: updateError } = await supabase
+      .from("bazar_expenses")
+      .update(recordWithDirectCols)
+      .eq("id", expense.id)
+      .eq("madrasa_id", finalMadrasaId)
+      .select()
+      .single();
+
+    if (updateError) {
+      // Retry with plain schema
+      const { data: retryData, error: retryError } = await supabase
+        .from("bazar_expenses")
+        .update(fallbackRecord)
+        .eq("id", expense.id)
+        .eq("madrasa_id", finalMadrasaId)
+        .select()
+        .single();
+
+      if (retryError) {
+        console.error("Error updating bazar expense:", retryError);
+        return { error: retryError.message };
+      }
+      savedRow = retryData;
+    } else {
+      savedRow = updatedData;
     }
   } else {
-    const { error } = await supabase
+    // Try inserting with direct columns
+    const { data: insertedData, error: insertError } = await supabase
       .from("bazar_expenses")
-      .insert([record]);
+      .insert([recordWithDirectCols])
+      .select()
+      .single();
 
-    if (error) {
-      console.error("Error inserting bazar expense:", error);
-      return { error: error.message };
+    if (insertError) {
+      // Retry with plain schema
+      const { data: retryData, error: retryError } = await supabase
+        .from("bazar_expenses")
+        .insert([fallbackRecord])
+        .select()
+        .single();
+
+      if (retryError) {
+        console.error("Error inserting bazar expense:", retryError);
+        return { error: retryError.message };
+      }
+      savedRow = retryData;
+    } else {
+      savedRow = insertedData;
     }
   }
 
   revalidatePath("/dashboard/boarding/bazar");
-  return { success: true };
+  revalidatePath("/dashboard/boarding");
+  revalidatePath("/dashboard/accounting");
+  revalidatePath("/dashboard/accounting/reports");
+
+  return {
+    success: true,
+    expense: {
+      id: savedRow?.id || expense.id || "",
+      amount: expense.amount,
+      expense_date: expense.expense_date,
+      items_details: cleanItems,
+      voucher_no: voucherNo,
+      buyer_name: buyerName,
+      payment_method: paymentMethod,
+      fund_id: fundId,
+      fund_name: fundName,
+    } as BazarExpenseItem,
+  };
 }
 
 export async function deleteBazarExpense(id: string) {
@@ -179,7 +394,13 @@ export async function deleteBazarExpense(id: string) {
   }
 
   revalidatePath("/dashboard/boarding/bazar");
+  revalidatePath("/dashboard/boarding");
   return { success: true };
+}
+
+export async function getBoardingMadrasaInfo() {
+  const { getMadrasaInfo } = await import("@/lib/getMadrasaInfo");
+  return await getMadrasaInfo();
 }
 
 // ==========================================

@@ -45,6 +45,7 @@ export default async function ExpensesPage({
               <thead className="bg-slate-50 text-slate-700 border-b">
                 <tr>
                   <th className="px-6 py-4 font-medium">তারিখ</th>
+                  <th className="px-6 py-4 font-medium">ফান্ড (Fund)</th>
                   <th className="px-6 py-4 font-medium">খাত (Category)</th>
                   <th className="px-6 py-4 font-medium">বিবরণ</th>
                   <th className="px-6 py-4 font-medium text-right">পরিমাণ (৳)</th>
@@ -55,6 +56,11 @@ export default async function ExpensesPage({
                 {expenses.map((expense) => (
                   <tr key={expense.id} className="hover:bg-slate-50/50 transition">
                     <td className="px-6 py-4 whitespace-nowrap">{format(new Date(expense.expense_date), "dd MMM, yyyy")}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        {expense.fund_name || "সাধারণ ফান্ড"}
+                      </span>
+                    </td>
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-100">
                         {expense.category === 'Salary' ? 'বেতন (Salary)' :

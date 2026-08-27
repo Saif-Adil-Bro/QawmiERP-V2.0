@@ -1,0 +1,19 @@
+--- app/actions/exams.ts
++++ app/actions/exams.ts
+@@ -192,7 +192,15 @@
+     .in("student_id", students.map(s => s.id));
+     
+   if (resultsError) return [];
++  
++  // Get valid subjects for this exam from setup
++  const { data: validSubjects } = await supabase
++    .from("exam_subjects")
++    .select("subject_name, class_id")
++    .eq("exam_id", examId);
+ 
+   // Group results by student
+   const studentResults = students.map(student => {
+-    const studentMarks = results.filter(r => r.student_id === student.id);
++    const validSubjectNames = validSubjects?.filter(vs => vs.class_id === student.class_id).map(vs => vs.subject_name) || [];
++    const studentMarks = results.filter(r => r.student_id === student.id && validSubjectNames.includes(r.subject_name));
+     const totalObtained = studentMarks.reduce((sum, r) => sum + Number(r.marks_obtained), 0);

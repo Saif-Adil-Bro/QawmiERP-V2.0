@@ -1,14 +1,18 @@
 import { getStudents } from "@/app/actions/students";
+import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import AddFeeForm from "./AddFeeForm";
 
 export default async function NewFeePage() {
-  const students = await getStudents();
+  const [students, madrasaInfo] = await Promise.all([
+    getStudents(),
+    getMadrasaInfo()
+  ]);
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center space-x-4">
+    <div className="max-w-3xl mx-auto space-y-6">
+      <div className="flex items-center space-x-4 print:hidden">
         <Link
           href="/dashboard/accounting/fees"
           className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition"
@@ -21,9 +25,10 @@ export default async function NewFeePage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border p-6">
-        <AddFeeForm students={students} />
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 print:border-none print:shadow-none print:p-0">
+        <AddFeeForm students={students} madrasaInfo={madrasaInfo} />
       </div>
     </div>
   );
 }
+

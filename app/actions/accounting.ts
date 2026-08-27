@@ -146,16 +146,41 @@ export async function deleteFee(feeId: string) {
   return { success: true };
 }
 
-export async function getExpenses(filters?: { month?: string; year?: string }) {
+// Helper to parse fund metadata from description if stored like [FUND: fund_id | name]
+function parseExpenseFund(rawDesc: string | null | undefined): { cleanDesc: string; fundId?: string; fundName?: string } {
+  const desc = (rawDesc || "").trim();
+  if (!desc.includes("[FUND:")) {
+    return { cleanDesc: desc };
+  }
+  const match = desc.match(/\[FUND:\s*([^\]|]+)(?:\|\s*([^\]]+))?\]/i);
+  let fundId = undefined;
+  let fundName = undefined;
+  if (match) {
+    fundId = match[1]?.trim();
+    if (match[2]) {
+      fundName = match[2]?.trim();
+    }
+  }
+  const cleanDesc = desc.replace(/\[FUND:[^\]]+\]\s*/i, "").trim();
+  return { cleanDesc, fundId, fundName };
+}
+
+export async function getExpenses(filters?: { month?: string; year?: string; fundId?: string }) {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+  if (!finalMadrasaId) return [];
+
   let query = supabase
     .from("expenses")
     .select("*")
+    .eq("madrasa_id", finalMadrasaId)
     .order("expense_date", { ascending: false })
     .order("created_at", { ascending: false });
 
-  // Note: For expenses, month and year filtering would typically be done by parsing expense_date
-  // We can do it in code if necessary, or pass date ranges. Let's do simple date ranges for month.
+  // Month and year filtering
   if (filters?.month && filters?.year) {
     const startDate = `${filters.year}-${filters.month.padStart(2, '0')}-01`;
     const endDate = new Date(parseInt(filters.year), parseInt(filters.month), 0).toISOString().split('T')[0];
@@ -167,7 +192,22 @@ export async function getExpenses(filters?: { month?: string; year?: string }) {
     console.error("Error fetching expenses:", error);
     return [];
   }
-  return data;
+
+  const list = (data || []).map((exp: any) => {
+    const parsed = parseExpenseFund(exp.description);
+    return {
+      ...exp,
+      description: parsed.cleanDesc,
+      fund_id: exp.fund_id || parsed.fundId || "fund-general",
+      fund_name: exp.fund_name || parsed.fundName || "সাধারণ ফান্ড",
+    };
+  });
+
+  if (filters?.fundId && filters.fundId !== "all") {
+    return list.filter((e: any) => e.fund_id === filters.fundId);
+  }
+
+  return list;
 }
 
 export async function createExpense(prevState: any, formData: FormData) {
@@ -182,25 +222,50 @@ export async function createExpense(prevState: any, formData: FormData) {
   const amount = formData.get("amount") as string;
   const expenseDate = formData.get("expense_date") as string;
   const description = formData.get("description") as string;
+  const fundId = (formData.get("fund_id") as string) || "fund-general";
+  const fundName = (formData.get("fund_name") as string) || "সাধারণ ফান্ড";
 
   if (!category || !amount || !expenseDate) {
     return { error: "ক্যাটাগরি, পরিমাণ এবং তারিখ আবশ্যক।" };
   }
 
-  const { error } = await supabase.from("expenses").insert({
+  const cleanDesc = (description || "").trim();
+  // Store fund metadata seamlessly inside description for guaranteed backwards/forward compatibility
+  const wrappedDescription = `[FUND: ${fundId} | ${fundName}]\n${cleanDesc}`.trim();
+
+  // Try direct column insertion if fund_id exists in schema, fallback to metadata wrapper
+  const recordWithFundCol: any = {
     madrasa_id: finalMadrasaId,
     category: category,
     amount: parseFloat(amount),
     expense_date: expenseDate,
-    description: description || null,
-  });
+    description: wrappedDescription,
+    fund_id: fundId,
+    fund_name: fundName,
+  };
 
-  if (error) {
-    console.error("Error creating expense:", error);
-    return { error: error.message };
+  const fallbackRecord: any = {
+    madrasa_id: finalMadrasaId,
+    category: category,
+    amount: parseFloat(amount),
+    expense_date: expenseDate,
+    description: wrappedDescription,
+  };
+
+  const { error: directError } = await supabase.from("expenses").insert(recordWithFundCol);
+
+  if (directError) {
+    // Retry with plain table columns
+    const { error: retryError } = await supabase.from("expenses").insert(fallbackRecord);
+    if (retryError) {
+      console.error("Error creating expense:", retryError);
+      return { error: retryError.message };
+    }
   }
 
   revalidatePath("/dashboard/accounting/expenses");
+  revalidatePath("/dashboard/accounting/reports");
+  revalidatePath("/dashboard/accounting");
   return { success: true };
 }
 
@@ -214,40 +279,146 @@ export async function deleteExpense(expenseId: string) {
   }
 
   revalidatePath("/dashboard/accounting/expenses");
+  revalidatePath("/dashboard/accounting/reports");
   return { success: true };
 }
 
-export async function getAccountingReport(month: string, year: string) {
+export async function getAccountingReport(month: string, year: string, fundId?: string) {
   const startDate = `${year}-${month.padStart(2, '0')}-01`;
   const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
   
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { totalIncome: 0, totalExpense: 0, netBalance: 0 };
+  if (!user) return { totalIncome: 0, totalExpense: 0, netBalance: 0, fundStats: [] };
   
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { totalIncome: 0, totalExpense: 0, netBalance: 0 };
+  if (!finalMadrasaId) return { totalIncome: 0, totalExpense: 0, netBalance: 0, fundStats: [] };
 
   const { data: feesData } = await supabase
     .from("fees")
-    .select("amount")
+    .select("amount, created_at, payment_date")
     .eq('madrasa_id', finalMadrasaId)
     .gte('payment_date', startDate)
     .lte('payment_date', endDate);
 
+  // Also fetch zakat / general donations for accurate total madrasa fund income
+  const { data: donationsData } = await supabase
+    .from("donations")
+    .select("amount, fund_id, donation_type, donation_date")
+    .eq('madrasa_id', finalMadrasaId)
+    .gte('donation_date', startDate)
+    .lte('donation_date', endDate);
+
   const { data: expensesData } = await supabase
     .from("expenses")
-    .select("amount")
+    .select("amount, description, category, expense_date")
     .eq('madrasa_id', finalMadrasaId)
     .gte('expense_date', startDate)
     .lte('expense_date', endDate);
 
-  const totalFees = feesData?.reduce((sum, item) => sum + Number(item.amount), 0) || 0;
-  const totalExpenses = expensesData?.reduce((sum, item) => sum + Number(item.amount), 0) || 0;
+  const { data: bazarData } = await supabase
+    .from("bazar_expenses")
+    .select("amount, items_details, expense_date")
+    .eq('madrasa_id', finalMadrasaId)
+    .gte('expense_date', startDate)
+    .lte('expense_date', endDate);
+
+  // Parse expenses with their selected fund
+  const parsedExpenses = (expensesData || []).map((exp: any) => {
+    const parsed = parseExpenseFund(exp.description);
+    return {
+      ...exp,
+      fund_id: parsed.fundId || "fund-general",
+      fund_name: parsed.fundName || "সাধারণ ফান্ড",
+      amount: Number(exp.amount || 0),
+    };
+  });
+
+  // Parse bazar expenses with fund (default to Lillah boarding fund or selected fund)
+  const parsedBazar = (bazarData || []).map((b: any) => {
+    const details = b.items_details || "";
+    let fundId = "fund-lillah"; // Default boarding bazar fund
+    let fundName = "লিল্লাহ বোর্ডিং ফান্ড";
+    if (details.includes("[FUND:")) {
+      const match = details.match(/\[FUND:\s*([^\]|]+)(?:\|\s*([^\]]+))?\]/i);
+      if (match && match[1]) {
+        fundId = match[1].trim();
+        fundName = match[2]?.trim() || fundName;
+      }
+    }
+    return {
+      amount: Number(b.amount || 0),
+      fund_id: fundId,
+      fund_name: fundName,
+      category: "Food",
+    };
+  });
+
+  const allExpenses = [...parsedExpenses, ...parsedBazar];
+
+  // Group by Fund for income vs expense reconciliation
+  const fundMap = new Map<string, { fund_id: string; fund_name: string; income: number; expense: number }>();
+
+  // Initialize standard funds
+  const defaultFundKeys = [
+    { id: "fund-general", name: "সাধারণ ফান্ড (General Fund)" },
+    { id: "fund-lillah", name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" },
+    { id: "fund-zakat", name: "যাকাত ফান্ড (Zakat Fund)" },
+    { id: "fund-fitra", name: "ফিতরা ও সদকা ফান্ড" },
+    { id: "fund-dev", name: "মসজিদ ও উন্নয়ন ফান্ড" },
+    { id: "fund-orphan", name: "এতিম কল্যাণ ফান্ড" },
+  ];
+
+  defaultFundKeys.forEach(f => {
+    fundMap.set(f.id, { fund_id: f.id, fund_name: f.name, income: 0, expense: 0 });
+  });
+
+  // Add Fees income to General fund
+  const totalFees = feesData?.reduce((sum, item) => sum + Number(item.amount || 0), 0) || 0;
+  if (fundMap.has("fund-general")) {
+    fundMap.get("fund-general")!.income += totalFees;
+  }
+
+  // Add Donations to their respective funds
+  (donationsData || []).forEach((don: any) => {
+    const fId = don.fund_id || (don.donation_type === "Zakat" ? "fund-zakat" : don.donation_type === "Lillah" ? "fund-lillah" : "fund-general");
+    const current = fundMap.get(fId) || { fund_id: fId, fund_name: don.donation_type || "অন্যান্য ফান্ড", income: 0, expense: 0 };
+    current.income += Number(don.amount || 0);
+    fundMap.set(fId, current);
+  });
+
+  // Add Expenses to their respective funds
+  allExpenses.forEach((exp: any) => {
+    const fId = exp.fund_id || "fund-general";
+    const current = fundMap.get(fId) || { fund_id: fId, fund_name: exp.fund_name || "অন্যান্য ফান্ড", income: 0, expense: 0 };
+    current.expense += exp.amount;
+    fundMap.set(fId, current);
+  });
+
+  const totalDonations = donationsData?.reduce((sum, item) => sum + Number(item.amount || 0), 0) || 0;
+  const totalIncome = totalFees + totalDonations;
+  const totalExpenses = allExpenses.reduce((sum, item) => sum + item.amount, 0);
+
+  const fundStats = Array.from(fundMap.values()).map(f => ({
+    ...f,
+    balance: f.income - f.expense,
+  }));
+
+  // If specific fund filtered
+  if (fundId && fundId !== "all") {
+    const target = fundMap.get(fundId) || { fund_id: fundId, fund_name: "ফান্ড", income: 0, expense: 0 };
+    return {
+      totalIncome: target.income,
+      totalExpense: target.expense,
+      netBalance: target.income - target.expense,
+      fundStats,
+    };
+  }
 
   return {
-    totalIncome: totalFees,
+    totalIncome: totalIncome,
     totalExpense: totalExpenses,
-    netBalance: totalFees - totalExpenses
+    netBalance: totalIncome - totalExpenses,
+    fundStats,
   };
 }

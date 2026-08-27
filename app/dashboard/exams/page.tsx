@@ -39,29 +39,70 @@ export default async function ExamsPage() {
                 <tr>
                   <th className="px-6 py-4 font-medium">পরীক্ষার নাম</th>
                   <th className="px-6 py-4 font-medium">বছর</th>
-                  <th className="px-6 py-4 font-medium">শুরুর তারিখ</th>
+                  <th className="px-6 py-4 font-medium">তারিখ ও সময়সূচি</th>
                   <th className="px-6 py-4 font-medium">অবস্থা (Status)</th>
                   <th className="px-6 py-4 font-medium text-right">পদক্ষেপ</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {exams.map((exam) => (
-                  <tr key={exam.id} className="hover:bg-slate-50/50 transition">
-                    <td className="px-6 py-4 font-medium text-slate-900">{exam.title}</td>
-                    <td className="px-6 py-4">{exam.year}</td>
-                    <td className="px-6 py-4">
-                      {exam.start_date ? format(new Date(exam.start_date), "dd MMM, yyyy") : '-'}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${
-                        exam.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                        exam.status === 'Ongoing' ? 'bg-amber-50 text-amber-700 border-amber-100' :
-                        'bg-blue-50 text-blue-700 border-blue-100'
-                      }`}>
-                        {exam.status === 'Upcoming' ? 'আসন্ন' : exam.status === 'Ongoing' ? 'চলমান' : 'সম্পন্ন'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right space-x-2">
+                {exams.map((exam: any) => {
+                  const startDateStr = exam.effective_start_date || exam.start_date;
+                  const endDateStr = exam.effective_end_date || exam.last_routine_date;
+                  const hasDifferentEndDate = endDateStr && startDateStr && endDateStr !== startDateStr;
+
+                  return (
+                    <tr key={exam.id} className="hover:bg-slate-50/50 transition">
+                      <td className="px-6 py-4">
+                        <div className="font-medium text-slate-900">{exam.title}</div>
+                        {exam.routine_count > 0 && (
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            {exam.routine_count} টি বিষয়ের রুটিন নির্ধারিত
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 font-medium text-slate-600">{exam.year}</td>
+                      <td className="px-6 py-4">
+                        {startDateStr ? (
+                          <div>
+                            <div className="text-slate-800 font-medium text-xs sm:text-sm">
+                              {format(new Date(startDateStr), "dd MMM, yyyy")}
+                              {hasDifferentEndDate && ` — ${format(new Date(endDateStr), "dd MMM, yyyy")}`}
+                            </div>
+                            {hasDifferentEndDate && (
+                              <div className="text-[11px] text-indigo-600 mt-0.5">
+                                রুটিনের শেষ দিন: {format(new Date(endDateStr), "dd MMM")}
+                              </div>
+                            )}
+                            {!hasDifferentEndDate && exam.routine_count === 0 && (
+                              <div className="text-[11px] text-slate-400 mt-0.5">রুটিন এন্ট্রি বাকি</div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 text-xs">তারিখ নির্ধারিত নেই</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {exam.status === "Ongoing" ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 shadow-sm">
+                            <span className="relative flex h-2 w-2 mr-1.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                            </span>
+                            চলমান
+                          </span>
+                        ) : exam.status === "Completed" ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                            সম্পন্ন
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5"></span>
+                            আসন্ন
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right space-x-1.5">
                       <Link
                         href={`/dashboard/exams/${exam.id}/marks`}
                         className="inline-flex items-center justify-center p-2 text-indigo-600 hover:bg-indigo-50 rounded-md transition border border-transparent hover:border-indigo-100"
@@ -120,7 +161,8 @@ export default async function ExamsPage() {
                       </Link>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

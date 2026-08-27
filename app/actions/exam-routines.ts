@@ -58,6 +58,8 @@ export async function saveExamRoutine(data: {
     console.error("Error saving exam routine:", error);
     return { error: error.message };
   }
+  revalidatePath("/dashboard/exams");
+  revalidatePath(`/dashboard/exams/${data.exam_id}`);
   revalidatePath(`/dashboard/exams/${data.exam_id}/routine`);
   return { success: true };
 }
@@ -69,6 +71,8 @@ export async function deleteExamRoutine(id: string, examId: string) {
     console.error("Error deleting exam routine:", error);
     return { error: error.message };
   }
+  revalidatePath("/dashboard/exams");
+  revalidatePath(`/dashboard/exams/${examId}`);
   revalidatePath(`/dashboard/exams/${examId}/routine`);
   return { success: true };
 }

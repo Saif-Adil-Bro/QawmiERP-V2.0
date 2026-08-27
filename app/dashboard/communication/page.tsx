@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageSquare, Bell, Send } from "lucide-react";
+import { MessageSquare, Bell, Send, Layers } from "lucide-react";
 
 export default function CommunicationDashboardPage() {
   return (
@@ -9,21 +9,33 @@ export default function CommunicationDashboardPage() {
         <p className="text-slate-500">ছাত্র, অভিভাবক এবং শিক্ষকদের সাথে যোগাযোগ ও এসএমএস ম্যানেজমেন্ট</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Link href="/dashboard/communication/sms" className="block">
-          <div className="bg-white p-6 rounded-xl border shadow-sm hover:shadow-md hover:border-slate-300 transition group cursor-pointer h-full">
+          <div className="bg-white p-6 rounded-xl border shadow-sm hover:shadow-md hover:border-blue-300 transition group cursor-pointer h-full">
             <div className="flex items-center space-x-4 mb-4">
               <div className="bg-blue-50 p-3 rounded-lg group-hover:bg-blue-100 transition">
                 <Send className="w-6 h-6 text-blue-600" />
               </div>
-              <h2 className="text-lg font-bold text-slate-800">এসএমএস (SMS) পাঠানো</h2>
+              <h2 className="text-lg font-bold text-slate-800">এসএমএস পাঠানো</h2>
             </div>
             <p className="text-sm text-slate-600">হাজিরা, পরীক্ষার ফলাফল বা ফি বকেয়ার মেসেজ পাঠান।</p>
           </div>
         </Link>
 
+        <Link href="/dashboard/communication/sms" className="block">
+          <div className="bg-white p-6 rounded-xl border shadow-sm hover:shadow-md hover:border-indigo-300 transition group cursor-pointer h-full">
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="bg-indigo-50 p-3 rounded-lg group-hover:bg-indigo-100 transition">
+                <Layers className="w-6 h-6 text-indigo-600" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-800">টেমপ্লেট বিল্ডার</h2>
+            </div>
+            <p className="text-sm text-slate-600">ডাইনামিক ভ্যারিয়েবল সহ কাস্টম এসএমএস টেমপ্লেট তৈরি ও পরিচালনা করুন।</p>
+          </div>
+        </Link>
+
         <Link href="/dashboard/communication/notices" className="block">
-          <div className="bg-white p-6 rounded-xl border shadow-sm hover:shadow-md hover:border-slate-300 transition group cursor-pointer h-full">
+          <div className="bg-white p-6 rounded-xl border shadow-sm hover:shadow-md hover:border-amber-300 transition group cursor-pointer h-full">
             <div className="flex items-center space-x-4 mb-4">
               <div className="bg-amber-50 p-3 rounded-lg group-hover:bg-amber-100 transition">
                 <Bell className="w-6 h-6 text-amber-600" />
@@ -49,3 +61,4 @@ export default function CommunicationDashboardPage() {
     </div>
   );
 }
+

@@ -8,6 +8,7 @@ import {
 import { getStudentReportCard } from "@/app/actions/exams";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
 import PrintLetterpad from "@/app/components/PrintLetterpad";
+import StudentSearchSelector from "@/components/common/StudentSearchSelector";
 
 export default function CertificateClient({ 
   selectedStudent, 
@@ -174,9 +175,31 @@ export default function CertificateClient({
       {activeTab === 'certificate' && (
         <style dangerouslySetInnerHTML={{__html: `
           @media print {
-            @page { size: landscape; margin: 1cm; }
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: white !important; }
-            .print-area-certificate { display: block !important; width: 100% !important; }
+            @page { 
+              size: A4 landscape; 
+              margin: 8mm; 
+            }
+            html, body {
+              width: 100% !important;
+              height: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: white !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .print-area-certificate { 
+              display: flex !important; 
+              flex-direction: column !important;
+              justify-content: center !important;
+              align-items: center !important;
+              width: 100% !important; 
+              height: 100% !important;
+              min-height: 96vh !important;
+              margin: 0 auto !important;
+              padding: 0 !important;
+              box-sizing: border-box !important;
+            }
             .print-hidden-element { display: none !important; }
           }
         `}} />
@@ -184,19 +207,61 @@ export default function CertificateClient({
       {activeTab === 'marksheet' && (
         <style dangerouslySetInnerHTML={{__html: `
           @media print {
-            @page { size: portrait; margin: 1cm; }
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: white !important; }
-            .print-area-marksheet { display: block !important; width: 100% !important; }
+            @page { 
+              size: A4 portrait; 
+              margin: 8mm; 
+            }
+            html, body {
+              width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: white !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .print-area-marksheet { 
+              display: block !important; 
+              width: 100% !important; 
+              margin: 0 auto !important;
+            }
             .print-hidden-element { display: none !important; }
+            .marksheet-page-item {
+              page-break-after: always !important;
+              break-after: page !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+              box-sizing: border-box !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            .marksheet-page-item:last-child {
+              page-break-after: auto !important;
+              break-after: auto !important;
+            }
           }
         `}} />
       )}
       {activeTab === 'results' && (
         <style dangerouslySetInnerHTML={{__html: `
           @media print {
-            @page { size: landscape; margin: 1cm; }
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: white !important; }
-            .print-area-results { display: block !important; width: 100% !important; }
+            @page { 
+              size: A4 landscape; 
+              margin: 8mm; 
+            }
+            html, body {
+              width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: white !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .print-area-results { 
+              display: block !important; 
+              width: 100% !important; 
+              max-width: 100% !important;
+              margin: 0 auto !important;
+            }
             .print-hidden-element { display: none !important; }
           }
         `}} />
@@ -254,15 +319,14 @@ export default function CertificateClient({
             </h3>
             <form onSubmit={handleCertificateSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">শিক্ষার্থী নির্বাচন করুন</label>
-                <select name="student_id" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-slate-800 text-sm" required defaultValue={initialStudentId || ""}>
-                  <option value="">-- শিক্ষার্থী নির্বাচন --</option>
-                  {students.map((student) => (
-                    <option key={student.id} value={student.id}>
-                      {student.first_name} {student.last_name} (রোল: {student.roll_number || 'নেই'})
-                    </option>
-                  ))}
-                </select>
+                <StudentSearchSelector
+                  students={students}
+                  name="student_id"
+                  defaultValue={initialStudentId || ""}
+                  label="শিক্ষার্থী নির্বাচন করুন"
+                  placeholder="শিক্ষার্থী বেছে নিন (নাম বা রোল লিখে খুঁজুন)..."
+                  required
+                />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">সনদের ধরন</label>
@@ -866,34 +930,40 @@ export default function CertificateClient({
       
       {/* 1. Certificate Printing Container */}
       {activeTab === 'certificate' && selectedStudent && (
-        <div className="hidden print:block print-area-certificate w-full mx-auto">
-          <div className="w-[10.5in] h-[7.2in] mx-auto flex items-center justify-center bg-white">
+        <div className="hidden print:flex print-area-certificate w-full h-full min-h-[96vh] mx-auto items-center justify-center">
+          <div className="w-full max-w-[275mm] h-[190mm] mx-auto flex items-center justify-center bg-white box-border">
             {template === 'ornate' && (
-              <div className={`border-[14px] border-double ${currentTheme.main} p-12 text-center relative w-full h-full bg-white flex flex-col justify-between`}>
-                <div className={`absolute top-10 left-10 opacity-10 ${currentTheme.text}`}>
-                   <Award className="w-24 h-24" />
+              <div className={`border-[8px] sm:border-[10px] border-double ${currentTheme.main} p-6 sm:p-8 text-center relative w-full h-full bg-white flex flex-col justify-between box-border rounded-xs`}>
+                <div className={`absolute top-6 left-6 opacity-10 ${currentTheme.text}`}>
+                   <Award className="w-16 h-16" />
                 </div>
-                <div className={`absolute top-10 right-10 opacity-10 ${currentTheme.text}`}>
-                   <Award className="w-24 h-24" />
+                <div className={`absolute top-6 right-6 opacity-10 ${currentTheme.text}`}>
+                   <Award className="w-16 h-16" />
                 </div>
                 
                 <div>
-                  <h1 className={`text-4xl font-black ${currentTheme.text} mb-1 tracking-wider`}>{profileAndLogo?.madrasa?.name || madrasaInfo?.name || "মাদরাসা নাম"}</h1>
-                  <p className="text-sm text-slate-600 mb-1">{profileAndLogo?.madrasa?.address || madrasaInfo?.address || "মাদরাসা ঠিকানা"}</p>
-                  <h1 className={`text-sm font-bold ${currentTheme.text} mb-1 tracking-widest`}>বিসমিল্লাহির রাহমানির রাহিম</h1>
-                  <div className="w-36 h-0.5 bg-slate-300 mx-auto my-2"></div>
+                  <h1 className={`text-2xl sm:text-3xl font-black ${currentTheme.text} mb-0.5 tracking-wider`}>
+                    {profileAndLogo?.madrasa?.name || madrasaInfo?.name || "মাদরাসা নাম"}
+                  </h1>
+                  <p className="text-xs sm:text-sm text-slate-600 mb-0.5">
+                    {profileAndLogo?.madrasa?.address || madrasaInfo?.address || "মাদরাসা ঠিকানা"}
+                  </p>
+                  <h2 className={`text-xs font-bold ${currentTheme.text} tracking-widest mt-1`}>
+                    বিসমিল্লাহির রাহমানির রাহিম
+                  </h2>
+                  <div className="w-28 h-0.5 bg-slate-300 mx-auto my-1.5"></div>
                 </div>
 
-                <h2 className={`text-3.5xl font-bold ${currentTheme.text} my-4`}>
+                <h2 className={`text-xl sm:text-2xl font-bold ${currentTheme.text} my-1`}>
                   {certificateType === "Hifz" ? "হিফজুল কুরআন সমাপ্তি সনদ" :
                     certificateType === "Dawra" ? "দাওরায়ে হাদিস সমাপ্তি সনদ" : "প্রশংসাপত্র"}
                 </h2>
                 
-                <div className="flex-1 flex flex-col justify-center">
-                  <p className="text-xl text-slate-700 leading-loose max-w-3xl mx-auto">
+                <div className="flex-1 flex flex-col justify-center px-4">
+                  <p className="text-sm sm:text-base text-slate-700 leading-relaxed max-w-2xl mx-auto">
                     এই মর্মে প্রত্যয়ন করা যাচ্ছে যে,
                     <br/>
-                    <span className={`text-3.5xl font-black ${currentTheme.text} border-b-2 ${currentTheme.border} inline-block px-8 py-1.5 mt-2 mb-4`}>
+                    <span className={`text-xl sm:text-2xl font-black ${currentTheme.text} border-b-2 ${currentTheme.border} inline-block px-6 py-0.5 mt-1 mb-2`}>
                       {selectedStudent.first_name} {selectedStudent.last_name}
                     </span>
                     <br/>
@@ -905,36 +975,51 @@ export default function CertificateClient({
                   </p>
                 </div>
 
-                <div className="flex justify-between mt-8 px-12">
+                <div className="flex justify-between mt-4 px-8 items-end">
                    <div className="text-center">
-                      <div className={`border-t-2 ${currentTheme.border} pt-1.5 w-40 mx-auto`}></div>
-                      <p className={`text-xs font-bold ${currentTheme.text} mt-1`}>শ্রেণী শিক্ষক</p>
+                      <div className={`border-t-2 ${currentTheme.border} pt-1 w-32 mx-auto`}></div>
+                      <p className={`text-[11px] font-bold ${currentTheme.text} mt-0.5`}>শ্রেণী শিক্ষক</p>
                    </div>
                    <div className="text-center">
-                      <div className={`border-t-2 ${currentTheme.border} pt-1.5 w-40 mx-auto`}></div>
-                      <p className={`text-xs font-bold ${currentTheme.text} mt-1`}>মুহতামিম / প্রিন্সিপাল</p>
+                      {profileAndLogo?.signatureUrl && (
+                        <div className="h-8 flex items-center justify-center mb-0.5">
+                          <img 
+                            src={profileAndLogo.signatureUrl} 
+                            alt="Principal Signature" 
+                            className="max-h-full max-w-[100px] object-contain"
+                          />
+                        </div>
+                      )}
+                      <div className={`border-t-2 ${currentTheme.border} pt-1 w-32 mx-auto`}></div>
+                      <p className={`text-[11px] font-bold ${currentTheme.text} mt-0.5`}>
+                        {profileAndLogo?.principalName || "মুহতামিম / প্রিন্সিপাল"}
+                      </p>
                    </div>
                 </div>
               </div>
             )}
 
             {template === 'standard' && (
-              <div className={`border-8 solid ${currentTheme.main} p-12 text-center relative w-full h-full bg-white flex flex-col justify-between`}>
+              <div className={`border-4 sm:border-6 solid ${currentTheme.main} p-6 sm:p-8 text-center relative w-full h-full bg-white flex flex-col justify-between box-border`}>
                 <div>
-                  <h1 className={`text-3xl font-black ${currentTheme.text} mb-1 tracking-wider`}>{profileAndLogo?.madrasa?.name || madrasaInfo?.name || "মাদরাসা নাম"}</h1>
-                  <p className="text-sm text-slate-600 mb-2">{profileAndLogo?.madrasa?.address || madrasaInfo?.address || "মাদরাসা ঠিকানা"}</p>
-                  <div className={`w-28 h-1 ${currentTheme.main} bg-current mx-auto my-2`}></div>
+                  <h1 className={`text-2xl sm:text-3xl font-black ${currentTheme.text} mb-0.5 tracking-wider`}>
+                    {profileAndLogo?.madrasa?.name || madrasaInfo?.name || "মাদরাসা নাম"}
+                  </h1>
+                  <p className="text-xs sm:text-sm text-slate-600 mb-1">
+                    {profileAndLogo?.madrasa?.address || madrasaInfo?.address || "মাদরাসা ঠিকানা"}
+                  </p>
+                  <div className={`w-24 h-0.5 ${currentTheme.main} bg-current mx-auto my-1.5`}></div>
                 </div>
 
-                <h2 className={`text-3xl font-black ${currentTheme.text} my-4 tracking-wide`}>
+                <h2 className={`text-xl sm:text-2xl font-black ${currentTheme.text} my-1 tracking-wide`}>
                   {certificateType === "Hifz" ? "হিফজুল কুরআন সমাপ্তি সনদ" :
                     certificateType === "Dawra" ? "দাওরায়ে হাদিস সমাপ্তি সনদ" : "প্রশংসাপত্র"}
                 </h2>
                 
-                <div className="flex-1 flex flex-col justify-center">
-                  <p className="text-lg text-slate-700 leading-relaxed max-w-3xl mx-auto">
+                <div className="flex-1 flex flex-col justify-center px-4">
+                  <p className="text-sm sm:text-base text-slate-700 leading-relaxed max-w-2xl mx-auto">
                     প্রত্যয়ন করা যাচ্ছে যে,<br/>
-                    <span className={`text-2xl font-bold ${currentTheme.text} italic inline-block my-2`}>
+                    <span className={`text-lg sm:text-xl font-bold ${currentTheme.text} italic inline-block my-1.5`}>
                       {selectedStudent.first_name} {selectedStudent.last_name}
                     </span><br/>
                     পিতা: <span className="font-bold text-slate-900">{selectedStudent.father_name || "__________________"}</span><br/>
@@ -944,48 +1029,61 @@ export default function CertificateClient({
                   </p>
                 </div>
 
-                <div className="flex justify-between mt-8 px-12">
+                <div className="flex justify-between mt-4 px-8 items-end">
                    <div className="text-center">
-                      <div className="border-t border-slate-700 pt-1.5 w-40 mx-auto"></div>
-                      <p className="text-xs font-bold text-slate-800 mt-1">পরীক্ষক</p>
+                      <div className="border-t border-slate-700 pt-1 w-32 mx-auto"></div>
+                      <p className="text-[11px] font-bold text-slate-800 mt-0.5">পরীক্ষক</p>
                    </div>
                    <div className="text-center">
-                      <div className="border-t border-slate-700 pt-1.5 w-40 mx-auto"></div>
-                      <p className="text-xs font-bold text-slate-800 mt-1">মুহতামিম</p>
+                      {profileAndLogo?.signatureUrl && (
+                        <div className="h-8 flex items-center justify-center mb-0.5">
+                          <img 
+                            src={profileAndLogo.signatureUrl} 
+                            alt="Principal Signature" 
+                            className="max-h-full max-w-[100px] object-contain"
+                          />
+                        </div>
+                      )}
+                      <div className="border-t border-slate-700 pt-1 w-32 mx-auto"></div>
+                      <p className="text-[11px] font-bold text-slate-800 mt-0.5">
+                        {profileAndLogo?.principalName || "মুহতামিম"}
+                      </p>
                    </div>
                 </div>
               </div>
             )}
 
             {template === 'minimal' && (
-              <div className="p-16 text-center relative w-full h-full bg-white flex flex-col justify-between border">
-                <div className="flex items-center justify-between border-b pb-4">
-                  <h1 className={`text-xl font-bold ${currentTheme.text} tracking-wider`}>{profileAndLogo?.madrasa?.name || madrasaInfo?.name || "মাদরাসা নাম"}</h1>
+              <div className="p-8 text-center relative w-full h-full bg-white flex flex-col justify-between border-2 border-slate-200 box-border">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <h1 className={`text-lg sm:text-xl font-bold ${currentTheme.text} tracking-wider`}>
+                    {profileAndLogo?.madrasa?.name || madrasaInfo?.name || "মাদরাসা নাম"}
+                  </h1>
                   <p className="text-xs text-slate-400">সনদ নং: {selectedStudent.id.substring(0,6).toUpperCase()}</p>
                 </div>
                 
-                <div className="flex-1 flex flex-col justify-center items-center my-6">
-                  <p className="text-xs text-slate-400 uppercase tracking-widest mb-3">সনদপত্র ও প্রশংসাপত্র</p>
-                  <h2 className={`text-4xl font-extralight ${currentTheme.text} mb-3`}>
+                <div className="flex-1 flex flex-col justify-center items-center my-3 px-4">
+                  <p className="text-[11px] text-slate-400 uppercase tracking-widest mb-1.5">সনদপত্র ও প্রশংসাপত্র</p>
+                  <h2 className={`text-2xl sm:text-3xl font-extralight ${currentTheme.text} mb-1.5`}>
                     {selectedStudent.first_name} {selectedStudent.last_name}
                   </h2>
-                  <p className="text-sm text-slate-500 mb-6">পিতা: {selectedStudent.father_name || "__________________"}</p>
+                  <p className="text-xs sm:text-sm text-slate-500 mb-3">পিতা: {selectedStudent.father_name || "__________________"}</p>
                   
-                  <p className="text-lg text-slate-600 max-w-2xl leading-relaxed">
+                  <p className="text-xs sm:text-sm text-slate-600 max-w-xl leading-relaxed">
                     সফলভাবে ও নিষ্ঠার সাথে আমাদের শিক্ষা প্রতিষ্ঠানে অধ্যয়ন সমাপ্ত করেছেন এবং 
                     <span className={`font-medium ${currentTheme.text}`}> {certificateType === 'Hifz' ? 'হিফজুল কুরআন' : 'শ্রেণীভিত্তিক পাঠ্যক্রম'} </span> 
                     সুন্দরভাবে সম্পন্ন করার স্বীকৃতিস্বরূপ এই প্রশংসাপত্র প্রদান করা হলো।
                   </p>
                 </div>
 
-                <div className="flex justify-between items-end border-t pt-6 w-full">
+                <div className="flex justify-between items-end border-t pt-3 w-full">
                    <div className="text-left">
-                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">তারিখ</p>
-                      <p className="text-sm font-bold text-slate-700">{new Date().toLocaleDateString('bn-BD')}</p>
+                      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">তারিখ</p>
+                      <p className="text-xs font-bold text-slate-700">{new Date().toLocaleDateString('bn-BD')}</p>
                    </div>
                    <div className="text-right">
-                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">কর্তৃপক্ষ</p>
-                      <div className={`border-b ${currentTheme.border} w-32 pb-4`}></div>
+                      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">কর্তৃপক্ষ</p>
+                      <div className={`border-b ${currentTheme.border} w-28 pb-2`}></div>
                    </div>
                 </div>
               </div>
@@ -994,106 +1092,103 @@ export default function CertificateClient({
         </div>
       )}
 
-      {/* 2. Marksheets Printing Container (One sheet per page) */}
+      {/* 2. Marksheets Printing Container (One single-page sheet per student) */}
       {activeTab === 'marksheet' && msResults.length > 0 && (
-        <div className="hidden print:block print-area-marksheet w-full space-y-12">
+        <div className="hidden print:block print-area-marksheet w-full">
           {msResults.map((student, index) => (
-            <div key={student.id} className="print:break-after-page print:w-full print:min-h-[100vh] print:py-6">
+            <div key={student.id} className="marksheet-page-item w-full print:break-inside-avoid">
               <PrintLetterpad madrasaInfo={profileAndLogo?.madrasa || madrasaInfo} logoUrl={profileAndLogo?.logoUrl}>
-                <div className="border-4 border-double border-slate-800 p-8 m-4 rounded-xl relative bg-white">
+                <div className="border-2 border-slate-800 p-3.5 sm:p-4 rounded-xl relative bg-white print:break-inside-avoid">
                   {/* Header */}
-                  <div className="text-center border-b-2 border-slate-800 pb-4 mb-6 relative">
-                    <div className="mt-2 inline-block bg-slate-800 text-white px-6 py-1.5 rounded-full font-bold text-lg uppercase tracking-wider">
+                  <div className="text-center border-b border-slate-800 pb-2 mb-3 relative">
+                    <div className="inline-block bg-slate-800 text-white px-5 py-1 rounded-full font-bold text-sm uppercase tracking-wider">
                       প্রোগ্রেস রিপোর্ট / মার্কশিট
                     </div>
-                    <p className="text-slate-800 font-bold text-md mt-3">{selectedMsExamTitle} - {selectedMsExamYear}</p>
+                    <p className="text-slate-800 font-bold text-sm mt-1.5">{selectedMsExamTitle} - {selectedMsExamYear}</p>
                   </div>
 
                   {/* Student Info */}
-                  <div className="grid grid-cols-2 gap-x-8 gap-y-3 mb-6 text-base">
-                    <div className="flex border-b border-dashed border-slate-350 pb-0.5">
-                      <span className="font-bold text-slate-700 w-28">ছাত্রের নাম:</span>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 mb-3 text-xs sm:text-sm">
+                    <div className="flex border-b border-dashed border-slate-300 pb-0.5">
+                      <span className="font-bold text-slate-700 w-24">ছাত্রের নাম:</span>
                       <span className="font-black text-slate-900 flex-1">{student.first_name} {student.last_name}</span>
                     </div>
-                    <div className="flex border-b border-dashed border-slate-350 pb-0.5">
-                      <span className="font-bold text-slate-700 w-28">ক্লাস:</span>
+                    <div className="flex border-b border-dashed border-slate-300 pb-0.5">
+                      <span className="font-bold text-slate-700 w-24">ক্লাস:</span>
                       <span className="font-black text-slate-900 flex-1">{student.class_name || 'N/A'}</span>
                     </div>
-                    <div className="flex border-b border-dashed border-slate-350 pb-0.5">
-                      <span className="font-bold text-slate-700 w-28">রোল নম্বর:</span>
+                    <div className="flex border-b border-dashed border-slate-300 pb-0.5">
+                      <span className="font-bold text-slate-700 w-24">রোল নম্বর:</span>
                       <span className="font-black text-slate-900 flex-1">{student.roll_number || 'N/A'}</span>
                     </div>
-                    <div className="flex border-b border-dashed border-slate-350 pb-0.5">
-                      <span className="font-bold text-slate-700 w-28">মেধাস্থান:</span>
+                    <div className="flex border-b border-dashed border-slate-300 pb-0.5">
+                      <span className="font-bold text-slate-700 w-24">মেধাস্থান:</span>
                       <span className="font-black text-slate-900 flex-1">{index + 1}</span>
                     </div>
                   </div>
 
                   {/* Marks Table */}
-                  <table className="w-full text-left border-collapse mb-6">
+                  <table className="w-full text-left border-collapse mb-3 text-xs">
                     <thead>
                       <tr>
-                        <th className="border-2 border-slate-800 px-4 py-2.5 bg-slate-100 font-bold text-slate-950 text-center w-16">ক্র.নং</th>
-                        <th className="border-2 border-slate-800 px-4 py-2.5 bg-slate-100 font-bold text-slate-950">विषয়ের নাম</th>
-                        <th className="border-2 border-slate-800 px-4 py-2.5 bg-slate-100 font-bold text-slate-950 text-center w-32">পূর্ণ নম্বর</th>
-                        <th className="border-2 border-slate-800 px-4 py-2.5 bg-slate-100 font-bold text-slate-950 text-center w-32">প্রাপ্ত নম্বর</th>
+                        <th className="border border-slate-800 px-3 py-1.5 bg-slate-100 font-bold text-slate-950 text-center w-12">ক্র.নং</th>
+                        <th className="border border-slate-800 px-3 py-1.5 bg-slate-100 font-bold text-slate-950">विषয়ের নাম</th>
+                        <th className="border border-slate-800 px-3 py-1.5 bg-slate-100 font-bold text-slate-950 text-center w-24">পূর্ণ নম্বর</th>
+                        <th className="border border-slate-800 px-3 py-1.5 bg-slate-100 font-bold text-slate-950 text-center w-24">প্রাপ্ত নম্বর</th>
                       </tr>
                     </thead>
                     <tbody>
                       {student.marks?.map((markRow: any, i: number) => (
                         <tr key={i}>
-                          <td className="border-2 border-slate-800 px-4 py-2 text-center text-slate-800 font-bold">{i + 1}</td>
-                          <td className="border-2 border-slate-800 px-4 py-2 font-black text-slate-950">{markRow.subject_name}</td>
-                          <td className="border-2 border-slate-800 px-4 py-2 text-center text-slate-800 font-bold">{markRow.total_marks}</td>
-                          <td className="border-2 border-slate-800 px-4 py-2 text-center font-black text-slate-950">{markRow.marks_obtained}</td>
+                          <td className="border border-slate-800 px-3 py-1 text-center text-slate-800 font-medium">{i + 1}</td>
+                          <td className="border border-slate-800 px-3 py-1 font-bold text-slate-950">{markRow.subject_name}</td>
+                          <td className="border border-slate-800 px-3 py-1 text-center text-slate-800">{markRow.total_marks}</td>
+                          <td className="border border-slate-800 px-3 py-1 text-center font-bold text-slate-950">{markRow.marks_obtained}</td>
                         </tr>
                       ))}
                       {/* Total Row */}
                       <tr className="bg-slate-50">
-                        <td colSpan={2} className="border-2 border-slate-800 px-4 py-2.5 text-right font-black text-slate-950 uppercase">সর্বমোট:</td>
-                        <td className="border-2 border-slate-800 px-4 py-2.5 text-center font-black text-slate-950">{student.totalMax}</td>
-                        <td className="border-2 border-slate-800 px-4 py-2.5 text-center font-black text-slate-950 text-lg">{student.totalObtained}</td>
+                        <td colSpan={2} className="border border-slate-800 px-3 py-1.5 text-right font-black text-slate-950 uppercase">সর্বমোট:</td>
+                        <td className="border border-slate-800 px-3 py-1.5 text-center font-black text-slate-950">{student.totalMax}</td>
+                        <td className="border border-slate-800 px-3 py-1.5 text-center font-black text-slate-950 text-base">{student.totalObtained}</td>
                       </tr>
                     </tbody>
                   </table>
 
                   {/* Final Grade / Result */}
-                  <div className="flex justify-between items-center bg-slate-50 border-2 border-slate-800 p-3.5 rounded-lg mb-12">
-                    <div className="text-md">
+                  <div className="flex justify-between items-center bg-slate-50 border border-slate-800 p-2.5 rounded-lg mb-4 text-xs sm:text-sm">
+                    <div>
                       <span className="font-bold text-slate-800">প্রাপ্ত বিভাগ (Grade): </span>
-                      <span className="font-black text-slate-950 text-xl">{student.grade}</span>
+                      <span className="font-black text-slate-950 text-base ml-1">{student.grade}</span>
                     </div>
-                    <div className="text-md">
+                    <div>
                       <span className="font-bold text-slate-800">শতকরা (Percentage): </span>
-                      <span className="font-black text-slate-950 text-xl">{student.percentage}%</span>
+                      <span className="font-black text-slate-950 text-base ml-1">{student.percentage}%</span>
                     </div>
                   </div>
 
                   {/* Signatures */}
-                  <div className="flex justify-between items-end mt-10 pt-6">
-                    <div className="text-center w-40 border-t-2 border-slate-800 pt-1">
-                      <p className="font-bold text-slate-900 text-xs">শ্রেণী শিক্ষকের স্বাক্ষর</p>
+                  <div className="flex justify-between items-end mt-4 pt-2">
+                    <div className="text-center w-36 border-t border-slate-800 pt-1">
+                      <p className="font-bold text-slate-900 text-[11px]">শ্রেণী শিক্ষকের স্বাক্ষর</p>
                     </div>
-                    <div className="text-center w-40 border-t-2 border-slate-800 pt-1">
-                      <p className="font-bold text-slate-900 text-xs">পরীক্ষা নিয়ন্ত্রক</p>
+                    <div className="text-center w-36 border-t border-slate-800 pt-1">
+                      <p className="font-bold text-slate-900 text-[11px]">পরীক্ষা নিয়ন্ত্রক</p>
                     </div>
-                    <div className="text-center w-40">
+                    <div className="text-center w-36">
                       {profileAndLogo?.signatureUrl && (
-                        <div className="h-9 flex items-center justify-center mb-1">
+                        <div className="h-7 flex items-center justify-center mb-0.5">
                           <img 
                             src={profileAndLogo.signatureUrl} 
                             alt="Principal Signature" 
-                            className="max-h-full max-w-[120px] object-contain"
+                            className="max-h-full max-w-[100px] object-contain"
                           />
                         </div>
                       )}
-                      <div className="border-t-2 border-slate-800 pt-1">
-                        <p className="font-bold text-slate-900 text-xs">
+                      <div className="border-t border-slate-800 pt-1">
+                        <p className="font-bold text-slate-900 text-[11px]">
                           {profileAndLogo?.principalName || "মুহতামিম / প্রিন্সিপাল"}
                         </p>
-                        {profileAndLogo?.principalName && (
-                          <p className="text-[10px] text-slate-600">মুহতামিম</p>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -1108,49 +1203,53 @@ export default function CertificateClient({
       {activeTab === 'results' && resResults.length > 0 && (
         <div className="hidden print:block print-area-results w-full">
           <PrintLetterpad madrasaInfo={profileAndLogo?.madrasa || madrasaInfo} logoUrl={profileAndLogo?.logoUrl}>
-            <div className="mb-6 text-center border-b border-slate-200 pb-4">
-              <h2 className="text-xl font-bold text-slate-800">{selectedResExamTitle} - {selectedResExamYear}</h2>
-              <h3 className="text-md font-extrabold text-indigo-700 mt-1">
+            <div className="mb-4 text-center border-b border-slate-200 pb-2">
+              <h2 className="text-lg font-bold text-slate-800">{selectedResExamTitle} - {selectedResExamYear}</h2>
+              <h3 className="text-sm font-extrabold text-indigo-700 mt-0.5">
                 পরীক্ষার ফলাফল ও মেধা তালিকা (লেজার)
               </h3>
-              {selectedResClassName && <p className="text-slate-600 font-bold text-xs mt-1 bg-slate-100 inline-block px-3 py-1 rounded-full border border-slate-200">শ্রেণী: {selectedResClassName}</p>}
+              {selectedResClassName && (
+                <p className="text-slate-600 font-bold text-xs mt-1 bg-slate-100 inline-block px-3 py-0.5 rounded-full border border-slate-200">
+                  শ্রেণী: {selectedResClassName}
+                </p>
+              )}
             </div>
 
             <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-slate-100 text-slate-950 font-bold border-b border-black">
                 <tr>
-                  <th className="px-2 py-2 border border-slate-400 text-center w-12">মেধাস্থান</th>
-                  <th className="px-2 py-2 border border-slate-400 text-center w-12">রোল</th>
-                  <th className="px-3 py-2 border border-slate-400">ছাত্রের নাম</th>
+                  <th className="px-1.5 py-1.5 border border-slate-400 text-center w-10">মেধাস্থান</th>
+                  <th className="px-1.5 py-1.5 border border-slate-400 text-center w-10">রোল</th>
+                  <th className="px-2 py-1.5 border border-slate-400">ছাত্রের নাম</th>
                   {resSubjectList.map(sub => (
-                    <th key={sub} className="px-2 py-2 border border-slate-400 text-center whitespace-nowrap">{sub}</th>
+                    <th key={sub} className="px-1.5 py-1.5 border border-slate-400 text-center whitespace-nowrap">{sub}</th>
                   ))}
-                  <th className="px-2 py-2 border border-slate-400 text-center">প্রাপ্ত নম্বর</th>
-                  <th className="px-2 py-2 border border-slate-400 text-center">শতকরা</th>
-                  <th className="px-2 py-2 border border-slate-400 text-center">বিভাগ</th>
-                  <th className="px-2 py-2 border border-slate-400 text-center">জিপিএ (GPA)</th>
+                  <th className="px-1.5 py-1.5 border border-slate-400 text-center">প্রাপ্ত নম্বর</th>
+                  <th className="px-1.5 py-1.5 border border-slate-400 text-center">শতকরা</th>
+                  <th className="px-1.5 py-1.5 border border-slate-400 text-center">বিভাগ</th>
+                  <th className="px-1.5 py-1.5 border border-slate-400 text-center">জিপিএ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-300 text-slate-800">
                 {resResults.map((student, index) => (
                   <tr key={student.id} className="hover:bg-slate-50">
-                    <td className="px-2 py-2 border border-slate-300 text-center font-bold">{index + 1}</td>
-                    <td className="px-2 py-2 border border-slate-300 text-center">{student.roll_number || '-'}</td>
-                    <td className="px-3 py-2 border border-slate-300 font-bold text-slate-900 whitespace-nowrap">
+                    <td className="px-1.5 py-1 border border-slate-300 text-center font-bold">{index + 1}</td>
+                    <td className="px-1.5 py-1 border border-slate-300 text-center">{student.roll_number || '-'}</td>
+                    <td className="px-2 py-1 border border-slate-300 font-bold text-slate-900 whitespace-nowrap">
                       {student.first_name} {student.last_name}
                     </td>
                     {resSubjectList.map(sub => {
                       const markObj = student.marks?.find((m: any) => m.subject_name === sub);
                       return (
-                        <td key={sub} className="px-2 py-2 border border-slate-300 text-center">
+                        <td key={sub} className="px-1.5 py-1 border border-slate-300 text-center">
                           {markObj ? markObj.marks_obtained : '-'}
                         </td>
                       );
                     })}
-                    <td className="px-2 py-2 border border-slate-300 text-center font-bold">{student.totalObtained} / {student.totalMax}</td>
-                    <td className="px-2 py-2 border border-slate-300 text-center">{student.percentage}%</td>
-                    <td className="px-2 py-2 border border-slate-300 text-center font-bold">{student.grade}</td>
-                    <td className="px-2 py-2 border border-slate-300 text-center font-black text-indigo-800">
+                    <td className="px-1.5 py-1 border border-slate-300 text-center font-bold">{student.totalObtained} / {student.totalMax}</td>
+                    <td className="px-1.5 py-1 border border-slate-300 text-center">{student.percentage}%</td>
+                    <td className="px-1.5 py-1 border border-slate-300 text-center font-bold">{student.grade}</td>
+                    <td className="px-1.5 py-1 border border-slate-300 text-center font-black text-indigo-800">
                       {
                         student.percentage >= 80 ? '৫.০০' :
                         student.percentage >= 70 ? '৪.০০' :
@@ -1166,24 +1265,24 @@ export default function CertificateClient({
             </table>
 
             {/* Signatures */}
-            <div className="flex justify-between items-end mt-12 pt-6">
-              <div className="text-center w-48 border-t border-slate-500 pt-1.5">
+            <div className="flex justify-between items-end mt-8 pt-4">
+              <div className="text-center w-40 border-t border-slate-500 pt-1">
                 <p className="font-bold text-slate-900 text-xs">শ্রেণী শিক্ষকের স্বাক্ষর</p>
               </div>
-              <div className="text-center w-48 border-t border-slate-500 pt-1.5">
+              <div className="text-center w-40 border-t border-slate-500 pt-1">
                 <p className="font-bold text-slate-900 text-xs">পরীক্ষা নিয়ন্ত্রক</p>
               </div>
-              <div className="text-center w-48">
+              <div className="text-center w-40">
                 {profileAndLogo?.signatureUrl && (
-                  <div className="h-9 flex items-center justify-center mb-1">
+                  <div className="h-7 flex items-center justify-center mb-0.5">
                     <img 
                       src={profileAndLogo.signatureUrl} 
                       alt="Principal Signature" 
-                      className="max-h-full max-w-[130px] object-contain"
+                      className="max-h-full max-w-[120px] object-contain"
                     />
                   </div>
                 )}
-                <div className="border-t border-slate-500 pt-1.5">
+                <div className="border-t border-slate-500 pt-1">
                   <p className="font-bold text-slate-900 text-xs">
                     {profileAndLogo?.principalName || "মুহতামিম / প্রিন্সিপাল"}
                   </p>

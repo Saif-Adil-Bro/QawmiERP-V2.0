@@ -17,6 +17,7 @@ import {
   IdCard,
   GraduationCap,
   Settings,
+  ShieldCheck,
 } from "lucide-react";
 
 interface NavItem {
@@ -65,6 +66,7 @@ const navSections: NavSection[] = [
   {
     title: "সিস্টেম",
     items: [
+      { name: "ইউজার আইডি ও একাউন্ট", href: "/dashboard/users", icon: ShieldCheck },
       { name: "প্যারেন্ট পোর্টাল (Parent Portal)", href: "/portal", icon: Users, exact: true },
       { name: "শিক্ষক পোর্টাল (Teacher Portal)", href: "/teacher-portal", icon: GraduationCap, exact: true },
       { name: "সেটিংস", href: "/dashboard/settings", icon: Settings },

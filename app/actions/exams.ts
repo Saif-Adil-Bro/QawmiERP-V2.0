@@ -4,6 +4,81 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
+function computeExamStatus(
+  startDate?: string | null,
+  routines?: { exam_date: string }[] | null,
+  manualStatus?: string
+): {
+  status: "Upcoming" | "Ongoing" | "Completed";
+  statusTextBangla: string;
+  effectiveStartDate: string | null;
+  effectiveEndDate: string | null;
+  totalRoutineDays: number;
+} {
+  // Extract all valid routine dates sorted chronologically
+  const routineDates = (routines || [])
+    .map(r => r.exam_date)
+    .filter(Boolean)
+    .sort();
+
+  const minRoutineDate = routineDates.length > 0 ? routineDates[0] : null;
+  const maxRoutineDate = routineDates.length > 0 ? routineDates[routineDates.length - 1] : null;
+
+  // Effective Start Date: if startDate provided, use it, else minRoutineDate
+  const effectiveStartDate = startDate || minRoutineDate;
+  // Effective End Date: if routine exists, routine's max date is the finish date; otherwise startDate
+  const effectiveEndDate = maxRoutineDate || startDate || null;
+
+  if (!effectiveStartDate) {
+    const s = manualStatus === "Completed" ? "Completed" : manualStatus === "Ongoing" ? "Ongoing" : "Upcoming";
+    return {
+      status: s,
+      statusTextBangla: s === "Completed" ? "সম্পন্ন" : s === "Ongoing" ? "চলমান" : "আসন্ন",
+      effectiveStartDate: null,
+      effectiveEndDate: null,
+      totalRoutineDays: 0,
+    };
+  }
+
+  // Current date string in YYYY-MM-DD format (Asia/Dhaka timezone)
+  let todayStr: string;
+  try {
+    todayStr = new Intl.DateTimeFormat('en-CA', { 
+      timeZone: 'Asia/Dhaka', 
+      year: 'numeric', 
+      month: '2-digit', 
+      day: '2-digit' 
+    }).format(new Date());
+  } catch {
+    todayStr = new Date().toISOString().split('T')[0];
+  }
+
+  const startStr = effectiveStartDate.split('T')[0];
+  const endStr = (effectiveEndDate || effectiveStartDate).split('T')[0];
+
+  let status: "Upcoming" | "Ongoing" | "Completed";
+  let statusTextBangla: string;
+
+  if (todayStr < startStr) {
+    status = "Upcoming";
+    statusTextBangla = "আসন্ন";
+  } else if (todayStr >= startStr && todayStr <= endStr) {
+    status = "Ongoing";
+    statusTextBangla = "চলমান";
+  } else {
+    status = "Completed";
+    statusTextBangla = "সম্পন্ন";
+  }
+
+  return {
+    status,
+    statusTextBangla,
+    effectiveStartDate,
+    effectiveEndDate,
+    totalRoutineDays: routineDates.length,
+  };
+}
+
 export async function getExams() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -12,17 +87,45 @@ export async function getExams() {
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return [];
 
-  const { data, error } = await supabase
+  const { data: exams, error } = await supabase
     .from("exams")
     .select("*")
     .eq('madrasa_id', finalMadrasaId)
     .order("start_date", { ascending: false });
 
-  if (error) {
+  if (error || !exams) {
     console.error("Error fetching exams:", error);
     return [];
   }
-  return data;
+
+  const examIds = exams.map(e => e.id);
+  const { data: routines } = examIds.length > 0 ? await supabase
+    .from("exam_routines")
+    .select("id, exam_id, exam_date")
+    .in("exam_id", examIds) : { data: [] };
+
+  const routinesByExam = new Map<string, any[]>();
+  (routines || []).forEach(r => {
+    if (!routinesByExam.has(r.exam_id)) {
+      routinesByExam.set(r.exam_id, []);
+    }
+    routinesByExam.get(r.exam_id)!.push(r);
+  });
+
+  return exams.map(exam => {
+    const examRoutines = routinesByExam.get(exam.id) || [];
+    const computed = computeExamStatus(exam.start_date, examRoutines, exam.status);
+    return {
+      ...exam,
+      status: computed.status,
+      dynamic_status: computed.status,
+      dynamic_status_bangla: computed.statusTextBangla,
+      effective_start_date: computed.effectiveStartDate,
+      effective_end_date: computed.effectiveEndDate,
+      routine_count: computed.totalRoutineDays,
+      last_routine_date: computed.effectiveEndDate,
+    };
+  });
 }
 
 export async function getExamById(id: string) {
@@ -33,11 +136,27 @@ export async function getExamById(id: string) {
     .eq("id", id)
     .single();
 
-  if (error) {
+  if (error || !data) {
     console.error("Error fetching exam:", error);
     return null;
   }
-  return data;
+
+  const { data: routines } = await supabase
+    .from("exam_routines")
+    .select("id, exam_id, exam_date")
+    .eq("exam_id", id);
+
+  const computed = computeExamStatus(data.start_date, routines, data.status);
+  return {
+    ...data,
+    status: computed.status,
+    dynamic_status: computed.status,
+    dynamic_status_bangla: computed.statusTextBangla,
+    effective_start_date: computed.effectiveStartDate,
+    effective_end_date: computed.effectiveEndDate,
+    routine_count: computed.totalRoutineDays,
+    last_routine_date: computed.effectiveEndDate,
+  };
 }
 
 export async function createExam(prevState: any, formData: FormData) {
@@ -192,9 +311,18 @@ export async function getStudentReportCard(examId: string, classId?: string) {
     
   if (resultsError) return [];
 
+  // Get valid subjects for this exam from setup
+  const { data: validSubjects } = await supabase
+    .from("exam_subjects")
+    .select("subject_name, class_id")
+    .eq("exam_id", examId);
+
   // Group results by student
   const studentResults = students.map(student => {
-    const studentMarks = results.filter(r => r.student_id === student.id);
+    // Only include marks for subjects that are currently defined in the exam setup for this class
+    const validSubjectNames = validSubjects?.filter(vs => vs.class_id === student.class_id).map(vs => vs.subject_name) || [];
+    const studentMarks = results.filter(r => r.student_id === student.id && validSubjectNames.includes(r.subject_name));
+    
     const totalObtained = studentMarks.reduce((sum, r) => sum + Number(r.marks_obtained), 0);
     const totalMax = studentMarks.reduce((sum, r) => sum + Number(r.total_marks), 0);
     const percentage = totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;

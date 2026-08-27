@@ -190,7 +190,13 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
           @media print {
             @page {
               size: A4 ${orientation};
-              margin: 10mm;
+              margin: 8mm;
+            }
+            .print-pad-container {
+              width: 100% !important;
+              max-width: 100% !important;
+              margin: 0 auto !important;
+              box-sizing: border-box !important;
             }
           }
         `
@@ -337,15 +343,15 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
 
         {/* PRINT PAD HEADER */}
         {padEnabled && (
-          <div className="w-full mb-6 print:mb-3 print:block relative shrink-0">
+          <div className="w-full mb-6 print:mb-1.5 print:block relative shrink-0">
             {/* Top decorative bar */}
-            <div className={`h-2.5 print:h-2 w-full ${currentTheme.line} rounded-t-sm mb-3 print:mb-2`}></div>
+            <div className={`h-2.5 print:h-1.5 w-full ${currentTheme.line} rounded-t-sm mb-3 print:mb-1.5`}></div>
             
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 print:gap-2 border-b pb-3 print:pb-2 border-slate-200">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 print:gap-1.5 border-b pb-3 print:pb-1.5 border-slate-200">
               
               {/* Left Column: Logo & Established */}
-              <div className="flex items-center space-x-3 shrink-0">
-                <div className={`w-16 h-16 print:w-12 print:h-12 rounded-full border-2 ${currentTheme.border} p-1.5 bg-white flex items-center justify-center shadow-sm relative shrink-0`}>
+              <div className="flex items-center space-x-3 print:space-x-2 shrink-0">
+                <div className={`w-16 h-16 print:w-10 print:h-10 rounded-full border-2 ${currentTheme.border} p-1 bg-white flex items-center justify-center shadow-sm relative shrink-0`}>
                   {logoUrl ? (
                     <img 
                       src={logoUrl} 
@@ -355,41 +361,41 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
                     />
                   ) : (
                     <div className={`w-full h-full rounded-full ${currentTheme.bg} flex items-center justify-center`}>
-                      <GraduationCap className={`w-8 h-8 print:w-6 print:h-6 ${currentTheme.text}`} />
+                      <GraduationCap className={`w-8 h-8 print:w-5 print:h-5 ${currentTheme.text}`} />
                     </div>
                   )}
                 </div>
                 <div className="text-left leading-tight">
-                  <span className={`text-[10px] uppercase font-bold tracking-wider ${currentTheme.lightText}`}>স্থাপিত: {establishedYear} ইং</span>
-                  <div className={`text-[9px] font-bold text-slate-400 mt-0.5`}>রেজি নং: {registrationNumber}</div>
+                  <span className={`text-[10px] print:text-[9px] uppercase font-bold tracking-wider ${currentTheme.lightText}`}>স্থাপিত: {establishedYear} ইং</span>
+                  <div className={`text-[9px] print:text-[8px] font-bold text-slate-400 mt-0.5`}>রেজি নং: {registrationNumber}</div>
                 </div>
               </div>
 
               {/* Center Column: Name and Address */}
               <div className="text-center flex-1 max-w-xl">
-                <h1 className={`text-2xl sm:text-3xl print:text-xl font-extrabold tracking-wide ${currentTheme.text} mb-1 print:mb-0 text-center`}>
+                <h1 className={`text-2xl sm:text-3xl print:text-lg font-extrabold tracking-wide ${currentTheme.text} mb-1 print:mb-0 text-center`}>
                   {mName}
                 </h1>
-                <p className="text-xs sm:text-sm print:text-[11px] text-slate-600 font-medium text-center line-clamp-1">
+                <p className="text-xs sm:text-sm print:text-[10px] text-slate-600 font-medium text-center line-clamp-1">
                   {mAddress}
                 </p>
-                <div className="flex items-center justify-center space-x-4 text-[10px] sm:text-xs text-slate-500 mt-1 flex-wrap">
+                <div className="flex items-center justify-center space-x-4 print:space-x-2 text-[10px] sm:text-xs print:text-[9px] text-slate-500 mt-1 flex-wrap">
                   <span className="flex items-center gap-1">
-                    <Phone className="w-3 h-3 text-slate-400" />
+                    <Phone className="w-3 h-3 print:w-2.5 print:h-2.5 text-slate-400" />
                     {mPhone}
                   </span>
                   <span>|</span>
                   <span className="flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-slate-400" />
+                    <MapPin className="w-3 h-3 print:w-2.5 print:h-2.5 text-slate-400" />
                     {madrasaInfo?.address || "ঢাকা"}
                   </span>
                 </div>
               </div>
 
               {/* Right Column: Dynamic Print Date & Memo Placeholder */}
-              <div className="text-right shrink-0 min-w-[120px] leading-relaxed text-xs text-slate-500 border-l pl-4 border-slate-100 hidden sm:block print:block">
+              <div className="text-right shrink-0 min-w-[120px] leading-snug text-xs print:text-[10px] text-slate-500 border-l pl-4 print:pl-2 border-slate-100 hidden sm:block print:block">
                 <div>স্মারক নং: <span className="font-semibold text-slate-800 font-mono">{memoNumber}</span></div>
-                <div className="mt-1">তারিখ: <span className="font-semibold text-slate-800">{currentDate}</span></div>
+                <div className="mt-0.5">তারিখ: <span className="font-semibold text-slate-800">{currentDate}</span></div>
               </div>
             </div>
 
