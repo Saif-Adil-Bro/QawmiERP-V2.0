@@ -7,7 +7,8 @@ import { getAuthMadrasaId } from "./students";
 function computeExamStatus(
   startDate?: string | null,
   routines?: { exam_date: string }[] | null,
-  manualStatus?: string
+  manualStatus?: string,
+  endDate?: string | null
 ): {
   status: "Upcoming" | "Ongoing" | "Completed";
   statusTextBangla: string;
@@ -26,17 +27,16 @@ function computeExamStatus(
 
   // Effective Start Date: if startDate provided, use it, else minRoutineDate
   const effectiveStartDate = startDate || minRoutineDate;
-  // Effective End Date: if routine exists, routine's max date is the finish date; otherwise startDate
-  const effectiveEndDate = maxRoutineDate || startDate || null;
+  // Effective End Date: if endDate provided, use it; else if routine exists, maxRoutineDate; else startDate
+  const effectiveEndDate = endDate || maxRoutineDate || startDate || null;
 
   if (!effectiveStartDate) {
-    const s = manualStatus === "Completed" ? "Completed" : manualStatus === "Ongoing" ? "Ongoing" : "Upcoming";
     return {
-      status: s,
-      statusTextBangla: s === "Completed" ? "সম্পন্ন" : s === "Ongoing" ? "চলমান" : "আসন্ন",
+      status: "Upcoming",
+      statusTextBangla: "আসন্ন",
       effectiveStartDate: null,
       effectiveEndDate: null,
-      totalRoutineDays: 0,
+      totalRoutineDays: routineDates.length,
     };
   }
 
@@ -114,7 +114,7 @@ export async function getExams() {
 
   return exams.map(exam => {
     const examRoutines = routinesByExam.get(exam.id) || [];
-    const computed = computeExamStatus(exam.start_date, examRoutines, exam.status);
+    const computed = computeExamStatus(exam.start_date, examRoutines, exam.status, exam.end_date);
     return {
       ...exam,
       status: computed.status,
@@ -146,7 +146,7 @@ export async function getExamById(id: string) {
     .select("id, exam_id, exam_date")
     .eq("exam_id", id);
 
-  const computed = computeExamStatus(data.start_date, routines, data.status);
+  const computed = computeExamStatus(data.start_date, routines, data.status, data.end_date);
   return {
     ...data,
     status: computed.status,
@@ -170,19 +170,32 @@ export async function createExam(prevState: any, formData: FormData) {
   const title = formData.get("title") as string;
   const year = formData.get("year") as string;
   const start_date = formData.get("start_date") as string;
-  const status = formData.get("status") as string;
+  const end_date = formData.get("end_date") as string;
 
   if (!title || !year) {
     return { error: "পরীক্ষার নাম এবং বছর আবশ্যক।" };
   }
 
-  const { error } = await supabase.from("exams").insert({
+  // Calculate dynamic status initially
+  const computed = computeExamStatus(start_date, null, undefined, end_date);
+
+  let insertPayload: any = {
     madrasa_id: finalMadrasaId,
     title,
     year,
     start_date: start_date || null,
-    status: status || 'Upcoming'
-  });
+    end_date: end_date || null,
+    status: computed.status
+  };
+
+  let { error } = await supabase.from("exams").insert(insertPayload);
+
+  // If DB table doesn't have end_date column, fallback without end_date
+  if (error && (error.message?.includes("end_date") || error.code === "PGRST204")) {
+    delete insertPayload.end_date;
+    const retry = await supabase.from("exams").insert(insertPayload);
+    error = retry.error;
+  }
 
   if (error) {
     console.error("Error creating exam:", error);
@@ -190,6 +203,39 @@ export async function createExam(prevState: any, formData: FormData) {
   }
 
   revalidatePath("/dashboard/exams");
+  return { success: true };
+}
+
+export async function updateExamDetails(examId: string, data: { title?: string; year?: string; start_date?: string | null; end_date?: string | null }) {
+  const supabase = await createClient();
+  const user = await getAuthUser(supabase);
+  if (!user) return { error: "Unauthorized" };
+
+  const computed = computeExamStatus(data.start_date, null, undefined, data.end_date);
+
+  let updatePayload: any = {
+    title: data.title,
+    year: data.year,
+    start_date: data.start_date || null,
+    end_date: data.end_date || null,
+    status: computed.status
+  };
+
+  let { error } = await supabase.from("exams").update(updatePayload).eq("id", examId);
+
+  if (error && (error.message?.includes("end_date") || error.code === "PGRST204")) {
+    delete updatePayload.end_date;
+    const retry = await supabase.from("exams").update(updatePayload).eq("id", examId);
+    error = retry.error;
+  }
+
+  if (error) {
+    console.error("Error updating exam:", error);
+    return { error: error.message };
+  }
+
+  revalidatePath("/dashboard/exams");
+  revalidatePath(`/dashboard/exams/${examId}/setup`);
   return { success: true };
 }
 

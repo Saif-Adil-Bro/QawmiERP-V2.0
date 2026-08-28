@@ -41,7 +41,7 @@ export default async function ExamSetupPage({
       <ExamNavTabs examId={examId} />
 
       <div className="bg-white rounded-xl shadow-sm border p-6">
-        <ExamSetupClient examId={examId} classes={classes} />
+        <ExamSetupClient examId={examId} exam={exam} classes={classes} />
       </div>
     </div>
   );
