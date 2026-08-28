@@ -1,6 +1,6 @@
 "use server";
 
-import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { revalidatePath } from "next/cache";
 
@@ -77,7 +77,7 @@ export async function getMadrasaDetails() {
 
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (user) {
       madrasaId = await getAuthMadrasaId(supabase, user);
     }
@@ -175,7 +175,7 @@ export async function updateMadrasaDetails(formData: FormData) {
 
     try {
       const supabase = await createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getAuthUser(supabase);
       if (user) {
         madrasaId = await getAuthMadrasaId(supabase, user);
       }

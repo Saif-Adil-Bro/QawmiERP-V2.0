@@ -1,12 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 
 export async function addRoutine(formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) throw new Error("Unauthorized");
   
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -51,4 +51,11 @@ export async function deleteRoutine(id: string) {
 
   revalidatePath("/dashboard/academic/routine");
   revalidatePath("/dashboard/academic/routine/builder");
+}
+
+export async function deleteRoutineAction(formData: FormData) {
+  const id = formData.get("id") as string;
+  if (id) {
+    await deleteRoutine(id);
+  }
 }

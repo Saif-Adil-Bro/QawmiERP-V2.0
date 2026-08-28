@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
@@ -33,7 +33,7 @@ export interface MadrasaUser {
 export async function getMadrasaUsers() {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return { error: "অননুমোদিত অ্যাক্সেস", users: [] };
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
@@ -64,7 +64,7 @@ export async function getMadrasaUsers() {
 export async function getLinkableProfiles() {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return { teachers: [], students: [] };
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
@@ -102,7 +102,7 @@ export async function getLinkableProfiles() {
 export async function createUserAccount(prevState: any, formData: FormData) {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
@@ -207,7 +207,7 @@ export async function createUserAccount(prevState: any, formData: FormData) {
 export async function updateUserAccount(prevState: any, formData: FormData) {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
@@ -257,7 +257,7 @@ export async function updateUserAccount(prevState: any, formData: FormData) {
 export async function resetUserPassword(userId: string, newPassword: string) {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
 
     if (!newPassword || newPassword.length < 6) {
@@ -288,7 +288,7 @@ export async function resetUserPassword(userId: string, newPassword: string) {
 export async function deleteUserAccount(userId: string) {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
 
     const madrasaId = await getAuthMadrasaId(supabase, user);

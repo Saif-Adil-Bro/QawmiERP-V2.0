@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
@@ -10,7 +10,7 @@ import { getAuthMadrasaId } from "./students";
 
 export async function getStudentsForMeals(date: string, classId?: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -59,7 +59,7 @@ export async function getStudentsForMeals(date: string, classId?: string) {
 
 export async function saveMealEntries(date: string, mealData: { student_id: string; meal_status: "On" | "Off" }[]) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -198,7 +198,7 @@ export async function getNextBazarVoucherNo(): Promise<string> {
 
 export async function getBazarExpenses(startDate?: string, endDate?: string): Promise<BazarExpenseItem[]> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -253,7 +253,7 @@ export async function saveBazarExpense(expense: {
   fund_name?: string;
 }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -376,7 +376,7 @@ export async function saveBazarExpense(expense: {
 
 export async function deleteBazarExpense(id: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -409,7 +409,7 @@ export async function getBoardingMadrasaInfo() {
 
 export async function getMonthlyBoardingReport(year: string, month: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return null;
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);

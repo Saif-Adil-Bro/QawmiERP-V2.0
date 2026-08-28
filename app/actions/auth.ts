@@ -1,5 +1,5 @@
 "use server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
 export async function login(prevState: any, formData: FormData) {
@@ -10,11 +10,11 @@ export async function login(prevState: any, formData: FormData) {
     const password = formData.get("password") as string;
     
     if (!email || !password) {
-      return { error: "Email and password are required" };
+      return { error: "ইমেইল এবং পাসওয়ার্ড আবশ্যক" };
     }
 
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-       return { error: "Server configuration error: Supabase keys are missing." };
+       return { error: "সার্ভার কনফিগারেশন ত্রুটি: সুপাবেস কি পাওয়া যায়নি।" };
     }
 
     const supabase = await createClient();
@@ -31,12 +31,12 @@ export async function login(prevState: any, formData: FormData) {
     isSuccess = true;
   } catch (err: any) {
     console.error("SignIn catch block:", err);
-    return { error: err?.message || "An unexpected error occurred during sign in." };
+    return { error: err?.message || "লগইনে একটি ত্রুটি হয়েছে।" };
   }
 
   if (isSuccess) {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (user) {
       const { data: userData } = await supabase.from("users").select("role").eq("id", user.id).single();
       if (userData?.role === 'parent' || userData?.role === 'student') {
@@ -51,7 +51,11 @@ export async function login(prevState: any, formData: FormData) {
 }
 
 export async function logout() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  try {
+    const supabase = await createClient();
+    await supabase.auth.signOut();
+  } catch (err) {
+    console.warn("Logout error:", err);
+  }
   redirect("/login");
 }

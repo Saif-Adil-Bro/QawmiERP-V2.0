@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { addRoutine, deleteRoutine } from "@/app/actions/routine";
+import { addRoutine, deleteRoutineAction } from "@/app/actions/routine";
 import { CalendarDays, Clock, MapPin, User, BookOpen, PlusCircle, Trash2 } from "lucide-react";
 import Link from "next/link";
 
@@ -184,11 +184,9 @@ export default async function RoutineBuilderPage({
                                          </div>
                                       </div>
                                    </div>
-                                   <form action={async () => {
-                                      "use server";
-                                      await deleteRoutine(routine.id);
-                                   }}>
-                                      <button type="submit" className="text-red-500 hover:bg-red-100 p-2 rounded-md transition opacity-0 group-hover:opacity-100">
+                                   <form action={deleteRoutineAction}>
+                                      <input type="hidden" name="id" value={routine.id} />
+                                      <button type="submit" className="text-red-500 hover:bg-red-100 p-2 rounded-md transition opacity-0 group-hover:opacity-100 cursor-pointer" title="মুছে ফেলুন">
                                          <Trash2 className="w-4 h-4" />
                                       </button>
                                    </form>

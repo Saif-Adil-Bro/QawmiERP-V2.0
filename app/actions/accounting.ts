@@ -1,12 +1,12 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
 export async function getFees(filters?: { month?: string; year?: string; student_id?: string }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
 
@@ -49,7 +49,7 @@ export async function getFees(filters?: { month?: string; year?: string; student
 
 export async function getFeeWithReceiptNo(feeId: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return null;
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
 
@@ -83,7 +83,7 @@ export async function getFeeWithReceiptNo(feeId: string) {
 
 export async function createFee(prevState: any, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -167,7 +167,7 @@ function parseExpenseFund(rawDesc: string | null | undefined): { cleanDesc: stri
 
 export async function getExpenses(filters?: { month?: string; year?: string; fundId?: string }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -212,7 +212,7 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
 
 export async function createExpense(prevState: any, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -288,7 +288,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
   
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { totalIncome: 0, totalExpense: 0, netBalance: 0, fundStats: [] };
   
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);

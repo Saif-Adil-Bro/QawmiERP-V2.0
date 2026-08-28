@@ -64,3 +64,19 @@ export async function createAdminClient() {
   });
 }
 
+/**
+ * Safely fetches the authenticated user without throwing on invalid or expired refresh tokens.
+ */
+export async function getAuthUser(supabaseClient?: any) {
+  try {
+    const supabase = supabaseClient || (await createClient());
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data?.user) {
+      return null;
+    }
+    return data.user;
+  } catch (err) {
+    return null;
+  }
+}
+

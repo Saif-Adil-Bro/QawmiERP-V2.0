@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem } from "@/lib/fund-utils";
 
@@ -12,7 +12,7 @@ const customFundsStore: Map<string, FundItem[]> = new Map();
 export async function getFunds(): Promise<FundItem[]> {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return DEFAULT_FUNDS;
     
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -62,7 +62,7 @@ export async function getFunds(): Promise<FundItem[]> {
 // Create a new custom Fund manually
 export async function createFund(formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) throw new Error("অননুমোদিত এক্সেস (Unauthorized)");
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -129,7 +129,7 @@ export async function createFund(formData: FormData) {
 // Update Fund
 export async function updateFund(fundId: string, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) throw new Error("Unauthorized");
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -174,7 +174,7 @@ export async function updateFund(fundId: string, formData: FormData) {
 // Delete Fund
 export async function deleteFund(fundId: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) throw new Error("Unauthorized");
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -199,7 +199,7 @@ export async function deleteFund(fundId: string) {
 export async function getDonors(): Promise<DonorItem[]> {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return [];
 
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -276,7 +276,7 @@ export async function getDonors(): Promise<DonorItem[]> {
 // Add Donor with Frequency: Annual / Monthly / OneTime
 export async function addDonor(formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) throw new Error("অননুমোদিত এক্সেস (Unauthorized)");
   
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -350,7 +350,7 @@ export async function addDonor(formData: FormData) {
 // Update Donor
 export async function updateDonor(donorId: string, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) throw new Error("Unauthorized");
 
   const name = (formData.get("name") as string)?.trim();
@@ -406,7 +406,7 @@ export async function getDonations(filters?: {
 }): Promise<DonationItem[]> {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return [];
 
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -507,7 +507,7 @@ export async function getDonations(filters?: {
 export async function getDonationById(id: string): Promise<DonationItem | null> {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return null;
 
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -575,7 +575,7 @@ export async function getDonationById(id: string): Promise<DonationItem | null> 
 export async function addDonation(prevState: any, formData: FormData) {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return { error: "অননুমোদিত এক্সেস (Unauthorized)" };
     
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -724,7 +724,7 @@ export async function deleteDonation(id: string) {
 export async function getZakatReportStats() {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return null;
 
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);

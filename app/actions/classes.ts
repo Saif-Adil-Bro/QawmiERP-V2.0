@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
 // Helper to parse sequence and actual description from a stored description text
@@ -89,7 +89,7 @@ export async function createClass(prevState: any, formData: FormData) {
 
     let madrasaId = "";
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getAuthUser(supabase);
       if (user) {
         const { getAuthMadrasaId } = await import("./students");
         madrasaId = (await getAuthMadrasaId(supabase, user)) || "";

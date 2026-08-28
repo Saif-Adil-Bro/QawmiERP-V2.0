@@ -95,8 +95,8 @@ body, input, textarea, select, button {
 
 @media print {
   @page {
-    size: auto;
-    margin: 8mm;
+    size: A4 portrait;
+    margin: 6mm;
   }
   *, *::before, *::after {
     -webkit-print-color-adjust: exact !important;
@@ -109,6 +109,7 @@ body, input, textarea, select, button {
     padding: 0 !important;
     width: 100% !important;
     height: auto !important;
+    font-size: 12pt;
   }
   .print-pad-container {
     box-sizing: border-box !important;
@@ -117,15 +118,15 @@ body, input, textarea, select, button {
     width: 100% !important;
   }
   /* Page break helpers */
-  .page-break-after {
+  .page-break-after, .break-after-page {
     page-break-after: always !important;
     break-after: page !important;
   }
-  .page-break-after:last-child {
+  .page-break-after:last-child, .break-after-page:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
   }
-  .page-break-avoid, .print-break-inside-avoid {
+  .page-break-avoid, .print-break-inside-avoid, .break-inside-avoid {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
@@ -135,6 +136,68 @@ body, input, textarea, select, button {
     break-inside: avoid !important;
     max-height: 100% !important;
     box-sizing: border-box !important;
+  }
+  /* A4 ID Card Sheet: 8 cards per page (2 columns x 4 rows) */
+  .a4-id-card-sheet {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    width: 100% !important;
+    min-height: 275mm !important;
+    max-height: 285mm !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-rows: repeat(4, 1fr) !important;
+    gap: 4mm 6mm !important;
+    padding: 4mm !important;
+    box-sizing: border-box !important;
+    justify-items: center !important;
+    align-items: center !important;
+  }
+  .a4-id-card-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  /* A4 Admit Card Sheet: 2 admit cards per page */
+  .a4-admit-card-sheet {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    width: 100% !important;
+    min-height: 275mm !important;
+    max-height: 285mm !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    gap: 6mm !important;
+    padding: 4mm !important;
+    box-sizing: border-box !important;
+  }
+  .a4-admit-card-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  /* A4 Marksheet Page: exactly 1 marksheet per A4 page */
+  .a4-marksheet-sheet {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    width: 100% !important;
+    min-height: 270mm !important;
+    max-height: 285mm !important;
+    padding: 4mm 6mm !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+  }
+  .a4-marksheet-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
   /* Landscape auto-centering helper */
   .print-landscape-fit {

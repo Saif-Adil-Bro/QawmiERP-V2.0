@@ -1,13 +1,13 @@
 "use server";
 
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
 export async function createTeacher(prevState: any, formData: FormData) {
   const supabase = await createClient();
   
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -93,7 +93,7 @@ export async function getTeacher(id: string) {
 
 export async function updateTeacher(prevState: any, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const id = formData.get("id") as string;

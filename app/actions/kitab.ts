@@ -1,12 +1,12 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
 export async function getKitabStudents() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   // Fetch Kitab students or all non-Hifz students
@@ -43,7 +43,7 @@ export async function getKitabLogs(studentId: string, limit = 10) {
 
 export async function createKitabLog(prevState: any, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -83,7 +83,7 @@ export async function createKitabLog(prevState: any, formData: FormData) {
 
 export async function getAllRecentKitabLogs(limit = 100) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const { data, error } = await supabase
@@ -105,7 +105,7 @@ export async function getAllRecentKitabLogs(limit = 100) {
 
 export async function updateKitabLog(prevState: any, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const logId = formData.get("log_id") as string;

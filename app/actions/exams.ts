@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
@@ -81,7 +81,7 @@ function computeExamStatus(
 
 export async function getExams() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -161,7 +161,7 @@ export async function getExamById(id: string) {
 
 export async function createExam(prevState: any, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -208,7 +208,7 @@ export async function deleteExam(examId: string) {
 
 export async function getStudentsByClass(classId: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -254,7 +254,7 @@ export async function getExamResults(examId: string, classId: string, subjectNam
 
 export async function saveExamMarks(examId: string, subjectName: string, marksData: { student_id: string, marks_obtained: number, total_marks: number }[]) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -284,7 +284,7 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
 
 export async function getStudentReportCard(examId: string, classId?: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -319,12 +319,20 @@ export async function getStudentReportCard(examId: string, classId?: string) {
 
   // Group results by student
   const studentResults = students.map(student => {
-    // Only include marks for subjects that are currently defined in the exam setup for this class
-    const validSubjectNames = validSubjects?.filter(vs => vs.class_id === student.class_id).map(vs => vs.subject_name) || [];
-    const studentMarks = results.filter(r => r.student_id === student.id && validSubjectNames.includes(r.subject_name));
+    // If exam_subjects are configured for this class, filter by them; otherwise include all marks recorded for this student
+    const classValidSubjects = validSubjects?.filter(vs => vs.class_id === student.class_id) || [];
+    const validSubjectNames = classValidSubjects.map(vs => vs.subject_name);
     
-    const totalObtained = studentMarks.reduce((sum, r) => sum + Number(r.marks_obtained), 0);
-    const totalMax = studentMarks.reduce((sum, r) => sum + Number(r.total_marks), 0);
+    const studentMarks = results.filter(r => {
+      if (r.student_id !== student.id) return false;
+      if (validSubjectNames.length > 0) {
+        return validSubjectNames.includes(r.subject_name);
+      }
+      return true;
+    });
+    
+    const totalObtained = studentMarks.reduce((sum, r) => sum + Number(r.marks_obtained || 0), 0);
+    const totalMax = studentMarks.reduce((sum, r) => sum + Number(r.total_marks || 100), 0);
     const percentage = totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
     
     return {
@@ -368,7 +376,7 @@ export async function getExamSubjects(examId: string, classId: string) {
 
 export async function saveExamSubjects(examId: string, classId: string, subjectsData: any[]) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };

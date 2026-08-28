@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
 export async function getSubjects() {
@@ -39,7 +39,7 @@ export async function createSubject(prevState: any, formData: FormData) {
 
     let madrasaId = "";
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getAuthUser(supabase);
       if (user) {
         const { getAuthMadrasaId } = await import("./students");
         madrasaId = (await getAuthMadrasaId(supabase, user)) || "";

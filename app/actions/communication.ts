@@ -1,13 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { DEFAULT_SMS_TEMPLATES, SMSTemplate } from "@/lib/sms-template-helper";
 
 export async function addNotice(formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) throw new Error("Unauthorized");
   
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -42,10 +42,17 @@ export async function deleteNotice(id: string) {
   revalidatePath("/dashboard/communication/notices");
 }
 
+export async function deleteNoticeAction(formData: FormData) {
+  const id = formData.get("id") as string;
+  if (id) {
+    await deleteNotice(id);
+  }
+}
+
 export async function getSMSTemplates(): Promise<SMSTemplate[]> {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser(supabase);
     if (!user) return DEFAULT_SMS_TEMPLATES;
 
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -69,7 +76,7 @@ export async function getSMSTemplates(): Promise<SMSTemplate[]> {
 
 export async function saveSMSTemplate(formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "লগইন করা আবশ্যক" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -136,7 +143,7 @@ export async function deleteSMSTemplate(id: string) {
   }
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -159,7 +166,7 @@ export async function deleteSMSTemplate(id: string) {
 
 export async function sendSMS(formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) throw new Error("Unauthorized");
   
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -200,7 +207,7 @@ export async function sendBulkSMS(messages: Array<{
   message_type?: string;
 }>) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
   
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);

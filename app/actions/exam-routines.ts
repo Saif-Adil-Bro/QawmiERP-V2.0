@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
@@ -39,7 +39,7 @@ export async function saveExamRoutine(data: {
 }) {
   const supabase = await createClient();
   
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
   const madrasaId = await getAuthMadrasaId(supabase, user);
 

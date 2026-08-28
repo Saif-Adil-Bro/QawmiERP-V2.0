@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { addNotice, deleteNotice } from "@/app/actions/communication";
+import { addNotice, deleteNoticeAction } from "@/app/actions/communication";
 import { Bell, Trash2, PlusCircle } from "lucide-react";
 
 export default async function NoticesPage() {
@@ -80,11 +80,9 @@ export default async function NoticesPage() {
                   </div>
                 </div>
                 
-                <form action={async () => {
-                  "use server";
-                  await deleteNotice(notice.id);
-                }}>
-                  <button type="submit" className="text-red-500 hover:bg-red-50 p-2 rounded-md transition opacity-0 group-hover:opacity-100">
+                <form action={deleteNoticeAction}>
+                  <input type="hidden" name="id" value={notice.id} />
+                  <button type="submit" className="text-red-500 hover:bg-red-50 p-2 rounded-md transition opacity-0 group-hover:opacity-100 cursor-pointer" title="মুছে ফেলুন">
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </form>

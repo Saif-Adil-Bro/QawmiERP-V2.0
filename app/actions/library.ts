@@ -1,12 +1,12 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "@/app/actions/students";
 
 export async function getBooks() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const madrasaId = await getAuthMadrasaId(supabase, user);
@@ -27,7 +27,7 @@ export async function getBooks() {
 
 export async function createBook(prevState: any, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "অননুমোদিত অ্যাক্সেস (Unauthorized)" };
 
   const madrasaId = await getAuthMadrasaId(supabase, user);
@@ -64,7 +64,7 @@ export async function createBook(prevState: any, formData: FormData) {
 
 export async function updateBook(id: string, prevState: any, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
 
   const title = formData.get("title") as string;
@@ -126,7 +126,7 @@ export async function deleteBook(id: string) {
 
 export async function getBookIssues() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const madrasaId = await getAuthMadrasaId(supabase, user);
@@ -151,7 +151,7 @@ export async function getBookIssues() {
 
 export async function issueBook(prevState: any, formData: FormData) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
 
   const madrasaId = await getAuthMadrasaId(supabase, user);

@@ -10,9 +10,14 @@ export async function middleware(request: NextRequest) {
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
   if (!supabaseUrl || !supabaseKey) {
-    // If keys are missing, we cannot authenticate, just pass through or redirect
+    // If keys are missing, pass through
     return supabaseResponse;
   }
+
+  const isAuthRoute = request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname === '/';
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api');
+
+  let user = null;
 
   try {
     const supabase = createServerClient(
@@ -43,37 +48,51 @@ export async function middleware(request: NextRequest) {
       }
     );
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const isAuthRoute = request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname === '/';
-    
-    if (!user && !isAuthRoute) {
-      const url = request.nextUrl.clone();
-      url.pathname = '/login';
-      const redirectResponse = NextResponse.redirect(url);
-      
-      const setCookies = supabaseResponse.headers.getSetCookie();
-      for (const cookie of setCookies) {
-        redirectResponse.headers.append('set-cookie', cookie);
-      }
-      return redirectResponse;
-    }
-
-    if (user && isAuthRoute) {
-      const url = request.nextUrl.clone();
-      url.pathname = '/dashboard';
-      const redirectResponse = NextResponse.redirect(url);
-      
-      const setCookies = supabaseResponse.headers.getSetCookie();
-      for (const cookie of setCookies) {
-        redirectResponse.headers.append('set-cookie', cookie);
-      }
-      return redirectResponse;
+    const { data, error } = await supabase.auth.getUser();
+    if (error) {
+      // If refresh token is invalid/expired, clear stale auth cookies to avoid error loops
+      request.cookies.getAll().forEach(c => {
+        if (c.name.includes("sb-") || c.name.includes("auth-token")) {
+          supabaseResponse.cookies.set(c.name, "", { maxAge: 0, path: "/" });
+        }
+      });
+      user = null;
+    } else {
+      user = data?.user || null;
     }
   } catch (error) {
-    console.error("Middleware Supabase error:", error);
+    // Safe fallback on AuthApiError
+    console.warn("Middleware Supabase auth validation:", error);
+    request.cookies.getAll().forEach(c => {
+      if (c.name.includes("sb-") || c.name.includes("auth-token")) {
+        supabaseResponse.cookies.set(c.name, "", { maxAge: 0, path: "/" });
+      }
+    });
+    user = null;
+  }
+
+  if (!user && !isAuthRoute && !isApiRoute) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/login';
+    const redirectResponse = NextResponse.redirect(url);
+    
+    const setCookies = supabaseResponse.headers.getSetCookie();
+    for (const cookie of setCookies) {
+      redirectResponse.headers.append('set-cookie', cookie);
+    }
+    return redirectResponse;
+  }
+
+  if (user && isAuthRoute) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/dashboard';
+    const redirectResponse = NextResponse.redirect(url);
+    
+    const setCookies = supabaseResponse.headers.getSetCookie();
+    for (const cookie of setCookies) {
+      redirectResponse.headers.append('set-cookie', cookie);
+    }
+    return redirectResponse;
   }
 
   return supabaseResponse;

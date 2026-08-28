@@ -1,12 +1,12 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
 export async function getStudentsForAttendance(date: string, classId?: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   let query = supabase
@@ -45,7 +45,7 @@ export async function getStudentsForAttendance(date: string, classId?: string) {
 
 export async function saveAttendance(date: string, attendanceData: { student_id: string, status: string }[]) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -73,7 +73,7 @@ export async function saveAttendance(date: string, attendanceData: { student_id:
 
 export async function getTeachersForAttendance(date: string) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const { data: teachers, error: teachersError } = await supabase
@@ -105,7 +105,7 @@ export async function getTeachersForAttendance(date: string) {
 
 export async function saveTeacherAttendance(date: string, attendanceData: { teacher_id: string, status: string }[]) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -134,7 +134,7 @@ export async function saveTeacherAttendance(date: string, attendanceData: { teac
 
 export async function getAttendanceReport(month: string, year: string, type: 'student' | 'teacher') {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
   if (!user) return [];
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
