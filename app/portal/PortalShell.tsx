@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   BookOpen,
   User,
@@ -29,6 +29,8 @@ interface PortalShellProps {
 export default function PortalShell({ user, userData, children }: PortalShellProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const studentId = searchParams.get("student_id");
 
   // Bottom navigation items for mobile
   const bottomNavItems = [
@@ -200,11 +202,12 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
               ? pathname === item.href
               : pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
+            const targetHref = studentId ? `${item.href}?student_id=${studentId}` : item.href;
 
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={targetHref}
                 className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
                   active
                     ? "text-emerald-700 font-bold scale-105"

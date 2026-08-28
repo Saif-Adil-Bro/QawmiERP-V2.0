@@ -71,6 +71,7 @@ export default function StudentDirectoryClient({
             onChange={handleClassChange}
             className="w-full p-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
           >
+            <option value="">সকল জামাত / শ্রেণি</option>
             {classes.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}

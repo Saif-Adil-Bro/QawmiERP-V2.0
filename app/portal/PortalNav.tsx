@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard,
   Calendar,
@@ -19,6 +19,8 @@ interface PortalNavProps {
 
 export default function PortalNav({ onItemClick }: PortalNavProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const studentId = searchParams.get("student_id");
 
   const links = [
     { href: "/portal", label: "ড্যাশবোর্ড ও ওভারভিউ", icon: LayoutDashboard, exact: true },
@@ -38,11 +40,12 @@ export default function PortalNav({ onItemClick }: PortalNavProps) {
           ? pathname === link.href
           : pathname === link.href || pathname.startsWith(link.href + "/");
         const Icon = link.icon;
+        const targetHref = studentId ? `${link.href}?student_id=${studentId}` : link.href;
 
         return (
           <Link
             key={link.href}
-            href={link.href}
+            href={targetHref}
             onClick={onItemClick}
             className={`flex items-center px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-150 ${
               active

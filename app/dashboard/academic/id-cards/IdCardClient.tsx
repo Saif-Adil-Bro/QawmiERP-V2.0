@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import PrintButton from "@/app/components/PrintButton";
-import { IdCard, Palette, LayoutTemplate, Sliders, FileText, Settings, Plus, Trash2, Type, Printer } from "lucide-react";
+import { IdCard, Palette, LayoutTemplate, Sliders, FileText, Settings, Plus, Trash2, Type, Printer, RotateCcw } from "lucide-react";
 import { getStudentIdNumber, convertToBanglaNumber } from "@/lib/student-utils";
 
 const getDirectPhotoUrl = (url: string | null | undefined): string | undefined => {
@@ -43,15 +43,52 @@ export default function IdCardClient({
   const [cardSide, setCardSide] = useState<"front" | "back" | "both">("both");
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
   
-  // Customization States for sizes and spacing
-  const [titleFontSize, setTitleFontSize] = useState(12); // px
-  const [addressFontSize, setAddressFontSize] = useState(9); // px
-  const [nameFontSize, setNameFontSize] = useState(14); // px
-  const [detailsFontSize, setDetailsFontSize] = useState(11); // px
-  const [detailsGap, setDetailsGap] = useState(4); // px gap between rows
-  const [backFontSize, setBackFontSize] = useState(8); // px
-  const [backLineGap, setBackLineGap] = useState(4); // px gap between instruction items
+  // Customization States for sizes and spacing (calibrated for standard CR80 2.125" x 3.375" ID card)
+  const [titleFontSize, setTitleFontSize] = useState(11); // px
+  const [addressFontSize, setAddressFontSize] = useState(8.5); // px
+  const [nameFontSize, setNameFontSize] = useState(12.5); // px
+  const [detailsFontSize, setDetailsFontSize] = useState(9.5); // px
+  const [detailsGap, setDetailsGap] = useState(3); // px gap between rows
+  const [backFontSize, setBackFontSize] = useState(7.5); // px
+  const [backLineGap, setBackLineGap] = useState(3); // px gap between instruction items
   const [showEditor, setShowEditor] = useState(false); // Toggle customization editor
+
+  const resetToDefaultSizes = () => {
+    setTitleFontSize(11);
+    setAddressFontSize(8.5);
+    setNameFontSize(12.5);
+    setDetailsFontSize(9.5);
+    setDetailsGap(3);
+    setBackFontSize(7.5);
+    setBackLineGap(3);
+  };
+
+  const handlePrint = () => {
+    const printableElement = document.getElementById("printable-id-card-sheet");
+    if (!printableElement) {
+      window.print();
+      return;
+    }
+
+    const existing = document.getElementById("temp-print-frame");
+    if (existing) existing.remove();
+
+    const clone = printableElement.cloneNode(true) as HTMLElement;
+    clone.id = "temp-print-frame";
+    clone.classList.remove("hidden");
+    clone.classList.add("block");
+    document.body.appendChild(clone);
+    document.body.classList.add("is-printing-now");
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove("is-printing-now");
+        const temp = document.getElementById("temp-print-frame");
+        if (temp) temp.remove();
+      }, 500);
+    }, 150);
+  };
 
   // Custom instruction text (Bengali)
   const [customInstructions, setCustomInstructions] = useState<string[]>([
@@ -491,7 +528,7 @@ export default function IdCardClient({
           </button>
 
           <button
-            onClick={() => window.print()}
+            onClick={handlePrint}
             className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-md text-xs font-semibold shadow-xs transition"
           >
             <Printer className="w-3.5 h-3.5" />
@@ -503,11 +540,25 @@ export default function IdCardClient({
       {/* Editor Drawer */}
       {showEditor && (
         <div className="mb-8 p-5 bg-slate-50 border border-slate-200 rounded-xl print:hidden">
-          <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-200">
-            <Settings className="w-5 h-5 text-blue-600" />
-            <h3 className="font-bold text-slate-800 text-sm">
-              কার্ড কাস্টমাইজেশন টুলস (Card Customization Editor)
-            </h3>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-2 border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Settings className="w-5 h-5 text-blue-600" />
+              <h3 className="font-bold text-slate-800 text-sm">
+                কার্ড কাস্টমাইজেশন টুলস (Card Customization Editor)
+              </h3>
+            </div>
+            
+            <button
+              onClick={resetToDefaultSizes}
+              className="flex items-center gap-1.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-lg transition"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              ডিফল্ট সাইজে রিসেট
+            </button>
+          </div>
+
+          <div className="mb-4 bg-blue-50/80 border border-blue-200 p-3 rounded-lg text-xs text-blue-800 leading-relaxed">
+            💡 <strong>প্রিন্ট টিপস:</strong> আইডি কার্ডের আকার নির্দিষ্ট (২.১২৫" × ৩.৩৭৫")। ফন্ট সাইজ বেশি বড় করলে (যেমন নাম ১৫px বা বিবরণী ১২px এর বেশি) প্রিন্ট প্রভিউতে কার্ডের বাইরে চলে যেতে পারে। সব সময় <strong>ডিফল্ট সাইজ</strong> ব্যবহার করা সবচেয়ে পারফেক্ট।
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -523,7 +574,7 @@ export default function IdCardClient({
                     <span className="font-mono text-blue-600 font-bold">{titleFontSize}px</span>
                   </div>
                   <input 
-                    type="range" min="8" max="18" step="0.5"
+                    type="range" min="8" max="14" step="0.5"
                     value={titleFontSize} 
                     onChange={(e) => setTitleFontSize(Number(e.target.value))}
                     className="w-full accent-blue-600"
@@ -536,7 +587,7 @@ export default function IdCardClient({
                     <span className="font-mono text-blue-600 font-bold">{addressFontSize}px</span>
                   </div>
                   <input 
-                    type="range" min="6" max="14" step="0.5"
+                    type="range" min="6" max="11" step="0.5"
                     value={addressFontSize} 
                     onChange={(e) => setAddressFontSize(Number(e.target.value))}
                     className="w-full accent-blue-600"
@@ -549,7 +600,7 @@ export default function IdCardClient({
                     <span className="font-mono text-blue-600 font-bold">{nameFontSize}px</span>
                   </div>
                   <input 
-                    type="range" min="10" max="20" step="0.5"
+                    type="range" min="9" max="15" step="0.5"
                     value={nameFontSize} 
                     onChange={(e) => setNameFontSize(Number(e.target.value))}
                     className="w-full accent-blue-600"
@@ -562,7 +613,7 @@ export default function IdCardClient({
                     <span className="font-mono text-blue-600 font-bold">{detailsFontSize}px</span>
                   </div>
                   <input 
-                    type="range" min="8" max="14" step="0.5"
+                    type="range" min="7.5" max="12" step="0.5"
                     value={detailsFontSize} 
                     onChange={(e) => setDetailsFontSize(Number(e.target.value))}
                     className="w-full accent-blue-600"
@@ -635,7 +686,7 @@ export default function IdCardClient({
       </div>
 
       {/* Print View: Structured into precise A4 Sheets with 8 cards per page */}
-      <div className={`hidden print:block print:w-full ${banglaFont}`}>
+      <div id="printable-id-card-sheet" className={`hidden print:block print:w-full ${banglaFont}`}>
         {printPages.map((pageCards, pageIndex) => (
           <div key={pageIndex} className="a4-id-card-sheet bg-white">
             {pageCards.map((cardItem, idx) => renderCard(cardItem, pageIndex * 8 + idx))}

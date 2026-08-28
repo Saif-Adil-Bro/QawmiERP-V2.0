@@ -105,7 +105,28 @@ export default function BazarVoucherPrint({
   const parsedItems = parseBazarLines(expense.items_details);
 
   const handlePrint = () => {
-    window.print();
+    const printElem = document.querySelector(".bazar-voucher-printable-area");
+    if (!printElem) {
+      window.print();
+      return;
+    }
+
+    const existing = document.getElementById("temp-print-frame");
+    if (existing) existing.remove();
+
+    const clone = printElem.cloneNode(true) as HTMLElement;
+    clone.id = "temp-print-frame";
+    document.body.appendChild(clone);
+    document.body.classList.add("is-printing-now");
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove("is-printing-now");
+        const temp = document.getElementById("temp-print-frame");
+        if (temp) temp.remove();
+      }, 500);
+    }, 150);
   };
 
   const renderSingleVoucher = (copyType: "office" | "boarding", copyLabel: string) => {
