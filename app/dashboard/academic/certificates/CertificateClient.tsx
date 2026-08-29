@@ -177,7 +177,7 @@ export default function CertificateClient({
           @media print {
             @page { 
               size: A4 landscape; 
-              margin: 8mm; 
+              margin: 4mm; 
             }
             html, body {
               width: 100% !important;
@@ -185,6 +185,7 @@ export default function CertificateClient({
               margin: 0 !important;
               padding: 0 !important;
               background: white !important;
+              overflow: hidden !important;
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
@@ -194,11 +195,18 @@ export default function CertificateClient({
               justify-content: center !important;
               align-items: center !important;
               width: 100% !important; 
-              height: 100% !important;
-              min-height: 96vh !important;
+              height: 100vh !important;
+              max-height: 190mm !important;
               margin: 0 auto !important;
               padding: 0 !important;
               box-sizing: border-box !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+              page-break-after: avoid !important;
+              break-after: avoid !important;
+              page-break-before: avoid !important;
+              break-before: avoid !important;
+              overflow: hidden !important;
             }
             .print-hidden-element { display: none !important; }
           }
@@ -346,9 +354,19 @@ export default function CertificateClient({
 
           {/* Certificate Design Customizer & Preview */}
           {selectedStudent ? (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              {/* Customizer Bar */}
-              <div className="flex flex-col sm:flex-row justify-between items-center p-4 border-b bg-slate-50 print:hidden gap-4">
+            <div className="space-y-4 print:hidden">
+              {/* Print Orientation Guidance Banner */}
+              <div className="bg-amber-50/90 border border-amber-200/90 text-amber-900 px-4 py-2.5 rounded-xl flex items-center gap-2.5 text-xs font-medium shadow-xs">
+                <span className="text-lg">🖨️</span>
+                <div>
+                  <span className="font-bold text-amber-950">প্রিন্ট ও PDF নির্দেশিকা: </span>
+                  মোবাইল বা কম্পিউটারে প্রিন্ট / PDF করার সময় প্রিন্টার অপশনে <strong>Layout: Landscape (আড়াআড়ি)</strong> এবং <strong>Margins: None বা Minimum</strong> নির্বাচন করুন। এতে সনদটি কোনোভাবে না কেটে সুন্দরভাবে ১ পেজেই সম্পূর্ণ ফিট হবে।
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                {/* Customizer Bar */}
+                <div className="flex flex-col sm:flex-row justify-between items-center p-4 border-b bg-slate-50 gap-4">
                 <div className="flex items-center space-x-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                   <p className="text-sm font-semibold text-slate-700">ডিজাইন ও কালার কাস্টমাইজ করুন</p>
@@ -575,6 +593,7 @@ export default function CertificateClient({
                   </div>
                 </div>
               </div>
+            </div>
             </div>
           ) : (
             <div className="text-center py-16 bg-white rounded-xl border border-dashed border-slate-300 text-slate-500 shadow-sm">
@@ -928,42 +947,42 @@ export default function CertificateClient({
 
       {/* ==================== PRINT VIEWS (ONLY SHOWN WHEN PRINTED) ==================== */}
       
-      {/* 1. Certificate Printing Container */}
+      {/* 1. Certificate Printing Container (Strictly 1 Page Landscape Fit) */}
       {activeTab === 'certificate' && selectedStudent && (
-        <div className="hidden print:flex print-area-certificate w-full h-full min-h-[96vh] mx-auto items-center justify-center">
-          <div className="w-full max-w-[275mm] h-[190mm] mx-auto flex items-center justify-center bg-white box-border">
+        <div className="hidden print:flex print-area-certificate w-full h-full max-h-[190mm] mx-auto items-center justify-center overflow-hidden">
+          <div className="w-full max-w-[270mm] h-[180mm] mx-auto flex items-center justify-center bg-white box-border overflow-hidden">
             {template === 'ornate' && (
-              <div className={`border-[8px] sm:border-[10px] border-double ${currentTheme.main} p-6 sm:p-8 text-center relative w-full h-full bg-white flex flex-col justify-between box-border rounded-xs`}>
-                <div className={`absolute top-6 left-6 opacity-10 ${currentTheme.text}`}>
-                   <Award className="w-16 h-16" />
+              <div className={`border-[8px] border-double ${currentTheme.main} p-5 text-center relative w-full h-full bg-white flex flex-col justify-between box-border rounded-xs overflow-hidden`}>
+                <div className={`absolute top-4 left-4 opacity-10 ${currentTheme.text}`}>
+                   <Award className="w-14 h-14" />
                 </div>
-                <div className={`absolute top-6 right-6 opacity-10 ${currentTheme.text}`}>
-                   <Award className="w-16 h-16" />
+                <div className={`absolute top-4 right-4 opacity-10 ${currentTheme.text}`}>
+                   <Award className="w-14 h-14" />
                 </div>
                 
                 <div>
-                  <h1 className={`text-2xl sm:text-3xl font-black ${currentTheme.text} mb-0.5 tracking-wider`}>
+                  <h1 className={`text-2xl font-black ${currentTheme.text} mb-0.5 tracking-wider`}>
                     {profileAndLogo?.madrasa?.name || madrasaInfo?.name || "মাদরাসা নাম"}
                   </h1>
-                  <p className="text-xs sm:text-sm text-slate-600 mb-0.5">
+                  <p className="text-xs text-slate-600 mb-0.5">
                     {profileAndLogo?.madrasa?.address || madrasaInfo?.address || "মাদরাসা ঠিকানা"}
                   </p>
-                  <h2 className={`text-xs font-bold ${currentTheme.text} tracking-widest mt-1`}>
+                  <h2 className={`text-xs font-bold ${currentTheme.text} tracking-widest mt-0.5`}>
                     বিসমিল্লাহির রাহমানির রাহিম
                   </h2>
-                  <div className="w-28 h-0.5 bg-slate-300 mx-auto my-1.5"></div>
+                  <div className="w-24 h-0.5 bg-slate-300 mx-auto my-1"></div>
                 </div>
 
-                <h2 className={`text-xl sm:text-2xl font-bold ${currentTheme.text} my-1`}>
+                <h2 className={`text-xl font-bold ${currentTheme.text} my-0.5`}>
                   {certificateType === "Hifz" ? "হিফজুল কুরআন সমাপ্তি সনদ" :
                     certificateType === "Dawra" ? "দাওরায়ে হাদিস সমাপ্তি সনদ" : "প্রশংসাপত্র"}
                 </h2>
                 
                 <div className="flex-1 flex flex-col justify-center px-4">
-                  <p className="text-sm sm:text-base text-slate-700 leading-relaxed max-w-2xl mx-auto">
+                  <p className="text-sm text-slate-700 leading-relaxed max-w-2xl mx-auto">
                     এই মর্মে প্রত্যয়ন করা যাচ্ছে যে,
                     <br/>
-                    <span className={`text-xl sm:text-2xl font-black ${currentTheme.text} border-b-2 ${currentTheme.border} inline-block px-6 py-0.5 mt-1 mb-2`}>
+                    <span className={`text-xl font-black ${currentTheme.text} border-b-2 ${currentTheme.border} inline-block px-6 py-0.5 mt-0.5 mb-1.5`}>
                       {selectedStudent.first_name} {selectedStudent.last_name}
                     </span>
                     <br/>
@@ -975,18 +994,18 @@ export default function CertificateClient({
                   </p>
                 </div>
 
-                <div className="flex justify-between mt-4 px-8 items-end">
+                <div className="flex justify-between mt-2 px-8 items-end w-full">
                    <div className="text-center">
                       <div className={`border-t-2 ${currentTheme.border} pt-1 w-32 mx-auto`}></div>
                       <p className={`text-[11px] font-bold ${currentTheme.text} mt-0.5`}>শ্রেণী শিক্ষক</p>
                    </div>
                    <div className="text-center">
                       {profileAndLogo?.signatureUrl && (
-                        <div className="h-8 flex items-center justify-center mb-0.5">
+                        <div className="h-7 flex items-center justify-center mb-0.5">
                           <img 
                             src={profileAndLogo.signatureUrl} 
                             alt="Principal Signature" 
-                            className="max-h-full max-w-[100px] object-contain"
+                            className="max-h-full max-w-[90px] object-contain"
                           />
                         </div>
                       )}
@@ -1000,26 +1019,26 @@ export default function CertificateClient({
             )}
 
             {template === 'standard' && (
-              <div className={`border-4 sm:border-6 solid ${currentTheme.main} p-6 sm:p-8 text-center relative w-full h-full bg-white flex flex-col justify-between box-border`}>
+              <div className={`border-4 solid ${currentTheme.main} p-5 text-center relative w-full h-full bg-white flex flex-col justify-between box-border overflow-hidden`}>
                 <div>
-                  <h1 className={`text-2xl sm:text-3xl font-black ${currentTheme.text} mb-0.5 tracking-wider`}>
+                  <h1 className={`text-2xl font-black ${currentTheme.text} mb-0.5 tracking-wider`}>
                     {profileAndLogo?.madrasa?.name || madrasaInfo?.name || "মাদরাসা নাম"}
                   </h1>
-                  <p className="text-xs sm:text-sm text-slate-600 mb-1">
+                  <p className="text-xs text-slate-600 mb-0.5">
                     {profileAndLogo?.madrasa?.address || madrasaInfo?.address || "মাদরাসা ঠিকানা"}
                   </p>
-                  <div className={`w-24 h-0.5 ${currentTheme.main} bg-current mx-auto my-1.5`}></div>
+                  <div className={`w-20 h-0.5 ${currentTheme.main} bg-current mx-auto my-1`}></div>
                 </div>
 
-                <h2 className={`text-xl sm:text-2xl font-black ${currentTheme.text} my-1 tracking-wide`}>
+                <h2 className={`text-xl font-black ${currentTheme.text} my-0.5 tracking-wide`}>
                   {certificateType === "Hifz" ? "হিফজুল কুরআন সমাপ্তি সনদ" :
                     certificateType === "Dawra" ? "দাওরায়ে হাদিস সমাপ্তি সনদ" : "প্রশংসাপত্র"}
                 </h2>
                 
                 <div className="flex-1 flex flex-col justify-center px-4">
-                  <p className="text-sm sm:text-base text-slate-700 leading-relaxed max-w-2xl mx-auto">
+                  <p className="text-sm text-slate-700 leading-relaxed max-w-2xl mx-auto">
                     প্রত্যয়ন করা যাচ্ছে যে,<br/>
-                    <span className={`text-lg sm:text-xl font-bold ${currentTheme.text} italic inline-block my-1.5`}>
+                    <span className={`text-lg font-bold ${currentTheme.text} italic inline-block my-1`}>
                       {selectedStudent.first_name} {selectedStudent.last_name}
                     </span><br/>
                     পিতা: <span className="font-bold text-slate-900">{selectedStudent.father_name || "__________________"}</span><br/>
@@ -1029,18 +1048,18 @@ export default function CertificateClient({
                   </p>
                 </div>
 
-                <div className="flex justify-between mt-4 px-8 items-end">
+                <div className="flex justify-between mt-2 px-8 items-end w-full">
                    <div className="text-center">
                       <div className="border-t border-slate-700 pt-1 w-32 mx-auto"></div>
                       <p className="text-[11px] font-bold text-slate-800 mt-0.5">পরীক্ষক</p>
                    </div>
                    <div className="text-center">
                       {profileAndLogo?.signatureUrl && (
-                        <div className="h-8 flex items-center justify-center mb-0.5">
+                        <div className="h-7 flex items-center justify-center mb-0.5">
                           <img 
                             src={profileAndLogo.signatureUrl} 
                             alt="Principal Signature" 
-                            className="max-h-full max-w-[100px] object-contain"
+                            className="max-h-full max-w-[90px] object-contain"
                           />
                         </div>
                       )}
@@ -1054,36 +1073,36 @@ export default function CertificateClient({
             )}
 
             {template === 'minimal' && (
-              <div className="p-8 text-center relative w-full h-full bg-white flex flex-col justify-between border-2 border-slate-200 box-border">
-                <div className="flex items-center justify-between border-b pb-2">
-                  <h1 className={`text-lg sm:text-xl font-bold ${currentTheme.text} tracking-wider`}>
+              <div className="p-5 text-center relative w-full h-full bg-white flex flex-col justify-between border-2 border-slate-200 box-border overflow-hidden">
+                <div className="flex items-center justify-between border-b pb-1.5">
+                  <h1 className={`text-lg font-bold ${currentTheme.text} tracking-wider`}>
                     {profileAndLogo?.madrasa?.name || madrasaInfo?.name || "মাদরাসা নাম"}
                   </h1>
                   <p className="text-xs text-slate-400">সনদ নং: {selectedStudent.id.substring(0,6).toUpperCase()}</p>
                 </div>
                 
-                <div className="flex-1 flex flex-col justify-center items-center my-3 px-4">
-                  <p className="text-[11px] text-slate-400 uppercase tracking-widest mb-1.5">সনদপত্র ও প্রশংসাপত্র</p>
-                  <h2 className={`text-2xl sm:text-3xl font-extralight ${currentTheme.text} mb-1.5`}>
+                <div className="flex-1 flex flex-col justify-center items-center my-2 px-4">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">সনদপত্র ও প্রশংসাপত্র</p>
+                  <h2 className={`text-2xl font-extralight ${currentTheme.text} mb-1`}>
                     {selectedStudent.first_name} {selectedStudent.last_name}
                   </h2>
-                  <p className="text-xs sm:text-sm text-slate-500 mb-3">পিতা: {selectedStudent.father_name || "__________________"}</p>
+                  <p className="text-xs text-slate-500 mb-2">পিতা: {selectedStudent.father_name || "__________________"}</p>
                   
-                  <p className="text-xs sm:text-sm text-slate-600 max-w-xl leading-relaxed">
+                  <p className="text-xs text-slate-600 max-w-xl leading-relaxed">
                     সফলভাবে ও নিষ্ঠার সাথে আমাদের শিক্ষা প্রতিষ্ঠানে অধ্যয়ন সমাপ্ত করেছেন এবং 
                     <span className={`font-medium ${currentTheme.text}`}> {certificateType === 'Hifz' ? 'হিফজুল কুরআন' : 'শ্রেণীভিত্তিক পাঠ্যক্রম'} </span> 
                     সুন্দরভাবে সম্পন্ন করার স্বীকৃতিস্বরূপ এই প্রশংসাপত্র প্রদান করা হলো।
                   </p>
                 </div>
 
-                <div className="flex justify-between items-end border-t pt-3 w-full">
+                <div className="flex justify-between items-end border-t pt-2 w-full">
                    <div className="text-left">
                       <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">তারিখ</p>
                       <p className="text-xs font-bold text-slate-700">{new Date().toLocaleDateString('bn-BD')}</p>
                    </div>
                    <div className="text-right">
                       <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">কর্তৃপক্ষ</p>
-                      <div className={`border-b ${currentTheme.border} w-28 pb-2`}></div>
+                      <div className={`border-b ${currentTheme.border} w-24 pb-1`}></div>
                    </div>
                 </div>
               </div>

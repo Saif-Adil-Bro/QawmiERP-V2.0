@@ -1,26 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
-export default function TopProgressBar() {
+function TopProgressBarContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // DOM refs — state নয়, সরাসরি DOM control করব
+  // DOM refs
   const containerRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
 
-  // Ref দিয়ে active ট্র্যাক করব — state হলে Concurrent Mode-এ stale হয়
   const isActiveRef = useRef(false);
-
-  // আগের URL track করার জন্য ref
   const prevPathnameRef = useRef(pathname);
   const prevSearchRef = useRef(searchParams?.toString() ?? "");
 
   /* ─── helpers ─── */
-
   const clearAllTimeouts = useCallback(() => {
     timeoutRefs.current.forEach(clearTimeout);
     timeoutRefs.current = [];
@@ -31,7 +27,6 @@ export default function TopProgressBar() {
   }, []);
 
   /* ─── loader functions ─── */
-
   const finishLoader = useCallback(() => {
     clearAllTimeouts();
 
@@ -44,15 +39,15 @@ export default function TopProgressBar() {
     const tFade = setTimeout(() => {
       if (containerRef.current) containerRef.current.style.opacity = "0";
 
-      // 400ms fade শেষে hide করুন
+      // 350ms fade শেষে hide করুন
       const tHide = setTimeout(() => {
         if (containerRef.current) {
           containerRef.current.style.display = "none";
-          containerRef.current.style.opacity = "1"; // reset for next time
+          containerRef.current.style.opacity = "1";
         }
         setBarWidth(0);
         isActiveRef.current = false;
-      }, 400);
+      }, 350);
       timeoutRefs.current.push(tHide);
     }, 200);
 
@@ -69,20 +64,24 @@ export default function TopProgressBar() {
       containerRef.current.style.opacity = "1";
     }
     if (barRef.current) {
-      barRef.current.style.transition = "width 300ms cubic-bezier(0.4, 0, 0.2, 1)";
+      barRef.current.style.transition = "width 250ms cubic-bezier(0.4, 0, 0.2, 1)";
     }
 
-    setBarWidth(20);
+    setBarWidth(25);
 
-    const t1 = setTimeout(() => setBarWidth(45), 100);
-    const t2 = setTimeout(() => setBarWidth(70), 300);
-    const t3 = setTimeout(() => setBarWidth(88), 700);
-    timeoutRefs.current = [t1, t2, t3];
-  }, [clearAllTimeouts, setBarWidth]);
+    const t1 = setTimeout(() => setBarWidth(50), 120);
+    const t2 = setTimeout(() => setBarWidth(75), 350);
+    const t3 = setTimeout(() => setBarWidth(90), 800);
+    // Auto-finish safety fallback after 8s
+    const tSafety = setTimeout(() => {
+      if (isActiveRef.current) {
+        finishLoader();
+      }
+    }, 8000);
+    timeoutRefs.current = [t1, t2, t3, tSafety];
+  }, [clearAllTimeouts, setBarWidth, finishLoader]);
 
   /* ─── URL change → finish loader ─── */
-  // useEffect deps-এ pathname/searchParams রাখছি,
-  // কিন্তু active check করব ref দিয়ে — stale closure এড়াতে
   useEffect(() => {
     const currentSearch = searchParams?.toString() ?? "";
     const urlChanged =
@@ -100,6 +99,11 @@ export default function TopProgressBar() {
   /* ─── click & popstate listeners ─── */
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
+      // Ignore right clicks or clicks with modifier keys
+      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+        return;
+      }
+
       const target = event.target as HTMLElement | null;
       if (!target) return;
 
@@ -112,40 +116,53 @@ export default function TopProgressBar() {
       if (
         href &&
         href.startsWith("/") &&
+        !href.startsWith("/#") &&
+        href !== "#" &&
         targetAttr !== "_blank" &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        !event.shiftKey &&
-        !event.altKey
+        !anchor.hasAttribute("download")
       ) {
-        startLoader();
+        // Only start if target is different from current path or has different search params
+        const [targetPath, targetSearch] = href.split("?");
+        const currentSearchStr = searchParams?.toString() ? `?${searchParams.toString()}` : "";
+        const currentFull = `${pathname}${currentSearchStr}`;
+        
+        if (href !== currentFull && href !== pathname) {
+          startLoader();
+        }
       }
     };
 
     const handlePopState = () => startLoader();
 
+    // Listen to custom navigation events if any code dispatches them
+    const handleCustomStart = () => startLoader();
+    const handleCustomFinish = () => finishLoader();
+
     document.addEventListener("click", handleClick, { capture: true });
     window.addEventListener("popstate", handlePopState);
+    window.addEventListener("toploader:start", handleCustomStart);
+    window.addEventListener("toploader:finish", handleCustomFinish);
 
     return () => {
       document.removeEventListener("click", handleClick, { capture: true });
       window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("toploader:start", handleCustomStart);
+      window.removeEventListener("toploader:finish", handleCustomFinish);
       clearAllTimeouts();
     };
-  }, [startLoader, clearAllTimeouts]);
+  }, [startLoader, finishLoader, pathname, searchParams, clearAllTimeouts]);
 
-  /* ─── render — সবসময় DOM-এ থাকবে, display:none দিয়ে লুকানো ─── */
-  // "return null" করলে style/animation হারিয়ে যায়, তাই এড়ানো হয়েছে
   return (
     <div
       ref={containerRef}
+      id="top-progress-bar-container"
       style={{
-        display: "none", // startLoader() এ block হবে
+        display: "none",
         position: "fixed",
         top: 0,
         left: 0,
         width: "100vw",
-        height: "4px",
+        height: "3.5px",
         zIndex: 2147483647,
         pointerEvents: "none",
       }}
@@ -183,5 +200,13 @@ export default function TopProgressBar() {
         />
       </div>
     </div>
+  );
+}
+
+export default function TopProgressBar() {
+  return (
+    <Suspense fallback={null}>
+      <TopProgressBarContent />
+    </Suspense>
   );
 }
