@@ -2,33 +2,41 @@ import { getStudents } from "@/app/actions/students";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import AddFeeForm from "./AddFeeForm";
+import CollectPaymentClient from "./CollectPaymentClient";
 
-export default async function NewFeePage() {
+export default async function NewFeePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ student_id?: string }>;
+}) {
+  const params = await searchParams;
   const [students, madrasaInfo] = await Promise.all([
     getStudents(),
-    getMadrasaInfo()
+    getMadrasaInfo(),
   ]);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center space-x-4 print:hidden">
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex items-center space-x-3 print:hidden">
         <Link
-          href="/dashboard/accounting/fees"
+          href="/dashboard/accounting"
           className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition"
         >
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">নতুন ফি গ্রহণ</h1>
-          <p className="text-slate-500 text-sm">শিক্ষার্থীর ফি রেকর্ড এন্ট্রি করুন</p>
+          <h1 className="text-2xl font-bold text-slate-900">ফি আদায় ও কালেকশন</h1>
+          <p className="text-slate-500 text-xs sm:text-sm">
+            শিক্ষার্থীর বকেয়া চার্জ থেকে ফি গ্রহণ, ছাড় সমন্বয় ও মানি রিসিট প্রস্তুত
+          </p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 print:border-none print:shadow-none print:p-0">
-        <AddFeeForm students={students} madrasaInfo={madrasaInfo} />
-      </div>
+      <CollectPaymentClient
+        students={students}
+        madrasaInfo={madrasaInfo}
+        preselectedStudentId={params.student_id}
+      />
     </div>
   );
 }
-

@@ -45,8 +45,8 @@ export default function DashboardShell({ children }: { children: React.ReactNode
           </div>
 
           {/* Dynamic Nav Menu */}
-          <div className="flex-1 overflow-y-auto" onClick={() => setSidebarOpen(false)}>
-            <DashboardNav />
+          <div className="flex-1 overflow-y-auto">
+            <DashboardNav onItemClick={() => setSidebarOpen(false)} />
           </div>
 
           {/* Logout Button */}

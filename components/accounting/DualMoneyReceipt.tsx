@@ -11,6 +11,12 @@ interface StudentInfo {
   class_name?: string;
 }
 
+interface AllocationItem {
+  fee_type_name: string;
+  billing_period?: string;
+  allocated_amount: number;
+}
+
 interface FeeData {
   id?: string;
   receipt_no?: string;
@@ -22,6 +28,10 @@ interface FeeData {
   fee_year?: string | number | null;
   notes?: string | null;
   students?: StudentInfo;
+  payment_method?: string;
+  allocations?: AllocationItem[];
+  discount_total?: number;
+  fine_total?: number;
 }
 
 interface MadrasaInfo {
@@ -181,28 +191,61 @@ export default function DualMoneyReceipt({
                   </td>
                 </tr>
 
-                <tr className="border-b border-slate-200">
-                  <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 border-r border-slate-200 text-xs">
-                    জামাত / শ্রেণি:
-                  </td>
-                  <td className="px-3 py-1.5 font-medium text-slate-800">
-                    {className}
-                  </td>
-                  <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 border-l border-r border-slate-200 text-xs">
-                    ফি'র ধরন:
-                  </td>
-                  <td className="px-3 py-1.5 font-medium text-slate-800">
-                    {getFeeTypeName(fee.fee_type)}
-                  </td>
-                </tr>
-
-                {(monthYearText || fee.notes) && (
+                {fee.allocations && fee.allocations.length > 0 ? (
+                  <tr className="border-b border-slate-200">
+                    <td colSpan={4} className="p-0">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-100/90 text-slate-700 font-bold border-b border-slate-200">
+                          <tr>
+                            <th className="py-1 px-3 text-left">ফি'র খাত / বিবরণ</th>
+                            <th className="py-1 px-3 text-left">মাস/পিরিয়ড</th>
+                            <th className="py-1 px-3 text-right">আদায়কৃত পরিমাণ (৳)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {fee.allocations.map((alloc, aIdx) => (
+                            <tr key={aIdx}>
+                              <td className="py-1 px-3 font-medium text-slate-800">{alloc.fee_type_name}</td>
+                              <td className="py-1 px-3 text-slate-600">{alloc.billing_period || "-"}</td>
+                              <td className="py-1 px-3 text-right font-mono font-bold text-slate-900">
+                                ৳ {formatBanglaCurrency(alloc.allocated_amount)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                ) : (
                   <tr className="border-b border-slate-200">
                     <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 border-r border-slate-200 text-xs">
-                      মাস ও বছর:
+                      জামাত / শ্রেণি:
                     </td>
                     <td className="px-3 py-1.5 font-medium text-slate-800">
-                      {monthYearText || '-'}
+                      {className}
+                    </td>
+                    <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 border-l border-r border-slate-200 text-xs">
+                      ফি'র ধরন:
+                    </td>
+                    <td className="px-3 py-1.5 font-medium text-slate-800">
+                      {getFeeTypeName(fee.fee_type)}
+                    </td>
+                  </tr>
+                )}
+
+                {(monthYearText || fee.notes || fee.payment_method) && (
+                  <tr className="border-b border-slate-200">
+                    <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 border-r border-slate-200 text-xs">
+                      {fee.payment_method ? "পরিশোধের মাধ্যম:" : "মাস ও বছর:"}
+                    </td>
+                    <td className="px-3 py-1.5 font-medium text-slate-800">
+                      {fee.payment_method ? (
+                        <span className="font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          {fee.payment_method}
+                        </span>
+                      ) : (
+                        monthYearText || '-'
+                      )}
                     </td>
                     <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 border-l border-r border-slate-200 text-xs">
                       বিবরণ/নোট:

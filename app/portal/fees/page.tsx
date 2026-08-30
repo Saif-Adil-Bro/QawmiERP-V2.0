@@ -8,9 +8,11 @@ import {
   Calendar,
   Download,
   Printer,
+  Clock,
 } from "lucide-react";
 import Link from "next/link";
-import { toBanglaNumber } from "@/lib/numberToBangla";
+import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
+import { getStudentFeeProfile, getFeeMetadata } from "@/app/actions/fee-management";
 
 export const dynamic = "force-dynamic";
 
@@ -49,13 +51,45 @@ export default async function ParentPortalFees({
   const selectedStudentId = params.student_id || students[0].id;
   const child = students.find((s) => s.id === selectedStudentId) || students[0];
 
-  const { data: fees } = await supabase
+  // Get fees from SQL table
+  const { data: sqlFees } = await supabase
     .from("fees")
     .select("*")
     .eq("student_id", child.id)
     .order("payment_date", { ascending: false });
 
-  const totalPaid = fees?.reduce((sum, fee) => sum + (Number(fee.amount_paid) || Number(fee.amount) || 0), 0) || 0;
+  // Also get structured student fee profile from metadata
+  const feeProfile = await getStudentFeeProfile(child.id);
+
+  // Get payments from metadata
+  let metadataPayments: any[] = [];
+  if (madrasaId) {
+    const meta = await getFeeMetadata(madrasaId);
+    metadataPayments = (meta?.payments || []).filter((p) => p.student_id === child.id && p.status !== "REVERSED");
+  }
+
+  // Combine payments
+  const combinedPayments = [...metadataPayments];
+  if (sqlFees) {
+    sqlFees.forEach((sf) => {
+      if (!combinedPayments.some((p) => p.receipt_no === sf.receipt_number || p.id === sf.id)) {
+        combinedPayments.push({
+          id: sf.id,
+          receipt_no: sf.receipt_number || `REC-${sf.id.slice(0, 6)}`,
+          total_amount_received: Number(sf.amount_paid) || Number(sf.amount) || 0,
+          payment_date: sf.payment_date,
+          payment_method: sf.payment_method || "Cash",
+          notes: sf.notes || sf.description,
+          student_name: `${child.first_name} ${child.last_name}`,
+          class_name: child.class_name,
+        });
+      }
+    });
+  }
+
+  const totalPaid = combinedPayments.reduce((sum, p) => sum + (Number(p.total_amount_received) || 0), 0);
+  const totalDue = feeProfile?.total_due || 0;
+  const unpaidInvoices = feeProfile?.fees?.filter((f: any) => f.due_amount > 0) || [];
 
   return (
     <div className="space-y-6">
@@ -101,8 +135,8 @@ export default async function ParentPortalFees({
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-extrabold mb-1">
-            ৳ {toBanglaNumber(totalPaid)}
+          <div className="text-2xl sm:text-3xl font-extrabold mb-1 font-mono">
+            ৳ {formatBanglaCurrency(totalPaid)}
           </div>
           <p className="text-xs text-emerald-300 font-semibold flex items-center gap-1 mt-2">
             <CheckCircle2 className="w-3.5 h-3.5" />
@@ -112,28 +146,30 @@ export default async function ParentPortalFees({
 
         <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">সর্বশেষ রসিদ নম্বর</h3>
-            <Receipt className="w-4 h-4 text-blue-600" />
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">বর্তমান বকেয়া (Current Due)</h3>
+            <Clock className={`w-4 h-4 ${totalDue > 0 ? "text-red-500" : "text-emerald-600"}`} />
           </div>
           <div>
-            <p className="text-xl sm:text-2xl font-bold font-mono text-slate-800">
-              {fees?.[0]?.receipt_number || "R-10294"}
+            <p className={`text-xl sm:text-2xl font-black font-mono ${totalDue > 0 ? "text-red-700" : "text-emerald-700"}`}>
+              ৳ {formatBanglaCurrency(totalDue)}
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              তারিখ: {fees?.[0]?.payment_date ? new Date(fees[0].payment_date).toLocaleDateString("bn-BD") : "হালনাগাদ"}
+              {totalDue > 0 ? `বকেয়া ইনভয়েস: ${toBanglaNumber(unpaidInvoices.length)} টি` : "কোন বকেয়া নেই (পরিশোধিত)"}
             </p>
           </div>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">পরবর্তী বকেয়া স্ট্যাটাস</h3>
-            <AlertCircle className="w-4 h-4 text-amber-500" />
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">সর্বশেষ রসিদ নম্বর</h3>
+            <Receipt className="w-4 h-4 text-blue-600" />
           </div>
           <div>
-            <p className="text-base sm:text-lg font-bold text-slate-900">মাদরাসা অফিসে যোগাযোগ করুন</p>
-            <p className="text-xs text-slate-400 mt-1">
-              মাসিক ফি ও বোর্ডিং চার্জ প্রতি মাসের ১০ তারিখের মধ্যে প্রদান করুন।
+            <p className="text-lg sm:text-xl font-bold font-mono text-slate-800">
+              {combinedPayments[0]?.receipt_no || "-"}
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              তারিখ: {combinedPayments[0]?.payment_date || "হালনাগাদ"}
             </p>
           </div>
         </div>
@@ -157,35 +193,36 @@ export default async function ParentPortalFees({
                 <th className="px-4 py-3.5">ফি-এর ধরন ও বিবরণ</th>
                 <th className="px-4 py-3.5">পরিশোধের তারিখ</th>
                 <th className="px-4 py-3.5">পরিশোধের মাধ্যম</th>
-                <th className="px-4 py-3.5">টাকার পরিমাণ</th>
-                <th className="px-4 py-3.5 text-right">স্ট্যাটাস</th>
+                <th className="px-4 py-3.5 text-right">টাকার পরিমাণ</th>
+                <th className="px-4 py-3.5 text-center">স্ট্যাটাস</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
-              {fees && fees.length > 0 ? (
-                fees.map((fee) => (
-                  <tr key={fee.id} className="hover:bg-slate-50/60 transition">
+              {combinedPayments.length > 0 ? (
+                combinedPayments.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50/60 transition">
                     <td className="px-4 py-3 font-mono text-xs font-bold text-slate-800">
-                      {fee.receipt_number || `REC-${fee.id.slice(0, 6)}`}
+                      {p.receipt_no}
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-bold text-slate-800 text-xs sm:text-sm">
-                        {fee.fee_type || fee.description || "মাসিক বেতন ও ফি"}
+                        {p.allocations && p.allocations.length > 0
+                          ? p.allocations.map((a: any) => a.fee_type_name).join(", ")
+                          : p.notes || "মাসিক বেতন ও ফি"}
                       </div>
-                      {fee.month && <div className="text-[11px] text-slate-400">মাস: {fee.month}</div>}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600">
-                      {fee.payment_date ? new Date(fee.payment_date).toLocaleDateString("bn-BD") : "-"}
+                      {p.payment_date || "-"}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600">
                       <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-medium">
-                        {fee.payment_method || "ক্যাশ (নগদ)"}
+                        {p.payment_method || "ক্যাশ (নগদ)"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-bold text-slate-900 text-sm">
-                      ৳ {toBanglaNumber(fee.amount_paid || fee.amount || 0)}
+                    <td className="px-4 py-3 font-mono font-bold text-emerald-800 text-right text-sm">
+                      ৳ {formatBanglaCurrency(p.total_amount_received)}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-center">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         <span>পরিশোধিত</span>

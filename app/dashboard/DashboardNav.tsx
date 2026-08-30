@@ -76,7 +76,11 @@ const navSections: NavSection[] = [
   },
 ];
 
-export default function DashboardNav() {
+interface DashboardNavProps {
+  onItemClick?: () => void;
+}
+
+export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
   const pathname = usePathname();
 
   const isItemActive = (item: NavItem) => {
@@ -87,7 +91,7 @@ export default function DashboardNav() {
   };
 
   return (
-    <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+    <nav className="p-4 space-y-1">
       {navSections.map((section, idx) => (
         <div key={idx} className="space-y-1">
           {section.title && (
@@ -104,6 +108,7 @@ export default function DashboardNav() {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={onItemClick}
                 className={`flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-sm transition-all duration-150 group font-medium ${
                   active
                     ? "bg-emerald-600 text-white shadow-sm shadow-emerald-950/40"
