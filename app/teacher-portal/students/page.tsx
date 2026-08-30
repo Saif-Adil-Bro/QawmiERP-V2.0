@@ -3,12 +3,10 @@ import StudentDirectoryClient from "./StudentDirectoryClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function TeacherPortalStudents({
-  searchParams,
-}: {
-  searchParams: Promise<{ class_id?: string }>;
+export default async function TeacherPortalStudents(props: {
+  searchParams?: Promise<{ class_id?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 

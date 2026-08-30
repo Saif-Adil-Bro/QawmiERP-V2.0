@@ -4,13 +4,11 @@ import { Plus, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import { ExpenseDeleteButton } from "@/components/accounting/fee-actions";
 
-export default async function ExpensesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ month?: string; year?: string }>;
+export default async function ExpensesPage(props: {
+  searchParams?: Promise<{ month?: string; year?: string }>;
 }) {
-  const resolvedParams = await searchParams;
-  const expenses = await getExpenses({ month: resolvedParams.month, year: resolvedParams.year });
+  const resolvedParams = props.searchParams ? (await props.searchParams) || {} : {};
+  const expenses = await getExpenses({ month: resolvedParams?.month, year: resolvedParams?.year });
 
   return (
     <div className="space-y-6">

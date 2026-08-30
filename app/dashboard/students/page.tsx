@@ -10,13 +10,11 @@ export const metadata = {
   title: "শিক্ষার্থী তালিকা | QawmiERP",
 };
 
-export default async function StudentsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ q?: string; session?: string }>;
+export default async function StudentsPage(props: {
+  searchParams?: Promise<{ q?: string; session?: string }>;
 }) {
-  const resolvedSearchParams = await searchParams;
-  const query = resolvedSearchParams.q || "";
+  const resolvedSearchParams = props.searchParams ? (await props.searchParams) || {} : {};
+  const query = resolvedSearchParams?.q || "";
 
   const [supabase, sessions, currentSession] = await Promise.all([
     createClient(),

@@ -3,12 +3,10 @@ import KitabEntryClient from "./KitabEntryClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function TeacherPortalKitab({
-  searchParams,
-}: {
-  searchParams: Promise<{ class_id?: string; date?: string }>;
+export default async function TeacherPortalKitab(props: {
+  searchParams?: Promise<{ class_id?: string; date?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 

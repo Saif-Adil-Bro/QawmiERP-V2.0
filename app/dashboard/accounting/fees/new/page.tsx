@@ -4,12 +4,10 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import CollectPaymentClient from "./CollectPaymentClient";
 
-export default async function NewFeePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ student_id?: string }>;
+export default async function NewFeePage(props: {
+  searchParams?: Promise<{ student_id?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const [students, madrasaInfo] = await Promise.all([
     getStudents(),
     getMadrasaInfo(),
@@ -33,9 +31,9 @@ export default async function NewFeePage({
       </div>
 
       <CollectPaymentClient
-        students={students}
+        students={students || []}
         madrasaInfo={madrasaInfo}
-        preselectedStudentId={params.student_id}
+        preselectedStudentId={params?.student_id}
       />
     </div>
   );

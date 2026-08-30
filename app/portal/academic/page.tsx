@@ -14,12 +14,10 @@ import { toBanglaNumber } from "@/lib/numberToBangla";
 
 export const dynamic = "force-dynamic";
 
-export default async function ParentPortalAcademic({
-  searchParams,
-}: {
-  searchParams: Promise<{ student_id?: string; tab?: string }>;
+export default async function ParentPortalAcademic(props: {
+  searchParams?: Promise<{ student_id?: string; tab?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 

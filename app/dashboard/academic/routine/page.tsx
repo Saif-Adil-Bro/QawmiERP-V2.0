@@ -5,12 +5,10 @@ import Link from "next/link";
 import RoutineClient from "./RoutineClient";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 
-export default async function RoutinePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ class_id?: string; type?: string }>;
+export default async function RoutinePage(props: {
+  searchParams?: Promise<{ class_id?: string; type?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   const madrasaInfo = await getMadrasaInfo();
 

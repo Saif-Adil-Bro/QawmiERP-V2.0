@@ -3,12 +3,10 @@ import { addRoutine, deleteRoutineAction } from "@/app/actions/routine";
 import { CalendarDays, Clock, MapPin, User, BookOpen, PlusCircle, Trash2 } from "lucide-react";
 import Link from "next/link";
 
-export default async function RoutineBuilderPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ class_id?: string; type?: string }>;
+export default async function RoutineBuilderPage(props: {
+  searchParams?: Promise<{ class_id?: string; type?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   const { data: classes } = await supabase.from("classes").select("id, name");
   const { data: subjects } = await supabase.from("subjects").select("id, name");

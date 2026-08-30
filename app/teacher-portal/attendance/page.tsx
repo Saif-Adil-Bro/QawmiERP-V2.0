@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import AttendanceForm from "./AttendanceForm";
 
-export default async function TeacherAttendancePage(props: { searchParams: Promise<{ date?: string, class_id?: string }> }) {
+export default async function TeacherAttendancePage(props: { searchParams?: Promise<{ date?: string, class_id?: string }> }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -13,7 +13,7 @@ export default async function TeacherAttendancePage(props: { searchParams: Promi
   const { data: classes } = await supabase.from("classes").select("id, name").eq("madrasa_id", madrasaId).order("name");
 
   // Await search params since we are in Next 15+
-  const awaitedSearchParams = await props.searchParams;
+  const awaitedSearchParams = props.searchParams ? (await props.searchParams) || {} : {};
   const dateStr = awaitedSearchParams?.date || new Date().toISOString().split('T')[0];
   const classId = awaitedSearchParams?.class_id || (classes?.[0]?.id || "");
 

@@ -21,12 +21,10 @@ import { toBanglaNumber } from "@/lib/numberToBangla";
 
 export const dynamic = "force-dynamic";
 
-export default async function PortalOverview({
-  searchParams,
-}: {
-  searchParams: Promise<{ student_id?: string }>;
+export default async function PortalOverview(props: {
+  searchParams?: Promise<{ student_id?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 

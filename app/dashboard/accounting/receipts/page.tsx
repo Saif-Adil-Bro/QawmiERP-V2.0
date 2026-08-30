@@ -3,13 +3,11 @@ import Link from "next/link";
 import { ArrowLeft, Printer, FileText } from "lucide-react";
 import { format } from "date-fns";
 
-export default async function ReceiptsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ month?: string; year?: string }>;
+export default async function ReceiptsPage(props: {
+  searchParams?: Promise<{ month?: string; year?: string }>;
 }) {
-  const resolvedParams = await searchParams;
-  const fees = await getFees({ month: resolvedParams.month, year: resolvedParams.year });
+  const resolvedParams = props.searchParams ? (await props.searchParams) || {} : {};
+  const fees = await getFees({ month: resolvedParams?.month, year: resolvedParams?.year });
 
   return (
     <div className="space-y-6">

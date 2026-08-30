@@ -6,12 +6,10 @@ import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getExams } from "@/app/actions/exams";
 import { getClasses } from "@/app/actions/students";
 
-export default async function CertificatesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ student_id?: string; type?: string }>;
+export default async function CertificatesPage(props: {
+  searchParams?: Promise<{ student_id?: string; type?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   
   const [madrasaInfo, exams, classes] = await Promise.all([

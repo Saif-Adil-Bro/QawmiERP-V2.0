@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import ExamMarksForm from "./ExamMarksForm";
 
-export default async function TeacherExamsPage(props: { searchParams: Promise<{ exam_id?: string, class_id?: string, subject_name?: string }> }) {
+export default async function TeacherExamsPage(props: { searchParams?: Promise<{ exam_id?: string, class_id?: string, subject_name?: string }> }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -11,7 +11,7 @@ export default async function TeacherExamsPage(props: { searchParams: Promise<{ 
   const madrasaId = userData?.madrasa_id;
 
   // Await search params
-  const awaitedSearchParams = await props.searchParams;
+  const awaitedSearchParams = props.searchParams ? (await props.searchParams) || {} : {};
   
   const { data: exams } = await supabase.from("exams").select("id, title, year").eq("madrasa_id", madrasaId).order("start_date", { ascending: false });
   const { data: classes } = await supabase.from("classes").select("id, name").eq("madrasa_id", madrasaId).order("name");

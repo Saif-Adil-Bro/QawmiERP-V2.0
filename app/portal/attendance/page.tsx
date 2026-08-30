@@ -15,12 +15,10 @@ import { toBanglaNumber } from "@/lib/numberToBangla";
 
 export const dynamic = "force-dynamic";
 
-export default async function ParentPortalAttendance({
-  searchParams,
-}: {
-  searchParams: Promise<{ student_id?: string; month?: string }>;
+export default async function ParentPortalAttendance(props: {
+  searchParams?: Promise<{ student_id?: string; month?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 

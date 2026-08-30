@@ -5,13 +5,11 @@ import { format } from "date-fns";
 import { FeeDeleteButton } from "@/components/accounting/fee-actions";
 import { Printer } from "lucide-react";
 
-export default async function FeesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ month?: string; year?: string }>;
+export default async function FeesPage(props: {
+  searchParams?: Promise<{ month?: string; year?: string }>;
 }) {
-  const resolvedParams = await searchParams;
-  const fees = await getFees({ month: resolvedParams.month, year: resolvedParams.year });
+  const resolvedParams = props.searchParams ? (await props.searchParams) || {} : {};
+  const fees = await getFees({ month: resolvedParams?.month, year: resolvedParams?.year });
 
   return (
     <div className="space-y-6">

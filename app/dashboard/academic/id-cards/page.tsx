@@ -3,12 +3,10 @@ import PrintButton from "@/app/components/PrintButton";
 import IdCardClient from "./IdCardClient";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 
-export default async function IdCardsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ class_id?: string; user_type?: string }>;
+export default async function IdCardsPage(props: {
+  searchParams?: Promise<{ class_id?: string; user_type?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   const madrasaInfo = await getMadrasaInfo();
 

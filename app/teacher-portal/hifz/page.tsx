@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import HifzForm from "./HifzForm";
 
-export default async function TeacherHifzPage(props: { searchParams: Promise<{ date?: string, class_id?: string }> }) {
+export default async function TeacherHifzPage(props: { searchParams?: Promise<{ date?: string, class_id?: string }> }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -16,7 +16,7 @@ export default async function TeacherHifzPage(props: { searchParams: Promise<{ d
   const { data: classes } = await supabase.from("classes").select("id, name").eq("madrasa_id", madrasaId).order("name");
 
   // Await search params
-  const awaitedSearchParams = await props.searchParams;
+  const awaitedSearchParams = props.searchParams ? (await props.searchParams) || {} : {};
   const dateStr = awaitedSearchParams?.date || new Date().toISOString().split('T')[0];
   const classId = awaitedSearchParams?.class_id || (classes?.[0]?.id || "");
 

@@ -23,22 +23,24 @@ interface GenerateClientProps {
 }
 
 export default function GenerateClient({
-  sessions,
-  classes,
-  feeTypes,
+  sessions = [],
+  classes = [],
+  feeTypes = [],
 }: GenerateClientProps) {
   const currentYear = new Date().getFullYear();
   const currentMonthIdx = new Date().getMonth();
 
   const [sessionId, setSessionId] = useState<string>(
-    sessions.find((s) => s.is_current)?.id || sessions[0]?.id || ""
+    sessions?.find((s) => s.is_current)?.id || sessions?.[0]?.id || ""
   );
   const [calendarType, setCalendarType] = useState<"HIJRI" | "GREGORIAN">("GREGORIAN");
-  const [monthName, setMonthName] = useState<string>(GREGORIAN_MONTHS[currentMonthIdx].name);
+  const [monthName, setMonthName] = useState<string>(
+    GREGORIAN_MONTHS[currentMonthIdx]?.name || GREGORIAN_MONTHS[0]?.name || "জানুয়ারি (January)"
+  );
   const [year, setYear] = useState<string>(currentYear.toString());
   const [classId, setClassId] = useState<string>("ALL");
   const [selectedFeeTypeIds, setSelectedFeeTypeIds] = useState<string[]>(
-    feeTypes.filter((f) => f.frequency === "MONTHLY" || f.code === "MONTHLY").map((f) => f.id)
+    (feeTypes || []).filter((f) => f.frequency === "MONTHLY" || f.code === "MONTHLY").map((f) => f.id)
   );
 
   const [dueDate, setDueDate] = useState<string>(

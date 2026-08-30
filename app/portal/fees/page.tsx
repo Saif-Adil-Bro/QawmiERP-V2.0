@@ -16,12 +16,10 @@ import { getStudentFeeProfile, getFeeMetadata } from "@/app/actions/fee-manageme
 
 export const dynamic = "force-dynamic";
 
-export default async function ParentPortalFees({
-  searchParams,
-}: {
-  searchParams: Promise<{ student_id?: string }>;
+export default async function ParentPortalFees(props: {
+  searchParams?: Promise<{ student_id?: string }>;
 }) {
-  const params = await searchParams;
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
