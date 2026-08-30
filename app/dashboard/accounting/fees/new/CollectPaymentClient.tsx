@@ -32,7 +32,7 @@ interface CollectPaymentClientProps {
 }
 
 export default function CollectPaymentClient({
-  students,
+  students = [],
   madrasaInfo,
   preselectedStudentId,
 }: CollectPaymentClientProps) {

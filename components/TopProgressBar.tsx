@@ -137,13 +137,13 @@ function TopProgressBarContent() {
     const handleCustomStart = () => startLoader();
     const handleCustomFinish = () => finishLoader();
 
-    document.addEventListener("click", handleClick, { capture: true });
+    document.addEventListener("click", handleClick);
     window.addEventListener("popstate", handlePopState);
     window.addEventListener("toploader:start", handleCustomStart);
     window.addEventListener("toploader:finish", handleCustomFinish);
 
     return () => {
-      document.removeEventListener("click", handleClick, { capture: true });
+      document.removeEventListener("click", handleClick);
       window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("toploader:start", handleCustomStart);
       window.removeEventListener("toploader:finish", handleCustomFinish);

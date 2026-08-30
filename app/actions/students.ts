@@ -4,110 +4,148 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { revalidatePath } from "next/cache";
 
 export async function getStudents() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("students")
-    .select("*, classes(*)")
-    .order("created_at", { ascending: false });
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("students")
+      .select("*, classes(*)")
+      .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("Error fetching students:", error);
+    if (error) {
+      console.error("Error fetching students with classes relation:", error);
+      // Fallback query if foreign key relation classes(*) doesn't exist
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("students")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (fallbackError) {
+        console.error("Fallback fetching students failed:", fallbackError);
+        return [];
+      }
+      return fallbackData || [];
+    }
+    return data || [];
+  } catch (err) {
+    console.error("Exception in getStudents:", err);
     return [];
   }
-  return data;
 }
 
 export async function getClasses() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("classes")
-    .select("*")
-    .order("name");
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("classes")
+      .select("*")
+      .order("name");
 
-  if (error || !data) return [];
-  return data;
+    if (error || !data) {
+      console.error("Error fetching classes:", error);
+      return [];
+    }
+    return data;
+  } catch (err) {
+    console.error("Exception in getClasses:", err);
+    return [];
+  }
 }
 
 export async function getStudentById(id: string) {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("students")
-    .select("*, classes(*)")
-    .eq("id", id)
-    .single();
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("students")
+      .select("*, classes(*)")
+      .eq("id", id)
+      .single();
 
-  if (error) {
-    console.error("Error fetching student by id:", error);
+    if (error) {
+      const { data: fallbackData } = await supabase
+        .from("students")
+        .select("*")
+        .eq("id", id)
+        .single();
+      return fallbackData || null;
+    }
+    return data || null;
+  } catch (err) {
+    console.error("Exception in getStudentById:", err);
     return null;
   }
-  return data;
 }
 
 export async function getAuthMadrasaId(supabase: any, user: any) {
   if (!user) return null;
-  const adminClient = await createAdminClient();
+  try {
+    const adminClient = await createAdminClient();
 
-  // 1. Try getting user's madrasa_id from users table using adminClient (bypasses RLS)
-  const { data: userData } = await adminClient
-    .from("users")
-    .select("madrasa_id")
-    .eq("id", user.id)
-    .single();
-
-  let finalMadrasaId = userData?.madrasa_id;
-
-  // Verify if finalMadrasaId actually exists in madrasas table
-  if (finalMadrasaId) {
-    const { data: exists } = await adminClient
-      .from("madrasas")
-      .select("id")
-      .eq("id", finalMadrasaId)
+    // 1. Try getting user's madrasa_id from users table using adminClient (bypasses RLS)
+    const { data: userData } = await adminClient
+      .from("users")
+      .select("madrasa_id")
+      .eq("id", user.id)
       .single();
 
-    if (!exists) {
-      finalMadrasaId = null;
-    }
-  }
+    let finalMadrasaId = userData?.madrasa_id;
 
-  // 2. If user doesn't have a valid madrasa_id, find or create the primary madrasa
-  if (!finalMadrasaId) {
-    const { data: firstMadrasa } = await adminClient
-      .from("madrasas")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .single();
-
-    if (firstMadrasa) {
-      finalMadrasaId = firstMadrasa.id;
-    } else {
-      // Create new madrasa if table is completely empty
-      const { data: newMadrasa } = await adminClient
+    // Verify if finalMadrasaId actually exists in madrasas table
+    if (finalMadrasaId) {
+      const { data: exists } = await adminClient
         .from("madrasas")
-        .insert({
-          name: "মাদ্রাসাতুল মুসলিমীন",
-          subscription_plan: "free",
-        })
         .select("id")
+        .eq("id", finalMadrasaId)
         .single();
 
-      if (newMadrasa) {
-        finalMadrasaId = newMadrasa.id;
+      if (!exists) {
+        finalMadrasaId = null;
       }
     }
 
-    if (finalMadrasaId) {
-      await adminClient.from("users").upsert({
-        id: user.id,
-        madrasa_id: finalMadrasaId,
-        full_name: user.email?.split("@")[0] || "Admin",
-        email: user.email || "",
-        role: "super_admin",
-      });
-    }
-  }
+    // 2. If user doesn't have a valid madrasa_id, find or create the primary madrasa
+    if (!finalMadrasaId) {
+      const { data: firstMadrasa } = await adminClient
+        .from("madrasas")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .single();
 
-  return finalMadrasaId;
+      if (firstMadrasa) {
+        finalMadrasaId = firstMadrasa.id;
+      } else {
+        // Create new madrasa if table is completely empty
+        const { data: newMadrasa } = await adminClient
+          .from("madrasas")
+          .insert({
+            name: "মাদ্রাসাতুল মুসলিমীন",
+            subscription_plan: "free",
+          })
+          .select("id")
+          .single();
+
+        if (newMadrasa) {
+          finalMadrasaId = newMadrasa.id;
+        }
+      }
+
+      if (finalMadrasaId) {
+        try {
+          await adminClient.from("users").upsert({
+            id: user.id,
+            madrasa_id: finalMadrasaId,
+            full_name: user.email?.split("@")[0] || "Admin",
+            email: user.email || "",
+            role: "super_admin",
+          });
+        } catch {}
+      }
+    }
+
+    return finalMadrasaId || null;
+  } catch (err) {
+    console.error("Exception in getAuthMadrasaId:", err);
+    return null;
+  }
 }
 
 export async function createStudent(prevState: any, formData: FormData) {
