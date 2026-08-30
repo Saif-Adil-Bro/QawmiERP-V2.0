@@ -117,12 +117,20 @@ export default function ClassesClient({ initialClasses }: { initialClasses: Clas
   // Handle Class Deletion
   const handleDeleteClass = async (id: string, name: string) => {
     if (confirm(`আপনি কি নিশ্চিত যে "${name}" জামাতটি মুছে ফেলতে চান? এর ফলে সংশ্লিষ্ট শিক্ষার্থী ও সাবজেক্ট লিংক প্রভাবিত হতে পারে।`)) {
-      const res = await deleteClass(id);
-      if (res.success) {
-        setMsg({ type: "success", text: `"${name}" জামাতটি সফলভাবে মুছে ফেলা হয়েছে।` });
-        setClasses(prev => prev.filter(c => c.id !== id));
-      } else {
-        setMsg({ type: "error", text: res.error || "মুছে ফেলা যায়নি।" });
+      try {
+        const res = await deleteClass(id);
+        if (res?.success) {
+          setMsg({ type: "success", text: `"${name}" জামাতটি সফলভাবে মুছে ফেলা হয়েছে।` });
+          setClasses(prev => prev.filter(c => c.id !== id));
+        } else {
+          setMsg({ type: "error", text: res?.error || "মুছে ফেলা যায়নি।" });
+        }
+      } catch (err) {
+        console.error("deleteClass failed:", err);
+        setMsg({
+          type: "error",
+          text: "একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+        });
       }
     }
   };

@@ -152,13 +152,18 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
     }
     
     setSaving(true);
-    const res = await saveExamSubjects(examId, classId, subjects);
-    setSaving(false);
-    
-    if (res?.error) {
-      alert("Error: " + res.error);
-    } else {
-      alert("সফলভাবে সেভ হয়েছে!");
+    try {
+      const res = await saveExamSubjects(examId, classId, subjects);
+      if (res?.error) {
+        alert("Error: " + res.error);
+      } else {
+        alert("সফলভাবে সেভ হয়েছে!");
+      }
+    } catch (err) {
+      console.error("saveExamSubjects failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
+      setSaving(false);
     }
   };
 

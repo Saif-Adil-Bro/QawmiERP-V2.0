@@ -37,9 +37,14 @@ export default function MonthlyReportsPage() {
 
   const loadReport = async () => {
     setLoading(true);
-    const data = await getMonthlyBoardingReport(year, month);
-    setReport(data);
-    setLoading(false);
+    try {
+      const data = await getMonthlyBoardingReport(year, month);
+      setReport(data || []);
+    } catch (err) {
+      console.error("getMonthlyBoardingReport failed:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {

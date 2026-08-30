@@ -33,15 +33,18 @@ export async function getFeeMetadata(madrasaId: string): Promise<MadrasaFeeData>
 }
 
 /**
- * Helper to save fee metadata
+ * Helper to save fee metadata.
+ * Returns true/false so callers can detect a silent DB write failure instead
+ * of assuming success just because no exception was thrown (saveMadrasaMetadata
+ * swallows its own errors and returns false rather than throwing).
  */
-export async function saveFeeMetadata(madrasaId: string, feeData: Partial<MadrasaFeeData>) {
+export async function saveFeeMetadata(madrasaId: string, feeData: Partial<MadrasaFeeData>): Promise<boolean> {
   const currentMeta = await getMadrasaMetadata(madrasaId);
   const updatedMeta = {
     ...currentMeta,
     ...feeData,
   };
-  await saveMadrasaMetadata(madrasaId, updatedMeta);
+  return await saveMadrasaMetadata(madrasaId, updatedMeta);
 }
 
 /**
@@ -123,7 +126,10 @@ export async function saveFeeType(feeType: Partial<FeeType>) {
       feeTypes.push(newType);
     }
 
-    await saveFeeMetadata(madrasaId, { fee_types: feeTypes });
+    const saved = await saveFeeMetadata(madrasaId, { fee_types: feeTypes });
+    if (!saved) {
+      return { error: "ফি টাইপ ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
+    }
     revalidatePath("/dashboard/accounting/structure");
     revalidatePath("/dashboard/accounting/generate");
     revalidatePath("/dashboard/accounting");
@@ -162,7 +168,10 @@ export async function deleteFeeType(feeTypeId: string) {
     const meta = await getFeeMetadata(madrasaId);
     const feeTypes = (meta.fee_types || DEFAULT_FEE_TYPES).filter((f) => f.id !== feeTypeId);
 
-    await saveFeeMetadata(madrasaId, { fee_types: feeTypes });
+    const saved = await saveFeeMetadata(madrasaId, { fee_types: feeTypes });
+    if (!saved) {
+      return { error: "ফি টাইপ ডেটাবেজ থেকে মুছে ফেলা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
+    }
     revalidatePath("/dashboard/accounting/structure");
     revalidatePath("/dashboard/accounting/generate");
     revalidatePath("/dashboard/accounting");
@@ -253,7 +262,10 @@ export async function saveFeeStructure(structure: Partial<FeeStructure>) {
       structures.push(newStruct);
     }
 
-    await saveFeeMetadata(madrasaId, { fee_structures: structures });
+    const saved = await saveFeeMetadata(madrasaId, { fee_structures: structures });
+    if (!saved) {
+      return { error: "ফি কাঠামো ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
+    }
     revalidatePath("/dashboard/accounting/structure");
     revalidatePath("/dashboard/accounting");
 
@@ -279,7 +291,10 @@ export async function deleteFeeStructure(structureId: string) {
     const meta = await getFeeMetadata(madrasaId);
     const filtered = (meta.fee_structures || []).filter((s) => s.id !== structureId);
 
-    await saveFeeMetadata(madrasaId, { fee_structures: filtered });
+    const saved = await saveFeeMetadata(madrasaId, { fee_structures: filtered });
+    if (!saved) {
+      return { error: "ফি কাঠামো ডেটাবেজে মুছে ফেলা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
+    }
     revalidatePath("/dashboard/accounting/structure");
 
     return { success: true, message: "ফি কাঠামো মুছে ফেলা হয়েছে।" };
@@ -515,10 +530,13 @@ export async function generateMonthlyFees(params: {
       created_at: now,
     });
 
-    await saveFeeMetadata(madrasaId, {
+    const saved = await saveFeeMetadata(madrasaId, {
       student_fees: currentStudentFees,
       audit_logs: auditLogs.slice(0, 100),
     });
+    if (!saved) {
+      return { error: "তৈরি হওয়া ফি ইনভয়েসগুলো ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন। (কোনো পরিবর্তন প্রয়োগ হয়নি)" };
+    }
 
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/due");
@@ -810,12 +828,15 @@ export async function collectFeePayment(paymentData: {
       created_at: now,
     });
 
-    await saveFeeMetadata(madrasaId, {
+    const saved = await saveFeeMetadata(madrasaId, {
       student_fees: studentFees,
       payments: payments.slice(0, 500),
       receipt_counter: newCounter,
       audit_logs: auditLogs.slice(0, 100),
     });
+    if (!saved) {
+      return { error: "পেমেন্ট গ্রহণের তথ্য ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন। (টাকা জমা হিসেবে গণ্য হয়নি)" };
+    }
 
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/fees");
@@ -911,11 +932,14 @@ export async function reverseFeePayment(paymentId: string, reason: string) {
       created_at: now,
     });
 
-    await saveFeeMetadata(madrasaId, {
+    const saved = await saveFeeMetadata(madrasaId, {
       student_fees: studentFees,
       payments,
       audit_logs: auditLogs.slice(0, 100),
     });
+    if (!saved) {
+      return { error: "পেমেন্ট বাতিল করার তথ্য ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
+    }
 
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/payments");

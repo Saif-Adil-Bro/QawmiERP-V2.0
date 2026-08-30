@@ -121,22 +121,28 @@ export default function PaperGeneratorClient({
       return;
     }
     setSaving(true);
-    const result = await saveExamPaper({
-      exam_id: examId,
-      class_id: classId,
-      subject_id: subjectId,
-      title: paperTitle,
-      total_marks: totalMarks,
-      exam_time: examTime,
-      exam_name: examName,
-      questions: selectedQuestions
-    });
-    if (result.error) {
-      alert(result.error);
-    } else {
-      alert("প্রশ্নপত্রটি সফলভাবে সংরক্ষণ করা হয়েছে!");
+    try {
+      const result = await saveExamPaper({
+        exam_id: examId,
+        class_id: classId,
+        subject_id: subjectId,
+        title: paperTitle,
+        total_marks: totalMarks,
+        exam_time: examTime,
+        exam_name: examName,
+        questions: selectedQuestions
+      });
+      if (result?.error) {
+        alert(result.error);
+      } else {
+        alert("প্রশ্নপত্রটি সফলভাবে সংরক্ষণ করা হয়েছে!");
+      }
+    } catch (err) {
+      console.error("saveExamPaper failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const handlePrint = () => {

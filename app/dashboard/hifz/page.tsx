@@ -14,8 +14,12 @@ export default function HifzPage() {
 
   useEffect(() => {
     async function loadClasses() {
-      const cls = await getClasses();
-      setClasses(cls);
+      try {
+        const cls = await getClasses();
+        setClasses(cls || []);
+      } catch (err) {
+        console.error("loadClasses failed:", err);
+      }
     }
     loadClasses();
   }, []);
@@ -23,9 +27,14 @@ export default function HifzPage() {
   useEffect(() => {
     async function loadStudents() {
       setLoading(true);
-      const data = await getHifzStudents(classId);
-      setStudents(data);
-      setLoading(false);
+      try {
+        const data = await getHifzStudents(classId);
+        setStudents(data || []);
+      } catch (err) {
+        console.error("getHifzStudents failed:", err);
+      } finally {
+        setLoading(false);
+      }
     }
     loadStudents();
   }, [classId]);

@@ -124,26 +124,34 @@ export default function StructureClient({
     setLoading(true);
     setFeedback(null);
 
-    const targetClass = classes.find((c) => c.id === structForm.class_id);
-    const resolvedClassName = structForm.class_id === "ALL" ? "সকল জামাত" : (targetClass?.name || "সাধারণ");
+    try {
+      const targetClass = classes.find((c) => c.id === structForm.class_id);
+      const resolvedClassName = structForm.class_id === "ALL" ? "সকল জামাত" : (targetClass?.name || "সাধারণ");
 
-    const payload = {
-      ...structForm,
-      class_name: resolvedClassName,
-      name:
-        structForm.name.trim() ||
-        `${resolvedClassName} - ফি কাঠামো`,
-    };
+      const payload = {
+        ...structForm,
+        class_name: resolvedClassName,
+        name:
+          structForm.name.trim() ||
+          `${resolvedClassName} - ফি কাঠামো`,
+      };
 
-    const res = await saveFeeStructure(payload);
-    setLoading(false);
-
-    if (res.success) {
-      setFeedback({ type: "success", text: res.message || "ফি কাঠামো সংরক্ষিত হয়েছে।" });
-      setIsStructModalOpen(false);
-      window.location.reload();
-    } else {
-      setFeedback({ type: "error", text: res.error || "সংরক্ষণ ব্যর্থ হয়েছে।" });
+      const res = await saveFeeStructure(payload);
+      if (res?.success) {
+        setFeedback({ type: "success", text: res.message || "ফি কাঠামো সংরক্ষিত হয়েছে।" });
+        setIsStructModalOpen(false);
+        window.location.reload();
+      } else {
+        setFeedback({ type: "error", text: res?.error || "সংরক্ষণ ব্যর্থ হয়েছে।" });
+      }
+    } catch (err) {
+      console.error("saveFeeStructure failed:", err);
+      setFeedback({
+        type: "error",
+        text: "একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -151,13 +159,23 @@ export default function StructureClient({
   const handleDeleteStruct = async (id: string) => {
     if (!confirm("আপনি কি নিশ্চিতভাবে এই ফি কাঠামো মুছে ফেলতে চান?")) return;
     setLoading(true);
-    const res = await deleteFeeStructure(id);
-    setLoading(false);
-    if (res.success) {
-      setStructures((prev) => prev.filter((s) => s.id !== id));
-      setFeedback({ type: "success", text: "ফি কাঠামো মুছে ফেলা হয়েছে।" });
-    } else {
-      setFeedback({ type: "error", text: res.error || "মুছে ফেলা ব্যর্থ হয়েছে।" });
+    setFeedback(null);
+    try {
+      const res = await deleteFeeStructure(id);
+      if (res?.success) {
+        setStructures((prev) => prev.filter((s) => s.id !== id));
+        setFeedback({ type: "success", text: "ফি কাঠামো মুছে ফেলা হয়েছে।" });
+      } else {
+        setFeedback({ type: "error", text: res?.error || "মুছে ফেলা ব্যর্থ হয়েছে।" });
+      }
+    } catch (err) {
+      console.error("deleteFeeStructure failed:", err);
+      setFeedback({
+        type: "error",
+        text: "একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -165,14 +183,24 @@ export default function StructureClient({
   const handleSaveType = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const res = await saveFeeType(typeForm);
-    setLoading(false);
-    if (res.success) {
-      setFeedback({ type: "success", text: res.message || "ফি টাইপ সংরক্ষিত হয়েছে।" });
-      setIsTypeModalOpen(false);
-      window.location.reload();
-    } else {
-      setFeedback({ type: "error", text: res.error || "ফি টাইপ সংরক্ষণ ব্যর্থ হয়েছে।" });
+    setFeedback(null);
+    try {
+      const res = await saveFeeType(typeForm);
+      if (res?.success) {
+        setFeedback({ type: "success", text: res.message || "ফি টাইপ সংরক্ষিত হয়েছে।" });
+        setIsTypeModalOpen(false);
+        window.location.reload();
+      } else {
+        setFeedback({ type: "error", text: res?.error || "ফি টাইপ সংরক্ষণ ব্যর্থ হয়েছে।" });
+      }
+    } catch (err) {
+      console.error("saveFeeType failed:", err);
+      setFeedback({
+        type: "error",
+        text: "একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 

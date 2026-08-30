@@ -82,29 +82,41 @@ export default function ExamRoutineClient({
       return;
     }
     setSaving(true);
-    const result = await saveExamRoutine({
-      exam_id: examId,
-      class_id: newClassId,
-      subject_id: newSubjectId,
-      exam_date: newDate,
-      start_time: newStartTime,
-      end_time: newEndTime,
-      room_number: newRoom.trim()
-    });
-    if (result.error) {
-      alert(result.error);
-    } else {
-      setNewSubjectId("");
-      setNewRoom("");
+    try {
+      const result = await saveExamRoutine({
+        exam_id: examId,
+        class_id: newClassId,
+        subject_id: newSubjectId,
+        exam_date: newDate,
+        start_time: newStartTime,
+        end_time: newEndTime,
+        room_number: newRoom.trim()
+      });
+      if (result?.error) {
+        alert(result.error);
+      } else {
+        setNewSubjectId("");
+        setNewRoom("");
+      }
+    } catch (err) {
+      console.error("saveExamRoutine failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("আপনি কি নিশ্চিত যে এই রুটিন এন্ট্রিটি মুছে ফেলতে চান?")) return;
     setDeletingId(id);
-    await deleteExamRoutine(id, examId);
-    setDeletingId(null);
+    try {
+      await deleteExamRoutine(id, examId);
+    } catch (err) {
+      console.error("deleteExamRoutine failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const printRef = useRef<HTMLDivElement>(null);
@@ -127,16 +139,22 @@ export default function ExamRoutineClient({
     }
     setPublishingNotice(true);
     setNoticeErrorMessage("");
-    const res = await publishExamRoutineNotice(examId, {
-      target_audience: noticeAudience,
-      custom_note: noticeCustomNote,
-    });
-    setPublishingNotice(false);
+    try {
+      const res = await publishExamRoutineNotice(examId, {
+        target_audience: noticeAudience,
+        custom_note: noticeCustomNote,
+      });
 
-    if (res.error) {
-      setNoticeErrorMessage(res.error);
-    } else {
-      setNoticePublishSuccess(true);
+      if (res?.error) {
+        setNoticeErrorMessage(res.error);
+      } else {
+        setNoticePublishSuccess(true);
+      }
+    } catch (err) {
+      console.error("publishExamRoutineNotice failed:", err);
+      setNoticeErrorMessage("একটি অপ্রত্যাশিত সমস্যা হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
+      setPublishingNotice(false);
     }
   };
 

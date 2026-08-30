@@ -205,24 +205,32 @@ export default function PromotionClient({
         };
       });
 
-    const res = await executeStudentPromotion({
-      fromSessionId,
-      toSessionId,
-      fromClassId,
-      items,
-    });
-
-    setIsSubmitting(false);
-
-    if (res.error) {
-      setFeedback({ type: "error", text: res.error });
-    } else {
-      setFeedback({
-        type: "success",
-        text: res.message || "প্রমোশন সফলভাবে সম্পন্ন হয়েছে!",
+    try {
+      const res = await executeStudentPromotion({
+        fromSessionId,
+        toSessionId,
+        fromClassId,
+        items,
       });
-      setSelectedStudentIds({});
-      router.refresh();
+
+      if (res?.error) {
+        setFeedback({ type: "error", text: res.error });
+      } else {
+        setFeedback({
+          type: "success",
+          text: res?.message || "প্রমোশন সফলভাবে সম্পন্ন হয়েছে!",
+        });
+        setSelectedStudentIds({});
+        router.refresh();
+      }
+    } catch (err) {
+      console.error("executeStudentPromotion failed:", err);
+      setFeedback({
+        type: "error",
+        text: "একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

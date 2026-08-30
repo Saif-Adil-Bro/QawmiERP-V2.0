@@ -186,28 +186,42 @@ export default function QuestionBankClient({
     };
 
     let result;
-    if (editingId) {
-      result = await updateQuestion(editingId, questionData);
-    } else {
-      result = await saveQuestion(questionData);
-    }
+    try {
+      if (editingId) {
+        result = await updateQuestion(editingId, questionData);
+      } else {
+        result = await saveQuestion(questionData);
+      }
 
-    if (result.error) {
-      alert(result.error);
-    } else {
-      window.location.reload();
+      if (result?.error) {
+        alert(result.error);
+      } else {
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error("save/update Question failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("আপনি কি নিশ্চিতভাবে এই প্রশ্নটি মুছে ফেলতে চান?")) return;
     setDeletingId(id);
-    const result = await deleteQuestion(id);
-    if (!result.error) {
-      setQuestions(questions.filter(q => q.id !== id));
+    try {
+      const result = await deleteQuestion(id);
+      if (!result?.error) {
+        setQuestions(questions.filter(q => q.id !== id));
+      } else {
+        alert(result.error);
+      }
+    } catch (err) {
+      console.error("deleteQuestion failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
+      setDeletingId(null);
     }
-    setDeletingId(null);
   };
 
   const handlePrint = () => {

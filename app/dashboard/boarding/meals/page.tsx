@@ -18,8 +18,12 @@ export default function DailyMealsPage() {
 
   useEffect(() => {
     async function loadClasses() {
-      const cls = await getClasses();
-      setClasses(cls);
+      try {
+        const cls = await getClasses();
+        setClasses(cls || []);
+      } catch (err) {
+        console.error("loadClasses failed:", err);
+      }
     }
     loadClasses();
   }, []);
@@ -27,9 +31,14 @@ export default function DailyMealsPage() {
   useEffect(() => {
     async function loadData() {
       setLoading(true);
-      const data = await getStudentsForMeals(date, classId);
-      setStudents(data);
-      setLoading(false);
+      try {
+        const data = await getStudentsForMeals(date, classId);
+        setStudents(data || []);
+      } catch (err) {
+        console.error("getStudentsForMeals failed:", err);
+      } finally {
+        setLoading(false);
+      }
     }
     loadData();
   }, [date, classId]);
@@ -49,20 +58,29 @@ export default function DailyMealsPage() {
   const handleSave = async () => {
     setSaving(true);
     setMessage(null);
-    const mealData = students.map(s => ({
-      student_id: s.id,
-      meal_status: s.meal_status as "On" | "Off"
-    }));
+    try {
+      const mealData = students.map(s => ({
+        student_id: s.id,
+        meal_status: s.meal_status as "On" | "Off"
+      }));
 
-    const result = await saveMealEntries(date, mealData);
+      const result = await saveMealEntries(date, mealData);
 
-    if (result.error) {
-      setMessage({ type: "error", text: result.error });
-    } else {
-      setMessage({ type: "success", text: "মিলের বিবরণ সফলভাবে সেভ করা হয়েছে!" });
-      setTimeout(() => setMessage(null), 3000);
+      if (result?.error) {
+        setMessage({ type: "error", text: result.error });
+      } else {
+        setMessage({ type: "success", text: "মিলের বিবরণ সফলভাবে সেভ করা হয়েছে!" });
+        setTimeout(() => setMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error("saveMealEntries failed:", err);
+      setMessage({
+        type: "error",
+        text: "একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+      });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (

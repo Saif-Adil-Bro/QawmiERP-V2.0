@@ -406,7 +406,10 @@ export async function unarchiveAcademicSession(sessionId: string) {
     });
 
     meta.sessions = sessions;
-    await saveMadrasaMetadata(madrasaId, meta);
+    const saved = await saveMadrasaMetadata(madrasaId, meta);
+    if (!saved) {
+      return { error: "শিক্ষাবর্ষ পুনরায় সক্রিয় করার তথ্য ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
+    }
 
     revalidatePath("/dashboard/academic/sessions");
     return { success: true, message: `"${target.name}" পুনরায় সক্রিয় করা হয়েছে।` };
@@ -451,7 +454,10 @@ export async function deleteAcademicSession(sessionId: string) {
     sessions = sessions.filter((s) => s.id !== sessionId);
     meta.sessions = sessions;
 
-    await saveMadrasaMetadata(madrasaId, meta);
+    const saved = await saveMadrasaMetadata(madrasaId, meta);
+    if (!saved) {
+      return { error: "শিক্ষাবর্ষ ডিলিট করার তথ্য ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
+    }
 
     revalidatePath("/dashboard/academic/sessions");
     return { success: true, message: "শিক্ষাবর্ষটি ডিলিট করা হয়েছে।" };
@@ -515,7 +521,10 @@ export async function getStudentEnrollments(
       }));
 
       meta.enrollments = initialEnrollments;
-      await saveMadrasaMetadata(madrasaId, meta);
+      const saved = await saveMadrasaMetadata(madrasaId, meta);
+      if (!saved) {
+        console.error("Failed to persist initial enrollments for madrasa:", madrasaId);
+      }
       storedEnrollments = initialEnrollments;
     }
 
@@ -920,7 +929,10 @@ export async function syncExistingStudentsWithCurrentSession() {
     }
 
     meta.enrollments = enrollments;
-    await saveMadrasaMetadata(madrasaId, meta);
+    const saved = await saveMadrasaMetadata(madrasaId, meta);
+    if (!saved) {
+      return { error: "এনরোলমেন্ট ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
+    }
 
     revalidatePath("/dashboard/academic/sessions");
     revalidatePath("/dashboard/students");

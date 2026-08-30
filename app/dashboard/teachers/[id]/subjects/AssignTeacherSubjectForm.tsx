@@ -23,12 +23,17 @@ export default function AssignTeacherSubjectForm({ teacherId, unassignedClassSub
 
     const [classId, subjectId] = classSubjectStr.split("|");
 
-    const res = await assignSubjectToTeacher(teacherId, classId, subjectId);
-    if (res.error) {
-      setError(res.error);
+    try {
+      const res = await assignSubjectToTeacher(teacherId, classId, subjectId);
+      if (res?.error) {
+        setError(res.error);
+      }
+    } catch (err) {
+      console.error("assignSubjectToTeacher failed:", err);
+      setError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
+      setIsPending(false);
     }
-    
-    setIsPending(false);
   };
 
   return (

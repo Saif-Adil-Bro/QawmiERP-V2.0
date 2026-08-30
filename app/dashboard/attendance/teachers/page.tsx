@@ -16,9 +16,14 @@ export default function TeacherAttendancePage() {
   useEffect(() => {
     async function loadData() {
       setLoading(true);
-      const data = await getTeachersForAttendance(date);
-      setTeachers(data);
-      setLoading(false);
+      try {
+        const data = await getTeachersForAttendance(date);
+        setTeachers(data || []);
+      } catch (err) {
+        console.error("getTeachersForAttendance failed:", err);
+      } finally {
+        setLoading(false);
+      }
     }
     loadData();
   }, [date]);
@@ -32,20 +37,29 @@ export default function TeacherAttendancePage() {
   const handleSave = async () => {
     setSaving(true);
     setMessage(null);
-    const attendanceData = teachers.map(t => ({
-      teacher_id: t.id,
-      status: t.status,
-    }));
-    
-    const result = await saveTeacherAttendance(date, attendanceData);
-    
-    if (result.error) {
-      setMessage({ type: 'error', text: result.error });
-    } else {
-      setMessage({ type: 'success', text: 'স্টাফদের হাজিরা সফলভাবে সেভ করা হয়েছে!' });
-      setTimeout(() => setMessage(null), 3000);
+    try {
+      const attendanceData = teachers.map(t => ({
+        teacher_id: t.id,
+        status: t.status,
+      }));
+      
+      const result = await saveTeacherAttendance(date, attendanceData);
+      
+      if (result?.error) {
+        setMessage({ type: 'error', text: result.error });
+      } else {
+        setMessage({ type: 'success', text: 'স্টাফদের হাজিরা সফলভাবে সেভ করা হয়েছে!' });
+        setTimeout(() => setMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error("saveTeacherAttendance failed:", err);
+      setMessage({
+        type: 'error',
+        text: 'একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।',
+      });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (

@@ -8,7 +8,7 @@ import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem } from "@/lib/fund-uti
 // In-memory fallback cache for custom funds if database table is not yet created
 const customFundsStore: Map<string, FundItem[]> = new Map();
 
-// Helper to get all funds (Defaults + Custom funds)
+// Helper to get all funds (Defaults + Relational Table zakat_funds + Custom funds)
 export async function getFunds(): Promise<FundItem[]> {
   try {
     const adminClient = await createAdminClient();
@@ -16,7 +16,39 @@ export async function getFunds(): Promise<FundItem[]> {
     const user = await getAuthUser(supabase);
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
 
-    // 1. Check madrasa metadata for custom funds
+    // 1. Try relational table zakat_funds
+    try {
+      const { data: dbFunds, error: dbErr } = await adminClient
+        .from("zakat_funds")
+        .select("*")
+        .eq("madrasa_id", finalMadrasaId)
+        .eq("is_active", true)
+        .order("created_at", { ascending: true });
+
+      if (!dbErr && dbFunds && dbFunds.length > 0) {
+        const existingCodes = new Set(dbFunds.map((f: any) => f.code || f.id));
+        const formatted: FundItem[] = dbFunds.map((f: any) => ({
+          id: f.id,
+          madrasa_id: f.madrasa_id,
+          name: f.name,
+          code: f.code,
+          category: f.category as any,
+          description: f.description || "",
+          target_amount: Number(f.target_amount || 0),
+          current_balance: Number(f.current_balance || 0),
+          color: "emerald",
+          is_default: false,
+          is_active: f.is_active !== false,
+          created_at: f.created_at,
+        }));
+        return [
+          ...DEFAULT_FUNDS.filter((df) => !existingCodes.has(df.code) && !existingCodes.has(df.id)),
+          ...formatted,
+        ];
+      }
+    } catch {}
+
+    // 2. Check madrasa metadata for custom funds (Fallback)
     try {
       const { data: madrasaData } = await adminClient
         .from("madrasas")
@@ -37,7 +69,7 @@ export async function getFunds(): Promise<FundItem[]> {
       }
     } catch {}
 
-    // 2. Fallback to in-memory custom funds merged with defaults
+    // 3. Fallback to in-memory custom funds merged with defaults
     const madrasaCustom = customFundsStore.get(finalMadrasaId) || [];
     return [...DEFAULT_FUNDS, ...madrasaCustom];
   } catch (err) {
@@ -79,7 +111,22 @@ export async function createFund(formData: FormData) {
       created_at: new Date().toISOString(),
     };
 
-    // Save to metadata in madrasas table
+    // Save to relational table zakat_funds
+    try {
+      await adminClient.from("zakat_funds").upsert({
+        id: newFund.id,
+        madrasa_id: finalMadrasaId,
+        name: newFund.name,
+        code: newFund.code,
+        category: newFund.category,
+        description: newFund.description,
+        target_amount: newFund.target_amount,
+        current_balance: 0,
+        is_active: true,
+      });
+    } catch {}
+
+    // Save to metadata in madrasas table (dual write for zero-downtime compatibility)
     try {
       const { data: madrasaData } = await adminClient
         .from("madrasas")
@@ -136,6 +183,13 @@ export async function updateFund(fundId: string, formData: FormData): Promise<{ 
 
     try {
       const adminClient = await createAdminClient();
+      await adminClient.from("zakat_funds").update({
+        name,
+        code,
+        category,
+        description,
+        target_amount,
+      }).eq("id", fundId);
       await adminClient.from("funds").update({
         name,
         code,
@@ -179,7 +233,21 @@ export async function deleteFund(fundId: string): Promise<{ success?: boolean; e
 
     try {
       const adminClient = await createAdminClient();
+      await adminClient.from("zakat_funds").delete().eq("id", fundId);
       await adminClient.from("funds").delete().eq("id", fundId);
+      
+      const { data: madrasaData } = await adminClient
+        .from("madrasas")
+        .select("registration_no")
+        .eq("id", finalMadrasaId)
+        .single();
+      if (madrasaData?.registration_no?.startsWith("{")) {
+        const meta = JSON.parse(madrasaData.registration_no);
+        if (meta.custom_funds && Array.isArray(meta.custom_funds)) {
+          meta.custom_funds = meta.custom_funds.filter((f: any) => f.id !== fundId);
+          await adminClient.from("madrasas").update({ registration_no: JSON.stringify(meta) }).eq("id", finalMadrasaId);
+        }
+      }
     } catch (err) {
       console.error("Fund deletion in db failed:", err);
     }

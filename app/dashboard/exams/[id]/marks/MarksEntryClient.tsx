@@ -111,15 +111,24 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
       return;
     }
 
-    const result = await saveExamMarks(examId, subjectName, marksData);
-    
-    if (result.error) {
-      setMessage({ type: 'error', text: result.error });
-    } else {
-      setMessage({ type: 'success', text: 'নম্বর সফলভাবে সেভ করা হয়েছে!' });
-      setTimeout(() => setMessage(null), 3000);
+    try {
+      const result = await saveExamMarks(examId, subjectName, marksData);
+      
+      if (result?.error) {
+        setMessage({ type: 'error', text: result.error });
+      } else {
+        setMessage({ type: 'success', text: 'নম্বর সফলভাবে সেভ করা হয়েছে!' });
+        setTimeout(() => setMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error("saveExamMarks failed:", err);
+      setMessage({
+        type: 'error',
+        text: 'একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।',
+      });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const selectedClassName = classes.find(c => c.id === classId)?.name || '';

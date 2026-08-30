@@ -443,7 +443,28 @@ export async function updateMadrasaDetails(formData: FormData) {
     }
 
     // 3. Serialize metadata to registration_no
+    // IMPORTANT: registration_no is a shared JSON blob also used by
+    // fee-management (lib/sessions.ts), zakat funds (app/actions/zakat.ts),
+    // sessions & enrollments. We MUST read the existing value first and merge
+    // into it — never overwrite it wholesale — or every Settings save wipes
+    // out all fee/zakat/session data for the madrasa.
+    let existingMeta: Record<string, any> = {};
+    const { data: existingRow } = await adminClient
+      .from("madrasas")
+      .select("registration_no")
+      .eq("id", madrasaId)
+      .single();
+
+    if (existingRow?.registration_no && existingRow.registration_no.startsWith("{")) {
+      try {
+        existingMeta = JSON.parse(existingRow.registration_no);
+      } catch {
+        // Corrupt/legacy value — proceed with empty base rather than crash
+      }
+    }
+
     const metadataPayload = {
+      ...existingMeta,
       reg_no: registrationNo,
       established_year: establishedYear,
       principal_name: principalName,
