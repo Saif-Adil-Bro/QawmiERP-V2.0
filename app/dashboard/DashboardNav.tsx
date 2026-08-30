@@ -45,6 +45,8 @@ const navSections: NavSection[] = [
   {
     title: "একাডেমিক",
     items: [
+      { name: "শিক্ষাবর্ষ (Sessions)", href: "/dashboard/academic/sessions", icon: CalendarDays },
+      { name: "শিক্ষার্থী প্রমোশন", href: "/dashboard/students/promotion", icon: GraduationCap },
       { name: "হিফজ ট্র্যাকিং", href: "/dashboard/hifz", icon: BookOpen },
       { name: "রুটিন (Routine)", href: "/dashboard/academic/routine", icon: CalendarDays },
       { name: "সনদ ও মার্কশিট", href: "/dashboard/academic/certificates", icon: Award },

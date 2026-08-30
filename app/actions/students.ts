@@ -167,7 +167,7 @@ export async function createStudent(prevState: any, formData: FormData) {
     }
   }
 
-  const { error } = await supabase.from("students").insert({
+  const { data: insertedStudent, error } = await supabase.from("students").insert({
     madrasa_id: finalMadrasaId,
     first_name: firstName,
     last_name: lastName,
@@ -177,14 +177,43 @@ export async function createStudent(prevState: any, formData: FormData) {
     father_name: fatherName,
     address: address,
     photo_url: photoUrl,
-  });
+  }).select("id").single();
 
   if (error) {
     console.error("Error creating student:", error);
     return { error: error.message };
   }
 
+  // Auto enroll student into current active academic session
+  if (insertedStudent?.id) {
+    try {
+      const { getMadrasaMetadata, saveMadrasaMetadata, getDefaultSessions } = await import("@/lib/sessions");
+      const meta = await getMadrasaMetadata(finalMadrasaId);
+      const sessions = meta.sessions || getDefaultSessions(finalMadrasaId);
+      const currentSession = sessions.find((s) => s.is_current) || sessions[0];
+      if (currentSession) {
+        const enrollments = meta.enrollments || [];
+        enrollments.push({
+          id: `enr_${insertedStudent.id}_${currentSession.id}`,
+          madrasa_id: finalMadrasaId,
+          student_id: insertedStudent.id,
+          session_id: currentSession.id,
+          class_id: classId,
+          roll_number: rollNumber,
+          status: "ACTIVE",
+          enrollment_date: new Date().toISOString().split("T")[0],
+          created_at: new Date().toISOString(),
+        });
+        meta.enrollments = enrollments;
+        await saveMadrasaMetadata(finalMadrasaId, meta);
+      }
+    } catch (sessionEnrollErr) {
+      console.warn("Auto enrollment error:", sessionEnrollErr);
+    }
+  }
+
   revalidatePath("/dashboard/students");
+  revalidatePath("/dashboard/academic/sessions");
   return { success: true };
 }
 
