@@ -93,22 +93,21 @@ export async function getStudentById(id: string) {
   }
 }
 
-export async function getAuthMadrasaId(supabase: any, user: any) {
-  if (!user?.id) return null;
+export async function getAuthMadrasaId(supabase?: any, user?: any): Promise<string> {
   try {
     const adminClient = await createAdminClient();
 
-    // 1. Try getting user's madrasa_id from users table using adminClient (bypasses RLS)
-    const { data: userData } = await adminClient
-      .from("users")
-      .select("madrasa_id")
-      .eq("id", user.id)
-      .single();
+    // 1. Try getting user's madrasa_id from users table using adminClient
+    if (user?.id) {
+      const { data: userData } = await adminClient
+        .from("users")
+        .select("madrasa_id")
+        .eq("id", user.id)
+        .single();
 
-    let finalMadrasaId = userData?.madrasa_id;
-
-    if (finalMadrasaId) {
-      return finalMadrasaId;
+      if (userData?.madrasa_id) {
+        return userData.madrasa_id;
+      }
     }
 
     // 2. If user doesn't have a valid madrasa_id, find or create the primary madrasa
@@ -119,9 +118,9 @@ export async function getAuthMadrasaId(supabase: any, user: any) {
       .limit(1)
       .single();
 
-    if (firstMadrasa?.id) {
-      finalMadrasaId = firstMadrasa.id;
-    } else {
+    let finalMadrasaId = firstMadrasa?.id;
+
+    if (!finalMadrasaId) {
       // Create new madrasa if table is completely empty
       const { data: newMadrasa } = await adminClient
         .from("madrasas")
@@ -137,7 +136,7 @@ export async function getAuthMadrasaId(supabase: any, user: any) {
       }
     }
 
-    if (finalMadrasaId) {
+    if (finalMadrasaId && user?.id) {
       try {
         await adminClient.from("users").upsert({
           id: user.id,
@@ -149,10 +148,10 @@ export async function getAuthMadrasaId(supabase: any, user: any) {
       } catch {}
     }
 
-    return finalMadrasaId || null;
+    return finalMadrasaId || "default_madrasa_id";
   } catch (err) {
     console.error("Exception in getAuthMadrasaId:", err);
-    return null;
+    return "default_madrasa_id";
   }
 }
 
