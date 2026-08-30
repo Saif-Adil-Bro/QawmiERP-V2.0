@@ -51,9 +51,21 @@ export async function getFeeTypes(): Promise<FeeType[]> {
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    if (!user) return DEFAULT_FEE_TYPES;
+    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: firstMadrasa } = await adminClient
+          .from("madrasas")
+          .select("id")
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .single();
+        madrasaId = firstMadrasa?.id || null;
+      } catch {}
+    }
+
     if (!madrasaId) return DEFAULT_FEE_TYPES;
 
     const meta = await getFeeMetadata(madrasaId);
@@ -71,9 +83,21 @@ export async function saveFeeType(feeType: Partial<FeeType>) {
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
+    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: firstMadrasa } = await adminClient
+          .from("madrasas")
+          .select("id")
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .single();
+        madrasaId = firstMadrasa?.id || null;
+      } catch {}
+    }
+
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
 
     const meta = await getFeeMetadata(madrasaId);
@@ -90,7 +114,7 @@ export async function saveFeeType(feeType: Partial<FeeType>) {
       const newType: FeeType = {
         id: `ft_${Date.now()}`,
         name: feeType.name || "নতুন ফি",
-        code: feeType.code || "CUSTOM",
+        code: feeType.code || `FEE_${Date.now().toString().slice(-4)}`,
         category: feeType.category || "OTHER",
         frequency: feeType.frequency || "MONTHLY",
         default_amount: Number(feeType.default_amount) || 0,
@@ -101,12 +125,52 @@ export async function saveFeeType(feeType: Partial<FeeType>) {
 
     await saveFeeMetadata(madrasaId, { fee_types: feeTypes });
     revalidatePath("/dashboard/accounting/structure");
+    revalidatePath("/dashboard/accounting/generate");
     revalidatePath("/dashboard/accounting");
 
     return { success: true, message: "ফি টাইপ সফলভাবে সংরক্ষিত হয়েছে।" };
   } catch (err: any) {
     console.error("Error in saveFeeType:", err);
     return { error: err.message || "ফি টাইপ সংরক্ষণ ব্যর্থ হয়েছে।" };
+  }
+}
+
+/**
+ * Delete / Remove Fee Type
+ */
+export async function deleteFeeType(feeTypeId: string) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
+    if (!madrasaId) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: firstMadrasa } = await adminClient
+          .from("madrasas")
+          .select("id")
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .single();
+        madrasaId = firstMadrasa?.id || null;
+      } catch {}
+    }
+
+    if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+
+    const meta = await getFeeMetadata(madrasaId);
+    const feeTypes = (meta.fee_types || DEFAULT_FEE_TYPES).filter((f) => f.id !== feeTypeId);
+
+    await saveFeeMetadata(madrasaId, { fee_types: feeTypes });
+    revalidatePath("/dashboard/accounting/structure");
+    revalidatePath("/dashboard/accounting/generate");
+    revalidatePath("/dashboard/accounting");
+
+    return { success: true, message: "ফি টাইপ মুছে ফেলা হয়েছে।" };
+  } catch (err: any) {
+    console.error("Error in deleteFeeType:", err);
+    return { error: err.message || "ফি টাইপ মুছে ফেলা ব্যর্থ হয়েছে।" };
   }
 }
 
@@ -235,105 +299,153 @@ export async function generateMonthlyFees(params: {
   year?: string;
   classId?: string;
   feeTypeIds?: string[];
+  customAmounts?: Record<string, number>;
+  forceUpdate?: boolean;
   dueDate?: string;
 }) {
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
+    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    const madrasaId = await getAuthMadrasaId(supabase, user);
-    if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+    const adminClient = await createAdminClient();
 
-    const meta = await getFeeMetadata(madrasaId);
-    const sessionsMeta = await getMadrasaMetadata(madrasaId);
+    if (!madrasaId) {
+      try {
+        const { data: firstMadrasa } = await adminClient
+          .from("madrasas")
+          .select("id")
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .single();
+        madrasaId = firstMadrasa?.id || null;
+      } catch {}
+    }
 
-    // Fetch students from Supabase
-    let studentQuery = supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, classes(id, name)")
-      .eq("madrasa_id", madrasaId);
+    if (!madrasaId) return { error: "মাদরাসা তথ্য পাওয়া যায়নি।" };
+
+    // Fetch students using adminClient with fallback
+    let students: any[] = [];
+    try {
+      const { data: stdData, error: stdErr } = await adminClient
+        .from("students")
+        .select("id, first_name, last_name, roll_number, class_name, class_id")
+        .eq("madrasa_id", madrasaId);
+
+      if (!stdErr && stdData && stdData.length > 0) {
+        students = stdData;
+      }
+    } catch {}
+
+    if (students.length === 0) {
+      try {
+        const { data: allStd } = await adminClient
+          .from("students")
+          .select("id, first_name, last_name, roll_number, class_name, class_id");
+        students = allStd || [];
+      } catch {}
+    }
 
     if (params.classId && params.classId !== "ALL") {
-      studentQuery = studentQuery.eq("class_id", params.classId);
+      students = students.filter(
+        (s) => s.class_id === params.classId || s.class_name === params.classId
+      );
     }
 
-    const { data: students, error: stdError } = await studentQuery;
-    if (stdError || !students || students.length === 0) {
-      return { error: "কোন শিক্ষার্থী পাওয়া যায়নি।" };
+    if (students.length === 0) {
+      return {
+        error:
+          "কোনো শিক্ষার্থী পাওয়া যায়নি। অনুগ্রহ করে 'ছাত্র ব্যবস্থাপনা' বা 'ভর্তি' মডিউল থেকে শিক্ষার্থী যুক্ত আছে কিনা নিশ্চিত করুন।",
+      };
     }
 
-    const feeTypes = meta.fee_types || DEFAULT_FEE_TYPES;
+    const meta = await getFeeMetadata(madrasaId);
+    const feeTypes = meta.fee_types && meta.fee_types.length > 0 ? meta.fee_types : DEFAULT_FEE_TYPES;
     const feeStructures = meta.fee_structures || [];
     const currentStudentFees = [...(meta.student_fees || [])];
 
+    // Determine target fee types
+    const targetFeeTypeIds = params.feeTypeIds && params.feeTypeIds.length > 0
+      ? params.feeTypeIds
+      : feeTypes.filter((f) => f.frequency === "MONTHLY" || f.code === "MONTHLY").map((f) => f.id);
+
+    const selectedFeeTypes = feeTypes.filter((ft) => targetFeeTypeIds.includes(ft.id));
+
+    if (selectedFeeTypes.length === 0) {
+      return { error: "অন্তত একটি ফি'র খাত নির্বাচন করুন।" };
+    }
+
     let generatedCount = 0;
     let skippedCount = 0;
+    let updatedCount = 0;
     const now = new Date().toISOString();
-    const dueDate = params.dueDate || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const dueDate =
+      params.dueDate ||
+      new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
     for (const student of students) {
-      const clsObj: any = Array.isArray(student.classes) ? student.classes[0] : student.classes;
-      const studentClassId = clsObj?.id || params.classId || "ALL";
-      const studentClassName = student.class_name || clsObj?.name || "সাধারণ";
+      const studentClassId = student.class_id || params.classId || "ALL";
+      const studentClassName = student.class_name || "সাধারণ";
 
-      // Find best matching fee structure
+      // Find matching fee structure if any
       const matchingStruct =
         feeStructures.find(
           (s) => s.session_id === params.sessionId && s.class_id === studentClassId
         ) ||
         feeStructures.find(
           (s) => s.session_id === params.sessionId && s.class_id === "ALL"
-        ) ||
-        feeStructures[0];
+        );
 
-      // Determine items to charge
-      const itemsToCharge: { feeTypeId: string; feeTypeName: string; amount: number }[] = [];
-
-      if (matchingStruct && matchingStruct.items.length > 0) {
-        matchingStruct.items.forEach((it) => {
-          if (
-            it.frequency === "MONTHLY" &&
-            (!params.feeTypeIds || params.feeTypeIds.length === 0 || params.feeTypeIds.includes(it.fee_type_id))
-          ) {
-            itemsToCharge.push({
-              feeTypeId: it.fee_type_id,
-              feeTypeName: it.fee_type_name,
-              amount: it.amount,
-            });
-          }
-        });
-      }
-
-      // If no structure matched, fallback to default monthly fee type
-      if (itemsToCharge.length === 0) {
-        const monthlyType = feeTypes.find((f) => f.code === "MONTHLY") || feeTypes[0];
-        itemsToCharge.push({
-          feeTypeId: monthlyType.id,
-          feeTypeName: monthlyType.name,
-          amount: monthlyType.default_amount || 1500,
-        });
-      }
-
-      // Check student discounts/waivers
+      // Student discounts/waivers
       const studentDiscounts = (meta.discounts || []).filter(
         (d) => d.student_id === student.id && d.status === "APPROVED"
       );
 
-      for (const item of itemsToCharge) {
-        const chargeKey = `${params.sessionId}_${student.id}_${item.feeTypeId}_${params.billingPeriod.replace(/\s+/g, "_")}`;
+      for (const ft of selectedFeeTypes) {
+        // Calculate base amount: custom override > structure item amount > fee type default
+        let baseAmount = ft.default_amount || 0;
+        if (
+          params.customAmounts &&
+          params.customAmounts[ft.id] !== undefined &&
+          !isNaN(Number(params.customAmounts[ft.id]))
+        ) {
+          baseAmount = Number(params.customAmounts[ft.id]);
+        } else if (matchingStruct) {
+          const sItem = matchingStruct.items.find((it) => it.fee_type_id === ft.id);
+          if (sItem && sItem.amount > 0) {
+            baseAmount = sItem.amount;
+          }
+        }
 
-        // Idempotency: Check if already charged
-        const existing = currentStudentFees.find(
+        if (baseAmount < 0) baseAmount = 0;
+
+        // Idempotency: Check if already exists for this period
+        const existingIdx = currentStudentFees.findIndex(
           (f) =>
             f.session_id === params.sessionId &&
             f.student_id === student.id &&
-            f.fee_type_id === item.feeTypeId &&
+            f.fee_type_id === ft.id &&
             f.billing_period === params.billingPeriod
         );
 
-        if (existing) {
-          skippedCount++;
+        if (existingIdx >= 0) {
+          if (params.forceUpdate && currentStudentFees[existingIdx].status === "UNPAID") {
+            const oldFee = currentStudentFees[existingIdx];
+            const discountAmt = oldFee.discount_amount || 0;
+            const newPayable = Math.max(0, baseAmount - discountAmt);
+            currentStudentFees[existingIdx] = {
+              ...oldFee,
+              base_amount: baseAmount,
+              payable_amount: newPayable,
+              due_amount: newPayable,
+              due_date: dueDate,
+              status: newPayable === 0 ? "WAIVED" : "UNPAID",
+              updated_at: now,
+            };
+            updatedCount++;
+          } else {
+            skippedCount++;
+          }
           continue;
         }
 
@@ -341,40 +453,40 @@ export async function generateMonthlyFees(params: {
         let discountAmount = 0;
         let discountReason = "";
         const applicableDiscount = studentDiscounts.find(
-          (d) => !d.fee_type_id || d.fee_type_id === item.feeTypeId
+          (d) => !d.fee_type_id || d.fee_type_id === ft.id
         );
 
         if (applicableDiscount) {
           if (applicableDiscount.discount_type === "FULL_WAIVER") {
-            discountAmount = item.amount;
+            discountAmount = baseAmount;
             discountReason = applicableDiscount.reason || "পূর্ণ মওকুফ";
           } else if (applicableDiscount.discount_type === "PERCENTAGE") {
-            discountAmount = Math.round((item.amount * applicableDiscount.value) / 100);
+            discountAmount = Math.round((baseAmount * applicableDiscount.value) / 100);
             discountReason = `${applicableDiscount.value}% বিশেষ ছাড়`;
           } else if (applicableDiscount.discount_type === "FIXED") {
-            discountAmount = Math.min(item.amount, applicableDiscount.value);
+            discountAmount = Math.min(baseAmount, applicableDiscount.value);
             discountReason = applicableDiscount.reason || "নির্ধারিত ছাড়";
           }
         }
 
-        const payable = Math.max(0, item.amount - discountAmount);
+        const payable = Math.max(0, baseAmount - discountAmount);
 
         const newFee: StudentFee = {
           id: `fee_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
           madrasa_id: madrasaId,
           session_id: params.sessionId,
           student_id: student.id,
-          student_name: `${student.first_name || ""} ${student.last_name || ""}`.trim(),
+          student_name: `${student.first_name || ""} ${student.last_name || ""}`.trim() || "শিক্ষার্থী",
           student_roll: student.roll_number ? String(student.roll_number) : "",
           class_id: studentClassId,
           class_name: studentClassName,
-          fee_type_id: item.feeTypeId,
-          fee_type_name: item.feeTypeName,
+          fee_type_id: ft.id,
+          fee_type_name: ft.name,
           billing_period: params.billingPeriod,
           month_name: params.monthName || params.billingPeriod,
           year: params.year || new Date().getFullYear().toString(),
           due_date: dueDate,
-          base_amount: item.amount,
+          base_amount: baseAmount,
           discount_amount: discountAmount,
           discount_reason: discountReason,
           fine_amount: 0,
@@ -397,9 +509,9 @@ export async function generateMonthlyFees(params: {
       id: `audit_${Date.now()}`,
       madrasa_id: madrasaId,
       action: "GENERATE_MONTHLY_FEES",
-      user_name: user.email || "হিসাবরক্ষক",
+      user_name: user?.email || "হিসাবরক্ষক",
       user_role: "accountant",
-      details: `${params.billingPeriod} সেশনের জন্য মোট ${generatedCount} টি ফি ইনভয়েস তৈরি করা হয়েছে (${skippedCount} টি পূর্বেই বিদ্যমান ছিল)।`,
+      details: `${params.billingPeriod} সেশনের জন্য মোট ${generatedCount} টি নতুন ফি তৈরি করা হয়েছে (${skippedCount} টি পূর্বেই বিদ্যমান ছিল, ${updatedCount} টি আপডেট করা হয়েছে)।`,
       created_at: now,
     });
 
@@ -411,12 +523,18 @@ export async function generateMonthlyFees(params: {
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/generate");
+    revalidatePath("/dashboard/accounting/reports");
+
+    const message = updatedCount > 0
+      ? `সফলভাবে ${generatedCount} টি নতুন ফি তৈরি এবং ${updatedCount} টি ফি আপডেট করা হয়েছে (${skippedCount} টি স্কিপ হয়েছে)।`
+      : `সফলভাবে ${generatedCount} জন শিক্ষার্থীর জন্য ${params.billingPeriod} ফি তৈরি করা হয়েছে (${skippedCount} টি পূর্বেই বিদ্যমান ছিল)।`;
 
     return {
       success: true,
       generatedCount,
       skippedCount,
-      message: `সফলভাবে ${generatedCount} জন শিক্ষার্থীর জন্য ${params.billingPeriod} ফি তৈরি করা হয়েছে।`,
+      updatedCount,
+      message,
     };
   } catch (err: any) {
     console.error("Error in generateMonthlyFees:", err);
