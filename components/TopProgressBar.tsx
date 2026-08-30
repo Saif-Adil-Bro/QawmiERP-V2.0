@@ -69,16 +69,15 @@ function TopProgressBarContent() {
 
     setBarWidth(25);
 
-    const t1 = setTimeout(() => setBarWidth(50), 120);
-    const t2 = setTimeout(() => setBarWidth(75), 350);
-    const t3 = setTimeout(() => setBarWidth(90), 800);
-    // Auto-finish safety fallback after 8s
+    const t1 = setTimeout(() => setBarWidth(60), 100);
+    const t2 = setTimeout(() => setBarWidth(85), 300);
+    // Auto-finish safety fallback after 2.5s so it never gets stuck
     const tSafety = setTimeout(() => {
       if (isActiveRef.current) {
         finishLoader();
       }
-    }, 8000);
-    timeoutRefs.current = [t1, t2, t3, tSafety];
+    }, 2500);
+    timeoutRefs.current = [t1, t2, tSafety];
   }, [clearAllTimeouts, setBarWidth, finishLoader]);
 
   /* ─── URL change → finish loader ─── */

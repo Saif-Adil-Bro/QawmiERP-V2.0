@@ -1,7 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import { Menu, X, LogOut } from "lucide-react";
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import {
+  Menu,
+  X,
+  LogOut,
+  LayoutDashboard,
+  Users,
+  CheckSquare,
+  BookOpen,
+  Wallet,
+} from "lucide-react";
 import DashboardNav from "./DashboardNav";
 import { logout } from "@/app/actions/auth";
 import { SessionProvider } from "@/components/sessions/SessionContext";
@@ -10,6 +21,21 @@ import ArchivedSessionBanner from "@/components/sessions/ArchivedSessionBanner";
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
+
+  // Automatically close mobile sidebar on route change
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
+
+  // Mobile bottom navigation items for quick one-tap access on phones
+  const mobileBottomNavItems = [
+    { href: "/dashboard", label: "হোম", icon: LayoutDashboard, exact: true },
+    { href: "/dashboard/students", label: "ছাত্র", icon: Users },
+    { href: "/dashboard/attendance", label: "হাজিরা", icon: CheckSquare },
+    { href: "/dashboard/classes", label: "জামাত", icon: BookOpen },
+    { href: "/dashboard/accounting", label: "হিসাব", icon: Wallet },
+  ];
 
   return (
     <SessionProvider>
@@ -46,7 +72,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
 
           {/* Dynamic Nav Menu */}
           <div className="flex-1 overflow-y-auto">
-            <DashboardNav onItemClick={() => setSidebarOpen(false)} />
+            <DashboardNav />
           </div>
 
           {/* Logout Button */}
@@ -94,9 +120,50 @@ export default function DashboardShell({ children }: { children: React.ReactNode
           <ArchivedSessionBanner />
 
           {/* Page Content */}
-          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 print:p-0 print:overflow-visible">
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-20 lg:pb-8 print:p-0 print:overflow-visible">
             {children}
           </main>
+
+          {/* Mobile Bottom Navigation Bar */}
+          <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg print:hidden">
+            {mobileBottomNavItems.map((item) => {
+              const active = item.exact
+                ? pathname === item.href
+                : pathname === item.href || pathname.startsWith(item.href + "/");
+              const Icon = item.icon;
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all ${
+                    active
+                      ? "text-emerald-700 font-bold scale-105"
+                      : "text-slate-500 hover:text-slate-800 font-medium"
+                  }`}
+                >
+                  <div
+                    className={`p-1 rounded-lg ${
+                      active ? "bg-emerald-50 text-emerald-700" : "text-slate-500"
+                    }`}
+                  >
+                    <Icon className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] leading-tight mt-0.5">{item.label}</span>
+                </Link>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-slate-500 hover:text-slate-800 font-medium"
+            >
+              <div className="p-1 rounded-lg text-slate-500">
+                <Menu className="w-5 h-5" />
+              </div>
+              <span className="text-[10px] leading-tight mt-0.5">সব মেনু</span>
+            </button>
+          </nav>
         </div>
       </div>
     </SessionProvider>
