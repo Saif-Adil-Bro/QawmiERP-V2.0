@@ -65,10 +65,15 @@ export default function DonorsClient({ initialDonors, funds }: DonorsClientProps
     if (!confirm("আপনি কি নিশ্চিতভাবে এই দাতার তথ্য মুছে ফেলতে চান?")) return;
     setDeletingId(donorId);
     try {
-      await deleteDonor(donorId);
+      const res = await deleteDonor(donorId);
+      if (res?.error) {
+        alert(res.error);
+        return;
+      }
       setDonors(donors.filter(d => d.id !== donorId));
     } catch (err: any) {
-      alert(err.message || "দাতা মুছতে সমস্যা হয়েছে");
+      console.error("deleteDonor failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
       setDeletingId(null);
     }

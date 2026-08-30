@@ -120,6 +120,10 @@ export default function CollectionClient({
 
     try {
       const res = await addDonor(formData);
+      if (res?.error) {
+        setFormError(res.error);
+        return;
+      }
       if (res?.success && res.donor) {
         setDonorList([res.donor, ...donorList]);
         setSelectedDonorId(res.donor.id);
@@ -128,7 +132,8 @@ export default function CollectionClient({
         setTimeout(() => setSuccessToast(null), 4000);
       }
     } catch (err: any) {
-      setFormError(err.message || "দাতা যুক্ত করতে সমস্যা হয়েছে");
+      console.error("addDonor failed:", err);
+      setFormError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
       setQuickSavingDonor(false);
     }
@@ -177,7 +182,6 @@ export default function CollectionClient({
       const res = await addDonation(null, formData);
       if (res?.error) {
         setFormError(res.error);
-        setLoading(false);
         return;
       }
 
@@ -233,10 +237,11 @@ export default function CollectionClient({
         // Open receipt modal immediately
         setActiveReceiptDonation(createdDonation);
       }
-      setLoading(false);
     } catch (err: any) {
+      console.error("addDonation failed:", err);
+      setFormError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
       setLoading(false);
-      setFormError(err.message || "সংগ্রহ সম্পন্ন করতে ব্যর্থ হয়েছে");
     }
   };
 
@@ -244,10 +249,15 @@ export default function CollectionClient({
     if (!confirm("আপনি কি নিশ্চিতভাবে এই কালেকশন রেকর্ডটি মুছে ফেলতে চান?")) return;
     setDeletingId(id);
     try {
-      await deleteDonation(id);
+      const res = await deleteDonation(id);
+      if (res?.error) {
+        alert(res.error);
+        return;
+      }
       setDonations(donations.filter(d => d.id !== id));
     } catch (err: any) {
-      alert(err.message || "কালেকশন মুছতে সমস্যা হয়েছে");
+      console.error("deleteDonation failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
       setDeletingId(null);
     }

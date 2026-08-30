@@ -75,22 +75,28 @@ export default function CollectPaymentClient({
     async function fetchProfile() {
       setLoadingProfile(true);
       setError(null);
-      const profile = await getStudentFeeProfile(studentId);
-      setStudentProfile(profile);
-      setLoadingProfile(false);
+      try {
+        const profile = await getStudentFeeProfile(studentId);
+        setStudentProfile(profile);
 
-      if (profile && profile.fees) {
-        const unpaidFees = profile.fees.filter((f: any) => f.due_amount > 0);
-        const initialAlloc: Record<string, number> = {};
-        let initialSum = 0;
+        if (profile && profile.fees) {
+          const unpaidFees = profile.fees.filter((f: any) => f.due_amount > 0);
+          const initialAlloc: Record<string, number> = {};
+          let initialSum = 0;
 
-        unpaidFees.forEach((f: any) => {
-          initialAlloc[f.id] = f.due_amount;
-          initialSum += f.due_amount;
-        });
+          unpaidFees.forEach((f: any) => {
+            initialAlloc[f.id] = f.due_amount;
+            initialSum += f.due_amount;
+          });
 
-        setAllocations(initialAlloc);
-        setTotalAmount(initialSum > 0 ? initialSum : 1500);
+          setAllocations(initialAlloc);
+          setTotalAmount(initialSum > 0 ? initialSum : 1500);
+        }
+      } catch (err) {
+        console.error("getStudentFeeProfile failed:", err);
+        setError("শিক্ষার্থীর বকেয়া তথ্য লোড করতে সমস্যা হয়েছে। পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+      } finally {
+        setLoadingProfile(false);
       }
     }
 
@@ -139,27 +145,32 @@ export default function CollectPaymentClient({
       });
     }
 
-    const res = await collectFeePayment({
-      student_id: studentId,
-      session_id: studentProfile?.fees?.[0]?.session_id || "default",
-      payment_date: paymentDate,
-      payment_method: paymentMethod,
-      transaction_ref: transactionRef,
-      total_amount: Number(totalAmount),
-      discount_amount: Number(discountAmount),
-      discount_reason: discountReason,
-      fine_amount: Number(fineAmount),
-      fine_reason: fineReason,
-      fee_allocations: feeAllocationsList,
-      notes: notes,
-    });
+    try {
+      const res = await collectFeePayment({
+        student_id: studentId,
+        session_id: studentProfile?.fees?.[0]?.session_id || "default",
+        payment_date: paymentDate,
+        payment_method: paymentMethod,
+        transaction_ref: transactionRef,
+        total_amount: Number(totalAmount),
+        discount_amount: Number(discountAmount),
+        discount_reason: discountReason,
+        fine_amount: Number(fineAmount),
+        fine_reason: fineReason,
+        fee_allocations: feeAllocationsList,
+        notes: notes,
+      });
 
-    setIsPending(false);
-
-    if (res.success && res.payment) {
-      setSuccessReceipt(res.payment);
-    } else {
-      setError(res.error || "ফি কালেকশন সম্পন্ন করা যায়নি।");
+      if (res?.success && res.payment) {
+        setSuccessReceipt(res.payment);
+      } else {
+        setError(res?.error || "ফি কালেকশন সম্পন্ন করা যায়নি।");
+      }
+    } catch (err) {
+      console.error("collectFeePayment failed:", err);
+      setError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
+      setIsPending(false);
     }
   };
 

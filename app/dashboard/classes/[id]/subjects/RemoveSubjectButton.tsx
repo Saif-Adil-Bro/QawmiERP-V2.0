@@ -28,7 +28,8 @@ export default function RemoveSubjectButton({
         await removeSubjectFromClass(classSubjectId, classId);
         router.refresh();
       } catch (err) {
-        console.error(err);
+        console.error("removeSubjectFromClass failed:", err);
+        alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
       } finally {
         setIsPending(false);
       }

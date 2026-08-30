@@ -34,16 +34,25 @@ export default function FundManagerModal({
 
     try {
       if (isEdit && fund) {
-        await updateFund(fund.id, formData);
+        const res = await updateFund(fund.id, formData);
+        if (res?.error) {
+          setError(res.error);
+          return;
+        }
       } else {
-        await createFund(formData);
+        const res = await createFund(formData);
+        if (res?.error) {
+          setError(res.error);
+          return;
+        }
       }
-      setLoading(false);
       if (onSuccess) onSuccess();
       onClose();
     } catch (err: any) {
+      console.error("FundManagerModal save failed:", err);
+      setError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
       setLoading(false);
-      setError(err.message || "ফান্ড সংরক্ষণ করতে সমস্যা হয়েছে");
     }
   };
 

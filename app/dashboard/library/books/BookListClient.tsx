@@ -80,7 +80,7 @@ export default function BookListClient({ initialBooks }: BookListClientProps) {
     try {
       if (editingBook) {
         const res = await updateBook(editingBook.id, null, formData);
-        if (res.error) {
+        if (res?.error) {
           setError(res.error);
         } else {
           // Update state locally
@@ -96,15 +96,16 @@ export default function BookListClient({ initialBooks }: BookListClientProps) {
         }
       } else {
         const res = await createBook(null, formData);
-        if (res.error) {
+        if (res?.error) {
           setError(res.error);
         } else {
-          // Re-fetch or add directly (since we can't get ID easily, let's refresh or reload, but we can also just refresh window or fetch)
+          // Re-fetch or add directly
           window.location.reload();
         }
       }
     } catch (err: any) {
-      setError("একটি ত্রুটি ঘটেছে। আবার চেষ্টা করুন।");
+      console.error("Book save failed:", err);
+      setError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
       setLoading(false);
     }
@@ -115,13 +116,14 @@ export default function BookListClient({ initialBooks }: BookListClientProps) {
 
     try {
       const res = await deleteBook(id);
-      if (res.error) {
+      if (res?.error) {
         alert(`মুছে ফেলতে ত্রুটি: ${res.error}`);
       } else {
         setBooks(prev => prev.filter(b => b.id !== id));
       }
     } catch (err) {
-      alert("একটি ত্রুটি ঘটেছে।");
+      console.error("deleteBook failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     }
   };
 

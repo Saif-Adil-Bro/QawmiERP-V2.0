@@ -361,7 +361,8 @@ export default function SMSClient({
 
       setIsModalOpen(false);
     } catch (err: any) {
-      alert("টেমপ্লেট সেভ করতে ত্রুটি হয়েছে: " + err.message);
+      console.error("saveSMSTemplate failed:", err);
+      alert("টেমপ্লেট সেভ করতে সমস্যা হয়েছে। সম্ভবত নতুন আপডেট হয়েছে — পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
       setIsSavingTemplate(false);
     }
@@ -382,7 +383,8 @@ export default function SMSClient({
         setSelectedTemplateId("");
       }
     } catch (err: any) {
-      alert("টেমপ্লেট মুছতে ত্রুটি: " + err.message);
+      console.error("deleteSMSTemplate failed:", err);
+      alert("টেমপ্লেট মুছতে সমস্যা হয়েছে। পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     }
   };
 
@@ -429,7 +431,8 @@ export default function SMSClient({
         ...prev,
       ]);
     } catch (err: any) {
-      setSendErrorMessage(err.message || "এসএমএস পাঠাতে ব্যর্থ হয়েছে");
+      console.error("sendSMS failed:", err);
+      setSendErrorMessage("এসএমএস পাঠাতে ব্যর্থ হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
       setIsSending(false);
     }
@@ -493,7 +496,8 @@ export default function SMSClient({
       }));
       setLogs((prev) => [...newLogs, ...prev]);
     } catch (err: any) {
-      setSendErrorMessage(err.message || "বাল্ক এসএমএস পাঠাতে ব্যর্থ হয়েছে");
+      console.error("sendBulkSMS failed:", err);
+      setSendErrorMessage("বাল্ক এসএমএস পাঠাতে ব্যর্থ হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
       setIsSending(false);
     }

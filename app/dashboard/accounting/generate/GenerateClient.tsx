@@ -172,12 +172,17 @@ export default function GenerateClient({
     e.stopPropagation();
     if (!confirm(`আপনি কি নিশ্চিত যে "${name}" ফি খাতটি মুছে ফেলতে চান?`)) return;
 
-    const res = await deleteFeeType(id);
-    if (res.success) {
-      setFeeTypesList((prev) => prev.filter((f) => f.id !== id));
-      setSelectedFeeTypeIds((prev) => prev.filter((item) => item !== id));
-    } else {
-      alert(res.error || "মুছে ফেলা সম্ভব হয়নি।");
+    try {
+      const res = await deleteFeeType(id);
+      if (res?.success) {
+        setFeeTypesList((prev) => prev.filter((f) => f.id !== id));
+        setSelectedFeeTypeIds((prev) => prev.filter((item) => item !== id));
+      } else {
+        alert(res?.error || "মুছে ফেলা সম্ভব হয়নি।");
+      }
+    } catch (err) {
+      console.error("deleteFeeType failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     }
   };
 
@@ -190,40 +195,46 @@ export default function GenerateClient({
     }
 
     setSavingFeeType(true);
-    const res = await saveFeeType(editingFeeType);
-    setSavingFeeType(false);
+    try {
+      const res = await saveFeeType(editingFeeType);
 
-    if (res.success) {
-      setShowFeeTypeModal(false);
-      // Update local state
-      if (modalMode === "ADD") {
-        const newId = `ft_${Date.now()}`;
-        const newObj: FeeType = {
-          id: newId,
-          name: editingFeeType.name,
-          code: editingFeeType.code || "CUSTOM",
-          category: (editingFeeType.category as FeeCategory) || "OTHER",
-          frequency: (editingFeeType.frequency as FeeFrequency) || "MONTHLY",
-          default_amount: Number(editingFeeType.default_amount) || 0,
-          is_active: true,
-        };
-        setFeeTypesList((prev) => [...prev, newObj]);
-        setSelectedFeeTypeIds((prev) => [...prev, newId]);
-        setCustomAmounts((prev) => ({ ...prev, [newId]: newObj.default_amount }));
-      } else {
-        setFeeTypesList((prev) =>
-          prev.map((f) => (f.id === editingFeeType.id ? ({ ...f, ...editingFeeType } as FeeType) : f))
-        );
-        if (editingFeeType.id) {
-          setCustomAmounts((prev) => ({
-            ...prev,
-            [editingFeeType.id!]: Number(editingFeeType.default_amount) || 0,
-          }));
+      if (res?.success) {
+        setShowFeeTypeModal(false);
+        // Update local state
+        if (modalMode === "ADD") {
+          const newId = `ft_${Date.now()}`;
+          const newObj: FeeType = {
+            id: newId,
+            name: editingFeeType.name,
+            code: editingFeeType.code || "CUSTOM",
+            category: (editingFeeType.category as FeeCategory) || "OTHER",
+            frequency: (editingFeeType.frequency as FeeFrequency) || "MONTHLY",
+            default_amount: Number(editingFeeType.default_amount) || 0,
+            is_active: true,
+          };
+          setFeeTypesList((prev) => [...prev, newObj]);
+          setSelectedFeeTypeIds((prev) => [...prev, newId]);
+          setCustomAmounts((prev) => ({ ...prev, [newId]: newObj.default_amount }));
+        } else {
+          setFeeTypesList((prev) =>
+            prev.map((f) => (f.id === editingFeeType.id ? ({ ...f, ...editingFeeType } as FeeType) : f))
+          );
+          if (editingFeeType.id) {
+            setCustomAmounts((prev) => ({
+              ...prev,
+              [editingFeeType.id!]: Number(editingFeeType.default_amount) || 0,
+            }));
+          }
         }
+        router.refresh();
+      } else {
+        alert(res?.error || "সংরক্ষণ ব্যর্থ হয়েছে।");
       }
-      router.refresh();
-    } else {
-      alert(res.error || "সংরক্ষণ ব্যর্থ হয়েছে।");
+    } catch (err) {
+      console.error("saveFeeType failed:", err);
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
+      setSavingFeeType(false);
     }
   };
 
@@ -245,23 +256,32 @@ export default function GenerateClient({
 
     const billingPeriod = `${monthName} ${year}`;
 
-    const res = await generateMonthlyFees({
-      sessionId,
-      billingPeriod,
-      monthName,
-      year,
-      classId,
-      feeTypeIds: selectedFeeTypeIds,
-      customAmounts,
-      forceUpdate,
-      dueDate,
-    });
+    try {
+      const res = await generateMonthlyFees({
+        sessionId,
+        billingPeriod,
+        monthName,
+        year,
+        classId,
+        feeTypeIds: selectedFeeTypeIds,
+        customAmounts,
+        forceUpdate,
+        dueDate,
+      });
 
-    setLoading(false);
-    setResult(res);
+      setResult(res);
 
-    if (res.success) {
-      router.refresh();
+      if (res?.success) {
+        router.refresh();
+      }
+    } catch (err) {
+      console.error("generateMonthlyFees failed:", err);
+      setResult({
+        success: false,
+        error: "একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 

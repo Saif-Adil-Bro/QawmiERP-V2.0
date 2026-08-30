@@ -19,9 +19,18 @@ export function KitabDeleteButton({
 
   const handleDelete = () => {
     startTransition(async () => {
-      await deleteKitabLog(logId, studentId);
-      setShowConfirm(false);
-      if (onDeleted) onDeleted();
+      try {
+        const res = await deleteKitabLog(logId, studentId);
+        if (res?.error) {
+          alert(res.error);
+          return;
+        }
+        setShowConfirm(false);
+        if (onDeleted) onDeleted();
+      } catch (err) {
+        console.error("deleteKitabLog failed:", err);
+        alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+      }
     });
   };
 
@@ -96,16 +105,21 @@ export function EditKitabLogModal({
     const formData = new FormData(e.currentTarget);
 
     startTransition(async () => {
-      const res = await updateKitabLog(null, formData);
-      if (res?.error) {
-        setError(res.error);
-      } else {
-        setSuccess(true);
-        setTimeout(() => {
-          setSuccess(false);
-          onClose();
-          if (onUpdated) onUpdated();
-        }, 600);
+      try {
+        const res = await updateKitabLog(null, formData);
+        if (res?.error) {
+          setError(res.error);
+        } else {
+          setSuccess(true);
+          setTimeout(() => {
+            setSuccess(false);
+            onClose();
+            if (onUpdated) onUpdated();
+          }, 600);
+        }
+      } catch (err) {
+        console.error("updateKitabLog failed:", err);
+        setError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
       }
     });
   };
@@ -281,16 +295,21 @@ export function AddKitabLogModal({
     }
 
     startTransition(async () => {
-      const res = await createKitabLog(null, formData);
-      if (res?.error) {
-        setError(res.error);
-      } else {
-        setSuccess(true);
-        setTimeout(() => {
-          setSuccess(false);
-          onClose();
-          if (onCreated) onCreated();
-        }, 600);
+      try {
+        const res = await createKitabLog(null, formData);
+        if (res?.error) {
+          setError(res.error);
+        } else {
+          setSuccess(true);
+          setTimeout(() => {
+            setSuccess(false);
+            onClose();
+            if (onCreated) onCreated();
+          }, 600);
+        }
+      } catch (err) {
+        console.error("createKitabLog failed:", err);
+        setError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
       }
     });
   };

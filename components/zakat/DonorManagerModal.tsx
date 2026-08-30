@@ -38,16 +38,25 @@ export default function DonorManagerModal({
 
     try {
       if (isEdit && donor) {
-        await updateDonor(donor.id, formData);
+        const res = await updateDonor(donor.id, formData);
+        if (res?.error) {
+          setError(res.error);
+          return;
+        }
       } else {
-        await addDonor(formData);
+        const res = await addDonor(formData);
+        if (res?.error) {
+          setError(res.error);
+          return;
+        }
       }
-      setLoading(false);
       if (onSuccess) onSuccess();
       onClose();
     } catch (err: any) {
+      console.error("DonorManagerModal save failed:", err);
+      setError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+    } finally {
       setLoading(false);
-      setError(err.message || "দাতার তথ্য সংরক্ষণ করতে সমস্যা হয়েছে");
     }
   };
 

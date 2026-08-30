@@ -119,72 +119,80 @@ export async function createFund(formData: FormData) {
 }
 
 // Update Fund
-export async function updateFund(fundId: string, formData: FormData) {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) throw new Error("Unauthorized");
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) throw new Error("Madrasa ID not found");
-
-  const name = (formData.get("name") as string)?.trim();
-  const code = (formData.get("code") as string)?.trim().toUpperCase() || "FND";
-  const category = (formData.get("category") as string) || "General";
-  const description = (formData.get("description") as string)?.trim() || "";
-  const target_amount = parseFloat(formData.get("target_amount") as string) || 0;
-
+export async function updateFund(fundId: string, formData: FormData): Promise<{ success?: boolean; error?: string }> {
   try {
-    const adminClient = await createAdminClient();
-    await adminClient.from("funds").update({
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) throw new Error("Unauthorized");
+
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) throw new Error("Madrasa ID not found");
+
+    const name = (formData.get("name") as string)?.trim();
+    const code = (formData.get("code") as string)?.trim().toUpperCase() || "FND";
+    const category = (formData.get("category") as string) || "General";
+    const description = (formData.get("description") as string)?.trim() || "";
+    const target_amount = parseFloat(formData.get("target_amount") as string) || 0;
+
+    try {
+      const adminClient = await createAdminClient();
+      await adminClient.from("funds").update({
+        name,
+        code,
+        category,
+        description,
+        target_amount,
+      }).eq("id", fundId);
+    } catch (err) {
+      console.error("Fund update in db failed, checking fallback:", err);
+    }
+
+    // Update in memory if present
+    const currentList = customFundsStore.get(finalMadrasaId) || [];
+    const updated = currentList.map(f => f.id === fundId ? {
+      ...f,
       name,
       code,
-      category,
+      category: category as any,
       description,
       target_amount,
-    }).eq("id", fundId);
-  } catch (err) {
-    console.error("Fund update in db failed, checking fallback:", err);
+    } : f);
+    customFundsStore.set(finalMadrasaId, updated);
+
+    revalidatePath("/dashboard/zakat/funds");
+    revalidatePath("/dashboard/zakat/collection");
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message || "আপডেট ব্যর্থ হয়েছে" };
   }
-
-  // Update in memory if present
-  const currentList = customFundsStore.get(finalMadrasaId) || [];
-  const updated = currentList.map(f => f.id === fundId ? {
-    ...f,
-    name,
-    code,
-    category: category as any,
-    description,
-    target_amount,
-  } : f);
-  customFundsStore.set(finalMadrasaId, updated);
-
-  revalidatePath("/dashboard/zakat/funds");
-  revalidatePath("/dashboard/zakat/collection");
-  return { success: true };
 }
 
 // Delete Fund
-export async function deleteFund(fundId: string) {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) throw new Error("Unauthorized");
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) throw new Error("Madrasa ID not found");
-
+export async function deleteFund(fundId: string): Promise<{ success?: boolean; error?: string }> {
   try {
-    const adminClient = await createAdminClient();
-    await adminClient.from("funds").delete().eq("id", fundId);
-  } catch (err) {
-    console.error("Fund deletion in db failed:", err);
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) throw new Error("Unauthorized");
+
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) throw new Error("Madrasa ID not found");
+
+    try {
+      const adminClient = await createAdminClient();
+      await adminClient.from("funds").delete().eq("id", fundId);
+    } catch (err) {
+      console.error("Fund deletion in db failed:", err);
+    }
+
+    const currentList = customFundsStore.get(finalMadrasaId) || [];
+    customFundsStore.set(finalMadrasaId, currentList.filter(f => f.id !== fundId));
+
+    revalidatePath("/dashboard/zakat/funds");
+    revalidatePath("/dashboard/zakat/collection");
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message || "মুছে ফেলা সম্ভব হয়নি" };
   }
-
-  const currentList = customFundsStore.get(finalMadrasaId) || [];
-  customFundsStore.set(finalMadrasaId, currentList.filter(f => f.id !== fundId));
-
-  revalidatePath("/dashboard/zakat/funds");
-  revalidatePath("/dashboard/zakat/collection");
-  return { success: true };
 }
 
 // Fetch all donors with donation aggregates
