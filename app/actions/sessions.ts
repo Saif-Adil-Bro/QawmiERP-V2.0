@@ -55,11 +55,14 @@ export async function getAcademicSessions(targetMadrasaId?: string): Promise<Aca
 
     if (!madrasaId) {
       const user = await getAuthUser(supabase);
-      if (!user) return [];
-      madrasaId = (await getAuthMadrasaId(supabase, user)) || undefined;
+      if (user) {
+        madrasaId = (await getAuthMadrasaId(supabase, user)) || undefined;
+      }
     }
 
-    if (!madrasaId) return [];
+    if (!madrasaId) {
+      return getDefaultSessions("default");
+    }
 
     const meta = await getMadrasaMetadata(madrasaId);
 
@@ -67,7 +70,9 @@ export async function getAcademicSessions(targetMadrasaId?: string): Promise<Aca
     if (!meta.sessions || !Array.isArray(meta.sessions) || meta.sessions.length === 0) {
       const defaults = getDefaultSessions(madrasaId);
       meta.sessions = defaults;
-      await saveMadrasaMetadata(madrasaId, meta);
+      try {
+        await saveMadrasaMetadata(madrasaId, meta);
+      } catch {}
       return defaults;
     }
 
@@ -81,7 +86,7 @@ export async function getAcademicSessions(targetMadrasaId?: string): Promise<Aca
     });
   } catch (err) {
     console.error("Error fetching academic sessions:", err);
-    return [];
+    return getDefaultSessions(targetMadrasaId || "default");
   }
 }
 

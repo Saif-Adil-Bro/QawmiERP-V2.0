@@ -11,18 +11,24 @@ export async function getStudents() {
       .select("*, classes(*)")
       .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("Error fetching students with classes relation:", error);
-      // Fallback query if foreign key relation classes(*) doesn't exist
-      const { data: fallbackData, error: fallbackError } = await supabase
-        .from("students")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (fallbackError) {
-        console.error("Fallback fetching students failed:", fallbackError);
+    if (error || !data) {
+      console.warn("Retrying students fetch with admin fallback...");
+      try {
+        const adminClient = await createAdminClient();
+        const { data: adminData } = await adminClient
+          .from("students")
+          .select("*, classes(*)")
+          .order("created_at", { ascending: false });
+        if (adminData && adminData.length > 0) return adminData;
+
+        const { data: fallbackData } = await adminClient
+          .from("students")
+          .select("*")
+          .order("created_at", { ascending: false });
+        return fallbackData || [];
+      } catch {
         return [];
       }
-      return fallbackData || [];
     }
     return data || [];
   } catch (err) {
@@ -39,9 +45,17 @@ export async function getClasses() {
       .select("*")
       .order("name");
 
-    if (error || !data) {
-      console.error("Error fetching classes:", error);
-      return [];
+    if (error || !data || data.length === 0) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: adminData } = await adminClient
+          .from("classes")
+          .select("*")
+          .order("name");
+        return adminData || [];
+      } catch {
+        return [];
+      }
     }
     return data;
   } catch (err) {
@@ -59,13 +73,18 @@ export async function getStudentById(id: string) {
       .eq("id", id)
       .single();
 
-    if (error) {
-      const { data: fallbackData } = await supabase
-        .from("students")
-        .select("*")
-        .eq("id", id)
-        .single();
-      return fallbackData || null;
+    if (error || !data) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: fallbackData } = await adminClient
+          .from("students")
+          .select("*")
+          .eq("id", id)
+          .single();
+        return fallbackData || null;
+      } catch {
+        return null;
+      }
     }
     return data || null;
   } catch (err) {
@@ -75,7 +94,7 @@ export async function getStudentById(id: string) {
 }
 
 export async function getAuthMadrasaId(supabase: any, user: any) {
-  if (!user) return null;
+  if (!user?.id) return null;
   try {
     const adminClient = await createAdminClient();
 
@@ -88,57 +107,46 @@ export async function getAuthMadrasaId(supabase: any, user: any) {
 
     let finalMadrasaId = userData?.madrasa_id;
 
-    // Verify if finalMadrasaId actually exists in madrasas table
     if (finalMadrasaId) {
-      const { data: exists } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .eq("id", finalMadrasaId)
-        .single();
-
-      if (!exists) {
-        finalMadrasaId = null;
-      }
+      return finalMadrasaId;
     }
 
     // 2. If user doesn't have a valid madrasa_id, find or create the primary madrasa
-    if (!finalMadrasaId) {
-      const { data: firstMadrasa } = await adminClient
+    const { data: firstMadrasa } = await adminClient
+      .from("madrasas")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .single();
+
+    if (firstMadrasa?.id) {
+      finalMadrasaId = firstMadrasa.id;
+    } else {
+      // Create new madrasa if table is completely empty
+      const { data: newMadrasa } = await adminClient
         .from("madrasas")
+        .insert({
+          name: "মাদ্রাসাতুল মুসলিমীন",
+          subscription_plan: "free",
+        })
         .select("id")
-        .order("created_at", { ascending: true })
-        .limit(1)
         .single();
 
-      if (firstMadrasa) {
-        finalMadrasaId = firstMadrasa.id;
-      } else {
-        // Create new madrasa if table is completely empty
-        const { data: newMadrasa } = await adminClient
-          .from("madrasas")
-          .insert({
-            name: "মাদ্রাসাতুল মুসলিমীন",
-            subscription_plan: "free",
-          })
-          .select("id")
-          .single();
-
-        if (newMadrasa) {
-          finalMadrasaId = newMadrasa.id;
-        }
+      if (newMadrasa?.id) {
+        finalMadrasaId = newMadrasa.id;
       }
+    }
 
-      if (finalMadrasaId) {
-        try {
-          await adminClient.from("users").upsert({
-            id: user.id,
-            madrasa_id: finalMadrasaId,
-            full_name: user.email?.split("@")[0] || "Admin",
-            email: user.email || "",
-            role: "super_admin",
-          });
-        } catch {}
-      }
+    if (finalMadrasaId) {
+      try {
+        await adminClient.from("users").upsert({
+          id: user.id,
+          madrasa_id: finalMadrasaId,
+          full_name: user.email?.split("@")[0] || "Admin",
+          email: user.email || "",
+          role: "super_admin",
+        });
+      } catch {}
     }
 
     return finalMadrasaId || null;

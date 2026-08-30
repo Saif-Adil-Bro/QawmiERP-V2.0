@@ -509,14 +509,25 @@ export async function collectFeePayment(paymentData: {
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
 
     // Fetch Student Info
-    const { data: student, error: stdErr } = await supabase
+    let student: any = null;
+    const { data: stdData, error: stdErr } = await supabase
       .from("students")
       .select("id, first_name, last_name, roll_number, class_name, classes(id, name)")
       .eq("id", paymentData.student_id)
-      .eq("madrasa_id", madrasaId)
       .single();
 
-    if (stdErr || !student) {
+    if (!stdErr && stdData) {
+      student = stdData;
+    } else {
+      const { data: fallbackStd } = await supabase
+        .from("students")
+        .select("id, first_name, last_name, roll_number, class_name")
+        .eq("id", paymentData.student_id)
+        .single();
+      student = fallbackStd;
+    }
+
+    if (!student) {
       return { error: "শিক্ষার্থী পাওয়া যায়নি।" };
     }
 
@@ -820,11 +831,23 @@ export async function getDueManagementData(filters?: {
       getFeeMetadata(madrasaId),
       supabase
         .from("students")
-        .select("id, first_name, last_name, roll_number, student_id, phone, parent_phone, class_name, classes(id, name)")
+        .select("id, first_name, last_name, roll_number, student_id, phone, parent_phone, class_name")
         .eq("madrasa_id", madrasaId),
     ]);
 
-    const students = studentsRes.data || [];
+    let students = studentsRes.data || [];
+    if (students.length === 0) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: adminStudents } = await adminClient
+          .from("students")
+          .select("id, first_name, last_name, roll_number, student_id, phone, parent_phone, class_name")
+          .eq("madrasa_id", madrasaId);
+        if (adminStudents && adminStudents.length > 0) {
+          students = adminStudents;
+        }
+      } catch {}
+    }
     let fees = meta.student_fees || [];
 
     if (filters?.sessionId && filters.sessionId !== "ALL") {
@@ -964,13 +987,26 @@ export async function getFeeDashboardOverview() {
     const [meta, dbFeesRes, studentsRes] = await Promise.all([
       getFeeMetadata(madrasaId),
       supabase.from("fees").select("*").eq("madrasa_id", madrasaId),
-      supabase.from("students").select("id, first_name, last_name, roll_number, class_name, classes(name)").eq("madrasa_id", madrasaId),
+      supabase.from("students").select("id, first_name, last_name, roll_number, class_name").eq("madrasa_id", madrasaId),
     ]);
 
     const payments = (meta.payments || []).filter((p) => p.status === "COMPLETED");
     const studentFees = meta.student_fees || [];
     const dbFees = dbFeesRes.data || [];
-    const students = studentsRes.data || [];
+    let students = studentsRes.data || [];
+
+    if (students.length === 0) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: adminStudents } = await adminClient
+          .from("students")
+          .select("id, first_name, last_name, roll_number, class_name")
+          .eq("madrasa_id", madrasaId);
+        if (adminStudents && adminStudents.length > 0) {
+          students = adminStudents;
+        }
+      } catch {}
+    }
 
     // Calculate Collection
     const totalCollected = payments.reduce((sum, p) => sum + p.total_amount_received, 0) || dbFees.reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
