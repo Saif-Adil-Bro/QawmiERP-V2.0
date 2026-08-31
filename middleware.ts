@@ -36,11 +36,19 @@ export async function middleware(request: NextRequest) {
               request,
             });
             cookiesToSet.forEach(({ name, value, options }) => {
+              // NOTE: sameSite:"none" + partitioned:true was needed for a
+              // cross-site iframe preview (e.g. an AI agent's simulator that
+              // embeds the app inside its own domain). On a normal, directly
+              // accessed deployment (Render/Railway/production domain), that
+              // combination is unnecessary and unreliable across browsers —
+              // it can cause the auth cookie to silently fail to persist,
+              // making the user appear logged out and auth-dependent server
+              // actions fail. "lax" is the standard, robust choice for a
+              // top-level site with redirect-based login.
               supabaseResponse.cookies.set(name, value, {
                 ...options,
-                sameSite: "none",
+                sameSite: "lax",
                 secure: true,
-                partitioned: true,
               });
             });
           },

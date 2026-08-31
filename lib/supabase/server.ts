@@ -27,11 +27,14 @@ export async function createClient() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
+              // See middleware.ts for why this is "lax" and not
+              // "none"+partitioned: that combination was for a cross-site
+              // iframe preview environment and is unreliable on a normal
+              // top-level production deployment (Render/Railway etc.).
               cookieStore.set(name, value, {
                 ...options,
-                sameSite: "none",
+                sameSite: "lax",
                 secure: true,
-                partitioned: true,
               });
             });
           } catch (error) {
@@ -79,4 +82,3 @@ export async function getAuthUser(supabaseClient?: any) {
     return null;
   }
 }
-
