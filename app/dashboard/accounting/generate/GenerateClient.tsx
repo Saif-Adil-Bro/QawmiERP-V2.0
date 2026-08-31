@@ -257,28 +257,54 @@ export default function GenerateClient({
     const billingPeriod = `${monthName} ${year}`;
 
     try {
-      const res = await generateMonthlyFees({
-        sessionId,
-        billingPeriod,
-        monthName,
-        year,
-        classId,
-        feeTypeIds: selectedFeeTypeIds,
-        customAmounts,
-        forceUpdate,
-        dueDate,
-      });
+      let res: any = null;
+      try {
+        const apiRes = await fetch("/api/fees/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            billingPeriod,
+            monthName,
+            year,
+            classId,
+            feeTypeIds: selectedFeeTypeIds,
+            customAmounts,
+            forceUpdate,
+            dueDate,
+          }),
+        });
+        if (apiRes.ok) {
+          res = await apiRes.json();
+        }
+      } catch (e) {
+        console.warn("API /api/fees/generate failed, falling back to server action", e);
+      }
+
+      if (!res) {
+        res = await generateMonthlyFees({
+          sessionId,
+          billingPeriod,
+          monthName,
+          year,
+          classId,
+          feeTypeIds: selectedFeeTypeIds,
+          customAmounts,
+          forceUpdate,
+          dueDate,
+        });
+      }
 
       setResult(res);
 
       if (res?.success) {
         router.refresh();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("generateMonthlyFees failed:", err);
       setResult({
         success: false,
-        error: "একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
+        error: err?.message || "ফি জেনারেট সম্পন্ন করা যায়নি। অনুগ্রহ করে আবার চেষ্টা করুন।",
       });
     } finally {
       setLoading(false);

@@ -21,12 +21,6 @@ export default function GlobalError({
       error?.digest?.includes("NEXT_NOT_FOUND")
     ) {
       setIsStaleAction(true);
-      const timer = setTimeout(() => {
-        if (typeof window !== "undefined") {
-          window.location.reload();
-        }
-      }, 1500);
-      return () => clearTimeout(timer);
     }
   }, [error]);
 

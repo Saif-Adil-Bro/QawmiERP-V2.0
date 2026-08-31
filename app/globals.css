@@ -33,30 +33,6 @@
   src: url('/fonts/shorif_shishir.ttf') format('truetype');
 }
 
-@font-face {
-  font-family: 'Hind Siliguri';
-  font-display: swap;
-  font-style: normal;
-  font-weight: 400;
-  src: url('/fonts/hind_siliguri.ttf') format('truetype');
-}
-
-@font-face {
-  font-family: 'Amiri';
-  font-display: swap;
-  font-style: normal;
-  font-weight: 400;
-  src: url('/fonts/amiri_regular.ttf') format('truetype');
-}
-
-@font-face {
-  font-family: 'Scheherazade New';
-  font-display: swap;
-  font-style: normal;
-  font-weight: 400;
-  src: url('/fonts/scheherazade_new.ttf') format('truetype');
-}
-
 /* Default App Font is SolaimanLipi with Arabic & Bangla fallbacks */
 body, input, textarea, select, button {
   font-family: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'Noto Sans Arabic', ui-sans-serif, system-ui, -apple-system, sans-serif;

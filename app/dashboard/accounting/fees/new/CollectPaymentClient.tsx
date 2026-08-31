@@ -72,11 +72,26 @@ export default function CollectPaymentClient({
       return;
     }
 
+    let isMounted = true;
+
     async function fetchProfile() {
       setLoadingProfile(true);
       setError(null);
       try {
-        const profile = await getStudentFeeProfile(studentId);
+        let profile = null;
+        try {
+          const res = await fetch(`/api/fees/student-profile?studentId=${encodeURIComponent(studentId)}`);
+          if (res.ok) {
+            const data = await res.json();
+            profile = data.profile;
+          }
+        } catch {
+          // fallback to direct action if fetch fails
+          profile = await getStudentFeeProfile(studentId);
+        }
+
+        if (!isMounted) return;
+
         setStudentProfile(profile);
 
         if (profile && profile.fees) {
@@ -93,14 +108,22 @@ export default function CollectPaymentClient({
           setTotalAmount(initialSum > 0 ? initialSum : 1500);
         }
       } catch (err) {
-        console.error("getStudentFeeProfile failed:", err);
-        setError("শিক্ষার্থীর বকেয়া তথ্য লোড করতে সমস্যা হয়েছে। পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+        console.error("fetchProfile failed:", err);
+        if (isMounted) {
+          setError("শিক্ষার্থীর বকেয়া তথ্য লোড করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
+        }
       } finally {
-        setLoadingProfile(false);
+        if (isMounted) {
+          setLoadingProfile(false);
+        }
       }
     }
 
     fetchProfile();
+
+    return () => {
+      isMounted = false;
+    };
   }, [studentId]);
 
   const selectedStudent = students.find((s) => s.id === studentId);

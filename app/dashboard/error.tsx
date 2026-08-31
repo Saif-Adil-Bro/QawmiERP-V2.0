@@ -21,13 +21,6 @@ export default function DashboardError({
       error?.digest?.includes("NEXT_NOT_FOUND")
     ) {
       setIsStaleAction(true);
-      // Automatically reload page after brief delay if server action was invalidated by a deployment/update
-      const timer = setTimeout(() => {
-        if (typeof window !== "undefined") {
-          window.location.reload();
-        }
-      }, 1500);
-      return () => clearTimeout(timer);
     }
   }, [error]);
 
