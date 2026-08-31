@@ -11,7 +11,7 @@ export async function createClient() {
   if (!supabaseUrl || !supabaseKey) {
     throw new Error("Supabase credentials are not configured in environment variables.");
   }
-  
+
   if (!supabaseUrl.startsWith("http")) {
     throw new Error(`Invalid Supabase URL: ${supabaseUrl}. It must start with https://`);
   }
@@ -27,18 +27,15 @@ export async function createClient() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
-              // See middleware.ts for why this is "lax" and not
-              // "none"+partitioned: that combination was for a cross-site
-              // iframe preview environment and is unreliable on a normal
-              // top-level production deployment (Render/Railway etc.).
               cookieStore.set(name, value, {
                 ...options,
-                sameSite: "lax",
-                secure: true,
+                path: options?.path ?? "/",
+                sameSite: options?.sameSite ?? "lax",
+                secure: process.env.NODE_ENV === "production",
               });
             });
           } catch (error) {
-            console.error("Cookie setting error:", error);
+            // Can occur in Server Components where cookies can only be read
           }
         },
       },

@@ -10,7 +10,6 @@ export async function middleware(request: NextRequest) {
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
   if (!supabaseUrl || !supabaseKey) {
-    // If keys are missing, pass through
     return supabaseResponse;
   }
 
@@ -29,26 +28,18 @@ export async function middleware(request: NextRequest) {
             return request.cookies.getAll();
           },
           setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
+            cookiesToSet.forEach(({ name, value }) => {
               request.cookies.set(name, value);
             });
             supabaseResponse = NextResponse.next({
               request,
             });
             cookiesToSet.forEach(({ name, value, options }) => {
-              // NOTE: sameSite:"none" + partitioned:true was needed for a
-              // cross-site iframe preview (e.g. an AI agent's simulator that
-              // embeds the app inside its own domain). On a normal, directly
-              // accessed deployment (Render/Railway/production domain), that
-              // combination is unnecessary and unreliable across browsers —
-              // it can cause the auth cookie to silently fail to persist,
-              // making the user appear logged out and auth-dependent server
-              // actions fail. "lax" is the standard, robust choice for a
-              // top-level site with redirect-based login.
               supabaseResponse.cookies.set(name, value, {
                 ...options,
-                sameSite: "lax",
-                secure: true,
+                path: options?.path ?? "/",
+                sameSite: options?.sameSite ?? "lax",
+                secure: process.env.NODE_ENV === "production",
               });
             });
           },
@@ -58,27 +49,15 @@ export async function middleware(request: NextRequest) {
 
     const { data, error } = await supabase.auth.getUser();
     if (error) {
-      // If refresh token is invalid/expired, clear stale auth cookies to avoid error loops
-      request.cookies.getAll().forEach(c => {
-        if (c.name.includes("sb-") || c.name.includes("auth-token")) {
-          supabaseResponse.cookies.set(c.name, "", { maxAge: 0, path: "/" });
-        }
-      });
       user = null;
     } else {
       user = data?.user || null;
     }
   } catch (error) {
-    // Safe fallback on AuthApiError
-    console.warn("Middleware Supabase auth validation:", error);
-    request.cookies.getAll().forEach(c => {
-      if (c.name.includes("sb-") || c.name.includes("auth-token")) {
-        supabaseResponse.cookies.set(c.name, "", { maxAge: 0, path: "/" });
-      }
-    });
     user = null;
   }
 
+  // If not logged in and trying to access dashboard/protected routes
   if (!user && !isAuthRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
@@ -91,6 +70,7 @@ export async function middleware(request: NextRequest) {
     return redirectResponse;
   }
 
+  // If already logged in and visiting login page
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
