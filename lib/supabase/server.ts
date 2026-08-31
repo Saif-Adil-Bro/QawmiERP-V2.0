@@ -32,10 +32,11 @@ export async function createClient() {
                 path: options?.path ?? "/",
                 sameSite: options?.sameSite ?? "lax",
                 secure: process.env.NODE_ENV === "production",
+                maxAge: options?.maxAge ?? 60 * 60 * 24 * 30, // 30 days
               });
             });
           } catch (error) {
-            // Can occur in Server Components where cookies can only be read
+            // In Server Components cookie modification is ignored by Next.js
           }
         },
       },
@@ -70,11 +71,15 @@ export async function createAdminClient() {
 export async function getAuthUser(supabaseClient?: any) {
   try {
     const supabase = supabaseClient || (await createClient());
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data?.user) {
+    
+    // Safely check user
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      // Invalid/Expired refresh token or unauthenticated - return null gracefully
       return null;
     }
-    return data.user;
+
+    return userData?.user || null;
   } catch (err) {
     return null;
   }

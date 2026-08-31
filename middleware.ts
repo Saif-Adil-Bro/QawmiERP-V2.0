@@ -13,8 +13,9 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
-  const isAuthRoute = request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname === '/';
-  const isApiRoute = request.nextUrl.pathname.startsWith('/api');
+  const pathname = request.nextUrl.pathname;
+  const isAuthRoute = pathname.startsWith("/login") || pathname === "/";
+  const isApiRoute = pathname.startsWith("/api");
 
   let user = null;
 
@@ -40,6 +41,7 @@ export async function middleware(request: NextRequest) {
                 path: options?.path ?? "/",
                 sameSite: options?.sameSite ?? "lax",
                 secure: process.env.NODE_ENV === "production",
+                maxAge: options?.maxAge ?? 60 * 60 * 24 * 30, // 30 days
               });
             });
           },
@@ -47,9 +49,26 @@ export async function middleware(request: NextRequest) {
       }
     );
 
+    // Using getUser() directly is the official Supabase SSR recommendation.
+    // Wrap carefully to catch any AuthApiError (such as Invalid Refresh Token)
     const { data, error } = await supabase.auth.getUser();
+    
     if (error) {
       user = null;
+      // If the refresh token is invalid or expired, clear stale Supabase auth cookies
+      if (
+        error.name === "AuthApiError" ||
+        error.message?.toLowerCase().includes("refresh token") ||
+        (error as any)?.__isAuthError
+      ) {
+        const allCookies = request.cookies.getAll();
+        allCookies.forEach((c) => {
+          if (c.name.startsWith("sb-") || c.name.includes("auth-token")) {
+            request.cookies.delete(c.name);
+            supabaseResponse.cookies.delete(c.name);
+          }
+        });
+      }
     } else {
       user = data?.user || null;
     }
@@ -60,12 +79,12 @@ export async function middleware(request: NextRequest) {
   // If not logged in and trying to access dashboard/protected routes
   if (!user && !isAuthRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
-    url.pathname = '/login';
+    url.pathname = "/login";
     const redirectResponse = NextResponse.redirect(url);
     
     const setCookies = supabaseResponse.headers.getSetCookie();
     for (const cookie of setCookies) {
-      redirectResponse.headers.append('set-cookie', cookie);
+      redirectResponse.headers.append("set-cookie", cookie);
     }
     return redirectResponse;
   }
@@ -73,12 +92,12 @@ export async function middleware(request: NextRequest) {
   // If already logged in and visiting login page
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
+    url.pathname = "/dashboard";
     const redirectResponse = NextResponse.redirect(url);
     
     const setCookies = supabaseResponse.headers.getSetCookie();
     for (const cookie of setCookies) {
-      redirectResponse.headers.append('set-cookie', cookie);
+      redirectResponse.headers.append("set-cookie", cookie);
     }
     return redirectResponse;
   }
@@ -88,6 +107,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
