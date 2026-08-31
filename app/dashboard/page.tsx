@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import ReportingCharts from "./components/ReportingCharts";
 
 
@@ -13,13 +13,7 @@ export default async function DashboardPage() {
     return Promise.race([promise, timeout]);
   }
 
-  let user;
-  try {
-    const response = await withTimeout<any>(supabase.auth.getUser(), 8000, "Auth getUser");
-    user = response.data?.user;
-  } catch (err: any) {
-    return <div className="p-8 text-red-500">সেশন লোড করতে সমস্যা হয়েছে: {err?.message}</div>;
-  }
+  let user = await getAuthUser(supabase);
 
   if (!user) {
     return <div className="p-8">ড্যাশবোর্ডে প্রবেশ করতে অনুগ্রহ করে লগইন করুন।</div>;
