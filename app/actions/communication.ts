@@ -7,6 +7,7 @@ import { DEFAULT_SMS_TEMPLATES, SMSTemplate } from "@/lib/sms-template-helper";
 import {
   DEFAULT_SMS_GATEWAY_CONFIG,
   SMSGatewayConfig,
+  MRAM_ERROR_CODES,
   normalizePhoneNumber,
 } from "@/lib/sms-gateway";
 
@@ -331,31 +332,53 @@ async function dispatchSMSGatewayRequest(
 
     // Provider Specific Handling
     if (config.provider === "mram") {
-      // Mram SMS: https://smsapi.mram.com.bd/smsapi
-      // Params: api_key, type=unicode, contacts, senderid, msg
-      const endpoint = config.apiEndpoint || "https://smsapi.mram.com.bd/smsapi";
+      // Mram SMS: https://sms.mram.com.bd/smsapi
+      // Parameters:
+      // api_key: Your API Key
+      // type: text/unicode
+      // contacts: 88017XXXXXXXX or multi 88017XXXXXXXX+88018XXXXXXXX
+      // senderid: Approved Sender ID
+      // msg: SMS body (URL encoded)
+      // label: transactional / promotional
+      const endpoint = config.apiEndpoint || "https://sms.mram.com.bd/smsapi";
       const url = new URL(endpoint);
-      url.searchParams.set("api_key", config.apiKey);
+      url.searchParams.set("api_key", config.apiKey.trim());
       url.searchParams.set("type", config.unicode !== false ? "unicode" : "text");
       url.searchParams.set("contacts", bdFullNumber);
       if (config.senderId) {
-        url.searchParams.set("senderid", config.senderId);
+        url.searchParams.set("senderid", config.senderId.trim());
       }
       url.searchParams.set("msg", messageText);
+      url.searchParams.set("label", config.smsLabel || "transactional");
 
       const res = await fetch(url.toString(), {
         method: "GET",
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(12000),
       });
 
-      const bodyText = await res.text();
-      // Mram typical success responses contain "SMS SUBMITTED" or message ID numbers or success status
-      const isSuccess = res.ok && !bodyText.toLowerCase().includes("invalid") && !bodyText.toLowerCase().includes("error") && !bodyText.toLowerCase().includes("insufficient");
+      const bodyText = (await res.text()).trim();
+      
+      // Parse Mram Error codes or shoot ID
+      // Error code examples: 1002 (Sender Id not found), 1003 (API not found), 1008 (Insufficient balance)
+      const trimmedCode = bodyText.replace(/[^0-9]/g, "");
+      let errorMessage = "";
+      if (MRAM_ERROR_CODES[bodyText] || MRAM_ERROR_CODES[trimmedCode]) {
+        errorMessage = MRAM_ERROR_CODES[bodyText] || MRAM_ERROR_CODES[trimmedCode];
+      } else if (bodyText.toLowerCase().includes("invalid") || bodyText.toLowerCase().includes("error") || bodyText.toLowerCase().includes("failed")) {
+        errorMessage = bodyText;
+      }
+
+      const isSuccess = res.ok && !errorMessage && (
+        bodyText.toLowerCase().includes("sms submitted") ||
+        bodyText.toLowerCase().includes("success") ||
+        /^\d+$/.test(bodyText) // Numeric Shoot ID (e.g. 54321987)
+      );
 
       return {
         success: isSuccess,
         rawResponse: bodyText,
         statusCode: res.status,
+        error: errorMessage || (!isSuccess ? bodyText : undefined),
       };
     } else if (config.provider === "greenweb") {
       // Greenweb: https://api.greenweb.com.bd/api.php
@@ -612,17 +635,34 @@ export async function checkSMSBalance(customConfig?: Partial<SMSGatewayConfig>) 
     }
 
     if (config.provider === "mram") {
-      const url = `https://smsapi.mram.com.bd/balance?api_key=${encodeURIComponent(config.apiKey)}`;
+      // Mram SMS Balance API: https://sms.mram.com.bd/miscapi/(API Key)/getBalance
+      const url = `https://sms.mram.com.bd/miscapi/${encodeURIComponent(config.apiKey.trim())}/getBalance`;
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       const text = (await res.text()).trim();
-      return { success: true, balance: text, provider: "Mram SMS" };
+
+      // Check if response contains error code like 1003
+      if (MRAM_ERROR_CODES[text]) {
+        return { error: `Mram ব্যালেন্স ত্রুটি: ${MRAM_ERROR_CODES[text]} (${text})` };
+      }
+
+      // Try to parse JSON or raw balance
+      let balanceStr = text;
+      try {
+        const json = JSON.parse(text);
+        if (json.balance !== undefined) balanceStr = `${json.balance} Credits`;
+        else if (json.credit !== undefined) balanceStr = `${json.credit} Credits`;
+      } catch {
+        // raw number or string
+      }
+
+      return { success: true, balance: balanceStr, provider: "Mram SMS" };
     } else if (config.provider === "greenweb") {
-      const url = `https://api.greenweb.com.bd/greb/api/balance.php?token=${encodeURIComponent(config.apiKey)}`;
+      const url = `https://api.greenweb.com.bd/greb/api/balance.php?token=${encodeURIComponent(config.apiKey.trim())}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       const text = (await res.text()).trim();
       return { success: true, balance: text, provider: "Greenweb SMS" };
     } else if (config.provider === "bulksmsbd") {
-      const url = `https://bulksmsbd.net/api/getBalanceApi?api_key=${encodeURIComponent(config.apiKey)}`;
+      const url = `https://bulksmsbd.net/api/getBalanceApi?api_key=${encodeURIComponent(config.apiKey.trim())}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       const text = (await res.text()).trim();
       return { success: true, balance: text, provider: "BulkSMS BD" };
@@ -631,6 +671,71 @@ export async function checkSMSBalance(customConfig?: Partial<SMSGatewayConfig>) 
     return { error: "এই প্রোভাইডারের জন্য স্বয়ংক্রিয় ব্যালেন্স চেক এপিআই সমর্থিত নয়" };
   } catch (e: any) {
     return { error: e.message || "ব্যালেন্স চেক ব্যর্থ হয়েছে" };
+  }
+}
+
+/**
+ * Retrieve Mram SMS API Key using Account Username and Password
+ * Endpoint: https://sms.mram.com.bd/getkey/(username)/(password)
+ */
+export async function retrieveMramApiKey(username: string, pass: string) {
+  try {
+    if (!username || !pass) {
+      return { error: "ব্যবহারকারী ইউজারনেম ও পাসওয়ার্ড আবশ্যক" };
+    }
+
+    const cleanUser = username.trim();
+    const cleanPass = pass.trim();
+    const url = `https://sms.mram.com.bd/getkey/${encodeURIComponent(cleanUser)}/${encodeURIComponent(cleanPass)}`;
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const responseText = (await res.text()).trim();
+
+    if (!res.ok || responseText.toLowerCase().includes("invalid") || responseText.toLowerCase().includes("error") || responseText.length < 5) {
+      return {
+        error: `API Key রিট্রিভ ব্যর্থ হয়েছে: ${responseText || "ভুল ইউজারনেম বা পাসওয়ার্ড"}`,
+      };
+    }
+
+    // Success response contains the API Key
+    return {
+      success: true,
+      apiKey: responseText,
+    };
+  } catch (err: any) {
+    return { error: err.message || "Mram সার্ভার সংযোগে সমস্যা হয়েছে" };
+  }
+}
+
+/**
+ * Get Delivery Report from Mram SMS
+ * Endpoint: https://sms.mram.com.bd/miscapi/(API Key)/getDLR/(SMS SHOOT ID or getAll)
+ */
+export async function getMramDeliveryReport(apiKey?: string, shootId = "getAll") {
+  try {
+    const config = await getSMSGatewayConfig();
+    const key = apiKey || config.apiKey;
+    if (!key) return { error: "API Key প্রয়োজন" };
+
+    const url = `https://sms.mram.com.bd/miscapi/${encodeURIComponent(key.trim())}/getDLR/${encodeURIComponent(shootId.trim())}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const text = (await res.text()).trim();
+
+    if (MRAM_ERROR_CODES[text]) {
+      return { error: MRAM_ERROR_CODES[text] };
+    }
+
+    let reportData = text;
+    try {
+      reportData = JSON.parse(text);
+    } catch {}
+
+    return {
+      success: true,
+      data: reportData,
+    };
+  } catch (e: any) {
+    return { error: e.message || "ডেলিভারি রিপোর্ট আনতে সমস্যা হয়েছে" };
   }
 }
 

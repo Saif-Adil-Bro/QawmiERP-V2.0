@@ -18,18 +18,24 @@ import {
   Zap,
   Activity,
   Code2,
+  HelpCircle,
+  UserCheck,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   SMSGatewayConfig,
   SMSProvider,
   SMS_PROVIDER_PRESETS,
   DEFAULT_SMS_GATEWAY_CONFIG,
+  MRAM_ERROR_CODES,
   normalizePhoneNumber,
 } from "@/lib/sms-gateway";
 import {
   saveSMSGatewayConfig,
   testSMSGateway,
   checkSMSBalance,
+  retrieveMramApiKey,
 } from "@/app/actions/communication";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
@@ -47,6 +53,14 @@ export default function SMSGatewaySettings({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Mram Key Retrieval Form State
+  const [showMramKeyModal, setShowMramKeyModal] = useState(false);
+  const [mramUsername, setMramUsername] = useState("");
+  const [mramPassword, setMramPassword] = useState("");
+  const [isRetrievingKey, setIsRetrievingKey] = useState(false);
+  const [retrieveKeyError, setRetrieveKeyError] = useState<string | null>(null);
+  const [showDocHelper, setShowDocHelper] = useState(false);
 
   // Live Testing State
   const [testPhone, setTestPhone] = useState("01812345678");
@@ -167,6 +181,34 @@ export default function SMSGatewaySettings({
       setBalanceData({ error: e.message || "ব্যালেন্স চেক ব্যর্থ", updatedAt: new Date().toLocaleTimeString("bn-BD") });
     } finally {
       setIsCheckingBalance(false);
+    }
+  };
+
+  // Handle Mram API Key Retrieval
+  const handleRetrieveMramKey = async () => {
+    if (!mramUsername || !mramPassword) {
+      setRetrieveKeyError("ব্যবহারকারী ইউজারনেম এবং পাসওয়ার্ড উভয়ই দিন।");
+      return;
+    }
+    setIsRetrievingKey(true);
+    setRetrieveKeyError(null);
+    try {
+      const res = await retrieveMramApiKey(mramUsername, mramPassword);
+      if (res.error) {
+        setRetrieveKeyError(res.error);
+      } else if (res.apiKey) {
+        setConfig((prev) => ({
+          ...prev,
+          apiKey: res.apiKey,
+          provider: "mram",
+        }));
+        setShowMramKeyModal(false);
+        setSaveSuccess(`Mram API Key সফলভাবে রিট্রিভ হয়েছে (${res.apiKey.substring(0, 8)}...)`);
+      }
+    } catch (err: any) {
+      setRetrieveKeyError(err.message || "রিট্রিভ ব্যর্থ হয়েছে");
+    } finally {
+      setIsRetrievingKey(false);
     }
   };
 
@@ -403,22 +445,29 @@ export default function SMSGatewaySettings({
 
               {/* API Key / Token */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <Key className="w-3.5 h-3.5 text-slate-400" />
                     এপিআই কী / টোকেন (API Key / Token)
                     <span className="text-red-500">*</span>
-                  </span>
-                  <span className="text-[11px] text-slate-400">
-                    {config.provider === "greenweb" ? "Greenweb Token" : "Secret API Key"}
-                  </span>
-                </label>
+                  </label>
+                  {config.provider === "mram" && (
+                    <button
+                      type="button"
+                      onClick={() => setShowMramKeyModal(true)}
+                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-md transition"
+                    >
+                      <UserCheck className="w-3 h-3" />
+                      <span>লগইন তথ্য দিয়ে কী আনুন</span>
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
                   <input
                     type={showApiKey ? "text" : "password"}
                     value={config.apiKey}
                     onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
-                    placeholder="e.g. 1928374650abcdef123456"
+                    placeholder={config.provider === "mram" ? "e.g. 1156426666667788888888" : "e.g. 1928374650abcdef123456"}
                     className="w-full px-3.5 py-2.5 pr-10 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-mono text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                   <button
@@ -429,6 +478,11 @@ export default function SMSGatewaySettings({
                     {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {config.provider === "mram" && (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Mram SMS পোর্টাল হতে আপনার API Key টি দিন অথবা উপরের &quot;লগইন তথ্য দিয়ে কী আনুন&quot; চাপুন।
+                  </p>
+                )}
               </div>
 
               {/* Sender ID & HTTP Method */}
@@ -441,31 +495,44 @@ export default function SMSGatewaySettings({
                     type="text"
                     value={config.senderId}
                     onChange={(e) => setConfig({ ...config, senderId: e.target.value })}
-                    placeholder="e.g. 8809612345678 বা MADRASA"
+                    placeholder={config.provider === "mram" ? "Approved Sender ID বা নন-মাস্কিং নম্বর" : "e.g. 8809612345678 বা MADRASA"}
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
-                    প্রোভাইডারের অনুমোদিত মাস্কিং বা নন-মাস্কিং আইডি
+                    {config.provider === "mram" ? "Mram অনুমোদিত সেন্ডার আইডি (Sender ID)" : "প্রোভাইডারের অনুমোদিত মাস্কিং বা নন-মাস্কিং আইডি"}
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    এইচটিটিপি মেথড (HTTP Method)
+                    {config.provider === "mram" ? "মেসেজ লেবেল (SMS Label)" : "এইচটিটিপি মেথড (HTTP Method)"}
                   </label>
-                  <select
-                    value={config.httpMethod}
-                    onChange={(e: any) =>
-                      setConfig({ ...config, httpMethod: e.target.value })
-                    }
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="GET">GET Request (সাধারণত ব্যবহৃত)</option>
-                    <option value="POST_JSON">POST (JSON Body)</option>
-                    <option value="POST_FORM">POST (Form UrlEncoded)</option>
-                  </select>
+                  {config.provider === "mram" ? (
+                    <select
+                      value={config.smsLabel || "transactional"}
+                      onChange={(e: any) =>
+                        setConfig({ ...config, smsLabel: e.target.value })
+                      }
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="transactional">transactional (ফি, হাজিরা ও নোটিশের জন্য)</option>
+                      <option value="promotional">promotional (ভর্তি প্রচারণার জন্য)</option>
+                    </select>
+                  ) : (
+                    <select
+                      value={config.httpMethod}
+                      onChange={(e: any) =>
+                        setConfig({ ...config, httpMethod: e.target.value })
+                      }
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="GET">GET Request (সাধারণত ব্যবহৃত)</option>
+                      <option value="POST_JSON">POST (JSON Body)</option>
+                      <option value="POST_FORM">POST (Form UrlEncoded)</option>
+                    </select>
+                  )}
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Mram/Greenweb এর জন্য GET মেথড স্বয়ংক্রিয়
+                    {config.provider === "mram" ? "Mram স্পেসিফিকেশন অনুযায়ী transactional বা promotional" : "Mram/Greenweb এর জন্য GET মেথড স্বয়ংক্রিয়"}
                   </p>
                 </div>
               </div>
@@ -669,25 +736,161 @@ export default function SMSGatewaySettings({
             )}
           </div>
 
-          {/* Quick FAQ / Instructions */}
+          {/* Quick FAQ / Mram Instructions */}
           <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs space-y-3">
-            <h4 className="font-bold text-slate-800">
-              💡 Mram SMS এবং অন্যান্য গেটওয়ে সেটআপ নির্দেশিকা:
-            </h4>
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-slate-800 flex items-center gap-1.5">
+                <HelpCircle className="w-4 h-4 text-indigo-600" />
+                Mram SMS API গাইড ও এরর কোড
+              </h4>
+              <button
+                type="button"
+                onClick={() => setShowDocHelper(!showDocHelper)}
+                className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 cursor-pointer"
+              >
+                <span>{showDocHelper ? "সংক্ষেপ করুন" : "বিস্তারিত গাইড"}</span>
+                {showDocHelper ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
             <ul className="space-y-1.5 text-slate-600 list-disc list-inside">
               <li>
-                <strong>Mram SMS:</strong> আপনার Mram পোর্টাল হতে API Key সংগ্রহ করে উপরের ঘরে পেস্ট করুন।
+                <strong>API Endpoint:</strong> <code className="text-indigo-600 bg-white px-1 py-0.5 rounded border border-slate-200 text-[11px]">https://sms.mram.com.bd/smsapi</code>
               </li>
               <li>
-                <strong>মাস্কিং / নন-মাস্কিং:</strong> মাস্কিং এপ্রুভ থাকলে সেন্ডার আইডির ঘরে নাম লিখুন, নয়তো ৮৮০৯৬... নম্বরটি দিন।
+                <strong>Type:</strong> বাংলা এসএমএস এর জন্য <code className="text-indigo-600 bg-white px-1 py-0.5 rounded border border-slate-200 text-[11px]">unicode</code> এবং ইংরেজি এসএমএস এর জন্য <code className="text-indigo-600 bg-white px-1 py-0.5 rounded border border-slate-200 text-[11px]">text</code>।
               </li>
               <li>
-                <strong>সিমুলেশন মোড:</strong> কোনো গেটওয়ে চালু না থাকলেও সিস্টেমে এসএমএস লগ ও হিস্টোরি নিখুঁতভাবে সংরক্ষিত হবে।
+                <strong>Contacts ফরম্যাট:</strong> <code className="text-indigo-600 bg-white px-1 py-0.5 rounded border border-slate-200 text-[11px]">88017XXXXXXXX</code> (মাল্টিপল নাম্বারে পাঠাতে <code className="text-indigo-600 bg-white px-1 py-0.5 rounded border border-slate-200 text-[11px]">+</code> দিয়ে যুক্ত)।
+              </li>
+              <li>
+                <strong>ব্যালেন্স চেক API:</strong> <code className="text-indigo-600 bg-white px-1 py-0.5 rounded border border-slate-200 text-[11px]">https://sms.mram.com.bd/miscapi/(API Key)/getBalance</code>
               </li>
             </ul>
+
+            {showDocHelper && (
+              <div className="pt-3 border-t border-slate-200 space-y-3">
+                <div>
+                  <h5 className="font-bold text-slate-800 mb-1.5 text-[11px] uppercase tracking-wider">
+                    Mram SMS এরর কোড ও সমাধান:
+                  </h5>
+                  <div className="grid grid-cols-1 gap-1.5 font-mono text-[11px]">
+                    {Object.entries(MRAM_ERROR_CODES).map(([code, desc]) => (
+                      <div key={code} className="flex items-start gap-2 bg-white p-2 rounded-lg border border-slate-200/80">
+                        <span className="font-bold text-red-600 shrink-0 bg-red-50 px-1.5 py-0.5 rounded border border-red-200">
+                          {code}
+                        </span>
+                        <span className="text-slate-700 font-sans text-xs">{desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-indigo-50/80 rounded-xl border border-indigo-100 text-[11px] text-indigo-900 space-y-1">
+                  <div className="font-bold">API Key ভুলে গেছেন?</div>
+                  <p className="text-indigo-700">
+                    <code className="bg-white px-1 py-0.5 rounded border border-indigo-200">https://sms.mram.com.bd/getkey/(username)/(password)</code> এন্ডপয়েন্ট ব্যবহার করে সহজেই কী উদ্ধার করা যায়।
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* MODAL: MRAM API KEY RETRIEVAL MODAL */}
+      {showMramKeyModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                  <UserCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">
+                    Mram API Key রিট্রিভ করুন
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Mram SMS ইউজারনেম ও পাসওয়ার্ড দিয়ে স্বয়ংক্রিয়ভাবে কী আনুন
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMramKeyModal(false);
+                  setRetrieveKeyError(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {retrieveKeyError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{retrieveKeyError}</span>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Mram User ID / Username:
+                </label>
+                <input
+                  type="text"
+                  value={mramUsername}
+                  onChange={(e) => setMramUsername(e.target.value)}
+                  placeholder="আপনার Mram লগইন ইউজারনেম"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Mram Password:
+                </label>
+                <input
+                  type="password"
+                  value={mramPassword}
+                  onChange={(e) => setMramPassword(e.target.value)}
+                  placeholder="আপনার Mram পাসওয়ার্ড"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                🔒 আপনার পাসওয়ার্ড কোথাও সংরক্ষণ করা হবে না। এটি শুধু একবার Mram এর অফিশিয়াল API (<code className="font-mono text-[10px]">sms.mram.com.bd/getkey</code>) এ পাঠিয়ে আপনার API Key উদ্ধার করতে ব্যবহৃত হবে।
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMramKeyModal(false);
+                  setRetrieveKeyError(null);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 rounded-xl cursor-pointer"
+              >
+                বাতিল
+              </button>
+              <button
+                type="button"
+                onClick={handleRetrieveMramKey}
+                disabled={isRetrievingKey}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <Key className={`w-3.5 h-3.5 ${isRetrievingKey ? "animate-spin" : ""}`} />
+                <span>{isRetrievingKey ? "কী আনা হচ্ছে..." : "API Key আনুন ও বসান"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

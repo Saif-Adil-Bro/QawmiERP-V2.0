@@ -15,6 +15,9 @@ export interface SMSGatewayConfig {
   httpMethod: "GET" | "POST_JSON" | "POST_FORM";
   unicode: boolean;
   
+  // Specific Provider Parameters
+  smsLabel?: "transactional" | "promotional";
+  
   // Custom API field mappings
   apiKeyParamName?: string;
   phoneParamName?: string;
@@ -22,9 +25,9 @@ export interface SMSGatewayConfig {
   senderIdParamName?: string;
   extraParams?: Record<string, string>;
   customHeaders?: Record<string, string>;
-  customBodyTemplate?: string; // e.g. JSON string with {apiKey}, {phone}, {message}, {senderId}
+  customBodyTemplate?: string;
   
-  // Metadata
+  // Metadata & Diagnostics
   lastTestedAt?: string;
   lastTestStatus?: "success" | "failed";
   lastTestResponse?: string;
@@ -45,16 +48,30 @@ export interface SMSProviderPreset {
   documentationUrl?: string;
 }
 
+export const MRAM_ERROR_CODES: Record<string, string> = {
+  "1002": "Sender Id/Masking পাওয়া যায়নি (অনুমোদিত সেন্ডার আইডি ব্যবহার করুন)",
+  "1003": "API Key পাওয়া যায়নি বা ভুল প্রদান করা হয়েছে",
+  "1004": "স্প্যাম হিসেবে চিহ্নিত হয়েছে (SPAM SMS)",
+  "1005": "সার্ভার ইন্টারনাল এরর (Internal Server Error)",
+  "1006": "ব্যালেন্সের মেয়াদ পাওয়া যায়নি (Balance Validity Not Found)",
+  "1007": "ব্যালেন্সের মেয়াদ শেষ হয়েছে (Balance Validity Expired)",
+  "1008": "পর্যাপ্ত ব্যালেন্স নেই (Insufficient SMS Balance)",
+  "1009": "অ্যাকাউন্ট নিষ্ক্রিয় (Inactive Account)",
+  "1010": "সর্বোচ্চ লিমিট অতিক্রম করেছে (Max Limit Exceeded)",
+  "1011": "মোবাইল নম্বরটি সঠিক নয় (Invalid Mobile Number)",
+  "1012": "নম্বরটি ব্লক লিস্টে আছে (Number Blacklisted)",
+};
+
 export const SMS_PROVIDER_PRESETS: SMSProviderPreset[] = [
   {
     id: "mram",
-    name: "Mram SMS (mram.com.bd)",
+    name: "Mram SMS (sms.mram.com.bd)",
     nameBangla: "এমরাম এসএমএস (Mram SMS)",
     website: "https://mram.com.bd",
-    defaultEndpoint: "https://smsapi.mram.com.bd/smsapi",
+    defaultEndpoint: "https://sms.mram.com.bd/smsapi",
     defaultMethod: "GET",
-    defaultSenderId: "8809612...",
-    balanceEndpoint: "https://smsapi.mram.com.bd/balance",
+    defaultSenderId: "",
+    balanceEndpoint: "https://sms.mram.com.bd/miscapi/{apiKey}/getBalance",
     description: "জনপ্রিয় ও নির্ভরযোগ্য বাংলাদেশি এসএমএস গেটওয়ে (মাস্কিং ও নন-মাস্কিং)।",
     documentationUrl: "https://mram.com.bd/api-doc",
   },
@@ -77,7 +94,7 @@ export const SMS_PROVIDER_PRESETS: SMSProviderPreset[] = [
     website: "https://bulksmsbd.net",
     defaultEndpoint: "https://bulksmsbd.net/api/smsapi",
     defaultMethod: "GET",
-    defaultSenderId: "88096...",
+    defaultSenderId: "",
     balanceEndpoint: "https://bulksmsbd.net/api/getBalanceApi",
     description: "দ্রুত ডেলিভারি ও রিয়েল-টাইম ব্যালেন্স ট্র্যাকিং যুক্ত এপিআই।",
     documentationUrl: "https://bulksmsbd.net/developers",
@@ -119,9 +136,10 @@ export const DEFAULT_SMS_GATEWAY_CONFIG: SMSGatewayConfig = {
   isEnabled: false,
   apiKey: "",
   senderId: "",
-  apiEndpoint: "https://smsapi.mram.com.bd/smsapi",
+  apiEndpoint: "https://sms.mram.com.bd/smsapi",
   httpMethod: "GET",
   unicode: true,
+  smsLabel: "transactional",
   apiKeyParamName: "api_key",
   phoneParamName: "contacts",
   messageParamName: "msg",
