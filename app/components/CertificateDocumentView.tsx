@@ -256,10 +256,21 @@ export default function CertificateDocumentView({
           </div>
 
           {/* Certificate Number & Dates Meta Bar */}
-          <div className="flex justify-between items-center text-xs sm:text-sm font-bold text-slate-700 pt-4 px-2">
-            <div className="bg-white/80 px-3 py-1 rounded-lg border border-slate-200">
-              <span>সনদ নম্বর: </span>
-              <span className="font-mono text-slate-900">{certificate.certificate_number}</span>
+          <div className="flex flex-wrap justify-between items-center text-xs sm:text-sm font-bold text-slate-700 pt-4 px-2 gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="bg-white/80 px-3 py-1 rounded-lg border border-slate-200">
+                <span>সনদ নম্বর: </span>
+                <span className="font-mono text-slate-900">{certificate.certificate_number}</span>
+              </div>
+
+              {snapshot.student_id_code && (
+                <div className="bg-white/80 px-3 py-1 rounded-lg border border-slate-200">
+                  <span>আইডি নম্বর: </span>
+                  <span className="font-mono text-slate-900">
+                    {snapshot.student_id_code.replace(/^(QM-|CERT-|STU-|ID-)/i, "").trim() || snapshot.student_id_code}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="bg-white/80 px-3 py-1 rounded-lg border border-slate-200">

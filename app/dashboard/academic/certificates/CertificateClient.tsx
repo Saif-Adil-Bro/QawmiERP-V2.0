@@ -13,6 +13,7 @@ import {
   approveCertificate,
   revokeCertificate,
   reissueCertificate,
+  deleteCertificate,
   getCertificatesData,
 } from "@/app/actions/certificates";
 import CertificateDocumentView from "@/app/components/CertificateDocumentView";
@@ -35,6 +36,7 @@ import {
   Check,
   Send,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 
 interface CertificateClientProps {
@@ -76,9 +78,12 @@ export default function CertificateClient({
   // Selected for View / Print Modal
   const [viewingCert, setViewingCert] = useState<StudentCertificate | null>(null);
 
-  // Revoke Modal State
+  // Revoke / Reject Modal State
   const [revokingCert, setRevokingCert] = useState<StudentCertificate | null>(null);
   const [revokeReason, setRevokeReason] = useState("");
+
+  // Delete Modal State
+  const [deletingCert, setDeletingCert] = useState<StudentCertificate | null>(null);
 
   // Reissue Modal State
   const [reissuingCert, setReissuingCert] = useState<StudentCertificate | null>(null);
@@ -209,12 +214,15 @@ export default function CertificateClient({
       if (res.error) {
         alert(res.error);
       } else {
+        if (viewingCert?.id === certId) {
+          setViewingCert({ ...viewingCert, status: "ISSUED" });
+        }
         await refreshData();
       }
     });
   };
 
-  // Handle Revoke Submit
+  // Handle Revoke / Reject Submit
   const handleRevokeSubmit = async () => {
     if (!revokingCert) return;
     startTransition(async () => {
@@ -222,8 +230,28 @@ export default function CertificateClient({
       if (res.error) {
         alert(res.error);
       } else {
+        if (viewingCert?.id === revokingCert.id) {
+          setViewingCert({ ...viewingCert, status: "REVOKED", revoked_reason: revokeReason });
+        }
         setRevokingCert(null);
         setRevokeReason("");
+        await refreshData();
+      }
+    });
+  };
+
+  // Handle Delete Submit
+  const handleDeleteSubmit = async () => {
+    if (!deletingCert) return;
+    startTransition(async () => {
+      const res = await deleteCertificate(deletingCert.id);
+      if (res.error) {
+        alert(res.error);
+      } else {
+        if (viewingCert?.id === deletingCert.id) {
+          setViewingCert(null);
+        }
+        setDeletingCert(null);
         await refreshData();
       }
     });
@@ -449,52 +477,69 @@ export default function CertificateClient({
                               {cert.status}
                             </span>
                           </td>
-                          <td className="p-4 text-right space-x-1">
-                            {/* View / Print */}
-                            <button
-                              type="button"
-                              onClick={() => setViewingCert(cert)}
-                              className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>দেখুন</span>
-                            </button>
-
-                            {/* Approve if pending */}
-                            {isPendingApp && (
+                          <td className="p-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              {/* View / Print */}
                               <button
                                 type="button"
-                                onClick={() => handleApprove(cert.id)}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                                onClick={() => setViewingCert(cert)}
+                                className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                                title="সনদপত্র দেখুন"
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>অনুমোদন</span>
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>দেখুন</span>
                               </button>
-                            )}
 
-                            {/* Reissue */}
-                            {isIssued && (
+                              {/* Approve if pending */}
+                              {(isPendingApp || isRev) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleApprove(cert.id)}
+                                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                                  title="সনদপত্র অনুমোদন করুন"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>অনুমোদন</span>
+                                </button>
+                              )}
+
+                              {/* Cancel / Reject / Revoke - Available for Pending AND Issued */}
+                              {(isPendingApp || isIssued) && (
+                                <button
+                                  type="button"
+                                  onClick={() => setRevokingCert(cert)}
+                                  className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                                  title={isPendingApp ? "আবেদন বাতিল / প্রত্যাখ্যান করুন" : "ইস্যুকৃত সনদ বাতিল করুন"}
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  <span>{isPendingApp ? "বাতিল" : "বাতিল"}</span>
+                                </button>
+                              )}
+
+                              {/* Reissue */}
+                              {isIssued && (
+                                <button
+                                  type="button"
+                                  onClick={() => setReissuingCert(cert)}
+                                  className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                                  title="পুনরায় সনদ ইস্যু করুন"
+                                >
+                                  <RefreshCw className="w-3 h-3" />
+                                  <span>রি-ইস্যু</span>
+                                </button>
+                              )}
+
+                              {/* Delete Option */}
                               <button
                                 type="button"
-                                onClick={() => setReissuingCert(cert)}
-                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                                onClick={() => setDeletingCert(cert)}
+                                className="px-2 py-1.5 bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-700 text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                                title="সনদ রেকর্ড স্থায়ীভাবে মুছে ফেলুন"
                               >
-                                <RefreshCw className="w-3 h-3" />
-                                <span>রি-ইস্যু</span>
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span className="sr-only sm:not-sr-only">ডিলিট</span>
                               </button>
-                            )}
-
-                            {/* Revoke */}
-                            {isIssued && (
-                              <button
-                                type="button"
-                                onClick={() => setRevokingCert(cert)}
-                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <XCircle className="w-3 h-3" />
-                                <span>বাতিল</span>
-                              </button>
-                            )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -558,19 +603,26 @@ export default function CertificateClient({
                     const roll = (s.roll_number || "").toString().toLowerCase();
                     const father = (s.father_name || "").toLowerCase();
                     const className = (s.classes?.name || "").toLowerCase();
-                    return name.includes(q) || roll.includes(q) || father.includes(q) || className.includes(q);
+                    const studentId = (s.student_id || `480${String(s.roll_number || 1).padStart(3, "0")}`).toLowerCase();
+                    return name.includes(q) || roll.includes(q) || father.includes(q) || className.includes(q) || studentId.includes(q);
                   })
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.first_name} {s.last_name || ""} {s.classes?.name ? `(${s.classes.name})` : ""} - রোল: {s.roll_number || "—"} - পিতা: {s.father_name || "—"}
-                    </option>
-                  ))}
+                  .map((s) => {
+                    const stuId = s.student_id || (s.roll_number ? `480${String(s.roll_number).padStart(3, "0")}` : "480001");
+                    return (
+                      <option key={s.id} value={s.id}>
+                        [আইডি: {stuId}] {s.first_name} {s.last_name || ""} {s.classes?.name ? `(${s.classes.name})` : ""} - রোল: {s.roll_number || "—"} - পিতা: {s.father_name || "—"}
+                      </option>
+                    );
+                  })}
               </select>
 
               {currentStudentObj && (
                 <div className="p-3 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 text-xs space-y-1 text-emerald-900">
                   <p>
-                    <strong>নির্বাচিত শিক্ষার্থী:</strong> {currentStudentObj.first_name} {currentStudentObj.last_name || ""}
+                    <strong>নির্বাচিত শিক্ষার্থী:</strong> {currentStudentObj.first_name} {currentStudentObj.last_name || ""}{" "}
+                    <span className="font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[11px] font-bold ml-1">
+                      আইডি: {currentStudentObj.student_id || (currentStudentObj.roll_number ? `480${String(currentStudentObj.roll_number).padStart(3, "0")}` : "480001")}
+                    </span>
                   </p>
                   <p>
                     <strong>পিতার নাম:</strong> {currentStudentObj.father_name || "—"} | <strong>রোল:</strong>{" "}
@@ -874,26 +926,120 @@ export default function CertificateClient({
               </button>
             </div>
 
+            {/* Modal Quick Actions Toolbar */}
+            <div className="bg-white p-3 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500">স্ট্যাটাস:</span>
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    viewingCert.status === "ISSUED"
+                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                      : viewingCert.status === "PENDING_APPROVAL" || viewingCert.status === "DRAFT"
+                      ? "bg-amber-100 text-amber-800 border border-amber-300"
+                      : "bg-rose-100 text-rose-800 border border-rose-300"
+                  }`}
+                >
+                  {viewingCert.status}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {(viewingCert.status === "PENDING_APPROVAL" || viewingCert.status === "DRAFT") && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleApprove(viewingCert.id)}
+                      disabled={isPending}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>অনুমোদন করুন</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setRevokingCert(viewingCert)}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>বাতিল / প্রত্যাখ্যান</span>
+                    </button>
+                  </>
+                )}
+
+                {viewingCert.status === "ISSUED" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setReissuingCert(viewingCert)}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>রি-ইস্যু</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setRevokingCert(viewingCert)}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>বাতিল (Revoke)</span>
+                    </button>
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setDeletingCert(viewingCert)}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-700 text-xs font-bold rounded-xl transition inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>ডিলিট</span>
+                </button>
+              </div>
+            </div>
+
             <CertificateDocumentView certificate={viewingCert} />
           </div>
         </div>
       )}
 
-      {/* Revoke Modal */}
+      {/* Revoke / Reject Modal */}
       {revokingCert && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <h3 className="font-bold text-rose-900 text-base flex items-center gap-2">
               <XCircle className="w-5 h-5 text-rose-600" />
-              <span>সনদপত্র বাতিল (Revoke) নিশ্চিতকরণ</span>
+              <span>
+                {revokingCert.status === "PENDING_APPROVAL" || revokingCert.status === "DRAFT"
+                  ? "সনদপত্র আবেদন বাতিল / প্রত্যাখ্যান"
+                  : "সনদপত্র বাতিল (Revoke) নিশ্চিতকরণ"}
+              </span>
             </h3>
             <p className="text-xs text-slate-600">
-              সনদ নম্বর <strong>{revokingCert.certificate_number}</strong> ({revokingCert.snapshot.student_name}) বাতিল করা হলে অনলাইন কিউআর কোডে এটি অকার্যকর দেখাবে।
+              সনদ নম্বর <strong>{revokingCert.certificate_number}</strong> ({revokingCert.snapshot.student_name}) বাতিল করা হলে অনলাইন কিউআর কোড বা যাচাইকরণে এটি বাতিল হিসেবে দেখাবে।
             </p>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-500 block">দ্রুত কারণ নির্বাচন করুন:</label>
+              <div className="flex flex-wrap gap-1.5">
+                {["আবেদনে তথ্যের অসঙ্গতি", "বকেয়া পাওনা অপরিশোধিত", "কর্তৃপক্ষের সিদ্ধান্ত অনুযায়ী", "ভুল সনদ প্রদান করা হয়েছিল"].map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setRevokeReason(tag)}
+                    className="px-2.5 py-1 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 rounded-lg text-[11px] font-medium transition cursor-pointer"
+                  >
+                    + {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <textarea
               rows={3}
-              placeholder="বাতিল করার সুনির্দিষ্ট কারণ লিখুন..."
+              placeholder="বাতিল/প্রত্যাখ্যান করার কারণ লিখুন..."
               value={revokeReason}
               onChange={(e) => setRevokeReason(e.target.value)}
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium focus:outline-none"
@@ -903,17 +1049,50 @@ export default function CertificateClient({
               <button
                 type="button"
                 onClick={() => setRevokingCert(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
               >
-                বাতিল করুন
+                ফিরে যান
               </button>
               <button
                 type="button"
                 onClick={handleRevokeSubmit}
                 disabled={isPending}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl cursor-pointer"
               >
                 {isPending ? "বাতিল হচ্ছে..." : "কনফার্ম বাতিল"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deletingCert && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <h3 className="font-bold text-rose-900 text-base flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-rose-600" />
+              <span>সনদপত্র রেকর্ড মুছে ফেলা নিশ্চিতকরণ</span>
+            </h3>
+            <p className="text-xs text-slate-600">
+              আপনি কি নিশ্চিত যে সনদ নম্বর <strong>{deletingCert.certificate_number}</strong> ({deletingCert.snapshot.student_name}) স্থায়ীভাবে ডাটাবেজ থেকে মুছে ফেলতে চান? এই অ্যাকশনটি অপরিবর্তনযোগ্য।
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingCert(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
+              >
+                ফিরে যান
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSubmit}
+                disabled={isPending}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl cursor-pointer"
+              >
+                {isPending ? "মুছে ফেলা হচ্ছে..." : "কনফার্ম মুছে ফেলুন"}
               </button>
             </div>
           </div>

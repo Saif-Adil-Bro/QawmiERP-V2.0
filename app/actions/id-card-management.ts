@@ -150,7 +150,8 @@ export async function issueStudentIdCard(payload: {
     meta.id_card_counter = counter;
 
     const yearShort = targetSession?.academic_year?.split("-")?.[0]?.slice(-2) || new Date().getFullYear().toString().slice(-2);
-    const cardNumber = formatCardNumber(yearShort, counter);
+    const rawStudentIdCode = student.student_id || student.id_number || (student.roll_number ? `480${String(student.roll_number).padStart(3, "0")}` : `${480000 + counter}`);
+    const cardNumber = formatCardNumber(yearShort, counter, rawStudentIdCode);
     const verificationId = generateVerificationToken();
 
     const today = payload.issue_date || new Date().toISOString().split("T")[0];
@@ -172,7 +173,7 @@ export async function issueStudentIdCard(payload: {
       student_id: student.id,
       session_id: targetSession?.id || "default_session",
       card_number: cardNumber,
-      student_number: student.roll_number || student.id.substring(0, 6),
+      student_number: rawStudentIdCode,
       issue_date: today,
       expiry_date: expiry,
       status: "ACTIVE",
@@ -182,7 +183,7 @@ export async function issueStudentIdCard(payload: {
       issued_by: user.email?.split("@")[0] || "Admin",
       snapshot: {
         student_name: `${student.first_name} ${student.last_name || ""}`.trim(),
-        student_id_code: cardNumber,
+        student_id_code: rawStudentIdCode,
         roll_number: student.roll_number || "-",
         class_name: student.classes?.name || student.class_name || "অনির্ধারিত",
         session_name: targetSession?.name || "১৪৪৭-৪৮ হিজরি",
@@ -275,7 +276,8 @@ export async function bulkGenerateIdCards(payload: {
       if (existing) continue; // Skip if already active
 
       counter += 1;
-      const cardNumber = formatCardNumber(yearShort, counter);
+      const rawStudentIdCode = student.student_id || student.id_number || (student.roll_number ? `480${String(student.roll_number).padStart(3, "0")}` : `${480000 + counter}`);
+      const cardNumber = formatCardNumber(yearShort, counter, rawStudentIdCode);
       const verificationId = generateVerificationToken();
 
       const newCard: StudentIDCard = {
@@ -284,7 +286,7 @@ export async function bulkGenerateIdCards(payload: {
         student_id: student.id,
         session_id: targetSession?.id || "default_session",
         card_number: cardNumber,
-        student_number: student.roll_number || student.id.substring(0, 6),
+        student_number: rawStudentIdCode,
         issue_date: today,
         expiry_date: expiry,
         status: "ACTIVE",
@@ -294,7 +296,7 @@ export async function bulkGenerateIdCards(payload: {
         issued_by: user.email?.split("@")[0] || "Admin",
         snapshot: {
           student_name: `${student.first_name} ${student.last_name || ""}`.trim(),
-          student_id_code: cardNumber,
+          student_id_code: rawStudentIdCode,
           roll_number: student.roll_number || "-",
           class_name: student.classes?.name || student.class_name || "অনির্ধারিত",
           session_name: targetSession?.name || "১৪৪৭-৪৮ হিজরি",

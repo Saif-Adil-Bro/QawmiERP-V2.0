@@ -1,7 +1,3 @@
-import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
-import { getAuthMadrasaId } from "@/app/actions/students";
-import { getMadrasaMetadata, saveMadrasaMetadata, AcademicSession } from "@/lib/sessions";
-
 export type IDCardStatus = "ACTIVE" | "EXPIRED" | "LOST" | "BLOCKED" | "REISSUED";
 
 export interface IDCardSnapshot {
@@ -170,9 +166,14 @@ export function generateVerificationToken(): string {
 }
 
 /**
- * Generate formatted Card Number (QM-26-000125)
+ * Generate formatted Card Number (e.g. QM-480001)
  */
-export function formatCardNumber(yearShort: string, counter: number): string {
-  const padded = String(counter).padStart(6, "0");
-  return `QM-${yearShort}-${padded}`;
+export function formatCardNumber(yearShort: string, counter: number, studentIdCode?: string): string {
+  if (studentIdCode && studentIdCode.trim()) {
+    const raw = studentIdCode.trim();
+    const cleanNumber = raw.replace(/^(QM-|CERT-|STU-|ID-)/i, "").trim();
+    return `QM-${cleanNumber || raw}`;
+  }
+  const idNum = 480000 + counter;
+  return `QM-${idNum}`;
 }

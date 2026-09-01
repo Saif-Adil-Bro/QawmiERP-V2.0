@@ -166,13 +166,14 @@ export async function issueStudentCertificate(payload: {
     const currentSession = sessions.find((s) => s.is_current) || sessions[0];
 
     const yearShort = new Date().getFullYear().toString();
-    const certNumber = formatCertificateNumber(prefix, yearShort, counter);
+    const rawStudentIdCode = student.student_id || student.id_number || (student.roll_number ? `480${String(student.roll_number).padStart(3, "0")}` : `${480000 + counter}`);
+    const certNumber = formatCertificateNumber(prefix, yearShort, counter, rawStudentIdCode);
     const verificationToken = generateCertificateToken();
 
     // Snapshot
     const snapshot: CertificateSnapshot = {
       student_name: `${student.first_name} ${student.last_name || ""}`.trim(),
-      student_id_code: student.student_id || `STU-${student.roll_number || counter}`,
+      student_id_code: rawStudentIdCode,
       father_name: student.father_name || "—",
       mother_name: student.mother_name || "—",
       guardian_name: student.guardian_name || student.father_name || "—",
@@ -398,6 +399,47 @@ export async function revokeCertificate(certificateId: string, reason: string) {
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "সনদ বাতিল করা সম্ভব হয়নি।" };
+  }
+}
+
+/**
+ * Delete a certificate permanently
+ */
+export async function deleteCertificate(certificateId: string) {
+  try {
+    const madrasaId = await getAuthMadrasaId();
+    if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
+
+    const authUser = await getAuthUser();
+    const operatorName = authUser?.email?.split("@")[0] || "Admin";
+
+    const meta = await getMadrasaMetadata(madrasaId);
+    let certs: StudentCertificate[] = meta.certificates || [];
+    const target = certs.find((c) => c.id === certificateId);
+
+    if (!target) return { error: "সনদপত্র রেকর্ড পাওয়া যায়নি।" };
+
+    meta.certificates = certs.filter((c) => c.id !== certificateId);
+
+    const auditLogs: CertificateAuditLog[] = meta.certificate_audit_logs || [];
+    auditLogs.unshift({
+      id: `log_${Date.now()}`,
+      madrasa_id: madrasaId,
+      action: "DELETED",
+      user_name: operatorName,
+      certificate_id: certificateId,
+      certificate_number: target.certificate_number,
+      student_name: target.snapshot.student_name,
+      details: `সনদপত্র ${target.certificate_number} রেকর্ডটি মুছে ফেলা হয়েছে।`,
+      created_at: new Date().toISOString(),
+    });
+
+    meta.certificate_audit_logs = auditLogs;
+    await saveMadrasaMetadata(madrasaId, meta);
+
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message || "সনদপত্র মুছে ফেলা সম্ভব হয়নি।" };
   }
 }
 

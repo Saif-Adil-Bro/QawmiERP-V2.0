@@ -288,7 +288,9 @@ export default function StudentIdCardTemplate({
 
   const snapshot = card.snapshot || {};
   const studentName = snapshot.student_name || "শিক্ষার্থীর নাম";
-  const studentIdCode = card.card_number || snapshot.student_id_code || "QM-26-000000";
+  const rawStudentId = snapshot.student_id_code || card.student_number || card.card_number || "480001";
+  const cleanId = String(rawStudentId).replace(/^(QM-|CERT-|STU-|ID-)/i, "").trim() || rawStudentId;
+  const studentIdCode = `QM-${cleanId}`;
   const className = snapshot.class_name || "—";
   const rollNumber = snapshot.roll_number || "—";
   const sessionName = snapshot.session_name || "—";

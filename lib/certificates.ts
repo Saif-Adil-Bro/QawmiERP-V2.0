@@ -1,6 +1,3 @@
-import { createAdminClient } from "@/lib/supabase/server";
-import { getMadrasaMetadata, saveMadrasaMetadata, AcademicSession } from "@/lib/sessions";
-
 export type CertificateStatus = "DRAFT" | "PENDING_APPROVAL" | "ISSUED" | "REVOKED" | "VOIDED" | "REISSUED";
 
 export interface CertificateTypeConfig {
@@ -117,7 +114,7 @@ export interface CertificateTemplateConfig {
 export interface CertificateAuditLog {
   id: string;
   madrasa_id: string;
-  action: "CREATED" | "APPROVED" | "REISSUED" | "REVOKED" | "BULK_CREATED" | "TEMPLATE_UPDATED";
+  action: "CREATED" | "APPROVED" | "REISSUED" | "REVOKED" | "BULK_CREATED" | "TEMPLATE_UPDATED" | "DELETED";
   user_name: string;
   certificate_id: string;
   certificate_number: string;
@@ -334,12 +331,17 @@ export function generateCertificateToken(): string {
 }
 
 /**
- * Format Certificate Number (e.g. CERT-2026-000125)
+ * Format Certificate Number (e.g. CERT-480001)
  */
-export function formatCertificateNumber(prefix: string, year: string, counter: number): string {
-  const padded = String(counter).padStart(6, "0");
+export function formatCertificateNumber(prefix: string, year: string, counter: number, studentIdCode?: string): string {
   const p = prefix ? prefix.trim().toUpperCase() : "CERT";
-  return `${p}-${year}-${padded}`;
+  if (studentIdCode && studentIdCode.trim()) {
+    const raw = studentIdCode.trim();
+    const cleanNumber = raw.replace(/^(QM-|CERT-|STU-|ID-)/i, "").trim();
+    return `${p}-${cleanNumber || raw}`;
+  }
+  const idNum = 480000 + counter;
+  return `${p}-${idNum}`;
 }
 
 /**

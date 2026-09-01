@@ -357,13 +357,16 @@ export default function IdCardClient({
   const selectedSampleUser =
     (users || []).find((u) => u.id === builderSampleStudentId) || users?.[0] || allStudents?.[0];
 
+  const sampleStudentCode = selectedSampleUser?.student_id || (selectedSampleUser?.roll_number ? `480${String(selectedSampleUser.roll_number).padStart(3, "0")}` : "480001");
+  const sampleCardNum = sampleStudentCode.startsWith("QM-") ? sampleStudentCode : `QM-${sampleStudentCode}`;
+
   const builderSampleCard: StudentIDCard = {
     id: selectedSampleUser?.id || "sample-001",
     madrasa_id: "m-001",
     student_id: selectedSampleUser?.id || "s-001",
     session_id: "sess-1",
-    card_number: selectedSampleUser?.student_id || "QM-26-000108",
-    student_number: selectedSampleUser?.roll_number ? String(selectedSampleUser.roll_number) : "১০৮",
+    card_number: sampleCardNum,
+    student_number: sampleStudentCode,
     issue_date: "2026-09-01",
     expiry_date: "2027-08-31",
     status: "ACTIVE",
@@ -375,7 +378,7 @@ export default function IdCardClient({
       student_name: selectedSampleUser
         ? `${selectedSampleUser.first_name || ""} ${selectedSampleUser.last_name || ""}`.trim()
         : "আবু বকর সিদ্দিক",
-      student_id_code: selectedSampleUser?.student_id || "QM-26-000108",
+      student_id_code: sampleStudentCode,
       roll_number: selectedSampleUser?.roll_number ? String(selectedSampleUser.roll_number) : "১২",
       class_name: selectedSampleUser?.classes?.name || "শরহে বেকায়া",
       session_name: "১৪৪৭-৪৮ হিজরি",
@@ -389,14 +392,17 @@ export default function IdCardClient({
   };
 
   // Printable A4 Cards Generator List
-  const allCardsList = (users || []).flatMap((user) => {
+  const allCardsList = (users || []).flatMap((user, idx) => {
+    const uCode = user.student_id || (user.roll_number ? `480${String(user.roll_number).padStart(3, "0")}` : `480${String(idx + 1).padStart(3, "0")}`);
+    const uCardNum = uCode.startsWith("QM-") ? uCode : `QM-${uCode}`;
+
     const cardObj: StudentIDCard = {
       id: user.id,
       madrasa_id: user.madrasa_id || "",
       student_id: user.id,
       session_id: "",
-      card_number: user.student_id || `QM-26-${String(user.roll_number || 1).padStart(6, "0")}`,
-      student_number: user.roll_number || "",
+      card_number: uCardNum,
+      student_number: uCode,
       issue_date: "2026-09-01",
       expiry_date: "2027-08-31",
       status: "ACTIVE",
@@ -406,7 +412,7 @@ export default function IdCardClient({
       issued_by: "অফিস",
       snapshot: {
         student_name: `${user.first_name || ""} ${user.last_name || ""}`.trim() || "শিক্ষার্থীর নাম",
-        student_id_code: user.student_id || `QM-26-${String(user.roll_number || 1).padStart(6, "0")}`,
+        student_id_code: uCode,
         roll_number: user.roll_number ? String(user.roll_number) : "—",
         class_name: user.classes?.name || "জামাতহীন",
         session_name: "১৪৪৭-৪৮ হিজরি",
@@ -961,11 +967,14 @@ export default function IdCardClient({
                   className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
                 >
                   <option value="">-- প্রথম শিক্ষার্থী --</option>
-                  {(users || []).map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.first_name} {u.last_name || ""} ({u.classes?.name || "জামাতহীন"} - রোল: {u.roll_number || "-"})
-                    </option>
-                  ))}
+                  {(users || []).map((u, idx) => {
+                    const stuCode = u.student_id || (u.roll_number ? `480${String(u.roll_number).padStart(3, "0")}` : `480${String(idx + 1).padStart(3, "0")}`);
+                    return (
+                      <option key={u.id} value={u.id}>
+                        [আইডি: {stuCode}] {u.first_name} {u.last_name || ""} ({u.classes?.name || "জামাতহীন"} - রোল: {u.roll_number || "-"})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -1507,11 +1516,14 @@ export default function IdCardClient({
                 className="w-full p-3 border border-slate-200 rounded-2xl text-xs font-semibold bg-slate-50 focus:bg-white focus:outline-none"
               >
                 <option value="">-- শিক্ষার্থী বাছাই করুন --</option>
-                {allStudents.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.first_name} {s.last_name || ""} ({s.classes?.name || "জামাতহীন"} - রোল: {s.roll_number || "-"})
-                  </option>
-                ))}
+                {allStudents.map((s, idx) => {
+                  const sId = s.student_id || (s.roll_number ? `480${String(s.roll_number).padStart(3, "0")}` : `480${String(idx + 1).padStart(3, "0")}`);
+                  return (
+                    <option key={s.id} value={s.id}>
+                      [আইডি: {sId}] {s.first_name} {s.last_name || ""} ({s.classes?.name || "জামাতহীন"} - রোল: {s.roll_number || "-"})
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
