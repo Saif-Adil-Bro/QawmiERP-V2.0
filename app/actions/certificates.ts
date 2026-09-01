@@ -16,6 +16,7 @@ import {
   DEFAULT_CERTIFICATE_TEMPLATES,
   generateCertificateToken,
   formatCertificateNumber,
+  normalizeStudentIdCode,
 } from "@/lib/certificates";
 
 /**
@@ -44,6 +45,33 @@ export async function getCertificatesData(options?: {
     let types: CertificateTypeConfig[] = meta.certificate_types || DEFAULT_CERTIFICATE_TYPES;
     let templates: CertificateTemplateConfig[] = meta.certificate_templates || DEFAULT_CERTIFICATE_TEMPLATES;
     let auditLogs: CertificateAuditLog[] = meta.certificate_audit_logs || [];
+
+    // Normalize IDs to standard format (e.g. CERT-480001 / 480001)
+    let isModified = false;
+    certificates = certificates.map((cert, idx) => {
+      const stdCode = normalizeStudentIdCode(
+        cert.snapshot?.student_id_code || cert.certificate_number || cert.snapshot?.roll_number,
+        idx + 1
+      );
+      const prefix = meta.certificate_prefix || "CERT";
+      const stdCertNum = `${prefix}-${stdCode}`;
+      if (cert.certificate_number !== stdCertNum || cert.snapshot?.student_id_code !== stdCode) {
+        isModified = true;
+      }
+      return {
+        ...cert,
+        certificate_number: stdCertNum,
+        snapshot: {
+          ...cert.snapshot,
+          student_id_code: stdCode,
+        },
+      };
+    });
+
+    if (isModified) {
+      meta.certificates = certificates;
+      await saveMadrasaMetadata(madrasaId, meta);
+    }
 
     // Filter by options
     if (options?.status && options.status !== "ALL") {
@@ -166,7 +194,10 @@ export async function issueStudentCertificate(payload: {
     const currentSession = sessions.find((s) => s.is_current) || sessions[0];
 
     const yearShort = new Date().getFullYear().toString();
-    const rawStudentIdCode = student.student_id || student.id_number || (student.roll_number ? `480${String(student.roll_number).padStart(3, "0")}` : `${480000 + counter}`);
+    const rawStudentIdCode = normalizeStudentIdCode(
+      student.student_id || student.id_number || (student.roll_number ? `480${String(student.roll_number).padStart(3, "0")}` : `${480000 + counter}`),
+      counter
+    );
     const certNumber = formatCertificateNumber(prefix, yearShort, counter, rawStudentIdCode);
     const verificationToken = generateCertificateToken();
 
@@ -186,9 +217,10 @@ export async function issueStudentCertificate(payload: {
       leaving_date: payload.last_attendance_date || new Date().toISOString().split("T")[0],
       date_of_birth: student.date_of_birth || "—",
       address: student.address || "—",
-      madrasa_name: madrasaInfo?.name || "মাদরাসা আল-জামিয়া",
+      madrasa_name: madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন",
       madrasa_address: madrasaInfo?.address || "ঢাকা, বাংলাদেশ",
       madrasa_phone: madrasaInfo?.phone || "—",
+      principal_name: madrasaInfo?.principal_name || "",
       photo_url: student.photo_url || undefined,
     };
 

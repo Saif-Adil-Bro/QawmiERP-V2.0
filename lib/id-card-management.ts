@@ -166,14 +166,56 @@ export function generateVerificationToken(): string {
 }
 
 /**
+ * Normalizes any student ID, roll number, or legacy card string into standard 6-digit student ID (e.g. 480001)
+ */
+export function normalizeStudentIdCode(rawInput?: any, fallbackCounter = 1): string {
+  if (rawInput === undefined || rawInput === null) {
+    const cnt = typeof fallbackCounter === "number" && fallbackCounter > 0 ? fallbackCounter : 1;
+    return String(480000 + cnt);
+  }
+
+  const str = String(rawInput).trim();
+  if (!str) {
+    const cnt = typeof fallbackCounter === "number" && fallbackCounter > 0 ? fallbackCounter : 1;
+    return String(480000 + cnt);
+  }
+
+  // Strip prefixes like QM-, CERT-, STU-, ID-, etc.
+  const clean = str.replace(/^(QM-|CERT-|STU-|ID-)/i, "").trim();
+
+  // If already exactly a 6-digit number starting with 480 (e.g. 480001, 480011)
+  if (/^480\d+$/.test(clean)) {
+    return clean;
+  }
+
+  // If format is like "26-000111" or "2026-000011" (old year-sequence format)
+  const yearSeqMatch = clean.match(/^(?:\d{2,4}-)?0*(\d+)$/);
+  if (yearSeqMatch && yearSeqMatch[1]) {
+    const num = parseInt(yearSeqMatch[1], 10);
+    if (!isNaN(num)) {
+      if (num >= 480000) return String(num);
+      if (num > 0) return String(480000 + num);
+    }
+  }
+
+  // Extract all digits if any
+  const digitsOnly = clean.replace(/\D/g, "");
+  if (digitsOnly) {
+    const num = parseInt(digitsOnly, 10);
+    if (!isNaN(num)) {
+      if (num >= 480000) return String(num);
+      if (num > 0) return String(480000 + num);
+    }
+  }
+
+  const cnt = typeof fallbackCounter === "number" && fallbackCounter > 0 ? fallbackCounter : 1;
+  return String(480000 + cnt);
+}
+
+/**
  * Generate formatted Card Number (e.g. QM-480001)
  */
 export function formatCardNumber(yearShort: string, counter: number, studentIdCode?: string): string {
-  if (studentIdCode && studentIdCode.trim()) {
-    const raw = studentIdCode.trim();
-    const cleanNumber = raw.replace(/^(QM-|CERT-|STU-|ID-)/i, "").trim();
-    return `QM-${cleanNumber || raw}`;
-  }
-  const idNum = 480000 + counter;
-  return `QM-${idNum}`;
+  const stdCode = normalizeStudentIdCode(studentIdCode, counter);
+  return `QM-${stdCode}`;
 }

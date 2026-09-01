@@ -11,6 +11,7 @@ import {
   DEFAULT_IDCARD_TEMPLATES,
   generateVerificationToken,
   formatCardNumber,
+  normalizeStudentIdCode,
 } from "@/lib/id-card-management";
 import { revalidatePath } from "next/cache";
 
@@ -33,15 +34,33 @@ export async function getIdCardsData(filters?: {
     const templates: IDCardTemplateConfig[] = meta.id_card_templates || DEFAULT_IDCARD_TEMPLATES;
     const auditLogs: IDCardAuditLog[] = meta.id_card_audit_logs || [];
 
-    // Auto check expired status on load
+    // Auto check expired status on load and normalize IDs to consistent 480001 / QM-480001
     const todayStr = new Date().toISOString().split("T")[0];
     let isModified = false;
-    cards = cards.map((card) => {
+    cards = cards.map((card, idx) => {
+      const stdCode = normalizeStudentIdCode(
+        card.snapshot?.student_id_code || card.student_number || card.card_number || card.snapshot?.roll_number,
+        idx + 1
+      );
+      const stdCardNum = `QM-${stdCode}`;
+      let updatedStatus = card.status;
       if (card.status === "ACTIVE" && card.expiry_date && card.expiry_date < todayStr) {
         isModified = true;
-        return { ...card, status: "EXPIRED" as IDCardStatus, updated_at: new Date().toISOString() };
+        updatedStatus = "EXPIRED";
       }
-      return card;
+      if (card.card_number !== stdCardNum || card.snapshot?.student_id_code !== stdCode || card.student_number !== stdCode) {
+        isModified = true;
+      }
+      return {
+        ...card,
+        card_number: stdCardNum,
+        student_number: stdCode,
+        status: updatedStatus,
+        snapshot: {
+          ...card.snapshot,
+          student_id_code: stdCode,
+        },
+      };
     });
 
     if (isModified) {
@@ -150,7 +169,10 @@ export async function issueStudentIdCard(payload: {
     meta.id_card_counter = counter;
 
     const yearShort = targetSession?.academic_year?.split("-")?.[0]?.slice(-2) || new Date().getFullYear().toString().slice(-2);
-    const rawStudentIdCode = student.student_id || student.id_number || (student.roll_number ? `480${String(student.roll_number).padStart(3, "0")}` : `${480000 + counter}`);
+    const rawStudentIdCode = normalizeStudentIdCode(
+      student.student_id || student.id_number || (student.roll_number ? `480${String(student.roll_number).padStart(3, "0")}` : `${480000 + counter}`),
+      counter
+    );
     const cardNumber = formatCardNumber(yearShort, counter, rawStudentIdCode);
     const verificationId = generateVerificationToken();
 

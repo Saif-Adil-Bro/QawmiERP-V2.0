@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { StudentCertificate, CertificateTemplateConfig, interpolateCertificateBody } from "@/lib/certificates";
+import { StudentCertificate, CertificateTemplateConfig, interpolateCertificateBody, normalizeStudentIdCode } from "@/lib/certificates";
 import { Award, ShieldCheck, Printer, Download, Share2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 
 interface CertificateDocumentViewProps {
@@ -10,6 +10,10 @@ interface CertificateDocumentViewProps {
     name?: string;
     address?: string;
     phone?: string;
+    principal_name?: string;
+    signature_url?: string;
+    principal_signature_url?: string;
+    logo_url?: string;
   };
   templateConfig?: CertificateTemplateConfig;
   showActions?: boolean;
@@ -267,7 +271,7 @@ export default function CertificateDocumentView({
                 <div className="bg-white/80 px-3 py-1 rounded-lg border border-slate-200">
                   <span>আইডি নম্বর: </span>
                   <span className="font-mono text-slate-900">
-                    {snapshot.student_id_code.replace(/^(QM-|CERT-|STU-|ID-)/i, "").trim() || snapshot.student_id_code}
+                    {normalizeStudentIdCode(snapshot.student_id_code, 1)}
                   </span>
                 </div>
               )}
@@ -347,9 +351,11 @@ export default function CertificateDocumentView({
               <div className="text-center space-y-1">
                 <div className="w-36 border-b-2 border-slate-800 mx-auto pb-1" />
                 <p className="text-xs sm:text-sm font-bold text-slate-900">
-                  {snapshot.principal_name || "মুহতামিম / অধ্যক্ষ"}
+                  {snapshot.principal_name || madrasaInfo?.principal_name || "মুহতামিম / অধ্যক্ষ"}
                 </p>
-                <p className="text-[10px] text-slate-500">প্রধান নির্বাহক কার্যালয়</p>
+                <p className="text-[10px] text-slate-500">
+                  {snapshot.principal_name || madrasaInfo?.principal_name ? "মুহতামিম / অধ্যক্ষ" : "প্রধান নির্বাহক কার্যালয়"}
+                </p>
               </div>
             )}
           </div>

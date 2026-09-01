@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { StudentIDCard } from "@/lib/id-card-management";
+import { StudentIDCard, normalizeStudentIdCode } from "@/lib/id-card-management";
 import { IdCard, Phone } from "lucide-react";
 
 export type IDCardTemplateType =
@@ -289,7 +289,7 @@ export default function StudentIdCardTemplate({
   const snapshot = card.snapshot || {};
   const studentName = snapshot.student_name || "শিক্ষার্থীর নাম";
   const rawStudentId = snapshot.student_id_code || card.student_number || card.card_number || "480001";
-  const cleanId = String(rawStudentId).replace(/^(QM-|CERT-|STU-|ID-)/i, "").trim() || rawStudentId;
+  const cleanId = normalizeStudentIdCode(rawStudentId, 1);
   const studentIdCode = `QM-${cleanId}`;
   const className = snapshot.class_name || "—";
   const rollNumber = snapshot.roll_number || "—";
@@ -300,11 +300,11 @@ export default function StudentIdCardTemplate({
   const photoUrl = snapshot.photo_url || card.photo_url;
   const isStatusActive = card.status === "ACTIVE";
 
-  const madrasaName = madrasaInfo?.name || "জামিয়া ইসলামিয়া দারুল উলুম";
-  const madrasaAddress = madrasaInfo?.address || "ঢাকা, বাংলাদেশ";
-  const madrasaPhone = madrasaInfo?.phone || "+880 1700-000000";
+  const madrasaName = madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন";
+  const madrasaAddress = madrasaInfo?.address || "কাটিয়ারচর, কিশোরগঞ্জ";
+  const madrasaPhone = madrasaInfo?.phone || "01600989555";
   const madrasaWebsite = madrasaInfo?.website || "www.qawmierp.app";
-  const mohtamimName = madrasaInfo?.principal_name || "আল্লামা মুফতি আব্দুল কাইয়ুম";
+  const mohtamimName = madrasaInfo?.principal_name?.trim() || "";
   const displayExpiryDate = customExpiryDate || card.expiry_date || "31-08-2027";
 
   const cardContent = (
@@ -438,6 +438,11 @@ export default function StudentIdCardTemplate({
                   </div>
                   <div className="w-12 border-b border-slate-400 mb-0.5" />
                   <span className="font-extrabold text-[6.5px] text-slate-700 block leading-none">{signatureTitle}</span>
+                  {mohtamimName ? (
+                    <span className="text-[5.5px] text-slate-500 block leading-tight font-medium truncate max-w-[65px]">
+                      {mohtamimName}
+                    </span>
+                  ) : null}
                 </div>
 
                 {/* Right: QR Code (CENTER ALIGNED) */}
@@ -481,19 +486,19 @@ export default function StudentIdCardTemplate({
                 </ul>
 
                 {/* Emergency Contact Box */}
-                <div className={`mt-1.5 p-1.5 ${tc.backContactBg} rounded-lg border ${tc.backContactBorder} space-y-0.5 text-[6.5px]`}>
+                <div className={`mt-1.5 p-1.5 ${tc.backContactBg} rounded-lg border ${tc.backContactBorder} space-y-0.5 text-[6.5px] text-center`}>
                   <div className={`flex items-center justify-center gap-1 font-bold ${tc.backContactTitle} border-b border-slate-200/60 pb-0.5 text-center`}>
                     <Phone className={`w-2 h-2 ${tc.backContactIcon}`} />
                     <span>জরুরী যোগাযোগ</span>
                   </div>
-                  <p className="font-bold text-slate-900 truncate leading-tight mt-0.5">{madrasaName}</p>
-                  <p className="text-slate-600 truncate leading-tight">{madrasaAddress}</p>
+                  <p className="font-extrabold text-slate-900 text-[8.5px] truncate leading-tight mt-0.5 text-center">{madrasaName}</p>
+                  <p className="text-slate-600 truncate leading-tight text-center">{madrasaAddress}</p>
                   {mohtamimName && (
-                    <p className="text-slate-700 truncate leading-tight">
+                    <p className="text-slate-700 truncate leading-tight text-center">
                       <span className="text-slate-500 font-medium">মুহতামিম:</span> {mohtamimName}
                     </p>
                   )}
-                  <p className="text-slate-700 truncate leading-tight font-mono font-bold">
+                  <p className="text-slate-700 truncate leading-tight font-mono font-bold text-center">
                     <span className="text-slate-500 font-sans font-normal">মোবাইল:</span> {madrasaPhone}
                   </p>
                 </div>
@@ -523,12 +528,21 @@ export default function StudentIdCardTemplate({
 
               {/* Header */}
               <div className="pt-1.5 px-1.5 text-center shrink-0">
-                <h3
-                  className={`font-extrabold ${tc.accentText} leading-tight line-clamp-1`}
-                  style={{ fontSize: nameFontSize }}
-                >
-                  {madrasaName}
-                </h3>
+                <div className="flex items-center justify-center gap-1 mb-0.5">
+                  {madrasaInfo?.logo_url ? (
+                    <img
+                      src={madrasaInfo.logo_url}
+                      alt="Logo"
+                      className="w-4 h-4 object-contain rounded-full bg-slate-100 p-0.5 border border-slate-300"
+                    />
+                  ) : null}
+                  <h3
+                    className={`font-extrabold ${tc.accentText} leading-tight line-clamp-1`}
+                    style={{ fontSize: nameFontSize }}
+                  >
+                    {madrasaName}
+                  </h3>
+                </div>
                 <p className="text-[7px] text-slate-500 line-clamp-1 mt-0.5">{madrasaAddress}</p>
                 <span className={`inline-block mt-0.5 px-1.5 py-0.1 ${tc.badgeBg} ${tc.badgeText} rounded-full text-[6.5px] font-bold border ${tc.badgeBorder}`}>
                   STUDENT IDENTITY CARD
@@ -588,6 +602,11 @@ export default function StudentIdCardTemplate({
                   </div>
                   <div className="w-10 border-b border-slate-400 mb-0.5" />
                   <span className="font-extrabold text-[6.5px] text-slate-700 block leading-none">{signatureTitle}</span>
+                  {mohtamimName ? (
+                    <span className="text-[5.5px] text-slate-500 block leading-tight font-medium truncate max-w-[65px]">
+                      {mohtamimName}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex flex-col items-center justify-center shrink-0 text-center">
                   {qrCodeUrl && (
@@ -614,19 +633,19 @@ export default function StudentIdCardTemplate({
                   )}
                 </ul>
 
-                <div className="mt-1.5 p-1.5 bg-slate-50 rounded-lg border border-slate-200 text-[6.5px] space-y-0.5">
+                <div className="mt-1.5 p-1.5 bg-slate-50 rounded-lg border border-slate-200 text-[6.5px] space-y-0.5 text-center">
                   <div className="flex items-center justify-center gap-1 font-bold text-slate-800 border-b border-slate-200 pb-0.5 text-center">
                     <Phone className="w-2 h-2 text-slate-600" />
                     <span>জরুরী যোগাযোগ</span>
                   </div>
-                  <p className="font-bold text-slate-900 truncate leading-tight mt-0.5">{madrasaName}</p>
-                  <p className="text-slate-600 truncate leading-tight">{madrasaAddress}</p>
+                  <p className="font-extrabold text-slate-900 text-[8.5px] truncate leading-tight mt-0.5 text-center">{madrasaName}</p>
+                  <p className="text-slate-600 truncate leading-tight text-center">{madrasaAddress}</p>
                   {mohtamimName && (
-                    <p className="text-slate-700 truncate leading-tight">
+                    <p className="text-slate-700 truncate leading-tight text-center">
                       <span className="text-slate-500 font-medium">মুহতামিম:</span> {mohtamimName}
                     </p>
                   )}
-                  <p className="text-slate-700 truncate leading-tight font-mono font-bold">
+                  <p className="text-slate-700 truncate leading-tight font-mono font-bold text-center">
                     <span className="text-slate-500 font-sans font-normal">মোবাইল:</span> {madrasaPhone}
                   </p>
                 </div>
@@ -652,12 +671,21 @@ export default function StudentIdCardTemplate({
             <div className={`w-full h-full flex flex-col justify-between relative z-10 ${tc.darkBg} text-white`}>
               {/* Header */}
               <div className={`p-1.5 text-center ${tc.darkHeader} border-b-2 border-amber-400 shrink-0`}>
-                <h3
-                  className="font-black text-amber-300 line-clamp-1"
-                  style={{ fontSize: nameFontSize }}
-                >
-                  {madrasaName}
-                </h3>
+                <div className="flex items-center justify-center gap-1 mb-0.5">
+                  {madrasaInfo?.logo_url ? (
+                    <img
+                      src={madrasaInfo.logo_url}
+                      alt="Logo"
+                      className="w-4 h-4 object-contain rounded-full bg-white/10 p-0.5 border border-amber-300/40"
+                    />
+                  ) : null}
+                  <h3
+                    className="font-black text-amber-300 line-clamp-1"
+                    style={{ fontSize: nameFontSize }}
+                  >
+                    {madrasaName}
+                  </h3>
+                </div>
                 <p className="text-[6.5px] text-amber-100/80 line-clamp-1">{madrasaAddress}</p>
               </div>
 
@@ -704,6 +732,11 @@ export default function StudentIdCardTemplate({
                   </div>
                   <div className="w-10 border-b border-amber-300/80 mb-0.5" />
                   <span className="font-extrabold text-[6.5px] text-amber-200 block leading-none">{signatureTitle}</span>
+                  {mohtamimName ? (
+                    <span className="text-[5.5px] text-amber-300/80 block leading-tight font-medium truncate max-w-[65px]">
+                      {mohtamimName}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex flex-col items-center justify-center shrink-0 text-center">
                   {qrCodeUrl && (
@@ -730,19 +763,19 @@ export default function StudentIdCardTemplate({
                   )}
                 </ul>
 
-                <div className="mt-1.5 p-1.5 bg-amber-950/60 rounded-lg border border-amber-400/30 text-[6.5px] space-y-0.5">
+                <div className="mt-1.5 p-1.5 bg-amber-950/60 rounded-lg border border-amber-400/30 text-[6.5px] space-y-0.5 text-center">
                   <div className="flex items-center justify-center gap-1 font-bold text-amber-300 border-b border-amber-400/30 pb-0.5 text-center">
                     <Phone className="w-2 h-2 text-amber-400" />
                     <span>জরুরী যোগাযোগ</span>
                   </div>
-                  <p className="font-bold text-amber-100 truncate leading-tight mt-0.5">{madrasaName}</p>
-                  <p className="text-amber-200/80 truncate leading-tight">{madrasaAddress}</p>
+                  <p className="font-extrabold text-amber-100 text-[8.5px] truncate leading-tight mt-0.5 text-center">{madrasaName}</p>
+                  <p className="text-amber-200/80 truncate leading-tight text-center">{madrasaAddress}</p>
                   {mohtamimName && (
-                    <p className="text-amber-200/90 truncate leading-tight">
+                    <p className="text-amber-200/90 truncate leading-tight text-center">
                       <span className="text-amber-300/70 font-medium">মুহতামিম:</span> {mohtamimName}
                     </p>
                   )}
-                  <p className="text-amber-200 truncate leading-tight font-mono font-bold">
+                  <p className="text-amber-200 truncate leading-tight font-mono font-bold text-center">
                     <span className="text-amber-300/70 font-sans font-normal">মোবাইল:</span> {madrasaPhone}
                   </p>
                 </div>

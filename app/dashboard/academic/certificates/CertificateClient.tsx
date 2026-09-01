@@ -6,6 +6,7 @@ import {
   CertificateTypeConfig,
   CertificateTemplateConfig,
   CertificateAuditLog,
+  normalizeStudentIdCode,
 } from "@/lib/certificates";
 import {
   issueStudentCertificate,
@@ -457,7 +458,9 @@ export default function CertificateClient({
                           <td className="p-4 font-mono font-bold text-slate-900">{cert.certificate_number}</td>
                           <td className="p-4">
                             <p className="font-bold text-slate-900">{cert.snapshot.student_name}</p>
-                            <p className="text-[11px] text-slate-400 font-mono">{cert.snapshot.student_id_code}</p>
+                            <p className="text-[11px] text-slate-400 font-mono">
+                              ID: {normalizeStudentIdCode(cert.snapshot.student_id_code, 1)}
+                            </p>
                           </td>
                           <td className="p-4 font-semibold text-emerald-800">{cert.certificate_type_title}</td>
                           <td className="p-4 text-xs">
@@ -607,7 +610,7 @@ export default function CertificateClient({
                     return name.includes(q) || roll.includes(q) || father.includes(q) || className.includes(q) || studentId.includes(q);
                   })
                   .map((s) => {
-                    const stuId = s.student_id || (s.roll_number ? `480${String(s.roll_number).padStart(3, "0")}` : "480001");
+                    const stuId = normalizeStudentIdCode(s.student_id || (s.roll_number ? `480${String(s.roll_number).padStart(3, "0")}` : "480001"), 1);
                     return (
                       <option key={s.id} value={s.id}>
                         [আইডি: {stuId}] {s.first_name} {s.last_name || ""} {s.classes?.name ? `(${s.classes.name})` : ""} - রোল: {s.roll_number || "—"} - পিতা: {s.father_name || "—"}
@@ -621,7 +624,7 @@ export default function CertificateClient({
                   <p>
                     <strong>নির্বাচিত শিক্ষার্থী:</strong> {currentStudentObj.first_name} {currentStudentObj.last_name || ""}{" "}
                     <span className="font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[11px] font-bold ml-1">
-                      আইডি: {currentStudentObj.student_id || (currentStudentObj.roll_number ? `480${String(currentStudentObj.roll_number).padStart(3, "0")}` : "480001")}
+                      আইডি: {normalizeStudentIdCode(currentStudentObj.student_id || (currentStudentObj.roll_number ? `480${String(currentStudentObj.roll_number).padStart(3, "0")}` : "480001"), 1)}
                     </span>
                   </p>
                   <p>
@@ -1000,7 +1003,7 @@ export default function CertificateClient({
               </div>
             </div>
 
-            <CertificateDocumentView certificate={viewingCert} />
+            <CertificateDocumentView certificate={viewingCert} madrasaInfo={madrasaInfo} />
           </div>
         </div>
       )}

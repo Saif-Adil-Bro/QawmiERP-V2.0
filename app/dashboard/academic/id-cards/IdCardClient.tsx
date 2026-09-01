@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PrintButton from "@/app/components/PrintButton";
 import {
   IdCard,
@@ -41,6 +41,7 @@ import {
   StudentIDCard,
   IDCardStatus,
   IDCardAuditLog,
+  normalizeStudentIdCode,
 } from "@/lib/id-card-management";
 import {
   issueStudentIdCard,
@@ -86,7 +87,16 @@ interface IdCardClientProps {
   classes: { id: string; name: string }[];
   users: any[];
   userType: string;
-  madrasaInfo?: { name: string; address: string; phone: string };
+  madrasaInfo?: {
+    name?: string;
+    address?: string;
+    phone?: string;
+    logo_url?: string;
+    website?: string;
+    principal_name?: string;
+    signature_url?: string;
+    principal_signature_url?: string;
+  };
 }
 
 export default function IdCardClient({
@@ -135,15 +145,30 @@ export default function IdCardClient({
 
   // ID Card Builder & Customizer State
   const [editableMadrasaInfo, setEditableMadrasaInfo] = useState({
-    name: madrasaInfo?.name || "জামিয়া ইসলামিয়া দারুল উলুম",
+    name: madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন",
     name_arabic: "الجامعة الإسلامية دار العلوم",
-    address: madrasaInfo?.address || "ঢাকা, বাংলাদেশ",
-    phone: madrasaInfo?.phone || "+880 1700-000000",
-    website: "www.qawmierp.app",
-    logo_url: "",
-    principal_name: "আল্লামা মুফতি আব্দুল কাইয়ুম",
-    signature_url: "",
+    address: madrasaInfo?.address || "কাটিয়ারচর, কিশোরগঞ্জ",
+    phone: madrasaInfo?.phone || "01600989555",
+    website: madrasaInfo?.website || "www.qawmierp.app",
+    logo_url: madrasaInfo?.logo_url || "",
+    principal_name: madrasaInfo?.principal_name || "",
+    signature_url: madrasaInfo?.signature_url || madrasaInfo?.principal_signature_url || "",
   });
+
+  useEffect(() => {
+    if (madrasaInfo) {
+      setEditableMadrasaInfo((prev) => ({
+        ...prev,
+        name: madrasaInfo.name || prev.name,
+        address: madrasaInfo.address || prev.address,
+        phone: madrasaInfo.phone || prev.phone,
+        website: madrasaInfo.website || prev.website,
+        logo_url: madrasaInfo.logo_url || prev.logo_url,
+        principal_name: madrasaInfo.principal_name !== undefined ? madrasaInfo.principal_name : prev.principal_name,
+        signature_url: madrasaInfo.signature_url || madrasaInfo.principal_signature_url || prev.signature_url,
+      }));
+    }
+  }, [madrasaInfo]);
 
   const [signatureTitle, setSignatureTitle] = useState("মুহতামিম / অধ্যক্ষ");
   const [qrLabel, setQrLabel] = useState("যাচাই করুন");
@@ -183,14 +208,14 @@ export default function IdCardClient({
     setThemeColor("blue");
     setMadrasaNameSize("medium");
     setEditableMadrasaInfo({
-      name: madrasaInfo?.name || "জামিয়া ইসলামিয়া দারুল উলুম",
+      name: madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন",
       name_arabic: "الجامعة الإسلامية دار العلوم",
-      address: madrasaInfo?.address || "ঢাকা, বাংলাদেশ",
-      phone: madrasaInfo?.phone || "+880 1700-000000",
-      website: "www.qawmierp.app",
-      logo_url: "",
-      principal_name: "আল্লামা মুফতি আব্দুল কাইয়ুম",
-      signature_url: "",
+      address: madrasaInfo?.address || "কাটিয়ারচর, কিশোরগঞ্জ",
+      phone: madrasaInfo?.phone || "01600989555",
+      website: madrasaInfo?.website || "www.qawmierp.app",
+      logo_url: madrasaInfo?.logo_url || "",
+      principal_name: madrasaInfo?.principal_name || "",
+      signature_url: madrasaInfo?.signature_url || madrasaInfo?.principal_signature_url || "",
     });
     setSignatureTitle("মুহতামিম / অধ্যক্ষ");
     setQrLabel("যাচাই করুন");
@@ -357,8 +382,11 @@ export default function IdCardClient({
   const selectedSampleUser =
     (users || []).find((u) => u.id === builderSampleStudentId) || users?.[0] || allStudents?.[0];
 
-  const sampleStudentCode = selectedSampleUser?.student_id || (selectedSampleUser?.roll_number ? `480${String(selectedSampleUser.roll_number).padStart(3, "0")}` : "480001");
-  const sampleCardNum = sampleStudentCode.startsWith("QM-") ? sampleStudentCode : `QM-${sampleStudentCode}`;
+  const sampleStudentCode = normalizeStudentIdCode(
+    selectedSampleUser?.student_id || selectedSampleUser?.id_number || (selectedSampleUser?.roll_number ? `480${String(selectedSampleUser.roll_number).padStart(3, "0")}` : "480001"),
+    1
+  );
+  const sampleCardNum = `QM-${sampleStudentCode}`;
 
   const builderSampleCard: StudentIDCard = {
     id: selectedSampleUser?.id || "sample-001",
@@ -393,8 +421,11 @@ export default function IdCardClient({
 
   // Printable A4 Cards Generator List
   const allCardsList = (users || []).flatMap((user, idx) => {
-    const uCode = user.student_id || (user.roll_number ? `480${String(user.roll_number).padStart(3, "0")}` : `480${String(idx + 1).padStart(3, "0")}`);
-    const uCardNum = uCode.startsWith("QM-") ? uCode : `QM-${uCode}`;
+    const uCode = normalizeStudentIdCode(
+      user.student_id || user.id_number || (user.roll_number ? `480${String(user.roll_number).padStart(3, "0")}` : 480000 + idx + 1),
+      idx + 1
+    );
+    const uCardNum = `QM-${uCode}`;
 
     const cardObj: StudentIDCard = {
       id: user.id,
@@ -624,11 +655,16 @@ export default function IdCardClient({
                       const isLost = card.status === "LOST";
                       const isBlocked = card.status === "BLOCKED";
                       const isReissued = card.status === "REISSUED";
+                      const cleanStuId = normalizeStudentIdCode(
+                        card.snapshot?.student_id_code || card.student_number || card.card_number,
+                        1
+                      );
+                      const displayCardNum = `QM-${cleanStuId}`;
 
                       return (
                         <tr key={card.id} className="hover:bg-slate-50/80 transition">
                           <td className="p-3.5 pl-4 font-mono font-bold text-slate-900">
-                            {card.card_number}
+                            {displayCardNum}
                           </td>
                           <td className="p-3.5 font-bold text-slate-800">
                             <div className="flex items-center gap-2">
@@ -643,7 +679,12 @@ export default function IdCardClient({
                                   card.snapshot.student_name?.[0] || "শ"
                                 )}
                               </div>
-                              <span>{card.snapshot.student_name}</span>
+                              <div>
+                                <span>{card.snapshot.student_name}</span>
+                                <span className="block text-[11px] text-slate-400 font-mono font-normal">
+                                  আইডি: {cleanStuId}
+                                </span>
+                              </div>
                             </div>
                           </td>
                           <td className="p-3.5">
@@ -1674,7 +1715,7 @@ export default function IdCardClient({
 
             <DigitalIdCardView
               card={previewCard}
-              madrasaInfo={madrasaInfo}
+              madrasaInfo={editableMadrasaInfo}
               themeColor={themeColor}
               madrasaNameSize={madrasaNameSize}
               customExpiryDate={customExpiryDate}

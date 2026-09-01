@@ -88,7 +88,12 @@ export async function getMadrasaInfo() {
               : ""),
           reg_no: meta.reg_no || "",
           established_year: meta.established_year || "",
-          principal_name: meta.principal_name || "",
+          principal_name:
+            meta.principal_name ||
+            meta.mohtamim_name ||
+            (fullMadrasa as any).principal_name ||
+            (fullMadrasa as any).mohtamim_name ||
+            "",
           principal_signature_url: meta.signature_url || sigData?.publicUrl || "",
           signature_url: meta.signature_url || sigData?.publicUrl || "",
           eiin_code: meta.eiin_code || "",
