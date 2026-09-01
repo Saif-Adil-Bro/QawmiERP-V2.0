@@ -42,6 +42,8 @@ import {
   IDCardStatus,
   IDCardAuditLog,
   normalizeStudentIdCode,
+  IDCardFieldVisibility,
+  DEFAULT_FIELD_VISIBILITY,
 } from "@/lib/id-card-management";
 import {
   issueStudentIdCard,
@@ -174,12 +176,21 @@ export default function IdCardClient({
   const [qrLabel, setQrLabel] = useState("যাচাই করুন");
   const [customExpiryDate, setCustomExpiryDate] = useState("31-08-2027");
 
+  // Field Selection Visibility (Customizable Card Fields)
+  const [fieldVisibility, setFieldVisibility] = useState<IDCardFieldVisibility>(DEFAULT_FIELD_VISIBILITY);
+
+  // Sample overrides for interactive canvas preview
+  const [sampleCustomBloodGroup, setSampleCustomBloodGroup] = useState<string>("");
+  const [sampleCustomFatherName, setSampleCustomFatherName] = useState<string>("");
+  const [sampleCustomPhone, setSampleCustomPhone] = useState<string>("");
+  const [sampleCustomDob, setSampleCustomDob] = useState<string>("");
+
   const [builderSampleStudentId, setBuilderSampleStudentId] = useState<string>(
     (users && users[0]?.id) || (allStudents && allStudents[0]?.id) || ""
   );
   const [builderSide, setBuilderSide] = useState<"front" | "back">("front");
   const [builderZoom, setBuilderZoom] = useState<number>(1.25);
-  const [editorSubTab, setEditorSubTab] = useState<"template" | "branding" | "backside" | "advanced">("template");
+  const [editorSubTab, setEditorSubTab] = useState<"template" | "branding" | "fields" | "backside" | "advanced">("template");
   const [newInstructionText, setNewInstructionText] = useState("");
 
   const [customInstructions, setCustomInstructions] = useState<string[]>([
@@ -207,6 +218,7 @@ export default function IdCardClient({
     setTemplate("classic_islamic");
     setThemeColor("blue");
     setMadrasaNameSize("medium");
+    setFieldVisibility(DEFAULT_FIELD_VISIBILITY);
     setEditableMadrasaInfo({
       name: madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন",
       name_arabic: "الجامعة الإسلامية دار العلوم",
@@ -410,9 +422,11 @@ export default function IdCardClient({
       roll_number: selectedSampleUser?.roll_number ? String(selectedSampleUser.roll_number) : "১২",
       class_name: selectedSampleUser?.classes?.name || "শরহে বেকায়া",
       session_name: "১৪৪৭-৪৮ হিজরি",
-      father_name: selectedSampleUser?.father_name || "মুহাম্মদ উসমান",
-      parent_phone: selectedSampleUser?.phone || selectedSampleUser?.guardian_phone || "01711-223344",
-      blood_group: selectedSampleUser?.blood_group || "B+",
+      father_name: sampleCustomFatherName || selectedSampleUser?.father_name || "মুহাম্মদ উসমান",
+      parent_phone: sampleCustomPhone || selectedSampleUser?.phone || selectedSampleUser?.guardian_phone || "01711-223344",
+      blood_group: sampleCustomBloodGroup || selectedSampleUser?.blood_group || "B+",
+      date_of_birth: sampleCustomDob || selectedSampleUser?.date_of_birth || "12-05-2010",
+      address: selectedSampleUser?.address || "ঢাকা, বাংলাদেশ",
       photo_url: getDirectPhotoUrl(selectedSampleUser?.photo_url),
     },
     created_at: new Date().toISOString(),
@@ -450,6 +464,8 @@ export default function IdCardClient({
         father_name: user.father_name,
         parent_phone: user.phone || user.guardian_phone,
         blood_group: user.blood_group,
+        date_of_birth: user.date_of_birth,
+        address: user.address,
         photo_url: getDirectPhotoUrl(user.photo_url),
       },
       created_at: new Date().toISOString(),
@@ -867,6 +883,7 @@ export default function IdCardClient({
                       templateId={template}
                       themeColor={themeColor}
                       madrasaNameSize={madrasaNameSize}
+                      fieldVisibility={fieldVisibility}
                       customExpiryDate={customExpiryDate}
                       madrasaInfo={editableMadrasaInfo}
                       customInstructions={customInstructions}
@@ -1037,6 +1054,7 @@ export default function IdCardClient({
                     templateId={template}
                     themeColor={themeColor}
                     madrasaNameSize={madrasaNameSize}
+                    fieldVisibility={fieldVisibility}
                     customExpiryDate={customExpiryDate}
                     madrasaInfo={editableMadrasaInfo}
                     customInstructions={customInstructions}
@@ -1089,6 +1107,19 @@ export default function IdCardClient({
 
                 <button
                   type="button"
+                  onClick={() => setEditorSubTab("fields")}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    editorSubTab === "fields"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>৩. তথ্যের ফিল্ড নির্বাচন</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setEditorSubTab("backside")}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
                     editorSubTab === "backside"
@@ -1097,7 +1128,7 @@ export default function IdCardClient({
                   }`}
                 >
                   <FileText className="w-3.5 h-3.5" />
-                  <span>৩. পিছনের নির্দেশাবলী</span>
+                  <span>৪. পিছনের নির্দেশাবলী</span>
                 </button>
 
                 <button
@@ -1109,8 +1140,8 @@ export default function IdCardClient({
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
-                  <Sliders className="w-3.5 h-3.5" />
-                  <span>৪. লেবেল ও স্বাক্ষর</span>
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>৫. লেবেল ও স্বাক্ষর</span>
                 </button>
               </div>
 
@@ -1386,7 +1417,308 @@ export default function IdCardClient({
                 </div>
               )}
 
-              {/* SUB TAB 3: BACKSIDE INSTRUCTIONS */}
+              {/* SUB TAB 3: CUSTOMIZABLE FIELDS VISIBILITY */}
+              {editorSubTab === "fields" && (
+                <div className="space-y-5 animate-in fade-in duration-150">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900">আইডি কার্ডে তথ্যের ফিল্ড কাস্টমাইজেশন</h4>
+                      <p className="text-[11px] text-slate-500">
+                        কার্ডে কোন কোন তথ্য প্রদর্শন করতে চান তা টিক দিন। প্রয়োজনে লাইভ প্রিভিউতে টেস্ট মান দিয়ে যাচাই করতে পারেন।
+                      </p>
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFieldVisibility({
+                            photo: true,
+                            student_id: true,
+                            class: true,
+                            roll: true,
+                            session: true,
+                            blood_group: true,
+                            father_name: false,
+                            phone: false,
+                            dob: false,
+                            address: false,
+                            qr_code: true,
+                          })
+                        }
+                        className="px-2.5 py-1 text-[10px] font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg cursor-pointer transition"
+                      >
+                        ডিফল্ট
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFieldVisibility({
+                            photo: true,
+                            student_id: true,
+                            class: true,
+                            roll: true,
+                            session: false,
+                            blood_group: true,
+                            father_name: true,
+                            phone: true,
+                            dob: false,
+                            address: false,
+                            qr_code: true,
+                          })
+                        }
+                        className="px-2.5 py-1 text-[10px] font-bold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 rounded-lg cursor-pointer transition"
+                      >
+                        অভিভাবক সহ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFieldVisibility({
+                            photo: true,
+                            student_id: true,
+                            class: true,
+                            roll: true,
+                            session: false,
+                            blood_group: false,
+                            father_name: false,
+                            phone: false,
+                            dob: false,
+                            address: false,
+                            qr_code: true,
+                          })
+                        }
+                        className="px-2.5 py-1 text-[10px] font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg cursor-pointer transition"
+                      >
+                        মিনিমাল
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Fields Grid Checklist */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* 1. Class */}
+                    <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                      fieldVisibility.class ? "bg-emerald-50/50 border-emerald-300 ring-1 ring-emerald-400/20" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={fieldVisibility.class}
+                        onChange={(e) => setFieldVisibility({ ...fieldVisibility, class: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="text-xs font-bold text-slate-900 block">১. জামাত / শ্রেণি (Class)</span>
+                        <span className="text-[10.5px] text-slate-500">শিক্ষার্থীর শ্রেণি বা বিভাগ কার্ডে দৃশ্যমান হবে</span>
+                      </div>
+                    </label>
+
+                    {/* 2. Roll */}
+                    <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                      fieldVisibility.roll ? "bg-emerald-50/50 border-emerald-300 ring-1 ring-emerald-400/20" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={fieldVisibility.roll}
+                        onChange={(e) => setFieldVisibility({ ...fieldVisibility, roll: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="text-xs font-bold text-slate-900 block">২. রোল নম্বর (Roll Number)</span>
+                        <span className="text-[10.5px] text-slate-500">শিক্ষার্থীর ক্লাসের রোল নম্বর</span>
+                      </div>
+                    </label>
+
+                    {/* 3. Session */}
+                    <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                      fieldVisibility.session ? "bg-emerald-50/50 border-emerald-300 ring-1 ring-emerald-400/20" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={fieldVisibility.session}
+                        onChange={(e) => setFieldVisibility({ ...fieldVisibility, session: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="text-xs font-bold text-slate-900 block">৩. শিক্ষাবর্ষ (Academic Session)</span>
+                        <span className="text-[10.5px] text-slate-500">চলতি হিজরি/ইংরেজি সেশন (যেমন: ১৪৪৭-৪৮)</span>
+                      </div>
+                    </label>
+
+                    {/* 4. Blood Group */}
+                    <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                      fieldVisibility.blood_group ? "bg-rose-50/50 border-rose-300 ring-1 ring-rose-400/20" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={fieldVisibility.blood_group}
+                        onChange={(e) => setFieldVisibility({ ...fieldVisibility, blood_group: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="text-xs font-bold text-slate-900 block flex items-center gap-1.5">
+                          <span>৪. রক্তের গ্রুপ (Blood Group)</span>
+                          <span className="text-[9px] bg-rose-100 text-rose-700 font-extrabold px-1.5 py-0.2 rounded-md">জরুরি</span>
+                        </span>
+                        <span className="text-[10.5px] text-slate-500">জরুরি প্রয়োজনে ব্লাড গ্রুপ (A+, B+, O+, AB+ ইত্যাদি)</span>
+                      </div>
+                    </label>
+
+                    {/* 5. Father's Name */}
+                    <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                      fieldVisibility.father_name ? "bg-emerald-50/50 border-emerald-300 ring-1 ring-emerald-400/20" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={fieldVisibility.father_name}
+                        onChange={(e) => setFieldVisibility({ ...fieldVisibility, father_name: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="text-xs font-bold text-slate-900 block">৫. পিতার নাম (Father's Name)</span>
+                        <span className="text-[10.5px] text-slate-500">শিক্ষার্থীর অভিভাবক/পিতার নাম</span>
+                      </div>
+                    </label>
+
+                    {/* 6. Phone */}
+                    <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                      fieldVisibility.phone ? "bg-emerald-50/50 border-emerald-300 ring-1 ring-emerald-400/20" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={fieldVisibility.phone}
+                        onChange={(e) => setFieldVisibility({ ...fieldVisibility, phone: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="text-xs font-bold text-slate-900 block">৬. অভিভাবকের ফোন (Guardian Phone)</span>
+                        <span className="text-[10.5px] text-slate-500">জরুরি যোগাযোগের মোবাইল নম্বর</span>
+                      </div>
+                    </label>
+
+                    {/* 7. Date of Birth */}
+                    <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                      fieldVisibility.dob ? "bg-emerald-50/50 border-emerald-300 ring-1 ring-emerald-400/20" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={fieldVisibility.dob}
+                        onChange={(e) => setFieldVisibility({ ...fieldVisibility, dob: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="text-xs font-bold text-slate-900 block">৭. জন্ম তারিখ (Date of Birth)</span>
+                        <span className="text-[10.5px] text-slate-500">শিক্ষার্থীর জন্ম তারিখ</span>
+                      </div>
+                    </label>
+
+                    {/* 8. Address */}
+                    <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                      fieldVisibility.address ? "bg-emerald-50/50 border-emerald-300 ring-1 ring-emerald-400/20" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={fieldVisibility.address}
+                        onChange={(e) => setFieldVisibility({ ...fieldVisibility, address: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="text-xs font-bold text-slate-900 block">৮. স্থায়ী ঠিকানা (Address)</span>
+                        <span className="text-[10.5px] text-slate-500">গ্রাম/জেলা অথবা মাদরাসার এলাকা</span>
+                      </div>
+                    </label>
+
+                    {/* 9. QR Code */}
+                    <label className={`flex items-start gap-3 p-3 rounded-2xl border transition cursor-pointer ${
+                      fieldVisibility.qr_code ? "bg-emerald-50/50 border-emerald-300 ring-1 ring-emerald-400/20" : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={fieldVisibility.qr_code}
+                        onChange={(e) => setFieldVisibility({ ...fieldVisibility, qr_code: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <span className="text-xs font-bold text-slate-900 block flex items-center gap-1">
+                          <QrCode className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>৯. QR ভেরিফিকেশন কোড</span>
+                        </span>
+                        <span className="text-[10.5px] text-slate-500">স্ক্যান করে আইডি যাচাইকরণ বারকোড/QR</span>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Interactive Test Overrides for Canvas */}
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/90 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                        <span>ক্যানভাস প্রিভিউতে টেস্ট মান পরীক্ষা করুন (Interactive Preview Overrides):</span>
+                      </span>
+                      {(sampleCustomBloodGroup || sampleCustomFatherName || sampleCustomPhone || sampleCustomDob) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSampleCustomBloodGroup("");
+                            setSampleCustomFatherName("");
+                            setSampleCustomPhone("");
+                            setSampleCustomDob("");
+                          }}
+                          className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer"
+                        >
+                          রিসেট টেস্ট মান
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">রক্তের গ্রুপ (টেস্ট):</label>
+                        <select
+                          value={sampleCustomBloodGroup}
+                          onChange={(e) => setSampleCustomBloodGroup(e.target.value)}
+                          className="w-full p-2 bg-white border border-slate-200 rounded-xl font-bold text-slate-800 text-xs"
+                        >
+                          <option value="">-- শিক্ষার্থীর আসল গ্রুপ --</option>
+                          <option value="A+">A+ (A Positive)</option>
+                          <option value="A-">A- (A Negative)</option>
+                          <option value="B+">B+ (B Positive)</option>
+                          <option value="B-">B- (B Negative)</option>
+                          <option value="O+">O+ (O Positive)</option>
+                          <option value="O-">O- (O Negative)</option>
+                          <option value="AB+">AB+ (AB Positive)</option>
+                          <option value="AB-">AB- (AB Negative)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">পিতার নাম (টেস্ট):</label>
+                        <input
+                          type="text"
+                          placeholder="যেমন: মুহাম্মদ উসমান"
+                          value={sampleCustomFatherName}
+                          onChange={(e) => setSampleCustomFatherName(e.target.value)}
+                          className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-medium"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">অভিভাবকের ফোন (টেস্ট):</label>
+                        <input
+                          type="text"
+                          placeholder="যেমন: 01711-223344"
+                          value={sampleCustomPhone}
+                          onChange={(e) => setSampleCustomPhone(e.target.value)}
+                          className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB TAB 4: BACKSIDE INSTRUCTIONS */}
               {editorSubTab === "backside" && (
                 <div className="space-y-4 animate-in fade-in duration-150">
                   <div className="space-y-2">

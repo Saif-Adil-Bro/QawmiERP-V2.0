@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { StudentIDCard, normalizeStudentIdCode } from "@/lib/id-card-management";
+import { StudentIDCard, normalizeStudentIdCode, IDCardFieldVisibility } from "@/lib/id-card-management";
 import { IdCard, Phone } from "lucide-react";
 
 export type IDCardTemplateType =
@@ -13,13 +13,14 @@ export type IDCardTemplateType =
   | "modern"
   | "minimal";
 
-interface StudentIdCardTemplateProps {
+export interface StudentIdCardTemplateProps {
   card: StudentIDCard;
   side: "front" | "back";
   templateId?: IDCardTemplateType | string;
   themeColor?: string;
   madrasaNameSize?: string;
   customExpiryDate?: string;
+  fieldVisibility?: Partial<IDCardFieldVisibility>;
   madrasaInfo?: {
     name?: string;
     name_arabic?: string;
@@ -245,6 +246,7 @@ export default function StudentIdCardTemplate({
   themeColor = "emerald",
   madrasaNameSize = "medium",
   customExpiryDate,
+  fieldVisibility,
   madrasaInfo,
   customInstructions,
   signatureTitle = "মুহতামিম / অধ্যক্ষ",
@@ -306,6 +308,50 @@ export default function StudentIdCardTemplate({
   const madrasaWebsite = madrasaInfo?.website || "www.qawmierp.app";
   const mohtamimName = madrasaInfo?.principal_name?.trim() || "";
   const displayExpiryDate = customExpiryDate || card.expiry_date || "31-08-2027";
+
+  const fv = fieldVisibility || {};
+  const isFieldVisible = (key: keyof IDCardFieldVisibility, defaultVal: boolean = true) => {
+    return fv[key] !== undefined ? !!fv[key] : defaultVal;
+  };
+
+  const getDynamicInfoGrid = () => {
+    const items: { label: string; value: string; isHighlight?: boolean; colorClass?: string }[] = [];
+    if (isFieldVisible("class", true) && className && className !== "—") {
+      items.push({ label: "জামাত / শ্রেণি", value: className });
+    }
+    if (isFieldVisible("roll", true) && rollNumber && rollNumber !== "—") {
+      items.push({ label: "রোল নম্বর", value: rollNumber });
+    }
+    if (isFieldVisible("session", true) && sessionName && sessionName !== "—") {
+      items.push({ label: "শিক্ষাবর্ষ", value: sessionName });
+    }
+    if (isFieldVisible("blood_group", true) && bloodGroup) {
+      items.push({ label: "রক্তের গ্রুপ", value: bloodGroup, colorClass: "text-rose-600 font-bold", isHighlight: true });
+    }
+    if (isFieldVisible("father_name", false) && fatherName) {
+      items.push({ label: "পিতার নাম", value: fatherName });
+    }
+    if (isFieldVisible("phone", false) && parentPhone) {
+      items.push({ label: "অভিভাবকের ফোন", value: parentPhone });
+    }
+    if (isFieldVisible("dob", false) && snapshot.date_of_birth) {
+      items.push({ label: "জন্ম তারিখ", value: snapshot.date_of_birth });
+    }
+    if (isFieldVisible("address", false) && snapshot.address) {
+      items.push({ label: "ঠিকানা", value: snapshot.address });
+    }
+
+    if (items.length === 0) {
+      items.push({ label: "জামাত", value: className });
+      items.push({ label: "রোল", value: rollNumber });
+    } else if (items.length === 3 && !bloodGroup && !fatherName) {
+      items.push({ label: "স্ট্যাটাস", value: "নিয়মিত", colorClass: "text-emerald-700 font-bold" });
+    }
+
+    return items;
+  };
+
+  const infoGridItems = getDynamicInfoGrid();
 
   const cardContent = (
     <div
@@ -390,74 +436,53 @@ export default function StudentIdCardTemplate({
 
                 {/* Structured Info Grid */}
                 <div className="w-full mt-1.5 grid grid-cols-2 gap-1 text-[7.5px]">
-                  <div className="bg-white/90 p-0.5 px-1 rounded border border-slate-200/80 text-center">
-                    <span className="text-slate-500 block text-[6.5px]">জামাত / শ্রেণি</span>
-                    <strong className="text-slate-800 font-bold block truncate leading-tight">{className}</strong>
-                  </div>
-
-                  <div className="bg-white/90 p-0.5 px-1 rounded border border-slate-200/80 text-center">
-                    <span className="text-slate-500 block text-[6.5px]">রোল নম্বর</span>
-                    <strong className="text-slate-800 font-bold block leading-tight">{rollNumber}</strong>
-                  </div>
-
-                  <div className="bg-white/90 p-0.5 px-1 rounded border border-slate-200/80 text-center">
-                    <span className="text-slate-500 block text-[6.5px]">শিক্ষাবর্ষ</span>
-                    <strong className="text-slate-800 font-bold block truncate leading-tight">{sessionName}</strong>
-                  </div>
-
-                  {bloodGroup ? (
-                    <div className="bg-white/90 p-0.5 px-1 rounded border border-slate-200/80 text-center">
-                      <span className="text-slate-500 block text-[6.5px]">রক্তের গ্রুপ</span>
-                      <strong className="text-rose-600 font-bold block leading-tight">{bloodGroup}</strong>
+                  {infoGridItems.map((item, idx) => (
+                    <div key={idx} className="bg-white/90 p-0.5 px-1 rounded border border-slate-200/80 text-center">
+                      <span className="text-slate-500 block text-[6.5px]">{item.label}</span>
+                      <strong className={`block truncate leading-tight ${item.colorClass || "text-slate-800 font-bold"}`}>
+                        {item.value}
+                      </strong>
                     </div>
-                  ) : fatherName ? (
-                    <div className="bg-white/90 p-0.5 px-1 rounded border border-slate-200/80 text-center">
-                      <span className="text-slate-500 block text-[6.5px]">পিতার নাম</span>
-                      <strong className="text-slate-800 font-bold block truncate leading-tight">{fatherName}</strong>
-                    </div>
-                  ) : (
-                    <div className="bg-white/90 p-0.5 px-1 rounded border border-slate-200/80 text-center">
-                      <span className="text-slate-500 block text-[6.5px]">স্ট্যাটাস</span>
-                      <strong className="text-emerald-700 font-bold block leading-tight">নিয়মিত</strong>
-                    </div>
-                  )}
+                  ))}
                 </div>
               </div>
 
-              {/* Bottom Authorization & QR Section */}
-              <div className="bg-slate-50/90 px-2 py-1 border-t border-slate-200 flex items-end justify-between gap-1 shrink-0">
-                {/* Left: Signature (CENTER ALIGNED with dedicated blank space above line) */}
-                <div className="flex flex-col items-center justify-end flex-1 text-center min-h-[28px] pb-0.5">
+              {/* Bottom Authorization & QR Section - 100% MATHEMATICALLY CENTERED SIGNATURE */}
+              <div className="relative bg-slate-50/90 px-2 py-1 border-t border-slate-200 flex items-end justify-center min-h-[38px] shrink-0">
+                {/* Center: Signature Block */}
+                <div className="flex flex-col items-center justify-end text-center pb-0.5 mx-auto">
                   <div className="h-4 flex items-center justify-center mb-0.5 w-full">
                     {madrasaInfo?.signature_url ? (
-                      <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[48px] object-contain" />
+                      <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[54px] object-contain" />
                     ) : (
                       /* Reserved Blank Space for manual pen signature/stamp */
                       <div className="h-3 w-full" />
                     )}
                   </div>
-                  <div className="w-12 border-b border-slate-400 mb-0.5" />
-                  <span className="font-extrabold text-[6.5px] text-slate-700 block leading-none">{signatureTitle}</span>
+                  <div className="w-16 border-b border-slate-400 mb-0.5" />
+                  <span className="font-extrabold text-[7px] text-slate-700 block leading-none">{signatureTitle}</span>
                   {mohtamimName ? (
-                    <span className="text-[5.5px] text-slate-500 block leading-tight font-medium truncate max-w-[65px]">
+                    <span className="text-[6px] text-slate-600 block leading-tight font-medium truncate max-w-[95px] mt-0.5">
                       {mohtamimName}
                     </span>
                   ) : null}
                 </div>
 
-                {/* Right: QR Code (CENTER ALIGNED) */}
-                <div className="flex flex-col items-center justify-center shrink-0 text-center">
-                  {qrCodeUrl ? (
-                    <img
-                      src={qrCodeUrl}
-                      alt="QR"
-                      className={`w-8 h-8 border ${tc.qrBorder} p-0.5 rounded bg-white shadow-2xs`}
-                    />
-                  ) : (
-                    <div className="w-8 h-8 bg-slate-200 rounded animate-pulse" />
-                  )}
-                  <span className={`text-[5.5px] font-mono font-bold ${tc.qrText} mt-0.5 leading-none text-center block`}>{qrLabel}</span>
-                </div>
+                {/* Right: QR Code (Pinned absolute right so it NEVER offsets the signature) */}
+                {isFieldVisible("qr_code", true) && (
+                  <div className="absolute right-1.5 bottom-1 flex flex-col items-center justify-center shrink-0 text-center">
+                    {qrCodeUrl ? (
+                      <img
+                        src={qrCodeUrl}
+                        alt="QR"
+                        className={`w-7 h-7 border ${tc.qrBorder} p-0.5 rounded bg-white shadow-2xs`}
+                      />
+                    ) : (
+                      <div className="w-7 h-7 bg-slate-200 rounded animate-pulse" />
+                    )}
+                    <span className={`text-[5px] font-mono font-bold ${tc.qrText} mt-0.5 leading-none text-center block`}>{qrLabel}</span>
+                  </div>
+                )}
               </div>
 
               {/* Bottom Strip */}
@@ -569,51 +594,41 @@ export default function StudentIdCardTemplate({
 
                 {/* Info List */}
                 <div className="w-full mt-1.5 space-y-0.5 text-[7.5px]">
-                  <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                    <span className="text-slate-500">জামাত:</span>
-                    <span className="font-bold text-slate-800 truncate">{className}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                    <span className="text-slate-500">রোল:</span>
-                    <span className="font-bold text-slate-800">{rollNumber}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                    <span className="text-slate-500">সেশন:</span>
-                    <span className="font-bold text-slate-800 truncate">{sessionName}</span>
-                  </div>
-                  {bloodGroup && (
-                    <div className="flex justify-between pb-0.5">
-                      <span className="text-slate-500">রক্ত:</span>
-                      <span className="font-bold text-rose-600">{bloodGroup}</span>
+                  {infoGridItems.map((item, idx) => (
+                    <div key={idx} className="flex justify-between border-b border-slate-100 pb-0.5">
+                      <span className="text-slate-500">{item.label}:</span>
+                      <span className={`truncate ${item.colorClass || "font-bold text-slate-800"}`}>{item.value}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
 
-              {/* Bottom Footer - CENTER ALIGNED WITH SIGNATURE BLANK SPACE */}
-              <div className="p-1.5 bg-slate-50 border-t border-slate-200 flex items-end justify-between gap-1 shrink-0">
-                <div className="flex flex-col items-center justify-end flex-1 text-center min-h-[28px] pb-0.5">
+              {/* Bottom Footer - 100% MATHEMATICALLY CENTERED SIGNATURE */}
+              <div className="relative p-1.5 bg-slate-50 border-t border-slate-200 flex items-end justify-center min-h-[38px] shrink-0">
+                <div className="flex flex-col items-center justify-end text-center pb-0.5 mx-auto">
                   <div className="h-4 flex items-center justify-center mb-0.5 w-full">
                     {madrasaInfo?.signature_url ? (
-                      <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[48px] object-contain" />
+                      <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[54px] object-contain" />
                     ) : (
                       <div className="h-3 w-full" />
                     )}
                   </div>
-                  <div className="w-10 border-b border-slate-400 mb-0.5" />
-                  <span className="font-extrabold text-[6.5px] text-slate-700 block leading-none">{signatureTitle}</span>
+                  <div className="w-16 border-b border-slate-400 mb-0.5" />
+                  <span className="font-extrabold text-[7px] text-slate-700 block leading-none">{signatureTitle}</span>
                   {mohtamimName ? (
-                    <span className="text-[5.5px] text-slate-500 block leading-tight font-medium truncate max-w-[65px]">
+                    <span className="text-[6px] text-slate-600 block leading-tight font-medium truncate max-w-[95px] mt-0.5">
                       {mohtamimName}
                     </span>
                   ) : null}
                 </div>
-                <div className="flex flex-col items-center justify-center shrink-0 text-center">
-                  {qrCodeUrl && (
-                    <img src={qrCodeUrl} alt="QR" className={`w-8 h-8 rounded border ${tc.badgeBorder} p-0.5 bg-white shadow-2xs`} />
-                  )}
-                  <span className="text-[5.5px] font-mono font-bold text-slate-500 mt-0.5 leading-none text-center block">{qrLabel}</span>
-                </div>
+                {isFieldVisible("qr_code", true) && (
+                  <div className="absolute right-1.5 bottom-1 flex flex-col items-center justify-center shrink-0 text-center">
+                    {qrCodeUrl && (
+                      <img src={qrCodeUrl} alt="QR" className={`w-7 h-7 rounded border ${tc.badgeBorder} p-0.5 bg-white shadow-2xs`} />
+                    )}
+                    <span className="text-[5px] font-mono font-bold text-slate-500 mt-0.5 leading-none text-center block">{qrLabel}</span>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -709,41 +724,43 @@ export default function StudentIdCardTemplate({
 
                 {/* Details Grid */}
                 <div className="w-full mt-1 grid grid-cols-2 gap-1 text-[7px]">
-                  <div className={`${tc.gridItemBg} p-0.5 rounded border ${tc.gridItemBorder} text-center`}>
-                    <span className="text-amber-200/80 block text-[6px]">জামাত</span>
-                    <strong className="text-white font-bold block truncate leading-tight">{className}</strong>
-                  </div>
-                  <div className={`${tc.gridItemBg} p-0.5 rounded border ${tc.gridItemBorder} text-center`}>
-                    <span className="text-amber-200/80 block text-[6px]">রোল</span>
-                    <strong className="text-white font-bold block leading-tight">{rollNumber}</strong>
-                  </div>
+                  {infoGridItems.map((item, idx) => (
+                    <div key={idx} className={`${tc.gridItemBg} p-0.5 rounded border ${tc.gridItemBorder} text-center`}>
+                      <span className="text-amber-200/80 block text-[6px]">{item.label}</span>
+                      <strong className={`block truncate leading-tight ${item.colorClass || "text-white font-bold"}`}>
+                        {item.value}
+                      </strong>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {/* Footer - CENTER ALIGNED WITH SIGNATURE BLANK SPACE */}
-              <div className={`p-1.5 ${tc.darkHeader} border-t border-amber-400/50 flex items-end justify-between gap-1 shrink-0`}>
-                <div className="flex flex-col items-center justify-end flex-1 text-center min-h-[28px] pb-0.5">
+              {/* Footer - 100% MATHEMATICALLY CENTERED SIGNATURE */}
+              <div className={`relative p-1.5 ${tc.darkHeader} border-t border-amber-400/50 flex items-end justify-center min-h-[38px] shrink-0`}>
+                <div className="flex flex-col items-center justify-end text-center pb-0.5 mx-auto">
                   <div className="h-4 flex items-center justify-center mb-0.5 w-full">
                     {madrasaInfo?.signature_url ? (
-                      <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[48px] object-contain" />
+                      <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[54px] object-contain" />
                     ) : (
                       <div className="h-3 w-full" />
                     )}
                   </div>
-                  <div className="w-10 border-b border-amber-300/80 mb-0.5" />
-                  <span className="font-extrabold text-[6.5px] text-amber-200 block leading-none">{signatureTitle}</span>
+                  <div className="w-16 border-b border-amber-300/80 mb-0.5" />
+                  <span className="font-extrabold text-[7px] text-amber-200 block leading-none">{signatureTitle}</span>
                   {mohtamimName ? (
-                    <span className="text-[5.5px] text-amber-300/80 block leading-tight font-medium truncate max-w-[65px]">
+                    <span className="text-[6px] text-amber-300/80 block leading-tight font-medium truncate max-w-[95px] mt-0.5">
                       {mohtamimName}
                     </span>
                   ) : null}
                 </div>
-                <div className="flex flex-col items-center justify-center shrink-0 text-center">
-                  {qrCodeUrl && (
-                    <img src={qrCodeUrl} alt="QR" className="w-8 h-8 rounded border border-amber-400 p-0.5 bg-white shadow-2xs" />
-                  )}
-                  <span className="text-[5.5px] font-mono font-bold text-amber-300 mt-0.5 leading-none text-center block">{qrLabel}</span>
-                </div>
+                {isFieldVisible("qr_code", true) && (
+                  <div className="absolute right-1.5 bottom-1 flex flex-col items-center justify-center shrink-0 text-center">
+                    {qrCodeUrl && (
+                      <img src={qrCodeUrl} alt="QR" className="w-7 h-7 rounded border border-amber-400 p-0.5 bg-white shadow-2xs" />
+                    )}
+                    <span className="text-[5px] font-mono font-bold text-amber-300 mt-0.5 leading-none text-center block">{qrLabel}</span>
+                  </div>
+                )}
               </div>
             </div>
           ) : (

@@ -123,6 +123,45 @@ export default function NewStudentPage() {
               </select>
             </div>
 
+            <div className="space-y-2">
+              <label
+                htmlFor="blood_group"
+                className="text-sm font-medium text-slate-700"
+              >
+                রক্তের গ্রুপ (Blood Group)
+              </label>
+              <select
+                id="blood_group"
+                name="blood_group"
+                className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white"
+              >
+                <option value="">নির্বাচন করুন (ঐচ্ছিক)</option>
+                <option value="A+">A+ (এ পজিটিভ)</option>
+                <option value="A-">A- (এ নেগেটিভ)</option>
+                <option value="B+">B+ (বি পজিটিভ)</option>
+                <option value="B-">B- (বি নেগেটিভ)</option>
+                <option value="O+">O+ (ও পজিটিভ)</option>
+                <option value="O-">O- (ও নেগেটিভ)</option>
+                <option value="AB+">AB+ (এবি পজিটিভ)</option>
+                <option value="AB-">AB- (এবি নেগেটিভ)</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="date_of_birth"
+                className="text-sm font-medium text-slate-700"
+              >
+                জন্ম তারিখ (Date of Birth)
+              </label>
+              <input
+                type="date"
+                id="date_of_birth"
+                name="date_of_birth"
+                className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 transition"
+              />
+            </div>
+
             <div className="space-y-2 md:col-span-2">
               <label
                 htmlFor="father_name"

@@ -169,6 +169,8 @@ export async function createStudent(prevState: any, formData: FormData) {
   const lastName = formData.get("last_name") as string;
   const rollNumber = formData.get("roll_number") as string;
   const classId = formData.get("class_id") as string;
+  const bloodGroup = (formData.get("blood_group") as string) || "";
+  const dateOfBirth = (formData.get("date_of_birth") as string) || "";
   const parentPhone = formData.get("parent_phone") as string;
   const parentEmail = formData.get("parent_email") as string;
   const password = formData.get("password") as string;
@@ -212,21 +214,40 @@ export async function createStudent(prevState: any, formData: FormData) {
     }
   }
 
-  const { data: insertedStudent, error } = await supabase.from("students").insert({
+  let studentPayload: any = {
     madrasa_id: finalMadrasaId,
     first_name: firstName,
     last_name: lastName,
     roll_number: rollNumber,
     class_id: classId,
+    blood_group: bloodGroup,
+    date_of_birth: dateOfBirth,
     parent_phone: parentPhone,
     father_name: fatherName,
     address: address,
     photo_url: photoUrl,
-  }).select("id").single();
+  };
 
+  let insertedStudent: any = null;
+  const { data: resData, error } = await supabase.from("students").insert(studentPayload).select("id").single();
+  
   if (error) {
-    console.error("Error creating student:", error);
-    return { error: error.message };
+    // If blood_group or date_of_birth column doesn't exist in students table, retry without them
+    if (error.message?.includes("blood_group") || error.message?.includes("date_of_birth")) {
+      delete studentPayload.blood_group;
+      delete studentPayload.date_of_birth;
+      const { data: fallbackData, error: fallbackError } = await supabase.from("students").insert(studentPayload).select("id").single();
+      if (fallbackError) {
+        console.error("Error creating student:", fallbackError);
+        return { error: fallbackError.message };
+      }
+      insertedStudent = fallbackData;
+    } else {
+      console.error("Error creating student:", error);
+      return { error: error.message };
+    }
+  } else {
+    insertedStudent = resData;
   }
 
   // Auto enroll student into current active academic session
@@ -270,6 +291,8 @@ export async function updateStudent(prevState: any, formData: FormData) {
   const lastName = formData.get("last_name") as string;
   const rollNumber = formData.get("roll_number") as string;
   const classId = formData.get("class_id") as string;
+  const bloodGroup = (formData.get("blood_group") as string) || "";
+  const dateOfBirth = (formData.get("date_of_birth") as string) || "";
   const parentPhone = formData.get("parent_phone") as string;
   const fatherName = formData.get("father_name") as string;
   const address = formData.get("address") as string;
@@ -279,19 +302,30 @@ export async function updateStudent(prevState: any, formData: FormData) {
     return { error: "ID, First name, Last name and Class are required." };
   }
 
-  const { error } = await supabase
+  let updatePayload: any = {
+    first_name: firstName,
+    last_name: lastName,
+    roll_number: rollNumber,
+    class_id: classId,
+    blood_group: bloodGroup,
+    date_of_birth: dateOfBirth,
+    parent_phone: parentPhone,
+    father_name: fatherName,
+    address: address,
+    photo_url: photoUrl,
+  };
+
+  let { error } = await supabase
     .from("students")
-    .update({
-      first_name: firstName,
-      last_name: lastName,
-      roll_number: rollNumber,
-      class_id: classId,
-      parent_phone: parentPhone,
-      father_name: fatherName,
-      address: address,
-      photo_url: photoUrl,
-    })
+    .update(updatePayload)
     .eq("id", id);
+
+  if (error && (error.message?.includes("blood_group") || error.message?.includes("date_of_birth"))) {
+    delete updatePayload.blood_group;
+    delete updatePayload.date_of_birth;
+    const res = await supabase.from("students").update(updatePayload).eq("id", id);
+    error = res.error;
+  }
 
   if (error) {
     console.error("Error updating student:", error);

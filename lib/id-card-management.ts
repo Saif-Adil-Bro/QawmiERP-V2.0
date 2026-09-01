@@ -48,6 +48,20 @@ export interface IDCardFieldVisibility {
   qr_code: boolean;
 }
 
+export const DEFAULT_FIELD_VISIBILITY: IDCardFieldVisibility = {
+  photo: true,
+  student_id: true,
+  class: true,
+  roll: true,
+  session: true,
+  father_name: false,
+  phone: false,
+  blood_group: true,
+  dob: false,
+  address: false,
+  qr_code: true,
+};
+
 export interface IDCardTemplateConfig {
   id: string;
   name: string;
