@@ -17,6 +17,8 @@ interface StudentIdCardTemplateProps {
   card: StudentIDCard;
   side: "front" | "back";
   templateId?: IDCardTemplateType | string;
+  themeColor?: string;
+  madrasaNameSize?: string;
   madrasaInfo?: {
     name?: string;
     name_arabic?: string;
@@ -33,6 +35,184 @@ interface StudentIdCardTemplateProps {
   qrDataUrl?: string;
   scale?: number;
 }
+
+type ThemeColorKey = "emerald" | "blue" | "indigo" | "rose" | "slate";
+
+const getThemeClasses = (color?: string) => {
+  const c = (color || "emerald") as ThemeColorKey;
+  switch (c) {
+    case "blue":
+      return {
+        headerBg: "bg-blue-900",
+        headerBorder: "border-amber-400",
+        headerText: "text-amber-100",
+        headerSub: "text-blue-200/90",
+        pillBg: "bg-blue-100/80",
+        pillText: "text-blue-900",
+        pillBorder: "border-blue-300",
+        photoBorder: "border-amber-400",
+        qrBorder: "border-blue-800/30",
+        qrText: "text-blue-800",
+        cardBg: "from-blue-50/40 via-white to-slate-50/30",
+        accentLine: "from-blue-600 via-blue-800 to-blue-600",
+        accentText: "text-blue-900",
+        badgeBg: "bg-blue-50",
+        badgeText: "text-blue-800",
+        badgeBorder: "border-blue-200",
+        bottomStrip: "bg-blue-900",
+        darkBg: "bg-blue-950",
+        darkHeader: "bg-blue-900",
+        gridItemBg: "bg-blue-900/80",
+        gridItemBorder: "border-blue-700/60",
+        backHeaderBg: "bg-blue-900",
+        backHeaderBorder: "border-amber-400",
+        backHeaderText: "text-amber-300",
+        backContactBg: "bg-blue-50/80",
+        backContactBorder: "border-blue-200",
+        backContactTitle: "text-blue-900",
+        backContactIcon: "text-blue-700",
+      };
+    case "indigo":
+      return {
+        headerBg: "bg-indigo-900",
+        headerBorder: "border-amber-400",
+        headerText: "text-amber-100",
+        headerSub: "text-indigo-200/90",
+        pillBg: "bg-indigo-100/80",
+        pillText: "text-indigo-900",
+        pillBorder: "border-indigo-300",
+        photoBorder: "border-amber-400",
+        qrBorder: "border-indigo-800/30",
+        qrText: "text-indigo-800",
+        cardBg: "from-indigo-50/40 via-white to-slate-50/30",
+        accentLine: "from-indigo-600 via-indigo-800 to-indigo-600",
+        accentText: "text-indigo-900",
+        badgeBg: "bg-indigo-50",
+        badgeText: "text-indigo-800",
+        badgeBorder: "border-indigo-200",
+        bottomStrip: "bg-indigo-900",
+        darkBg: "bg-indigo-950",
+        darkHeader: "bg-indigo-900",
+        gridItemBg: "bg-indigo-900/80",
+        gridItemBorder: "border-indigo-700/60",
+        backHeaderBg: "bg-indigo-900",
+        backHeaderBorder: "border-amber-400",
+        backHeaderText: "text-amber-300",
+        backContactBg: "bg-indigo-50/80",
+        backContactBorder: "border-indigo-200",
+        backContactTitle: "text-indigo-900",
+        backContactIcon: "text-indigo-700",
+      };
+    case "rose":
+      return {
+        headerBg: "bg-rose-900",
+        headerBorder: "border-amber-400",
+        headerText: "text-amber-100",
+        headerSub: "text-rose-200/90",
+        pillBg: "bg-rose-100/80",
+        pillText: "text-rose-900",
+        pillBorder: "border-rose-300",
+        photoBorder: "border-amber-400",
+        qrBorder: "border-rose-800/30",
+        qrText: "text-rose-800",
+        cardBg: "from-rose-50/40 via-white to-slate-50/30",
+        accentLine: "from-rose-600 via-rose-800 to-rose-600",
+        accentText: "text-rose-900",
+        badgeBg: "bg-rose-50",
+        badgeText: "text-rose-800",
+        badgeBorder: "border-rose-200",
+        bottomStrip: "bg-rose-900",
+        darkBg: "bg-rose-950",
+        darkHeader: "bg-rose-900",
+        gridItemBg: "bg-rose-900/80",
+        gridItemBorder: "border-rose-700/60",
+        backHeaderBg: "bg-rose-900",
+        backHeaderBorder: "border-amber-400",
+        backHeaderText: "text-amber-300",
+        backContactBg: "bg-rose-50/80",
+        backContactBorder: "border-rose-200",
+        backContactTitle: "text-rose-900",
+        backContactIcon: "text-rose-700",
+      };
+    case "slate":
+      return {
+        headerBg: "bg-slate-900",
+        headerBorder: "border-amber-400",
+        headerText: "text-amber-100",
+        headerSub: "text-slate-300/90",
+        pillBg: "bg-slate-200/80",
+        pillText: "text-slate-900",
+        pillBorder: "border-slate-400",
+        photoBorder: "border-amber-400",
+        qrBorder: "border-slate-800/30",
+        qrText: "text-slate-800",
+        cardBg: "from-slate-100/50 via-white to-slate-50/30",
+        accentLine: "from-slate-700 via-slate-900 to-slate-700",
+        accentText: "text-slate-900",
+        badgeBg: "bg-slate-100",
+        badgeText: "text-slate-900",
+        badgeBorder: "border-slate-300",
+        bottomStrip: "bg-slate-900",
+        darkBg: "bg-slate-950",
+        darkHeader: "bg-slate-900",
+        gridItemBg: "bg-slate-900/80",
+        gridItemBorder: "border-slate-700/60",
+        backHeaderBg: "bg-slate-900",
+        backHeaderBorder: "border-amber-400",
+        backHeaderText: "text-amber-300",
+        backContactBg: "bg-slate-100",
+        backContactBorder: "border-slate-300",
+        backContactTitle: "text-slate-900",
+        backContactIcon: "text-slate-700",
+      };
+    case "emerald":
+    default:
+      return {
+        headerBg: "bg-emerald-900",
+        headerBorder: "border-amber-400",
+        headerText: "text-amber-100",
+        headerSub: "text-emerald-200/90",
+        pillBg: "bg-emerald-100/80",
+        pillText: "text-emerald-900",
+        pillBorder: "border-emerald-300",
+        photoBorder: "border-amber-400",
+        qrBorder: "border-emerald-800/30",
+        qrText: "text-emerald-800",
+        cardBg: "from-emerald-50/40 via-white to-slate-50/30",
+        accentLine: "from-emerald-600 via-emerald-800 to-emerald-600",
+        accentText: "text-emerald-900",
+        badgeBg: "bg-emerald-50",
+        badgeText: "text-emerald-800",
+        badgeBorder: "border-emerald-200",
+        bottomStrip: "bg-emerald-900",
+        darkBg: "bg-emerald-950",
+        darkHeader: "bg-emerald-900",
+        gridItemBg: "bg-emerald-900/80",
+        gridItemBorder: "border-emerald-700/60",
+        backHeaderBg: "bg-emerald-900",
+        backHeaderBorder: "border-amber-400",
+        backHeaderText: "text-amber-300",
+        backContactBg: "bg-emerald-50/80",
+        backContactBorder: "border-emerald-200",
+        backContactTitle: "text-emerald-900",
+        backContactIcon: "text-emerald-700",
+      };
+  }
+};
+
+const getMadrasaNameFontSize = (size?: string) => {
+  switch (size) {
+    case "small":
+      return "8px";
+    case "large":
+      return "11.5px";
+    case "xlarge":
+      return "13px";
+    case "medium":
+    default:
+      return "9.5px";
+  }
+};
 
 // Background Islamic Star SVG Watermark
 const IslamicStarWatermark = () => (
@@ -61,6 +241,8 @@ export default function StudentIdCardTemplate({
   card,
   side,
   templateId = "classic_islamic",
+  themeColor = "emerald",
+  madrasaNameSize = "medium",
   madrasaInfo,
   customInstructions,
   signatureTitle = "মুহতামিম / অধ্যক্ষ",
@@ -80,7 +262,7 @@ export default function StudentIdCardTemplate({
       QRCode.toDataURL(verifyUrl, {
         width: 240,
         margin: 1,
-        color: { dark: "#064e3b", light: "#ffffff" },
+        color: { dark: "#0f172a", light: "#ffffff" },
       })
         .then((url) => setInternalQrUrl(url))
         .catch((err) => console.error("QR Code Error:", err));
@@ -88,6 +270,8 @@ export default function StudentIdCardTemplate({
   }, [card?.verification_id, externalQrUrl]);
 
   const qrCodeUrl = externalQrUrl || internalQrUrl;
+  const tc = getThemeClasses(themeColor);
+  const nameFontSize = getMadrasaNameFontSize(madrasaNameSize);
 
   // Map backwards-compatible template IDs
   let resolvedTemplate: "classic_islamic" | "modern_minimal" | "premium_madrasa" =
@@ -131,15 +315,15 @@ export default function StudentIdCardTemplate({
       <IslamicStarWatermark />
 
       {/* =========================================================================
-          TEMPLATE 1: CLASSIC ISLAMIC (Classic Emerald & Gold Theme)
+          TEMPLATE 1: CLASSIC ISLAMIC (Dynamic Theme & Font Control)
          ========================================================================= */}
       {resolvedTemplate === "classic_islamic" && (
         <>
           {side === "front" ? (
             /* FRONT SIDE */
-            <div className="w-full h-full flex flex-col justify-between relative z-10 text-slate-900 bg-linear-to-b from-emerald-50/40 via-white to-slate-50/30">
+            <div className={`w-full h-full flex flex-col justify-between relative z-10 text-slate-900 bg-linear-to-b ${tc.cardBg}`}>
               {/* Header */}
-              <div className="bg-emerald-900 text-white pt-2 pb-1.5 px-1.5 text-center relative border-b-2 border-amber-400 shrink-0">
+              <div className={`${tc.headerBg} text-white pt-2 pb-1.5 px-1.5 text-center relative border-b-2 ${tc.headerBorder} shrink-0`}>
                 <div className="flex items-center justify-center gap-1 mb-0.5">
                   {madrasaInfo?.logo_url ? (
                     <img
@@ -148,27 +332,30 @@ export default function StudentIdCardTemplate({
                       className="w-4 h-4 object-contain rounded-full bg-white/10 p-0.5 border border-amber-300/40"
                     />
                   ) : (
-                    <div className="w-4 h-4 rounded-full bg-emerald-800 border border-amber-400/60 flex items-center justify-center text-[7px] font-bold text-amber-300">
+                    <div className="w-4 h-4 rounded-full bg-white/20 border border-amber-400/60 flex items-center justify-center text-[7px] font-bold text-amber-300">
                       م
                     </div>
                   )}
-                  <h3 className="font-bold text-[9.5px] leading-tight text-amber-100 tracking-tight line-clamp-1">
+                  <h3
+                    className="font-bold leading-tight text-amber-100 tracking-tight line-clamp-1"
+                    style={{ fontSize: nameFontSize }}
+                  >
                     {madrasaName}
                   </h3>
                 </div>
-                <p className="text-[7px] text-emerald-200/90 leading-none line-clamp-1">{madrasaAddress}</p>
+                <p className={`text-[7px] ${tc.headerSub} leading-none line-clamp-1`}>{madrasaAddress}</p>
                 
                 {/* Gold Subheader Banner */}
-                <div className="mt-1 mx-auto max-w-[90%] bg-linear-to-r from-amber-500 via-yellow-400 to-amber-500 text-emerald-950 text-[7px] font-black py-0.2 px-1.5 rounded-full uppercase tracking-wider shadow-2xs">
+                <div className="mt-1 mx-auto max-w-[90%] bg-linear-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 text-[7px] font-black py-0.2 px-1.5 rounded-full uppercase tracking-wider shadow-2xs">
                   STUDENT ID CARD • ছাত্র পরিচয়পত্র
                 </div>
               </div>
 
               {/* Photo & Identity Core */}
               <div className="flex-1 flex flex-col items-center px-2 pt-1 pb-0.5">
-                {/* Photo frame with Gold Border */}
+                {/* Photo frame with Border */}
                 <div className="relative mb-0.5">
-                  <div className="w-[50px] h-[50px] rounded-lg border-2 border-amber-400 bg-slate-100 shadow-2xs overflow-hidden flex items-center justify-center">
+                  <div className={`w-[50px] h-[50px] rounded-lg border-2 ${tc.photoBorder} bg-slate-100 shadow-2xs overflow-hidden flex items-center justify-center`}>
                     {photoUrl ? (
                       <img src={photoUrl} alt={studentName} className="w-full h-full object-cover" />
                     ) : (
@@ -191,7 +378,7 @@ export default function StudentIdCardTemplate({
                   {studentName}
                 </h4>
 
-                <div className="mt-0.5 px-1.5 py-0.1 bg-emerald-100/80 text-emerald-900 rounded border border-emerald-300 font-mono font-bold text-[8px]">
+                <div className={`mt-0.5 px-1.5 py-0.1 ${tc.pillBg} ${tc.pillText} rounded border ${tc.pillBorder} font-mono font-bold text-[8px]`}>
                   {studentIdCode}
                 </div>
 
@@ -231,42 +418,46 @@ export default function StudentIdCardTemplate({
                 </div>
               </div>
 
-              {/* Bottom Authorization & QR Section - CENTER ALIGNED */}
-              <div className="bg-slate-50 px-2 py-1 border-t border-slate-200 flex items-center justify-between gap-1 shrink-0">
-                {/* Left: Mohtamim Signature (CENTER ALIGNED) */}
-                <div className="flex flex-col items-center justify-center flex-1 text-center">
-                  {madrasaInfo?.signature_url ? (
-                    <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[45px] object-contain mb-0.5" />
-                  ) : (
-                    <div className="w-10 border-b border-slate-400 mb-1" />
-                  )}
+              {/* Bottom Authorization & QR Section */}
+              <div className="bg-slate-50/90 px-2 py-1 border-t border-slate-200 flex items-end justify-between gap-1 shrink-0">
+                {/* Left: Signature (CENTER ALIGNED with dedicated blank space above line) */}
+                <div className="flex flex-col items-center justify-end flex-1 text-center min-h-[28px] pb-0.5">
+                  <div className="h-4 flex items-center justify-center mb-0.5 w-full">
+                    {madrasaInfo?.signature_url ? (
+                      <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[48px] object-contain" />
+                    ) : (
+                      /* Reserved Blank Space for manual pen signature/stamp */
+                      <div className="h-3 w-full" />
+                    )}
+                  </div>
+                  <div className="w-12 border-b border-slate-400 mb-0.5" />
                   <span className="font-extrabold text-[6.5px] text-slate-700 block leading-none">{signatureTitle}</span>
                 </div>
 
                 {/* Right: QR Code (CENTER ALIGNED) */}
-                <div className="flex flex-col items-center justify-center shrink-0">
+                <div className="flex flex-col items-center justify-center shrink-0 text-center">
                   {qrCodeUrl ? (
                     <img
                       src={qrCodeUrl}
                       alt="QR"
-                      className="w-8 h-8 border border-emerald-800/20 p-0.5 rounded bg-white shadow-2xs"
+                      className={`w-8 h-8 border ${tc.qrBorder} p-0.5 rounded bg-white shadow-2xs`}
                     />
                   ) : (
                     <div className="w-8 h-8 bg-slate-200 rounded animate-pulse" />
                   )}
-                  <span className="text-[5.5px] font-mono font-bold text-emerald-800 mt-0.5 leading-none">{qrLabel}</span>
+                  <span className={`text-[5.5px] font-mono font-bold ${tc.qrText} mt-0.5 leading-none text-center block`}>{qrLabel}</span>
                 </div>
               </div>
 
-              {/* Bottom Emerald Strip */}
-              <div className="h-1 bg-emerald-900 w-full shrink-0" />
+              {/* Bottom Strip */}
+              <div className={`h-1 ${tc.bottomStrip} w-full shrink-0`} />
             </div>
           ) : (
             /* BACK SIDE */
             <div className="w-full h-full flex flex-col justify-between relative z-10 text-slate-800 bg-white p-2">
               <div>
                 {/* Back Header */}
-                <div className="bg-emerald-900 text-amber-300 py-0.5 px-1.5 rounded-md text-center font-bold text-[8.5px] mb-1.5 shadow-2xs border-b border-amber-400">
+                <div className={`${tc.backHeaderBg} ${tc.backHeaderText} py-0.5 px-1.5 rounded-md text-center font-bold text-[8.5px] mb-1.5 shadow-2xs border-b ${tc.backHeaderBorder}`}>
                   জরুরি নির্দেশাবলী
                 </div>
 
@@ -284,9 +475,9 @@ export default function StudentIdCardTemplate({
                 </ul>
 
                 {/* Emergency Contact Box */}
-                <div className="mt-2 p-1 bg-emerald-50/80 rounded-lg border border-emerald-200 space-y-0.5 text-[7px]">
-                  <div className="flex items-center gap-1 font-bold text-emerald-900 border-b border-emerald-200/60 pb-0.5">
-                    <Phone className="w-2 h-2 text-emerald-700" />
+                <div className={`mt-2 p-1 ${tc.backContactBg} rounded-lg border ${tc.backContactBorder} space-y-0.5 text-[7px]`}>
+                  <div className={`flex items-center gap-1 font-bold ${tc.backContactTitle} border-b border-slate-200/60 pb-0.5`}>
+                    <Phone className={`w-2 h-2 ${tc.backContactIcon}`} />
                     <span>জরুরি যোগাযোগ</span>
                   </div>
                   {parentPhone && (
@@ -309,7 +500,7 @@ export default function StudentIdCardTemplate({
                   <span>মেয়াদ: {card.expiry_date || "31-08-2027"}</span>
                 </div>
 
-                <div className="bg-slate-900 text-white py-0.5 rounded text-[6.5px] font-bold line-clamp-1">
+                <div className={`${tc.headerBg} text-white py-0.5 rounded text-[6.5px] font-bold line-clamp-1`}>
                   {madrasaName}
                 </div>
                 <p className="text-[6px] text-slate-400 font-mono truncate">{madrasaWebsite}</p>
@@ -320,29 +511,32 @@ export default function StudentIdCardTemplate({
       )}
 
       {/* =========================================================================
-          TEMPLATE 2: MODERN MINIMAL (Clean White & Emerald Accent)
+          TEMPLATE 2: MODERN MINIMAL
          ========================================================================= */}
       {resolvedTemplate === "modern_minimal" && (
         <>
           {side === "front" ? (
             <div className="w-full h-full flex flex-col justify-between relative z-10 bg-white text-slate-800">
               {/* Top Accent Line */}
-              <div className="h-1.5 bg-linear-to-r from-emerald-600 via-emerald-800 to-emerald-600 w-full shrink-0" />
+              <div className={`h-1.5 bg-linear-to-r ${tc.accentLine} w-full shrink-0`} />
 
               {/* Header */}
               <div className="pt-1.5 px-1.5 text-center shrink-0">
-                <h3 className="font-extrabold text-[9.5px] text-emerald-950 leading-tight line-clamp-1">
+                <h3
+                  className={`font-extrabold ${tc.accentText} leading-tight line-clamp-1`}
+                  style={{ fontSize: nameFontSize }}
+                >
                   {madrasaName}
                 </h3>
                 <p className="text-[7px] text-slate-500 line-clamp-1 mt-0.5">{madrasaAddress}</p>
-                <span className="inline-block mt-0.5 px-1.5 py-0.1 bg-emerald-50 text-emerald-800 rounded-full text-[6.5px] font-bold border border-emerald-200">
+                <span className={`inline-block mt-0.5 px-1.5 py-0.1 ${tc.badgeBg} ${tc.badgeText} rounded-full text-[6.5px] font-bold border ${tc.badgeBorder}`}>
                   STUDENT IDENTITY CARD
                 </span>
               </div>
 
               {/* Center Student Photo & Info */}
               <div className="flex-1 flex flex-col items-center px-2 pt-1">
-                <div className="w-[48px] h-[48px] rounded-xl border-2 border-emerald-600/40 bg-slate-50 shadow-2xs overflow-hidden flex items-center justify-center mb-0.5">
+                <div className={`w-[48px] h-[48px] rounded-xl border-2 ${tc.badgeBorder} bg-slate-50 shadow-2xs overflow-hidden flex items-center justify-center mb-0.5`}>
                   {photoUrl ? (
                     <img src={photoUrl} alt={studentName} className="w-full h-full object-cover" />
                   ) : (
@@ -354,7 +548,7 @@ export default function StudentIdCardTemplate({
                   {studentName}
                 </h4>
 
-                <span className="font-mono font-bold text-[7.5px] text-emerald-700 bg-emerald-50 px-1 py-0.1 rounded border border-emerald-200 mt-0.5">
+                <span className={`font-mono font-bold text-[7.5px] ${tc.badgeText} ${tc.badgeBg} px-1 py-0.1 rounded border ${tc.badgeBorder} mt-0.5`}>
                   ID: {studentIdCode}
                 </span>
 
@@ -381,28 +575,31 @@ export default function StudentIdCardTemplate({
                 </div>
               </div>
 
-              {/* Bottom Footer - CENTER ALIGNED */}
-              <div className="p-1.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-1 shrink-0">
-                <div className="flex flex-col items-center justify-center flex-1 text-center">
-                  {madrasaInfo?.signature_url ? (
-                    <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[45px] object-contain mb-0.5" />
-                  ) : (
-                    <div className="w-10 border-b border-slate-400 mb-1" />
-                  )}
+              {/* Bottom Footer - CENTER ALIGNED WITH SIGNATURE BLANK SPACE */}
+              <div className="p-1.5 bg-slate-50 border-t border-slate-200 flex items-end justify-between gap-1 shrink-0">
+                <div className="flex flex-col items-center justify-end flex-1 text-center min-h-[28px] pb-0.5">
+                  <div className="h-4 flex items-center justify-center mb-0.5 w-full">
+                    {madrasaInfo?.signature_url ? (
+                      <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[48px] object-contain" />
+                    ) : (
+                      <div className="h-3 w-full" />
+                    )}
+                  </div>
+                  <div className="w-10 border-b border-slate-400 mb-0.5" />
                   <span className="font-extrabold text-[6.5px] text-slate-700 block leading-none">{signatureTitle}</span>
                 </div>
-                <div className="flex flex-col items-center justify-center shrink-0">
+                <div className="flex flex-col items-center justify-center shrink-0 text-center">
                   {qrCodeUrl && (
-                    <img src={qrCodeUrl} alt="QR" className="w-8 h-8 rounded border p-0.5 bg-white shadow-2xs" />
+                    <img src={qrCodeUrl} alt="QR" className={`w-8 h-8 rounded border ${tc.badgeBorder} p-0.5 bg-white shadow-2xs`} />
                   )}
-                  <span className="text-[5.5px] font-mono font-bold text-slate-500 mt-0.5 leading-none">{qrLabel}</span>
+                  <span className="text-[5.5px] font-mono font-bold text-slate-500 mt-0.5 leading-none text-center block">{qrLabel}</span>
                 </div>
               </div>
             </div>
           ) : (
             <div className="w-full h-full flex flex-col justify-between relative z-10 bg-white p-2 text-slate-800">
               <div>
-                <h4 className="font-bold text-[9px] text-emerald-900 border-b pb-0.5 mb-1">
+                <h4 className={`font-bold text-[9px] ${tc.accentText} border-b pb-0.5 mb-1`}>
                   জরুরি নির্দেশাবলী
                 </h4>
                 <ul className="space-y-0.5 text-[7px] text-slate-600 list-disc pl-3 leading-tight">
@@ -432,20 +629,25 @@ export default function StudentIdCardTemplate({
       )}
 
       {/* =========================================================================
-          TEMPLATE 3: PREMIUM MADRASA (Gold Ribbon & Royal Emerald Theme)
+          TEMPLATE 3: PREMIUM MADRASA
          ========================================================================= */}
       {resolvedTemplate === "premium_madrasa" && (
         <>
           {side === "front" ? (
-            <div className="w-full h-full flex flex-col justify-between relative z-10 bg-emerald-950 text-white">
+            <div className={`w-full h-full flex flex-col justify-between relative z-10 ${tc.darkBg} text-white`}>
               {/* Header */}
-              <div className="p-1.5 text-center bg-emerald-900 border-b-2 border-amber-400 shrink-0">
-                <h3 className="font-black text-[9.5px] text-amber-300 line-clamp-1">{madrasaName}</h3>
-                <p className="text-[6.5px] text-emerald-200 line-clamp-1">{madrasaAddress}</p>
+              <div className={`p-1.5 text-center ${tc.darkHeader} border-b-2 border-amber-400 shrink-0`}>
+                <h3
+                  className="font-black text-amber-300 line-clamp-1"
+                  style={{ fontSize: nameFontSize }}
+                >
+                  {madrasaName}
+                </h3>
+                <p className="text-[6.5px] text-amber-100/80 line-clamp-1">{madrasaAddress}</p>
               </div>
 
               {/* Gold Ribbon Header */}
-              <div className="bg-linear-to-r from-amber-400 via-amber-300 to-amber-500 text-emerald-950 text-[7px] font-black py-0.2 text-center uppercase tracking-widest shrink-0">
+              <div className="bg-linear-to-r from-amber-400 via-amber-300 to-amber-500 text-slate-950 text-[7px] font-black py-0.2 text-center uppercase tracking-widest shrink-0">
                 ★ OFFICIAL STUDENT ID ★
               </div>
 
@@ -464,42 +666,45 @@ export default function StudentIdCardTemplate({
 
                 {/* Details Grid */}
                 <div className="w-full mt-1 grid grid-cols-2 gap-1 text-[7px]">
-                  <div className="bg-emerald-900/80 p-0.5 rounded border border-emerald-700/60 text-center">
-                    <span className="text-emerald-300 block text-[6px]">জামাত</span>
+                  <div className={`${tc.gridItemBg} p-0.5 rounded border ${tc.gridItemBorder} text-center`}>
+                    <span className="text-amber-200/80 block text-[6px]">জামাত</span>
                     <strong className="text-white font-bold block truncate leading-tight">{className}</strong>
                   </div>
-                  <div className="bg-emerald-900/80 p-0.5 rounded border border-emerald-700/60 text-center">
-                    <span className="text-emerald-300 block text-[6px]">রোল</span>
+                  <div className={`${tc.gridItemBg} p-0.5 rounded border ${tc.gridItemBorder} text-center`}>
+                    <span className="text-amber-200/80 block text-[6px]">রোল</span>
                     <strong className="text-white font-bold block leading-tight">{rollNumber}</strong>
                   </div>
                 </div>
               </div>
 
-              {/* Footer - CENTER ALIGNED */}
-              <div className="p-1.5 bg-emerald-900 border-t border-amber-400/50 flex items-center justify-between gap-1 shrink-0">
-                <div className="flex flex-col items-center justify-center flex-1 text-center">
-                  {madrasaInfo?.signature_url ? (
-                    <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[45px] object-contain mb-0.5" />
-                  ) : (
-                    <div className="w-10 border-b border-amber-300/80 mb-1" />
-                  )}
+              {/* Footer - CENTER ALIGNED WITH SIGNATURE BLANK SPACE */}
+              <div className={`p-1.5 ${tc.darkHeader} border-t border-amber-400/50 flex items-end justify-between gap-1 shrink-0`}>
+                <div className="flex flex-col items-center justify-end flex-1 text-center min-h-[28px] pb-0.5">
+                  <div className="h-4 flex items-center justify-center mb-0.5 w-full">
+                    {madrasaInfo?.signature_url ? (
+                      <img src={madrasaInfo.signature_url} alt="Sign" className="h-4 max-w-[48px] object-contain" />
+                    ) : (
+                      <div className="h-3 w-full" />
+                    )}
+                  </div>
+                  <div className="w-10 border-b border-amber-300/80 mb-0.5" />
                   <span className="font-extrabold text-[6.5px] text-amber-200 block leading-none">{signatureTitle}</span>
                 </div>
-                <div className="flex flex-col items-center justify-center shrink-0">
+                <div className="flex flex-col items-center justify-center shrink-0 text-center">
                   {qrCodeUrl && (
                     <img src={qrCodeUrl} alt="QR" className="w-8 h-8 rounded border border-amber-400 p-0.5 bg-white shadow-2xs" />
                   )}
-                  <span className="text-[5.5px] font-mono font-bold text-amber-300 mt-0.5 leading-none">{qrLabel}</span>
+                  <span className="text-[5.5px] font-mono font-bold text-amber-300 mt-0.5 leading-none text-center block">{qrLabel}</span>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="w-full h-full flex flex-col justify-between relative z-10 bg-emerald-950 text-emerald-100 p-2">
+            <div className={`w-full h-full flex flex-col justify-between relative z-10 ${tc.darkBg} text-amber-100 p-2`}>
               <div>
                 <h4 className="font-black text-[9px] text-amber-300 border-b border-amber-400/40 pb-0.5 mb-1.5">
                   জরুরি নির্দেশাবলী
                 </h4>
-                <ul className="space-y-0.5 text-[7px] text-emerald-200 list-disc pl-3">
+                <ul className="space-y-0.5 text-[7px] text-amber-100/90 list-disc pl-3">
                   {customInstructions && customInstructions.length > 0 ? (
                     customInstructions.map((item, idx) => <li key={idx}>{item}</li>)
                   ) : (
@@ -511,8 +716,8 @@ export default function StudentIdCardTemplate({
                 </ul>
               </div>
 
-              <div className="border-t border-emerald-800 pt-1 text-center text-[6.5px] text-emerald-300">
-                <p className="font-bold text-amber-200">{madrasaName}</p>
+              <div className="border-t border-amber-400/30 pt-1 text-center text-[6.5px] text-amber-200">
+                <p className="font-bold text-amber-300">{madrasaName}</p>
                 <p>মেয়াদ: {card.expiry_date || "31-08-2027"}</p>
               </div>
             </div>

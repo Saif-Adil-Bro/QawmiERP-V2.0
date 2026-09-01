@@ -121,6 +121,7 @@ export default function IdCardClient({
   // Print Generator Customization States
   const [template, setTemplate] = useState("classic_islamic");
   const [themeColor, setThemeColor] = useState("blue");
+  const [madrasaNameSize, setMadrasaNameSize] = useState("medium");
   const [cardSide, setCardSide] = useState<"front" | "back" | "both">("both");
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
   const [titleFontSize, setTitleFontSize] = useState(11);
@@ -179,6 +180,7 @@ export default function IdCardClient({
   const handleResetBuilderDefaults = () => {
     setTemplate("classic_islamic");
     setThemeColor("blue");
+    setMadrasaNameSize("medium");
     setEditableMadrasaInfo({
       name: madrasaInfo?.name || "জামিয়া ইসলামিয়া দারুল উলুম",
       name_arabic: "الجامعة الإسلامية دار العلوم",
@@ -784,6 +786,8 @@ export default function IdCardClient({
                     card={cardItem.card}
                     side={cardItem.type}
                     templateId={template}
+                    themeColor={themeColor}
+                    madrasaNameSize={madrasaNameSize}
                     madrasaInfo={editableMadrasaInfo}
                     customInstructions={customInstructions}
                     signatureTitle={signatureTitle}
@@ -811,6 +815,8 @@ export default function IdCardClient({
                       card={c.card}
                       side={c.type}
                       templateId={template}
+                      themeColor={themeColor}
+                      madrasaNameSize={madrasaNameSize}
                       madrasaInfo={editableMadrasaInfo}
                       customInstructions={customInstructions}
                       signatureTitle={signatureTitle}
@@ -975,6 +981,8 @@ export default function IdCardClient({
                     card={builderSampleCard}
                     side={builderSide}
                     templateId={template}
+                    themeColor={themeColor}
+                    madrasaNameSize={madrasaNameSize}
                     madrasaInfo={editableMadrasaInfo}
                     customInstructions={customInstructions}
                     signatureTitle={signatureTitle}
@@ -1182,6 +1190,31 @@ export default function IdCardClient({
                         onChange={(e) => setEditableMadrasaInfo({ ...editableMadrasaInfo, name: e.target.value })}
                         className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold bg-slate-50 focus:bg-white"
                       />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 block">মাদরাসার নামের সাইজ (Font Size):</label>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {[
+                          { id: "small", label: "ছোট (৮px)" },
+                          { id: "medium", label: "সাধারণ (৯.৫px)" },
+                          { id: "large", label: "বড় (১১.৫px)" },
+                          { id: "xlarge", label: "অনেক বড় (১৩px)" },
+                        ].map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setMadrasaNameSize(s.id)}
+                            className={`flex-1 py-2 px-1.5 rounded-xl border text-[11px] font-bold transition cursor-pointer ${
+                              madrasaNameSize === s.id
+                                ? "border-emerald-600 bg-emerald-700 text-white shadow-2xs"
+                                : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                            }`}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="space-y-1">
