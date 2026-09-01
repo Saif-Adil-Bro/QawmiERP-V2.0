@@ -26,6 +26,9 @@ interface DigitalIdCardViewProps {
   onPrint?: () => void;
   showActions?: boolean;
   initialTemplate?: IDCardTemplateType;
+  themeColor?: string;
+  madrasaNameSize?: string;
+  customExpiryDate?: string;
 }
 
 export default function DigitalIdCardView({
@@ -34,6 +37,9 @@ export default function DigitalIdCardView({
   onPrint,
   showActions = true,
   initialTemplate = "classic_islamic",
+  themeColor,
+  madrasaNameSize,
+  customExpiryDate,
 }: DigitalIdCardViewProps) {
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [copied, setCopied] = useState(false);
@@ -205,6 +211,9 @@ export default function DigitalIdCardView({
               card={card}
               side={activeSide}
               templateId={selectedTemplate}
+              themeColor={themeColor}
+              madrasaNameSize={madrasaNameSize}
+              customExpiryDate={customExpiryDate}
               madrasaInfo={madrasaInfo}
               qrDataUrl={qrDataUrl}
               scale={1.25}
@@ -272,6 +281,9 @@ export default function DigitalIdCardView({
                 card={card}
                 side="front"
                 templateId={selectedTemplate}
+                themeColor={themeColor}
+                madrasaNameSize={madrasaNameSize}
+                customExpiryDate={customExpiryDate}
                 madrasaInfo={madrasaInfo}
                 qrDataUrl={qrDataUrl}
               />
@@ -282,6 +294,9 @@ export default function DigitalIdCardView({
                 card={card}
                 side="back"
                 templateId={selectedTemplate}
+                themeColor={themeColor}
+                madrasaNameSize={madrasaNameSize}
+                customExpiryDate={customExpiryDate}
                 madrasaInfo={madrasaInfo}
                 qrDataUrl={qrDataUrl}
               />

@@ -19,6 +19,7 @@ interface StudentIdCardTemplateProps {
   templateId?: IDCardTemplateType | string;
   themeColor?: string;
   madrasaNameSize?: string;
+  customExpiryDate?: string;
   madrasaInfo?: {
     name?: string;
     name_arabic?: string;
@@ -243,6 +244,7 @@ export default function StudentIdCardTemplate({
   templateId = "classic_islamic",
   themeColor = "emerald",
   madrasaNameSize = "medium",
+  customExpiryDate,
   madrasaInfo,
   customInstructions,
   signatureTitle = "মুহতামিম / অধ্যক্ষ",
@@ -300,14 +302,16 @@ export default function StudentIdCardTemplate({
   const madrasaAddress = madrasaInfo?.address || "ঢাকা, বাংলাদেশ";
   const madrasaPhone = madrasaInfo?.phone || "+880 1700-000000";
   const madrasaWebsite = madrasaInfo?.website || "www.qawmierp.app";
+  const mohtamimName = madrasaInfo?.principal_name || "আল্লামা মুফতি আব্দুল কাইয়ুম";
+  const displayExpiryDate = customExpiryDate || card.expiry_date || "31-08-2027";
 
-  return (
+  const cardContent = (
     <div
       className="relative rounded-[12px] overflow-hidden bg-white text-slate-800 shadow-md border border-slate-200 select-none print:shadow-none print:border-slate-300 id-card-print-item shrink-0"
       style={{
         width: "2.125in",
         height: "3.375in",
-        transform: scale !== 1 ? `scale(${scale})` : undefined,
+        transform: scale && scale !== 1 ? `scale(${scale})` : undefined,
         transformOrigin: "top left",
         boxSizing: "border-box",
       }}
@@ -456,13 +460,13 @@ export default function StudentIdCardTemplate({
             /* BACK SIDE */
             <div className="w-full h-full flex flex-col justify-between relative z-10 text-slate-800 bg-white p-2">
               <div>
-                {/* Back Header */}
-                <div className={`${tc.backHeaderBg} ${tc.backHeaderText} py-0.5 px-1.5 rounded-md text-center font-bold text-[8.5px] mb-1.5 shadow-2xs border-b ${tc.backHeaderBorder}`}>
-                  জরুরি নির্দেশাবলী
+                {/* Back Header - ALWAYS CENTER ALIGNED */}
+                <div className={`${tc.backHeaderBg} ${tc.backHeaderText} py-0.5 px-1.5 rounded-md text-center font-bold text-[8.5px] mb-1.5 shadow-2xs border-b ${tc.backHeaderBorder} w-full block`}>
+                  জরুরি নির্দেশনাবলি
                 </div>
 
                 {/* Instructions List */}
-                <ul className="space-y-0.5 text-[7px] text-slate-700 list-disc pl-3 leading-tight">
+                <ul className="space-y-0.5 text-[6.5px] text-slate-700 list-disc pl-3 leading-tight">
                   {customInstructions && customInstructions.length > 0 ? (
                     customInstructions.map((item, idx) => <li key={idx}>{item}</li>)
                   ) : (
@@ -475,35 +479,30 @@ export default function StudentIdCardTemplate({
                 </ul>
 
                 {/* Emergency Contact Box */}
-                <div className={`mt-2 p-1 ${tc.backContactBg} rounded-lg border ${tc.backContactBorder} space-y-0.5 text-[7px]`}>
-                  <div className={`flex items-center gap-1 font-bold ${tc.backContactTitle} border-b border-slate-200/60 pb-0.5`}>
+                <div className={`mt-1.5 p-1.5 ${tc.backContactBg} rounded-lg border ${tc.backContactBorder} space-y-0.5 text-[6.5px]`}>
+                  <div className={`flex items-center justify-center gap-1 font-bold ${tc.backContactTitle} border-b border-slate-200/60 pb-0.5 text-center`}>
                     <Phone className={`w-2 h-2 ${tc.backContactIcon}`} />
-                    <span>জরুরি যোগাযোগ</span>
+                    <span>জরুরী যোগাযোগ</span>
                   </div>
-                  {parentPhone && (
-                    <p className="truncate">
-                      <span className="text-slate-500">অভিভাবক:</span>{" "}
-                      <strong className="text-slate-800">{parentPhone}</strong>
+                  <p className="font-bold text-slate-900 truncate leading-tight mt-0.5">{madrasaName}</p>
+                  <p className="text-slate-600 truncate leading-tight">{madrasaAddress}</p>
+                  {mohtamimName && (
+                    <p className="text-slate-700 truncate leading-tight">
+                      <span className="text-slate-500 font-medium">মুহতামিম:</span> {mohtamimName}
                     </p>
                   )}
-                  <p className="truncate">
-                    <span className="text-slate-500">অফিস:</span>{" "}
-                    <strong className="text-slate-800">{madrasaPhone}</strong>
+                  <p className="text-slate-700 truncate leading-tight font-mono font-bold">
+                    <span className="text-slate-500 font-sans font-normal">মোবাইল:</span> {madrasaPhone}
                   </p>
                 </div>
               </div>
 
               {/* Footer Section */}
-              <div className="border-t border-slate-200 pt-1 space-y-0.5 text-[7px] text-center">
-                <div className="flex justify-between items-center text-[6.5px] text-slate-500 px-0.5 font-mono">
-                  <span>ইস্যু: {card.issue_date || "01-09-2026"}</span>
-                  <span>মেয়াদ: {card.expiry_date || "31-08-2027"}</span>
-                </div>
-
-                <div className={`${tc.headerBg} text-white py-0.5 rounded text-[6.5px] font-bold line-clamp-1`}>
-                  {madrasaName}
-                </div>
-                <p className="text-[6px] text-slate-400 font-mono truncate">{madrasaWebsite}</p>
+              <div className="border-t border-slate-200 pt-1 space-y-0.5 text-[6.5px] text-center">
+                <p className="font-bold text-slate-800 text-[7px] truncate">{madrasaName}</p>
+                <p className="text-slate-600 font-bold text-[6.5px]">
+                  কার্ডের মেয়াদ: <span className="font-mono">{displayExpiryDate}</span>
+                </p>
               </div>
             </div>
           )}
@@ -599,10 +598,10 @@ export default function StudentIdCardTemplate({
           ) : (
             <div className="w-full h-full flex flex-col justify-between relative z-10 bg-white p-2 text-slate-800">
               <div>
-                <h4 className={`font-bold text-[9px] ${tc.accentText} border-b pb-0.5 mb-1`}>
-                  জরুরি নির্দেশাবলী
+                <h4 className={`font-bold text-[9px] ${tc.accentText} border-b pb-0.5 mb-1.5 text-center w-full block`}>
+                  জরুরি নির্দেশনাবলি
                 </h4>
-                <ul className="space-y-0.5 text-[7px] text-slate-600 list-disc pl-3 leading-tight">
+                <ul className="space-y-0.5 text-[6.5px] text-slate-600 list-disc pl-3 leading-tight">
                   {customInstructions && customInstructions.length > 0 ? (
                     customInstructions.map((item, idx) => <li key={idx}>{item}</li>)
                   ) : (
@@ -613,15 +612,29 @@ export default function StudentIdCardTemplate({
                   )}
                 </ul>
 
-                <div className="mt-2 p-1 bg-slate-50 rounded border border-slate-200 text-[7px] space-y-0.5">
-                  <p className="font-bold text-slate-800">জরুরি যোগাযোগ:</p>
-                  <p className="text-slate-600">ফোন: {madrasaPhone}</p>
+                <div className="mt-1.5 p-1.5 bg-slate-50 rounded-lg border border-slate-200 text-[6.5px] space-y-0.5">
+                  <div className="flex items-center justify-center gap-1 font-bold text-slate-800 border-b border-slate-200 pb-0.5 text-center">
+                    <Phone className="w-2 h-2 text-slate-600" />
+                    <span>জরুরী যোগাযোগ</span>
+                  </div>
+                  <p className="font-bold text-slate-900 truncate leading-tight mt-0.5">{madrasaName}</p>
+                  <p className="text-slate-600 truncate leading-tight">{madrasaAddress}</p>
+                  {mohtamimName && (
+                    <p className="text-slate-700 truncate leading-tight">
+                      <span className="text-slate-500 font-medium">মুহতামিম:</span> {mohtamimName}
+                    </p>
+                  )}
+                  <p className="text-slate-700 truncate leading-tight font-mono font-bold">
+                    <span className="text-slate-500 font-sans font-normal">মোবাইল:</span> {madrasaPhone}
+                  </p>
                 </div>
               </div>
 
-              <div className="text-center text-[6.5px] text-slate-400 border-t pt-1">
-                <p className="font-bold text-slate-700">{madrasaName}</p>
-                <p>মেয়াদ: {card.expiry_date || "31-08-2027"}</p>
+              <div className="text-center text-[6.5px] border-t border-slate-200 pt-1 space-y-0.5">
+                <p className="font-bold text-slate-700 truncate">{madrasaName}</p>
+                <p className="text-slate-600 font-bold">
+                  কার্ডের মেয়াদ: <span className="font-mono">{displayExpiryDate}</span>
+                </p>
               </div>
             </div>
           )}
@@ -701,10 +714,10 @@ export default function StudentIdCardTemplate({
           ) : (
             <div className={`w-full h-full flex flex-col justify-between relative z-10 ${tc.darkBg} text-amber-100 p-2`}>
               <div>
-                <h4 className="font-black text-[9px] text-amber-300 border-b border-amber-400/40 pb-0.5 mb-1.5">
-                  জরুরি নির্দেশাবলী
+                <h4 className="font-black text-[9px] text-amber-300 border-b border-amber-400/40 pb-0.5 mb-1.5 text-center w-full block">
+                  জরুরি নির্দেশনাবলি
                 </h4>
-                <ul className="space-y-0.5 text-[7px] text-amber-100/90 list-disc pl-3">
+                <ul className="space-y-0.5 text-[6.5px] text-amber-100/90 list-disc pl-3 leading-tight">
                   {customInstructions && customInstructions.length > 0 ? (
                     customInstructions.map((item, idx) => <li key={idx}>{item}</li>)
                   ) : (
@@ -714,11 +727,30 @@ export default function StudentIdCardTemplate({
                     </>
                   )}
                 </ul>
+
+                <div className="mt-1.5 p-1.5 bg-amber-950/60 rounded-lg border border-amber-400/30 text-[6.5px] space-y-0.5">
+                  <div className="flex items-center justify-center gap-1 font-bold text-amber-300 border-b border-amber-400/30 pb-0.5 text-center">
+                    <Phone className="w-2 h-2 text-amber-400" />
+                    <span>জরুরী যোগাযোগ</span>
+                  </div>
+                  <p className="font-bold text-amber-100 truncate leading-tight mt-0.5">{madrasaName}</p>
+                  <p className="text-amber-200/80 truncate leading-tight">{madrasaAddress}</p>
+                  {mohtamimName && (
+                    <p className="text-amber-200/90 truncate leading-tight">
+                      <span className="text-amber-300/70 font-medium">মুহতামিম:</span> {mohtamimName}
+                    </p>
+                  )}
+                  <p className="text-amber-200 truncate leading-tight font-mono font-bold">
+                    <span className="text-amber-300/70 font-sans font-normal">মোবাইল:</span> {madrasaPhone}
+                  </p>
+                </div>
               </div>
 
-              <div className="border-t border-amber-400/30 pt-1 text-center text-[6.5px] text-amber-200">
-                <p className="font-bold text-amber-300">{madrasaName}</p>
-                <p>মেয়াদ: {card.expiry_date || "31-08-2027"}</p>
+              <div className="border-t border-amber-400/30 pt-1 text-center text-[6.5px] space-y-0.5">
+                <p className="font-bold text-amber-300 truncate">{madrasaName}</p>
+                <p className="text-amber-200 font-bold">
+                  কার্ডের মেয়াদ: <span className="font-mono">{displayExpiryDate}</span>
+                </p>
               </div>
             </div>
           )}
@@ -726,4 +758,20 @@ export default function StudentIdCardTemplate({
       )}
     </div>
   );
+
+  if (scale && scale !== 1) {
+    return (
+      <div
+        className="shrink-0 inline-block overflow-hidden rounded-[14px]"
+        style={{
+          width: `calc(2.125in * ${scale})`,
+          height: `calc(3.375in * ${scale})`,
+        }}
+      >
+        {cardContent}
+      </div>
+    );
+  }
+
+  return cardContent;
 }

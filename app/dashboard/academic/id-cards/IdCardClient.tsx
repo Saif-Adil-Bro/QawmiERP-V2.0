@@ -147,6 +147,7 @@ export default function IdCardClient({
 
   const [signatureTitle, setSignatureTitle] = useState("মুহতামিম / অধ্যক্ষ");
   const [qrLabel, setQrLabel] = useState("যাচাই করুন");
+  const [customExpiryDate, setCustomExpiryDate] = useState("31-08-2027");
 
   const [builderSampleStudentId, setBuilderSampleStudentId] = useState<string>(
     (users && users[0]?.id) || (allStudents && allStudents[0]?.id) || ""
@@ -193,6 +194,7 @@ export default function IdCardClient({
     });
     setSignatureTitle("মুহতামিম / অধ্যক্ষ");
     setQrLabel("যাচাই করুন");
+    setCustomExpiryDate("31-08-2027");
     setCustomInstructions([
       "মাদরাসায় অবস্থানকালীন সময়ে কার্ডটি পরিধান করা বাধ্যতামূলক।",
       "এই কার্ডটি মাদরাসার সম্পত্তি এবং এটি হস্তান্তরযোগ্য নয়।",
@@ -788,6 +790,7 @@ export default function IdCardClient({
                     templateId={template}
                     themeColor={themeColor}
                     madrasaNameSize={madrasaNameSize}
+                    customExpiryDate={customExpiryDate}
                     madrasaInfo={editableMadrasaInfo}
                     customInstructions={customInstructions}
                     signatureTitle={signatureTitle}
@@ -817,6 +820,7 @@ export default function IdCardClient({
                       templateId={template}
                       themeColor={themeColor}
                       madrasaNameSize={madrasaNameSize}
+                      customExpiryDate={customExpiryDate}
                       madrasaInfo={editableMadrasaInfo}
                       customInstructions={customInstructions}
                       signatureTitle={signatureTitle}
@@ -983,6 +987,7 @@ export default function IdCardClient({
                     templateId={template}
                     themeColor={themeColor}
                     madrasaNameSize={madrasaNameSize}
+                    customExpiryDate={customExpiryDate}
                     madrasaInfo={editableMadrasaInfo}
                     customInstructions={customInstructions}
                     signatureTitle={signatureTitle}
@@ -1246,6 +1251,17 @@ export default function IdCardClient({
                         className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white"
                       />
                     </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 block">মুহতামিম / অধ্যক্ষের নাম:</label>
+                      <input
+                        type="text"
+                        value={editableMadrasaInfo.principal_name || ""}
+                        onChange={(e) => setEditableMadrasaInfo({ ...editableMadrasaInfo, principal_name: e.target.value })}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white"
+                        placeholder="যেমন: আল্লামা মুফতি আব্দুল কাইয়ুম"
+                      />
+                    </div>
                   </div>
 
                   {/* Logo Image URL */}
@@ -1362,6 +1378,23 @@ export default function IdCardClient({
                         + যুক্ত করুন
                       </button>
                     </div>
+                  </div>
+
+                  {/* Manual Expiry Date Option */}
+                  <div className="space-y-1.5 pt-3 border-t border-slate-200">
+                    <label className="text-xs font-bold text-slate-800 block">
+                      কার্ডের মেয়াদ (Expiry Date):
+                    </label>
+                    <input
+                      type="text"
+                      value={customExpiryDate}
+                      onChange={(e) => setCustomExpiryDate(e.target.value)}
+                      className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold bg-slate-50 focus:bg-white"
+                      placeholder="যেমন: 31-08-2027"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      কার্ডের পিছনের অংশে প্রদর্শিত মেয়াদ ম্যানুয়ালি পরিবর্তন করতে পারেন।
+                    </p>
                   </div>
                 </div>
               )}
@@ -1612,12 +1645,12 @@ export default function IdCardClient({
 
       {/* MODAL 4: Digital ID Card Preview Modal */}
       {previewCard && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in duration-150 relative">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in duration-150 relative my-auto max-h-[90vh] overflow-y-auto">
             <button
               type="button"
               onClick={() => setPreviewCard(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1627,7 +1660,14 @@ export default function IdCardClient({
               <p className="text-xs text-slate-400">{previewCard.snapshot.student_name}</p>
             </div>
 
-            <DigitalIdCardView card={previewCard} madrasaInfo={madrasaInfo} showActions={true} />
+            <DigitalIdCardView
+              card={previewCard}
+              madrasaInfo={madrasaInfo}
+              themeColor={themeColor}
+              madrasaNameSize={madrasaNameSize}
+              customExpiryDate={customExpiryDate}
+              showActions={true}
+            />
           </div>
         </div>
       )}
