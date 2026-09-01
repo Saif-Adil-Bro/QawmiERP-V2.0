@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
-import { Plus, Search, Edit } from "lucide-react";
+import { Plus, Search, Edit, Briefcase, ChevronRight } from "lucide-react";
 import { TeacherDeleteButton } from "@/components/teachers/teacher-actions";
 
 export default async function TeachersPage() {
@@ -13,12 +13,25 @@ export default async function TeachersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-slate-800">শিক্ষক ও স্টাফ</h1>
-        <Link href="/dashboard/teachers/new" className="bg-slate-900 text-white px-4 py-2 rounded-md hover:bg-slate-800 flex items-center space-x-2 transition">
-          <Plus className="w-4 h-4" />
-          <span>নতুন যুক্ত করুন</span>
-        </Link>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">শিক্ষক তালিকা</h1>
+          <p className="text-xs text-slate-500 mt-0.5">মাদ্রাসার সকল ওস্তাদ ও শিক্ষকমণ্ডলী</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard/staff"
+            className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-emerald-100 flex items-center space-x-1.5 transition"
+          >
+            <Briefcase className="w-4 h-4" />
+            <span>সম্পূর্ণ স্টাফ ও এইচআর মডিউল</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
+          <Link href="/dashboard/teachers/new" className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-slate-800 flex items-center space-x-2 transition">
+            <Plus className="w-4 h-4" />
+            <span>নতুন শিক্ষক যুক্ত করুন</span>
+          </Link>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">

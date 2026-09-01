@@ -1,12 +1,14 @@
 import { getMadrasaUsers, getLinkableProfiles } from "@/app/actions/users";
+import { getMadrasaRolesAndPermissions } from "@/app/actions/permissions";
 import UserManagementClient from "./UserManagementClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function UsersPage() {
-  const [usersRes, profilesRes] = await Promise.all([
+  const [usersRes, profilesRes, rolesRes] = await Promise.all([
     getMadrasaUsers(),
     getLinkableProfiles(),
+    getMadrasaRolesAndPermissions(),
   ]);
 
   return (
@@ -15,6 +17,12 @@ export default async function UsersPage() {
         initialUsers={usersRes.users || []}
         teachers={profilesRes.teachers || []}
         students={profilesRes.students || []}
+        initialSystemRoles={rolesRes.systemRoles || []}
+        initialCustomRoles={rolesRes.customRoles || []}
+        initialAllRoles={rolesRes.allRoles || []}
+        initialAuditLogs={rolesRes.auditLogs || []}
+        initialApprovalRequests={rolesRes.approvalRequests || []}
+        initialSecurityProfiles={rolesRes.userSecurityProfiles || {}}
       />
     </div>
   );

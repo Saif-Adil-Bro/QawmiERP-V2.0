@@ -18,6 +18,7 @@ import {
   GraduationCap,
   Settings,
   ShieldCheck,
+  Briefcase,
 } from "lucide-react";
 
 interface NavItem {
@@ -37,7 +38,8 @@ const navSections: NavSection[] = [
     items: [
       { name: "ড্যাশবোর্ড", href: "/dashboard", icon: LayoutDashboard, exact: true },
       { name: "শিক্ষার্থী", href: "/dashboard/students", icon: Users },
-      { name: "শিক্ষক ও স্টাফ", href: "/dashboard/teachers", icon: Users },
+      { name: "স্টাফ ও মানবসম্পদ", href: "/dashboard/staff", icon: Briefcase },
+      { name: "শিক্ষক তালিকা", href: "/dashboard/teachers", icon: Users },
       { name: "হাজিরা", href: "/dashboard/attendance", icon: CheckSquare },
       { name: "জামাত (Classes)", href: "/dashboard/classes", icon: BookOpen },
     ],
