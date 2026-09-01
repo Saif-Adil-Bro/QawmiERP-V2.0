@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -18,9 +18,13 @@ import {
   CreditCard,
   Check,
   History,
+  IdCard,
+  RefreshCw,
 } from "lucide-react";
 import { StudentEnrollment } from "@/lib/sessions";
 import { convertToBanglaNumber, getStudentIdNumber } from "@/lib/student-utils";
+import { getStudentDigitalId, issueStudentIdCard } from "@/app/actions/id-card-management";
+import DigitalIdCardView from "@/app/components/DigitalIdCardView";
 
 interface StudentProfileClientProps {
   student: any;
@@ -35,10 +39,31 @@ export default function StudentProfileClient({
   academicHistory,
   allStudents,
 }: StudentProfileClientProps) {
-  const [activeTab, setActiveTab] = useState<"history" | "personal" | "attendance">("history");
+  const [activeTab, setActiveTab] = useState<"history" | "personal" | "idcard">("history");
+  const [digitalIdData, setDigitalIdData] = useState<any>(null);
+  const [loadingIdCard, setLoadingIdCard] = useState(false);
 
   const studentIdNumber = getStudentIdNumber(student, allStudents);
   const studentIdBn = convertToBanglaNumber(studentIdNumber);
+
+  useEffect(() => {
+    if (activeTab === "idcard" && !digitalIdData) {
+      loadDigitalId();
+    }
+  }, [activeTab]);
+
+  const loadDigitalId = async () => {
+    setLoadingIdCard(true);
+    const res = await getStudentDigitalId(student.id);
+    setDigitalIdData(res);
+    setLoadingIdCard(false);
+  };
+
+  const handleIssueCard = async () => {
+    setLoadingIdCard(true);
+    await issueStudentIdCard({ student_id: student.id });
+    await loadDigitalId();
+  };
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -147,6 +172,19 @@ export default function StudentProfileClient({
         >
           <User className="w-4 h-4" />
           <span>ব্যক্তিগত ও অভিভাবক তথ্য</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("idcard")}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeTab === "idcard"
+              ? "bg-slate-900 text-white shadow-2xs"
+              : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <IdCard className="w-4 h-4 text-emerald-400" />
+          <span>ডিজিটাল আইডি কার্ড</span>
         </button>
       </div>
 
@@ -307,6 +345,59 @@ export default function StudentProfileClient({
               </span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Tab Content: Digital ID Card */}
+      {activeTab === "idcard" && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-6 animate-in fade-in duration-150">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <IdCard className="w-5 h-5 text-emerald-600" />
+                <span>শিক্ষার্থী ডিজিটাল আইডি ও কিউআর সিস্টেম</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                শিক্ষার্থীর সচল আইডি কার্ড, কিউআর ভেরিফিকেশন ও ইস্যু হিস্ট্রি
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleIssueCard}
+              disabled={loadingIdCard}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingIdCard ? "animate-spin" : ""}`} />
+              <span>{digitalIdData?.card ? "নতুন রি-ইস্যু করুন" : "আইডি কার্ড তৈরি করুন"}</span>
+            </button>
+          </div>
+
+          {loadingIdCard ? (
+            <div className="py-12 text-center text-slate-400 space-y-2">
+              <RefreshCw className="w-8 h-8 animate-spin mx-auto text-emerald-600" />
+              <p className="text-xs font-semibold">আইডি কার্ড লোড হচ্ছে...</p>
+            </div>
+          ) : digitalIdData?.card ? (
+            <div className="flex flex-col md:flex-row items-center justify-center gap-8 py-4">
+              <DigitalIdCardView
+                card={digitalIdData.card}
+                madrasaInfo={digitalIdData.madrasaInfo}
+                showActions={true}
+              />
+            </div>
+          ) : (
+            <div className="py-8 text-center text-slate-500 space-y-3">
+              <p className="text-sm font-semibold">বর্তমানে এই শিক্ষার্থীর কোনো সচল আইডি কার্ড নেই।</p>
+              <button
+                type="button"
+                onClick={handleIssueCard}
+                className="px-5 py-2.5 bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-xs"
+              >
+                + এখনই আইডি কার্ড ইস্যু করুন
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -1,72 +1,68 @@
 import { createClient } from "@/lib/supabase/server";
-import PrintButton from "@/app/components/PrintButton";
 import IdCardClient from "./IdCardClient";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getIdCardsData } from "@/app/actions/id-card-management";
+import { getStudents } from "@/app/actions/students";
+
+export const metadata = {
+  title: "আইডি কার্ড ও ডিজিটাল আইডি সিস্টেম | QawmiERP",
+};
 
 export default async function IdCardsPage(props: {
-  searchParams?: Promise<{ class_id?: string; user_type?: string }>;
+  searchParams?: Promise<{ class_id?: string; user_type?: string; status?: string; search?: string }>;
 }) {
   const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
   const madrasaInfo = await getMadrasaInfo();
 
-  const { data: classes } = await supabase.from("classes").select("id, name");
+  const { data: classes } = await supabase.from("classes").select("id, name").order("name");
 
   const classId = params?.class_id;
   const userType = params?.user_type || "Student";
+  const status = params?.status || "ALL";
+  const search = params?.search || "";
+
+  // Fetch all registered ID cards and statistics
+  const idCardData = await getIdCardsData({
+    class_id: classId,
+    status: status,
+    search: search,
+  });
+
+  // Fetch student records for issue/reissue modals
+  const students = await getStudents();
 
   let users = [];
-
-  if (userType === "Student" && classId) {
+  if (userType === "Student" && classId && classId !== "ALL") {
     const { data } = await supabase.from("students").select("*, classes(name)").eq("class_id", classId);
     users = data || [];
   } else if (userType === "Teacher") {
     const { data } = await supabase.from("teachers").select("*");
     users = data || [];
   } else if (userType === "Student") {
-    const { data } = await supabase.from("students").select("*, classes(name)").limit(10); // Show max 10 initially if no class
+    const { data } = await supabase.from("students").select("*, classes(name)").limit(20);
     users = data || [];
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center print:hidden">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">আইডি কার্ড জেনারেটর (ID Cards)</h1>
-          <p className="text-slate-500">শিক্ষার্থী ও শিক্ষকদের জন্য ডিজিটাল আইডি কার্ড তৈরি এবং প্রিন্ট করুন</p>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">স্টুডেন্ট আইডি কার্ড ও কিউআর সিস্টেম</h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+            ডিজিটাল ও প্রিন্ট আইডি কার্ড তৈরি, লাইফসাইকেল ম্যানেজমেন্ট, বাল্ক জেনারেটর এবং কিউআর কোড ভেরিফিকেশন
+          </p>
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-xl border shadow-sm print:hidden">
-        <form className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">কার জন্য?</label>
-            <select name="user_type" className="w-full p-2 border rounded-md" defaultValue={userType}>
-              <option value="Student">ছাত্র (Student)</option>
-              <option value="Teacher">শিক্ষক (Teacher)</option>
-            </select>
-          </div>
-          {userType === "Student" && (
-             <div>
-               <label className="block text-sm font-medium text-slate-700 mb-1">জামাত (Class)</label>
-               <select name="class_id" className="w-full p-2 border rounded-md" defaultValue={classId || ""}>
-                 <option value="">সকল জামাত</option>
-                 {classes?.map((c) => (
-                   <option key={c.id} value={c.id}>{c.name}</option>
-                 ))}
-               </select>
-             </div>
-          )}
-          <div>
-            <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition">
-              খুঁজুন
-            </button>
-          </div>
-        </form>
-      </div>
-
-      
-      <IdCardClient users={users} userType={userType} madrasaInfo={madrasaInfo} />
+      <IdCardClient
+        initialData={idCardData}
+        allStudents={students}
+        classes={classes || []}
+        users={users}
+        userType={userType}
+        madrasaInfo={madrasaInfo}
+      />
     </div>
   );
 }
