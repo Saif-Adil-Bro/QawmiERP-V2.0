@@ -1,9 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { DEFAULT_SMS_TEMPLATES, SMSTemplate } from "@/lib/sms-template-helper";
+import {
+  DEFAULT_SMS_GATEWAY_CONFIG,
+  SMSGatewayConfig,
+  normalizePhoneNumber,
+} from "@/lib/sms-gateway";
 
 export async function addNotice(formData: FormData) {
   const supabase = await createClient();
@@ -108,7 +113,6 @@ export async function saveSMSTemplate(formData: FormData) {
         .eq("madrasa_id", finalMadrasaId);
 
       if (error) {
-        // If table doesn't exist yet, return success for optimistic/local fallback
         console.warn("Update template error:", error.message);
       }
     } else {
@@ -164,6 +168,476 @@ export async function deleteSMSTemplate(id: string) {
   }
 }
 
+// -------------------------------------------------------------
+// SMS GATEWAY & CUSTOM API CONFIGURATION
+// -------------------------------------------------------------
+
+export async function getSMSGatewayConfig(): Promise<SMSGatewayConfig> {
+  try {
+    const adminClient = await createAdminClient();
+    let madrasaId: string | null = null;
+
+    try {
+      const supabase = await createClient();
+      const user = await getAuthUser(supabase);
+      if (user) {
+        madrasaId = await getAuthMadrasaId(supabase, user);
+      }
+    } catch {
+      // ignore
+    }
+
+    if (!madrasaId) {
+      const { data: firstMadrasa } = await adminClient
+        .from("madrasas")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .single();
+      if (firstMadrasa) {
+        madrasaId = firstMadrasa.id;
+      }
+    }
+
+    if (!madrasaId) return DEFAULT_SMS_GATEWAY_CONFIG;
+
+    const { data: row } = await adminClient
+      .from("madrasas")
+      .select("registration_no")
+      .eq("id", madrasaId)
+      .single();
+
+    if (row?.registration_no && row.registration_no.startsWith("{")) {
+      try {
+        const meta = JSON.parse(row.registration_no);
+        if (meta.sms_gateway) {
+          return {
+            ...DEFAULT_SMS_GATEWAY_CONFIG,
+            ...meta.sms_gateway,
+          };
+        }
+      } catch {
+        // parse error fallback
+      }
+    }
+
+    return DEFAULT_SMS_GATEWAY_CONFIG;
+  } catch (e) {
+    console.error("Error fetching SMS Gateway config:", e);
+    return DEFAULT_SMS_GATEWAY_CONFIG;
+  }
+}
+
+export async function saveSMSGatewayConfig(config: Partial<SMSGatewayConfig>) {
+  try {
+    const adminClient = await createAdminClient();
+    let madrasaId: string | null = null;
+
+    try {
+      const supabase = await createClient();
+      const user = await getAuthUser(supabase);
+      if (user) {
+        madrasaId = await getAuthMadrasaId(supabase, user);
+      }
+    } catch {
+      // ignore
+    }
+
+    if (!madrasaId) {
+      const { data: firstMadrasa } = await adminClient
+        .from("madrasas")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .single();
+      if (firstMadrasa) {
+        madrasaId = firstMadrasa.id;
+      }
+    }
+
+    if (!madrasaId) {
+      return { error: "মাদরাসা পাওয়া যায়নি" };
+    }
+
+    let existingMeta: Record<string, any> = {};
+    const { data: row } = await adminClient
+      .from("madrasas")
+      .select("registration_no")
+      .eq("id", madrasaId)
+      .single();
+
+    if (row?.registration_no && row.registration_no.startsWith("{")) {
+      try {
+        existingMeta = JSON.parse(row.registration_no);
+      } catch {
+        existingMeta = {};
+      }
+    }
+
+    const currentGateway = existingMeta.sms_gateway || DEFAULT_SMS_GATEWAY_CONFIG;
+    const mergedGateway: SMSGatewayConfig = {
+      ...DEFAULT_SMS_GATEWAY_CONFIG,
+      ...currentGateway,
+      ...config,
+      // sanitize endpoints
+      apiEndpoint: (config.apiEndpoint || currentGateway.apiEndpoint || DEFAULT_SMS_GATEWAY_CONFIG.apiEndpoint).trim(),
+      apiKey: (config.apiKey !== undefined ? config.apiKey : currentGateway.apiKey || "").trim(),
+      senderId: (config.senderId !== undefined ? config.senderId : currentGateway.senderId || "").trim(),
+    };
+
+    const updatedMeta = {
+      ...existingMeta,
+      sms_gateway: mergedGateway,
+    };
+
+    const { error } = await adminClient
+      .from("madrasas")
+      .update({
+        registration_no: JSON.stringify(updatedMeta),
+      })
+      .eq("id", madrasaId);
+
+    if (error) {
+      return { error: "গেটওয়ে সেটিংস সংরক্ষণ ব্যর্থ: " + error.message };
+    }
+
+    revalidatePath("/dashboard/communication/sms");
+    return { success: true, config: mergedGateway };
+  } catch (err: any) {
+    return { error: err.message || "গেটওয়ে সংরক্ষণে সমস্যা হয়েছে" };
+  }
+}
+
+/**
+ * Execute HTTP call to SMS Provider API
+ */
+async function dispatchSMSGatewayRequest(
+  config: SMSGatewayConfig,
+  recipientPhone: string,
+  messageText: string
+): Promise<{ success: boolean; rawResponse: string; statusCode: number; error?: string }> {
+  try {
+    const rawDigits = normalizePhoneNumber(recipientPhone, false); // 01XXXXXXXXX
+    const bdFullNumber = normalizePhoneNumber(recipientPhone, true); // 8801XXXXXXXXX
+
+    if (!config.apiEndpoint) {
+      return {
+        success: false,
+        rawResponse: "API Endpoint is empty",
+        statusCode: 400,
+        error: "এপিআই এন্ডপয়েন্ট ইউআরএল দেওয়া হয়নি",
+      };
+    }
+
+    // Provider Specific Handling
+    if (config.provider === "mram") {
+      // Mram SMS: https://smsapi.mram.com.bd/smsapi
+      // Params: api_key, type=unicode, contacts, senderid, msg
+      const endpoint = config.apiEndpoint || "https://smsapi.mram.com.bd/smsapi";
+      const url = new URL(endpoint);
+      url.searchParams.set("api_key", config.apiKey);
+      url.searchParams.set("type", config.unicode !== false ? "unicode" : "text");
+      url.searchParams.set("contacts", bdFullNumber);
+      if (config.senderId) {
+        url.searchParams.set("senderid", config.senderId);
+      }
+      url.searchParams.set("msg", messageText);
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        signal: AbortSignal.timeout(10000),
+      });
+
+      const bodyText = await res.text();
+      // Mram typical success responses contain "SMS SUBMITTED" or message ID numbers or success status
+      const isSuccess = res.ok && !bodyText.toLowerCase().includes("invalid") && !bodyText.toLowerCase().includes("error") && !bodyText.toLowerCase().includes("insufficient");
+
+      return {
+        success: isSuccess,
+        rawResponse: bodyText,
+        statusCode: res.status,
+      };
+    } else if (config.provider === "greenweb") {
+      // Greenweb: https://api.greenweb.com.bd/api.php
+      // Params: token, to, message
+      const endpoint = config.apiEndpoint || "https://api.greenweb.com.bd/api.php";
+      const url = new URL(endpoint);
+      url.searchParams.set("token", config.apiKey);
+      url.searchParams.set("to", bdFullNumber);
+      url.searchParams.set("message", messageText);
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        signal: AbortSignal.timeout(10000),
+      });
+      const bodyText = await res.text();
+      const isSuccess = res.ok && (bodyText.includes("Ok:") || bodyText.toLowerCase().includes("success") || !bodyText.toLowerCase().includes("error"));
+
+      return {
+        success: isSuccess,
+        rawResponse: bodyText,
+        statusCode: res.status,
+      };
+    } else if (config.provider === "bulksmsbd") {
+      // BulkSMSBD: https://bulksmsbd.net/api/smsapi
+      // Params: api_key, type=unicode, number, senderid, message
+      const endpoint = config.apiEndpoint || "https://bulksmsbd.net/api/smsapi";
+      const url = new URL(endpoint);
+      url.searchParams.set("api_key", config.apiKey);
+      url.searchParams.set("type", config.unicode !== false ? "unicode" : "text");
+      url.searchParams.set("number", rawDigits);
+      if (config.senderId) {
+        url.searchParams.set("senderid", config.senderId);
+      }
+      url.searchParams.set("message", messageText);
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        signal: AbortSignal.timeout(10000),
+      });
+      const bodyText = await res.text();
+      const isSuccess = res.ok && (bodyText.includes('"response_code":202') || bodyText.includes('"success"') || !bodyText.toLowerCase().includes("error"));
+
+      return {
+        success: isSuccess,
+        rawResponse: bodyText,
+        statusCode: res.status,
+      };
+    } else if (config.provider === "alphasms") {
+      // Alpha SMS: https://api.sms4bd.net/api/v1/send
+      const endpoint = config.apiEndpoint || "https://api.sms4bd.net/api/v1/send";
+      const payload = {
+        api_key: config.apiKey,
+        sender_id: config.senderId,
+        number: bdFullNumber,
+        message: messageText,
+      };
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000),
+      });
+      const bodyText = await res.text();
+      const isSuccess = res.ok && !bodyText.toLowerCase().includes("error");
+
+      return {
+        success: isSuccess,
+        rawResponse: bodyText,
+        statusCode: res.status,
+      };
+    } else if (config.provider === "elitbuzz") {
+      // ElitBuzz: https://msg.elitbuzz-bd.com/smsapi
+      const endpoint = config.apiEndpoint || "https://msg.elitbuzz-bd.com/smsapi";
+      const url = new URL(endpoint);
+      url.searchParams.set("api_key", config.apiKey);
+      url.searchParams.set("type", config.unicode !== false ? "unicode" : "text");
+      url.searchParams.set("contacts", bdFullNumber);
+      if (config.senderId) {
+        url.searchParams.set("senderid", config.senderId);
+      }
+      url.searchParams.set("msg", messageText);
+
+      const res = await fetch(url.toString(), {
+        method: "GET",
+        signal: AbortSignal.timeout(10000),
+      });
+      const bodyText = await res.text();
+      const isSuccess = res.ok && !bodyText.toLowerCase().includes("error");
+
+      return {
+        success: isSuccess,
+        rawResponse: bodyText,
+        statusCode: res.status,
+      };
+    } else {
+      // Custom Generic API
+      const apiKeyParam = config.apiKeyParamName || "api_key";
+      const phoneParam = config.phoneParamName || "contacts";
+      const msgParam = config.messageParamName || "msg";
+      const senderIdParam = config.senderIdParamName || "senderid";
+
+      if (config.httpMethod === "POST_JSON") {
+        let bodyData: any = {
+          [apiKeyParam]: config.apiKey,
+          [phoneParam]: bdFullNumber,
+          [msgParam]: messageText,
+        };
+        if (config.senderId) {
+          bodyData[senderIdParam] = config.senderId;
+        }
+        if (config.extraParams) {
+          bodyData = { ...bodyData, ...config.extraParams };
+        }
+
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...(config.customHeaders || {}),
+        };
+
+        const res = await fetch(config.apiEndpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(bodyData),
+          signal: AbortSignal.timeout(10000),
+        });
+        const bodyText = await res.text();
+        return {
+          success: res.ok,
+          rawResponse: bodyText,
+          statusCode: res.status,
+        };
+      } else if (config.httpMethod === "POST_FORM") {
+        const formData = new URLSearchParams();
+        formData.append(apiKeyParam, config.apiKey);
+        formData.append(phoneParam, bdFullNumber);
+        formData.append(msgParam, messageText);
+        if (config.senderId) {
+          formData.append(senderIdParam, config.senderId);
+        }
+        if (config.extraParams) {
+          for (const [k, v] of Object.entries(config.extraParams)) {
+            formData.append(k, v);
+          }
+        }
+
+        const res = await fetch(config.apiEndpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            ...(config.customHeaders || {}),
+          },
+          body: formData.toString(),
+          signal: AbortSignal.timeout(10000),
+        });
+        const bodyText = await res.text();
+        return {
+          success: res.ok,
+          rawResponse: bodyText,
+          statusCode: res.status,
+        };
+      } else {
+        // GET Request
+        const url = new URL(config.apiEndpoint);
+        url.searchParams.set(apiKeyParam, config.apiKey);
+        url.searchParams.set(phoneParam, bdFullNumber);
+        url.searchParams.set(msgParam, messageText);
+        if (config.senderId) {
+          url.searchParams.set(senderIdParam, config.senderId);
+        }
+        if (config.extraParams) {
+          for (const [k, v] of Object.entries(config.extraParams)) {
+            url.searchParams.set(k, v);
+          }
+        }
+
+        const res = await fetch(url.toString(), {
+          method: "GET",
+          headers: config.customHeaders || {},
+          signal: AbortSignal.timeout(10000),
+        });
+        const bodyText = await res.text();
+        return {
+          success: res.ok,
+          rawResponse: bodyText,
+          statusCode: res.status,
+        };
+      }
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      rawResponse: err.message || "Connection timeout / Network Error",
+      statusCode: 500,
+      error: err.message,
+    };
+  }
+}
+
+/**
+ * Test SMS Gateway Connection & Send Live Test Message
+ */
+export async function testSMSGateway(
+  customConfig?: Partial<SMSGatewayConfig>,
+  testPhone = "01812345678",
+  testMessage = "টেস্ট এসএমএস: কওমি ম্যানেজার এসএমএস গেটওয়ে সফলভাবে কানেক্ট হয়েছে।"
+) {
+  const current = await getSMSGatewayConfig();
+  const config: SMSGatewayConfig = {
+    ...current,
+    ...(customConfig || {}),
+  };
+
+  if (!config.apiKey && config.provider !== "custom") {
+    return {
+      success: false,
+      error: "অনুগ্রহ করে এপিআই কী (API Key / Token) প্রদান করুন",
+      rawResponse: "API Key is missing",
+      statusCode: 400,
+    };
+  }
+
+  const startTime = Date.now();
+  const result = await dispatchSMSGatewayRequest(config, testPhone, testMessage);
+  const latencyMs = Date.now() - startTime;
+
+  // Persist test result into metadata for status display
+  await saveSMSGatewayConfig({
+    lastTestedAt: new Date().toISOString(),
+    lastTestStatus: result.success ? "success" : "failed",
+    lastTestResponse: result.rawResponse.substring(0, 300),
+  });
+
+  return {
+    ...result,
+    latencyMs,
+  };
+}
+
+/**
+ * Check SMS Balance from supported Provider APIs
+ */
+export async function checkSMSBalance(customConfig?: Partial<SMSGatewayConfig>) {
+  try {
+    const current = await getSMSGatewayConfig();
+    const config = { ...current, ...(customConfig || {}) };
+
+    if (!config.apiKey) {
+      return { error: "এপিআই কী দেওয়া হয়নি" };
+    }
+
+    if (config.provider === "mram") {
+      const url = `https://smsapi.mram.com.bd/balance?api_key=${encodeURIComponent(config.apiKey)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const text = (await res.text()).trim();
+      return { success: true, balance: text, provider: "Mram SMS" };
+    } else if (config.provider === "greenweb") {
+      const url = `https://api.greenweb.com.bd/greb/api/balance.php?token=${encodeURIComponent(config.apiKey)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const text = (await res.text()).trim();
+      return { success: true, balance: text, provider: "Greenweb SMS" };
+    } else if (config.provider === "bulksmsbd") {
+      const url = `https://bulksmsbd.net/api/getBalanceApi?api_key=${encodeURIComponent(config.apiKey)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const text = (await res.text()).trim();
+      return { success: true, balance: text, provider: "BulkSMS BD" };
+    }
+
+    return { error: "এই প্রোভাইডারের জন্য স্বয়ংক্রিয় ব্যালেন্স চেক এপিআই সমর্থিত নয়" };
+  } catch (e: any) {
+    return { error: e.message || "ব্যালেন্স চেক ব্যর্থ হয়েছে" };
+  }
+}
+
+// -------------------------------------------------------------
+// CORE SMS SEND & LOG ACTIONS
+// -------------------------------------------------------------
+
 export async function sendSMS(formData: FormData) {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
@@ -181,23 +655,48 @@ export async function sendSMS(formData: FormData) {
     throw new Error("মোবাইল নম্বর ও মেসেজ আবশ্যক");
   }
 
-  // Simulate sending SMS by logging it into the database
+  // Check SMS Gateway config
+  const gatewayConfig = await getSMSGatewayConfig();
+  let deliveryStatus: "Sent" | "Failed" | "Simulated" = "Sent";
+  let gatewayResponseText = "";
+
+  if (gatewayConfig.isEnabled && gatewayConfig.apiKey) {
+    // Live dispatch through Gateway
+    const dispatchRes = await dispatchSMSGatewayRequest(gatewayConfig, recipient_phone, message);
+    if (dispatchRes.success) {
+      deliveryStatus = "Sent";
+      gatewayResponseText = `Gateway (${gatewayConfig.provider}): ${dispatchRes.rawResponse.substring(0, 100)}`;
+    } else {
+      deliveryStatus = "Failed";
+      gatewayResponseText = `Gateway Error: ${dispatchRes.rawResponse.substring(0, 150)}`;
+    }
+  } else {
+    // Simulated / Test Mode
+    deliveryStatus = "Simulated";
+    gatewayResponseText = "সিমুলেশন মোড (গেটওয়ে নিষ্ক্রিয় বা API কী নেই)";
+  }
+
+  // Log to database
   const { error } = await supabase.from("sms_logs").insert({
     madrasa_id: finalMadrasaId,
     recipient_name: recipient_name || "অজ্ঞাত",
     recipient_phone,
     message,
     message_type,
-    status: 'Sent',
+    status: deliveryStatus === "Simulated" ? "Sent" : deliveryStatus,
   });
 
   if (error) {
-    throw new Error(error.message);
+    console.error("SMS log error:", error.message);
   }
 
   revalidatePath("/dashboard/communication/sms");
   revalidatePath("/dashboard/communication/logs");
-  return { success: true };
+  return {
+    success: deliveryStatus !== "Failed",
+    status: deliveryStatus,
+    gatewayResponse: gatewayResponseText,
+  };
 }
 
 export async function sendBulkSMS(messages: Array<{
@@ -217,21 +716,61 @@ export async function sendBulkSMS(messages: Array<{
     return { error: "প্রাপকের তালিকা পাওয়া যায়নি" };
   }
 
-  const logsToInsert = messages.map(m => ({
-    madrasa_id: finalMadrasaId,
-    recipient_name: m.recipient_name || "অজ্ঞাত",
-    recipient_phone: m.recipient_phone,
-    message: m.message,
-    message_type: m.message_type || "Bulk",
-    status: "Sent",
-  }));
+  const gatewayConfig = await getSMSGatewayConfig();
+  const isGatewayActive = gatewayConfig.isEnabled && !!gatewayConfig.apiKey;
 
-  const { error } = await supabase.from("sms_logs").insert(logsToInsert);
-  if (error) {
-    console.error("Bulk SMS log insert error:", error);
+  let successCount = 0;
+  let failCount = 0;
+
+  // Process dispatching
+  const logsToInsert = [];
+
+  for (const m of messages) {
+    let itemStatus: "Sent" | "Failed" = "Sent";
+
+    if (isGatewayActive) {
+      try {
+        const res = await dispatchSMSGatewayRequest(gatewayConfig, m.recipient_phone, m.message);
+        if (res.success) {
+          successCount++;
+          itemStatus = "Sent";
+        } else {
+          failCount++;
+          itemStatus = "Failed";
+        }
+      } catch {
+        failCount++;
+        itemStatus = "Failed";
+      }
+    } else {
+      successCount++;
+      itemStatus = "Sent";
+    }
+
+    logsToInsert.push({
+      madrasa_id: finalMadrasaId,
+      recipient_name: m.recipient_name || "অজ্ঞাত",
+      recipient_phone: m.recipient_phone,
+      message: m.message,
+      message_type: m.message_type || "Bulk",
+      status: itemStatus,
+    });
+  }
+
+  try {
+    await supabase.from("sms_logs").insert(logsToInsert);
+  } catch (err) {
+    console.error("Bulk SMS log insert error:", err);
   }
 
   revalidatePath("/dashboard/communication/sms");
   revalidatePath("/dashboard/communication/logs");
-  return { success: true, count: messages.length };
+
+  return {
+    success: true,
+    count: messages.length,
+    successCount,
+    failCount,
+    mode: isGatewayActive ? "Live Gateway" : "Simulated",
+  };
 }

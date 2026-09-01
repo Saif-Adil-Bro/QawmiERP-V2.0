@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import {
   Send,
   Sparkles,
@@ -26,6 +26,7 @@ import {
   DollarSign,
   Building,
   RefreshCw,
+  Server,
 } from "lucide-react";
 import {
   AVAILABLE_SMS_TAGS,
@@ -40,11 +41,17 @@ import {
   StudentContextData,
 } from "@/lib/sms-template-helper";
 import {
+  DEFAULT_SMS_GATEWAY_CONFIG,
+  SMSGatewayConfig,
+} from "@/lib/sms-gateway";
+import SMSGatewaySettings from "@/components/communication/SMSGatewaySettings";
+import {
   sendSMS,
   sendBulkSMS,
   saveSMSTemplate,
   deleteSMSTemplate,
 } from "@/app/actions/communication";
+import { getStudents, getClasses } from "@/app/actions/students";
 import StudentSearchSelector from "@/components/common/StudentSearchSelector";
 
 interface Props {
@@ -52,6 +59,7 @@ interface Props {
   initialClasses: any[];
   initialTemplates: SMSTemplate[];
   initialLogs: any[];
+  initialGatewayConfig?: SMSGatewayConfig;
   madrasaInfo: {
     name?: string;
     phone?: string;
@@ -59,14 +67,79 @@ interface Props {
 }
 
 export default function SMSClient({
-  initialStudents,
-  initialClasses,
+  initialStudents = [],
+  initialClasses = [],
   initialTemplates,
   initialLogs,
+  initialGatewayConfig,
   madrasaInfo,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<"send" | "builder" | "logs">("send");
+  const [activeTab, setActiveTab] = useState<"send" | "builder" | "logs" | "gateway">("send");
   const [sendMode, setSendMode] = useState<"single" | "bulk">("single");
+
+  // Gateway Configuration state
+  const [gatewayConfig, setGatewayConfig] = useState<SMSGatewayConfig>(
+    initialGatewayConfig || DEFAULT_SMS_GATEWAY_CONFIG
+  );
+
+  // Dynamic Students and Classes with real-time sync & refresh
+  const [students, setStudents] = useState<any[]>(initialStudents || []);
+  const [classes, setClasses] = useState<any[]>(initialClasses || []);
+  const [isRefreshingStudents, setIsRefreshingStudents] = useState(false);
+
+  // Sync if initial props change
+  useEffect(() => {
+    if (initialStudents && initialStudents.length > 0) {
+      setStudents(initialStudents);
+    }
+  }, [initialStudents]);
+
+  useEffect(() => {
+    if (initialClasses && initialClasses.length > 0) {
+      setClasses(initialClasses);
+    }
+  }, [initialClasses]);
+
+  // Client-side refresh / auto-fetch students
+  const handleRefreshStudents = useCallback(async () => {
+    try {
+      setIsRefreshingStudents(true);
+      const raw = await getStudents();
+      if (raw) {
+        const formatted = (raw || []).map((s: any) => ({
+          ...s,
+          first_name: s.first_name || "",
+          last_name: s.last_name || "",
+          name: `${s.first_name || ""} ${s.last_name || ""}`.trim() || s.name || "শিক্ষার্থী",
+          roll_number: s.roll_number !== undefined && s.roll_number !== null ? s.roll_number : s.roll ?? "",
+          student_id: s.student_id || s.id,
+          parent_phone: s.parent_phone || s.phone || s.guardian_phone || s.emergency_contact || "",
+          phone: s.parent_phone || s.phone || s.guardian_phone || s.emergency_contact || "",
+          father_name: s.father_name || s.guardian_name || "",
+          class_name: s.classes?.name || s.class_name || (typeof s.classes === "string" ? s.classes : "সাধারণ জামাত"),
+          class_id: s.class_id || s.classes?.id || "",
+          monthly_fee: s.monthly_fee || 1200,
+          due_amount: s.due_amount || 0,
+        }));
+        setStudents(formatted);
+      }
+      const cls = await getClasses();
+      if (cls && cls.length > 0) {
+        setClasses(cls);
+      }
+    } catch (err) {
+      console.error("Failed to refresh students in SMSClient:", err);
+    } finally {
+      setIsRefreshingStudents(false);
+    }
+  }, []);
+
+  // On mount: if students are empty, fetch automatically
+  useEffect(() => {
+    if (!initialStudents || initialStudents.length === 0) {
+      handleRefreshStudents();
+    }
+  }, [initialStudents, handleRefreshStudents]);
 
   // Date context info
   const dateCtx = useMemo(() => getBengaliDateContext(), []);
@@ -123,11 +196,11 @@ export default function SMSClient({
   // Active selected student object
   const activeStudent: StudentContextData | null = useMemo(() => {
     if (!selectedStudentId) {
-      if (initialStudents.length > 0) return initialStudents[0];
+      if (students.length > 0) return students[0];
       return null;
     }
-    return initialStudents.find((s) => s.id === selectedStudentId) || null;
-  }, [selectedStudentId, initialStudents]);
+    return students.find((s) => s.id === selectedStudentId) || null;
+  }, [selectedStudentId, students]);
 
   // Number of months in the selected range
   const calculatedMonthsCount = useMemo(() => {
@@ -142,14 +215,14 @@ export default function SMSClient({
 
   // Bulk target students
   const bulkRecipients = useMemo(() => {
-    let list = [...initialStudents];
+    let list = [...students];
     if (bulkFilter === "class" && bulkClassId) {
       list = list.filter((s) => s.class_id === bulkClassId);
     } else if (bulkFilter === "due") {
       list = list.filter((s) => Number(s.due_amount || s.monthly_fee || 0) > 0);
     }
     return list.filter((s) => s.parent_phone && s.parent_phone.trim().length >= 10);
-  }, [initialStudents, bulkFilter, bulkClassId]);
+  }, [students, bulkFilter, bulkClassId]);
 
   // Dynamic preview text for current single student
   const livePreviewText = useMemo(() => {
@@ -164,13 +237,13 @@ export default function SMSClient({
 
   // Dynamic preview text for modal builder
   const modalPreviewText = useMemo(() => {
-    return renderDynamicTemplate(modalTemplateContent, activeStudent || initialStudents[0] || null, {
+    return renderDynamicTemplate(modalTemplateContent, activeStudent || students[0] || null, {
       madrasaName: madrasaInfo.name || "মাদ্রাসাতুল মুসলিমীন",
       madrasaPhone: madrasaInfo.phone || "০১৮১২৩৪৫৬৭৮",
       fromMonth,
       toMonth,
     });
-  }, [modalTemplateContent, activeStudent, initialStudents, madrasaInfo, fromMonth, toMonth]);
+  }, [modalTemplateContent, activeStudent, students, madrasaInfo, fromMonth, toMonth]);
 
   // SMS Stats
   const smsStats = useMemo(() => {
@@ -189,10 +262,11 @@ export default function SMSClient({
       setRecipientPhone("");
       return;
     }
-    const student = initialStudents.find((s) => s.id === studentId);
+    const student = students.find((s) => s.id === studentId);
     if (student) {
-      setRecipientName(`${student.first_name || ""} ${student.last_name || ""}`.trim());
-      setRecipientPhone(student.parent_phone || "");
+      const studentName = student.first_name ? `${student.first_name} ${student.last_name || ""}`.trim() : (student.name || "");
+      setRecipientName(studentName);
+      setRecipientPhone(student.parent_phone || student.phone || "");
       if (student.due_amount) {
         setCustomDueAmount(String(student.due_amount));
       } else if (student.monthly_fee) {
@@ -564,7 +638,7 @@ export default function SMSClient({
 
           <button
             onClick={() => setActiveTab("logs")}
-            className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg transition ${
+            className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg transition cursor-pointer ${
               activeTab === "logs"
                 ? "bg-white text-slate-800 shadow-xs"
                 : "text-slate-600 hover:text-slate-900"
@@ -572,6 +646,23 @@ export default function SMSClient({
           >
             <Clock className="w-4 h-4" />
             <span>লগস ({logs.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("gateway")}
+            className={`flex items-center space-x-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg transition cursor-pointer ${
+              activeTab === "gateway"
+                ? "bg-white text-indigo-700 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Server className="w-4 h-4" />
+            <span>গেটওয়ে ও API</span>
+            {gatewayConfig?.isEnabled && gatewayConfig?.apiKey ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-1" title="লাইভ গেটওয়ে সক্রিয়" />
+            ) : (
+              <span className="w-2 h-2 rounded-full bg-amber-400 ml-1" title="API কনফিগার করুন" />
+            )}
           </button>
         </div>
       </div>
@@ -583,6 +674,38 @@ export default function SMSClient({
           <div className="lg:col-span-7 space-y-6">
             {/* Mode selection (Single vs Bulk) */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+              {/* Gateway Live Status Ribbon */}
+              <div className="flex items-center justify-between px-3.5 py-2 bg-slate-50 border border-slate-200/80 rounded-xl text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-medium">ডেলিভারি মোড:</span>
+                  {gatewayConfig?.isEnabled && gatewayConfig?.apiKey ? (
+                    <span className="inline-flex items-center gap-1.5 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      {gatewayConfig.provider === "mram"
+                        ? "Mram SMS (সক্রিয়)"
+                        : gatewayConfig.provider === "greenweb"
+                        ? "Greenweb (সক্রিয়)"
+                        : gatewayConfig.provider === "bulksmsbd"
+                        ? "BulkSMS BD (সক্রিয়)"
+                        : "কাস্টম API (সক্রিয়)"}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      সিমুলেশন মোড (ডেমো)
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("gateway")}
+                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <span>{gatewayConfig?.isEnabled && gatewayConfig?.apiKey ? "গেটওয়ে সেটিংস" : "API কনফিগার করুন"}</span>
+                  <span>→</span>
+                </button>
+              </div>
+
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h2 className="text-base font-bold text-slate-800 flex items-center">
                   <Send className="w-4 h-4 mr-2 text-blue-600" />
@@ -634,9 +757,11 @@ export default function SMSClient({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
                   <div>
                     <StudentSearchSelector
-                      students={initialStudents || []}
+                      students={students || []}
                       value={selectedStudentId}
                       onChange={(id) => handleStudentSelect(id)}
+                      onRefresh={handleRefreshStudents}
+                      isRefreshing={isRefreshingStudents}
                       label="শিক্ষার্থী নির্বাচন করুন"
                       placeholder="শিক্ষার্থী বেছে নিন (নাম বা রোল লিখে খুঁজুন)..."
                     />
@@ -658,8 +783,17 @@ export default function SMSClient({
               ) : (
                 /* BULK MODE FILTER */
                 <div className="space-y-3 bg-blue-50/50 p-3.5 rounded-xl border border-blue-100">
-                  <div className="text-xs font-semibold text-blue-900">
-                    বাল্ক প্রাপক ফিল্টার:
+                  <div className="text-xs font-semibold text-blue-900 flex items-center justify-between">
+                    <span>বাল্ক প্রাপক ফিল্টার:</span>
+                    <button
+                      type="button"
+                      onClick={handleRefreshStudents}
+                      disabled={isRefreshingStudents}
+                      className="text-[11px] font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer transition"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isRefreshingStudents ? "animate-spin" : ""}`} />
+                      <span>ডাটা রিফ্রেশ</span>
+                    </button>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button
@@ -673,7 +807,7 @@ export default function SMSClient({
                     >
                       <div>সকল শিক্ষার্থী</div>
                       <div className="text-[10px] text-slate-500 mt-0.5">
-                        মোট {initialStudents.length} জন
+                        মোট {toBengaliNumber(students.length)} জন
                       </div>
                     </button>
 
@@ -719,7 +853,7 @@ export default function SMSClient({
                         className="w-full p-2 text-xs sm:text-sm border rounded-lg bg-white"
                       >
                         <option value="">-- জামাত নির্বাচন করুন --</option>
-                        {initialClasses?.map((cls) => (
+                        {classes?.map((cls) => (
                           <option key={cls.id} value={cls.id}>
                             {cls.name}
                           </option>
@@ -1363,6 +1497,14 @@ export default function SMSClient({
             </div>
           )}
         </div>
+      )}
+
+      {/* ===================== TAB 4: SMS GATEWAY & CUSTOM API SETTINGS ===================== */}
+      {activeTab === "gateway" && (
+        <SMSGatewaySettings
+          initialConfig={gatewayConfig}
+          onConfigUpdated={(cfg) => setGatewayConfig(cfg)}
+        />
       )}
 
       {/* ===================== MODAL: TEMPLATE BUILDER MODAL ===================== */}

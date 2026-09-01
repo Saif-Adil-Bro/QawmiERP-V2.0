@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageSquare, Bell, Send, Layers } from "lucide-react";
+import { MessageSquare, Bell, Send, Layers, Server } from "lucide-react";
 
 export default function CommunicationDashboardPage() {
   return (
@@ -9,7 +9,7 @@ export default function CommunicationDashboardPage() {
         <p className="text-slate-500">ছাত্র, অভিভাবক এবং শিক্ষকদের সাথে যোগাযোগ ও এসএমএস ম্যানেজমেন্ট</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
         <Link href="/dashboard/communication/sms" className="block">
           <div className="bg-white p-6 rounded-xl border shadow-sm hover:shadow-md hover:border-blue-300 transition group cursor-pointer h-full">
             <div className="flex items-center space-x-4 mb-4">
@@ -31,6 +31,18 @@ export default function CommunicationDashboardPage() {
               <h2 className="text-lg font-bold text-slate-800">টেমপ্লেট বিল্ডার</h2>
             </div>
             <p className="text-sm text-slate-600">ডাইনামিক ভ্যারিয়েবল সহ কাস্টম এসএমএস টেমপ্লেট তৈরি ও পরিচালনা করুন।</p>
+          </div>
+        </Link>
+
+        <Link href="/dashboard/communication/sms" className="block">
+          <div className="bg-white p-6 rounded-xl border shadow-sm hover:shadow-md hover:border-emerald-300 transition group cursor-pointer h-full">
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="bg-emerald-50 p-3 rounded-lg group-hover:bg-emerald-100 transition">
+                <Server className="w-6 h-6 text-emerald-600" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-800">এসএমএস API গেটওয়ে</h2>
+            </div>
+            <p className="text-sm text-slate-600">Mram SMS, Greenweb, BulkSMS BD বা কাস্টম গেটওয়ে ইন্টিগ্রেশন।</p>
           </div>
         </Link>
 
