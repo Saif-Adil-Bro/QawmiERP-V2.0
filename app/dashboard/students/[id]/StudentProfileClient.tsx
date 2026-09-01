@@ -24,7 +24,9 @@ import {
 import { StudentEnrollment } from "@/lib/sessions";
 import { convertToBanglaNumber, getStudentIdNumber } from "@/lib/student-utils";
 import { getStudentDigitalId, issueStudentIdCard } from "@/app/actions/id-card-management";
+import { getStudentCertificates } from "@/app/actions/certificates";
 import DigitalIdCardView from "@/app/components/DigitalIdCardView";
+import CertificateDocumentView from "@/app/components/CertificateDocumentView";
 
 interface StudentProfileClientProps {
   student: any;
@@ -39,9 +41,11 @@ export default function StudentProfileClient({
   academicHistory,
   allStudents,
 }: StudentProfileClientProps) {
-  const [activeTab, setActiveTab] = useState<"history" | "personal" | "idcard">("history");
+  const [activeTab, setActiveTab] = useState<"history" | "personal" | "idcard" | "certificates">("history");
   const [digitalIdData, setDigitalIdData] = useState<any>(null);
   const [loadingIdCard, setLoadingIdCard] = useState(false);
+  const [studentCertificates, setStudentCertificates] = useState<any[]>([]);
+  const [loadingCertificates, setLoadingCertificates] = useState(false);
 
   const studentIdNumber = getStudentIdNumber(student, allStudents);
   const studentIdBn = convertToBanglaNumber(studentIdNumber);
@@ -50,7 +54,17 @@ export default function StudentProfileClient({
     if (activeTab === "idcard" && !digitalIdData) {
       loadDigitalId();
     }
+    if (activeTab === "certificates" && studentCertificates.length === 0) {
+      loadCertificates();
+    }
   }, [activeTab]);
+
+  const loadCertificates = async () => {
+    setLoadingCertificates(true);
+    const certs = await getStudentCertificates(student.id);
+    setStudentCertificates(certs);
+    setLoadingCertificates(false);
+  };
 
   const loadDigitalId = async () => {
     setLoadingIdCard(true);
@@ -185,6 +199,19 @@ export default function StudentProfileClient({
         >
           <IdCard className="w-4 h-4 text-emerald-400" />
           <span>ডিজিটাল আইডি কার্ড</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("certificates")}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeTab === "certificates"
+              ? "bg-slate-900 text-white shadow-2xs"
+              : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <Award className="w-4 h-4 text-emerald-400" />
+          <span>সনদপত্র ও প্রত্যয়ন</span>
         </button>
       </div>
 
@@ -396,6 +423,56 @@ export default function StudentProfileClient({
               >
                 + এখনই আইডি কার্ড ইস্যু করুন
               </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab Content: Certificates */}
+      {activeTab === "certificates" && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-6 animate-in fade-in duration-150">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <Award className="w-5 h-5 text-emerald-600" />
+                <span>ইস্যুকৃত সনদপত্র ও অফিশিয়াল প্রত্যয়নপত্র</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                শিক্ষার্থীর চারিত্রিক সনদ, প্রশংসাপত্র, প্রত্যয়ন ও কোর্স সমাপ্তি নথিপত্র
+              </p>
+            </div>
+
+            <Link
+              href={`/dashboard/academic/certificates?student_id=${student.id}`}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-2xs transition flex items-center gap-1.5"
+            >
+              <Award className="w-3.5 h-3.5" />
+              <span>+ নতুন সনদ জেনারেট করুন</span>
+            </Link>
+          </div>
+
+          {loadingCertificates ? (
+            <div className="py-12 text-center text-slate-400 space-y-2">
+              <RefreshCw className="w-8 h-8 animate-spin mx-auto text-emerald-600" />
+              <p className="text-xs font-semibold">সনদপত্র লোড হচ্ছে...</p>
+            </div>
+          ) : studentCertificates.length > 0 ? (
+            <div className="space-y-6">
+              {studentCertificates.map((cert) => (
+                <div key={cert.id} className="border border-slate-200 p-4 rounded-2xl space-y-3">
+                  <CertificateDocumentView certificate={cert} showActions={true} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-12 text-center text-slate-500 space-y-3">
+              <p className="text-sm font-semibold">এই শিক্ষার্থীর জন্য এখনো কোনো সনদপত্র ইস্যু করা হয়নি।</p>
+              <Link
+                href={`/dashboard/academic/certificates?student_id=${student.id}`}
+                className="inline-block px-5 py-2.5 bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-2xs"
+              >
+                + নতুন সনদ জেনারেট করুন
+              </Link>
             </div>
           )}
         </div>

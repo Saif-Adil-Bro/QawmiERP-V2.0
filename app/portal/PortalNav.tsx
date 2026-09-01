@@ -26,6 +26,7 @@ export default function PortalNav({ onItemClick }: PortalNavProps) {
   const links = [
     { href: "/portal", label: "ড্যাশবোর্ড ও ওভারভিউ", icon: LayoutDashboard, exact: true },
     { href: "/portal/id-card", label: "ডিজিটাল আইডি কার্ড", icon: IdCard },
+    { href: "/portal/certificates", label: "সনদপত্র ও প্রত্যয়ন", icon: Award },
     { href: "/portal/attendance", label: "দৈনিক হাজিরা রেকর্ড", icon: Calendar },
     { href: "/portal/academic", label: "হিফজ ও কিতাবাত অগ্রগতি", icon: GraduationCap },
     { href: "/portal/exams", label: "পরীক্ষা ও ফলাফল শিট", icon: Award },
