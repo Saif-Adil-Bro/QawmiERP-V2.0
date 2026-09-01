@@ -42,6 +42,7 @@ import {
   updateIdCardStatus,
 } from "@/app/actions/id-card-management";
 import DigitalIdCardView from "@/app/components/DigitalIdCardView";
+import StudentIdCardTemplate from "@/app/components/StudentIdCardTemplate";
 
 const getDirectPhotoUrl = (url: string | null | undefined): string | undefined => {
   if (!url) return undefined;
@@ -111,7 +112,7 @@ export default function IdCardClient({
   const [actionMessage, setActionMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Print Generator Customization States
-  const [template, setTemplate] = useState("modern");
+  const [template, setTemplate] = useState("classic_islamic");
   const [themeColor, setThemeColor] = useState("blue");
   const [cardSide, setCardSide] = useState<"front" | "back" | "both">("both");
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
@@ -255,9 +256,38 @@ export default function IdCardClient({
 
   // Printable A4 Cards Generator List
   const allCardsList = (users || []).flatMap((user) => {
-    const list: { type: "front" | "back"; user: any }[] = [];
-    if (cardSide === "front" || cardSide === "both") list.push({ type: "front", user });
-    if (cardSide === "back" || cardSide === "both") list.push({ type: "back", user });
+    const cardObj: StudentIDCard = {
+      id: user.id,
+      madrasa_id: user.madrasa_id || "",
+      student_id: user.id,
+      session_id: "",
+      card_number: user.student_id || `QM-26-${String(user.roll_number || 1).padStart(6, "0")}`,
+      student_number: user.roll_number || "",
+      issue_date: "2026-09-01",
+      expiry_date: "2027-08-31",
+      status: "ACTIVE",
+      photo_url: getDirectPhotoUrl(user.photo_url),
+      verification_id: user.id,
+      template_id: template,
+      issued_by: "অফিস",
+      snapshot: {
+        student_name: `${user.first_name || ""} ${user.last_name || ""}`.trim() || "শিক্ষার্থীর নাম",
+        student_id_code: user.student_id || `QM-26-${String(user.roll_number || 1).padStart(6, "0")}`,
+        roll_number: user.roll_number ? String(user.roll_number) : "—",
+        class_name: user.classes?.name || "জামাতহীন",
+        session_name: "১৪৪৭-৪৮ হিজরি",
+        father_name: user.father_name,
+        parent_phone: user.phone || user.guardian_phone,
+        blood_group: user.blood_group,
+        photo_url: getDirectPhotoUrl(user.photo_url),
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const list: { type: "front" | "back"; card: StudentIDCard; user: any }[] = [];
+    if (cardSide === "front" || cardSide === "both") list.push({ type: "front", card: cardObj, user });
+    if (cardSide === "back" || cardSide === "both") list.push({ type: "back", card: cardObj, user });
     return list;
   });
 
@@ -564,21 +594,9 @@ export default function IdCardClient({
                 onChange={(e) => setTemplate(e.target.value)}
                 className="text-xs bg-white border border-slate-200 rounded-md p-1.5 text-slate-700 font-medium"
               >
-                <option value="modern">মডার্ন ডিজাইন</option>
-                <option value="classic">ক্লাসিক ডিজাইন</option>
-                <option value="minimal">মিনিমাল ডিজাইন</option>
-              </select>
-
-              <select
-                value={themeColor}
-                onChange={(e) => setThemeColor(e.target.value)}
-                className="text-xs bg-white border border-slate-200 rounded-md p-1.5 text-slate-700 font-medium"
-              >
-                <option value="blue">নীল (Blue)</option>
-                <option value="emerald">সবুজ (Emerald)</option>
-                <option value="indigo">ইন্ডিগো (Indigo)</option>
-                <option value="rose">লাল (Rose)</option>
-                <option value="slate">কালো (Dark)</option>
+                <option value="classic_islamic">ক্লাসিক ইসলামিক (Classic Islamic)</option>
+                <option value="modern_minimal">মডার্ন মিনিমাল (Modern Minimal)</option>
+                <option value="premium_madrasa">প্রিমিয়াম মাদরাসা (Premium Madrasa)</option>
               </select>
 
               <select
@@ -594,7 +612,7 @@ export default function IdCardClient({
               <button
                 type="button"
                 onClick={handlePrint}
-                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-md text-xs font-semibold shadow-xs transition cursor-pointer"
+                className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-1.5 rounded-md text-xs font-semibold shadow-xs transition cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 A4 পেজে প্রিন্ট করুন
@@ -607,27 +625,18 @@ export default function IdCardClient({
             {allCardsList.map((cardItem, idx) => (
               <div
                 key={idx}
-                className="bg-white p-2 border border-slate-200 rounded-2xl shadow-xs text-center space-y-2"
+                className="bg-white p-2 border border-slate-200 rounded-2xl shadow-xs text-center space-y-2 hover:border-emerald-500 transition"
               >
-                <div
-                  className="bg-slate-50 border border-slate-300 rounded-xl overflow-hidden mx-auto"
-                  style={{ width: "2.125in", height: "3.375in" }}
-                >
-                  <div className={`w-full h-full p-2 flex flex-col justify-between text-left text-[9px]`}>
-                    <div className={`p-1 text-white font-bold text-[10px] text-center ${currentTheme.bg}`}>
-                      {madrasaInfo?.name}
-                    </div>
-                    <div className="text-center py-2 space-y-1">
-                      <p className="font-black text-slate-900 text-xs">
-                        {cardItem.user.first_name} {cardItem.user.last_name || ""}
-                      </p>
-                      <p className="text-slate-500 font-mono">Roll: {cardItem.user.roll_number}</p>
-                      <p className="text-blue-700 font-bold">{cardItem.user.classes?.name}</p>
-                    </div>
-                    <div className="text-center text-[8px] text-slate-400 border-t pt-1">
-                      Side: {cardItem.type.toUpperCase()}
-                    </div>
-                  </div>
+                <div className="overflow-hidden rounded-xl shadow-sm border border-slate-200 inline-block">
+                  <StudentIdCardTemplate
+                    card={cardItem.card}
+                    side={cardItem.type}
+                    templateId={template}
+                    madrasaInfo={madrasaInfo}
+                  />
+                </div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  {cardItem.type === "front" ? "সামনের দিক" : "পিছনের দিক"}
                 </div>
               </div>
             ))}
@@ -636,11 +645,19 @@ export default function IdCardClient({
           {/* Print Printable Sheet */}
           <div id="printable-id-card-sheet" className={`hidden print:block print:w-full ${banglaFont}`}>
             {printPages.map((pageCards, pageIndex) => (
-              <div key={pageIndex} className="a4-id-card-sheet bg-white p-4 grid grid-cols-2 gap-4">
+              <div
+                key={pageIndex}
+                className="a4-id-card-sheet bg-white p-4 grid grid-cols-2 gap-4 justify-items-center page-break-after-always"
+                style={{ pageBreakAfter: "always" }}
+              >
                 {pageCards.map((c, i) => (
-                  <div key={i} className="border border-slate-300 p-2 rounded-xl text-xs">
-                    <p className="font-bold">{c.user.first_name} {c.user.last_name}</p>
-                    <p>{c.user.classes?.name}</p>
+                  <div key={i} className="border border-dashed border-slate-300 p-1 rounded-2xl inline-block">
+                    <StudentIdCardTemplate
+                      card={c.card}
+                      side={c.type}
+                      templateId={template}
+                      madrasaInfo={madrasaInfo}
+                    />
                   </div>
                 ))}
               </div>

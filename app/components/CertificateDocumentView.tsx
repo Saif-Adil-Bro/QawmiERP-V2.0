@@ -49,7 +49,85 @@ export default function CertificateDocumentView({
   );
 
   const handlePrint = () => {
-    window.print();
+    const printableElement = document.getElementById("printable-official-certificate");
+    if (!printableElement) {
+      window.print();
+      return;
+    }
+
+    // Remove any existing temp frame or style tag
+    const existingFrame = document.getElementById("temp-print-frame");
+    if (existingFrame) existingFrame.remove();
+
+    const existingStyle = document.getElementById("temp-certificate-print-style");
+    if (existingStyle) existingStyle.remove();
+
+    // Inject dynamic @page print CSS rules for orientation and 1-page fit
+    const style = document.createElement("style");
+    style.id = "temp-certificate-print-style";
+    style.innerHTML = `
+      @media print {
+        @page {
+          size: A4 ${isLandscape ? "landscape" : "portrait"};
+          margin: 0;
+        }
+        html, body {
+          width: ${isLandscape ? "297mm" : "210mm"} !important;
+          height: ${isLandscape ? "210mm" : "297mm"} !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: hidden !important;
+          background: #ffffff !important;
+        }
+        #temp-print-frame {
+          display: block !important;
+          position: absolute !important;
+          left: 0 !important;
+          top: 0 !important;
+          width: ${isLandscape ? "297mm" : "210mm"} !important;
+          height: ${isLandscape ? "210mm" : "297mm"} !important;
+          max-width: ${isLandscape ? "297mm" : "210mm"} !important;
+          max-height: ${isLandscape ? "210mm" : "297mm"} !important;
+          margin: 0 auto !important;
+          padding: ${isLandscape ? "5mm" : "8mm"} !important;
+          box-sizing: border-box !important;
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+          page-break-after: avoid !important;
+          break-after: avoid !important;
+          background: #ffffff !important;
+          z-index: 99999999 !important;
+        }
+        #temp-print-frame * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    // Clone element
+    const clone = printableElement.cloneNode(true) as HTMLElement;
+    clone.id = "temp-print-frame";
+    clone.style.width = "100%";
+    clone.style.height = "100%";
+    clone.style.maxWidth = "100%";
+    clone.style.maxHeight = "100%";
+    clone.style.boxSizing = "border-box";
+
+    document.body.appendChild(clone);
+    document.body.classList.add("is-printing-now");
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove("is-printing-now");
+        const temp = document.getElementById("temp-print-frame");
+        if (temp) temp.remove();
+        const tempStyle = document.getElementById("temp-certificate-print-style");
+        if (tempStyle) tempStyle.remove();
+      }, 500);
+    }, 150);
   };
 
   const handleShare = async () => {
@@ -132,15 +210,18 @@ export default function CertificateDocumentView({
       )}
 
       {/* Main Printable Certificate Canvas */}
-      <div
-        ref={printRef}
-        id="printable-official-certificate"
-        className={`bg-white text-slate-900 mx-auto rounded-xl overflow-hidden print:p-0 print:border-none print:shadow-none shadow-lg border border-slate-200 ${fontClass}`}
-        style={{
-          width: isLandscape ? "10.5in" : "8.27in",
-          minHeight: isLandscape ? "7.5in" : "11.69in",
-        }}
-      >
+      <div className="w-full overflow-x-auto flex justify-center py-2">
+        <div
+          ref={printRef}
+          id="printable-official-certificate"
+          className={`bg-white text-slate-900 mx-auto rounded-xl overflow-hidden print:p-0 print:border-none print:shadow-none shadow-lg border border-slate-200 ${fontClass}`}
+          style={{
+            width: isLandscape ? "297mm" : "210mm",
+            maxWidth: "100%",
+            minHeight: isLandscape ? "210mm" : "297mm",
+            boxSizing: "border-box",
+          }}
+        >
         <div
           className={`p-8 sm:p-12 relative h-full flex flex-col justify-between border-[12px] border-double ${activeTheme.border} ${activeTheme.bg} transition-all`}
         >
@@ -271,5 +352,6 @@ export default function CertificateDocumentView({
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 }

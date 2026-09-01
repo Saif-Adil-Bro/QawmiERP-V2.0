@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
 import {
   StudentCertificate,
   CertificateTypeConfig,
@@ -86,6 +86,14 @@ export default function CertificateClient({
 
   // Single Issue Form State
   const [formStudentId, setFormStudentId] = useState(initialStudentId || selectedStudent?.id || (students[0]?.id || ""));
+  const [studentSearchText, setStudentSearchText] = useState("");
+
+  // Sync initial student if students array loaded after mount
+  useEffect(() => {
+    if (!formStudentId && students && students.length > 0) {
+      setFormStudentId(students[0].id);
+    }
+  }, [students, formStudentId]);
   const [formTypeId, setFormTypeId] = useState(certificateType || certData.types[0]?.id || "char_cert");
   const [formTemplateId, setFormTemplateId] = useState(certData.templates[0]?.id || "classic");
   const [formPurpose, setFormPurpose] = useState("উচ্চশিক্ষা / চাকরি / অফিশিয়াল প্রয়োজন");
@@ -520,7 +528,21 @@ export default function CertificateClient({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Step 1: Select Student */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700 block">১. শিক্ষার্থী নির্বাচন করুন *</label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 block">
+                  ১. শিক্ষার্থী নির্বাচন করুন * ({students.length} জন ডাটাবেজে রয়েছে)
+                </label>
+              </div>
+
+              {/* Search Filter Box */}
+              <input
+                type="text"
+                placeholder="শিক্ষার্থীর নাম, পিতা, রোল বা আইডি দিয়ে ফিল্টার..."
+                value={studentSearchText}
+                onChange={(e) => setStudentSearchText(e.target.value)}
+                className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              />
+
               <select
                 value={formStudentId}
                 onChange={(e) => setFormStudentId(e.target.value)}
@@ -528,11 +550,21 @@ export default function CertificateClient({
                 required
               >
                 <option value="">-- শিক্ষার্থী সিলেক্ট করুন --</option>
-                {students.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.first_name} {s.last_name || ""} (পিতা: {s.father_name || "—"}, রোল: {s.roll_number || "—"})
-                  </option>
-                ))}
+                {students
+                  .filter((s) => {
+                    if (!studentSearchText.trim()) return true;
+                    const q = studentSearchText.toLowerCase();
+                    const name = `${s.first_name || ""} ${s.last_name || ""}`.toLowerCase();
+                    const roll = (s.roll_number || "").toString().toLowerCase();
+                    const father = (s.father_name || "").toLowerCase();
+                    const className = (s.classes?.name || "").toLowerCase();
+                    return name.includes(q) || roll.includes(q) || father.includes(q) || className.includes(q);
+                  })
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.first_name} {s.last_name || ""} {s.classes?.name ? `(${s.classes.name})` : ""} - রোল: {s.roll_number || "—"} - পিতা: {s.father_name || "—"}
+                    </option>
+                  ))}
               </select>
 
               {currentStudentObj && (
@@ -542,7 +574,7 @@ export default function CertificateClient({
                   </p>
                   <p>
                     <strong>পিতার নাম:</strong> {currentStudentObj.father_name || "—"} | <strong>রোল:</strong>{" "}
-                    {currentStudentObj.roll_number || "—"}
+                    {currentStudentObj.roll_number || "—"} | <strong>শ্রেণি/জামাত:</strong> {currentStudentObj.classes?.name || "—"}
                   </p>
                 </div>
               )}

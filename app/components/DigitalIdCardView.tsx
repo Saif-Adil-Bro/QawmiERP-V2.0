@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { StudentIDCard } from "@/lib/id-card-management";
+import StudentIdCardTemplate, { IDCardTemplateType } from "@/app/components/StudentIdCardTemplate";
 import {
   IdCard,
   Share2,
@@ -11,18 +12,24 @@ import {
   AlertOctagon,
   Copy,
   Check,
-  Building2,
-  Phone,
-  MapPin,
-  Calendar,
+  ShieldCheck,
+  ExternalLink,
   Sparkles,
+  Layers,
 } from "lucide-react";
 
 interface DigitalIdCardViewProps {
   card: StudentIDCard;
-  madrasaInfo?: { name: string; address: string; phone: string };
+  madrasaInfo?: {
+    name?: string;
+    address?: string;
+    phone?: string;
+    logo_url?: string;
+    website?: string;
+  };
   onPrint?: () => void;
   showActions?: boolean;
+  initialTemplate?: IDCardTemplateType;
 }
 
 export default function DigitalIdCardView({
@@ -30,16 +37,25 @@ export default function DigitalIdCardView({
   madrasaInfo,
   onPrint,
   showActions = true,
+  initialTemplate = "classic_islamic",
 }: DigitalIdCardViewProps) {
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const [activeSide, setActiveSide] = useState<"front" | "back">("front");
+  const [selectedTemplate, setSelectedTemplate] = useState<IDCardTemplateType>(
+    (card.template_id as IDCardTemplateType) || initialTemplate || "classic_islamic"
+  );
+  const [isFlipping, setIsFlipping] = useState(false);
 
   useEffect(() => {
     if (card?.verification_id) {
       const origin = typeof window !== "undefined" ? window.location.origin : "https://qawmierp.app";
       const verifyUrl = `${origin}/verify/${card.verification_id}`;
-      QRCode.toDataURL(verifyUrl, { width: 220, margin: 1, color: { dark: "#0f172a", light: "#ffffff" } })
+      QRCode.toDataURL(verifyUrl, {
+        width: 260,
+        margin: 1,
+        color: { dark: "#064e3b", light: "#ffffff" },
+      })
         .then((url) => setQrDataUrl(url))
         .catch((err) => console.error("QR Code Error:", err));
     }
@@ -64,163 +80,114 @@ export default function DigitalIdCardView({
     }
   };
 
+  const handleToggleSide = (side: "front" | "back") => {
+    if (activeSide === side) return;
+    setIsFlipping(true);
+    setTimeout(() => {
+      setActiveSide(side);
+      setIsFlipping(false);
+    }, 150);
+  };
+
   const isStatusActive = card.status === "ACTIVE";
 
   return (
     <div className="space-y-4 max-w-sm mx-auto">
-      {/* Side Toggle & Status Bar */}
-      <div className="flex items-center justify-between bg-slate-900 text-white p-2.5 rounded-2xl shadow-sm">
-        <div className="flex items-center gap-2 pl-1">
-          <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-black uppercase ${
-              isStatusActive ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-rose-500/20 text-rose-400 border border-rose-500/30"
-            }`}
-          >
-            {isStatusActive ? (
-              <>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>● Active</span>
-              </>
-            ) : (
-              <>
-                <AlertOctagon className="w-3.5 h-3.5" />
-                <span>● {card.status}</span>
-              </>
-            )}
+      {/* Top Controls Header */}
+      <div className="bg-slate-900 text-white p-2.5 rounded-2xl shadow-sm space-y-2 border border-slate-800">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                isStatusActive
+                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                  : "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+              }`}
+            >
+              {isStatusActive ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>● ACTIVE</span>
+                </>
+              ) : (
+                <>
+                  <AlertOctagon className="w-3 h-3" />
+                  <span>● {card.status}</span>
+                </>
+              )}
+            </span>
+          </div>
+
+          {/* Front / Back Toggle Buttons */}
+          <div className="flex bg-slate-800 p-1 rounded-xl text-xs font-bold border border-slate-700">
+            <button
+              type="button"
+              onClick={() => handleToggleSide("front")}
+              className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                activeSide === "front" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              সামনে (Front)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleSide("back")}
+              className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                activeSide === "back" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              পিছনে (Back)
+            </button>
+          </div>
+        </div>
+
+        {/* Template Selector Bar */}
+        <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[11px] text-slate-400">
+          <span className="flex items-center gap-1 font-semibold text-slate-300">
+            <Layers className="w-3.5 h-3.5 text-amber-400" />
+            <span>ডিজাইন টেমপ্লেট:</span>
           </span>
-        </div>
 
-        <div className="flex bg-slate-800 p-1 rounded-xl text-xs font-bold border border-slate-700">
-          <button
-            type="button"
-            onClick={() => setActiveSide("front")}
-            className={`px-3 py-1 rounded-lg transition ${
-              activeSide === "front" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
-            }`}
+          <select
+            value={selectedTemplate}
+            onChange={(e) => setSelectedTemplate(e.target.value as IDCardTemplateType)}
+            className="bg-slate-800 text-white text-[11px] font-bold px-2 py-1 rounded-lg border border-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
           >
-            সামনে (Front)
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSide("back")}
-            className={`px-3 py-1 rounded-lg transition ${
-              activeSide === "back" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
-            }`}
-          >
-            পিছনে (Back)
-          </button>
+            <option value="classic_islamic">ক্লাসিক ইসলামিক (Classic)</option>
+            <option value="modern_minimal">মডার্ন মিনিমাল (Minimal)</option>
+            <option value="premium_madrasa">প্রিমিয়াম মাদরাসা (Premium)</option>
+          </select>
         </div>
       </div>
 
-      {/* Card UI Wrapper */}
-      <div className="relative mx-auto bg-white rounded-2xl shadow-lg border border-slate-300 overflow-hidden w-[2.25in] sm:w-[2.5in] h-[3.6in] sm:h-[4in] transition-all transform hover:scale-[1.01]">
-        {activeSide === "front" ? (
-          /* FRONT SIDE */
-          <div className="w-full h-full flex flex-col justify-between bg-white text-slate-800">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-2.5 text-center flex flex-col items-center justify-center shrink-0">
-              <h3 className="font-bold text-[11px] sm:text-xs leading-tight line-clamp-1">
-                {madrasaInfo?.name || "QawmiERP Digital Identity"}
-              </h3>
-              <p className="text-[8px] opacity-80 mt-0.5 line-clamp-1">{madrasaInfo?.address || "ঢাকা, বাংলাদেশ"}</p>
-              <div className="mt-1 px-2 py-0.5 bg-white/10 backdrop-blur-md rounded-full text-[7px] font-black tracking-widest uppercase">
-                STUDENT ID CARD
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 flex flex-col items-center px-3 pt-6 relative">
-              {/* Photo */}
-              <div className="absolute -top-5 w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-white bg-slate-100 shadow-md flex items-center justify-center overflow-hidden shrink-0">
-                {card.snapshot.photo_url || card.photo_url ? (
-                  <img
-                    src={card.snapshot.photo_url || card.photo_url}
-                    alt={card.snapshot.student_name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <IdCard className="w-7 h-7 text-slate-400" />
-                )}
-              </div>
-
-              <h4 className="font-black text-slate-900 mt-2 text-center text-xs sm:text-sm line-clamp-1">
-                {card.snapshot.student_name}
-              </h4>
-
-              <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full font-mono font-bold text-[9px] mt-0.5 border border-blue-200">
-                {card.card_number}
-              </span>
-
-              {/* Fields */}
-              <div className="w-full mt-2 space-y-1 text-[9px] sm:text-[10px]">
-                <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                  <span className="text-slate-500 font-medium">জামাত:</span>
-                  <span className="font-bold text-slate-800 line-clamp-1">{card.snapshot.class_name}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                  <span className="text-slate-500 font-medium">রোল নম্বর:</span>
-                  <span className="font-bold text-slate-800">{card.snapshot.roll_number}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-100 pb-0.5">
-                  <span className="text-slate-500 font-medium">শিক্ষাবর্ষ:</span>
-                  <span className="font-bold text-slate-800">{card.snapshot.session_name}</span>
-                </div>
-                <div className="flex justify-between pb-0.5">
-                  <span className="text-slate-500 font-medium">রক্তের গ্রুপ:</span>
-                  <span className="font-bold text-red-600">{card.snapshot.blood_group}</span>
-                </div>
-              </div>
-
-              {/* QR Code */}
-              <div className="mt-auto mb-1 flex flex-col items-center">
-                {qrDataUrl ? (
-                  <img src={qrDataUrl} alt="QR Code" className="w-12 h-12 border border-slate-200 rounded p-0.5 bg-white" />
-                ) : (
-                  <div className="w-12 h-12 bg-slate-100 rounded animate-pulse" />
-                )}
-                <span className="text-[6px] text-slate-400 font-mono mt-0.5">Scan to Verify</span>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="bg-slate-900 text-white text-[8px] py-1 text-center font-bold tracking-wider">
-              AUTHORITY SIGNATURE
-            </div>
+      {/* Card Preview Stage (Scaled Proportionally & Animated Flip) */}
+      <div className="flex justify-center py-2 relative">
+        <div
+          className={`transition-all duration-300 transform ${
+            isFlipping ? "scale-95 opacity-50 rotate-y-90" : "scale-100 opacity-100 rotate-y-0"
+          }`}
+          style={{
+            transformStyle: "preserve-3d",
+            perspective: "1000px",
+          }}
+        >
+          {/* Real Physical Proportions ID Card Render */}
+          <div className="shadow-2xl rounded-[16px]">
+            <StudentIdCardTemplate
+              card={card}
+              side={activeSide}
+              templateId={selectedTemplate}
+              madrasaInfo={madrasaInfo}
+              qrDataUrl={qrDataUrl}
+              scale={1.25}
+            />
           </div>
-        ) : (
-          /* BACK SIDE */
-          <div className="w-full h-full flex flex-col justify-between bg-white text-slate-800 p-3">
-            <div>
-              <div className="text-center border-b border-slate-200 pb-1.5 mb-2">
-                <h4 className="font-bold text-[10px] text-slate-900">জরুরী যোগাযোগ ও নির্দেশনাবলী</h4>
-              </div>
-
-              <div className="space-y-1 text-[8px] text-slate-600">
-                <p>• কার্ডটি সর্বদা সাথে রাখা আবশ্যক।</p>
-                <p>• হারিয়ে গেলে অবিলম্বে অফিসকে জানান।</p>
-                <p>• এই কার্ডটি হস্তান্তরযোগ্য নয়।</p>
-              </div>
-
-              <div className="mt-3 p-2 bg-slate-50 rounded-xl border border-slate-200 space-y-1 text-[8.5px]">
-                <p><strong>পিতা:</strong> {card.snapshot.father_name}</p>
-                <p><strong>ফোন:</strong> {card.snapshot.parent_phone}</p>
-                <p><strong>ঠিকানা:</strong> {card.snapshot.address}</p>
-              </div>
-            </div>
-
-            <div className="text-center space-y-1 border-t border-slate-200 pt-2 text-[8px] text-slate-500">
-              <p className="font-bold text-slate-800">{madrasaInfo?.name}</p>
-              <p className="line-clamp-1">{madrasaInfo?.address}</p>
-              <p>ফোন: {madrasaInfo?.phone}</p>
-              <p className="text-[7px] text-slate-400 pt-1">ইস্যু: {card.issue_date} • মেয়াদ: {card.expiry_date}</p>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
 
-      {/* Actions */}
+      {/* Action Buttons */}
       {showActions && (
-        <div className="flex flex-col gap-2 pt-1">
+        <div className="flex flex-col gap-2 pt-2">
           <button
             type="button"
             onClick={handleShare}
@@ -229,7 +196,7 @@ export default function DigitalIdCardView({
             {copied ? (
               <>
                 <Check className="w-4 h-4 text-emerald-200" />
-                <span>লিংক কপি হয়েছে!</span>
+                <span>যাচাইকরণ লিংক কপি হয়েছে!</span>
               </>
             ) : (
               <>
@@ -239,16 +206,39 @@ export default function DigitalIdCardView({
             )}
           </button>
 
-          {onPrint && (
-            <button
-              type="button"
-              onClick={onPrint}
-              className="w-full flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2.5 rounded-xl text-xs transition cursor-pointer"
-            >
-              <Printer className="w-4 h-4 text-slate-500" />
-              <span>আইডি কার্ড প্রিন্ট / PDF সংরক্ষণ</span>
-            </button>
-          )}
+          <div className="grid grid-cols-2 gap-2">
+            {card.verification_id && (
+              <a
+                href={`/verify/${card.verification_id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2 rounded-xl text-xs transition border border-slate-200"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>অনলাইন যাচাই</span>
+              </a>
+            )}
+
+            {onPrint ? (
+              <button
+                type="button"
+                onClick={onPrint}
+                className="flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2 rounded-xl text-xs transition cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5 text-slate-500" />
+                <span>প্রিন্ট / PDF</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2 rounded-xl text-xs transition cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5 text-slate-500" />
+                <span>প্রিন্ট করুন</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

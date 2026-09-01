@@ -55,7 +55,7 @@ export interface IDCardFieldVisibility {
 export interface IDCardTemplateConfig {
   id: string;
   name: string;
-  layout: "modern" | "classic" | "minimal" | "custom";
+  layout: "classic_islamic" | "modern_minimal" | "premium_madrasa" | "modern" | "classic" | "minimal" | "custom";
   theme_color: string;
   field_visibility: IDCardFieldVisibility;
   custom_instructions: string[];
@@ -82,35 +82,9 @@ export interface MadrasaIDCardMetadata {
 
 export const DEFAULT_IDCARD_TEMPLATES: IDCardTemplateConfig[] = [
   {
-    id: "modern",
-    name: "মডার্ন নক্সা (Modern)",
-    layout: "modern",
-    theme_color: "blue",
-    field_visibility: {
-      photo: true,
-      student_id: true,
-      class: true,
-      roll: true,
-      session: true,
-      father_name: true,
-      phone: true,
-      blood_group: true,
-      dob: true,
-      address: false,
-      qr_code: true,
-    },
-    custom_instructions: [
-      "মাদরাসায় অবস্থানকালীন সময়ে কার্ডটি পরিধান করা বাধ্যতামূলক।",
-      "এই কার্ডটি মাদরাসার সম্পত্তি এবং এটি হস্তান্তরযোগ্য নয়।",
-      "কার্ড হারিয়ে গেলে কর্তৃপক্ষকে অবিলম্বে অবহিত করতে হবে।",
-      "কার্ডটি পাওয়া গেলে নিচের ঠিকানায় ফেরত দিন।",
-    ],
-    terms_and_conditions: "This identity card is non-transferable and must be returned if found.",
-  },
-  {
-    id: "classic",
-    name: "ক্লাসিক ট্র্যাডিশনাল (Classic)",
-    layout: "classic",
+    id: "classic_islamic",
+    name: "ক্লাসিক ইসলামিক (Classic Islamic)",
+    layout: "classic_islamic",
     theme_color: "emerald",
     field_visibility: {
       photo: true,
@@ -126,34 +100,60 @@ export const DEFAULT_IDCARD_TEMPLATES: IDCardTemplateConfig[] = [
       qr_code: true,
     },
     custom_instructions: [
-      "মাদরাসায় অবস্থানকালে আইডি কার্ড ঝুলিয়ে রাখতে হবে।",
-      "কার্ডটি হারিয়ে গেলে বা নষ্ট হলে ৫০ টাকা ফি প্রদানপূর্বক রি-ইস্যু করতে হবে।",
-      "কার্ডটি অন্য কাউকে হস্তান্তর করা দণ্ডনীয় অপরাধ।",
+      "মাদরাসায় অবস্থানকালীন সময়ে আইডি কার্ড ঝুলিয়ে রাখা বাধ্যতামূলক।",
+      "আইডি কার্ডটি হারিয়ে গেলে বা নষ্ট হলে অবিলম্বে অফিসে জানান।",
+      "এই কার্ডটি হস্তান্তরযোগ্য নয় এবং পাওয়া গেলে নিচের ঠিকানায় ফেরত দিন।",
     ],
-    terms_and_conditions: "Property of the Madrasa. If found please return to office.",
+    terms_and_conditions: "This card remains the property of the madrasa and must be returned if found.",
   },
   {
-    id: "minimal",
-    name: "সিম্পল মিনিমাল (Minimal)",
-    layout: "minimal",
-    theme_color: "slate",
+    id: "modern_minimal",
+    name: "মডার্ন মিনিমাল (Modern Minimal)",
+    layout: "modern_minimal",
+    theme_color: "emerald",
     field_visibility: {
       photo: true,
       student_id: true,
       class: true,
       roll: true,
       session: true,
-      father_name: false,
-      phone: false,
+      father_name: true,
+      phone: true,
       blood_group: true,
       dob: false,
       address: false,
       qr_code: true,
     },
     custom_instructions: [
-      "মাদরাসা আইডি কার্ড সর্বদা সাথে রাখুন।",
+      "মাদরাসার ভেতরে পরিচয়পত্র পরিধান বাধ্যতামূলক।",
+      "কার্ডটি অন্য কাউকে হস্তান্তর করা দণ্ডনীয় অপরাধ।",
     ],
-    terms_and_conditions: "This card remains the property of the issuing institution.",
+    terms_and_conditions: "Official Student Identity Card.",
+  },
+  {
+    id: "premium_madrasa",
+    name: "প্রিমিয়াম মাদরাসা (Premium Madrasa)",
+    layout: "premium_madrasa",
+    theme_color: "emerald",
+    field_visibility: {
+      photo: true,
+      student_id: true,
+      class: true,
+      roll: true,
+      session: true,
+      father_name: true,
+      phone: true,
+      blood_group: true,
+      dob: true,
+      address: true,
+      qr_code: true,
+    },
+    custom_instructions: [
+      "কার্ডটি মাদরাসার সম্পত্তি এবং সর্বাবস্থায় সাথে রাখতে হবে।",
+      "কার্ডটি হারিয়ে গেলে অবিলম্বে কর্তৃপক্ষকে অবহিত করুন।",
+      "কার্ডটি পাওয়া গেলে দ্রুত নিচের নাম্বারে কল করে অফিসকে অবগত করুন।",
+    ],
+    terms_and_conditions: "Institutional Student Identity Card - Qawmi Madrasa System.",
   },
 ];
 

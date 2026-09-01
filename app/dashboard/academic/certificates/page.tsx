@@ -1,9 +1,8 @@
-import { createClient } from "@/lib/supabase/server";
 import { Award } from "lucide-react";
 import CertificateClient from "./CertificateClient";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getExams } from "@/app/actions/exams";
-import { getClasses } from "@/app/actions/students";
+import { getClasses, getStudents } from "@/app/actions/students";
 import { getCertificatesData } from "@/app/actions/certificates";
 
 export const metadata = {
@@ -14,27 +13,21 @@ export default async function CertificatesPage(props: {
   searchParams?: Promise<{ student_id?: string; type?: string }>;
 }) {
   const params = props.searchParams ? (await props.searchParams) || {} : {};
-  const supabase = await createClient();
   
-  const [madrasaInfo, exams, classes, initialCertData] = await Promise.all([
+  const [madrasaInfo, exams, classes, initialCertData, students] = await Promise.all([
     getMadrasaInfo(),
     getExams(),
     getClasses(),
     getCertificatesData(),
+    getStudents(),
   ]);
-
-  const { data: students } = await supabase
-    .from("students")
-    .select("id, first_name, last_name, father_name, roll_number, class_id, student_id")
-    .order("first_name");
 
   const studentId = params?.student_id;
   const certificateType = params?.type || "char_cert";
 
   let selectedStudent = null;
-  if (studentId) {
-    const { data } = await supabase.from("students").select("*").eq("id", studentId).single();
-    selectedStudent = data;
+  if (studentId && Array.isArray(students)) {
+    selectedStudent = students.find((s: any) => s.id === studentId) || null;
   }
 
   return (
