@@ -136,24 +136,30 @@ body, input, textarea, select, button {
     max-height: 100% !important;
     box-sizing: border-box !important;
   }
-  /* A4 ID Card Sheet: 8 cards per page (2 columns x 4 rows) */
+  /* A4 ID Card Sheet: 6 cards per page (2 columns x 3 rows) */
   .a4-id-card-sheet {
     page-break-after: always !important;
     break-after: page !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     width: 100% !important;
+    max-height: 282mm !important;
     box-sizing: border-box !important;
-    display: flex !important;
-    flex-wrap: wrap !important;
-    justify-content: center !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    justify-items: center !important;
     align-content: flex-start !important;
-    gap: 4mm 6mm !important;
-    padding: 4mm !important;
+    gap: 5mm 8mm !important;
+    padding: 6mm 4mm !important;
+    overflow: hidden !important;
   }
   .a4-id-card-sheet:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
+  }
+  .id-card-print-item {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
   /* A4 Admit Card Sheet: 2 admit cards per page */
   .a4-admit-card-sheet {

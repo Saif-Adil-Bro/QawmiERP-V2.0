@@ -8,13 +8,9 @@ import {
   IdCard,
   Share2,
   Printer,
-  CheckCircle2,
   AlertOctagon,
-  Copy,
   Check,
   ShieldCheck,
-  ExternalLink,
-  Sparkles,
   Layers,
 } from "lucide-react";
 
@@ -89,12 +85,44 @@ export default function DigitalIdCardView({
     }, 150);
   };
 
+  const handleSingleCardPrint = () => {
+    if (onPrint) {
+      onPrint();
+      return;
+    }
+
+    const printableElement = document.getElementById("printable-single-card-sheet");
+    if (!printableElement) {
+      window.print();
+      return;
+    }
+
+    const existing = document.getElementById("temp-print-frame");
+    if (existing) existing.remove();
+
+    const clone = printableElement.cloneNode(true) as HTMLElement;
+    clone.id = "temp-print-frame";
+    clone.classList.remove("hidden");
+    clone.classList.add("block");
+    document.body.appendChild(clone);
+    document.body.classList.add("is-printing-now");
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove("is-printing-now");
+        const temp = document.getElementById("temp-print-frame");
+        if (temp) temp.remove();
+      }, 500);
+    }, 150);
+  };
+
   const isStatusActive = card.status === "ACTIVE";
 
   return (
     <div className="space-y-4 max-w-sm mx-auto">
       {/* Top Controls Header */}
-      <div className="bg-slate-900 text-white p-2.5 rounded-2xl shadow-sm space-y-2 border border-slate-800">
+      <div className="bg-slate-900 text-white p-2.5 rounded-2xl shadow-sm space-y-2 border border-slate-800 print:hidden">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span
@@ -161,7 +189,7 @@ export default function DigitalIdCardView({
       </div>
 
       {/* Card Preview Stage (Scaled Proportionally & Animated Flip) */}
-      <div className="flex justify-center py-2 relative">
+      <div className="flex justify-center py-2 relative print:hidden">
         <div
           className={`transition-all duration-300 transform ${
             isFlipping ? "scale-95 opacity-50 rotate-y-90" : "scale-100 opacity-100 rotate-y-0"
@@ -187,7 +215,7 @@ export default function DigitalIdCardView({
 
       {/* Action Buttons */}
       {showActions && (
-        <div className="flex flex-col gap-2 pt-2">
+        <div className="flex flex-col gap-2 pt-2 print:hidden">
           <button
             type="button"
             onClick={handleShare}
@@ -219,28 +247,49 @@ export default function DigitalIdCardView({
               </a>
             )}
 
-            {onPrint ? (
-              <button
-                type="button"
-                onClick={onPrint}
-                className="flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2 rounded-xl text-xs transition cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5 text-slate-500" />
-                <span>প্রিন্ট / PDF</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2 rounded-xl text-xs transition cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5 text-slate-500" />
-                <span>প্রিন্ট করুন</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleSingleCardPrint}
+              className="flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold py-2 rounded-xl text-xs transition cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5 text-slate-500" />
+              <span>প্রিন্ট / PDF</span>
+            </button>
           </div>
         </div>
       )}
+
+      {/* Hidden Single Card Printable Element */}
+      <div id="printable-single-card-sheet" className="hidden">
+        <div className="p-8 flex flex-col items-center justify-center min-h-screen bg-white">
+          <div className="text-center mb-4">
+            <h2 className="font-bold text-base text-slate-900">{madrasaInfo?.name || "মাদরাসা আইডি কার্ড"}</h2>
+            <p className="text-xs text-slate-600">শিক্ষার্থী: {card.snapshot?.student_name} • আইডি: {card.card_number}</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-6">
+            <div className="border border-dashed border-slate-300 p-1 rounded-xl inline-block bg-white shadow-2xs">
+              <StudentIdCardTemplate
+                card={card}
+                side="front"
+                templateId={selectedTemplate}
+                madrasaInfo={madrasaInfo}
+                qrDataUrl={qrDataUrl}
+              />
+              <p className="text-[10px] text-slate-400 text-center font-bold mt-1">সামনের দিক (FRONT)</p>
+            </div>
+            <div className="border border-dashed border-slate-300 p-1 rounded-xl inline-block bg-white shadow-2xs">
+              <StudentIdCardTemplate
+                card={card}
+                side="back"
+                templateId={selectedTemplate}
+                madrasaInfo={madrasaInfo}
+                qrDataUrl={qrDataUrl}
+              />
+              <p className="text-[10px] text-slate-400 text-center font-bold mt-1">পিছনের দিক (BACK)</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

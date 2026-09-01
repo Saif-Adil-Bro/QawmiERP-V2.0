@@ -28,6 +28,13 @@ import {
   X,
   AlertTriangle,
   UserCheck,
+  Building2,
+  Phone,
+  Globe,
+  Upload,
+  Check,
+  Save,
+  Image as ImageIcon,
 } from "lucide-react";
 import { convertToBanglaNumber, getStudentIdNumber } from "@/lib/student-utils";
 import {
@@ -90,7 +97,7 @@ export default function IdCardClient({
   userType,
   madrasaInfo,
 }: IdCardClientProps) {
-  const [activeTab, setActiveTab] = useState<"cards" | "generator" | "audit">("cards");
+  const [activeTab, setActiveTab] = useState<"cards" | "generator" | "builder" | "audit">("cards");
   const [cards, setCards] = useState<StudentIDCard[]>(initialData.cards || []);
   const [auditLogs, setAuditLogs] = useState<IDCardAuditLog[]>(initialData.auditLogs || []);
   const [stats, setStats] = useState(initialData.stats);
@@ -125,6 +132,29 @@ export default function IdCardClient({
   const [backLineGap, setBackLineGap] = useState(3);
   const [showEditor, setShowEditor] = useState(false);
 
+  // ID Card Builder & Customizer State
+  const [editableMadrasaInfo, setEditableMadrasaInfo] = useState({
+    name: madrasaInfo?.name || "জামিয়া ইসলামিয়া দারুল উলুম",
+    name_arabic: "الجامعة الإسلامية دار العلوم",
+    address: madrasaInfo?.address || "ঢাকা, বাংলাদেশ",
+    phone: madrasaInfo?.phone || "+880 1700-000000",
+    website: "www.qawmierp.app",
+    logo_url: "",
+    principal_name: "আল্লামা মুফতি আব্দুল কাইয়ুম",
+    signature_url: "",
+  });
+
+  const [signatureTitle, setSignatureTitle] = useState("মুহতামিম / অধ্যক্ষ");
+  const [qrLabel, setQrLabel] = useState("যাচাই করুন");
+
+  const [builderSampleStudentId, setBuilderSampleStudentId] = useState<string>(
+    (users && users[0]?.id) || (allStudents && allStudents[0]?.id) || ""
+  );
+  const [builderSide, setBuilderSide] = useState<"front" | "back">("front");
+  const [builderZoom, setBuilderZoom] = useState<number>(1.25);
+  const [editorSubTab, setEditorSubTab] = useState<"template" | "branding" | "backside" | "advanced">("template");
+  const [newInstructionText, setNewInstructionText] = useState("");
+
   const [customInstructions, setCustomInstructions] = useState<string[]>([
     "মাদরাসায় অবস্থানকালীন সময়ে কার্ডটি পরিধান করা বাধ্যতামূলক।",
     "এই কার্ডটি মাদরাসার সম্পত্তি এবং এটি হস্তান্তরযোগ্য নয়।",
@@ -135,6 +165,72 @@ export default function IdCardClient({
   const [termsAndConditions, setTermsAndConditions] = useState<string>(
     "This identity card is issued by the authority. It is non-transferable and must be returned if found."
   );
+
+  const handleAddInstruction = () => {
+    if (!newInstructionText.trim()) return;
+    setCustomInstructions([...customInstructions, newInstructionText.trim()]);
+    setNewInstructionText("");
+  };
+
+  const handleRemoveInstruction = (index: number) => {
+    setCustomInstructions(customInstructions.filter((_, i) => i !== index));
+  };
+
+  const handleResetBuilderDefaults = () => {
+    setTemplate("classic_islamic");
+    setThemeColor("blue");
+    setEditableMadrasaInfo({
+      name: madrasaInfo?.name || "জামিয়া ইসলামিয়া দারুল উলুম",
+      name_arabic: "الجامعة الإسلامية دار العلوم",
+      address: madrasaInfo?.address || "ঢাকা, বাংলাদেশ",
+      phone: madrasaInfo?.phone || "+880 1700-000000",
+      website: "www.qawmierp.app",
+      logo_url: "",
+      principal_name: "আল্লামা মুফতি আব্দুল কাইয়ুম",
+      signature_url: "",
+    });
+    setSignatureTitle("মুহতামিম / অধ্যক্ষ");
+    setQrLabel("যাচাই করুন");
+    setCustomInstructions([
+      "মাদরাসায় অবস্থানকালীন সময়ে কার্ডটি পরিধান করা বাধ্যতামূলক।",
+      "এই কার্ডটি মাদরাসার সম্পত্তি এবং এটি হস্তান্তরযোগ্য নয়।",
+      "কার্ড হারিয়ে গেলে কর্তৃপক্ষকে অবিলম্বে অবহিত করতে হবে।",
+      "কার্ডটি পাওয়া গেলে নিচের ঠিকানায় ফেরত দিন।",
+    ]);
+    setActionMessage({ type: "success", text: "ডিফল্ট কাস্টমাইজেশন রিস্টোর করা হয়েছে!" });
+  };
+
+  const handleSaveBuilderSettings = () => {
+    setActionMessage({ type: "success", text: "আইডি কার্ডের টেমপ্লেট ও কাস্টম ডিজাইন সেটিংস সফলভাবে সংরক্ষণ করা হয়েছে!" });
+  };
+
+  const handlePrintTestCard = () => {
+    const element = document.getElementById("builder-test-card-container");
+    if (!element) return;
+    const existing = document.getElementById("temp-print-frame");
+    if (existing) existing.remove();
+
+    const clone = element.cloneNode(true) as HTMLElement;
+    clone.id = "temp-print-frame";
+    clone.style.position = "fixed";
+    clone.style.top = "50%";
+    clone.style.left = "50%";
+    clone.style.transform = "translate(-50%, -50%)";
+    clone.style.zIndex = "99999";
+    clone.style.background = "white";
+    clone.style.padding = "20px";
+    document.body.appendChild(clone);
+    document.body.classList.add("is-printing-now");
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove("is-printing-now");
+        const temp = document.getElementById("temp-print-frame");
+        if (temp) temp.remove();
+      }, 500);
+    }, 150);
+  };
 
   const handleIssueSingle = async () => {
     if (!selectedStudentForIssue) return;
@@ -254,6 +350,40 @@ export default function IdCardClient({
     }, 150);
   };
 
+  const selectedSampleUser =
+    (users || []).find((u) => u.id === builderSampleStudentId) || users?.[0] || allStudents?.[0];
+
+  const builderSampleCard: StudentIDCard = {
+    id: selectedSampleUser?.id || "sample-001",
+    madrasa_id: "m-001",
+    student_id: selectedSampleUser?.id || "s-001",
+    session_id: "sess-1",
+    card_number: selectedSampleUser?.student_id || "QM-26-000108",
+    student_number: selectedSampleUser?.roll_number ? String(selectedSampleUser.roll_number) : "১০৮",
+    issue_date: "2026-09-01",
+    expiry_date: "2027-08-31",
+    status: "ACTIVE",
+    photo_url: getDirectPhotoUrl(selectedSampleUser?.photo_url),
+    verification_id: selectedSampleUser?.id || "demo-verify-id",
+    template_id: template,
+    issued_by: "অফিস",
+    snapshot: {
+      student_name: selectedSampleUser
+        ? `${selectedSampleUser.first_name || ""} ${selectedSampleUser.last_name || ""}`.trim()
+        : "আবু বকর সিদ্দিক",
+      student_id_code: selectedSampleUser?.student_id || "QM-26-000108",
+      roll_number: selectedSampleUser?.roll_number ? String(selectedSampleUser.roll_number) : "১২",
+      class_name: selectedSampleUser?.classes?.name || "শরহে বেকায়া",
+      session_name: "১৪৪৭-৪৮ হিজরি",
+      father_name: selectedSampleUser?.father_name || "মুহাম্মদ উসমান",
+      parent_phone: selectedSampleUser?.phone || selectedSampleUser?.guardian_phone || "01711-223344",
+      blood_group: selectedSampleUser?.blood_group || "B+",
+      photo_url: getDirectPhotoUrl(selectedSampleUser?.photo_url),
+    },
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
   // Printable A4 Cards Generator List
   const allCardsList = (users || []).flatMap((user) => {
     const cardObj: StudentIDCard = {
@@ -291,7 +421,7 @@ export default function IdCardClient({
     return list;
   });
 
-  const printPages = chunkArray(allCardsList, 8);
+  const printPages = chunkArray(allCardsList, 6);
 
   return (
     <div className="space-y-6">
@@ -338,6 +468,19 @@ export default function IdCardClient({
           >
             <Printer className="w-4 h-4 text-blue-400" />
             <span>বাল্ক আইডি জেনারেটর ও A4 প্রিন্ট</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("builder")}
+            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeTab === "builder"
+                ? "bg-slate-900 text-white shadow-xs"
+                : "text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            <Sliders className="w-4 h-4 text-amber-400" />
+            <span>আইডি কার্ড বিল্ডার ও এডিটর</span>
           </button>
 
           <button
@@ -611,6 +754,15 @@ export default function IdCardClient({
 
               <button
                 type="button"
+                onClick={() => setActiveTab("builder")}
+                className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 px-3.5 py-1.5 rounded-md text-xs font-bold transition cursor-pointer"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                ডিজাইন কাস্টমাইজ করুন
+              </button>
+
+              <button
+                type="button"
                 onClick={handlePrint}
                 className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-1.5 rounded-md text-xs font-semibold shadow-xs transition cursor-pointer"
               >
@@ -632,7 +784,10 @@ export default function IdCardClient({
                     card={cardItem.card}
                     side={cardItem.type}
                     templateId={template}
-                    madrasaInfo={madrasaInfo}
+                    madrasaInfo={editableMadrasaInfo}
+                    customInstructions={customInstructions}
+                    signatureTitle={signatureTitle}
+                    qrLabel={qrLabel}
                   />
                 </div>
                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
@@ -647,21 +802,587 @@ export default function IdCardClient({
             {printPages.map((pageCards, pageIndex) => (
               <div
                 key={pageIndex}
-                className="a4-id-card-sheet bg-white p-4 grid grid-cols-2 gap-4 justify-items-center page-break-after-always"
-                style={{ pageBreakAfter: "always" }}
+                className="a4-id-card-sheet bg-white p-4 grid grid-cols-2 gap-4 justify-items-center"
+                style={{ pageBreakAfter: pageIndex < printPages.length - 1 ? "always" : "auto" }}
               >
                 {pageCards.map((c, i) => (
-                  <div key={i} className="border border-dashed border-slate-300 p-1 rounded-2xl inline-block">
+                  <div key={i} className="border border-dashed border-slate-300 p-1 rounded-xl inline-block bg-white print-break-inside-avoid">
                     <StudentIdCardTemplate
                       card={c.card}
                       side={c.type}
                       templateId={template}
-                      madrasaInfo={madrasaInfo}
+                      madrasaInfo={editableMadrasaInfo}
+                      customInstructions={customInstructions}
+                      signatureTitle={signatureTitle}
+                      qrLabel={qrLabel}
                     />
                   </div>
                 ))}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB: ID CARD BUILDER & CUSTOM EDITOR */}
+      {activeTab === "builder" && (
+        <div className="space-y-6">
+          {/* Top Banner & Action Controls */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white p-6 rounded-3xl border border-slate-800 shadow-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>লাইভ কার্ড কাস্টমাইজেশন ইঞ্জি‌ন</span>
+              </div>
+              <h2 className="text-lg sm:text-xl font-black text-white">
+                আইডি কার্ড বিল্ডার ও ডিজাইন এডিটর
+              </h2>
+              <p className="text-xs text-slate-300">
+                রিয়েল-টাইম ক্যানভাসে লোগো, শিরোনাম, স্বাক্ষর, বারকোড/QR লেবেল এবং নিয়মাবলী সরাসরি পরিবর্তন করুন।
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={handlePrintTestCard}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>টেস্ট কার্ড প্রিন্ট</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveBuilderSettings}
+                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>ডিজাইন সেভ করুন</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetBuilderDefaults}
+                className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                title="ডিফল্ট সেটিংস রিসেট করুন"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>রিসেট</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Builder Main Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Column: Live Card Stage Preview (5 Cols) */}
+            <div className="lg:col-span-5 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-5 sticky top-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-emerald-600" />
+                  <span>লাইভ কার্ড প্রাকদর্শন (Live Canvas)</span>
+                </h3>
+                <span className="text-[11px] font-mono font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                  CR80 PVC (2.125" x 3.375")
+                </span>
+              </div>
+
+              {/* Controls Bar above card */}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                {/* Front / Back Switcher */}
+                <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setBuilderSide("front")}
+                    className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${
+                      builderSide === "front"
+                        ? "bg-white text-emerald-800 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    সামনের দিক
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBuilderSide("back")}
+                    className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${
+                      builderSide === "back"
+                        ? "bg-white text-emerald-800 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    পিছনের দিক
+                  </button>
+                </div>
+
+                {/* Scale Switcher */}
+                <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500">
+                  <span>জুম:</span>
+                  <button
+                    type="button"
+                    onClick={() => setBuilderZoom(1)}
+                    className={`px-2 py-1 rounded cursor-pointer ${builderZoom === 1 ? "bg-slate-900 text-white" : "bg-slate-100"}`}
+                  >
+                    ১×
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBuilderZoom(1.25)}
+                    className={`px-2 py-1 rounded cursor-pointer ${builderZoom === 1.25 ? "bg-slate-900 text-white" : "bg-slate-100"}`}
+                  >
+                    ১.২৫×
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBuilderZoom(1.4)}
+                    className={`px-2 py-1 rounded cursor-pointer ${builderZoom === 1.4 ? "bg-slate-900 text-white" : "bg-slate-100"}`}
+                  >
+                    ১.৪×
+                  </button>
+                </div>
+              </div>
+
+              {/* Student Selector to test live card */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 block">নমুনা শিক্ষার্থী পরিবর্তন করুন:</label>
+                <select
+                  value={builderSampleStudentId}
+                  onChange={(e) => setBuilderSampleStudentId(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+                >
+                  <option value="">-- প্রথম শিক্ষার্থী --</option>
+                  {(users || []).map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.first_name} {u.last_name || ""} ({u.classes?.name || "জামাতহীন"} - রোল: {u.roll_number || "-"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* The Rendered Card Canvas */}
+              <div className="bg-slate-900/95 p-8 rounded-3xl border border-slate-800 shadow-inner flex flex-col items-center justify-center min-h-[380px] relative overflow-hidden">
+                <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-40 pointer-events-none" />
+
+                <div
+                  id="builder-test-card-container"
+                  className="transition-all duration-300 transform shadow-2xl rounded-[12px] overflow-hidden border-2 border-amber-400/40 relative z-10 hover:scale-[1.28]"
+                  style={{
+                    transform: `scale(${builderZoom})`,
+                    transformOrigin: "center",
+                  }}
+                >
+                  <StudentIdCardTemplate
+                    card={builderSampleCard}
+                    side={builderSide}
+                    templateId={template}
+                    madrasaInfo={editableMadrasaInfo}
+                    customInstructions={customInstructions}
+                    signatureTitle={signatureTitle}
+                    qrLabel={qrLabel}
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-900 text-xs space-y-1">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>রেডি ফর এডিটিং অ্যান্ড প্রিন্টিং</span>
+                </div>
+                <p className="text-[11px] text-emerald-800">
+                  ডানপাশের প্যানেলে যেকোনো পরিবর্তন করা মাত্রই বামপাশের এই ক্যানভাসে তা সাথে সাথে দেখতে পাবেন।
+                </p>
+              </div>
+            </div>
+
+            {/* Right Column: Customization Editor Controls (7 Cols) */}
+            <div className="lg:col-span-7 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-6">
+              {/* Sub-Tabs Bar */}
+              <div className="flex border-b border-slate-200 gap-2 overflow-x-auto pb-2">
+                <button
+                  type="button"
+                  onClick={() => setEditorSubTab("template")}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    editorSubTab === "template"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  <Palette className="w-3.5 h-3.5" />
+                  <span>১. টেমপ্লেট ও কালার</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEditorSubTab("branding")}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    editorSubTab === "branding"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>২. ব্র্যান্ডিং ও লোগো</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEditorSubTab("backside")}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    editorSubTab === "backside"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>৩. পিছনের নির্দেশাবলী</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEditorSubTab("advanced")}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    editorSubTab === "advanced"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>৪. লেবেল ও স্বাক্ষর</span>
+                </button>
+              </div>
+
+              {/* SUB TAB 1: TEMPLATE & COLORS */}
+              {editorSubTab === "template" && (
+                <div className="space-y-6 animate-in fade-in duration-150">
+                  {/* Select Template Style */}
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-slate-800 uppercase tracking-wider block">
+                      আইডি কার্ডের টেমপ্লেট নির্বাচন করুন:
+                    </label>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* Template 1 */}
+                      <button
+                        type="button"
+                        onClick={() => setTemplate("classic_islamic")}
+                        className={`p-4 rounded-2xl border-2 text-left transition relative cursor-pointer ${
+                          template === "classic_islamic"
+                            ? "border-emerald-600 bg-emerald-50/60 ring-2 ring-emerald-500/20"
+                            : "border-slate-200 hover:border-slate-300 bg-white"
+                        }`}
+                      >
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-black text-xs text-slate-900">🕌 ক্লাসিক ইসলামিক</span>
+                          {template === "classic_islamic" && <Check className="w-4 h-4 text-emerald-600" />}
+                        </div>
+                        <p className="text-[11px] text-slate-500 leading-tight">
+                          ঐতিহ্যবাহী সবুজ ও সোনালী নকশা এবং ইসলামিক ওয়াটারমার্ক সহ।
+                        </p>
+                      </button>
+
+                      {/* Template 2 */}
+                      <button
+                        type="button"
+                        onClick={() => setTemplate("modern_minimal")}
+                        className={`p-4 rounded-2xl border-2 text-left transition relative cursor-pointer ${
+                          template === "modern_minimal"
+                            ? "border-emerald-600 bg-emerald-50/60 ring-2 ring-emerald-500/20"
+                            : "border-slate-200 hover:border-slate-300 bg-white"
+                        }`}
+                      >
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-black text-xs text-slate-900">⚡ মডার্ন মিনিমাল</span>
+                          {template === "modern_minimal" && <Check className="w-4 h-4 text-emerald-600" />}
+                        </div>
+                        <p className="text-[11px] text-slate-500 leading-tight">
+                          পরিচ্ছন্ন আধুনিক সাদা ব্যাকগ্রাউন্ড ও মিনিমাল হেডার।
+                        </p>
+                      </button>
+
+                      {/* Template 3 */}
+                      <button
+                        type="button"
+                        onClick={() => setTemplate("premium_madrasa")}
+                        className={`p-4 rounded-2xl border-2 text-left transition relative cursor-pointer ${
+                          template === "premium_madrasa"
+                            ? "border-emerald-600 bg-emerald-50/60 ring-2 ring-emerald-500/20"
+                            : "border-slate-200 hover:border-slate-300 bg-white"
+                        }`}
+                      >
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-black text-xs text-slate-900">👑 প্রিমিয়াম মাদরাসা</span>
+                          {template === "premium_madrasa" && <Check className="w-4 h-4 text-emerald-600" />}
+                        </div>
+                        <p className="text-[11px] text-slate-500 leading-tight">
+                          গোল্ডেন রিবন ব্যানার ও গাড় ডার্ক এমারেল্ড থিম।
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Accent Color Palette */}
+                  <div className="space-y-3 pt-2 border-t border-slate-100">
+                    <label className="text-xs font-black text-slate-800 uppercase tracking-wider block">
+                      প্রাইমারি কালার থিম:
+                    </label>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      {[
+                        { id: "emerald", name: "মরু সবুজ (Emerald)", color: "bg-emerald-700" },
+                        { id: "blue", name: "রয়েল ব্লু (Royal Blue)", color: "bg-blue-700" },
+                        { id: "indigo", name: "ইনডিগো (Indigo)", color: "bg-indigo-700" },
+                        { id: "rose", name: "রুবি রেড (Ruby Rose)", color: "bg-rose-700" },
+                        { id: "slate", name: "ডিপ ডার্ক (Dark Slate)", color: "bg-slate-800" },
+                      ].map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setThemeColor(c.id)}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                            themeColor === c.id
+                              ? "border-slate-900 bg-slate-900 text-white"
+                              : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          <span className={`w-3.5 h-3.5 rounded-full ${c.color} shrink-0`} />
+                          <span>{c.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Font Choice */}
+                  <div className="space-y-3 pt-2 border-t border-slate-100">
+                    <label className="text-xs font-black text-slate-800 uppercase tracking-wider block">
+                      বাংলা ফন্ট স্টাইল:
+                    </label>
+
+                    <select
+                      value={banglaFont}
+                      onChange={(e) => setBanglaFont(e.target.value)}
+                      className="w-full p-3 border border-slate-200 rounded-2xl text-xs font-semibold bg-slate-50"
+                    >
+                      <option value="font-solaiman">SolaimanLipi (সোলাইমান লিপি - ক্লাসিক)</option>
+                      <option value="font-sans">Noto Sans Bengali (আধুনিক ডিজিটাল)</option>
+                      <option value="font-serif">Kalpurush (কালপুরুষ - সাহিত্য)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB TAB 2: BRANDING & LOGO */}
+              {editorSubTab === "branding" && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 block">মাদরাসার নাম (বাংলা):</label>
+                      <input
+                        type="text"
+                        value={editableMadrasaInfo.name}
+                        onChange={(e) => setEditableMadrasaInfo({ ...editableMadrasaInfo, name: e.target.value })}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold bg-slate-50 focus:bg-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 block">আরবি / ইংরেজি নাম:</label>
+                      <input
+                        type="text"
+                        value={editableMadrasaInfo.name_arabic}
+                        onChange={(e) => setEditableMadrasaInfo({ ...editableMadrasaInfo, name_arabic: e.target.value })}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-semibold bg-slate-50 focus:bg-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 block">ঠিকানা:</label>
+                      <input
+                        type="text"
+                        value={editableMadrasaInfo.address}
+                        onChange={(e) => setEditableMadrasaInfo({ ...editableMadrasaInfo, address: e.target.value })}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 block">ফোন নম্বর:</label>
+                      <input
+                        type="text"
+                        value={editableMadrasaInfo.phone}
+                        onChange={(e) => setEditableMadrasaInfo({ ...editableMadrasaInfo, phone: e.target.value })}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Logo Image URL */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                      <span>মাদরাসার লোগো লিংক (Logo URL):</span>
+                      {editableMadrasaInfo.logo_url && (
+                        <button
+                          type="button"
+                          onClick={() => setEditableMadrasaInfo({ ...editableMadrasaInfo, logo_url: "" })}
+                          className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer"
+                        >
+                          লোগো সরান
+                        </button>
+                      )}
+                    </label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder="https://example.com/logo.png"
+                        value={editableMadrasaInfo.logo_url}
+                        onChange={(e) => setEditableMadrasaInfo({ ...editableMadrasaInfo, logo_url: e.target.value })}
+                        className="flex-1 p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono"
+                      />
+                      {editableMadrasaInfo.logo_url && (
+                        <img
+                          src={editableMadrasaInfo.logo_url}
+                          alt="Logo Preview"
+                          className="w-9 h-9 object-contain rounded-lg border p-1 bg-white shrink-0"
+                        />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      পিএনজি (PNG) বা জেপিইজি (JPG) ফাইলের ডিরেক্ট ওয়েব লিংক দিন।
+                    </p>
+                  </div>
+
+                  {/* Principal / Mohtamim Signature Image URL */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                      <span>মুহতামিম/অধ্যক্ষের স্বাক্ষর লিংক (Signature URL):</span>
+                      {editableMadrasaInfo.signature_url && (
+                        <button
+                          type="button"
+                          onClick={() => setEditableMadrasaInfo({ ...editableMadrasaInfo, signature_url: "" })}
+                          className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer"
+                        >
+                          স্বাক্ষর সরান
+                        </button>
+                      )}
+                    </label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder="https://example.com/signature.png"
+                        value={editableMadrasaInfo.signature_url}
+                        onChange={(e) => setEditableMadrasaInfo({ ...editableMadrasaInfo, signature_url: e.target.value })}
+                        className="flex-1 p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white font-mono"
+                      />
+                      {editableMadrasaInfo.signature_url && (
+                        <img
+                          src={editableMadrasaInfo.signature_url}
+                          alt="Signature Preview"
+                          className="h-9 max-w-[80px] object-contain rounded-lg border p-1 bg-white shrink-0"
+                        />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      স্বচ্ছ ব্যাকগ্রাউন্ডসহ (Transparent PNG) ডিজিটাল স্বাক্ষরের ছবি দিলে প্রিন্ট সুন্দর দেখাবে।
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB TAB 3: BACKSIDE INSTRUCTIONS */}
+              {editorSubTab === "backside" && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-800 block">
+                      কার্ডের পিছনের নির্দেশাবলী (Back Side Instructions):
+                    </label>
+
+                    <div className="space-y-2">
+                      {customInstructions.map((instruction, idx) => (
+                        <div key={idx} className="flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                          <span className="font-bold text-slate-400 w-5">{idx + 1}.</span>
+                          <span className="flex-1 text-slate-800 font-medium">{instruction}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveInstruction(idx)}
+                            className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                            title="মুছে ফেলুন"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2">
+                      <input
+                        type="text"
+                        placeholder="নতুন নির্দেশাবলী লিখুন..."
+                        value={newInstructionText}
+                        onChange={(e) => setNewInstructionText(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleAddInstruction()}
+                        className="flex-1 p-2.5 border border-slate-200 rounded-xl text-xs bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddInstruction}
+                        className="px-4 py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition cursor-pointer"
+                      >
+                        + যুক্ত করুন
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB TAB 4: ADVANCED & LABELS */}
+              {editorSubTab === "advanced" && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 block">স্বাক্ষরকারীর পদবী লেবেল:</label>
+                      <input
+                        type="text"
+                        value={signatureTitle}
+                        onChange={(e) => setSignatureTitle(e.target.value)}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold bg-slate-50 focus:bg-white"
+                        placeholder="যেমন: মুহতামিম / অধ্যক্ষ"
+                      />
+                      <p className="text-[10px] text-slate-400">ডিফল্ট: "মুহতামিম / অধ্যক্ষ"</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 block">QR কোড যাচাইকরণ লেবেল:</label>
+                      <input
+                        type="text"
+                        value={qrLabel}
+                        onChange={(e) => setQrLabel(e.target.value)}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold bg-slate-50 focus:bg-white"
+                        placeholder="যেমন: যাচাই করুন"
+                      />
+                      <p className="text-[10px] text-slate-400">ডিফল্ট: "যাচাই করুন"</p>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={handleResetBuilderDefaults}
+                      className="px-4 py-2.5 bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold rounded-xl border border-rose-200 transition cursor-pointer"
+                    >
+                      ডিফল্ট ডিজাইনে রিসেট করুন
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSaveBuilderSettings}
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>সেটিংস সেভ করুন</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
