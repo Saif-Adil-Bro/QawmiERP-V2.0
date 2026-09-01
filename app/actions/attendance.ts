@@ -9,10 +9,16 @@ export async function getStudentsForAttendance(date: string, classId?: string) {
   const user = await getAuthUser(supabase);
   if (!user) return [];
 
+  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+
   let query = supabase
     .from("students")
     .select("id, first_name, last_name, roll_number, class_id, classes(name)")
     .order("roll_number");
+
+  if (finalMadrasaId) {
+    query = query.eq("madrasa_id", finalMadrasaId);
+  }
 
   if (classId && classId !== "All") {
     query = query.eq("class_id", classId);
@@ -27,17 +33,23 @@ export async function getStudentsForAttendance(date: string, classId?: string) {
   }
 
   // Fetch existing attendance for the given date
-  const { data: attendance, error: attendanceError } = await supabase
+  let attQuery = supabase
     .from("attendance")
     .select("student_id, status")
     .eq("date", date);
 
+  if (finalMadrasaId) {
+    attQuery = attQuery.eq("madrasa_id", finalMadrasaId);
+  }
+
+  const { data: attendance, error: attendanceError } = await attQuery;
+
   if (attendanceError) return [];
 
   // Map attendance status to students
-  const attendanceMap = new Map(attendance.map(a => [a.student_id, a.status]));
+  const attendanceMap = new Map((attendance || []).map(a => [a.student_id, a.status]));
 
-  return students.map(student => ({
+  return (students || []).map(student => ({
     ...student,
     status: attendanceMap.get(student.id) || "Present", // Default to Present
   }));
@@ -76,10 +88,18 @@ export async function getTeachersForAttendance(date: string) {
   const user = await getAuthUser(supabase);
   if (!user) return [];
 
-  const { data: teachers, error: teachersError } = await supabase
+  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+
+  let query = supabase
     .from("teachers")
     .select("id, first_name, last_name, designation")
     .order("first_name");
+
+  if (finalMadrasaId) {
+    query = query.eq("madrasa_id", finalMadrasaId);
+  }
+
+  const { data: teachers, error: teachersError } = await query;
 
   if (teachersError) {
     console.error("Attendance teachers error:", teachersError);
@@ -87,17 +107,23 @@ export async function getTeachersForAttendance(date: string) {
   }
 
   // Fetch existing attendance for the given date
-  const { data: attendance, error: attendanceError } = await supabase
+  let attQuery = supabase
     .from("teacher_attendance")
     .select("teacher_id, status")
     .eq("date", date);
 
+  if (finalMadrasaId) {
+    attQuery = attQuery.eq("madrasa_id", finalMadrasaId);
+  }
+
+  const { data: attendance, error: attendanceError } = await attQuery;
+
   if (attendanceError) return [];
 
   // Map attendance status to teachers
-  const attendanceMap = new Map(attendance.map(a => [a.teacher_id, a.status]));
+  const attendanceMap = new Map((attendance || []).map(a => [a.teacher_id, a.status]));
 
-  return teachers.map(teacher => ({
+  return (teachers || []).map(teacher => ({
     ...teacher,
     status: attendanceMap.get(teacher.id) || "Present", // Default to Present
   }));

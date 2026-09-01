@@ -9,15 +9,19 @@ export async function getHifzStudents(classId?: string) {
   const user = await getAuthUser(supabase);
   if (!user) return [];
 
+  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+
   let query = supabase
     .from("students")
-    .select("id, first_name, last_name, roll_number, class_id, classes!inner(name)")
+    .select("id, first_name, last_name, roll_number, class_id, classes(name)")
     .order("roll_number");
+
+  if (finalMadrasaId) {
+    query = query.eq("madrasa_id", finalMadrasaId);
+  }
 
   if (classId && classId !== "All") {
     query = query.eq("class_id", classId);
-  } else {
-    // If no class selected, maybe try to match 'hifz' in class name as default or just return all
   }
 
   const { data, error } = await query;
@@ -26,7 +30,7 @@ export async function getHifzStudents(classId?: string) {
     console.error("Error fetching Hifz students:", error);
     return [];
   }
-  return data;
+  return data || [];
 }
 
 export async function getHifzLogs(studentId: string, limit = 10) {
