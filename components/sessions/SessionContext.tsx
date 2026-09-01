@@ -8,6 +8,24 @@ import {
   setSelectedSessionCookie,
 } from "@/app/actions/sessions";
 
+// IMPORTANT: this must be a stable, module-level reference — not an inline
+// "[]" default parameter. Every call to SessionProvider() without an
+// explicit initialSessions prop (which is how DashboardShell renders it:
+// <SessionProvider>{children}</SessionProvider>, no props) re-evaluates an
+// inline "[]" default on EVERY render, producing a brand new array
+// reference each time even though it's logically still empty. Since the
+// effect below depends on initialSessions by reference, that made the
+// effect think its dependency changed on every single render, re-running
+// fetchSessions() forever: fetch -> state update -> re-render -> new []
+// -> effect fires again -> fetch again, in an infinite loop throttled only
+// by network latency (this is what showed up as a request "racing"/looping
+// every 1-2 seconds and was competing for bandwidth with real navigation
+// clicks on a slow connection). Using this shared constant keeps the
+// reference identical across renders, so the dependency comparison is
+// stable and the effect only runs when initialSessions is genuinely a new
+// (server-supplied) array.
+const EMPTY_SESSIONS: AcademicSession[] = [];
+
 interface SessionContextType {
   sessions: AcademicSession[];
   currentSession: AcademicSession | null;
@@ -23,7 +41,7 @@ const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
 export function SessionProvider({
   children,
-  initialSessions = [],
+  initialSessions = EMPTY_SESSIONS,
   initialSelectedSessionId = null,
 }: {
   children: React.ReactNode;
@@ -33,6 +51,11 @@ export function SessionProvider({
   const [sessions, setSessions] = useState<AcademicSession[]>(initialSessions);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(initialSelectedSessionId);
   const [isLoading, setIsLoading] = useState(initialSessions.length === 0);
+  // Defense-in-depth against the reference-identity bug fixed above: even
+  // if some future caller passes a fresh array on every render again, this
+  // ref ensures the initial client-side fetch only ever fires once per
+  // mount instead of looping.
+  const hasFetchedRef = React.useRef(false);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -59,6 +82,8 @@ export function SessionProvider({
 
   useEffect(() => {
     if (initialSessions.length === 0) {
+      if (hasFetchedRef.current) return;
+      hasFetchedRef.current = true;
       fetchSessions();
     } else if (!selectedSessionId && initialSessions.length > 0) {
       const curr = initialSessions.find((s) => s.is_current) || initialSessions[0];
