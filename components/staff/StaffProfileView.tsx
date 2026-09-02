@@ -60,6 +60,7 @@ interface StaffProfileViewProps {
   categories?: StaffCategory[];
   departments?: StaffDepartment[];
   designations?: StaffDesignation[];
+  madrasaInfo?: any;
   madrasaName?: string;
   onRefresh: () => void;
 }
@@ -69,6 +70,7 @@ export default function StaffProfileView({
   categories = [],
   departments = [],
   designations = [],
+  madrasaInfo,
   madrasaName = "দারুল উলুম কওমিয়া মাদ্রাসা",
   onRefresh,
 }: StaffProfileViewProps) {
@@ -991,7 +993,10 @@ export default function StaffProfileView({
       {showIdCardModal && (
         <StaffIdCardModal
           staff={staff}
-          madrasaName={madrasaName}
+          madrasaInfo={madrasaInfo}
+          madrasaName={madrasaInfo?.name || madrasaName}
+          madrasaPhone={madrasaInfo?.phone}
+          madrasaAddress={madrasaInfo?.address}
           onClose={() => setShowIdCardModal(false)}
         />
       )}
@@ -999,7 +1004,10 @@ export default function StaffProfileView({
       {showCertModal && (
         <StaffCertificateGeneratorModal
           staff={staff}
-          madrasaName={madrasaName}
+          madrasaInfo={madrasaInfo}
+          madrasaName={madrasaInfo?.name || madrasaName}
+          madrasaPhone={madrasaInfo?.phone}
+          madrasaAddress={madrasaInfo?.address}
           onClose={() => setShowCertModal(false)}
         />
       )}

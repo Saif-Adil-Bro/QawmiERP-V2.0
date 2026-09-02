@@ -39,6 +39,7 @@ interface StaffManagementClientProps {
     designations: StaffDesignation[];
     leave_requests: StaffLeaveRequest[];
     salary_records: StaffSalaryPaymentRecord[];
+    madrasa_info?: any;
   };
 }
 
@@ -265,6 +266,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           recentActivity={recentLogs.slice(0, 5)}
           pendingLeavesCount={pendingLeaves}
           expiringDocumentsCount={expiringDocsCount}
+          madrasaInfo={data.madrasa_info}
           onAddStaff={() => setShowAddModal(true)}
           onNavigateTab={(tab) => setCurrentTab(tab as any)}
         />
@@ -276,6 +278,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           categories={data.categories}
           departments={data.departments}
           designations={data.designations}
+          madrasaInfo={data.madrasa_info}
           onSelectStaff={handleSelectStaff}
           onAddStaff={() => setShowAddModal(true)}
           onEditStaff={(staff) => setEditingStaff(staff)}
@@ -288,6 +291,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           categories={data.categories}
           departments={data.departments}
           designations={data.designations}
+          madrasaInfo={data.madrasa_info}
           onRefresh={refreshData}
         />
       )}
@@ -313,6 +317,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           staffList={data.staff_members}
           categories={data.categories}
           departments={data.departments}
+          madrasaInfo={data.madrasa_info}
         />
       )}
 

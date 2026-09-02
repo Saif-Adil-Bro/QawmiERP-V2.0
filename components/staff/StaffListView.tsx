@@ -38,6 +38,7 @@ interface StaffListViewProps {
   categories: StaffCategory[];
   departments: StaffDepartment[];
   designations: StaffDesignation[];
+  madrasaInfo?: any;
   madrasaName?: string;
   onSelectStaff: (staffId: string) => void;
   onAddStaff: () => void;
@@ -49,6 +50,7 @@ export default function StaffListView({
   categories,
   departments,
   designations,
+  madrasaInfo,
   madrasaName = "দারুল উলুম কওমিয়া মাদ্রাসা",
   onSelectStaff,
   onAddStaff,
@@ -473,7 +475,10 @@ export default function StaffListView({
       {idCardStaff && (
         <StaffIdCardModal
           staff={idCardStaff}
-          madrasaName={madrasaName}
+          madrasaInfo={madrasaInfo}
+          madrasaName={madrasaInfo?.name || madrasaName}
+          madrasaPhone={madrasaInfo?.phone}
+          madrasaAddress={madrasaInfo?.address}
           onClose={() => setIdCardStaff(null)}
         />
       )}
@@ -481,7 +486,10 @@ export default function StaffListView({
       {certStaff && (
         <StaffCertificateGeneratorModal
           staff={certStaff}
-          madrasaName={madrasaName}
+          madrasaInfo={madrasaInfo}
+          madrasaName={madrasaInfo?.name || madrasaName}
+          madrasaPhone={madrasaInfo?.phone}
+          madrasaAddress={madrasaInfo?.address}
           onClose={() => setCertStaff(null)}
         />
       )}

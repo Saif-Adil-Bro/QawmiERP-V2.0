@@ -228,6 +228,7 @@ export async function getStaffDashboardData() {
 
     // Recent activity log
     const recentActivity = (meta.staff_audit_logs || []).slice(-10).reverse();
+    const madrasaInfo = await getMadrasaInfo();
 
     return {
       stats,
@@ -237,6 +238,7 @@ export async function getStaffDashboardData() {
       expiringDocumentsCount,
       categories,
       departments,
+      madrasa_info: madrasaInfo,
     };
   } catch (err) {
     console.error("Error in getStaffDashboardData:", err);
@@ -248,6 +250,7 @@ export async function getStaffDashboardData() {
       expiringDocumentsCount: 0,
       categories: DEFAULT_STAFF_CATEGORIES,
       departments: DEFAULT_STAFF_DEPARTMENTS,
+      madrasa_info: null,
     };
   }
 }
@@ -1405,6 +1408,7 @@ export async function updateStaffSettings(payload: {
  * Fetch all staff metadata for the current user's madrasa
  */
 export async function getStaffMetadataFull() {
+  const madrasaInfo = await getMadrasaInfo();
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) {
@@ -1415,6 +1419,7 @@ export async function getStaffMetadataFull() {
       designations: DEFAULT_STAFF_DESIGNATIONS,
       leave_requests: [],
       salary_records: [],
+      madrasa_info: madrasaInfo,
     };
   }
 
@@ -1427,6 +1432,7 @@ export async function getStaffMetadataFull() {
       designations: DEFAULT_STAFF_DESIGNATIONS,
       leave_requests: [],
       salary_records: [],
+      madrasa_info: madrasaInfo,
     };
   }
 
@@ -1444,6 +1450,7 @@ export async function getStaffMetadataFull() {
     designations: meta.staff_designations && meta.staff_designations.length > 0 ? meta.staff_designations : DEFAULT_STAFF_DESIGNATIONS,
     leave_requests: meta.staff_leave_requests || [],
     salary_records: meta.staff_salary_records || [],
+    madrasa_info: madrasaInfo,
   };
 }
 

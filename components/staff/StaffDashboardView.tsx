@@ -52,6 +52,7 @@ interface StaffDashboardViewProps {
   }>;
   pendingLeavesCount: number;
   expiringDocumentsCount: number;
+  madrasaInfo?: any;
   onAddStaff: () => void;
   onNavigateTab: (tab: string) => void;
 }
@@ -62,6 +63,7 @@ export default function StaffDashboardView({
   recentActivity,
   pendingLeavesCount,
   expiringDocumentsCount,
+  madrasaInfo,
   onAddStaff,
   onNavigateTab,
 }: StaffDashboardViewProps) {
@@ -69,6 +71,53 @@ export default function StaffDashboardView({
 
   return (
     <div className="space-y-6">
+      {/* Dynamic Institutional Identity Header */}
+      {madrasaInfo && (
+        <div className="bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-900 text-white rounded-2xl p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-emerald-700/50">
+          <div className="flex items-center gap-3.5">
+            {madrasaInfo.logo_url ? (
+              <img
+                src={madrasaInfo.logo_url}
+                alt="Madrasa Logo"
+                className="w-12 h-12 rounded-full object-contain bg-white/90 p-0.5 shadow-xs border border-emerald-300/40 shrink-0"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-2xl bg-emerald-700/60 border border-emerald-400/40 flex items-center justify-center text-emerald-100 font-bold shrink-0">
+                <Briefcase className="w-6 h-6" />
+              </div>
+            )}
+            <div>
+              <div className="text-[11px] font-semibold text-emerald-200 uppercase tracking-wider">
+                মানবসম্পদ ও স্টাফ ম্যানেজমেন্ট সিস্টেম
+              </div>
+              <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+                {madrasaInfo.name || "দারুল উলুম কওমিয়া মাদ্রাসা"}
+              </h2>
+              <p className="text-xs text-emerald-100/80 font-medium">
+                {madrasaInfo.address || "মাদ্রাসা ক্যাম্পাস"} {madrasaInfo.phone ? `• মোবাইল: ${toBanglaNumber(madrasaInfo.phone)}` : ""}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onNavigateTab("reports")}
+              className="px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-white/10"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>রিপোর্ট ও সনদ</span>
+            </button>
+            <button
+              onClick={onAddStaff}
+              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-slate-950" />
+              <span>নতুন স্টাফ</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Stat Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Staff */}
