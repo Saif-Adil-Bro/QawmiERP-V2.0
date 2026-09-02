@@ -48,6 +48,17 @@ export async function deleteNotice(id: string) {
   revalidatePath("/dashboard/communication/notices");
 }
 
+export async function getServerOutboundIP(): Promise<string> {
+  try {
+    const res = await fetch("https://api.ipify.org?format=json", { cache: "no-store" });
+    if (!res.ok) return "অজানা";
+    const data = await res.json();
+    return data.ip || "অজানা";
+  } catch {
+    return "অজানা";
+  }
+}
+
 export async function deleteNoticeAction(formData: FormData) {
   const id = formData.get("id") as string;
   if (id) {

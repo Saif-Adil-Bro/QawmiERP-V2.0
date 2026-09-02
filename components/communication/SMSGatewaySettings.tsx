@@ -36,6 +36,7 @@ import {
   testSMSGateway,
   checkSMSBalance,
   retrieveMramApiKey,
+  getServerOutboundIP,
 } from "@/app/actions/communication";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
@@ -83,6 +84,14 @@ export default function SMSGatewaySettings({
     error?: string;
     updatedAt?: string;
   } | null>(null);
+
+  // Server Outbound IP State
+  const [outboundIp, setOutboundIp] = useState<string | null>(null);
+  const [copiedIp, setCopiedIp] = useState(false);
+
+  useEffect(() => {
+    getServerOutboundIP().then((ip) => setOutboundIp(ip));
+  }, []);
 
   // Update internal state if props change
   useEffect(() => {
@@ -732,6 +741,42 @@ export default function SMSGatewaySettings({
                     {testResult.rawResponse || "No body response returned."}
                   </pre>
                 </div>
+
+                {!testResult.success && testResult.error && (
+                  <div className="p-2.5 rounded-lg bg-red-100/90 border border-red-200 text-red-900 text-[11px] font-medium space-y-1">
+                    <div className="font-bold flex items-center gap-1 text-red-950">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                      <span>সম্ভাব্য কারণ ও সমাধান:</span>
+                    </div>
+                    <div>{testResult.error}</div>
+                    {testResult.rawResponse === "1016" && (
+                      <div className="mt-1 pt-1.5 border-t border-red-200/80 text-[11px] text-red-800 space-y-1">
+                        <div>
+                          👉 <strong>Mram 1016 ত্রুটি সমাধান:</strong> Mram প্যানেলে (<code className="bg-white/80 px-1 rounded text-red-900 font-mono">sms.mram.com.bd</code>) লগইন করুন ➔ API Settings ➔ IP Security / IP Restriction বন্ধ করুন।
+                        </div>
+                        {outboundIp && (
+                          <div className="flex items-center gap-2 pt-1">
+                            <span>আপনার বর্তমান অ্যাপ সার্ভার IP:</span>
+                            <code className="bg-white px-2 py-0.5 rounded font-mono font-bold text-red-950 border border-red-300">
+                              {outboundIp}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(outboundIp);
+                                setCopiedIp(true);
+                                setTimeout(() => setCopiedIp(false), 2000);
+                              }}
+                              className="px-2 py-0.5 bg-red-800 text-white text-[10px] rounded font-semibold hover:bg-red-900 transition-colors cursor-pointer"
+                            >
+                              {copiedIp ? "কপি হয়েছে!" : "IP কপি করুন"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -754,6 +799,25 @@ export default function SMSGatewaySettings({
             </div>
 
             <ul className="space-y-1.5 text-slate-600 list-disc list-inside">
+              <li>
+                <strong>বর্তমান সার্ভার Outbound IP:</strong>{" "}
+                <code className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-mono font-bold text-[11px]">
+                  {outboundIp || "লোড হচ্ছে..."}
+                </code>
+                {outboundIp && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(outboundIp);
+                      setCopiedIp(true);
+                      setTimeout(() => setCopiedIp(false), 2000);
+                    }}
+                    className="ml-2 text-[10px] text-indigo-600 hover:underline cursor-pointer"
+                  >
+                    {copiedIp ? "✓ কপি হয়েছে" : "[কপি করুন]"}
+                  </button>
+                )}
+              </li>
               <li>
                 <strong>API Endpoint:</strong> <code className="text-indigo-600 bg-white px-1 py-0.5 rounded border border-slate-200 text-[11px]">https://sms.mram.com.bd/smsapi</code>
               </li>
