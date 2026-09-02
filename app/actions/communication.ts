@@ -345,7 +345,7 @@ async function dispatchSMSGatewayRequest(
       url.searchParams.set("api_key", config.apiKey.trim());
       url.searchParams.set("type", config.unicode !== false ? "unicode" : "text");
       url.searchParams.set("contacts", bdFullNumber);
-      if (config.senderId) {
+      if (config.senderId && config.senderId.trim()) {
         url.searchParams.set("senderid", config.senderId.trim());
       }
       url.searchParams.set("msg", messageText);
@@ -359,26 +359,35 @@ async function dispatchSMSGatewayRequest(
       const bodyText = (await res.text()).trim();
       
       // Parse Mram Error codes or shoot ID
-      // Error code examples: 1002 (Sender Id not found), 1003 (API not found), 1008 (Insufficient balance)
       const trimmedCode = bodyText.replace(/[^0-9]/g, "");
       let errorMessage = "";
+      
       if (MRAM_ERROR_CODES[bodyText] || MRAM_ERROR_CODES[trimmedCode]) {
         errorMessage = MRAM_ERROR_CODES[bodyText] || MRAM_ERROR_CODES[trimmedCode];
-      } else if (bodyText.toLowerCase().includes("invalid") || bodyText.toLowerCase().includes("error") || bodyText.toLowerCase().includes("failed")) {
+      } else if (/^10\d{2}$/.test(trimmedCode) && Number(trimmedCode) >= 1002 && Number(trimmedCode) <= 1099) {
+        // Any 4-digit code starting with 10 (except 1001) is an error in Mram API
+        errorMessage = `এমরাম এপিআই ত্রুটি কোড: ${trimmedCode}`;
+      } else if (
+        bodyText.toLowerCase().includes("invalid") ||
+        bodyText.toLowerCase().includes("error") ||
+        bodyText.toLowerCase().includes("failed") ||
+        bodyText.toLowerCase().includes("not allowed")
+      ) {
         errorMessage = bodyText;
       }
 
       const isSuccess = res.ok && !errorMessage && (
         bodyText.toLowerCase().includes("sms submitted") ||
         bodyText.toLowerCase().includes("success") ||
-        /^\d+$/.test(bodyText) // Numeric Shoot ID (e.g. 54321987)
+        bodyText === "1001" ||
+        (/^\d+$/.test(bodyText) && bodyText.length >= 6) // Numeric Shoot ID (e.g. 54321987)
       );
 
       return {
         success: isSuccess,
         rawResponse: bodyText,
         statusCode: res.status,
-        error: errorMessage || (!isSuccess ? bodyText : undefined),
+        error: errorMessage || (!isSuccess ? (MRAM_ERROR_CODES[bodyText] || MRAM_ERROR_CODES[trimmedCode] || bodyText) : undefined),
       };
     } else if (config.provider === "greenweb") {
       // Greenweb: https://api.greenweb.com.bd/api.php
@@ -773,7 +782,8 @@ export async function sendSMS(formData: FormData) {
       gatewayResponseText = `Gateway (${gatewayConfig.provider}): ${dispatchRes.rawResponse.substring(0, 100)}`;
     } else {
       deliveryStatus = "Failed";
-      gatewayResponseText = `Gateway Error: ${dispatchRes.rawResponse.substring(0, 150)}`;
+      const errReason = dispatchRes.error || (MRAM_ERROR_CODES[dispatchRes.rawResponse] ? MRAM_ERROR_CODES[dispatchRes.rawResponse] : `গেইটওয়ে ত্রুটি: ${dispatchRes.rawResponse.substring(0, 150)}`);
+      gatewayResponseText = errReason;
     }
   } else {
     // Simulated / Test Mode
@@ -801,6 +811,7 @@ export async function sendSMS(formData: FormData) {
     success: deliveryStatus !== "Failed",
     status: deliveryStatus,
     gatewayResponse: gatewayResponseText,
+    error: deliveryStatus === "Failed" ? gatewayResponseText : undefined,
   };
 }
 
@@ -826,6 +837,7 @@ export async function sendBulkSMS(messages: Array<{
 
   let successCount = 0;
   let failCount = 0;
+  let lastError = "";
 
   // Process dispatching
   const logsToInsert = [];
@@ -842,10 +854,12 @@ export async function sendBulkSMS(messages: Array<{
         } else {
           failCount++;
           itemStatus = "Failed";
+          if (res.error) lastError = res.error;
         }
-      } catch {
+      } catch (e: any) {
         failCount++;
         itemStatus = "Failed";
+        lastError = e.message || "সংযোগ বিচ্ছিন্ন";
       }
     } else {
       successCount++;
@@ -872,10 +886,11 @@ export async function sendBulkSMS(messages: Array<{
   revalidatePath("/dashboard/communication/logs");
 
   return {
-    success: true,
+    success: successCount > 0 || !isGatewayActive,
     count: messages.length,
     successCount,
     failCount,
+    lastError: lastError || undefined,
     mode: isGatewayActive ? "Live Gateway" : "Simulated",
   };
 }

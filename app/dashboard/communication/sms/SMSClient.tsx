@@ -489,24 +489,41 @@ export default function SMSClient({
     formData.append("message_type", messageType);
 
     try {
-      await sendSMS(formData);
-      setSendSuccessMessage(`সফলভাবে "${recipientName || recipientPhone}" নম্বরে এসএমএস পাঠানো হয়েছে!`);
-      // Update logs
-      setLogs((prev) => [
-        {
-          id: `log-${Date.now()}`,
-          recipient_name: recipientName || "অজ্ঞাত",
-          recipient_phone: recipientPhone,
-          message: resolvedMessage,
-          message_type: messageType,
-          status: "Sent",
-          sent_at: new Date().toISOString(),
-        },
-        ...prev,
-      ]);
+      const res = await sendSMS(formData);
+      if (res && res.success) {
+        setSendSuccessMessage(`সফলভাবে "${recipientName || recipientPhone}" নম্বরে এসএমএস পাঠানো হয়েছে!`);
+        // Update logs
+        setLogs((prev) => [
+          {
+            id: `log-${Date.now()}`,
+            recipient_name: recipientName || "অজ্ঞাত",
+            recipient_phone: recipientPhone,
+            message: resolvedMessage,
+            message_type: messageType,
+            status: "Sent",
+            sent_at: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
+      } else {
+        const errorDetail = res?.error || res?.gatewayResponse || "গেGateওয়ে সাড়া দেয়নি বা ত্রুটি দেখিয়েছে।";
+        setSendErrorMessage(`এসএমএস পাঠাতে ব্যর্থ হয়েছে! ত্রুটি: ${errorDetail}`);
+        setLogs((prev) => [
+          {
+            id: `log-${Date.now()}`,
+            recipient_name: recipientName || "অজ্ঞাত",
+            recipient_phone: recipientPhone,
+            message: resolvedMessage,
+            message_type: messageType,
+            status: "Failed",
+            sent_at: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
+      }
     } catch (err: any) {
       console.error("sendSMS failed:", err);
-      setSendErrorMessage("এসএমএস পাঠাতে ব্যর্থ হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+      setSendErrorMessage(`এসএমএস পাঠাতে ব্যর্থ হয়েছে! ত্রুটি: ${err.message || "নেটওয়ার্ক ত্রুটি"}`);
     } finally {
       setIsSending(false);
     }
@@ -551,27 +568,40 @@ export default function SMSClient({
     });
 
     try {
-      await sendBulkSMS(messagesToSend);
-      setSendSuccessMessage(
-        `অভিনন্দন! মোট ${toBengaliNumber(
-          messagesToSend.length
-        )} জন অভিভাবকের নিকট ডাইনামিক এসএমএস সফলভাবে প্রেরণ করা হয়েছে।`
-      );
+      const res = await sendBulkSMS(messagesToSend);
+      if (res && (res.successCount || 0) > 0) {
+        if (res.failCount && res.failCount > 0) {
+          setSendSuccessMessage(
+            `মোট ${toBengaliNumber(res.successCount || 0)} টি মেসেজ সফলভাবে পাঠানো হয়েছে। (${toBengaliNumber(res.failCount)} টি ব্যর্থ হয়েছে)`
+          );
+          setSendErrorMessage(`কিছু মেসেজ পাঠাতে গেটওয়েতে ব্যর্থতা দেখা দিয়েছে (${toBengaliNumber(res.failCount)} টি ব্যর্থ)। ত্রুটি: ${res.lastError || "গেইটওয়ে রিজেক্ট করেছে"}`);
+        } else {
+          setSendSuccessMessage(
+            `অভিনন্দন! মোট ${toBengaliNumber(
+              res.successCount || 0
+            )} জন অভিভাবকের নিকট ডাইনামিক এসএমএস সফলভাবে প্রেরণ করা হয়েছে।`
+          );
+        }
+      } else {
+        const errorDetail = res?.lastError || "এসএমএস প্রোভাইডার অনুরোধ রিজেক্ট করেছে বা সংযোগ ব্যর্থ হয়েছে।";
+        setSendErrorMessage(`বাল্ক এসএমএস পাঠাতে সম্পূর্ণ ব্যর্থ হয়েছে! (ব্যর্থ: ${toBengaliNumber(messagesToSend.length)} টি)। ত্রুটি: ${errorDetail}`);
+      }
 
       // Add to logs
+      const isSuccessAll = res && (res.successCount || 0) > 0 && (!res.failCount || res.failCount === 0);
       const newLogs = messagesToSend.map((m, idx) => ({
         id: `bulk-log-${Date.now()}-${idx}`,
         recipient_name: m.recipient_name,
         recipient_phone: m.recipient_phone,
         message: m.message,
         message_type: m.message_type,
-        status: "Sent",
+        status: (isSuccessAll ? "Sent" : "Failed") as "Sent" | "Failed",
         sent_at: new Date().toISOString(),
       }));
       setLogs((prev) => [...newLogs, ...prev]);
     } catch (err: any) {
       console.error("sendBulkSMS failed:", err);
-      setSendErrorMessage("বাল্ক এসএমএস পাঠাতে ব্যর্থ হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+      setSendErrorMessage(`বাল্ক এসএমএস পাঠাতে ব্যর্থ হয়েছে! ত্রুটি: ${err.message || "নেটওয়ার্ক ত্রুটি"}`);
     } finally {
       setIsSending(false);
     }

@@ -60,6 +60,12 @@ export const MRAM_ERROR_CODES: Record<string, string> = {
   "1010": "সর্বোচ্চ লিমিট অতিক্রম করেছে (Max Limit Exceeded)",
   "1011": "মোবাইল নম্বরটি সঠিক নয় (Invalid Mobile Number)",
   "1012": "নম্বরটি ব্লক লিস্টে আছে (Number Blacklisted)",
+  "1013": "ব্যালেন্সের মেয়াদ শেষ বা অপ্রাপ্য (Balance Validity Not Available)",
+  "1014": "টেমপ্লেট ম্যাচ করেনি / অভ্যন্তরীণ এরর (No Matching Template)",
+  "1015": "মেসেজের কন্টেন্ট ভ্যালিডেশন ব্যর্থ (SMS Content Validation Fails)",
+  "1016": "আইপি অ্যাড্রেস বা সার্ভার অনুমোদিত নয় (IP Address Not Allowed - Mram প্যানেলে আপনার সার্ভার IP অনুমতি দিন)",
+  "1017": "শিডিউল সময় সঠিক নয় (Invalid Schedule Date/Time)",
+  "1018": "অ্যাকাউন্ট ডিজেবল করা হয়েছে (Account Disabled)",
 };
 
 export const SMS_PROVIDER_PRESETS: SMSProviderPreset[] = [
