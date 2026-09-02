@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { getFeeDashboardOverview } from "@/app/actions/fee-management";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
+import PermissionGuard from "@/components/permissions/PermissionGuard";
 
 export default async function AccountingDashboardPage() {
   const overviewData = await getFeeDashboardOverview();
@@ -36,34 +37,39 @@ export default async function AccountingDashboardPage() {
   const collectionRate = totalDemand > 0 ? Math.round(((overview.totalCollected || 0) / totalDemand) * 100) : 100;
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header & Quick Action Hub */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">হিসাবরক্ষণ ও ফি ম্যানেজমেন্ট</h1>
-          <p className="text-slate-500 text-xs sm:text-sm">
-            শিক্ষার্থীদের ফি আদায়, বকেয়া ট্র্যাকিং, মাসিক চার্জ এবং মাদরাসার আয়-ব্যয়
-          </p>
-        </div>
+    <PermissionGuard permission="finance.view">
+      <div className="space-y-6 max-w-6xl mx-auto">
+        {/* Header & Quick Action Hub */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">হিসাবরক্ষণ ও ফি ম্যানেজমেন্ট</h1>
+            <p className="text-slate-500 text-xs sm:text-sm">
+              শিক্ষার্থীদের ফি আদায়, বকেয়া ট্র্যাকিং, মাসিক চার্জ এবং মাদরাসার আয়-ব্যয়
+            </p>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/dashboard/accounting/fees/new"
-            className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>ফি আদায় করুন</span>
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <PermissionGuard permission="fee.create" hideFallback>
+              <Link
+                href="/dashboard/accounting/fees/new"
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>ফি আদায় করুন</span>
+              </Link>
+            </PermissionGuard>
 
-          <Link
-            href="/dashboard/accounting/generate"
-            className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
-          >
-            <Sparkles className="w-4 h-4 text-emerald-400" />
-            <span>মাসিক ফি জেনারেট</span>
-          </Link>
+            <PermissionGuard permission="fee.create" hideFallback>
+              <Link
+                href="/dashboard/accounting/generate"
+                className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <span>মাসিক ফি জেনারেট</span>
+              </Link>
+            </PermissionGuard>
+          </div>
         </div>
-      </div>
 
       {/* KPI Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -334,5 +340,6 @@ export default async function AccountingDashboardPage() {
         </Link>
       </div>
     </div>
+    </PermissionGuard>
   );
 }

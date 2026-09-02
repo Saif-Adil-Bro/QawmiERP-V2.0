@@ -97,25 +97,33 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
   };
 
   const isItemAllowed = (item: NavItem) => {
-    if (loading || !summary) return true; // Fallback during initial load
+    if (loading || !summary) return false;
     if (summary.roles.includes("super_admin")) return true;
 
-    // Check direct permission
-    if (item.permission && hasPermission(item.permission)) {
-      return true;
+    // Parent and Student roles belong in Portal, not Admin Dashboard modules
+    const isOnlyPortalUser =
+      summary.roles.length === 1 &&
+      (summary.roles.includes("parent") || summary.roles.includes("student"));
+    if (
+      isOnlyPortalUser &&
+      !item.roles?.includes("parent") &&
+      !item.roles?.includes("student")
+    ) {
+      return false;
     }
 
-    // Check role match
-    if (item.roles && item.roles.some((r) => summary.roles.includes(r))) {
-      return true;
+    // If roles list is explicitly defined for this nav item, user MUST match at least one role
+    if (item.roles && item.roles.length > 0) {
+      const hasRole = item.roles.some((r) => summary.roles.includes(r));
+      if (!hasRole) return false;
     }
 
-    // If neither permission nor roles were specified, allow
-    if (!item.permission && !item.roles) {
-      return true;
+    // If permission is defined, user MUST have that permission
+    if (item.permission) {
+      return hasPermission(item.permission);
     }
 
-    return false;
+    return true;
   };
 
   return (

@@ -63,6 +63,87 @@ function HeaderUserProfile() {
   );
 }
 
+function MobileBottomNav({
+  pathname,
+  setSidebarOpen,
+}: {
+  pathname: string;
+  setSidebarOpen: (open: boolean) => void;
+}) {
+  const { summary, hasPermission } = usePermissions();
+  const roles = summary?.roles || [];
+  const isParentOrStudent = roles.includes("parent") || roles.includes("student");
+  const isTeacherOnly = roles.includes("teacher") && !roles.some((r) => ["super_admin", "muhtamim", "admin"].includes(r));
+
+  let items = [
+    { href: "/dashboard", label: "হোম", icon: LayoutDashboard, exact: true, show: true },
+    { href: "/dashboard/students", label: "ছাত্র", icon: Users, show: hasPermission("student.view") },
+    { href: "/dashboard/attendance", label: "হাজিরা", icon: CheckSquare, show: hasPermission("attendance.view") },
+    { href: "/dashboard/classes", label: "জামাত", icon: BookOpen, show: hasPermission("academic.view") },
+    { href: "/dashboard/accounting", label: "হিসাব", icon: Wallet, show: (hasPermission("finance.view") || hasPermission("fee.view")) && !isParentOrStudent },
+  ];
+
+  if (isParentOrStudent) {
+    items = [
+      { href: "/portal", label: "পোর্টাল", icon: LayoutDashboard, exact: true, show: true },
+      { href: "/portal/attendance", label: "হাজিরা", icon: CheckSquare, show: true },
+      { href: "/portal/fees", label: "ফি সমূহ", icon: Wallet, show: true },
+      { href: "/portal/certificates", label: "সনদপত্র", icon: BookOpen, show: true },
+    ];
+  } else if (isTeacherOnly) {
+    items = [
+      { href: "/teacher-portal", label: "পোর্টাল", icon: LayoutDashboard, exact: true, show: true },
+      { href: "/dashboard/students", label: "ছাত্র", icon: Users, show: hasPermission("student.view") },
+      { href: "/dashboard/attendance", label: "হাজিরা", icon: CheckSquare, show: hasPermission("attendance.view") },
+      { href: "/dashboard/hifz", label: "হিফজ", icon: BookOpen, show: hasPermission("hifz.view") },
+    ];
+  }
+
+  const visibleItems = items.filter((i) => i.show);
+
+  return (
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg print:hidden">
+      {visibleItems.map((item) => {
+        const active = item.exact
+          ? pathname === item.href
+          : pathname === item.href || pathname.startsWith(item.href + "/");
+        const Icon = item.icon;
+
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all ${
+              active
+                ? "text-emerald-700 font-bold scale-105"
+                : "text-slate-500 hover:text-slate-800 font-medium"
+            }`}
+          >
+            <div
+              className={`p-1 rounded-lg ${
+                active ? "bg-emerald-50 text-emerald-700" : "text-slate-500"
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] leading-tight mt-0.5">{item.label}</span>
+          </Link>
+        );
+      })}
+      <button
+        type="button"
+        onClick={() => setSidebarOpen(true)}
+        className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-slate-500 hover:text-slate-800 font-medium"
+      >
+        <div className="p-1 rounded-lg text-slate-500">
+          <Menu className="w-5 h-5" />
+        </div>
+        <span className="text-[10px] leading-tight mt-0.5">সব মেনু</span>
+      </button>
+    </nav>
+  );
+}
+
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
@@ -71,15 +152,6 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   useEffect(() => {
     setSidebarOpen(false);
   }, [pathname]);
-
-  // Mobile bottom navigation items for quick one-tap access on phones
-  const mobileBottomNavItems = [
-    { href: "/dashboard", label: "হোম", icon: LayoutDashboard, exact: true },
-    { href: "/dashboard/students", label: "ছাত্র", icon: Users },
-    { href: "/dashboard/attendance", label: "হাজিরা", icon: CheckSquare },
-    { href: "/dashboard/classes", label: "জামাত", icon: BookOpen },
-    { href: "/dashboard/accounting", label: "হিসাব", icon: Wallet },
-  ];
 
   return (
     <PermissionProvider>
@@ -168,45 +240,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             </main>
 
             {/* Mobile Bottom Navigation Bar */}
-            <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg print:hidden">
-              {mobileBottomNavItems.map((item) => {
-                const active = item.exact
-                  ? pathname === item.href
-                  : pathname === item.href || pathname.startsWith(item.href + "/");
-                const Icon = item.icon;
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all ${
-                      active
-                        ? "text-emerald-700 font-bold scale-105"
-                        : "text-slate-500 hover:text-slate-800 font-medium"
-                    }`}
-                  >
-                    <div
-                      className={`p-1 rounded-lg ${
-                        active ? "bg-emerald-50 text-emerald-700" : "text-slate-500"
-                      }`}
-                    >
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <span className="text-[10px] leading-tight mt-0.5">{item.label}</span>
-                  </Link>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-slate-500 hover:text-slate-800 font-medium"
-              >
-                <div className="p-1 rounded-lg text-slate-500">
-                  <Menu className="w-5 h-5" />
-                </div>
-                <span className="text-[10px] leading-tight mt-0.5">সব মেনু</span>
-              </button>
-            </nav>
+            <MobileBottomNav pathname={pathname} setSidebarOpen={setSidebarOpen} />
           </div>
         </div>
       </SessionProvider>

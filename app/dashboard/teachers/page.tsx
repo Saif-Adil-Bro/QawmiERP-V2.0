@@ -4,6 +4,7 @@ import { getStaffMetadataFull } from "@/app/actions/staff";
 import Link from "next/link";
 import { Plus, Search, Edit, Briefcase, ChevronRight, UserCheck } from "lucide-react";
 import { TeacherDeleteButton } from "@/components/teachers/teacher-actions";
+import PermissionGuard from "@/components/permissions/PermissionGuard";
 
 export default async function TeachersPage() {
   const supabase = await createClient();
@@ -52,98 +53,110 @@ export default async function TeachersPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <span>শিক্ষক তালিকা</span>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-              মোট: {teachers.length} জন
-            </span>
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">মাদ্রাসার সকল ওস্তাদ, শিক্ষক ও কর্মকর্তা ডিরেক্টরি</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/dashboard/staff"
-            className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-emerald-100 flex items-center space-x-1.5 transition"
-          >
-            <Briefcase className="w-4 h-4" />
-            <span>সম্পূর্ণ স্টাফ ও এইচআর মডিউল</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </Link>
-          <Link href="/dashboard/teachers/new" className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-slate-800 flex items-center space-x-2 transition">
-            <Plus className="w-4 h-4" />
-            <span>নতুন শিক্ষক যুক্ত করুন</span>
-          </Link>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-        <div className="p-4 border-b flex justify-between items-center bg-slate-50/50">
-          <div className="relative w-72">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="নাম বা পদবী দিয়ে খুঁজুন..." 
-              className="w-full pl-9 pr-4 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-slate-900 transition"
-            />
+    <PermissionGuard permission="teacher.view">
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+              <span>শিক্ষক তালিকা</span>
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                মোট: {teachers.length} জন
+              </span>
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">মাদ্রাসার সকল ওস্তাদ, শিক্ষক ও কর্মকর্তা ডিরেক্টরি</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <PermissionGuard permission="staff.view" hideFallback>
+              <Link
+                href="/dashboard/staff"
+                className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-emerald-100 flex items-center space-x-1.5 transition"
+              >
+                <Briefcase className="w-4 h-4" />
+                <span>সম্পূর্ণ স্টাফ ও এইচআর মডিউল</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </PermissionGuard>
+            <PermissionGuard permission="teacher.create" hideFallback>
+              <Link href="/dashboard/teachers/new" className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-slate-800 flex items-center space-x-2 transition">
+                <Plus className="w-4 h-4" />
+                <span>নতুন শিক্ষক যুক্ত করুন</span>
+              </Link>
+            </PermissionGuard>
           </div>
         </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-600 font-medium border-b">
-              <tr>
-                <th className="px-6 py-3">নাম</th>
-                <th className="px-6 py-3">পদবী / দায়িত্ব</th>
-                <th className="px-6 py-3">ফোন</th>
-                <th className="px-6 py-3 text-right">পদক্ষেপ</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y text-slate-700">
-              {teachers && teachers.length > 0 ? (
-                teachers.map((teacher) => (
-                  <tr key={teacher.id} className="hover:bg-slate-50/50 transition">
-                    <td className="px-6 py-4 font-medium text-slate-900">
-                      {teacher.first_name} {teacher.last_name}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
-                        {teacher.designation || 'সাধারণ'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">{teacher.phone || '-'}</td>
-                    <td className="px-6 py-4 text-right flex items-center justify-end space-x-4">
-                      <Link 
-                        href={`/dashboard/teachers/${teacher.id}/subjects`}
-                        className="px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-600 rounded hover:bg-emerald-100 transition-colors"
-                      >
-                        Assign Subjects
-                      </Link>
-                      <Link 
-                        href={`/dashboard/teachers/${teacher.id}/edit`} 
-                        className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition"
-                        title="সম্পাদনা করুন"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Link>
-                      <TeacherDeleteButton id={teacher.id} />
+
+        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div className="p-4 border-b flex justify-between items-center bg-slate-50/50">
+            <div className="relative w-72">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input 
+                type="text" 
+                placeholder="নাম বা পদবী দিয়ে খুঁজুন..." 
+                className="w-full pl-9 pr-4 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-slate-900 transition"
+              />
+            </div>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600 font-medium border-b">
+                <tr>
+                  <th className="px-6 py-3">নাম</th>
+                  <th className="px-6 py-3">পদবী / দায়িত্ব</th>
+                  <th className="px-6 py-3">ফোন</th>
+                  <th className="px-6 py-3 text-right">পদক্ষেপ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y text-slate-700">
+                {teachers && teachers.length > 0 ? (
+                  teachers.map((teacher) => (
+                    <tr key={teacher.id} className="hover:bg-slate-50/50 transition">
+                      <td className="px-6 py-4 font-medium text-slate-900">
+                        {teacher.first_name} {teacher.last_name}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">
+                          {teacher.designation || 'সাধারণ'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">{teacher.phone || '-'}</td>
+                      <td className="px-6 py-4 text-right flex items-center justify-end space-x-4">
+                        <PermissionGuard permission="academic.manage" hideFallback>
+                          <Link 
+                            href={`/dashboard/teachers/${teacher.id}/subjects`}
+                            className="px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-600 rounded hover:bg-emerald-100 transition-colors"
+                          >
+                            Assign Subjects
+                          </Link>
+                        </PermissionGuard>
+                        <PermissionGuard permission="teacher.edit" hideFallback>
+                          <Link 
+                            href={`/dashboard/teachers/${teacher.id}/edit`} 
+                            className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition"
+                            title="সম্পাদনা করুন"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Link>
+                        </PermissionGuard>
+                        <PermissionGuard permission="teacher.edit" hideFallback>
+                          <TeacherDeleteButton id={teacher.id} />
+                        </PermissionGuard>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-12 text-center">
+                      <p className="text-slate-500 mb-2">কোনো শিক্ষক/স্টাফ পাওয়া যায়নি</p>
+                      <p className="text-xs text-slate-400">নতুন স্টাফ নিবন্ধন করতে "নতুন যুক্ত করুন" এ ক্লিক করুন।</p>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center">
-                    <p className="text-slate-500 mb-2">কোনো শিক্ষক/স্টাফ পাওয়া যায়নি</p>
-                    <p className="text-xs text-slate-400">নতুন স্টাফ নিবন্ধন করতে "নতুন যুক্ত করুন" এ ক্লিক করুন।</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
+    </PermissionGuard>
   );
 }

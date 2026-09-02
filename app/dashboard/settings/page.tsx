@@ -1,6 +1,7 @@
 import { getMadrasaDetails } from "@/app/actions/tenant";
 import SettingsClient from "./SettingsClient";
 import { createClient } from "@/lib/supabase/server";
+import PermissionGuard from "@/components/permissions/PermissionGuard";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,10 +22,12 @@ export default async function SettingsPage() {
   const { data: sigData } = supabase.storage.from('signatures').getPublicUrl(`madrasa_signature_${madrasa.id}.png`);
   
   return (
-    <SettingsClient 
-      madrasa={madrasa} 
-      initialLogoUrl={madrasa.logo_url || logoData?.publicUrl || ""} 
-      initialSignatureUrl={madrasa.principal_signature_url || sigData?.publicUrl || ""}
-    />
+    <PermissionGuard permission="settings.view">
+      <SettingsClient 
+        madrasa={madrasa} 
+        initialLogoUrl={madrasa.logo_url || logoData?.publicUrl || ""} 
+        initialSignatureUrl={madrasa.principal_signature_url || sigData?.publicUrl || ""}
+      />
+    </PermissionGuard>
   );
 }

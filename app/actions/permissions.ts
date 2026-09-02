@@ -141,7 +141,7 @@ export async function getCurrentUserPermissions(): Promise<{
     const allRoles = [...DEFAULT_SYSTEM_ROLES, ...customRoles];
 
     const userOverride = store.user_security_profiles?.[authUser.id] || {};
-    const defaultRole = userRow?.role || authUser.user_metadata?.role || "super_admin";
+    const defaultRole = userRow?.role || authUser.user_metadata?.role || "staff";
 
     const profile: UserSecurityProfile = {
       userId: authUser.id,

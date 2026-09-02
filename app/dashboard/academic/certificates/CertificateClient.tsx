@@ -18,6 +18,7 @@ import {
   getCertificatesData,
 } from "@/app/actions/certificates";
 import CertificateDocumentView from "@/app/components/CertificateDocumentView";
+import { usePermissions } from "@/components/permissions/PermissionContext";
 import {
   Award,
   Plus,
@@ -67,6 +68,14 @@ export default function CertificateClient({
   initialStudentId,
   initialCertData,
 }: CertificateClientProps) {
+  const { hasPermission, summary } = usePermissions();
+  const roles = summary?.roles || [];
+  const isSuperAdminOrMuhtamim = roles.includes("super_admin") || roles.includes("muhtamim");
+
+  const canCreate = hasPermission("certificate.create") || hasPermission("certificate.issue") || isSuperAdminOrMuhtamim || roles.includes("admin") || roles.includes("exam_manager") || roles.includes("office_staff");
+  const canApprove = hasPermission("certificate.issue") || isSuperAdminOrMuhtamim || roles.includes("exam_manager");
+  const canRevoke = hasPermission("certificate.revoke") || isSuperAdminOrMuhtamim;
+
   const [activeTab, setActiveTab] = useState<"list" | "create" | "bulk" | "audit">("list");
   const [isPending, startTransition] = useTransition();
 
@@ -336,31 +345,35 @@ export default function CertificateClient({
             <span>ইস্যুকৃত সনদের তালিকা ({filteredCerts.length})</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab("create")}
-            className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
-              activeTab === "create"
-                ? "bg-emerald-600 text-white shadow-2xs"
-                : "text-slate-600 hover:bg-slate-100"
-            }`}
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ নতুন সনদ জেনারেট</span>
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("create")}
+              className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "create"
+                  ? "bg-emerald-600 text-white shadow-2xs"
+                  : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ নতুন সনদ জেনারেট</span>
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={() => setActiveTab("bulk")}
-            className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
-              activeTab === "bulk"
-                ? "bg-slate-900 text-white shadow-2xs"
-                : "text-slate-600 hover:bg-slate-100"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>বাল্ক একযোগে জেনারেট</span>
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("bulk")}
+              className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                activeTab === "bulk"
+                  ? "bg-slate-900 text-white shadow-2xs"
+                  : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>বাল্ক একযোগে জেনারেট</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -493,8 +506,8 @@ export default function CertificateClient({
                                 <span>দেখুন</span>
                               </button>
 
-                              {/* Approve if pending */}
-                              {(isPendingApp || isRev) && (
+                              {/* Approve if pending and allowed */}
+                              {canApprove && (isPendingApp || isRev) && (
                                 <button
                                   type="button"
                                   onClick={() => handleApprove(cert.id)}
@@ -506,8 +519,8 @@ export default function CertificateClient({
                                 </button>
                               )}
 
-                              {/* Cancel / Reject / Revoke - Available for Pending AND Issued */}
-                              {(isPendingApp || isIssued) && (
+                              {/* Cancel / Reject / Revoke - Available if allowed */}
+                              {canRevoke && (isPendingApp || isIssued) && (
                                 <button
                                   type="button"
                                   onClick={() => setRevokingCert(cert)}

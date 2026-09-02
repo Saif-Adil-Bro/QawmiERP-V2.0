@@ -1,6 +1,7 @@
 import React from "react";
 import { getStaffMetadataFull } from "@/app/actions/staff";
 import StaffManagementClient from "./StaffManagementClient";
+import PermissionGuard from "@/components/permissions/PermissionGuard";
 
 export const metadata = {
   title: "স্টাফ ও মানবসম্পদ ব্যবস্থাপনা | QawmiManager",
@@ -11,8 +12,10 @@ export default async function StaffPage() {
   const staffData = await getStaffMetadataFull();
 
   return (
-    <div className="min-h-screen bg-slate-50/50 pb-16">
-      <StaffManagementClient initialData={staffData} />
-    </div>
+    <PermissionGuard permission="staff.view">
+      <div className="min-h-screen bg-slate-50/50 pb-16">
+        <StaffManagementClient initialData={staffData} />
+      </div>
+    </PermissionGuard>
   );
 }
