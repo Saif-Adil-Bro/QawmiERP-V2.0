@@ -75,24 +75,6 @@ export default async function ParentPortalRoutine(props: {
             শিক্ষার্থী: <strong className="text-slate-800">{child.first_name} {child.last_name}</strong> | জামাত: <strong className="text-slate-800">{className}</strong>
           </p>
         </div>
-
-        {students.length > 1 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            {students.map((s) => (
-              <Link
-                key={s.id}
-                href={`/portal/routine?student_id=${s.id}`}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${
-                  s.id === child.id
-                    ? "bg-slate-900 text-white shadow-xs"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                {s.first_name} {s.last_name}
-              </Link>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Routine Cards by Day */}

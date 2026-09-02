@@ -26,11 +26,33 @@ export default async function TeacherPortalKitab(props: {
     .or(`email.eq.${user.email},phone.eq.${userData?.full_name || ""}`)
     .maybeSingle();
 
-  const { data: classes } = await supabase
+  const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
+  const scope = await getUserDataAccessScope();
+
+  let classesQuery = supabase
     .from("classes")
     .select("id, name")
     .eq("madrasa_id", madrasaId)
     .order("name", { ascending: true });
+
+  if (!scope.isUnrestricted && scope.userRole === "teacher") {
+    if (scope.allowedClassIds.length === 0) {
+      return (
+        <KitabEntryClient
+          classes={[]}
+          students={[]}
+          existingLogs={[]}
+          currentClassId=""
+          currentDate={params.date || new Date().toISOString().split("T")[0]}
+          teacherId={teacher?.id}
+          madrasaId={madrasaId}
+        />
+      );
+    }
+    classesQuery = classesQuery.in("id", scope.allowedClassIds);
+  }
+
+  const { data: classes } = await classesQuery;
 
   const currentClassId = params.class_id || classes?.[0]?.id || "";
   const currentDate = params.date || new Date().toISOString().split("T")[0];

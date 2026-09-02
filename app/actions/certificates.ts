@@ -29,6 +29,9 @@ export async function getCertificatesData(options?: {
   search?: string;
 }) {
   try {
+    const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
+    const scope = await getUserDataAccessScope();
+
     const madrasaId = await getAuthMadrasaId();
     if (!madrasaId) {
       return {
@@ -73,6 +76,15 @@ export async function getCertificatesData(options?: {
       await saveMadrasaMetadata(madrasaId, meta);
     }
 
+    // Security Filter: If user is restricted (parent or teacher without global view perm), filter certificates by allowed student IDs
+    if (!scope.isUnrestricted) {
+      if (scope.allowedStudentIds.length === 0) {
+        certificates = [];
+      } else {
+        certificates = certificates.filter((c) => scope.allowedStudentIds.includes(c.student_id));
+      }
+    }
+
     // Filter by options
     if (options?.status && options.status !== "ALL") {
       certificates = certificates.filter((c) => c.status === options.status);
@@ -92,7 +104,10 @@ export async function getCertificatesData(options?: {
     }
 
     // Compute stats
-    const allCerts: StudentCertificate[] = meta.certificates || [];
+    const allCerts: StudentCertificate[] = scope.isUnrestricted
+      ? (meta.certificates || [])
+      : (meta.certificates || []).filter((c: StudentCertificate) => scope.allowedStudentIds.includes(c.student_id));
+
     const stats = {
       total: allCerts.length,
       issued: allCerts.filter((c) => c.status === "ISSUED").length,
@@ -670,6 +685,14 @@ export async function verifyCertificateByToken(tokenOrNumber: string) {
  */
 export async function getStudentCertificates(studentId: string) {
   try {
+    const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
+    const scope = await getUserDataAccessScope();
+
+    if (!scope.isUnrestricted && !scope.allowedStudentIds.includes(studentId)) {
+      console.warn(`Unauthorized access attempt to certificates of student ${studentId}`);
+      return [];
+    }
+
     const madrasaId = await getAuthMadrasaId();
     if (!madrasaId) return [];
 

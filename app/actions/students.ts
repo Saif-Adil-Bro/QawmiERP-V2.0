@@ -5,26 +5,39 @@ import { revalidatePath } from "next/cache";
 
 export async function getStudents() {
   try {
+    const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
+    const scope = await getUserDataAccessScope();
+
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("students")
-      .select("*, classes(*)")
-      .order("created_at", { ascending: false });
+    let query = supabase.from("students").select("*, classes(*)").order("created_at", { ascending: false });
+
+    if (!scope.isUnrestricted) {
+      if (scope.allowedStudentIds.length === 0) {
+        return [];
+      }
+      query = query.in("id", scope.allowedStudentIds);
+    }
+
+    const { data, error } = await query;
 
     if (error || !data) {
       console.warn("Retrying students fetch with admin fallback...");
       try {
         const adminClient = await createAdminClient();
-        const { data: adminData } = await adminClient
-          .from("students")
-          .select("*, classes(*)")
-          .order("created_at", { ascending: false });
+        let adminQuery = adminClient.from("students").select("*, classes(*)").order("created_at", { ascending: false });
+        if (!scope.isUnrestricted) {
+          if (scope.allowedStudentIds.length === 0) return [];
+          adminQuery = adminQuery.in("id", scope.allowedStudentIds);
+        }
+        const { data: adminData } = await adminQuery;
         if (adminData && adminData.length > 0) return adminData;
 
-        const { data: fallbackData } = await adminClient
-          .from("students")
-          .select("*")
-          .order("created_at", { ascending: false });
+        let fallbackQuery = adminClient.from("students").select("*").order("created_at", { ascending: false });
+        if (!scope.isUnrestricted) {
+          if (scope.allowedStudentIds.length === 0) return [];
+          fallbackQuery = fallbackQuery.in("id", scope.allowedStudentIds);
+        }
+        const { data: fallbackData } = await fallbackQuery;
         return fallbackData || [];
       } catch {
         return [];
@@ -39,19 +52,30 @@ export async function getStudents() {
 
 export async function getClasses() {
   try {
+    const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
+    const scope = await getUserDataAccessScope();
+
     const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("classes")
-      .select("*")
-      .order("name");
+    let query = supabase.from("classes").select("*").order("name");
+
+    if (!scope.isUnrestricted && scope.userRole === "teacher") {
+      if (scope.allowedClassIds.length === 0) {
+        return [];
+      }
+      query = query.in("id", scope.allowedClassIds);
+    }
+
+    const { data, error } = await query;
 
     if (error || !data || data.length === 0) {
       try {
         const adminClient = await createAdminClient();
-        const { data: adminData } = await adminClient
-          .from("classes")
-          .select("*")
-          .order("name");
+        let adminQuery = adminClient.from("classes").select("*").order("name");
+        if (!scope.isUnrestricted && scope.userRole === "teacher") {
+          if (scope.allowedClassIds.length === 0) return [];
+          adminQuery = adminQuery.in("id", scope.allowedClassIds);
+        }
+        const { data: adminData } = await adminQuery;
         return adminData || [];
       } catch {
         return [];
@@ -66,6 +90,14 @@ export async function getClasses() {
 
 export async function getStudentById(id: string) {
   try {
+    const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
+    const scope = await getUserDataAccessScope();
+
+    if (!scope.isUnrestricted && !scope.allowedStudentIds.includes(id)) {
+      console.warn(`Unauthorized attempt to view student ${id}`);
+      return null;
+    }
+
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("students")

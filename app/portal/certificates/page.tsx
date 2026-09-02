@@ -12,6 +12,14 @@ export default async function StudentPortalCertificatesPage() {
   const authUser = await getAuthUser();
   const allStudents = await getStudents();
 
+  if (!allStudents || allStudents.length === 0) {
+    return (
+      <div className="p-8 bg-white rounded-3xl border border-slate-200 text-center text-slate-500">
+        কোনো সংযুক্ত শিক্ষার্থীর সনদপত্র তথ্য পাওয়া যায়নি।
+      </div>
+    );
+  }
+
   // Pick first matching student or fallback
   const student = allStudents[0];
   const certificates = student ? await getStudentCertificates(student.id) : [];

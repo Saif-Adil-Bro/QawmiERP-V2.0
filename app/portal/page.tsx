@@ -39,14 +39,34 @@ export default async function PortalOverview(props: {
 
   const madrasaId = userData?.madrasa_id;
 
-  // Fetch all students for this parent / madrasa
+  // Get data access scope (filters by linked children for parents)
+  const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
+  const scope = await getUserDataAccessScope();
+
+  // Fetch students for this parent / user
   let studentsQuery = supabase
     .from("students")
     .select("*, classes(name)")
     .eq("madrasa_id", madrasaId)
     .order("roll_number", { ascending: true });
 
-  // If user has a phone or metadata, optionally filter; otherwise get all madrasa students for parent selection
+  if (!scope.isUnrestricted) {
+    if (scope.allowedStudentIds.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center p-8 bg-white rounded-2xl shadow-xs border border-slate-200 text-center">
+          <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mb-3">
+            <AlertCircle className="w-7 h-7" />
+          </div>
+          <h2 className="text-lg font-bold text-slate-800">কোন শিক্ষার্থীর তথ্য পাওয়া যায়নি</h2>
+          <p className="text-sm text-slate-500 mt-1 max-w-md">
+            আপনার অ্যাকাউন্টের সাথে সন্তানের প্রোফাইল লিঙ্ক করা নেই। মাদরাসা কর্তৃপক্ষের সাথে যোগাযোগ করে অভিভাবক নম্বর/ইমেইল আপডেট করুন।
+          </p>
+        </div>
+      );
+    }
+    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
+  }
+
   const { data: students } = await studentsQuery;
 
   if (!students || students.length === 0) {
@@ -117,30 +137,6 @@ export default async function PortalOverview(props: {
 
   return (
     <div className="space-y-6">
-      {/* Multiple Children Switcher */}
-      {students.length > 1 && (
-        <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between gap-2 overflow-x-auto">
-          <span className="text-xs font-bold text-slate-500 whitespace-nowrap px-2">সন্তান নির্বাচন:</span>
-          <div className="flex items-center gap-2">
-            {students.map((s) => (
-              <Link
-                key={s.id}
-                href={`/portal?student_id=${s.id}`}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition cursor-pointer ${
-                  s.id === child.id
-                    ? "bg-emerald-600 text-white shadow-xs"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                <GraduationCap className="w-3.5 h-3.5" />
-                <span>{s.first_name} {s.last_name}</span>
-                <span className="text-[10px] opacity-80">(রোল: {toBanglaNumber(s.roll_number || s.student_id || "-")})</span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Child Profile Hero Banner */}
       <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-3xl p-5 sm:p-7 shadow-xl border border-emerald-800/60 flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
         <div className="flex items-center gap-4 relative z-10">

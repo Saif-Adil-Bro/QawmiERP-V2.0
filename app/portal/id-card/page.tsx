@@ -23,11 +23,27 @@ export default async function StudentPortalDigitalIdPage(props: {
     .single();
   const madrasaId = userData?.madrasa_id;
 
-  const { data: students } = await supabase
+  const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
+  const scope = await getUserDataAccessScope();
+
+  let studentsQuery = supabase
     .from("students")
     .select("id, first_name, last_name, roll_number, student_id, class_id, classes(name)")
     .eq("madrasa_id", madrasaId)
     .order("roll_number", { ascending: true });
+
+  if (!scope.isUnrestricted) {
+    if (scope.allowedStudentIds.length === 0) {
+      return (
+        <div className="p-8 bg-white rounded-3xl border border-slate-200 text-center text-slate-500">
+          কোন শিক্ষার্থী সংযুক্ত পাওয়া যায়নি।
+        </div>
+      );
+    }
+    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
+  }
+
+  const { data: students } = await studentsQuery;
 
   if (!students || students.length === 0) {
     return (
@@ -57,24 +73,6 @@ export default async function StudentPortalDigitalIdPage(props: {
             </div>
           </div>
         </div>
-
-        {students.length > 1 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto pt-2 sm:pt-0">
-            {students.map((s) => (
-              <Link
-                key={s.id}
-                href={`/portal/id-card?student_id=${s.id}`}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${
-                  s.id === child.id
-                    ? "bg-slate-900 text-white shadow-xs"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                {s.first_name} {s.last_name}
-              </Link>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Main Digital ID Card Display */}

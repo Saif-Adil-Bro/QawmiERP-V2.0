@@ -10,7 +10,29 @@ export default async function TeacherAttendancePage(props: { searchParams?: Prom
   const { data: userData } = await supabase.from("users").select("madrasa_id").eq("id", user.id).single();
   const madrasaId = userData?.madrasa_id;
 
-  const { data: classes } = await supabase.from("classes").select("id, name").eq("madrasa_id", madrasaId).order("name");
+  const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
+  const scope = await getUserDataAccessScope();
+
+  let classesQuery = supabase.from("classes").select("id, name").eq("madrasa_id", madrasaId).order("name");
+
+  if (!scope.isUnrestricted && scope.userRole === "teacher") {
+    if (scope.allowedClassIds.length === 0) {
+      return (
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Take Attendance</h1>
+            <p className="text-slate-500">Mark daily attendance for your classes.</p>
+          </div>
+          <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
+            আপনাকে কোনো ক্লাস অর্পণ করা হয়নি। মাদরাসা কর্তৃপক্ষের সাথে যোগাযোগ করুন।
+          </div>
+        </div>
+      );
+    }
+    classesQuery = classesQuery.in("id", scope.allowedClassIds);
+  }
+
+  const { data: classes } = await classesQuery;
 
   // Await search params since we are in Next 15+
   const awaitedSearchParams = props.searchParams ? (await props.searchParams) || {} : {};

@@ -43,7 +43,7 @@ export default function PortalNav({ onItemClick }: PortalNavProps) {
           ? pathname === link.href
           : pathname === link.href || pathname.startsWith(link.href + "/");
         const Icon = link.icon;
-        const targetHref = studentId ? `${link.href}?student_id=${studentId}` : link.href;
+        const targetHref = link.href;
 
         return (
           <Link
