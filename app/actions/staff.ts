@@ -148,6 +148,27 @@ async function syncAndGetStaffMembers(
     }
   }
 
+  // Bi-directional sync: Sync any staff members from metadata into teachers SQL table if missing
+  const teacherDbIds = new Set(teachers.map((t: any) => t.id));
+  try {
+    const adminClient = await createAdminClient();
+    for (const s of existingStaff) {
+      if (!teacherDbIds.has(s.id)) {
+        await adminClient.from("teachers").insert({
+          id: s.id,
+          madrasa_id: madrasaId,
+          first_name: s.personal?.first_name || s.personal?.full_name_bn?.split(" ")[0] || "শিক্ষক",
+          last_name: s.personal?.last_name || "",
+          phone: s.contact?.phone || null,
+          email: s.contact?.email || null,
+          designation: s.employment?.designation || "সহকারী শিক্ষক",
+        });
+      }
+    }
+  } catch (syncErr) {
+    console.error("Bi-directional teacher sync warning:", syncErr);
+  }
+
   if (isModified) {
     meta.staff_id_serial_counter = serialCounter;
   }

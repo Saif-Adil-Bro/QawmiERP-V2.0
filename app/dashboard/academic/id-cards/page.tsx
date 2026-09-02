@@ -1,8 +1,9 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import IdCardClient from "./IdCardClient";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getIdCardsData } from "@/app/actions/id-card-management";
-import { getStudents } from "@/app/actions/students";
+import { getStudents, getAuthMadrasaId } from "@/app/actions/students";
+import { getStaffMetadataFull } from "@/app/actions/staff";
 
 export const metadata = {
   title: "আইডি কার্ড ও ডিজিটাল আইডি সিস্টেম | QawmiERP",
@@ -32,15 +33,41 @@ export default async function IdCardsPage(props: {
   // Fetch student records for issue/reissue modals
   const students = await getStudents();
 
+  const user = await getAuthUser(supabase);
+  let madrasaId: string | null = null;
+  if (user) {
+    madrasaId = await getAuthMadrasaId(supabase, user);
+  }
+
   let users = [];
   if (userType === "Student" && classId && classId !== "ALL") {
-    const { data } = await supabase.from("students").select("*, classes(name)").eq("class_id", classId);
+    let q = supabase.from("students").select("*, classes(name)").eq("class_id", classId);
+    if (madrasaId) q = q.eq("madrasa_id", madrasaId);
+    const { data } = await q;
     users = data || [];
   } else if (userType === "Teacher") {
-    const { data } = await supabase.from("teachers").select("*");
+    const staffData = await getStaffMetadataFull();
+    const staffMembers = staffData?.staff_members || [];
+    let q = supabase.from("teachers").select("*");
+    if (madrasaId) q = q.eq("madrasa_id", madrasaId);
+    const { data } = await q;
     users = data || [];
+    const existingIds = new Set(users.map((u) => u.id));
+    staffMembers.forEach((s) => {
+      if (!existingIds.has(s.id)) {
+        users.push({
+          id: s.id,
+          first_name: s.personal.first_name || s.personal.full_name_bn || "শিক্ষক",
+          last_name: s.personal.last_name || "",
+          designation: s.employment.designation || "সহকারী শিক্ষক",
+          phone: s.contact?.phone || "",
+        });
+      }
+    });
   } else if (userType === "Student") {
-    const { data } = await supabase.from("students").select("*, classes(name)").limit(20);
+    let q = supabase.from("students").select("*, classes(name)").limit(20);
+    if (madrasaId) q = q.eq("madrasa_id", madrasaId);
+    const { data } = await q;
     users = data || [];
   }
 

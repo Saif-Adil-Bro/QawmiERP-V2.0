@@ -1,4 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { getAuthMadrasaId } from "@/app/actions/students";
+import { getStaffMetadataFull } from "@/app/actions/staff";
 import { addRoutine, deleteRoutineAction } from "@/app/actions/routine";
 import { CalendarDays, Clock, MapPin, User, BookOpen, PlusCircle, Trash2 } from "lucide-react";
 import Link from "next/link";
@@ -8,9 +10,42 @@ export default async function RoutineBuilderPage(props: {
 }) {
   const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
-  const { data: classes } = await supabase.from("classes").select("id, name");
-  const { data: subjects } = await supabase.from("subjects").select("id, name");
-  const { data: teachers } = await supabase.from("teachers").select("id, first_name, last_name");
+  const user = await getAuthUser(supabase);
+  let madrasaId: string | null = null;
+  if (user) {
+    madrasaId = await getAuthMadrasaId(supabase, user);
+  }
+
+  const staffData = await getStaffMetadataFull();
+  const staffMembers = staffData?.staff_members || [];
+
+  let classesQuery = supabase.from("classes").select("id, name");
+  let subjectsQuery = supabase.from("subjects").select("id, name");
+  let teachersQuery = supabase.from("teachers").select("id, first_name, last_name");
+
+  if (madrasaId) {
+    classesQuery = classesQuery.eq("madrasa_id", madrasaId);
+    subjectsQuery = subjectsQuery.eq("madrasa_id", madrasaId);
+    teachersQuery = teachersQuery.eq("madrasa_id", madrasaId);
+  }
+
+  const [{ data: classes }, { data: subjects }, { data: teachersData }] = await Promise.all([
+    classesQuery,
+    subjectsQuery,
+    teachersQuery,
+  ]);
+
+  let teachers = teachersData || [];
+  const existingTeacherIds = new Set(teachers.map((t) => t.id));
+  staffMembers.forEach((s) => {
+    if (!existingTeacherIds.has(s.id)) {
+      teachers.push({
+        id: s.id,
+        first_name: s.personal.first_name || s.personal.full_name_bn || "শিক্ষক",
+        last_name: s.personal.last_name || "",
+      });
+    }
+  });
 
   const classId = params?.class_id || (classes?.[0]?.id || "");
   const routineType = params?.type || "Class";

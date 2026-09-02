@@ -1,22 +1,67 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { getAuthMadrasaId } from "@/app/actions/students";
+import { getStaffMetadataFull } from "@/app/actions/staff";
 import Link from "next/link";
-import { Plus, Search, Edit, Briefcase, ChevronRight } from "lucide-react";
+import { Plus, Search, Edit, Briefcase, ChevronRight, UserCheck } from "lucide-react";
 import { TeacherDeleteButton } from "@/components/teachers/teacher-actions";
 
 export default async function TeachersPage() {
   const supabase = await createClient();
+  const user = await getAuthUser(supabase);
   
-  const { data: teachers } = await supabase
-    .from("teachers")
-    .select("*")
-    .order("created_at", { ascending: false });
+  let teachers: any[] = [];
+  let madrasaId: string | null = null;
+
+  if (user) {
+    madrasaId = await getAuthMadrasaId(supabase, user);
+  }
+
+  // Sync staff metadata with SQL table
+  const staffData = await getStaffMetadataFull();
+  const staffMembers = staffData?.staff_members || [];
+
+  if (madrasaId) {
+    const { data } = await supabase
+      .from("teachers")
+      .select("*")
+      .eq("madrasa_id", madrasaId)
+      .order("created_at", { ascending: false });
+    teachers = data || [];
+  } else {
+    const { data } = await supabase
+      .from("teachers")
+      .select("*")
+      .order("created_at", { ascending: false });
+    teachers = data || [];
+  }
+
+  // Merge staff_members from HR module into teacher list if not already present
+  const existingTeacherIds = new Set(teachers.map((t) => t.id));
+  staffMembers.forEach((s) => {
+    if (!existingTeacherIds.has(s.id)) {
+      teachers.push({
+        id: s.id,
+        first_name: s.personal.first_name || s.personal.full_name_bn || "শিক্ষক",
+        last_name: s.personal.last_name || "",
+        designation: s.employment.designation || "শিক্ষক",
+        phone: s.contact?.phone || "-",
+        email: s.contact?.email || "",
+        created_at: s.created_at,
+      });
+    }
+  });
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">শিক্ষক তালিকা</h1>
-          <p className="text-xs text-slate-500 mt-0.5">মাদ্রাসার সকল ওস্তাদ ও শিক্ষকমণ্ডলী</p>
+          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+            <span>শিক্ষক তালিকা</span>
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+              মোট: {teachers.length} জন
+            </span>
+          </h1>
+          <p className="text-xs text-slate-500 mt-0.5">মাদ্রাসার সকল ওস্তাদ, শিক্ষক ও কর্মকর্তা ডিরেক্টরি</p>
         </div>
         <div className="flex items-center gap-2">
           <Link

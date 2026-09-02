@@ -129,27 +129,28 @@ export async function getCurrentUserPermissions(): Promise<{
       .from("users")
       .select("*")
       .eq("id", authUser.id)
-      .single();
+      .maybeSingle();
 
-    if (!userRow) {
-      return { summary: null, profile: null, allRoles: DEFAULT_SYSTEM_ROLES, error: "ইউজার প্রোফাইল পাওয়া যায়নি" };
+    let madrasaId = userRow?.madrasa_id || authUser.user_metadata?.madrasa_id;
+    if (!madrasaId) {
+      madrasaId = await getAuthMadrasaId(supabase, authUser);
     }
 
-    const madrasaId = userRow.madrasa_id;
-    const store = await getMadrasaSecurityStore(madrasaId);
+    const store = madrasaId ? await getMadrasaSecurityStore(madrasaId) : {};
     const customRoles = store.custom_roles || [];
     const allRoles = [...DEFAULT_SYSTEM_ROLES, ...customRoles];
 
     const userOverride = store.user_security_profiles?.[authUser.id] || {};
+    const defaultRole = userRow?.role || authUser.user_metadata?.role || "super_admin";
 
     const profile: UserSecurityProfile = {
       userId: authUser.id,
-      madrasaId: madrasaId,
-      fullName: userRow.full_name || authUser.user_metadata?.full_name || "ব্যবহারকারী",
-      email: userRow.email || authUser.email || "",
-      phone: userRow.phone || authUser.user_metadata?.phone || null,
-      primaryRole: userRow.role || "teacher",
-      roles: userOverride.roles || [userRow.role || "teacher"],
+      madrasaId: madrasaId || "",
+      fullName: userRow?.full_name || authUser.user_metadata?.full_name || "ব্যবহারকারী",
+      email: userRow?.email || authUser.email || "",
+      phone: userRow?.phone || authUser.user_metadata?.phone || null,
+      primaryRole: userOverride.primaryRole || defaultRole,
+      roles: userOverride.roles && userOverride.roles.length > 0 ? userOverride.roles : [userOverride.primaryRole || defaultRole],
       status: (userOverride.status as UserAccountStatus) || "ACTIVE",
       directPermissions: userOverride.directPermissions || [],
       deniedPermissions: userOverride.deniedPermissions || [],

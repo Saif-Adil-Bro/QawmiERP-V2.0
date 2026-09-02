@@ -1,4 +1,5 @@
 import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { getStaffMetadataFull } from "@/app/actions/staff";
 import ReportingCharts from "./components/ReportingCharts";
 
 
@@ -60,7 +61,8 @@ export default async function DashboardPage() {
         { data: expensesData },
         { data: bazarData },
         { data: attendanceAllData },
-        { data: examResultsData }
+        { data: examResultsData },
+        staffFullData
 
       ] = await Promise.all([
         supabase.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
@@ -74,11 +76,13 @@ export default async function DashboardPage() {
         supabase.from("expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
         supabase.from("bazar_expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
         supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]),
-        supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id)
+        supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
+        getStaffMetadataFull()
       ]);
 
       studentsCount = sCount || 0;
-      teachersCount = tCount || 0;
+      const staffMembers = staffFullData?.staff_members || [];
+      teachersCount = Math.max(tCount || 0, staffMembers.length);
       classesCount = cCount || 0;
       todayPresent = presentCount || 0;
       todayAbsent = absentCount || 0;

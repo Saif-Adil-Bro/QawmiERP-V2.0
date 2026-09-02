@@ -3,6 +3,7 @@
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
+import { getStaffMetadataFull } from "./staff";
 
 export async function getStudentsForAttendance(date: string, classId?: string) {
   const supabase = await createClient();
@@ -90,6 +91,10 @@ export async function getTeachersForAttendance(date: string) {
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
 
+  // Fetch staff metadata to trigger bi-directional sync
+  const staffData = await getStaffMetadataFull();
+  const staffMembers = staffData?.staff_members || [];
+
   let query = supabase
     .from("teachers")
     .select("id, first_name, last_name, designation")
@@ -99,12 +104,21 @@ export async function getTeachersForAttendance(date: string) {
     query = query.eq("madrasa_id", finalMadrasaId);
   }
 
-  const { data: teachers, error: teachersError } = await query;
+  const { data: teachersData, error: teachersError } = await query;
+  let teachersList = teachersData || [];
 
-  if (teachersError) {
-    console.error("Attendance teachers error:", teachersError);
-    return [];
-  }
+  // Merge any staff members from metadata missing from teachers table
+  const existingTeacherIds = new Set(teachersList.map((t) => t.id));
+  staffMembers.forEach((s) => {
+    if (!existingTeacherIds.has(s.id)) {
+      teachersList.push({
+        id: s.id,
+        first_name: s.personal.first_name || s.personal.full_name_bn || "শিক্ষক",
+        last_name: s.personal.last_name || "",
+        designation: s.employment.designation || "সহকারী শিক্ষক",
+      });
+    }
+  });
 
   // Fetch existing attendance for the given date
   let attQuery = supabase
@@ -123,7 +137,7 @@ export async function getTeachersForAttendance(date: string) {
   // Map attendance status to teachers
   const attendanceMap = new Map((attendance || []).map(a => [a.teacher_id, a.status]));
 
-  return (teachers || []).map(teacher => ({
+  return teachersList.map(teacher => ({
     ...teacher,
     status: attendanceMap.get(teacher.id) || "Present", // Default to Present
   }));
