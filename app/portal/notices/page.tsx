@@ -50,7 +50,9 @@ export default async function ParentPortalNotices() {
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
                 <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-100 inline-flex items-center gap-1.5">
                   <Tag className="w-3.5 h-3.5" />
-                  <span>{n.category || "সাধারণ নোটিশ"}</span>
+                  <span>
+                    {n.category || (n.target_audience === 'parents' || n.target_audience === 'parent' ? 'অভিভাবক বিজ্ঞপ্তি' : n.target_audience === 'all' ? 'সার্বিক বিজ্ঞপ্তি' : n.target_audience) || "সাধারণ নোটিশ"}
+                  </span>
                 </span>
                 <span className="text-xs text-slate-500 flex items-center gap-1.5 font-medium">
                   <Calendar className="w-3.5 h-3.5 text-slate-400" />

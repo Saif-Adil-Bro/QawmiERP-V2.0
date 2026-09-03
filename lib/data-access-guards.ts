@@ -78,25 +78,13 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
   if (userRole === "parent" || userRole === "student" || activeRoles.includes("parent") || activeRoles.includes("student")) {
     const studentIdsSet = new Set<string>();
 
-    // Strategy A: Direct student_id in `users` table
-    if (userProfile?.student_id) {
-      studentIdsSet.add(userProfile.student_id);
+    // Strategy A: Check user metadata or profile if available
+    const authMetadata = authUser.user_metadata || {};
+    if (authMetadata.student_id) {
+      studentIdsSet.add(authMetadata.student_id);
     }
 
-    // Strategy B: Match email in `students`
-    if (authUser.email) {
-      const { data: matchedByEmail } = await adminClient
-        .from("students")
-        .select("id")
-        .eq("madrasa_id", madrasaId)
-        .eq("email", authUser.email);
-
-      if (matchedByEmail) {
-        matchedByEmail.forEach((s) => studentIdsSet.add(s.id));
-      }
-    }
-
-    // Strategy C: Match phone number (parent_phone)
+    // Strategy B: Match phone number (parent_phone)
     const userPhone = userProfile?.phone || authUser.user_metadata?.phone;
     if (userPhone) {
       const cleanPhone = userPhone.replace(/[^0-9]/g, "");

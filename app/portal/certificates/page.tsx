@@ -1,16 +1,45 @@
 import { getStudentCertificates } from "@/app/actions/certificates";
-import { getAuthUser } from "@/lib/supabase/server";
-import { getStudents } from "@/app/actions/students";
+import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { Award, FileText, CheckCircle2, ShieldCheck, Download, Printer } from "lucide-react";
 import CertificatePortalClient from "./CertificatePortalClient";
+import { getUserDataAccessScope } from "@/lib/data-access-guards";
+import Link from "next/link";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "সনদপত্র ও অফিশিয়াল প্রত্যয়ন | QawmiPortal",
 };
 
-export default async function StudentPortalCertificatesPage() {
-  const authUser = await getAuthUser();
-  const allStudents = await getStudents();
+export default async function StudentPortalCertificatesPage(props: {
+  searchParams?: Promise<{ student_id?: string }>;
+}) {
+  const params = props.searchParams ? (await props.searchParams) || {} : {};
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return null;
+
+  const { data: userData } = await supabase
+    .from("users")
+    .select("madrasa_id")
+    .eq("id", user.id)
+    .single();
+  const madrasaId = userData?.madrasa_id;
+
+  const scope = await getUserDataAccessScope();
+
+  let studentsQuery = supabase
+    .from("students")
+    .select("id, first_name, last_name, roll_number, student_id, class_name, classes(name)")
+    .eq("madrasa_id", madrasaId)
+    .order("roll_number", { ascending: true });
+
+  if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
+    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
+  }
+
+  const { data: allStudents } = await studentsQuery;
 
   if (!allStudents || allStudents.length === 0) {
     return (
@@ -20,8 +49,8 @@ export default async function StudentPortalCertificatesPage() {
     );
   }
 
-  // Pick first matching student or fallback
-  const student = allStudents[0];
+  const selectedStudentId = params.student_id || allStudents[0].id;
+  const student = allStudents.find((s) => s.id === selectedStudentId) || allStudents[0];
   const certificates = student ? await getStudentCertificates(student.id) : [];
 
   return (
@@ -37,14 +66,27 @@ export default async function StudentPortalCertificatesPage() {
             সনদপত্র ও অফিশিয়াল প্রত্যয়নপত্র
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            শিক্ষার্থীর চারিত্রিক সনদ, প্রশংসাপত্র, প্রত্যয়ন ও কোর্স সমাপ্তি ডকুমেন্টস
+            শিক্ষার্থী: <strong className="text-slate-800">{student.first_name} {student.last_name}</strong> | প্রশংসাপত্র, প্রত্যয়ন ও কোর্স সমাপ্তি ডকুমেন্টস
           </p>
         </div>
 
-        <div className="px-4 py-2 bg-slate-900 text-white rounded-2xl text-xs font-bold flex items-center gap-2">
-          <Award className="w-4 h-4 text-emerald-400" />
-          <span>মোট ইস্যুকৃত সনদ: {certificates.length} টি</span>
-        </div>
+        {allStudents.length > 1 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+            {allStudents.map((s: any) => (
+              <Link
+                key={s.id}
+                href={`/portal/certificates?student_id=${s.id}`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+                  s.id === student.id
+                    ? "bg-emerald-700 text-white shadow-xs"
+                    : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                }`}
+              >
+                {s.first_name} {s.last_name}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       <CertificatePortalClient student={student} certificates={certificates} />

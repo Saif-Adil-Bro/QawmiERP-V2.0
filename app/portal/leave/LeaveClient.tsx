@@ -13,50 +13,64 @@ import {
   Plus,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { createParentFeedback } from "@/app/actions/parent-communication";
 
 interface Props {
   students: any[];
   userProfile: any;
+  initialApplications?: any[];
 }
 
-export default function LeaveClient({ students, userProfile }: Props) {
+export default function LeaveClient({ students, userProfile, initialApplications = [] }: Props) {
   const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id || "");
   const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
   const [reason, setReason] = useState("");
   const [leaveType, setLeaveType] = useState("অসুস্থতাজনিত ছুটি");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
-  const [applications, setApplications] = useState<any[]>([
-    {
-      id: "leave-1",
-      student_name: students[0] ? `${students[0].first_name} ${students[0].last_name}` : "শিক্ষার্থী",
-      type: "পারিবারিক ছুটি",
-      start_date: "2026-08-20",
-      end_date: "2026-08-22",
-      reason: "পারিবারিক জরুরি অনুষ্ঠানে উপস্থিতির জন্য ছুটি প্রদান আবশ্যক।",
-      status: "Approved",
-      applied_at: "2026-08-19",
-    },
-  ]);
+  const [applications, setApplications] = useState<any[]>(initialApplications);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reason.trim()) return;
 
     setIsSubmitting(true);
-    const selectedStudent = students.find((s) => s.id === selectedStudentId);
+    setErrorMsg("");
+    const selectedStudent = students.find((s) => s.id === selectedStudentId) || students[0];
 
-    setTimeout(() => {
+    try {
+      const res = await createParentFeedback({
+        action_type: "GENERAL",
+        category: "ছুটির আবেদন",
+        subject: `${leaveType} - ${selectedStudent?.first_name || "শিক্ষার্থী"}`,
+        description: `ছুটির মেয়াদ: ${startDate} হতে ${endDate}\nকারণ: ${reason.trim()}`,
+        student_id: selectedStudent?.id,
+        student_name: `${selectedStudent?.first_name || ""} ${selectedStudent?.last_name || ""}`.trim(),
+        student_roll: String(selectedStudent?.roll_number || selectedStudent?.student_id || ""),
+        class_name: selectedStudent?.class_name || (Array.isArray(selectedStudent?.classes) ? selectedStudent?.classes[0]?.name : selectedStudent?.classes?.name) || "",
+        guardian_name: userProfile?.full_name || "সম্মানিত অভিভাবক",
+        guardian_phone: userProfile?.phone || "",
+        urgency: "Important",
+        preferred_date: startDate,
+      });
+
+      if (res.error) {
+        setErrorMsg(res.error);
+        setIsSubmitting(false);
+        return;
+      }
+
       const newApp = {
-        id: `leave-${Date.now()}`,
+        id: res.id || `leave-${Date.now()}`,
         student_name: selectedStudent ? `${selectedStudent.first_name} ${selectedStudent.last_name}` : "শিক্ষার্থী",
-        type: leaveType,
-        start_date: startDate,
-        end_date: endDate,
-        reason: reason,
-        status: "Pending",
-        applied_at: new Date().toISOString().split("T")[0],
+        subject: `${leaveType} - ${selectedStudent?.first_name || "শিক্ষার্থী"}`,
+        category: "ছুটির আবেদন",
+        description: `ছুটির মেয়াদ: ${startDate} হতে ${endDate}\nকারণ: ${reason.trim()}`,
+        status: "PENDING",
+        status_bangla: "অপেক্ষমান",
+        created_at: new Date().toISOString(),
       };
 
       setApplications((prev) => [newApp, ...prev]);
@@ -64,7 +78,10 @@ export default function LeaveClient({ students, userProfile }: Props) {
       setIsSubmitting(false);
       setSuccessMsg("আপনার ছুটির আবেদন মাদরাসা প্রশাসনে সফলভাবে জমা হয়েছে!");
       setTimeout(() => setSuccessMsg(""), 5000);
-    }, 600);
+    } catch (err: any) {
+      setErrorMsg(err?.message || "ছুটির আবেদন প্রক্রিয়াকরণে সমস্যা হয়েছে।");
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -196,47 +213,64 @@ export default function LeaveClient({ students, userProfile }: Props) {
           </div>
 
           <div className="space-y-3">
-            {applications.map((app) => (
-              <div
-                key={app.id}
-                className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition space-y-3"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-                  <div>
-                    <span className="text-xs font-bold text-slate-900">{app.student_name}</span>
-                    <span className="text-xs text-slate-500 ml-2">({app.type})</span>
-                  </div>
-                  <span
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
-                      app.status === "Approved"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : app.status === "Rejected"
-                        ? "bg-red-100 text-red-800"
-                        : "bg-amber-100 text-amber-800"
-                    }`}
-                  >
-                    {app.status === "Approved" ? (
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                    ) : (
-                      <Clock className="w-3.5 h-3.5" />
-                    )}
-                    <span>
-                      {app.status === "Approved" ? "অনুমোদিত (Approved)" : "অপেক্ষমাণ (Pending Review)"}
+            {applications.map((app) => {
+              const isApproved = app.status === "Approved" || app.status === "RESOLVED";
+              const isRejected = app.status === "Rejected" || app.status === "CLOSED";
+              const statusText = isApproved
+                ? "অনুমোদিত (Approved)"
+                : isRejected
+                ? "বাতিল (Rejected)"
+                : "অপেক্ষমাণ (Pending Review)";
+
+              return (
+                <div
+                  key={app.id}
+                  className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition space-y-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                    <div>
+                      <span className="text-xs font-bold text-slate-900">{app.student_name || "শিক্ষার্থী"}</span>
+                      <span className="text-xs text-slate-500 ml-2">({app.subject || app.type || "ছুটির আবেদন"})</span>
+                    </div>
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
+                        isApproved
+                          ? "bg-emerald-100 text-emerald-800"
+                          : isRejected
+                          ? "bg-red-100 text-red-800"
+                          : "bg-amber-100 text-amber-800"
+                      }`}
+                    >
+                      {isApproved ? (
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <Clock className="w-3.5 h-3.5" />
+                      )}
+                      <span>{statusText}</span>
                     </span>
-                  </span>
-                </div>
+                  </div>
 
-                <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">{app.reason}</p>
+                  <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line">
+                    {app.description || app.reason}
+                  </p>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 pt-1">
-                  <span className="flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                    <span>ছুটির মেয়াদ: {new Date(app.start_date).toLocaleDateString("bn-BD")} হতে {new Date(app.end_date).toLocaleDateString("bn-BD")}</span>
-                  </span>
-                  <span>আবেদনের তারিখ: {new Date(app.applied_at).toLocaleDateString("bn-BD")}</span>
+                  {app.official_response && (
+                    <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200 text-xs text-emerald-900">
+                      <strong>মাদরাসা কর্তৃপক্ষের জবাব:</strong> {app.official_response}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 pt-1">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                      <span>
+                        আবেদনের তারিখ: {new Date(app.created_at || app.applied_at || Date.now()).toLocaleDateString("bn-BD")}
+                      </span>
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

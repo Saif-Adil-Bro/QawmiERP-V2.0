@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import LeaveClient from "./LeaveClient";
+import { getUserDataAccessScope } from "@/lib/data-access-guards";
+import { getParentFeedbacks } from "@/app/actions/parent-communication";
 
 export const dynamic = "force-dynamic";
 
@@ -16,16 +18,31 @@ export default async function ParentPortalLeave() {
     .single();
   const madrasaId = userData?.madrasa_id;
 
-  const { data: students } = await supabase
+  const scope = await getUserDataAccessScope();
+
+  let studentsQuery = supabase
     .from("students")
     .select("id, first_name, last_name, roll_number, student_id, class_name, classes(name)")
     .eq("madrasa_id", madrasaId)
     .order("roll_number", { ascending: true });
 
+  if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
+    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
+  }
+
+  const { data: students } = await studentsQuery;
+
+  // Fetch real leave requests for this parent / student
+  const allFeedbacks = await getParentFeedbacks();
+  const leaveApplications = allFeedbacks.filter(
+    (f) => f.category === "ছুটির আবেদন" || f.action_type === "GENERAL"
+  );
+
   return (
     <LeaveClient
       students={students || []}
       userProfile={userData}
+      initialApplications={leaveApplications}
     />
   );
 }

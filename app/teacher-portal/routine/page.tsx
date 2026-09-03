@@ -4,6 +4,23 @@ import { toBanglaNumber } from "@/lib/numberToBangla";
 
 export const dynamic = "force-dynamic";
 
+const DAY_MAP: Record<string, string> = {
+  Saturday: "শনিবার",
+  Sunday: "রবিবার",
+  Monday: "সোমবার",
+  Tuesday: "মঙ্গলবার",
+  Wednesday: "বুধবার",
+  Thursday: "বৃহস্পতিবার",
+  Friday: "শুক্রবার",
+  "শনিবার": "শনিবার",
+  "রবিবার": "রবিবার",
+  "সোমবার": "সোমবার",
+  "মঙ্গলবার": "মঙ্গলবার",
+  "বুধবার": "বুধবার",
+  "বৃহস্পতিবার": "বৃহস্পতিবার",
+  "শুক্রবার": "শুক্রবার",
+};
+
 export default async function TeacherPortalRoutine() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -24,17 +41,18 @@ export default async function TeacherPortalRoutine() {
     .or(`email.eq.${user.email},phone.eq.${userData?.full_name || ""}`)
     .maybeSingle();
 
-  // Fetch routine
+  // Fetch routine from routines table
   let routineQuery = supabase
-    .from("class_routines")
-    .select("*, classes(name)")
+    .from("routines")
+    .select("*, classes(name), subjects(name)")
     .eq("madrasa_id", madrasaId);
 
   if (teacher?.id) {
     routineQuery = routineQuery.eq("teacher_id", teacher.id);
   }
 
-  const { data: routines } = await routineQuery.order("start_time", { ascending: true });
+  const { data: rawRoutines } = await routineQuery.order("start_time", { ascending: true });
+  const routines = rawRoutines || [];
 
   const daysOfWeek = ["শনিবার", "রবিবার", "সোমবার", "মঙ্গলবার", "বুধবার", "বৃহস্পতিবার"];
 
@@ -58,7 +76,10 @@ export default async function TeacherPortalRoutine() {
       {/* Routine Cards by Day */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {daysOfWeek.map((day) => {
-          const dayRoutines = routines?.filter((r) => r.day_of_week === day) || [];
+          const dayRoutines = routines.filter((r: any) => {
+            const normalizedDay = DAY_MAP[r.day_of_week] || r.day_of_week;
+            return normalizedDay === day;
+          });
 
           return (
             <div key={day} className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
@@ -71,32 +92,42 @@ export default async function TeacherPortalRoutine() {
 
               <div className="p-4 space-y-2.5 flex-1">
                 {dayRoutines.length > 0 ? (
-                  dayRoutines.map((r, idx) => (
-                    <div
-                      key={r.id || idx}
-                      className="p-3 bg-slate-50 rounded-xl border border-slate-100 hover:border-amber-300 transition space-y-1"
-                    >
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-slate-900 text-sm">{r.subject_name || "দরস"}</span>
-                        <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-slate-400" />
-                          <span>{r.start_time} - {r.end_time}</span>
-                        </span>
-                      </div>
+                  dayRoutines.map((r: any, idx: number) => {
+                    const subjectName =
+                      (Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name) ||
+                      r.subject_name ||
+                      "দরস";
+                    const className =
+                      (Array.isArray(r.classes) ? r.classes[0]?.name : r.classes?.name) ||
+                      "নির্দিষ্ট শ্রেণি";
 
-                      <div className="flex items-center justify-between text-xs text-slate-500 pt-0.5">
-                        <span className="flex items-center gap-1 font-semibold text-indigo-700">
-                          <Layers className="w-3.5 h-3.5" />
-                          <span>জামাত: {(Array.isArray(r.classes) ? r.classes[0]?.name : (r.classes as any)?.name) || "নির্দিষ্ট শ্রেণি"}</span>
-                        </span>
-                        {r.room_number && (
-                          <span className="bg-slate-200 px-1.5 py-0.5 rounded text-[10px] font-mono">
-                            রুম: {r.room_number}
+                    return (
+                      <div
+                        key={r.id || idx}
+                        className="p-3 bg-slate-50 rounded-xl border border-slate-100 hover:border-amber-300 transition space-y-1"
+                      >
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-slate-900 text-sm">{subjectName}</span>
+                          <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            <span>{r.start_time?.slice(0, 5) || "০৯:০০"} - {r.end_time?.slice(0, 5) || "১০:০০"}</span>
                           </span>
-                        )}
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs text-slate-500 pt-0.5">
+                          <span className="flex items-center gap-1 font-semibold text-indigo-700">
+                            <Layers className="w-3.5 h-3.5" />
+                            <span>জামাত: {className}</span>
+                          </span>
+                          {r.room_number && (
+                            <span className="bg-slate-200 px-1.5 py-0.5 rounded text-[10px] font-mono">
+                              রুম: {r.room_number}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="p-3 bg-slate-50/60 rounded-xl text-center text-xs text-slate-400 py-8">
                     এই দিনে কোন নির্ধারিত পিরিয়ড নেই

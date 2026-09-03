@@ -66,7 +66,7 @@ export default async function ParentPortalExams(props: {
   // Fetch all exams for this madrasa
   const { data: exams } = await supabase
     .from("exams")
-    .select("*")
+    .select("id, title, year, start_date, status")
     .eq("madrasa_id", madrasaId)
     .order("start_date", { ascending: false });
 
@@ -75,7 +75,7 @@ export default async function ParentPortalExams(props: {
   // Fetch results for this student
   let resultsQuery = supabase
     .from("exam_results")
-    .select("*, exams(name, term, session_year)")
+    .select("*, exams(id, title, year, start_date, status)")
     .eq("student_id", child.id);
 
   if (selectedExamId) {
@@ -100,10 +100,11 @@ export default async function ParentPortalExams(props: {
   };
 
   const gradeInfo = getGrade(percentage);
+  const currentExam = exams?.find((e) => e.id === selectedExamId);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Child Switcher */}
       <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -116,6 +117,24 @@ export default async function ParentPortalExams(props: {
             শিক্ষার্থী: <strong className="text-slate-800">{child.first_name} {child.last_name}</strong> (রোল: {toBanglaNumber(child.roll_number || child.student_id || "-")})
           </p>
         </div>
+
+        {students.length > 1 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+            {students.map((s: any) => (
+              <Link
+                key={s.id}
+                href={`/portal/exams?student_id=${s.id}${selectedExamId ? `&exam_id=${selectedExamId}` : ""}`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+                  s.id === child.id
+                    ? "bg-purple-700 text-white shadow-xs"
+                    : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                }`}
+              >
+                {s.first_name} {s.last_name}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Exam Selector Tabs */}
@@ -131,7 +150,7 @@ export default async function ParentPortalExams(props: {
                   : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
               }`}
             >
-              {exam.name || exam.title} ({exam.session_year || "শিক্ষাবর্ষ"})
+              {exam.title || (exam as any).name} ({toBanglaNumber(exam.year || "২০২৬")})
             </Link>
           ))}
         </div>
@@ -144,7 +163,7 @@ export default async function ParentPortalExams(props: {
             সামগ্রিক পরীক্ষার মূল্যায়ন
           </span>
           <h2 className="text-xl sm:text-2xl font-bold">
-            {exams?.find((e) => e.id === selectedExamId)?.name || "সাময়িক পরীক্ষা ফলাফল"}
+            {currentExam?.title || "সাময়িক পরীক্ষা ফলাফল"}
           </h2>
           <p className="text-xs text-purple-200 mt-1">
             মোট প্রাপ্ত নম্বর: <strong>{toBanglaNumber(totalObtained)} / {toBanglaNumber(totalMax)}</strong> ({toBanglaNumber(percentage)}%)

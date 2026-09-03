@@ -76,7 +76,7 @@ export default async function ParentPortalAcademic(props: {
     .from("kitab_logs")
     .select("*, teachers(first_name, last_name)")
     .eq("student_id", child.id)
-    .order("date", { ascending: false });
+    .order("log_date", { ascending: false });
 
   return (
     <div className="space-y-6">
@@ -93,6 +93,24 @@ export default async function ParentPortalAcademic(props: {
             শিক্ষার্থী: <strong className="text-slate-800">{child.first_name} {child.last_name}</strong> (রোল: {toBanglaNumber(child.roll_number || child.student_id || "-")})
           </p>
         </div>
+
+        {students.length > 1 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+            {students.map((s: any) => (
+              <Link
+                key={s.id}
+                href={`/portal/academic?student_id=${s.id}&tab=${activeTab}`}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+                  s.id === child.id
+                    ? "bg-teal-700 text-white shadow-xs"
+                    : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                }`}
+              >
+                {s.first_name} {s.last_name}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Tabs: Hifz vs Kitab */}
@@ -126,7 +144,7 @@ export default async function ParentPortalAcademic(props: {
         <div className="space-y-4">
           {hifzLogs && hifzLogs.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {hifzLogs.map((log) => (
+              {hifzLogs.map((log: any) => (
                 <div
                   key={log.id}
                   className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-teal-300 transition space-y-3"
@@ -146,7 +164,7 @@ export default async function ParentPortalAcademic(props: {
 
                     <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
                       <Star className="w-3.5 h-3.5 fill-current text-amber-500" />
-                      <span>{log.performance || "মুমতাজ"}</span>
+                      <span>{log.performance_rating || log.performance || "মুমতাজ"}</span>
                     </span>
                   </div>
 
@@ -154,20 +172,20 @@ export default async function ParentPortalAcademic(props: {
                     <div className="bg-teal-50/60 p-2.5 rounded-xl border border-teal-100">
                       <span className="text-[10px] font-bold text-teal-800 uppercase block">সবক (নতুন পাঠ)</span>
                       <span className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5 block">
-                        {log.para_number ? `পারা ${toBanglaNumber(log.para_number)}` : "-"}
+                        {log.sabak_para || log.para_number ? `পারা ${toBanglaNumber(log.sabak_para || log.para_number)}` : "-"}
                       </span>
                       <span className="text-[11px] text-slate-600 block truncate">
-                        {log.surah_name || log.surah || "সূরা নিদিষ্ট"}
+                        {log.sabak_page ? `পৃষ্ঠা ${toBanglaNumber(log.sabak_page)}` : (log.surah_name || log.surah || "দৈনিক পাঠ")}
                       </span>
                     </div>
 
                     <div className="bg-emerald-50/60 p-2.5 rounded-xl border border-emerald-100">
-                      <span className="text-[10px] font-bold text-emerald-800 uppercase block">সবকি (পারা পেছনের)</span>
+                      <span className="text-[10px] font-bold text-emerald-800 uppercase block">সবকি (পেছনের পারা)</span>
                       <span className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5 block">
                         {log.saboki_para ? `পারা ${toBanglaNumber(log.saboki_para)}` : log.sabqi || "-"}
                       </span>
                       <span className="text-[11px] text-slate-600 block truncate">
-                        {log.saboki_page ? `পৃষ্ঠা ${toBanglaNumber(log.saboki_page)}` : "-"}
+                        {log.saboki_page ? `পৃষ্ঠা ${toBanglaNumber(log.saboki_page)}` : "চলমান সবকি"}
                       </span>
                     </div>
 
@@ -177,21 +195,21 @@ export default async function ParentPortalAcademic(props: {
                         {log.amukhta_para ? `পারা ${toBanglaNumber(log.amukhta_para)}` : log.manzil || "-"}
                       </span>
                       <span className="text-[11px] text-slate-600 block truncate">
-                        {log.amukhta_page ? `পৃষ্ঠা ${toBanglaNumber(log.amukhta_page)}` : "-"}
+                        {log.amukhta_page ? `পৃষ্ঠা ${toBanglaNumber(log.amukhta_page)}` : "পুনরাবৃত্তি"}
                       </span>
                     </div>
                   </div>
 
-                  {log.remarks && (
+                  {(log.notes || log.remarks) && (
                     <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <strong>উস্তাদের মন্তব্য:</strong> {log.remarks}
+                      <strong>উস্তাদের মন্তব্য:</strong> {log.notes || log.remarks}
                     </div>
                   )}
 
                   {log.teachers && (
                     <div className="text-[11px] text-slate-400 flex items-center justify-end gap-1">
                       <User className="w-3.5 h-3.5" />
-                      <span>উস্তাদ: {log.teachers.first_name} {log.teachers.last_name}</span>
+                      <span>উস্তাদ: {Array.isArray(log.teachers) ? `${log.teachers[0]?.first_name} ${log.teachers[0]?.last_name}` : `${log.teachers.first_name} ${log.teachers.last_name}`}</span>
                     </div>
                   )}
                 </div>
@@ -212,14 +230,14 @@ export default async function ParentPortalAcademic(props: {
         <div className="space-y-4">
           {kitabLogs && kitabLogs.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {kitabLogs.map((log) => (
+              {kitabLogs.map((log: any) => (
                 <div
                   key={log.id}
                   className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3"
                 >
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                     <span className="text-xs font-bold text-slate-800">
-                      {new Date(log.date).toLocaleDateString("bn-BD", {
+                      {new Date(log.log_date || log.created_at).toLocaleDateString("bn-BD", {
                         weekday: "long",
                         day: "numeric",
                         month: "long",
@@ -227,19 +245,25 @@ export default async function ParentPortalAcademic(props: {
                       })}
                     </span>
                     <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
-                      {log.subject_name || "কিতাব"}
+                      {log.performance_rating || "নিয়মিত"}
                     </span>
                   </div>
 
                   <div className="space-y-1 text-sm text-slate-800">
-                    <p><strong>কিতাবের নাম:</strong> {log.kitab_name || log.subject_name}</p>
-                    <p className="text-xs text-slate-600"><strong>পঠিত অধ্যায় / বাব:</strong> {log.chapter_name || log.bab || "-"}</p>
-                    <p className="text-xs text-slate-600"><strong>পৃষ্ঠা নম্বর:</strong> {log.page_number ? toBanglaNumber(log.page_number) : "-"}</p>
+                    <p><strong>কিতাবের নাম:</strong> {log.kitab_name || log.subject_name || "দরসি কিতাব"}</p>
+                    <p className="text-xs text-slate-600"><strong>পঠিত অংশ / পৃষ্ঠা:</strong> {log.page_from ? `পৃষ্ঠা ${toBanglaNumber(log.page_from)} হতে ${toBanglaNumber(log.page_to || log.page_from)}` : "-"}</p>
                   </div>
 
-                  {log.teacher_remarks && (
+                  {(log.notes || log.teacher_remarks) && (
                     <div className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <strong>শিক্ষক মূল্যায়ন:</strong> {log.teacher_remarks}
+                      <strong>শিক্ষক মূল্যায়ন:</strong> {log.notes || log.teacher_remarks}
+                    </div>
+                  )}
+
+                  {log.teachers && (
+                    <div className="text-[11px] text-slate-400 flex items-center justify-end gap-1">
+                      <User className="w-3.5 h-3.5" />
+                      <span>উস্তাদ: {Array.isArray(log.teachers) ? `${log.teachers[0]?.first_name} ${log.teachers[0]?.last_name}` : `${log.teachers.first_name} ${log.teachers.last_name}`}</span>
                     </div>
                   )}
                 </div>

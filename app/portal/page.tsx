@@ -122,7 +122,7 @@ export default async function PortalOverview(props: {
   // Fetch latest exam results
   const { data: examResults } = await supabase
     .from("exam_results")
-    .select("*, exams(name)")
+    .select("*, exams(title, year)")
     .eq("student_id", child.id)
     .order("created_at", { ascending: false })
     .limit(4);
@@ -263,7 +263,7 @@ export default async function PortalOverview(props: {
             <span className="text-2xl sm:text-3xl font-extrabold text-purple-700">A+ (মুমতাজ)</span>
           </div>
           <p className="text-xs text-slate-500 mt-2">
-            পরীক্ষা: {examResults?.[0]?.exams?.name || "সাময়িক পরীক্ষা"}
+            পরীক্ষা: {examResults?.[0]?.exams?.title || (examResults?.[0]?.exams as any)?.name || "সাময়িক পরীক্ষা"}
           </p>
           <div className="mt-2 text-[11px] text-purple-600 font-bold flex items-center gap-1">
             <span>মার্কশিট দেখুন</span>
