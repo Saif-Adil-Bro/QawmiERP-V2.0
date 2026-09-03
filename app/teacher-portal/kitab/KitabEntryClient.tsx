@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -48,16 +48,49 @@ export default function KitabEntryClient({
     const initialState: Record<string, any> = {};
     students.forEach((s) => {
       const existing = existingLogs.find((l) => l.student_id === s.id);
+      let pageStr = "";
+      if (existing?.page_from && existing?.page_to) {
+        pageStr = `${existing.page_from} - ${existing.page_to}`;
+      } else if (existing?.page_from) {
+        pageStr = existing.page_from;
+      } else if (existing?.page_number) {
+        pageStr = existing.page_number;
+      }
+
       initialState[s.id] = {
-        subject_name: existing?.subject_name || existing?.kitab_name || "মিশকাত শরীফ",
-        chapter_name: existing?.chapter_name || existing?.bab || "",
-        page_number: existing?.page_number || "",
-        teacher_remarks: existing?.teacher_remarks || existing?.remarks || "",
+        subject_name: existing?.kitab_name || existing?.subject_name || "মিশকাত শরীফ",
+        chapter_name: existing?.notes || existing?.chapter_name || existing?.bab || "",
+        page_number: pageStr,
+        teacher_remarks: existing?.performance_rating || existing?.teacher_remarks || existing?.remarks || "",
         attendance_status: existing?.status || "Present",
       };
     });
     return initialState;
   });
+
+  useEffect(() => {
+    const initialState: Record<string, any> = {};
+    students.forEach((s) => {
+      const existing = existingLogs.find((l) => l.student_id === s.id);
+      let pageStr = "";
+      if (existing?.page_from && existing?.page_to) {
+        pageStr = `${existing.page_from} - ${existing.page_to}`;
+      } else if (existing?.page_from) {
+        pageStr = existing.page_from;
+      } else if (existing?.page_number) {
+        pageStr = existing.page_number;
+      }
+
+      initialState[s.id] = {
+        subject_name: existing?.kitab_name || existing?.subject_name || "মিশকাত শরীফ",
+        chapter_name: existing?.notes || existing?.chapter_name || existing?.bab || "",
+        page_number: pageStr,
+        teacher_remarks: existing?.performance_rating || existing?.teacher_remarks || existing?.remarks || "",
+        attendance_status: existing?.status || "Present",
+      };
+    });
+    setKitabState(initialState);
+  }, [students, existingLogs]);
 
   const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     router.push(`/teacher-portal/kitab?class_id=${e.target.value}&date=${currentDate}`);
@@ -108,47 +141,52 @@ export default function KitabEntryClient({
     setMessage("");
 
     try {
-      const recordsToUpsert = students.map((s) => {
+      for (const s of students) {
         const state = kitabState[s.id] || {};
         const existing = existingLogs.find((l) => l.student_id === s.id);
 
-        return {
-          id: existing?.id,
-          student_id: s.id,
-          class_id: currentClassId,
-          teacher_id: teacherId || null,
+        const rawPage = (state.page_number || pageNumber || "").trim();
+        const parts = rawPage.includes("-") ? rawPage.split("-") : [rawPage];
+        const pageFrom = parts[0]?.trim() || null;
+        const pageTo = parts[1]?.trim() || null;
+
+        const record = {
           madrasa_id: madrasaId,
-          date: currentDate,
-          subject_name: state.subject_name || subjectName,
-          kitab_name: state.subject_name || subjectName,
-          chapter_name: state.chapter_name || chapterName,
-          bab: state.chapter_name || chapterName,
-          page_number: state.page_number || pageNumber,
-          teacher_remarks: state.teacher_remarks,
-          status: state.attendance_status || "Present",
+          student_id: s.id,
+          teacher_id: teacherId || null,
+          log_date: currentDate,
+          kitab_name: state.subject_name || subjectName || "মিশকাত শরীফ",
+          page_from: pageFrom,
+          page_to: pageTo,
+          performance_rating: state.teacher_remarks || "Good",
+          notes: state.chapter_name || chapterName || null,
         };
-      }).map((r) => {
-        if (!r.id) delete r.id;
-        return r;
-      });
 
-      const { error } = await supabase
-        .from("kitab_logs")
-        .upsert(recordsToUpsert, { onConflict: "student_id, date, subject_name" });
-
-      if (error) {
-        for (const record of recordsToUpsert) {
-          const { data: existing } = await supabase
+        if (existing?.id) {
+          const { error: updateErr } = await supabase
+            .from("kitab_logs")
+            .update(record)
+            .eq("id", existing.id);
+          if (updateErr) throw updateErr;
+        } else {
+          const { data: found } = await supabase
             .from("kitab_logs")
             .select("id")
-            .eq("student_id", record.student_id)
-            .eq("date", record.date)
+            .eq("student_id", s.id)
+            .eq("log_date", currentDate)
             .maybeSingle();
 
-          if (existing) {
-            await supabase.from("kitab_logs").update(record).eq("id", existing.id);
+          if (found?.id) {
+            const { error: updateErr } = await supabase
+              .from("kitab_logs")
+              .update(record)
+              .eq("id", found.id);
+            if (updateErr) throw updateErr;
           } else {
-            await supabase.from("kitab_logs").insert([record]);
+            const { error: insertErr } = await supabase
+              .from("kitab_logs")
+              .insert([record]);
+            if (insertErr) throw insertErr;
           }
         }
       }

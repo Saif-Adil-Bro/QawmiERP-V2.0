@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -21,6 +21,7 @@ export default function ExamMarksForm({
   currentExamId,
   currentClassId,
   currentSubject,
+  madrasaId,
 }: any) {
   const router = useRouter();
   const supabase = createClient();
@@ -41,6 +42,18 @@ export default function ExamMarksForm({
     });
     return initialState;
   });
+
+  useEffect(() => {
+    const initialState: Record<string, any> = {};
+    students.forEach((s: any) => {
+      const existing = existingMarks.find((m: any) => m.student_id === s.id);
+      initialState[s.id] = {
+        marks_obtained: existing?.marks_obtained?.toString() || "",
+        total_marks: existing?.total_marks?.toString() || "100",
+      };
+    });
+    setMarksState(initialState);
+  }, [students, existingMarks]);
 
   const handleFilterChange = (key: string, value: string) => {
     const url = new URL(window.location.href);
@@ -90,7 +103,9 @@ export default function ExamMarksForm({
 
           return {
             id: existing?.id,
+            madrasa_id: madrasaId,
             student_id: s.id,
+            class_id: currentClassId || null,
             exam_id: currentExamId,
             subject_name: currentSubject,
             marks_obtained: Number(state.marks_obtained),

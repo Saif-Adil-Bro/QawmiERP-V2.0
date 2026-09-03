@@ -69,6 +69,7 @@ export default async function TeacherExamsPage(props: { searchParams?: Promise<{
         currentExamId={examId}
         currentClassId={classId}
         currentSubject={subjectName}
+        madrasaId={madrasaId}
       />
     </div>
   );

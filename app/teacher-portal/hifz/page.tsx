@@ -67,6 +67,7 @@ export default async function TeacherHifzPage(props: { searchParams?: Promise<{ 
         currentDate={dateStr}
         currentClassId={classId}
         teacherId={teacherId}
+        madrasaId={madrasaId}
       />
     </div>
   );

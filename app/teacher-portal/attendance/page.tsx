@@ -63,6 +63,7 @@ export default async function TeacherAttendancePage(props: { searchParams?: Prom
         existingAttendance={existingAttendance}
         currentDate={dateStr}
         currentClassId={classId}
+        madrasaId={madrasaId}
       />
     </div>
   );

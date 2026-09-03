@@ -416,24 +416,33 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
   if (!finalMadrasaId) return null;
 
   // Format month and build date range boundaries
-  // E.g., year = "2026", month = "07" (July)
-  const formattedMonth = month.padStart(2, "0");
-  const startDate = `${year}-${formattedMonth}-01`;
-  const endDate = `${year}-${formattedMonth}-31`; // SQL/Supabase gte/lte handles date matching nicely or we can compute accurately
+  // E.g., year = "2026", month = "08" (August)
+  const numYear = parseInt(year, 10) || new Date().getFullYear();
+  const numMonth = parseInt(month, 10) || (new Date().getMonth() + 1);
+  const formattedMonth = String(numMonth).padStart(2, "0");
+  const startDate = `${numYear}-${formattedMonth}-01`;
+
+  let nextYear = numYear;
+  let nextMonth = numMonth + 1;
+  if (nextMonth > 12) {
+    nextMonth = 1;
+    nextYear++;
+  }
+  const nextMonthStr = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
 
   // 1. Fetch Bazar expenses in this month
   const { data: bazarData, error: bazarError } = await supabase
     .from("bazar_expenses")
-    .select("amount")
+    .select("amount, expense_date")
     .eq("madrasa_id", finalMadrasaId)
     .gte("expense_date", startDate)
-    .lte("expense_date", endDate);
+    .lt("expense_date", nextMonthStr);
 
   if (bazarError) {
     console.error("Error fetching bazar for report:", bazarError);
   }
 
-  const totalBazarCost = (bazarData || []).reduce((acc, curr) => acc + Number(curr.amount), 0);
+  const totalBazarCost = (bazarData || []).reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
   // 2. Fetch all students to match meal entries
   const { data: students, error: studentsError } = await supabase
@@ -451,11 +460,11 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
   // 3. Fetch all active ("On") meal entries in this month
   const { data: mealsData, error: mealsError } = await supabase
     .from("meal_entries")
-    .select("student_id, meal_status")
+    .select("student_id, meal_status, entry_date")
     .eq("madrasa_id", finalMadrasaId)
     .eq("meal_status", "On")
     .gte("entry_date", startDate)
-    .lte("entry_date", endDate);
+    .lt("entry_date", nextMonthStr);
 
   if (mealsError) {
     console.error("Error fetching meals for report:", mealsError);

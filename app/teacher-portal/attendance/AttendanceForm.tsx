@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Calendar,
@@ -61,6 +61,18 @@ export default function AttendanceForm({
   const [attendanceState, setAttendanceState] = useState<
     Record<string, { status: string; notes: string }>
   >(initialMap);
+
+  useEffect(() => {
+    const updatedMap: Record<string, { status: string; notes: string }> = {};
+    allStudents.forEach((student) => {
+      const existing = allAttendance.find((a) => a.student_id === student.id);
+      updatedMap[student.id] = {
+        status: existing ? existing.status : "Present",
+        notes: existing ? existing.notes || "" : "",
+      };
+    });
+    setAttendanceState(updatedMap);
+  }, [allStudents, allAttendance]);
 
   const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     router.push(

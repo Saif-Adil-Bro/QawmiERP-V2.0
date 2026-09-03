@@ -39,9 +39,10 @@ export default function MonthlyReportsPage() {
     setLoading(true);
     try {
       const data = await getMonthlyBoardingReport(year, month);
-      setReport(data || []);
+      setReport(data || null);
     } catch (err) {
       console.error("getMonthlyBoardingReport failed:", err);
+      setReport(null);
     } finally {
       setLoading(false);
     }
@@ -150,7 +151,7 @@ export default function MonthlyReportsPage() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-500">মাসের মোট বাজার খরচ</p>
-                <h3 className="text-2xl font-bold text-slate-800">{report.totalBazarCost.toLocaleString()} ৳</h3>
+                <h3 className="text-2xl font-bold text-slate-800">{(report?.totalBazarCost ?? 0).toLocaleString()} ৳</h3>
               </div>
             </div>
 
@@ -160,7 +161,7 @@ export default function MonthlyReportsPage() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-500">মাসের মোট মিল সংখ্যা</p>
-                <h3 className="text-2xl font-bold text-slate-800">{report.totalMealsCount} টি</h3>
+                <h3 className="text-2xl font-bold text-slate-800">{report?.totalMealsCount ?? 0} টি</h3>
               </div>
             </div>
 
@@ -170,7 +171,7 @@ export default function MonthlyReportsPage() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-500">হিসাবকৃত মিল রেট (Meal Rate)</p>
-                <h3 className="text-2xl font-bold text-blue-700">{report.mealRate.toLocaleString()} ৳</h3>
+                <h3 className="text-2xl font-bold text-blue-700">{(report?.mealRate ?? 0).toLocaleString()} ৳</h3>
               </div>
             </div>
           </div>
@@ -183,7 +184,7 @@ export default function MonthlyReportsPage() {
                 ছাত্রদের মিল বিল রেজিস্টার
               </h3>
               <span className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full font-bold">
-                চলতি মাসে মোট ছাত্র: {report.studentsReport.length} জন
+                চলতি মাসে মোট ছাত্র: {report?.studentsReport?.length || 0} জন
               </span>
             </div>
 
@@ -199,7 +200,7 @@ export default function MonthlyReportsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {report.studentsReport.map((student: any) => (
+                  {(report?.studentsReport || []).map((student: any) => (
                     <tr key={student.id} className="hover:bg-slate-50/50 transition">
                       <td className="px-6 py-4 text-center font-medium text-slate-900">{student.roll_number || "-"}</td>
                       <td className="px-6 py-4 font-bold text-slate-900">

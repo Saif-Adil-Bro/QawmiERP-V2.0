@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -21,6 +21,7 @@ export default function HifzForm({
   currentDate,
   currentClassId,
   teacherId,
+  madrasaId,
 }: any) {
   const router = useRouter();
   const supabase = createClient();
@@ -42,6 +43,21 @@ export default function HifzForm({
     });
     return initialState;
   });
+
+  useEffect(() => {
+    const initialState: Record<string, any> = {};
+    students.forEach((s: any) => {
+      const existing = existingLogs.find((l: any) => l.student_id === s.id);
+      initialState[s.id] = {
+        sabak_para: existing?.sabak_para || existing?.para_number || "",
+        saboki_para: existing?.saboki_para || existing?.sabqi || "",
+        amukhta_para: existing?.amukhta_para || existing?.manzil || "",
+        performance_rating: existing?.performance_rating || existing?.performance || "মুমতাজ (Excellent)",
+        remarks: existing?.remarks || existing?.notes || "",
+      };
+    });
+    setHifzState(initialState);
+  }, [students, existingLogs]);
 
   const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     router.push(
@@ -78,45 +94,53 @@ export default function HifzForm({
     setMessage("");
 
     try {
-      const recordsToUpsert = students.map((s: any) => {
+      for (const s of students) {
         const existing = existingLogs.find((l: any) => l.student_id === s.id);
-        const state = hifzState[s.id];
-        return {
-          id: existing?.id,
+        const state = hifzState[s.id] || {};
+
+        const parsePara = (val: any) => {
+          if (!val) return null;
+          const num = parseInt(String(val).trim(), 10);
+          return isNaN(num) ? null : num;
+        };
+
+        const record = {
+          madrasa_id: madrasaId,
           student_id: s.id,
           teacher_id: teacherId || null,
           log_date: currentDate,
-          sabak_para: state.sabak_para,
-          saboki_para: state.saboki_para,
-          amukhta_para: state.amukhta_para,
-          performance_rating: state.performance_rating,
-          performance: state.performance_rating,
-          remarks: state.remarks,
-          notes: state.remarks,
+          sabak_para: parsePara(state.sabak_para),
+          saboki_para: parsePara(state.saboki_para),
+          amukhta_para: parsePara(state.amukhta_para),
+          performance_rating: state.performance_rating || "মুমতাজ (Excellent)",
+          notes: state.remarks || null,
         };
-      }).map((r: any) => {
-        if (!r.id) delete r.id;
-        return r;
-      });
 
-      const { error } = await supabase
-        .from("hifz_logs")
-        .upsert(recordsToUpsert, { onConflict: "student_id, log_date" });
-
-      if (error) {
-        // Fallback individual updates
-        for (const record of recordsToUpsert) {
-          const { data: existing } = await supabase
+        if (existing?.id) {
+          const { error: updateErr } = await supabase
+            .from("hifz_logs")
+            .update(record)
+            .eq("id", existing.id);
+          if (updateErr) throw updateErr;
+        } else {
+          const { data: found } = await supabase
             .from("hifz_logs")
             .select("id")
-            .eq("student_id", record.student_id)
-            .eq("log_date", record.log_date)
+            .eq("student_id", s.id)
+            .eq("log_date", currentDate)
             .maybeSingle();
 
-          if (existing) {
-            await supabase.from("hifz_logs").update(record).eq("id", existing.id);
+          if (found?.id) {
+            const { error: updateErr } = await supabase
+              .from("hifz_logs")
+              .update(record)
+              .eq("id", found.id);
+            if (updateErr) throw updateErr;
           } else {
-            await supabase.from("hifz_logs").insert([record]);
+            const { error: insertErr } = await supabase
+              .from("hifz_logs")
+              .insert([record]);
+            if (insertErr) throw insertErr;
           }
         }
       }

@@ -59,7 +59,7 @@ export default async function TeacherPortalKitab(props: {
 
   const { data: students } = await supabase
     .from("students")
-    .select("id, first_name, last_name, roll_number, student_id")
+    .select("id, first_name, last_name, roll_number")
     .eq("madrasa_id", madrasaId)
     .eq("class_id", currentClassId)
     .order("roll_number", { ascending: true });
@@ -68,7 +68,7 @@ export default async function TeacherPortalKitab(props: {
     .from("kitab_logs")
     .select("*")
     .eq("madrasa_id", madrasaId)
-    .eq("date", currentDate);
+    .eq("log_date", currentDate);
 
   return (
     <KitabEntryClient

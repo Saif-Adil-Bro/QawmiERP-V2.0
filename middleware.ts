@@ -57,19 +57,12 @@ export async function middleware(request: NextRequest) {
               request,
             });
             cookiesToSet.forEach(({ name, value, options }) => {
-              // NOTE: sameSite:"none" + partitioned:true was needed for a
-              // cross-site iframe preview (e.g. an AI agent's simulator that
-              // embeds the app inside its own domain). On a normal, directly
-              // accessed deployment (Render/Railway/production domain), that
-              // combination is unnecessary and unreliable across browsers —
-              // it can cause the auth cookie to silently fail to persist,
-              // making the user appear logged out and auth-dependent server
-              // actions fail. "lax" is the standard, robust choice for a
-              // top-level site with redirect-based login.
               supabaseResponse.cookies.set(name, value, {
                 ...options,
+                path: options?.path ?? "/",
                 sameSite: "lax",
                 secure: true,
+                maxAge: options?.maxAge ?? 60 * 60 * 24 * 30, // 30 days persistent cookie
               });
             });
           },
@@ -79,24 +72,20 @@ export async function middleware(request: NextRequest) {
 
     const { data, error } = await supabase.auth.getUser();
     if (error) {
-      // If refresh token is invalid/expired, clear stale auth cookies to avoid error loops
-      request.cookies.getAll().forEach(c => {
-        if (c.name.includes("sb-") || c.name.includes("auth-token")) {
-          supabaseResponse.cookies.set(c.name, "", { maxAge: 0, path: "/" });
-        }
-      });
+      // Only clear cookies if refresh token is explicitly missing/invalid (400 or 401)
+      if (error.status === 400 || error.status === 401 || error.code === 'refresh_token_not_found') {
+        request.cookies.getAll().forEach(c => {
+          if (c.name.includes("sb-") || c.name.includes("auth-token")) {
+            supabaseResponse.cookies.set(c.name, "", { maxAge: 0, path: "/" });
+          }
+        });
+      }
       user = null;
     } else {
       user = data?.user || null;
     }
   } catch (error) {
-    // Safe fallback on AuthApiError
-    console.warn("Middleware Supabase auth validation:", error);
-    request.cookies.getAll().forEach(c => {
-      if (c.name.includes("sb-") || c.name.includes("auth-token")) {
-        supabaseResponse.cookies.set(c.name, "", { maxAge: 0, path: "/" });
-      }
-    });
+    console.warn("Middleware Supabase auth validation warning:", error);
     user = null;
   }
 
