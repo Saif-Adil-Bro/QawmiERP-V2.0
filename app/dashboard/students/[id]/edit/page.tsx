@@ -30,7 +30,7 @@ export default async function EditStudentPage({
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center space-x-4">
         <Link
           href="/dashboard/students"

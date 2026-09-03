@@ -735,7 +735,18 @@ export default function IdCardClient({
                           <td className="p-3.5 pr-4 text-right space-x-1">
                             <button
                               type="button"
-                              onClick={() => setPreviewCard(card)}
+                              onClick={() => {
+                                const matchingStudent = allStudents.find((s) => s.id === card.student_id);
+                                const currentPhoto = matchingStudent?.photo_url || card.photo_url || card.snapshot?.photo_url;
+                                setPreviewCard({
+                                  ...card,
+                                  photo_url: currentPhoto,
+                                  snapshot: {
+                                    ...card.snapshot,
+                                    photo_url: currentPhoto,
+                                  },
+                                });
+                              }}
                               className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg transition"
                               title="ডিজিটাল প্রিভিউ"
                             >
@@ -2048,6 +2059,7 @@ export default function IdCardClient({
             <DigitalIdCardView
               card={previewCard}
               madrasaInfo={editableMadrasaInfo}
+              studentPhotoUrl={allStudents.find((s) => s.id === previewCard.student_id)?.photo_url || previewCard.photo_url || previewCard.snapshot?.photo_url}
               themeColor={themeColor}
               madrasaNameSize={madrasaNameSize}
               customExpiryDate={customExpiryDate}

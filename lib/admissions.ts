@@ -66,6 +66,8 @@ export interface AdmissionApplication {
 
   confirmed_student_id?: string;
   assigned_permanent_roll?: string;
+  assigned_class_id?: string;
+  assigned_class_name?: string;
 
   created_at: string;
   updated_at: string;

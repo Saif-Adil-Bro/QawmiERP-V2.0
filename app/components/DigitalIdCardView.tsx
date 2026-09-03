@@ -23,6 +23,7 @@ interface DigitalIdCardViewProps {
     logo_url?: string;
     website?: string;
   };
+  studentPhotoUrl?: string;
   onPrint?: () => void;
   showActions?: boolean;
   initialTemplate?: IDCardTemplateType;
@@ -34,6 +35,7 @@ interface DigitalIdCardViewProps {
 export default function DigitalIdCardView({
   card,
   madrasaInfo,
+  studentPhotoUrl,
   onPrint,
   showActions = true,
   initialTemplate = "classic_islamic",
@@ -48,6 +50,16 @@ export default function DigitalIdCardView({
     (card.template_id as IDCardTemplateType) || initialTemplate || "classic_islamic"
   );
   const [isFlipping, setIsFlipping] = useState(false);
+
+  const effectivePhotoUrl = studentPhotoUrl || card.photo_url || card.snapshot?.photo_url;
+  const resolvedCard: StudentIDCard = {
+    ...card,
+    photo_url: effectivePhotoUrl,
+    snapshot: {
+      ...card.snapshot,
+      photo_url: effectivePhotoUrl,
+    },
+  };
 
   useEffect(() => {
     if (card?.verification_id) {
@@ -208,12 +220,13 @@ export default function DigitalIdCardView({
           {/* Real Physical Proportions ID Card Render */}
           <div className="shadow-2xl rounded-[16px]">
             <StudentIdCardTemplate
-              card={card}
+              card={resolvedCard}
               side={activeSide}
               templateId={selectedTemplate}
               themeColor={themeColor}
               madrasaNameSize={madrasaNameSize}
               customExpiryDate={customExpiryDate}
+              studentPhotoUrl={effectivePhotoUrl}
               madrasaInfo={madrasaInfo}
               qrDataUrl={qrDataUrl}
               scale={1.25}
@@ -278,12 +291,13 @@ export default function DigitalIdCardView({
           <div className="flex flex-wrap items-center justify-center gap-6">
             <div className="border border-dashed border-slate-300 p-1 rounded-xl inline-block bg-white shadow-2xs">
               <StudentIdCardTemplate
-                card={card}
+                card={resolvedCard}
                 side="front"
                 templateId={selectedTemplate}
                 themeColor={themeColor}
                 madrasaNameSize={madrasaNameSize}
                 customExpiryDate={customExpiryDate}
+                studentPhotoUrl={effectivePhotoUrl}
                 madrasaInfo={madrasaInfo}
                 qrDataUrl={qrDataUrl}
               />
@@ -291,12 +305,13 @@ export default function DigitalIdCardView({
             </div>
             <div className="border border-dashed border-slate-300 p-1 rounded-xl inline-block bg-white shadow-2xs">
               <StudentIdCardTemplate
-                card={card}
+                card={resolvedCard}
                 side="back"
                 templateId={selectedTemplate}
                 themeColor={themeColor}
                 madrasaNameSize={madrasaNameSize}
                 customExpiryDate={customExpiryDate}
+                studentPhotoUrl={effectivePhotoUrl}
                 madrasaInfo={madrasaInfo}
                 qrDataUrl={qrDataUrl}
               />

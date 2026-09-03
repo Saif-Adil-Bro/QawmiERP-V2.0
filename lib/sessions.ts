@@ -82,12 +82,43 @@ export function getDefaultSessions(madrasaId: string): AcademicSession[] {
   ];
 }
 
+export interface ExtendedStudentProfile {
+  student_id?: string;
+  first_name?: string;
+  last_name?: string;
+  roll_number?: string;
+  class_id?: string;
+  class_name?: string;
+  father_name?: string;
+  parent_phone?: string;
+  address?: string;
+  photo_url?: string;
+  blood_group?: string;
+  date_of_birth?: string;
+  residential_status?: "আবাসিক" | "অনাবাসিক" | "ডে-কেয়ার";
+  is_boarding?: boolean;
+  boarding_type?: "লিল্লাহ" | "সাধারণ পেইং" | "হাফ-ফ্রি" | "অনাবাসিক" | string;
+  mother_name?: string;
+  guardian_name?: string;
+  guardian_relation?: string;
+  emergency_contact?: string;
+  nid_or_birth_cert?: string;
+  previous_madrasa?: string;
+  room_no?: string;
+  seat_no?: string;
+  student_status?: "ACTIVE" | "IRREGULAR" | "GRADUATED" | "DROPOUT" | "ALUMNI" | "TC";
+  medical_notes?: string;
+  remarks?: string;
+  updated_at?: string;
+}
+
 /**
  * Storage key in madrasa metadata
  */
-interface MadrasaMetaWithSessions {
+export interface MadrasaMetaWithSessions {
   sessions?: AcademicSession[];
   enrollments?: StudentEnrollment[];
+  student_profiles?: Record<string, ExtendedStudentProfile>;
   [key: string]: any;
 }
 

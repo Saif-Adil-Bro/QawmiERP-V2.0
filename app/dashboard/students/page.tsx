@@ -1,10 +1,10 @@
-import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { Plus, Search, Edit2, User, GraduationCap, Calendar, Eye } from "lucide-react";
 import { StudentDeleteButton } from "@/components/students/student-actions";
 import { StudentSearch } from "@/components/students/student-search";
 import { getStudentIdNumber, convertToBanglaNumber } from "@/lib/student-utils";
 import { getAcademicSessions, getCurrentSession } from "@/app/actions/sessions";
+import { getStudents } from "@/app/actions/students";
 
 export const metadata = {
   title: "শিক্ষার্থী তালিকা | QawmiERP",
@@ -14,26 +14,33 @@ export default async function StudentsPage(props: {
   searchParams?: Promise<{ q?: string; session?: string }>;
 }) {
   const resolvedSearchParams = props.searchParams ? (await props.searchParams) || {} : {};
-  const query = resolvedSearchParams?.q || "";
+  const query = (resolvedSearchParams?.q || "").trim().toLowerCase();
 
-  const [supabase, sessions, currentSession] = await Promise.all([
-    createClient(),
+  const [allStudents, sessions, currentSession] = await Promise.all([
+    getStudents(),
     getAcademicSessions(),
     getCurrentSession(),
   ]);
 
-  let supabaseQuery = supabase
-    .from("students")
-    .select("*, classes(*)")
-    .order("created_at", { ascending: false });
-
+  let students = allStudents || [];
   if (query) {
-    supabaseQuery = supabaseQuery.or(
-      `first_name.ilike.%${query}%,last_name.ilike.%${query}%,roll_number.ilike.%${query}%`
-    );
+    students = students.filter((student: any) => {
+      const fullName = `${student.first_name || ""} ${student.last_name || ""}`.toLowerCase();
+      const roll = String(student.roll_number || "").toLowerCase();
+      const phone = String(student.parent_phone || "").toLowerCase();
+      const father = String(student.father_name || "").toLowerCase();
+      const className = String(
+        (Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) || student.class_name || ""
+      ).toLowerCase();
+      return (
+        fullName.includes(query) ||
+        roll.includes(query) ||
+        phone.includes(query) ||
+        father.includes(query) ||
+        className.includes(query)
+      );
+    });
   }
-
-  const { data: students } = await supabaseQuery;
 
   return (
     <div className="space-y-6">

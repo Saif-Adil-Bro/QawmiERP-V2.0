@@ -34,30 +34,92 @@ export async function getIdCardsData(filters?: {
     const templates: IDCardTemplateConfig[] = meta.id_card_templates || DEFAULT_IDCARD_TEMPLATES;
     const auditLogs: IDCardAuditLog[] = meta.id_card_audit_logs || [];
 
-    // Auto check expired status on load and normalize IDs to consistent 480001 / QM-480001
+    // Auto check expired status on load, sync student photos/details, and normalize IDs to consistent 480001 / QM-480001
     const todayStr = new Date().toISOString().split("T")[0];
     let isModified = false;
+
+    // Fetch all students to sync current photo_url and profile changes
+    const adminClient = await createAdminClient();
+    const { data: allMadrasaStudents } = await adminClient
+      .from("students")
+      .select("id, photo_url, first_name, last_name, roll_number, blood_group, parent_phone, classes(name)")
+      .eq("madrasa_id", madrasaId);
+    const studentMap = new Map((allMadrasaStudents || []).map((s: any) => [s.id, s]));
+
     cards = cards.map((card, idx) => {
+      let updatedCard = { ...card };
+      const std = studentMap.get(card.student_id);
+
+      if (std) {
+        const currentPhoto = std.photo_url || undefined;
+        if (currentPhoto && (updatedCard.photo_url !== currentPhoto || updatedCard.snapshot?.photo_url !== currentPhoto)) {
+          isModified = true;
+          updatedCard.photo_url = currentPhoto;
+          updatedCard.snapshot = {
+            ...updatedCard.snapshot,
+            photo_url: currentPhoto,
+          };
+        }
+        const stdFullName = `${std.first_name || ""} ${std.last_name || ""}`.trim();
+        if (stdFullName && updatedCard.snapshot?.student_name !== stdFullName) {
+          isModified = true;
+          updatedCard.snapshot = {
+            ...updatedCard.snapshot,
+            student_name: stdFullName,
+          };
+        }
+        if (std.classes?.name && updatedCard.snapshot?.class_name !== std.classes.name) {
+          isModified = true;
+          updatedCard.snapshot = {
+            ...updatedCard.snapshot,
+            class_name: std.classes.name,
+          };
+        }
+        if (std.roll_number && updatedCard.snapshot?.roll_number !== std.roll_number) {
+          isModified = true;
+          updatedCard.snapshot = {
+            ...updatedCard.snapshot,
+            roll_number: std.roll_number,
+          };
+        }
+        if (std.blood_group && updatedCard.snapshot?.blood_group !== std.blood_group) {
+          isModified = true;
+          updatedCard.snapshot = {
+            ...updatedCard.snapshot,
+            blood_group: std.blood_group,
+          };
+        }
+        const stdPhoto = std.photo_url || std.avatar_url;
+        if (stdPhoto && (updatedCard.photo_url !== stdPhoto || updatedCard.snapshot?.photo_url !== stdPhoto)) {
+          isModified = true;
+          updatedCard.photo_url = stdPhoto;
+          updatedCard.snapshot = {
+            ...updatedCard.snapshot,
+            photo_url: stdPhoto,
+          };
+        }
+      }
+
       const stdCode = normalizeStudentIdCode(
-        card.snapshot?.student_id_code || card.student_number || card.card_number || card.snapshot?.roll_number,
+        updatedCard.snapshot?.student_id_code || updatedCard.student_number || updatedCard.card_number || updatedCard.snapshot?.roll_number,
         idx + 1
       );
       const stdCardNum = `QM-${stdCode}`;
-      let updatedStatus = card.status;
-      if (card.status === "ACTIVE" && card.expiry_date && card.expiry_date < todayStr) {
+      let updatedStatus = updatedCard.status;
+      if (updatedCard.status === "ACTIVE" && updatedCard.expiry_date && updatedCard.expiry_date < todayStr) {
         isModified = true;
         updatedStatus = "EXPIRED";
       }
-      if (card.card_number !== stdCardNum || card.snapshot?.student_id_code !== stdCode || card.student_number !== stdCode) {
+      if (updatedCard.card_number !== stdCardNum || updatedCard.snapshot?.student_id_code !== stdCode || updatedCard.student_number !== stdCode) {
         isModified = true;
       }
       return {
-        ...card,
+        ...updatedCard,
         card_number: stdCardNum,
         student_number: stdCode,
         status: updatedStatus,
         snapshot: {
-          ...card.snapshot,
+          ...updatedCard.snapshot,
           student_id_code: stdCode,
         },
       };
@@ -517,6 +579,64 @@ export async function getStudentDigitalId(studentId: string) {
       }
     }
 
+    // Ensure activeCard is always synchronized with the current student profile photo and attributes
+    if (activeCard && student) {
+      let isChanged = false;
+      const profile = meta.student_profiles?.[studentId];
+      const admission = (meta.admissions || []).find((a: any) => a.confirmed_student_id === studentId);
+      const currentPhoto = student.photo_url || student.avatar_url || profile?.photo_url || admission?.photo_url || undefined;
+      if (currentPhoto && (activeCard.photo_url !== currentPhoto || activeCard.snapshot?.photo_url !== currentPhoto)) {
+        activeCard.photo_url = currentPhoto;
+        activeCard.snapshot = {
+          ...activeCard.snapshot,
+          photo_url: currentPhoto,
+        };
+        isChanged = true;
+      }
+
+      const currentName = `${student.first_name || ""} ${student.last_name || ""}`.trim();
+      if (currentName && activeCard.snapshot?.student_name !== currentName) {
+        activeCard.snapshot = {
+          ...activeCard.snapshot,
+          student_name: currentName,
+        };
+        isChanged = true;
+      }
+
+      if (student.classes?.name && activeCard.snapshot?.class_name !== student.classes.name) {
+        activeCard.snapshot = {
+          ...activeCard.snapshot,
+          class_name: student.classes.name,
+        };
+        isChanged = true;
+      }
+
+      if (student.roll_number && activeCard.snapshot?.roll_number !== student.roll_number) {
+        activeCard.snapshot = {
+          ...activeCard.snapshot,
+          roll_number: student.roll_number,
+        };
+        isChanged = true;
+      }
+
+      if (student.blood_group && activeCard.snapshot?.blood_group !== student.blood_group) {
+        activeCard.snapshot = {
+          ...activeCard.snapshot,
+          blood_group: student.blood_group,
+        };
+        isChanged = true;
+      }
+
+      if (isChanged) {
+        const cardIdx = cards.findIndex((c) => c.id === activeCard!.id);
+        if (cardIdx >= 0) {
+          cards[cardIdx] = activeCard;
+        }
+        meta.id_cards = cards;
+        await saveMadrasaMetadata(madrasaId, meta);
+      }
+    }
+
     // Get madrasa info
     const { data: madrasa } = await adminClient
       .from("madrasas")
@@ -611,6 +731,20 @@ export async function verifyStudentIdCard(verificationId: string) {
       };
     }
 
+    let verifiedPhotoUrl = foundCard.snapshot.photo_url || foundCard.photo_url;
+    if (!verifiedPhotoUrl && foundCard.student_id) {
+      try {
+        const { data: stdRecord } = await adminClient
+          .from("students")
+          .select("photo_url")
+          .eq("id", foundCard.student_id)
+          .single();
+        if (stdRecord?.photo_url) {
+          verifiedPhotoUrl = stdRecord.photo_url;
+        }
+      } catch {}
+    }
+
     // Return safe minimal public verification data (NO private phone/address leaked)
     return {
       isValid: true,
@@ -621,7 +755,7 @@ export async function verifyStudentIdCard(verificationId: string) {
         rollNumber: foundCard.snapshot.roll_number,
         className: foundCard.snapshot.class_name,
         sessionName: foundCard.snapshot.session_name,
-        photoUrl: foundCard.snapshot.photo_url || foundCard.photo_url,
+        photoUrl: verifiedPhotoUrl,
         issueDate: foundCard.issue_date,
         expiryDate: foundCard.expiry_date,
         madrasaName: foundMadrasaName,

@@ -10,6 +10,7 @@ import Link from "next/link";
 export default function DailyMealsPage() {
   const [date, setDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [classId, setClassId] = useState<string>("All");
+  const [boardingFilter, setBoardingFilter] = useState<"ALL" | "BOARDING" | "NON_BOARDING">("BOARDING");
   const [classes, setClasses] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,7 +33,7 @@ export default function DailyMealsPage() {
     async function loadData() {
       setLoading(true);
       try {
-        const data = await getStudentsForMeals(date, classId);
+        const data = await getStudentsForMeals(date, classId, boardingFilter);
         setStudents(data || []);
       } catch (err) {
         console.error("getStudentsForMeals failed:", err);
@@ -41,7 +42,7 @@ export default function DailyMealsPage() {
       }
     }
     loadData();
-  }, [date, classId]);
+  }, [date, classId, boardingFilter]);
 
   const handleStatusChange = (studentId: string, meal_status: "On" | "Off") => {
     setStudents(prev =>
@@ -102,6 +103,21 @@ export default function DailyMealsPage() {
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+          <div className="flex items-center space-x-2 bg-white border rounded-md px-3 py-2 shadow-sm w-full sm:w-auto">
+            <Layers className="w-4 h-4 text-slate-400" />
+            <label htmlFor="boarding_filter" className="text-sm font-medium text-slate-600">ফিল্টার:</label>
+            <select
+              id="boarding_filter"
+              value={boardingFilter}
+              onChange={(e) => setBoardingFilter(e.target.value as any)}
+              className="border-none focus:outline-none focus:ring-0 text-sm font-medium text-slate-800 bg-transparent cursor-pointer"
+            >
+              <option value="BOARDING">শুধু বোর্ডিং / আবাসিক</option>
+              <option value="ALL">সব শিক্ষার্থী</option>
+              <option value="NON_BOARDING">অনাবাসিক শিক্ষার্থী</option>
+            </select>
+          </div>
+
           <div className="flex items-center space-x-2 bg-white border rounded-md px-3 py-2 shadow-sm w-full sm:w-auto">
             <Layers className="w-4 h-4 text-slate-400" />
             <label htmlFor="class_id" className="text-sm font-medium text-slate-600">ক্লাস:</label>
@@ -189,6 +205,7 @@ export default function DailyMealsPage() {
                     <th className="px-6 py-4 font-medium text-center w-24">রোল নম্বর</th>
                     <th className="px-6 py-4 font-medium">নাম</th>
                     <th className="px-6 py-4 font-medium">ক্লাস</th>
+                    <th className="px-6 py-4 font-medium">আবাসিক/বোর্ডিং</th>
                     <th className="px-6 py-4 font-medium text-right w-64">মিল স্ট্যাটাস (Meal Status)</th>
                   </tr>
                 </thead>
@@ -203,6 +220,26 @@ export default function DailyMealsPage() {
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
                           {student.class_name || "N/A"}
                         </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col gap-1 items-start">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                              student.residential_status === "আবাসিক"
+                                ? "bg-amber-100 text-amber-800"
+                                : student.residential_status === "ডে-কেয়ার"
+                                ? "bg-blue-100 text-blue-800"
+                                : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {student.residential_status || "অনাবাসিক"}
+                          </span>
+                          {student.is_boarding && (
+                            <span className="text-[11px] text-orange-700 font-medium">
+                              বোর্ডিং: {student.boarding_type || "চালু"}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="inline-flex rounded-md shadow-sm" role="group">

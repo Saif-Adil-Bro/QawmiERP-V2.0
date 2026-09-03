@@ -20,6 +20,7 @@ export interface StudentIdCardTemplateProps {
   themeColor?: string;
   madrasaNameSize?: string;
   customExpiryDate?: string;
+  studentPhotoUrl?: string;
   fieldVisibility?: Partial<IDCardFieldVisibility>;
   madrasaInfo?: {
     name?: string;
@@ -239,6 +240,22 @@ const IslamicStarWatermark = () => (
   </svg>
 );
 
+export function formatDirectPhotoUrl(url?: string | null): string | undefined {
+  if (!url || typeof url !== "string") return undefined;
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.includes("drive.google.com")) {
+    const fileDMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    const idMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    const dMatch = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    const fileId = (fileDMatch && fileDMatch[1]) || (idMatch && idMatch[1]) || (dMatch && dMatch[1]);
+    if (fileId) {
+      return `https://drive.google.com/uc?export=view&id=${fileId}`;
+    }
+  }
+  return trimmed;
+}
+
 export default function StudentIdCardTemplate({
   card,
   side,
@@ -246,6 +263,7 @@ export default function StudentIdCardTemplate({
   themeColor = "emerald",
   madrasaNameSize = "medium",
   customExpiryDate,
+  studentPhotoUrl,
   fieldVisibility,
   madrasaInfo,
   customInstructions,
@@ -299,7 +317,8 @@ export default function StudentIdCardTemplate({
   const fatherName = snapshot.father_name;
   const parentPhone = snapshot.parent_phone;
   const bloodGroup = snapshot.blood_group && snapshot.blood_group !== "—" ? snapshot.blood_group : null;
-  const photoUrl = snapshot.photo_url || card.photo_url;
+  const rawPhoto = studentPhotoUrl || snapshot.photo_url || card.photo_url;
+  const photoUrl = formatDirectPhotoUrl(rawPhoto);
   const isStatusActive = card.status === "ACTIVE";
 
   const madrasaName = madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন";
@@ -409,7 +428,15 @@ export default function StudentIdCardTemplate({
                 <div className="relative mb-0.5">
                   <div className={`w-[50px] h-[50px] rounded-lg border-2 ${tc.photoBorder} bg-slate-100 shadow-2xs overflow-hidden flex items-center justify-center`}>
                     {photoUrl ? (
-                      <img src={photoUrl} alt={studentName} className="w-full h-full object-cover" />
+                      <img
+                        src={photoUrl}
+                        alt={studentName}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                      />
                     ) : (
                       <IdCard className="w-6 h-6 text-slate-400" />
                     )}
@@ -578,7 +605,15 @@ export default function StudentIdCardTemplate({
               <div className="flex-1 flex flex-col items-center px-2 pt-1">
                 <div className={`w-[48px] h-[48px] rounded-xl border-2 ${tc.badgeBorder} bg-slate-50 shadow-2xs overflow-hidden flex items-center justify-center mb-0.5`}>
                   {photoUrl ? (
-                    <img src={photoUrl} alt={studentName} className="w-full h-full object-cover" />
+                    <img
+                      src={photoUrl}
+                      alt={studentName}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
                   ) : (
                     <IdCard className="w-5 h-5 text-slate-400" />
                   )}
@@ -713,7 +748,15 @@ export default function StudentIdCardTemplate({
               <div className="flex-1 flex flex-col items-center px-1.5 pt-1 pb-0.5">
                 <div className="w-[48px] h-[48px] rounded-full border-2 border-amber-400 bg-white p-0.5 shadow-md overflow-hidden mb-0.5">
                   {photoUrl ? (
-                    <img src={photoUrl} alt={studentName} className="w-full h-full object-cover rounded-full" />
+                    <img
+                      src={photoUrl}
+                      alt={studentName}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover rounded-full"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
                   ) : (
                     <IdCard className="w-5 h-5 text-slate-400 m-auto mt-1" />
                   )}

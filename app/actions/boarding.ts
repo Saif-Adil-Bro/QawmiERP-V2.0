@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
@@ -8,7 +8,11 @@ import { getAuthMadrasaId } from "./students";
 // 1. MEAL ENTRIES
 // ==========================================
 
-export async function getStudentsForMeals(date: string, classId?: string) {
+export async function getStudentsForMeals(
+  date: string,
+  classId?: string,
+  boardingFilter: "ALL" | "BOARDING" | "NON_BOARDING" = "ALL"
+) {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return [];
@@ -33,7 +37,16 @@ export async function getStudentsForMeals(date: string, classId?: string) {
     return [];
   }
 
-  // 2. Fetch meal entries for this date
+  // 2. Fetch madrasa metadata for student residential/boarding status
+  let meta: any = {};
+  try {
+    const { getMadrasaMetadata } = await import("@/lib/sessions");
+    meta = await getMadrasaMetadata(finalMadrasaId);
+  } catch (mErr) {
+    console.warn("Could not load metadata in getStudentsForMeals:", mErr);
+  }
+
+  // 3. Fetch meal entries for this date
   const { data: mealEntries, error: mealError } = await supabase
     .from("meal_entries")
     .select("student_id, meal_status")
@@ -46,15 +59,43 @@ export async function getStudentsForMeals(date: string, classId?: string) {
 
   const mealMap = new Map((mealEntries || []).map(m => [m.student_id, m.meal_status]));
 
-  // Map student meal status. Default is "On" if not registered.
-  return students.map(student => ({
-    id: student.id,
-    first_name: student.first_name,
-    last_name: student.last_name,
-    roll_number: student.roll_number,
-    class_name: student.class_name,
-    meal_status: mealMap.get(student.id) || "On"
-  }));
+  // 4. Map student meal status and residential profile
+  const mapped = (students || []).map(student => {
+    const profile = meta?.student_profiles?.[student.id] || {};
+    const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === student.id);
+    const residentialStatus = profile.residential_status || admission?.residential_status || "অনাবাসিক";
+    const isBoarding = profile.is_boarding !== undefined
+      ? Boolean(profile.is_boarding)
+      : (residentialStatus === "আবাসিক");
+
+    // Existing entry has highest priority; otherwise, boarding/residential students default to "On", others default to "Off"
+    let meal_status: "On" | "Off" = "Off";
+    if (mealMap.has(student.id)) {
+      meal_status = mealMap.get(student.id) as "On" | "Off";
+    } else {
+      meal_status = isBoarding || residentialStatus === "আবাসিক" ? "On" : "Off";
+    }
+
+    return {
+      id: student.id,
+      first_name: student.first_name,
+      last_name: student.last_name,
+      roll_number: student.roll_number,
+      class_name: student.class_name,
+      residential_status: residentialStatus,
+      is_boarding: isBoarding,
+      boarding_type: profile.boarding_type || (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক"),
+      meal_status,
+    };
+  });
+
+  if (boardingFilter === "BOARDING") {
+    return mapped.filter(s => s.is_boarding || s.residential_status === "আবাসিক");
+  } else if (boardingFilter === "NON_BOARDING") {
+    return mapped.filter(s => !s.is_boarding && s.residential_status !== "আবাসিক");
+  }
+
+  return mapped;
 }
 
 export async function saveMealEntries(date: string, mealData: { student_id: string; meal_status: "On" | "Off" }[]) {
@@ -410,10 +451,11 @@ export async function getBoardingMadrasaInfo() {
 export async function getMonthlyBoardingReport(year: string, month: string) {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
-  if (!user) return null;
-
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return null;
+
+  const adminClient = await createAdminClient();
+  const clientToUse = user ? supabase : adminClient;
 
   // Format month and build date range boundaries
   // E.g., year = "2026", month = "08" (August)
@@ -430,8 +472,8 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
   }
   const nextMonthStr = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
 
-  // 1. Fetch Bazar expenses in this month
-  const { data: bazarData, error: bazarError } = await supabase
+  // 1. Fetch Bazar expenses in this month (with adminClient fallback)
+  let { data: bazarData, error: bazarError } = await clientToUse
     .from("bazar_expenses")
     .select("amount, expense_date")
     .eq("madrasa_id", finalMadrasaId)
@@ -439,26 +481,37 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
     .lt("expense_date", nextMonthStr);
 
   if (bazarError) {
-    console.error("Error fetching bazar for report:", bazarError);
+    console.warn("Retrying bazar query with adminClient:", bazarError.message);
+    const res = await adminClient
+      .from("bazar_expenses")
+      .select("amount, expense_date")
+      .eq("madrasa_id", finalMadrasaId)
+      .gte("expense_date", startDate)
+      .lt("expense_date", nextMonthStr);
+    bazarData = res.data;
   }
 
-  const totalBazarCost = (bazarData || []).reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+  const totalBazarCost = (bazarData || []).reduce((acc: number, curr: any) => acc + Number(curr.amount || 0), 0);
 
-  // 2. Fetch all students to match meal entries
-  const { data: students, error: studentsError } = await supabase
+  // 2. Fetch all students with class joins (with adminClient fallback)
+  let { data: students, error: studentsError } = await clientToUse
     .from("students")
-    .select("id, first_name, last_name, roll_number, class_name")
+    .select("id, first_name, last_name, roll_number, class_name, classes(id, name)")
     .eq("madrasa_id", finalMadrasaId)
-    .order("class_name")
     .order("roll_number");
 
-  if (studentsError) {
-    console.error("Error fetching students for report:", studentsError);
-    return null;
+  if (studentsError || !students) {
+    console.warn("Retrying students query with adminClient:", studentsError?.message);
+    const res = await adminClient
+      .from("students")
+      .select("id, first_name, last_name, roll_number, class_name, classes(id, name)")
+      .eq("madrasa_id", finalMadrasaId)
+      .order("roll_number");
+    students = res.data || [];
   }
 
   // 3. Fetch all active ("On") meal entries in this month
-  const { data: mealsData, error: mealsError } = await supabase
+  let { data: mealsData, error: mealsError } = await clientToUse
     .from("meal_entries")
     .select("student_id, meal_status, entry_date")
     .eq("madrasa_id", finalMadrasaId)
@@ -467,41 +520,150 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
     .lt("entry_date", nextMonthStr);
 
   if (mealsError) {
-    console.error("Error fetching meals for report:", mealsError);
+    console.warn("Retrying meals query with adminClient:", mealsError.message);
+    const res = await adminClient
+      .from("meal_entries")
+      .select("student_id, meal_status, entry_date")
+      .eq("madrasa_id", finalMadrasaId)
+      .eq("meal_status", "On")
+      .gte("entry_date", startDate)
+      .lt("entry_date", nextMonthStr);
+    mealsData = res.data;
   }
 
-  // 4. Calculate total active meals across all students
+  // 4. Fetch metadata for extended student residential and boarding profiles
+  let meta: any = {};
+  try {
+    const { getMadrasaMetadata } = await import("@/lib/sessions");
+    meta = await getMadrasaMetadata(finalMadrasaId);
+  } catch (mErr) {
+    console.warn("Could not load metadata in getMonthlyBoardingReport:", mErr);
+  }
+
+  // 5. Calculate total active meals across all students
   const totalMealsCount = mealsData?.length || 0;
 
-  // 5. Calculate meal rate
+  // 6. Calculate meal rate
   const mealRate = totalMealsCount > 0 ? (totalBazarCost / totalMealsCount) : 0;
 
-  // 6. Calculate meal count per student
+  // 7. Calculate meal count per student
   const studentMealsMap = new Map<string, number>();
-  (mealsData || []).forEach(entry => {
+  (mealsData || []).forEach((entry: any) => {
     const current = studentMealsMap.get(entry.student_id) || 0;
     studentMealsMap.set(entry.student_id, current + 1);
   });
 
-  // 7. Map students to their meals and bills
-  const studentsReport = students.map(student => {
+  // 8. Enumerate months with recorded activity in DB
+  let monthsWithData: { year: string; month: string; label: string }[] = [];
+  try {
+    const { data: allMeals } = await adminClient
+      .from("meal_entries")
+      .select("entry_date")
+      .eq("madrasa_id", finalMadrasaId)
+      .order("entry_date", { ascending: false });
+
+    const monthSet = new Set<string>();
+    (allMeals || []).forEach((m: any) => {
+      if (m.entry_date) {
+        monthSet.add(m.entry_date.substring(0, 7)); // YYYY-MM
+      }
+    });
+
+    const { data: allBazar } = await adminClient
+      .from("bazar_expenses")
+      .select("expense_date")
+      .eq("madrasa_id", finalMadrasaId);
+
+    (allBazar || []).forEach((b: any) => {
+      if (b.expense_date) {
+        monthSet.add(b.expense_date.substring(0, 7));
+      }
+    });
+
+    const bengaliMonths: Record<string, string> = {
+      "01": "জানুয়ারি", "02": "ফেব্রুয়ারি", "03": "মার্চ", "04": "এপ্রিল",
+      "05": "মে", "06": "জুন", "07": "জুলাই", "08": "আগস্ট",
+      "09": "সেপ্টেম্বর", "10": "অক্টোবর", "11": "নভেম্বর", "12": "ডিসেম্বর"
+    };
+
+    monthsWithData = Array.from(monthSet).sort().reverse().map((ym) => {
+      const [y, m] = ym.split("-");
+      return {
+        year: y,
+        month: m,
+        label: `${bengaliMonths[m] || m} ${y}`,
+      };
+    });
+  } catch (mListErr) {
+    console.warn("Could not load monthsWithData:", mListErr);
+  }
+
+  // 9. Map students to their meals, profiles and dynamic bills
+  let totalPayingBill = 0;
+  let totalLillahSponsored = 0;
+  let activeBoardingStudentsCount = 0;
+
+  const studentsReport = (students || []).map((student: any) => {
     const studentMealsCount = studentMealsMap.get(student.id) || 0;
-    const studentBill = studentMealsCount * mealRate;
+    const grossCost = studentMealsCount * mealRate;
+
+    const profile = meta?.student_profiles?.[student.id] || {};
+    const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === student.id);
+    const residentialStatus = profile.residential_status || admission?.residential_status || "অনাবাসিক";
+    const isBoarding = profile.is_boarding !== undefined
+      ? Boolean(profile.is_boarding)
+      : (residentialStatus === "আবাসিক");
+    const boardingType = profile.boarding_type || (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
+
+    if (isBoarding || residentialStatus === "আবাসিক") {
+      activeBoardingStudentsCount++;
+    }
+
+    let discount = 0;
+    if (boardingType === "লিল্লাহ বোর্ডিং (ফ্রি)") {
+      discount = grossCost; // 100% Free / Sponsored
+      totalLillahSponsored += grossCost;
+    } else if (boardingType === "হাফ-ফ্রি") {
+      discount = grossCost * 0.5; // 50% discount
+      totalLillahSponsored += discount;
+      totalPayingBill += (grossCost - discount);
+    } else if (isBoarding || grossCost > 0) {
+      totalPayingBill += grossCost;
+    }
+
+    const netPayable = Math.max(0, grossCost - discount);
+    const className = Array.isArray(student.classes)
+      ? (student.classes[0] as any)?.name
+      : (student.classes as any)?.name || student.class_name || "—";
+
     return {
       id: student.id,
       first_name: student.first_name,
       last_name: student.last_name,
-      roll_number: student.roll_number,
-      class_name: student.class_name,
+      student_name: `${student.first_name || ""} ${student.last_name || ""}`.trim(),
+      roll_number: student.roll_number || "-",
+      class_name: className,
+      residential_status: residentialStatus,
+      is_boarding: isBoarding,
+      boarding_type: boardingType,
+      room_no: profile.room_no || "",
       meals_count: studentMealsCount,
-      bill_amount: Math.round(studentBill * 100) / 100 // round to 2 decimal places
+      gross_amount: Math.round(grossCost * 100) / 100,
+      discount_amount: Math.round(discount * 100) / 100,
+      bill_amount: Math.round(netPayable * 100) / 100, // round to 2 decimal places
     };
   });
 
   return {
+    year,
+    month,
     totalBazarCost,
     totalMealsCount,
     mealRate: Math.round(mealRate * 100) / 100, // round to 2 decimal places
-    studentsReport
+    totalPayingBill: Math.round(totalPayingBill * 100) / 100,
+    totalLillahSponsored: Math.round(totalLillahSponsored * 100) / 100,
+    activeBoardingStudentsCount,
+    monthsWithData,
+    studentsReport,
   };
 }

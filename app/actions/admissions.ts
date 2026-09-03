@@ -482,28 +482,83 @@ export async function confirmAdmissionToStudent(params: {
     const lastName = names.slice(1).join(" ") || "আহমদ";
 
     // 3. Insert student record into students table
-    const { data: newStudent, error: insertError } = await adminClient
+    const studentPayload: any = {
+      madrasa_id: madrasaId,
+      first_name: firstName,
+      last_name: lastName,
+      roll_number: params.assignedRoll,
+      class_id: params.assignedClassId,
+      class_name: className,
+      father_name: adm.father_name || "",
+      parent_phone: adm.guardian_phone || "",
+      address: adm.present_address || "",
+      photo_url: adm.photo_url || null,
+    };
+
+    if (adm.date_of_birth) studentPayload.date_of_birth = adm.date_of_birth;
+    if (adm.blood_group) studentPayload.blood_group = adm.blood_group;
+
+    let { data: newStudent, error: insertError } = await adminClient
       .from("students")
-      .insert({
-        madrasa_id: madrasaId,
-        first_name: firstName,
-        last_name: lastName,
-        roll_number: params.assignedRoll,
-        class_id: params.assignedClassId,
-        class_name: className,
-        date_of_birth: adm.date_of_birth || null,
-        blood_group: adm.blood_group || null,
-        father_name: adm.father_name,
-        parent_phone: adm.guardian_phone,
-        address: adm.present_address,
-        photo_url: adm.photo_url || null,
-      })
+      .insert(studentPayload)
       .select()
       .single();
 
-    if (insertError) {
+    // If blood_group or date_of_birth column does not exist in schema cache, gracefully retry without them
+    if (
+      insertError &&
+      (insertError.message?.includes("blood_group") ||
+        insertError.message?.includes("date_of_birth") ||
+        insertError.message?.includes("schema cache") ||
+        insertError.code === "PGRST204")
+    ) {
+      delete studentPayload.blood_group;
+      delete studentPayload.date_of_birth;
+      const retryResult = await adminClient
+        .from("students")
+        .insert(studentPayload)
+        .select()
+        .single();
+      newStudent = retryResult.data;
+      insertError = retryResult.error;
+    }
+
+    if (insertError || !newStudent) {
       console.error("Error creating permanent student from admission:", insertError);
-      return { error: `শিক্ষার্থী প্রোফাইল তৈরিতে ত্রুটি: ${insertError.message}` };
+      return { error: `শিক্ষার্থী প্রোফাইল তৈরিতে ত্রুটি: ${insertError?.message || "অজানা ত্রুটি"}` };
+    }
+
+    // Auto enroll student into current active academic session
+    try {
+      const { getDefaultSessions } = await import("@/lib/sessions");
+      const sessions = meta.sessions || getDefaultSessions(madrasaId);
+      const currentSession = sessions.find((s: any) => s.is_current) || sessions[0];
+      if (currentSession) {
+        const enrollments = meta.enrollments || [];
+        const existingIdx = enrollments.findIndex(
+          (e: any) => e.student_id === newStudent.id && e.session_id === currentSession.id
+        );
+        const newEnrollment = {
+          id: `enr_${newStudent.id}_${currentSession.id}`,
+          madrasa_id: madrasaId,
+          student_id: newStudent.id,
+          session_id: currentSession.id,
+          class_id: params.assignedClassId,
+          class_name: className,
+          roll_number: params.assignedRoll,
+          status: "ACTIVE" as const,
+          enrollment_date: new Date().toISOString().split("T")[0],
+          created_at: new Date().toISOString(),
+        };
+        if (existingIdx >= 0) {
+          enrollments[existingIdx] = newEnrollment;
+        } else {
+          enrollments.push(newEnrollment);
+        }
+        meta.enrollments = enrollments;
+      }
+    } catch (enrollErr) {
+      console.warn("Auto enrollment error on admission confirm:", enrollErr);
     }
 
     // 4. Update admission record
@@ -513,6 +568,8 @@ export async function confirmAdmissionToStudent(params: {
       status: "CONFIRMED",
       confirmed_student_id: newStudent.id,
       assigned_permanent_roll: params.assignedRoll,
+      assigned_class_id: params.assignedClassId,
+      assigned_class_name: className,
       updated_at: new Date().toISOString(),
     };
 
@@ -521,6 +578,7 @@ export async function confirmAdmissionToStudent(params: {
 
     revalidatePath("/dashboard/admissions");
     revalidatePath("/dashboard/students");
+    revalidatePath("/dashboard/academic/sessions");
     return {
       success: true,
       student: newStudent,

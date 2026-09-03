@@ -612,11 +612,24 @@ export async function getStudentAcademicHistory(
       }
     }
 
-    const { data: student } = await supabase
+    let { data: student } = await supabase
       .from("students")
       .select("*, classes(*)")
       .eq("id", studentId)
       .single();
+
+    if (!student) {
+      try {
+        const { createAdminClient } = await import("@/lib/supabase/server");
+        const adminClient = await createAdminClient();
+        const { data: adminStd } = await adminClient
+          .from("students")
+          .select("*, classes(*)")
+          .eq("id", studentId)
+          .single();
+        student = adminStd || null;
+      } catch {}
+    }
 
     if (!student) {
       return { student: null, currentEnrollment: null, history: [] };
@@ -624,6 +637,48 @@ export async function getStudentAcademicHistory(
 
     const currentMadrasaId = madrasaId || student.madrasa_id;
     const meta = await getMadrasaMetadata(currentMadrasaId);
+
+    // Enrich student profile from extended student_profiles and admission application
+    const profile = meta.student_profiles?.[studentId] || {};
+    const adm = (meta.admissions || []).find((a: any) => a.confirmed_student_id === studentId);
+
+    if (profile.first_name) student.first_name = profile.first_name;
+    if (profile.last_name) student.last_name = profile.last_name;
+    if (profile.roll_number) student.roll_number = profile.roll_number;
+    if (profile.class_id) student.class_id = profile.class_id;
+    if (profile.class_name) {
+      student.class_name = profile.class_name;
+      student.classes = student.classes || { id: profile.class_id, name: profile.class_name };
+    }
+    if (profile.father_name) student.father_name = profile.father_name;
+    if (profile.parent_phone) student.parent_phone = profile.parent_phone;
+    if (profile.address) student.address = profile.address;
+    if (profile.photo_url || adm?.photo_url) {
+      student.photo_url = profile.photo_url || adm?.photo_url || student.photo_url;
+    }
+
+    student.residential_status = profile.residential_status || adm?.residential_status || student.residential_status || "অনাবাসিক";
+    student.is_boarding = profile.is_boarding !== undefined ? profile.is_boarding : (student.residential_status === "আবাসিক");
+    student.boarding_type = profile.boarding_type || (student.is_boarding ? "সাধারণ পেইং" : "অনাবাসিক");
+    student.mother_name = profile.mother_name || adm?.mother_name || student.mother_name || "";
+    student.guardian_name = profile.guardian_name || adm?.guardian_name || student.guardian_name || "";
+    student.guardian_relation = profile.guardian_relation || adm?.guardian_relation || student.guardian_relation || "";
+    student.emergency_contact = profile.emergency_contact || adm?.emergency_contact || student.emergency_contact || "";
+    student.nid_or_birth_cert = profile.nid_or_birth_cert || adm?.birth_certificate_no || student.nid_or_birth_cert || "";
+    student.previous_madrasa = profile.previous_madrasa || student.previous_madrasa || "";
+    student.room_no = profile.room_no || student.room_no || "";
+    student.seat_no = profile.seat_no || student.seat_no || "";
+    student.student_status = profile.student_status || student.student_status || "ACTIVE";
+    student.medical_notes = profile.medical_notes || student.medical_notes || "";
+    student.remarks = profile.remarks || student.remarks || "";
+
+    if (!student.blood_group && (profile.blood_group || adm?.blood_group)) {
+      student.blood_group = profile.blood_group || adm?.blood_group;
+    }
+    if (!student.date_of_birth && (profile.date_of_birth || adm?.date_of_birth)) {
+      student.date_of_birth = profile.date_of_birth || adm?.date_of_birth;
+    }
+
     const sessions = meta.sessions || getDefaultSessions(currentMadrasaId);
     const currentSession = sessions.find((s) => s.is_current) || sessions[0];
 
@@ -638,13 +693,28 @@ export async function getStudentAcademicHistory(
         student_id: student.id,
         session_id: currentSession.id,
         class_id: student.class_id || undefined,
-        class_name: student.classes?.name || student.class_name,
-        roll_number: student.roll_number,
-        status: "ACTIVE",
+        class_name: profile.class_name || student.classes?.name || student.class_name,
+        roll_number: profile.roll_number || student.roll_number,
+        status: student.student_status || "ACTIVE",
         enrollment_date: student.created_at || new Date().toISOString(),
         created_at: student.created_at || new Date().toISOString(),
       };
       enrollments = [baseline];
+    }
+
+    // Ensure current enrollment in list reflects updated class/roll from profile
+    if (profile.class_id || profile.roll_number || profile.class_name) {
+      enrollments = enrollments.map((e) => {
+        if (e.session_id === currentSession?.id || e.status === "ACTIVE") {
+          return {
+            ...e,
+            class_id: profile.class_id || e.class_id,
+            class_name: profile.class_name || e.class_name,
+            roll_number: profile.roll_number || e.roll_number,
+          };
+        }
+        return e;
+      });
     }
 
     // Hydrate sessions and classes
