@@ -119,7 +119,7 @@ export default async function StudentsPage(props: {
                       </td>
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          {student.classes?.name || "অনির্ধারিত"}
+                          {(Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) || "অনির্ধারিত"}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-slate-600">{student.parent_phone || "-"}</td>

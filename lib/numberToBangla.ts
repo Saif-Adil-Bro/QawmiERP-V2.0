@@ -28,6 +28,8 @@ export function formatBanglaCurrency(num: number | string | null | undefined): s
   return toBanglaNumber(formatted);
 }
 
+export const formatCurrencyBangla = formatBanglaCurrency;
+
 export function translateMonthToBangla(month: string | null | undefined): string {
   if (!month) return '';
   const monthMap: Record<string, string> = {

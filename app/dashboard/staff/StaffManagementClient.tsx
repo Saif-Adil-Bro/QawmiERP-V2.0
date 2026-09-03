@@ -127,7 +127,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
             <span>ড্যাশবোর্ড</span>
             <ChevronRight className="w-3 h-3 text-slate-400" />
-            <span className="font-semibold text-emerald-800">স্টাফ ও মানবসম্পদ</span>
+            <span className="font-semibold text-emerald-800">শিক্ষক ও স্টাফ</span>
             {currentTab === "profile" && selectedStaff && (
               <>
                 <ChevronRight className="w-3 h-3 text-slate-400" />
@@ -138,9 +138,10 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
             )}
           </div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>স্টাফ ও মানবসম্পদ ব্যবস্থাপনা</span>
+            <span>শিক্ষক ও স্টাফ (মানবসম্পদ)</span>
             {isRefreshing && <RefreshCw className="w-4 h-4 text-emerald-600 animate-spin" />}
           </h1>
+          <p className="text-xs text-slate-500 mt-0.5">মাদরাসার উস্তাদবৃন্দ, কর্মকর্তা ও কর্মচারীদের সমন্বিত সেন্ট্রাল ডিরেক্টরি</p>
         </div>
 
         {/* Global Action Toolbar */}
@@ -171,7 +172,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
             className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-xs cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
-            <span>+ নতুন স্টাফ যোগ করুন</span>
+            <span>+ নতুন শিক্ষক/স্টাফ যোগ করুন</span>
           </button>
         </div>
       </div>

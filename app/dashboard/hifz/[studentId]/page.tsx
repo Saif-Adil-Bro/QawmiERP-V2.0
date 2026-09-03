@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ArrowLeft, Plus } from "lucide-react";
 import { format } from "date-fns";
 import AddLogForm from "./AddLogForm";
-import { HifzDeleteButton } from "@/components/hifz/hifz-actions";
+import { HifzLogActions } from "@/components/hifz/hifz-actions";
 
 export default async function StudentHifzLogsPage({ params }: { params: Promise<{ studentId: string }> }) {
   const resolvedParams = await params;
@@ -73,7 +73,7 @@ export default async function StudentHifzLogsPage({ params }: { params: Promise<
                              log.performance_rating === 'Average' ? 'মোটামুটি' : 'খারাপ'}
                           </span>
                         )}
-                        <HifzDeleteButton logId={log.id} studentId={studentId} />
+                        <HifzLogActions log={log} studentId={studentId} />
                       </div>
                     </div>
                     

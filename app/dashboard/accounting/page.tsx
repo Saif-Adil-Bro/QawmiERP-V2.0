@@ -13,6 +13,7 @@ import {
   ArrowRight,
   Plus,
   CheckCircle2,
+  Scale,
 } from "lucide-react";
 import { getFeeDashboardOverview } from "@/app/actions/fee-management";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
@@ -306,11 +307,34 @@ export default async function AccountingDashboardPage() {
                 </h2>
               </div>
               <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
-                মাসিক ও বাৎসরিক আয়-ব্যয়ের লাভ-ক্ষতি বিবরণী ও অডিট রিপোর্ট দেখুন ও প্রিন্ট করুন।
+                মাসিক ও বাৎসরিক আয়-ব্যয়ের বিবরণী ও ফান্ডভিত্তিক হিসাব বিশ্লেষণ দেখুন।
               </p>
             </div>
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-purple-700">
               <span>রিপোর্ট দেখুন</span>
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+            </div>
+          </div>
+        </Link>
+
+        {/* 8. Annual Shura Audit Balance Sheet */}
+        <Link href="/dashboard/accounting/audit" className="block group">
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs hover:shadow-md hover:border-emerald-500 transition h-full flex flex-col justify-between ring-1 ring-emerald-500/20">
+            <div>
+              <div className="flex items-center space-x-3 mb-3">
+                <div className="bg-emerald-50 p-3 rounded-2xl group-hover:bg-emerald-100 transition text-emerald-800">
+                  <Scale className="w-6 h-6" />
+                </div>
+                <h2 className="text-base font-bold text-slate-900 group-hover:text-emerald-800 transition">
+                  বার্ষিক শুরা অডিট স্টেটমেন্ট
+                </h2>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+                সাধারণ, লিল্লাহ ও যাকাত ফান্ডের এক ক্লিকে বার্ষিক ব্যালেন্স শিট ও অডিট রিপোর্ট (শুরা ও দাতাদের জন্য)।
+              </p>
+            </div>
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-800">
+              <span>ব্যালেন্স শিট প্রস্তুত করুন</span>
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
             </div>
           </div>

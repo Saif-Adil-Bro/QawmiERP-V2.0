@@ -1,6 +1,9 @@
+import Link from "next/link";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getStaffMetadataFull } from "@/app/actions/staff";
 import ReportingCharts from "./components/ReportingCharts";
+import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
+import EarlyWarningWidget from "@/components/EarlyWarningWidget";
 
 
 export default async function DashboardPage() {
@@ -32,19 +35,24 @@ export default async function DashboardPage() {
   let incomeExpenseData: any[] = [];
   let attendanceData: any[] = [];
   let examPassRateData: any[] = [];
+  let earlyWarningData: any = { attendance_alerts: [], exam_drop_alerts: [], total_critical_students: 0, checked_at: "" };
 
   try {
-    const response = await withTimeout<any>(
-      supabase
-        .from("users")
-        .select("*, madrasas(name)")
-        .eq("id", user.id)
-        .single(),
-      8000,
-      "Fetch user profile"
-    );
+    const [response, alerts] = await Promise.all([
+      withTimeout<any>(
+        supabase
+          .from("users")
+          .select("*, madrasas(name)")
+          .eq("id", user.id)
+          .single(),
+        8000,
+        "Fetch user profile"
+      ),
+      getEarlyWarningAlerts(),
+    ]);
     profile = response.data;
     error = response.error;
+    earlyWarningData = alerts;
 
     if (profile?.madrasa_id) {
       const today = new Date().toISOString().split('T')[0];
@@ -171,34 +179,36 @@ export default async function DashboardPage() {
         </div>
       )}
 
+      {/* Early Warning System Alert Widget */}
+      <EarlyWarningWidget initialData={earlyWarningData} isTeacherView={false} />
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <h3 className="text-slate-500 text-sm font-medium">মোট শিক্ষার্থী</h3>
+        <Link href="/dashboard/students" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
+          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট শিক্ষার্থী</h3>
           <p className="text-3xl font-bold text-slate-800 mt-2">{studentsCount}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <h3 className="text-slate-500 text-sm font-medium">মোট শিক্ষক</h3>
+        </Link>
+        <Link href="/dashboard/staff" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
+          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট শিক্ষক ও স্টাফ</h3>
           <p className="text-3xl font-bold text-slate-800 mt-2">{teachersCount}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <h3 className="text-slate-500 text-sm font-medium">সক্রিয় জামাত (ক্লাস)</h3>
+        </Link>
+        <Link href="/dashboard/classes" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
+          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">সক্রিয় জামাত (ক্লাস)</h3>
           <p className="text-3xl font-bold text-slate-800 mt-2">{classesCount}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <h3 className="text-slate-500 text-sm font-medium">আজকের উপস্থিতি (শিক্ষার্থী)</h3>
+        </Link>
+        <Link href="/dashboard/attendance/students" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
+          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">আজকের উপস্থিতি (শিক্ষার্থী)</h3>
           <p className="text-3xl font-bold text-slate-800 mt-2 text-emerald-600">{todayPresent}</p>
           <p className="text-sm text-rose-500 mt-1">অনুপস্থিত: {todayAbsent}</p>
-        </div>
+        </Link>
         
-        <div className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2">
-          <h3 className="text-slate-500 text-sm font-medium">মোট আয়</h3>
+        <Link href="/dashboard/finance" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
+          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট আয়</h3>
           <p className="text-3xl font-bold text-emerald-600 mt-2">৳ {totalIncome.toLocaleString('en-IN')}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2">
-          <h3 className="text-slate-500 text-sm font-medium">মোট ব্যয়</h3>
+        </Link>
+        <Link href="/dashboard/finance" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
+          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট ব্যয়</h3>
           <p className="text-3xl font-bold text-rose-600 mt-2">৳ {totalExpense.toLocaleString('en-IN')}</p>
-        </div>
-
+        </Link>
       </div>
 
       <ReportingCharts 

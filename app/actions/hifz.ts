@@ -99,6 +99,52 @@ export async function createHifzLog(prevState: any, formData: FormData) {
   return { success: true };
 }
 
+export async function updateHifzLog(logId: string, prevState: any, formData: FormData) {
+  const supabase = await createClient();
+  const user = await getAuthUser(supabase);
+  if (!user) return { error: "Unauthorized" };
+
+  const logDate = formData.get("log_date") as string;
+  const sabakPara = formData.get("sabak_para") as string;
+  const sabakPage = formData.get("sabak_page") as string;
+  const sabokiPara = formData.get("saboki_para") as string;
+  const amukhtaPara = formData.get("amukhta_para") as string;
+  const performance = formData.get("performance_rating") as string;
+  const rawNotes = formData.get("notes") as string;
+  const dailyTilawat = formData.get("daily_tilawat") as string;
+
+  if (!logId || !logDate) {
+    return { error: "Log ID and Date are required." };
+  }
+
+  let finalNotes = rawNotes || "";
+  if (dailyTilawat) {
+    const tilawatText = `তেলাওয়াত: ${dailyTilawat}`;
+    finalNotes = finalNotes ? `${tilawatText} | ${finalNotes}` : tilawatText;
+  }
+
+  const { error } = await supabase
+    .from("hifz_logs")
+    .update({
+      log_date: logDate,
+      sabak_para: sabakPara ? parseInt(sabakPara) : null,
+      sabak_page: sabakPage ? parseInt(sabakPage) : null,
+      saboki_para: sabokiPara ? parseInt(sabokiPara) : null,
+      amukhta_para: amukhtaPara ? parseInt(amukhtaPara) : null,
+      performance_rating: performance || null,
+      notes: finalNotes || null,
+    })
+    .eq("id", logId);
+
+  if (error) {
+    console.error("Error updating hifz log:", error);
+    return { error: error.message };
+  }
+
+  revalidatePath("/dashboard", "layout");
+  return { success: true };
+}
+
 export async function deleteHifzLog(logId: string, studentId: string) {
   const supabase = await createClient();
   const { error } = await supabase

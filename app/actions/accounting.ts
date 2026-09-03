@@ -3,6 +3,7 @@
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
+import { parseExpenseFund } from "@/lib/fund-utils";
 
 export async function getFees(filters?: { month?: string; year?: string; student_id?: string }) {
   const supabase = await createClient();
@@ -144,25 +145,6 @@ export async function deleteFee(feeId: string) {
 
   revalidatePath("/dashboard/accounting/fees");
   return { success: true };
-}
-
-// Helper to parse fund metadata from description if stored like [FUND: fund_id | name]
-function parseExpenseFund(rawDesc: string | null | undefined): { cleanDesc: string; fundId?: string; fundName?: string } {
-  const desc = (rawDesc || "").trim();
-  if (!desc.includes("[FUND:")) {
-    return { cleanDesc: desc };
-  }
-  const match = desc.match(/\[FUND:\s*([^\]|]+)(?:\|\s*([^\]]+))?\]/i);
-  let fundId = undefined;
-  let fundName = undefined;
-  if (match) {
-    fundId = match[1]?.trim();
-    if (match[2]) {
-      fundName = match[2]?.trim();
-    }
-  }
-  const cleanDesc = desc.replace(/\[FUND:[^\]]+\]\s*/i, "").trim();
-  return { cleanDesc, fundId, fundName };
 }
 
 export async function getExpenses(filters?: { month?: string; year?: string; fundId?: string }) {

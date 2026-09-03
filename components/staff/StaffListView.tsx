@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import Link from "next/link";
 import {
   StaffMember,
   StaffCategory,
@@ -28,6 +29,7 @@ import {
   ChevronRight,
   ShieldCheck,
   MoreVertical,
+  BookOpen,
 } from "lucide-react";
 import StaffIdCardModal from "./StaffIdCardModal";
 import StaffCertificateGeneratorModal from "./StaffCertificateGeneratorModal";
@@ -66,6 +68,14 @@ export default function StaffListView({
   const [idCardStaff, setIdCardStaff] = useState<StaffMember | null>(null);
   const [certStaff, setCertStaff] = useState<StaffMember | null>(null);
 
+  // Counts for teachers vs general staff
+  const teacherCount = useMemo(() => {
+    return staffList.filter(
+      (s) => s.employment.category_id === "cat_teaching" || !s.employment.category_id
+    ).length;
+  }, [staffList]);
+  const nonTeacherCount = Math.max(0, staffList.length - teacherCount);
+
   // Filtered staff
   const filteredStaff = useMemo(() => {
     return staffList.filter((staff) => {
@@ -88,8 +98,15 @@ export default function StaffListView({
       }
 
       // Category
-      if (selectedCategory !== "ALL" && staff.employment.category_id !== selectedCategory) {
-        return false;
+      if (selectedCategory !== "ALL") {
+        const isTeaching = staff.employment.category_id === "cat_teaching" || !staff.employment.category_id;
+        if (selectedCategory === "TEACHING_ONLY") {
+          if (!isTeaching) return false;
+        } else if (selectedCategory === "STAFF_ONLY") {
+          if (isTeaching) return false;
+        } else if (staff.employment.category_id !== selectedCategory) {
+          return false;
+        }
       }
 
       // Department
@@ -162,6 +179,56 @@ export default function StaffListView({
               <span>+ নতুন স্টাফ যুক্ত করুন</span>
             </button>
           </div>
+        </div>
+
+        {/* Quick Segmented Switcher: All vs Teachers vs Staff */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => setSelectedCategory("ALL")}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+              selectedCategory === "ALL"
+                ? "bg-slate-900 text-white shadow-xs"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            <span>সকল কর্মী ও শিক্ষক</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${selectedCategory === "ALL" ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"}`}>
+              {toBanglaNumber(staffList.length)}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSelectedCategory("TEACHING_ONLY")}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+              selectedCategory === "TEACHING_ONLY"
+                ? "bg-emerald-700 text-white shadow-xs"
+                : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200"
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>উস্তাদ ও শিক্ষকবৃন্দ</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${selectedCategory === "TEACHING_ONLY" ? "bg-white/20 text-white" : "bg-emerald-200 text-emerald-900"}`}>
+              {toBanglaNumber(teacherCount)}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSelectedCategory("STAFF_ONLY")}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+              selectedCategory === "STAFF_ONLY"
+                ? "bg-blue-700 text-white shadow-xs"
+                : "bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200"
+            }`}
+          >
+            <Briefcase className="w-3.5 h-3.5" />
+            <span>প্রশাসনিক ও সাধারণ স্টাফ</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${selectedCategory === "STAFF_ONLY" ? "bg-white/20 text-white" : "bg-blue-200 text-blue-900"}`}>
+              {toBanglaNumber(nonTeacherCount)}
+            </span>
+          </button>
         </div>
 
         {/* Filter Pills */}
@@ -340,6 +407,15 @@ export default function StaffListView({
                       >
                         <Edit className="w-4 h-4" />
                       </button>
+                      {(staff.employment.category_id === "cat_teaching" || !staff.employment.category_id) && (
+                        <Link
+                          href={`/dashboard/teachers/${staff.id}/subjects`}
+                          className="p-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition cursor-pointer"
+                          title="জামাত ও কিতাব/বিষয় বণ্টন"
+                        >
+                          <BookOpen className="w-4 h-4" />
+                        </Link>
+                      )}
                     </div>
 
                     <button
@@ -453,6 +529,15 @@ export default function StaffListView({
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
+                            {(staff.employment.category_id === "cat_teaching" || !staff.employment.category_id) && (
+                              <Link
+                                href={`/dashboard/teachers/${staff.id}/subjects`}
+                                className="p-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition"
+                                title="জামাত ও কিতাব/বিষয় বণ্টন"
+                              >
+                                <BookOpen className="w-3.5 h-3.5" />
+                              </Link>
+                            )}
                             <button
                               onClick={() => onSelectStaff(staff.id)}
                               className="px-2.5 py-1 bg-slate-900 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition"

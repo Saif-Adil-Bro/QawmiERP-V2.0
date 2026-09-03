@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
+import EarlyWarningWidget from "@/components/EarlyWarningWidget";
 
 export const dynamic = "force-dynamic";
 
@@ -43,15 +45,16 @@ export default async function TeacherPortalOverview() {
   const teacherName = teacher ? `${teacher.first_name} ${teacher.last_name}` : userData?.full_name || "মুহতারাম উস্তাদ";
   const designation = teacher?.designation || "সিনিয়র শিক্ষক ও মুহাদ্দিস";
 
-  // Fetch classes and students count
+  // Fetch classes, students, and early-warning alerts
   const todayStr = new Date().toISOString().split("T")[0];
 
-  const [classesRes, studentsRes, todayAttendanceRes, todayHifzRes, noticesRes] = await Promise.all([
+  const [classesRes, studentsRes, todayAttendanceRes, todayHifzRes, noticesRes, earlyWarningData] = await Promise.all([
     supabase.from("classes").select("id, name").eq("madrasa_id", madrasaId),
     supabase.from("students").select("id").eq("madrasa_id", madrasaId),
     supabase.from("attendance").select("id").eq("madrasa_id", madrasaId).eq("date", todayStr),
     supabase.from("hifz_logs").select("id").eq("madrasa_id", madrasaId).eq("log_date", todayStr),
     supabase.from("notices").select("*").eq("madrasa_id", madrasaId).order("created_at", { ascending: false }).limit(3),
+    getEarlyWarningAlerts(),
   ]);
 
   const totalClasses = classesRes.data?.length || 0;
@@ -138,6 +141,9 @@ export default async function TeacherPortalOverview() {
           </div>
         </div>
       </div>
+
+      {/* Early Warning System Alert Widget */}
+      <EarlyWarningWidget initialData={earlyWarningData} isTeacherView={true} />
 
       {/* Main Features Navigation Grid */}
       <div>

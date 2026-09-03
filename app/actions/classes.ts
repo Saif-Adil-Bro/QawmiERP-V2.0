@@ -150,6 +150,53 @@ export async function createClass(prevState: any, formData: FormData) {
   }
 }
 
+export async function updateClass(classId: string, name: string, description: string, sequence?: number) {
+  try {
+    const supabase = await createClient();
+    const adminClient = await createAdminClient();
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return { error: "জামাতের নাম আবশ্যক।" };
+    }
+
+    const seqVal = sequence !== undefined ? sequence : 0;
+    const formattedDescription = formatClassDescription(seqVal, description.trim());
+
+    const { error: userError } = await supabase
+      .from("classes")
+      .update({
+        name: trimmedName,
+        description: formattedDescription,
+      })
+      .eq("id", classId);
+
+    if (!userError) {
+      revalidatePath("/dashboard/classes");
+      revalidatePath("/dashboard/academic");
+      return { success: true };
+    }
+
+    const { error: adminError } = await adminClient
+      .from("classes")
+      .update({
+        name: trimmedName,
+        description: formattedDescription,
+      })
+      .eq("id", classId);
+
+    if (adminError) {
+      return { error: userError?.message || adminError.message };
+    }
+
+    revalidatePath("/dashboard/classes");
+    revalidatePath("/dashboard/academic");
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message || "সার্ভার এরর হয়েছে।" };
+  }
+}
+
 export async function deleteClass(classId: string) {
   try {
     const supabase = await createClient();

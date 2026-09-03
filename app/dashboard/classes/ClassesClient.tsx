@@ -6,9 +6,9 @@ import {
   Plus, List, ArrowUpDown, Award, Trash2, BookOpen, 
   Settings, ArrowRight, UserCheck, AlertTriangle, RefreshCw, 
   CheckSquare, Square, CheckCircle2, ChevronRight, GraduationCap,
-  Layers, Users, ShieldCheck
+  Layers, Users, ShieldCheck, Edit, X, Save
 } from "lucide-react";
-import { deleteClass, updateClassSequences, getStudentsByClass, promoteStudents, getClasses } from "@/app/actions/classes";
+import { deleteClass, updateClass, updateClassSequences, getStudentsByClass, promoteStudents, getClasses } from "@/app/actions/classes";
 
 interface ClassItem {
   id: string;
@@ -30,6 +30,50 @@ export default function ClassesClient({ initialClasses }: { initialClasses: Clas
   const [classes, setClasses] = useState<ClassItem[]>(initialClasses || []);
   const [isSavingSequence, setIsSavingSequence] = useState(false);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Edit Class Modal State
+  const [editingClass, setEditingClass] = useState<ClassItem | null>(null);
+  const [editFormData, setEditFormData] = useState({ name: "", description: "", sequence: 0 });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const openEditModal = (cls: ClassItem) => {
+    setEditingClass(cls);
+    setEditFormData({
+      name: cls.name,
+      description: cls.description || "",
+      sequence: cls.sequence ?? 0,
+    });
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingClass) return;
+    setIsSavingEdit(true);
+    try {
+      const res = await updateClass(
+        editingClass.id,
+        editFormData.name,
+        editFormData.description,
+        editFormData.sequence
+      );
+      if (res?.success) {
+        setMsg({ type: "success", text: `"${editFormData.name}" জামাত সফলভাবে হালনাগাদ করা হয়েছে।` });
+        setClasses(prev => prev.map(c => c.id === editingClass.id ? {
+          ...c,
+          name: editFormData.name,
+          description: editFormData.description,
+          sequence: editFormData.sequence,
+        } : c));
+        setEditingClass(null);
+      } else {
+        setMsg({ type: "error", text: res?.error || "হালনাগাদ করা যায়নি।" });
+      }
+    } catch (err: any) {
+      setMsg({ type: "error", text: err?.message || "সার্ভার এরর হয়েছে।" });
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
 
   // Sequence Configuration State
   const [seqMap, setSeqMap] = useState<Record<string, number>>({});
@@ -407,6 +451,16 @@ export default function ClassesClient({ initialClasses }: { initialClasses: Clas
                               <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
                               <span>বিষয় বরাদ্দ</span>
                             </Link>
+
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(cls)}
+                              className="px-3 py-1.5 text-xs font-bold bg-indigo-50 text-indigo-700 rounded-xl hover:bg-indigo-100 transition flex items-center gap-1.5 border border-indigo-200 cursor-pointer"
+                              title="জামাত সম্পাদনা করুন"
+                            >
+                              <Edit className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>সম্পাদনা</span>
+                            </button>
                             
                             <button
                               type="button"
@@ -731,6 +785,82 @@ export default function ClassesClient({ initialClasses }: { initialClasses: Clas
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Edit Class Modal */}
+      {editingClass && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Edit className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-800 text-base">জামাত সম্পাদনা করুন</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingClass(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="mt-4 space-y-4 text-xs sm:text-sm">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1.5">জামাতের নাম *</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.name}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="যেমন: ইবতিদাইয়্যাহ, মুতাওয়াসসিতাহ, শরহে বেকায়া..."
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1.5">ক্রম নম্বর (Sequence)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editFormData.sequence}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, sequence: parseInt(e.target.value, 10) || 0 }))}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 font-mono font-bold"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">প্রমোশনের সময় এই ক্রম অনুযায়ী পরবর্তী জামাতে যাবে।</p>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1.5">বিবরণ (ঐচ্ছিক)</label>
+                <textarea
+                  rows={3}
+                  value={editFormData.description}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="জামাতের সংক্ষিপ্ত বিবরণ বা অতিরিক্ত তথ্য..."
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingClass(null)}
+                  className="px-4 py-2 border rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+                >
+                  বাতিল
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={isSavingEdit}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSavingEdit ? "সংরক্ষণ হচ্ছে..." : "হালনাগাদ করুন"}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -19,6 +19,9 @@ import {
   Settings,
   ShieldCheck,
   Briefcase,
+  Boxes,
+  Scale,
+  UserCheck,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/PermissionContext";
 
@@ -41,8 +44,7 @@ const navSections: NavSection[] = [
     items: [
       { name: "ড্যাশবোর্ড", href: "/dashboard", icon: LayoutDashboard, exact: true, permission: "dashboard.view" },
       { name: "শিক্ষার্থী", href: "/dashboard/students", icon: Users, permission: "student.view", roles: ["super_admin", "muhtamim", "admin", "office_staff", "teacher", "education_secretary"] },
-      { name: "স্টাফ ও মানবসম্পদ", href: "/dashboard/staff", icon: Briefcase, permission: "staff.view", roles: ["super_admin", "muhtamim", "admin", "hr_manager"] },
-      { name: "শিক্ষক তালিকা", href: "/dashboard/teachers", icon: Users, permission: "teacher.view", roles: ["super_admin", "muhtamim", "admin", "hr_manager", "education_secretary"] },
+      { name: "শিক্ষক ও স্টাফ (HR)", href: "/dashboard/staff", icon: Users, permission: "staff.view", roles: ["super_admin", "muhtamim", "admin", "hr_manager", "education_secretary"] },
       { name: "হাজিরা", href: "/dashboard/attendance", icon: CheckSquare, permission: "attendance.view", roles: ["super_admin", "muhtamim", "teacher", "attendance_manager", "admin"] },
       { name: "জামাত (Classes)", href: "/dashboard/classes", icon: BookOpen, permission: "academic.view", roles: ["super_admin", "muhtamim", "admin", "education_secretary", "office_staff"] },
     ],
@@ -50,6 +52,7 @@ const navSections: NavSection[] = [
   {
     title: "একাডেমিক",
     items: [
+      { name: "অনলাইন ভর্তি ও টেস্ট", href: "/dashboard/admissions", icon: GraduationCap, permission: "student.view", roles: ["super_admin", "muhtamim", "admin", "office_staff", "education_secretary"] },
       { name: "শিক্ষাবর্ষ (Sessions)", href: "/dashboard/academic/sessions", icon: CalendarDays, permission: "academic.manage", roles: ["super_admin", "muhtamim", "admin", "education_secretary"] },
       { name: "শিক্ষার্থী প্রমোশন", href: "/dashboard/students/promotion", icon: GraduationCap, permission: "student.edit", roles: ["super_admin", "muhtamim", "admin", "education_secretary"] },
       { name: "হিফজ ট্র্যাকিং", href: "/dashboard/hifz", icon: BookOpen, permission: "hifz.view", roles: ["super_admin", "muhtamim", "hifz_supervisor", "hifz_teacher", "teacher"] },
@@ -58,13 +61,16 @@ const navSections: NavSection[] = [
       { name: "আইডি কার্ড", href: "/dashboard/academic/id-cards", icon: IdCard, permission: "id.view", roles: ["super_admin", "muhtamim", "office_staff", "admin"] },
       { name: "কিতাব ট্র্যাকিং", href: "/dashboard/kitab", icon: BookOpen, permission: "library.view", roles: ["super_admin", "muhtamim", "teacher", "librarian"] },
       { name: "পরীক্ষা ও ফলাফল", href: "/dashboard/exams", icon: BookOpen, permission: "exam.view", roles: ["super_admin", "muhtamim", "teacher", "exam_manager", "admin", "education_secretary"] },
+      { name: "ফারিগীন ও অ্যালামনাই", href: "/dashboard/alumni", icon: UserCheck, permission: "student.view", roles: ["super_admin", "muhtamim", "admin", "office_staff", "teacher", "education_secretary"] },
     ],
   },
   {
     title: "অফিস ও ব্যবস্থাপনা",
     items: [
       { name: "যোগাযোগ ও নোটিশ", href: "/dashboard/communication", icon: MessageSquare, permission: "notification.view", roles: ["super_admin", "muhtamim", "admin", "office_staff", "teacher"] },
-      { name: "অর্থ ও ফি (Finance)", href: "/dashboard/accounting", icon: Wallet, permission: "finance.view", roles: ["super_admin", "muhtamim", "accountant"] },
+      { name: "অর্থ ও ফি (Finance)", href: "/dashboard/accounting", icon: Wallet, permission: "finance.view", roles: ["super_admin", "muhtamim", "admin", "accountant"] },
+      { name: "বার্ষিক শুরা অডিট", href: "/dashboard/accounting/audit", icon: Scale, roles: ["super_admin", "muhtamim", "admin", "accountant"] },
+      { name: "ইনভেন্টরি ও সম্পত্তি", href: "/dashboard/inventory", icon: Boxes, roles: ["super_admin", "muhtamim", "admin", "accountant", "hostel_manager"] },
       { name: "যাকাত ও অনুদান", href: "/dashboard/zakat", icon: HeartHandshake, permission: "finance.view", roles: ["super_admin", "muhtamim", "accountant"] },
       { name: "বোর্ডিং ও মিল", href: "/dashboard/boarding", icon: Utensils, permission: "staff.view", roles: ["super_admin", "muhtamim", "hostel_manager", "admin"] },
       { name: "কুতুবখানা (Library)", href: "/dashboard/library", icon: Library, permission: "library.view", roles: ["super_admin", "muhtamim", "librarian"] },

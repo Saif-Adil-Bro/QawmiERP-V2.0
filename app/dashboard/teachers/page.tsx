@@ -69,10 +69,10 @@ export default async function TeachersPage() {
             <PermissionGuard permission="staff.view" hideFallback>
               <Link
                 href="/dashboard/staff"
-                className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-4 py-2 rounded-xl text-xs font-semibold hover:bg-emerald-100 flex items-center space-x-1.5 transition"
+                className="bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-emerald-800 flex items-center space-x-1.5 transition shadow-xs"
               >
                 <Briefcase className="w-4 h-4" />
-                <span>সম্পূর্ণ স্টাফ ও এইচআর মডিউল</span>
+                <span>সমন্বিত শিক্ষক ও স্টাফ (HR) মডিউল</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </Link>
             </PermissionGuard>
@@ -83,6 +83,22 @@ export default async function TeachersPage() {
               </Link>
             </PermissionGuard>
           </div>
+        </div>
+
+        {/* Integration Notification Card */}
+        <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3.5 flex items-center justify-between text-xs text-emerald-900 gap-3">
+          <div className="flex items-center gap-2">
+            <UserCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span>
+              <strong>একীভূত মানবসম্পদ (Unified HR):</strong> শিক্ষক ও সাধারণ স্টাফ ডাটাবেজ এখন কেন্দ্রীয়ভাবে সংরক্ষিত। শিক্ষকগণের পূর্ণাঙ্গ সার্ভিস বুক, পে-রোল ও ডিজিটাল আইডি কার্ডের জন্য শিক্ষক ও স্টাফ মডিউল ব্যবহার করুন।
+            </span>
+          </div>
+          <Link
+            href="/dashboard/staff"
+            className="shrink-0 px-3 py-1 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 rounded-lg font-bold transition"
+          >
+            এইচআর ড্যাশবোর্ড খুলুন
+          </Link>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
