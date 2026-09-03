@@ -308,8 +308,8 @@ export default function StaffDashboardView({
               </div>
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-emerald-600 rounded-full"
-                  style={{ width: `${(distribution.teaching / totalStaff) * 100}%` }}
+                  className="h-full bg-emerald-600 rounded-full transition-all duration-500"
+                  style={{ width: `${totalStaff > 0 ? Math.min(100, (distribution.teaching / totalStaff) * 100) : 0}%` }}
                 />
               </div>
             </div>
@@ -322,8 +322,8 @@ export default function StaffDashboardView({
               </div>
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-blue-600 rounded-full"
-                  style={{ width: `${(distribution.admin / totalStaff) * 100}%` }}
+                  className="h-full bg-blue-600 rounded-full transition-all duration-500"
+                  style={{ width: `${totalStaff > 0 ? Math.min(100, (distribution.admin / totalStaff) * 100) : 0}%` }}
                 />
               </div>
             </div>
@@ -336,8 +336,8 @@ export default function StaffDashboardView({
               </div>
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-amber-600 rounded-full"
-                  style={{ width: `${(distribution.support / totalStaff) * 100}%` }}
+                  className="h-full bg-amber-600 rounded-full transition-all duration-500"
+                  style={{ width: `${totalStaff > 0 ? Math.min(100, (distribution.support / totalStaff) * 100) : 0}%` }}
                 />
               </div>
             </div>
@@ -350,11 +350,27 @@ export default function StaffDashboardView({
               </div>
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-purple-600 rounded-full"
-                  style={{ width: `${(distribution.management / totalStaff) * 100}%` }}
+                  className="h-full bg-purple-600 rounded-full transition-all duration-500"
+                  style={{ width: `${totalStaff > 0 ? Math.min(100, (distribution.management / totalStaff) * 100) : 0}%` }}
                 />
               </div>
             </div>
+
+            {/* Custom/Other if any */}
+            {distribution.custom > 0 && (
+              <div className="space-y-1">
+                <div className="flex justify-between font-medium">
+                  <span className="text-slate-700">অন্যান্য ক্যাটাগরি (Other Staff)</span>
+                  <span className="font-bold text-slate-800">{toBanglaNumber(distribution.custom)} জন</span>
+                </div>
+                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-slate-600 rounded-full transition-all duration-500"
+                    style={{ width: `${totalStaff > 0 ? Math.min(100, (distribution.custom / totalStaff) * 100) : 0}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

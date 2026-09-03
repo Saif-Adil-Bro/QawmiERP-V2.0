@@ -7,6 +7,8 @@ import {
   StaffDepartment,
   STAFF_STATUS_LABELS,
   LEAVE_TYPE_LABELS,
+  isTeachingStaff,
+  isCategory,
 } from "@/lib/staff-management";
 import {
   Printer,
@@ -342,7 +344,14 @@ export default function StaffReportsView({
                   </thead>
                   <tbody>
                     {categories.map((cat) => {
-                      const catStaff = staffList.filter((s) => s.employment.category_id === cat.id);
+                      const isTargetTeaching = cat.id === "cat-teaching" || cat.id === "cat_teaching";
+                      const catStaff = staffList.filter((s) => {
+                        if (isTargetTeaching) return isTeachingStaff(s);
+                        if (cat.id === "cat-admin" || cat.id === "cat_admin") return isCategory(s.employment?.category_id, "admin");
+                        if (cat.id === "cat-support" || cat.id === "cat_support") return isCategory(s.employment?.category_id, "support");
+                        if (cat.id === "cat-management" || cat.id === "cat_management") return isCategory(s.employment?.category_id, "management");
+                        return s.employment?.category_id === cat.id;
+                      });
                       const catSalary = catStaff.reduce((sum, s) => sum + (s.salary?.net_salary || 0), 0);
                       return (
                         <tr key={cat.id} className="border-b">

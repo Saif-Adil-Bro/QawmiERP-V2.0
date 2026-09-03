@@ -8,6 +8,8 @@ import {
   StaffDesignation,
   StaffLeaveRequest,
   StaffSalaryPaymentRecord,
+  isCategory,
+  isTeachingStaff,
 } from "@/lib/staff-management";
 import { getStaffMetadataFull } from "@/app/actions/staff";
 import StaffDashboardView from "@/components/staff/StaffDashboardView";
@@ -78,14 +80,16 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
   const resignedStaff = data.staff_members.filter((s) => s.employment.status === "RESIGNED").length;
   const terminatedStaff = data.staff_members.filter((s) => s.employment.status === "TERMINATED").length;
 
-  const teachingCount = data.staff_members.filter(
-    (s) => s.employment.category_id === "cat_teaching" || !s.employment.category_id
-  ).length;
-  const adminCount = data.staff_members.filter((s) => s.employment.category_id === "cat_admin").length;
-  const supportCount = data.staff_members.filter((s) => s.employment.category_id === "cat_support").length;
-  const managementCount = data.staff_members.filter((s) => s.employment.category_id === "cat_management").length;
+  const teachingCount = data.staff_members.filter((s) => isTeachingStaff(s)).length;
+  const adminCount = data.staff_members.filter((s) => isCategory(s.employment?.category_id, "admin")).length;
+  const supportCount = data.staff_members.filter((s) => isCategory(s.employment?.category_id, "support")).length;
+  const managementCount = data.staff_members.filter((s) => isCategory(s.employment?.category_id, "management")).length;
   const customCount = data.staff_members.filter(
-    (s) => !["cat_teaching", "cat_admin", "cat_support", "cat_management"].includes(s.employment.category_id)
+    (s) =>
+      !isTeachingStaff(s) &&
+      !isCategory(s.employment?.category_id, "admin") &&
+      !isCategory(s.employment?.category_id, "support") &&
+      !isCategory(s.employment?.category_id, "management")
   ).length;
 
   const pendingLeaves = data.leave_requests.filter((r) => r.status === "PENDING").length;

@@ -281,6 +281,67 @@ export const DEFAULT_STAFF_CATEGORIES: StaffCategory[] = [
   },
 ];
 
+/**
+ * Robust helper to check if a staff member or category ID belongs to Teaching Staff
+ */
+export function isTeachingStaff(memberOrCategory: StaffMember | string | undefined | null): boolean {
+  if (!memberOrCategory) return true; // Default to teaching for unassigned madrasa staff
+  const catId = typeof memberOrCategory === "string"
+    ? memberOrCategory
+    : memberOrCategory.employment?.category_id;
+
+  if (!catId) return true;
+  const lower = catId.toLowerCase();
+  return (
+    lower === "cat-teaching" ||
+    lower === "cat_teaching" ||
+    lower === "teaching" ||
+    lower.includes("teach") ||
+    lower.includes("shikkhok")
+  );
+}
+
+/**
+ * Robust helper to match category IDs against core categories (supports both hyphen and underscore formats)
+ */
+export function isCategory(
+  catId: string | undefined | null,
+  target: "teaching" | "admin" | "support" | "management"
+): boolean {
+  if (!catId) return target === "teaching";
+  const c = catId.toLowerCase();
+  if (target === "teaching") {
+    return (
+      c === "cat-teaching" ||
+      c === "cat_teaching" ||
+      c === "teaching" ||
+      c.includes("teach") ||
+      c.includes("shikkhok")
+    );
+  }
+  if (target === "admin") {
+    return (
+      c === "cat-admin" ||
+      c === "cat_admin" ||
+      c === "administration" ||
+      c === "admin" ||
+      c.includes("admin")
+    );
+  }
+  if (target === "support") {
+    return c === "cat-support" || c === "cat_support" || c === "support" || c.includes("support");
+  }
+  if (target === "management") {
+    return (
+      c === "cat-management" ||
+      c === "cat_management" ||
+      c === "management" ||
+      c.includes("manage")
+    );
+  }
+  return false;
+}
+
 export const DEFAULT_STAFF_DEPARTMENTS: StaffDepartment[] = [
   {
     id: "dept-academic",

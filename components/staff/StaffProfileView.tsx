@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   StaffMember,
   StaffCategory,
@@ -10,6 +11,8 @@ import {
   STAFF_STATUS_LABELS,
   EMPLOYMENT_TYPE_LABELS,
   LEAVE_TYPE_LABELS,
+  isTeachingStaff,
+  isCategory,
 } from "@/lib/staff-management";
 import {
   promoteStaffMember,
@@ -49,6 +52,7 @@ import {
   QrCode,
   FileBadge,
   Building,
+  BookOpen,
 } from "lucide-react";
 import StaffFormModal from "./StaffFormModal";
 import StaffIdCardModal from "./StaffIdCardModal";
@@ -330,6 +334,20 @@ export default function StaffProfileView({
                   {staff.employment.department_name}
                 </span>
                 <span className="text-slate-400">•</span>
+                <span
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                    isTeachingStaff(staff)
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : isCategory(staff.employment?.category_id, "admin")
+                      ? "bg-blue-50 text-blue-800 border-blue-200"
+                      : isCategory(staff.employment?.category_id, "support")
+                      ? "bg-amber-50 text-amber-800 border-amber-200"
+                      : "bg-purple-50 text-purple-800 border-purple-200"
+                  }`}
+                >
+                  {staff.employment.category_name || (isTeachingStaff(staff) ? "শিক্ষক মণ্ডলী (Teaching Staff)" : "প্রশাসনিক স্টাফ")}
+                </span>
+                <span className="text-slate-400">•</span>
                 <span className="text-slate-500 flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5" />
                   যোগদান: {toBanglaNumber(staff.employment.joining_date)}
@@ -383,6 +401,16 @@ export default function StaffProfileView({
             >
               <span>স্ট্যাটাস পরিবর্তন</span>
             </button>
+
+            {isTeachingStaff(staff) && (
+              <Link
+                href={`/dashboard/teachers/${staff.id}/subjects`}
+                className="px-3.5 py-2 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>জামাত ও কিতাব বণ্টন</span>
+              </Link>
+            )}
           </div>
         </div>
       </div>

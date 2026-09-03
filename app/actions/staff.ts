@@ -19,6 +19,8 @@ import {
   DEFAULT_STAFF_DESIGNATIONS,
   formatStaffIdCode,
   generateStaffVerificationToken,
+  isCategory,
+  isTeachingStaff,
 } from "@/lib/staff-management";
 import { revalidatePath } from "next/cache";
 
@@ -65,6 +67,22 @@ async function syncAndGetStaffMembers(
   const staffByStaffCode = new Set<string>();
 
   existingStaff.forEach((s) => {
+    // Normalize category_id if missing or using old underscore format
+    if (!s.employment?.category_id || s.employment.category_id === "cat_teaching") {
+      if (!s.employment) (s as any).employment = {};
+      s.employment.category_id = "cat-teaching";
+      s.employment.category_name = s.employment.category_name || "শিক্ষক মণ্ডলী (Teaching Staff)";
+      isModified = true;
+    } else if (s.employment.category_id === "cat_admin") {
+      s.employment.category_id = "cat-admin";
+      isModified = true;
+    } else if (s.employment.category_id === "cat_support") {
+      s.employment.category_id = "cat-support";
+      isModified = true;
+    } else if (s.employment.category_id === "cat_management") {
+      s.employment.category_id = "cat-management";
+      isModified = true;
+    }
     staffByTeacherId.set(s.id, s);
     if (s.staff_id_code) staffByStaffCode.add(s.staff_id_code);
   });
@@ -221,11 +239,18 @@ export async function getStaffDashboardData() {
 
     // Category distribution
     const distribution = {
-      teaching: members.filter((m) => m.employment.category_id === "cat-teaching" && m.employment.status === "ACTIVE").length,
-      admin: members.filter((m) => m.employment.category_id === "cat-admin" && m.employment.status === "ACTIVE").length,
-      support: members.filter((m) => m.employment.category_id === "cat-support" && m.employment.status === "ACTIVE").length,
-      management: members.filter((m) => m.employment.category_id === "cat-management" && m.employment.status === "ACTIVE").length,
-      custom: members.filter((m) => !["cat-teaching", "cat-admin", "cat-support", "cat-management"].includes(m.employment.category_id) && m.employment.status === "ACTIVE").length,
+      teaching: members.filter((m) => isCategory(m.employment?.category_id, "teaching") && m.employment?.status === "ACTIVE").length,
+      admin: members.filter((m) => isCategory(m.employment?.category_id, "admin") && m.employment?.status === "ACTIVE").length,
+      support: members.filter((m) => isCategory(m.employment?.category_id, "support") && m.employment?.status === "ACTIVE").length,
+      management: members.filter((m) => isCategory(m.employment?.category_id, "management") && m.employment?.status === "ACTIVE").length,
+      custom: members.filter(
+        (m) =>
+          !isCategory(m.employment?.category_id, "teaching") &&
+          !isCategory(m.employment?.category_id, "admin") &&
+          !isCategory(m.employment?.category_id, "support") &&
+          !isCategory(m.employment?.category_id, "management") &&
+          m.employment?.status === "ACTIVE"
+      ).length,
     };
 
     // Pending leaves
@@ -429,7 +454,7 @@ export async function createStaffMember(payload: {
     }
 
     // If category is Teaching, also insert in `teachers` table for academic module compatibility
-    if (payload.employment.category_id === "cat-teaching") {
+    if (isTeachingStaff(payload.employment?.category_id)) {
       const adminClient = await createAdminClient();
       await adminClient.from("teachers").insert({
         id: newStaffId,
@@ -444,8 +469,9 @@ export async function createStaffMember(payload: {
 
     const categories = meta.staff_categories || DEFAULT_STAFF_CATEGORIES;
     const departments = meta.staff_departments || DEFAULT_STAFF_DEPARTMENTS;
-    const catObj = categories.find((c) => c.id === payload.employment.category_id);
-    const deptObj = departments.find((d) => d.id === payload.employment.department_id);
+    const isTeach = isTeachingStaff(payload.employment?.category_id);
+    const catObj = categories.find((c) => c.id === payload.employment?.category_id || (isTeach && isTeachingStaff(c.id)));
+    const deptObj = departments.find((d) => d.id === payload.employment?.department_id);
 
     const nowStr = new Date().toISOString();
     const newStaff: StaffMember = {
@@ -460,7 +486,7 @@ export async function createStaffMember(payload: {
       employment: {
         ...payload.employment,
         staff_id_code: staffIdCode,
-        category_name: catObj?.name || "সাধারণ",
+        category_name: catObj?.name || (isTeach ? "শিক্ষক মণ্ডলী (Teaching Staff)" : "সাধারণ প্রশাসন"),
         department_name: deptObj?.name || "সাধারণ প্রশাসন",
       },
       academic: payload.academic,
@@ -582,11 +608,23 @@ export async function updateStaffMember(
       };
     }
 
+    const isTeachUpdated = isTeachingStaff(payload.employment?.category_id || current.employment?.category_id);
+    const categories = meta.staff_categories || DEFAULT_STAFF_CATEGORIES;
+    const catObj = categories.find(
+      (c) =>
+        c.id === (payload.employment?.category_id || current.employment?.category_id) ||
+        (isTeachUpdated && isTeachingStaff(c.id))
+    );
+
     const updatedStaff: StaffMember = {
       ...current,
       personal: { ...current.personal, ...(payload.personal || {}) },
       contact: { ...current.contact, ...(payload.contact || {}) },
-      employment: { ...current.employment, ...(payload.employment || {}) },
+      employment: {
+        ...current.employment,
+        ...(payload.employment || {}),
+        category_name: catObj?.name || (isTeachUpdated ? "শিক্ষক মণ্ডলী (Teaching Staff)" : current.employment?.category_name || "সাধারণ কর্মী"),
+      },
       academic: { ...(current.academic || {}), ...(payload.academic || {}) },
       responsibilities: payload.responsibilities || current.responsibilities,
       salary: updatedSalary,
@@ -594,7 +632,7 @@ export async function updateStaffMember(
     };
 
     // Keep `teachers` SQL table synced if applicable
-    if (updatedStaff.employment.category_id === "cat-teaching") {
+    if (isTeachingStaff(updatedStaff.employment?.category_id)) {
       const adminClient = await createAdminClient();
       await adminClient
         .from("teachers")

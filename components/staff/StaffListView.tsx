@@ -9,6 +9,8 @@ import {
   StaffDesignation,
   STAFF_STATUS_LABELS,
   EMPLOYMENT_TYPE_LABELS,
+  isTeachingStaff,
+  isCategory,
 } from "@/lib/staff-management";
 import {
   Search,
@@ -70,9 +72,7 @@ export default function StaffListView({
 
   // Counts for teachers vs general staff
   const teacherCount = useMemo(() => {
-    return staffList.filter(
-      (s) => s.employment.category_id === "cat_teaching" || !s.employment.category_id
-    ).length;
+    return staffList.filter((s) => isTeachingStaff(s)).length;
   }, [staffList]);
   const nonTeacherCount = Math.max(0, staffList.length - teacherCount);
 
@@ -99,13 +99,20 @@ export default function StaffListView({
 
       // Category
       if (selectedCategory !== "ALL") {
-        const isTeaching = staff.employment.category_id === "cat_teaching" || !staff.employment.category_id;
+        const isTeaching = isTeachingStaff(staff);
         if (selectedCategory === "TEACHING_ONLY") {
           if (!isTeaching) return false;
         } else if (selectedCategory === "STAFF_ONLY") {
           if (isTeaching) return false;
-        } else if (staff.employment.category_id !== selectedCategory) {
-          return false;
+        } else {
+          const catId = staff.employment?.category_id || "";
+          const matches =
+            catId === selectedCategory ||
+            (selectedCategory === "cat-teaching" && isTeaching) ||
+            (selectedCategory === "cat-admin" && isCategory(catId, "admin")) ||
+            (selectedCategory === "cat-support" && isCategory(catId, "support")) ||
+            (selectedCategory === "cat-management" && isCategory(catId, "management"));
+          if (!matches) return false;
         }
       }
 
@@ -356,14 +363,35 @@ export default function StaffListView({
                           {staff.personal.full_name_bn || `${staff.personal.first_name} ${staff.personal.last_name}`}
                         </h4>
 
-                        <p className="text-xs font-semibold text-emerald-800 line-clamp-1">
-                          {staff.employment.designation}
-                        </p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-xs font-semibold text-emerald-800 line-clamp-1">
+                            {staff.employment.designation}
+                          </p>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                              isTeachingStaff(staff)
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                : isCategory(staff.employment?.category_id, "admin")
+                                ? "bg-blue-50 text-blue-800 border-blue-200"
+                                : isCategory(staff.employment?.category_id, "support")
+                                ? "bg-amber-50 text-amber-800 border-amber-200"
+                                : "bg-purple-50 text-purple-800 border-purple-200"
+                            }`}
+                          >
+                            {staff.employment.category_name || (isTeachingStaff(staff) ? "শিক্ষক মণ্ডলী" : "প্রশাসনিক স্টাফ")}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
                     {/* Department & Contact Details */}
                     <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/60 space-y-1.5 text-xs text-slate-600">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-slate-400">ক্যাটাগরি:</span>
+                        <span className="font-semibold text-slate-800 line-clamp-1">
+                          {staff.employment.category_name || (isTeachingStaff(staff) ? "শিক্ষক মণ্ডলী (Teaching Staff)" : "প্রশাসনিক স্টাফ")}
+                        </span>
+                      </div>
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-slate-400">বিভাগ:</span>
                         <span className="font-medium text-slate-800 line-clamp-1">
@@ -407,7 +435,7 @@ export default function StaffListView({
                       >
                         <Edit className="w-4 h-4" />
                       </button>
-                      {(staff.employment.category_id === "cat_teaching" || !staff.employment.category_id) && (
+                      {isTeachingStaff(staff) && (
                         <Link
                           href={`/dashboard/teachers/${staff.id}/subjects`}
                           className="p-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition cursor-pointer"
@@ -494,7 +522,20 @@ export default function StaffListView({
 
                         <td className="py-3 px-4">
                           <span className="font-semibold text-emerald-900 block">{staff.employment.designation}</span>
-                          <span className="text-[11px] text-slate-500 block">{staff.employment.department_name}</span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[11px] text-slate-500">{staff.employment.department_name}</span>
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${
+                                isTeachingStaff(staff)
+                                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                  : isCategory(staff.employment?.category_id, "admin")
+                                  ? "bg-blue-50 text-blue-800 border-blue-200"
+                                  : "bg-amber-50 text-amber-800 border-amber-200"
+                              }`}
+                            >
+                              {staff.employment.category_name || (isTeachingStaff(staff) ? "শিক্ষক" : "স্টাফ")}
+                            </span>
+                          </div>
                         </td>
 
                         <td className="py-3 px-4 font-medium">{staff.contact.phone || "—"}</td>
@@ -529,7 +570,7 @@ export default function StaffListView({
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
-                            {(staff.employment.category_id === "cat_teaching" || !staff.employment.category_id) && (
+                            {isTeachingStaff(staff) && (
                               <Link
                                 href={`/dashboard/teachers/${staff.id}/subjects`}
                                 className="p-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg transition"
