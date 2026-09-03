@@ -657,9 +657,15 @@ export async function getStudentAcademicHistory(
       student.photo_url = profile.photo_url || adm?.photo_url || student.photo_url;
     }
 
-    student.residential_status = profile.residential_status || adm?.residential_status || student.residential_status || "অনাবাসিক";
-    student.is_boarding = profile.is_boarding !== undefined ? profile.is_boarding : (student.residential_status === "আবাসিক");
-    student.boarding_type = profile.boarding_type || (student.is_boarding ? "সাধারণ পেইং" : "অনাবাসিক");
+    student.residential_status = profile.residential_status !== undefined
+      ? profile.residential_status
+      : (adm?.residential_status || student.residential_status || "অনাবাসিক");
+    student.is_boarding = profile.is_boarding !== undefined
+      ? Boolean(profile.is_boarding)
+      : (student.residential_status === "আবাসিক");
+    student.boarding_type = profile.boarding_type !== undefined
+      ? profile.boarding_type
+      : (student.is_boarding ? "সাধারণ পেইং" : "অনাবাসিক");
     student.mother_name = profile.mother_name || adm?.mother_name || student.mother_name || "";
     student.guardian_name = profile.guardian_name || adm?.guardian_name || student.guardian_name || "";
     student.guardian_relation = profile.guardian_relation || adm?.guardian_relation || student.guardian_relation || "";

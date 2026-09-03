@@ -94,10 +94,6 @@ export default function EditStudentForm({
 
       <form action={formAction} className="p-6 md:p-8 space-y-8">
         <input type="hidden" name="id" value={student.id} />
-        {/* Hidden inputs to guarantee state synchronization */}
-        <input type="hidden" name="residential_status" value={residentialStatus} />
-        <input type="hidden" name="is_boarding" value={isBoarding ? "true" : "false"} />
-        <input type="hidden" name="boarding_type" value={boardingType} />
 
         {state?.error && (
           <div className="p-4 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm flex items-start gap-2">
@@ -235,6 +231,7 @@ export default function EditStudentForm({
               </label>
               <select
                 id="residential_status_select"
+                name="residential_status"
                 value={residentialStatus}
                 onChange={(e) => handleResidentialChange(e.target.value)}
                 className="w-full px-3.5 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition bg-white font-medium text-slate-800"
@@ -255,6 +252,7 @@ export default function EditStudentForm({
               </label>
               <select
                 id="is_boarding_select"
+                name="is_boarding"
                 value={isBoarding ? "true" : "false"}
                 onChange={(e) => {
                   const val = e.target.value === "true";
@@ -281,10 +279,12 @@ export default function EditStudentForm({
               </label>
               <select
                 id="boarding_type_select"
-                value={boardingType}
+                name="boarding_type"
+                value={isBoarding ? boardingType : "অনাবাসিক"}
                 onChange={(e) => setBoardingType(e.target.value)}
-                disabled={!isBoarding}
-                className="w-full px-3.5 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition bg-white disabled:bg-slate-100 disabled:text-slate-400 font-medium"
+                className={`w-full px-3.5 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition bg-white font-medium ${
+                  !isBoarding ? "bg-slate-100 text-slate-400 cursor-not-allowed" : ""
+                }`}
               >
                 <option value="সাধারণ পেইং">সাধারণ পেইং বোর্ডিং (মাসিক ফি প্রযোজ্য)</option>
                 <option value="লিল্লাহ বোর্ডিং">লিল্লাহ বোর্ডিং (বিনামূল্যে খাবার)</option>

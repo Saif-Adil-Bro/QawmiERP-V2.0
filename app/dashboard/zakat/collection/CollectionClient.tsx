@@ -281,25 +281,27 @@ export default function CollectionClient({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              যাকাত ও অনুদান সংগ্রহ
-            </h1>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
-              মোট কালেকশন: ৳ {formatBanglaCurrency(totalCollectedAmount)}
-            </span>
+      {/* Background Dashboard Content (Hidden in Print Mode when Modal is open) */}
+      <div className={`space-y-6 ${activeReceiptDonation ? "print:hidden" : ""}`}>
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                যাকাত ও অনুদান সংগ্রহ
+              </h1>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                মোট কালেকশন: ৳ {formatBanglaCurrency(totalCollectedAmount)}
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+              সাধারণ ফান্ড, লিল্লাহ বোর্ডিং ফান্ড, যাকাত ফান্ড বা কাস্টম ফান্ড নির্বাচন করে অনুদান গ্রহণ ও রসিদ তৈরি করুন
+            </p>
           </div>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            সাধারণ ফান্ড, লিল্লাহ বোর্ডিং ফান্ড, যাকাত ফান্ড বা কাস্টম ফান্ড নির্বাচন করে অনুদান গ্রহণ ও রসিদ তৈরি করুন
-          </p>
         </div>
-      </div>
 
-      {/* Main Grid: Form Left, List Right */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Main Grid: Form Left, List Right */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Form Box (5 Cols) */}
         <div className="lg:col-span-5 bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-5">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -817,6 +819,7 @@ export default function CollectionClient({
           </div>
         </div>
       </div>
+    </div>
 
       {/* Money Receipt Modal */}
       {activeReceiptDonation && (

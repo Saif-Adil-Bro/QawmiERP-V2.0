@@ -63,7 +63,9 @@ export async function getStudentsForMeals(
   const mapped = (students || []).map(student => {
     const profile = meta?.student_profiles?.[student.id] || {};
     const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === student.id);
-    const residentialStatus = profile.residential_status || admission?.residential_status || "অনাবাসিক";
+    const residentialStatus = profile.residential_status !== undefined
+      ? profile.residential_status
+      : (admission?.residential_status || "অনাবাসিক");
     const isBoarding = profile.is_boarding !== undefined
       ? Boolean(profile.is_boarding)
       : (residentialStatus === "আবাসিক");
@@ -84,7 +86,7 @@ export async function getStudentsForMeals(
       class_name: student.class_name,
       residential_status: residentialStatus,
       is_boarding: isBoarding,
-      boarding_type: profile.boarding_type || (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক"),
+      boarding_type: profile.boarding_type !== undefined ? profile.boarding_type : (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক"),
       meal_status,
     };
   });
@@ -609,11 +611,15 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
 
     const profile = meta?.student_profiles?.[student.id] || {};
     const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === student.id);
-    const residentialStatus = profile.residential_status || admission?.residential_status || "অনাবাসিক";
+    const residentialStatus = profile.residential_status !== undefined
+      ? profile.residential_status
+      : (admission?.residential_status || "অনাবাসিক");
     const isBoarding = profile.is_boarding !== undefined
       ? Boolean(profile.is_boarding)
       : (residentialStatus === "আবাসিক");
-    const boardingType = profile.boarding_type || (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
+    const boardingType = profile.boarding_type !== undefined
+      ? profile.boarding_type
+      : (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
 
     if (isBoarding || residentialStatus === "আবাসিক") {
       activeBoardingStudentsCount++;

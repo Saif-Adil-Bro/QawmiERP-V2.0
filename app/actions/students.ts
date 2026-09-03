@@ -9,10 +9,17 @@ function hydrateStudentWithMetadata(student: any, meta: any) {
   const profile = meta?.student_profiles?.[student.id] || {};
   const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === student.id);
 
-  const residentialStatus = profile.residential_status || admission?.residential_status || student.residential_status || "অনাবাসিক";
+  const residentialStatus = profile.residential_status !== undefined
+    ? profile.residential_status
+    : (admission?.residential_status || student.residential_status || "অনাবাসিক");
+
   const isBoarding = profile.is_boarding !== undefined
     ? Boolean(profile.is_boarding)
     : (student.is_boarding !== undefined ? Boolean(student.is_boarding) : (residentialStatus === "আবাসিক"));
+
+  const boardingType = profile.boarding_type !== undefined
+    ? profile.boarding_type
+    : (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
 
   const resolvedClassId = profile.class_id || student.class_id || "";
   const resolvedClassName = profile.class_name || (Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) || student.class_name || "";
@@ -31,18 +38,18 @@ function hydrateStudentWithMetadata(student: any, meta: any) {
     photo_url: profile.photo_url || student.photo_url || admission?.photo_url || "",
     residential_status: residentialStatus,
     is_boarding: isBoarding,
-    boarding_type: profile.boarding_type || (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক"),
+    boarding_type: boardingType,
     mother_name: profile.mother_name || admission?.mother_name || student.mother_name || "",
     guardian_name: profile.guardian_name || admission?.guardian_name || student.guardian_name || "",
     guardian_relation: profile.guardian_relation || admission?.guardian_relation || student.guardian_relation || "",
     emergency_contact: profile.emergency_contact || admission?.emergency_contact || student.emergency_contact || "",
     nid_or_birth_cert: profile.nid_or_birth_cert || admission?.birth_certificate_no || student.nid_or_birth_cert || "",
     previous_madrasa: profile.previous_madrasa || admission?.previous_institution || student.previous_madrasa || "",
-    room_no: profile.room_no || student.room_no || "",
-    seat_no: profile.seat_no || student.seat_no || "",
+    room_no: profile.room_no !== undefined ? profile.room_no : (student.room_no || ""),
+    seat_no: profile.seat_no !== undefined ? profile.seat_no : (student.seat_no || ""),
     student_status: profile.student_status || student.student_status || "ACTIVE",
-    medical_notes: profile.medical_notes || student.medical_notes || "",
-    remarks: profile.remarks || student.remarks || "",
+    medical_notes: profile.medical_notes !== undefined ? profile.medical_notes : (student.medical_notes || ""),
+    remarks: profile.remarks !== undefined ? profile.remarks : (student.remarks || ""),
     blood_group: profile.blood_group || student.blood_group || admission?.blood_group || "",
     date_of_birth: profile.date_of_birth || student.date_of_birth || admission?.date_of_birth || "",
   };
@@ -443,6 +450,7 @@ export async function createStudent(prevState: any, formData: FormData) {
 export async function updateStudent(prevState: any, formData: FormData) {
   const supabase = await createClient();
   const adminClient = await createAdminClient();
+  const user = await getAuthUser(supabase);
 
   const id = formData.get("id") as string;
   const firstName = (formData.get("first_name") as string)?.trim();
@@ -459,7 +467,9 @@ export async function updateStudent(prevState: any, formData: FormData) {
   // Extended fields
   const residentialStatus = (formData.get("residential_status") as string) || "অনাবাসিক";
   const isBoardingRaw = formData.get("is_boarding");
-  const isBoarding = isBoardingRaw === "true" || isBoardingRaw === "on" || residentialStatus === "আবাসিক";
+  const isBoarding = isBoardingRaw !== null && isBoardingRaw !== undefined
+    ? (isBoardingRaw === "true" || isBoardingRaw === "on")
+    : (residentialStatus === "আবাসিক");
   const boardingType = (formData.get("boarding_type") as string) || (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
   const motherName = (formData.get("mother_name") as string)?.trim() || "";
   const guardianName = (formData.get("guardian_name") as string)?.trim() || "";
@@ -508,7 +518,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
   } catch {}
 
   if (!madrasaId) {
-    madrasaId = await getAuthMadrasaId(supabase);
+    madrasaId = await getAuthMadrasaId(supabase, user);
   }
 
   // 3. Update PostgreSQL `students` table

@@ -97,7 +97,28 @@ export default function DualMoneyReceipt({
   const inWords = numberToBanglaWords(amountVal);
 
   const handlePrint = () => {
-    window.print();
+    const printElem = document.getElementById("dual-money-receipt-sheet");
+    if (!printElem) {
+      window.print();
+      return;
+    }
+
+    const existing = document.getElementById("temp-print-frame");
+    if (existing) existing.remove();
+
+    const clone = printElem.cloneNode(true) as HTMLElement;
+    clone.id = "temp-print-frame";
+    document.body.appendChild(clone);
+    document.body.classList.add("is-printing-now");
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove("is-printing-now");
+        const temp = document.getElementById("temp-print-frame");
+        if (temp) temp.remove();
+      }, 600);
+    }, 150);
   };
 
   // Render a Single Receipt Card
@@ -403,31 +424,27 @@ export default function DualMoneyReceipt({
             margin: 5mm;
           }
 
-          html, body {
-            background: white !important;
-            height: auto !important;
-            min-height: 100% !important;
-            overflow: visible !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-
-          /* Reset all potential overflow containers */
-          #__next, main, div, form, section, article {
-            overflow: visible !important;
-            height: auto !important;
-            max-height: none !important;
-          }
-
-          /* Hide unwanted elements */
-          header, aside, nav, footer, button, .print\\:hidden, .no-print {
+          body.is-printing-now > *:not(#temp-print-frame) {
             display: none !important;
           }
 
-          /* Make the receipt sheet the only visible print container */
+          #temp-print-frame {
+            display: block !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            box-shadow: none !important;
+            border: none !important;
+            z-index: 99999999 !important;
+          }
+
+          #temp-print-frame #dual-money-receipt-sheet,
           #dual-money-receipt-sheet {
             display: block !important;
-            position: static !important;
             width: 100% !important;
             max-width: 100% !important;
             margin: 0 !important;

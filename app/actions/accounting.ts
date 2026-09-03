@@ -177,11 +177,13 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
 
   const list = (data || []).map((exp: any) => {
     const parsed = parseExpenseFund(exp.description);
+    const voucherNo = exp.voucher_no || `EXP-${new Date(exp.expense_date || exp.created_at || Date.now()).toISOString().split('T')[0].replace(/-/g, '').slice(2)}-${(exp.id || '').substring(0, 4).toUpperCase() || '001'}`;
     return {
       ...exp,
       description: parsed.cleanDesc,
       fund_id: exp.fund_id || parsed.fundId || "fund-general",
       fund_name: exp.fund_name || parsed.fundName || "সাধারণ ফান্ড",
+      voucher_no: voucherNo,
     };
   });
 
@@ -192,7 +194,22 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
   return list;
 }
 
-export async function createExpense(prevState: any, formData: FormData) {
+export type ExpenseActionState = {
+  error?: string;
+  success?: boolean;
+  expense?: {
+    id: string;
+    category: string;
+    amount: number;
+    expense_date: string;
+    description: string;
+    fund_id: string;
+    fund_name: string;
+    voucher_no: string;
+  };
+};
+
+export async function createExpense(prevState: ExpenseActionState, formData: FormData): Promise<ExpenseActionState> {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
@@ -234,13 +251,104 @@ export async function createExpense(prevState: any, formData: FormData) {
     description: wrappedDescription,
   };
 
-  const { error: directError } = await supabase.from("expenses").insert(recordWithFundCol);
+  let createdId = "";
+  const { data: directData, error: directError } = await supabase
+    .from("expenses")
+    .insert(recordWithFundCol)
+    .select()
+    .single();
 
   if (directError) {
     // Retry with plain table columns
-    const { error: retryError } = await supabase.from("expenses").insert(fallbackRecord);
+    const { data: retryData, error: retryError } = await supabase
+      .from("expenses")
+      .insert(fallbackRecord)
+      .select()
+      .single();
     if (retryError) {
       console.error("Error creating expense:", retryError);
+      return { error: retryError.message };
+    }
+    createdId = retryData?.id || `EXP-${Date.now()}`;
+  } else {
+    createdId = directData?.id || `EXP-${Date.now()}`;
+  }
+
+  revalidatePath("/dashboard/accounting/expenses");
+  revalidatePath("/dashboard/accounting/reports");
+  revalidatePath("/dashboard/accounting");
+
+  const voucherNo = `EXP-${expenseDate.replace(/-/g, "").slice(2)}-${createdId.substring(0, 4).toUpperCase() || "001"}`;
+
+  return { 
+    success: true,
+    expense: {
+      id: createdId,
+      category,
+      amount: parseFloat(amount),
+      expense_date: expenseDate,
+      description: cleanDesc,
+      fund_id: fundId,
+      fund_name: fundName,
+      voucher_no: voucherNo,
+    }
+  };
+}
+
+export async function updateExpense(formData: FormData) {
+  const supabase = await createClient();
+  const user = await getAuthUser(supabase);
+  if (!user) return { error: "Unauthorized" };
+
+  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+  if (!finalMadrasaId) return { error: "Madrasa not found" };
+
+  const id = formData.get("id") as string;
+  const category = formData.get("category") as string;
+  const amount = formData.get("amount") as string;
+  const expenseDate = formData.get("expense_date") as string;
+  const description = formData.get("description") as string;
+  const fundId = (formData.get("fund_id") as string) || "fund-general";
+  const fundName = (formData.get("fund_name") as string) || "সাধারণ ফান্ড";
+
+  if (!id || !category || !amount || !expenseDate) {
+    return { error: "খরচের আইডি, খাত, পরিমাণ ও তারিখ আবশ্যক।" };
+  }
+
+  const cleanDesc = (description || "").trim();
+  const wrappedDescription = `[FUND: ${fundId} | ${fundName}]\n${cleanDesc}`.trim();
+
+  const updateWithFund: any = {
+    category,
+    amount: parseFloat(amount),
+    expense_date: expenseDate,
+    description: wrappedDescription,
+    fund_id: fundId,
+    fund_name: fundName,
+  };
+
+  const updateFallback: any = {
+    category,
+    amount: parseFloat(amount),
+    expense_date: expenseDate,
+    description: wrappedDescription,
+  };
+
+  const { error: directError } = await supabase
+    .from("expenses")
+    .update(updateWithFund)
+    .eq("id", id)
+    .eq("madrasa_id", finalMadrasaId);
+
+  if (directError) {
+    const { error: retryError } = await supabase
+      .from("expenses")
+      .update(updateFallback)
+      .eq("id", id)
+      .eq("madrasa_id", finalMadrasaId);
+
+    if (retryError) {
+      console.error("Error updating expense:", retryError);
       return { error: retryError.message };
     }
   }
@@ -248,7 +356,19 @@ export async function createExpense(prevState: any, formData: FormData) {
   revalidatePath("/dashboard/accounting/expenses");
   revalidatePath("/dashboard/accounting/reports");
   revalidatePath("/dashboard/accounting");
-  return { success: true };
+
+  return {
+    success: true,
+    expense: {
+      id,
+      category,
+      amount: parseFloat(amount),
+      expense_date: expenseDate,
+      description: cleanDesc,
+      fund_id: fundId,
+      fund_name: fundName,
+    }
+  };
 }
 
 export async function deleteExpense(expenseId: string) {
