@@ -525,11 +525,53 @@ export async function saveAbsenceAlertSettings(settings: Partial<AbsenceAlertSet
   }
 }
 
+export async function resolveCurrentAppBaseUrl(customBaseUrl?: string): Promise<string> {
+  if (customBaseUrl && customBaseUrl.trim()) {
+    let url = customBaseUrl.trim().replace(/\/+$/, "");
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      url = `https://${url}`;
+    }
+    return url;
+  }
+
+  // 1. Check incoming request headers dynamically
+  try {
+    const { headers } = await import("next/headers");
+    const headerList = await headers();
+    const forwardedHost = headerList.get("x-forwarded-host");
+    const host = forwardedHost || headerList.get("host");
+    const proto = headerList.get("x-forwarded-proto") || "https";
+    if (host) {
+      return `${proto}://${host}`.replace(/\/+$/, "");
+    }
+  } catch {
+    // headers() might not be available in non-request contexts
+  }
+
+  // 2. Check environment variables
+  if (process.env.APP_URL) {
+    let url = process.env.APP_URL.trim().replace(/\/+$/, "");
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      url = `https://${url}`;
+    }
+    return url;
+  }
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    let url = process.env.NEXT_PUBLIC_APP_URL.trim().replace(/\/+$/, "");
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      url = `https://${url}`;
+    }
+    return url;
+  }
+
+  return "";
+}
+
 // -------------------------------------------------------------
 // 3. MONTHLY FEE DUE & DIRECT PAYMENT LINK ALERTS
 // -------------------------------------------------------------
 
-export async function getFeeAlertStudentsData(classFilter?: string) {
+export async function getFeeAlertStudentsData(classFilter?: string, customBaseUrl?: string) {
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -542,7 +584,7 @@ export async function getFeeAlertStudentsData(classFilter?: string) {
     }
 
     if (!madrasaId) {
-      return { feeStudents: [], totalDueOverall: 0, madrasaName: "মাদরাসা" };
+      return { feeStudents: [], totalDueOverall: 0, madrasaName: "মাদরাসা", detectedBaseUrl: "" };
     }
 
     const { data: madrasaRow } = await adminClient
@@ -565,7 +607,7 @@ export async function getFeeAlertStudentsData(classFilter?: string) {
 
     const { data: students } = await studentQuery;
     if (!students || students.length === 0) {
-      return { feeStudents: [], totalDueOverall: 0, madrasaName };
+      return { feeStudents: [], totalDueOverall: 0, madrasaName, detectedBaseUrl: "" };
     }
 
     // 2. Fetch Unpaid / Partial Student Fees
@@ -584,8 +626,8 @@ export async function getFeeAlertStudentsData(classFilter?: string) {
       duesMap.set(f.student_id, curr);
     }
 
-    // Determine public domain or app host for payment links
-    const appBaseUrl = process.env.APP_URL || "https://ais-dev-y6trudkhoh3ezy6j3jyeek-541098553417.asia-east1.run.app";
+    // Determine public domain or app host for payment links dynamically
+    const appBaseUrl = await resolveCurrentAppBaseUrl(customBaseUrl);
 
     const feeStudents: FeeAlertStudentInfo[] = [];
     let totalDueOverall = 0;
@@ -597,7 +639,9 @@ export async function getFeeAlertStudentsData(classFilter?: string) {
         const fullName = `${s.first_name || ""} ${s.last_name || ""}`.trim() || "শিক্ষার্থী";
         const rollStr = toBanglaNumber(s.roll_number ?? "১");
         const dueStr = toBanglaNumber(dueInfo.totalDue.toLocaleString());
-        const paymentLink = `${appBaseUrl}/portal/fees?student_id=${s.id}`;
+        const paymentLink = appBaseUrl
+          ? `${appBaseUrl}/portal/fees?student_id=${s.id}`
+          : `/portal/fees?student_id=${s.id}`;
 
         const msg = DEFAULT_FEE_ALERT_TEMPLATE
           .replace(/\[ছাত্রের নাম\]/g, fullName)
@@ -636,9 +680,10 @@ export async function getFeeAlertStudentsData(classFilter?: string) {
       feeStudents,
       totalDueOverall,
       madrasaName,
+      detectedBaseUrl: appBaseUrl,
     };
   } catch (err) {
     console.error("getFeeAlertStudentsData error:", err);
-    return { feeStudents: [], totalDueOverall: 0, madrasaName: "মাদরাসা" };
+    return { feeStudents: [], totalDueOverall: 0, madrasaName: "মাদরাসা", detectedBaseUrl: "" };
   }
 }

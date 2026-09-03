@@ -14,6 +14,7 @@ import {
   Plus,
   CheckCircle2,
   Scale,
+  ShieldCheck,
 } from "lucide-react";
 import { getFeeDashboardOverview } from "@/app/actions/fee-management";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
@@ -358,6 +359,29 @@ export default async function AccountingDashboardPage() {
             </div>
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-700">
               <span>রিসিট বুক খুলুন</span>
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+            </div>
+          </div>
+        </Link>
+
+        {/* 9. Online Payment Gateway */}
+        <Link href="/dashboard/accounting/gateway" className="block group">
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs hover:shadow-md hover:border-teal-500 transition h-full flex flex-col justify-between ring-1 ring-teal-500/20">
+            <div>
+              <div className="flex items-center space-x-3 mb-3">
+                <div className="bg-teal-50 p-3 rounded-2xl group-hover:bg-teal-100 transition text-teal-700">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <h2 className="text-base font-bold text-slate-900 group-hover:text-teal-800 transition">
+                  অনলাইন পেমেন্ট গেটওয়ে
+                </h2>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+                বিকাশ, নগদ, রকেট ও ইসলামী ব্যাংক (IBBL) অটোমেটেড গেটওয়ে ও লেনদেনের ট্র্যাকিং।
+              </p>
+            </div>
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-teal-700">
+              <span>গেটওয়ে কনফিগারেশন</span>
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
             </div>
           </div>

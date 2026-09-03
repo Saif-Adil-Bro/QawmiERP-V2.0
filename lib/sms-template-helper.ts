@@ -119,6 +119,13 @@ export const AVAILABLE_SMS_TAGS: SMSTag[] = [
     sampleValue: "01812345678",
     category: "madrasa",
   },
+  {
+    tag: "{PaymentLink}",
+    label: "সরাসরি পেমেন্ট লিংক",
+    description: "অনলাইন ফি পরিশোধের সরাসরি লিংক (হোস্টেড ডোমেইন ভিত্তিক)",
+    sampleValue: "https://yourdomain.com/portal/fees?student_id=...",
+    category: "finance",
+  },
 ];
 
 export interface SMSTemplate {
@@ -255,6 +262,8 @@ export function renderDynamicTemplate(
     fromMonth?: string;
     toMonth?: string;
     dueMonthsText?: string;
+    baseUrl?: string;
+    paymentLink?: string;
     date?: Date;
   }
 ): string {
@@ -306,6 +315,18 @@ export function renderDynamicTemplate(
     if (fromIdx !== -1 && toIdx !== -1) {
       const diff = toIdx >= fromIdx ? toIdx - fromIdx + 1 : (12 - fromIdx) + toIdx + 1;
       dueMonthsCount = toBengaliNumber(diff);
+    }
+  }
+
+  // Determine dynamic payment link for student
+  let resolvedPaymentLink = options?.paymentLink || "";
+  if (!resolvedPaymentLink) {
+    const sId = student?.id || student?.student_id;
+    if (sId) {
+      const baseUrl = options?.baseUrl || (typeof window !== "undefined" ? window.location.origin : "");
+      resolvedPaymentLink = baseUrl
+        ? `${baseUrl.replace(/\/+$/, "")}/portal/fees?student_id=${sId}`
+        : `/portal/fees?student_id=${sId}`;
     }
   }
 
@@ -421,6 +442,14 @@ export function renderDynamicTemplate(
     "{madrasaPhone}": madrasaPhone,
     "{মাদ্রাসার_ফোন}": madrasaPhone,
     "{যোগাযোগ_নম্বর}": madrasaPhone,
+
+    // Dynamic Payment Link (using running website base URL)
+    "{PaymentLink}": resolvedPaymentLink,
+    "{paymentLink}": resolvedPaymentLink,
+    "{payment_link}": resolvedPaymentLink,
+    "{পেমেন্ট_লিংক}": resolvedPaymentLink,
+    "{পেমেন্ট_ইউআরএল}": resolvedPaymentLink,
+    "[পেমেন্ট লিংক]": resolvedPaymentLink,
   };
 
   // Perform case-insensitive & alias replacement
