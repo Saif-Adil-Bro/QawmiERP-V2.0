@@ -41,7 +41,7 @@ export default function StudentProfileClient({
   academicHistory,
   allStudents,
 }: StudentProfileClientProps) {
-  const [activeTab, setActiveTab] = useState<"history" | "personal" | "idcard" | "certificates">("history");
+  const [activeTab, setActiveTab] = useState<"history" | "personal" | "fees" | "idcard" | "certificates">("history");
   const [digitalIdData, setDigitalIdData] = useState<any>(null);
   const [loadingIdCard, setLoadingIdCard] = useState(false);
   const [studentCertificates, setStudentCertificates] = useState<any[]>([]);
@@ -202,6 +202,19 @@ export default function StudentProfileClient({
         >
           <User className="w-4 h-4" />
           <span>ব্যক্তিগত ও অভিভাবক তথ্য</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("fees")}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeTab === "fees"
+              ? "bg-slate-900 text-white shadow-2xs"
+              : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <CreditCard className="w-4 h-4 text-emerald-500" />
+          <span>ফি ও আর্থিক চুক্তি</span>
         </button>
 
         <button
@@ -412,6 +425,11 @@ export default function StudentProfileClient({
                 <span className="font-bold text-slate-800 mt-1 block">
                   {student.father_name || "তথ্য নেই"}
                 </span>
+                {student.father_occupation && (
+                  <span className="text-[11px] text-slate-500 font-medium mt-0.5 block">
+                    পেশা: {student.father_occupation}
+                  </span>
+                )}
               </div>
 
               <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100">
@@ -514,7 +532,159 @@ export default function StudentProfileClient({
         </div>
       )}
 
-      {/* Tab Content: Digital ID Card */}
+      {/* Tab Content: Fees & Financial Agreement */}
+      {activeTab === "fees" && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-6 animate-in fade-in duration-150">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-emerald-600" />
+                <span>শিক্ষার্থী ফি কাঠামো ও আর্থিক চুক্তি</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                মাদ্রাসার সাথে শিক্ষার্থীর নির্ধারিত ভর্তি ফি, নিয়মিত মাসিক বেতন, খোরাকি ও অন্যান্য ফি বিবরণ
+              </p>
+            </div>
+
+            <Link
+              href={`/dashboard/students/${student.id}/edit`}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-2 cursor-pointer"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+              <span>ফি পরিবর্তন / সম্পাদনা</span>
+            </Link>
+          </div>
+
+          {/* Monthly Total Highlights */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 text-white shadow-sm space-y-1">
+              <span className="text-xs font-semibold text-emerald-100 block">সর্বমোট প্রাক্কলিত মাসিক ফি</span>
+              <div className="text-2xl sm:text-3xl font-black font-mono">
+                {Number(student.total_monthly_fee ?? (
+                  (Number(student.monthly_fee) || 0) +
+                  (Number(student.khoraki_fee) || 0) +
+                  (Number(student.accommodation_fee) || 0) +
+                  (Number(student.transport_fee) || 0) +
+                  (Number(student.other_fee) || 0) -
+                  (Number(student.fee_discount) || 0)
+                )).toLocaleString()} ৳
+              </div>
+              <span className="text-[11px] text-emerald-100 block">প্রতি মাসে প্রদেয়</span>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+              <span className="text-xs font-semibold text-slate-500 block">ভর্তি ফি (এককালীন চুক্তি)</span>
+              <div className="text-2xl sm:text-3xl font-black font-mono text-slate-800">
+                {Number(student.admission_fee || 0).toLocaleString()} ৳
+              </div>
+              <span className="text-[11px] text-slate-400 block">ভর্তির সময় প্রযোজ্য</span>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 space-y-1">
+              <span className="text-xs font-semibold text-amber-800 block">বিশেষ ছাড় / স্কলারশিপ</span>
+              <div className="text-2xl sm:text-3xl font-black font-mono text-amber-900">
+                {Number(student.fee_discount || 0).toLocaleString()} ৳
+              </div>
+              <span className="text-[11px] text-amber-700 block truncate">
+                {student.fee_discount_reason || "কোনো বিশেষ ছাড় নেই"}
+              </span>
+            </div>
+          </div>
+
+          {/* Detailed Breakdown */}
+          <div className="space-y-3">
+            <h4 className="text-sm font-bold text-slate-900 pb-2 border-b">
+              ফি খাতের বিস্তারিত বিভাজন
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs sm:text-sm">
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 block text-xs">মাসিক সাধারণ বেতন / টিউশন ফি</span>
+                  <span className="font-bold text-slate-800 text-base mt-0.5 block">
+                    {Number(student.monthly_fee || 0).toLocaleString()} ৳
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">
+                  মাসিক
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 block text-xs">খোরাকি / খাবার চার্জ</span>
+                  <span className="font-bold text-slate-800 text-base mt-0.5 block">
+                    {Number(student.khoraki_fee || 0).toLocaleString()} ৳
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-100">
+                  {student.is_boarding ? "বোর্ডিং চালু" : "অনাবাসিক"}
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 block text-xs">আবাসন ফি / সিট ভাড়া</span>
+                  <span className="font-bold text-slate-800 text-base mt-0.5 block">
+                    {Number(student.accommodation_fee || 0).toLocaleString()} ৳
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100">
+                  {student.residential_status || "অনাবাসিক"}
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 block text-xs">গাড়ি ভাড়া / পরিবহন ফি</span>
+                  <span className="font-bold text-slate-800 text-base mt-0.5 block">
+                    {Number(student.transport_fee || 0).toLocaleString()} ৳
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
+                  মাসিক
+                </span>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 block text-xs">অন্যান্য / বিবিধ চার্জ</span>
+                  <span className="font-bold text-slate-800 text-base mt-0.5 block">
+                    {Number(student.other_fee || 0).toLocaleString()} ৳
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">
+                  মাসিক
+                </span>
+              </div>
+
+              <div className="p-4 bg-red-50/50 rounded-2xl border border-red-100 flex items-center justify-between">
+                <div>
+                  <span className="text-red-600 block text-xs">মাসিক ফি মওকুফ / ছাড়</span>
+                  <span className="font-bold text-red-700 text-base mt-0.5 block">
+                    - {Number(student.fee_discount || 0).toLocaleString()} ৳
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-200">
+                  ছাড়
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <span className="text-slate-600">
+              💡 হিসাব বিভাগ থেকে মাসিক ফি আদায়ের সময় স্বয়ংক্রিয়ভাবে এই ফি চার্ট প্রযোজ্য হবে।
+            </span>
+            <Link
+              href="/dashboard/accounts/fees"
+              className="px-3.5 py-1.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition"
+            >
+              হিসাব বিভাগে যান →
+            </Link>
+          </div>
+        </div>
+      )}
       {activeTab === "idcard" && (
         <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-6 animate-in fade-in duration-150">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">

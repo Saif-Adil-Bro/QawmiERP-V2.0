@@ -70,12 +70,12 @@ export async function getStudentsForMeals(
       ? Boolean(profile.is_boarding)
       : (residentialStatus === "আবাসিক");
 
-    // Existing entry has highest priority; otherwise, boarding/residential students default to "On", others default to "Off"
+    // Existing entry has highest priority; otherwise, only students with active boarding default to "On", non-boarding default to "Off"
     let meal_status: "On" | "Off" = "Off";
     if (mealMap.has(student.id)) {
       meal_status = mealMap.get(student.id) as "On" | "Off";
     } else {
-      meal_status = isBoarding || residentialStatus === "আবাসিক" ? "On" : "Off";
+      meal_status = isBoarding ? "On" : "Off";
     }
 
     return {
@@ -92,9 +92,9 @@ export async function getStudentsForMeals(
   });
 
   if (boardingFilter === "BOARDING") {
-    return mapped.filter(s => s.is_boarding || s.residential_status === "আবাসিক");
+    return mapped.filter(s => s.is_boarding);
   } else if (boardingFilter === "NON_BOARDING") {
-    return mapped.filter(s => !s.is_boarding && s.residential_status !== "আবাসিক");
+    return mapped.filter(s => !s.is_boarding);
   }
 
   return mapped;
@@ -621,7 +621,7 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
       ? profile.boarding_type
       : (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
 
-    if (isBoarding || residentialStatus === "আবাসিক") {
+    if (isBoarding) {
       activeBoardingStudentsCount++;
     }
 

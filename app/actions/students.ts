@@ -48,6 +48,23 @@ function hydrateStudentWithMetadata(student: any, meta: any) {
     room_no: profile.room_no !== undefined ? profile.room_no : (student.room_no || ""),
     seat_no: profile.seat_no !== undefined ? profile.seat_no : (student.seat_no || ""),
     student_status: profile.student_status || student.student_status || "ACTIVE",
+    admission_fee: profile.admission_fee !== undefined ? Number(profile.admission_fee) : 0,
+    monthly_fee: profile.monthly_fee !== undefined ? Number(profile.monthly_fee) : (student.monthly_fee || 0),
+    khoraki_fee: profile.khoraki_fee !== undefined ? Number(profile.khoraki_fee) : 0,
+    accommodation_fee: profile.accommodation_fee !== undefined ? Number(profile.accommodation_fee) : 0,
+    transport_fee: profile.transport_fee !== undefined ? Number(profile.transport_fee) : 0,
+    other_fee: profile.other_fee !== undefined ? Number(profile.other_fee) : 0,
+    fee_discount: profile.fee_discount !== undefined ? Number(profile.fee_discount) : 0,
+    fee_discount_reason: profile.fee_discount_reason || "",
+    total_monthly_fee: profile.total_monthly_fee !== undefined ? Number(profile.total_monthly_fee) : (
+      Number(profile.monthly_fee || student.monthly_fee || 0) +
+      Number(profile.khoraki_fee || 0) +
+      Number(profile.accommodation_fee || 0) +
+      Number(profile.transport_fee || 0) +
+      Number(profile.other_fee || 0) -
+      Number(profile.fee_discount || 0)
+    ),
+    father_occupation: profile.father_occupation || "",
     medical_notes: profile.medical_notes !== undefined ? profile.medical_notes : (student.medical_notes || ""),
     remarks: profile.remarks !== undefined ? profile.remarks : (student.remarks || ""),
     blood_group: profile.blood_group || student.blood_group || admission?.blood_group || "",
@@ -297,6 +314,7 @@ export async function createStudent(prevState: any, formData: FormData) {
   const isBoarding = isBoardingRaw === "true" || isBoardingRaw === "on" || residentialStatus === "আবাসিক";
   const boardingType = (formData.get("boarding_type") as string) || (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
   const motherName = (formData.get("mother_name") as string) || "";
+  const fatherOccupation = (formData.get("father_occupation") as string) || "";
   const guardianName = (formData.get("guardian_name") as string) || "";
   const guardianRelation = (formData.get("guardian_relation") as string) || "";
   const emergencyContact = (formData.get("emergency_contact") as string) || "";
@@ -307,6 +325,17 @@ export async function createStudent(prevState: any, formData: FormData) {
   const studentStatus = (formData.get("student_status") as string) || "ACTIVE";
   const medicalNotes = (formData.get("medical_notes") as string) || "";
   const remarks = (formData.get("remarks") as string) || "";
+
+  // Fee structure fields
+  const admissionFee = Number(formData.get("admission_fee") || 0);
+  const monthlyFee = Number(formData.get("monthly_fee") || 0);
+  const khorakiFee = Number(formData.get("khoraki_fee") || 0);
+  const accommodationFee = Number(formData.get("accommodation_fee") || 0);
+  const transportFee = Number(formData.get("transport_fee") || 0);
+  const otherFee = Number(formData.get("other_fee") || 0);
+  const feeDiscount = Number(formData.get("fee_discount") || 0);
+  const feeDiscountReason = (formData.get("fee_discount_reason") as string) || "";
+  const totalMonthlyFee = Math.max(0, (monthlyFee + khorakiFee + accommodationFee + transportFee + otherFee) - feeDiscount);
 
   if (!firstName || !lastName || !classId) {
     return { error: "First name, Last name and Class are required." };
@@ -412,6 +441,16 @@ export async function createStudent(prevState: any, formData: FormData) {
         room_no: roomNo,
         seat_no: seatNo,
         student_status: studentStatus as any,
+        admission_fee: admissionFee,
+        monthly_fee: monthlyFee,
+        khoraki_fee: khorakiFee,
+        accommodation_fee: accommodationFee,
+        transport_fee: transportFee,
+        other_fee: otherFee,
+        fee_discount: feeDiscount,
+        fee_discount_reason: feeDiscountReason,
+        total_monthly_fee: totalMonthlyFee,
+        father_occupation: fatherOccupation,
         medical_notes: medicalNotes,
         remarks: remarks,
         updated_at: new Date().toISOString(),
@@ -472,6 +511,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
     : (residentialStatus === "আবাসিক");
   const boardingType = (formData.get("boarding_type") as string) || (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
   const motherName = (formData.get("mother_name") as string)?.trim() || "";
+  const fatherOccupation = (formData.get("father_occupation") as string)?.trim() || "";
   const guardianName = (formData.get("guardian_name") as string)?.trim() || "";
   const guardianRelation = (formData.get("guardian_relation") as string)?.trim() || "";
   const emergencyContact = (formData.get("emergency_contact") as string)?.trim() || "";
@@ -482,6 +522,19 @@ export async function updateStudent(prevState: any, formData: FormData) {
   const studentStatus = (formData.get("student_status") as string) || "ACTIVE";
   const medicalNotes = (formData.get("medical_notes") as string)?.trim() || "";
   const remarks = (formData.get("remarks") as string)?.trim() || "";
+
+  // Fee structure fields
+  const admissionFee = formData.get("admission_fee") !== null ? Number(formData.get("admission_fee") || 0) : undefined;
+  const monthlyFee = formData.get("monthly_fee") !== null ? Number(formData.get("monthly_fee") || 0) : undefined;
+  const khorakiFee = formData.get("khoraki_fee") !== null ? Number(formData.get("khoraki_fee") || 0) : undefined;
+  const accommodationFee = formData.get("accommodation_fee") !== null ? Number(formData.get("accommodation_fee") || 0) : undefined;
+  const transportFee = formData.get("transport_fee") !== null ? Number(formData.get("transport_fee") || 0) : undefined;
+  const otherFee = formData.get("other_fee") !== null ? Number(formData.get("other_fee") || 0) : undefined;
+  const feeDiscount = formData.get("fee_discount") !== null ? Number(formData.get("fee_discount") || 0) : undefined;
+  const feeDiscountReason = formData.get("fee_discount_reason") !== null ? ((formData.get("fee_discount_reason") as string)?.trim() || "") : undefined;
+  const totalMonthlyFee = (monthlyFee !== undefined || khorakiFee !== undefined) 
+    ? Math.max(0, ((monthlyFee || 0) + (khorakiFee || 0) + (accommodationFee || 0) + (transportFee || 0) + (otherFee || 0)) - (feeDiscount || 0))
+    : undefined;
 
   if (!id || !firstName || !lastName || !classId) {
     return { error: "আইডি, প্রথম নাম, শেষ নাম এবং জামাত আবশ্যক।" };
@@ -602,6 +655,16 @@ export async function updateStudent(prevState: any, formData: FormData) {
         room_no: roomNo,
         seat_no: seatNo,
         student_status: studentStatus as any,
+        admission_fee: admissionFee !== undefined ? admissionFee : existingProfile.admission_fee,
+        monthly_fee: monthlyFee !== undefined ? monthlyFee : existingProfile.monthly_fee,
+        khoraki_fee: khorakiFee !== undefined ? khorakiFee : existingProfile.khoraki_fee,
+        accommodation_fee: accommodationFee !== undefined ? accommodationFee : existingProfile.accommodation_fee,
+        transport_fee: transportFee !== undefined ? transportFee : existingProfile.transport_fee,
+        other_fee: otherFee !== undefined ? otherFee : existingProfile.other_fee,
+        fee_discount: feeDiscount !== undefined ? feeDiscount : existingProfile.fee_discount,
+        fee_discount_reason: feeDiscountReason !== undefined ? feeDiscountReason : existingProfile.fee_discount_reason,
+        total_monthly_fee: totalMonthlyFee !== undefined ? totalMonthlyFee : existingProfile.total_monthly_fee,
+        father_occupation: fatherOccupation || existingProfile.father_occupation,
         medical_notes: medicalNotes,
         remarks: remarks,
         address: address,

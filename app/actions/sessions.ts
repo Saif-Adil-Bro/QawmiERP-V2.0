@@ -675,6 +675,23 @@ export async function getStudentAcademicHistory(
     student.room_no = profile.room_no || student.room_no || "";
     student.seat_no = profile.seat_no || student.seat_no || "";
     student.student_status = profile.student_status || student.student_status || "ACTIVE";
+    student.admission_fee = profile.admission_fee !== undefined ? Number(profile.admission_fee) : 0;
+    student.monthly_fee = profile.monthly_fee !== undefined ? Number(profile.monthly_fee) : (student.monthly_fee || 0);
+    student.khoraki_fee = profile.khoraki_fee !== undefined ? Number(profile.khoraki_fee) : 0;
+    student.accommodation_fee = profile.accommodation_fee !== undefined ? Number(profile.accommodation_fee) : 0;
+    student.transport_fee = profile.transport_fee !== undefined ? Number(profile.transport_fee) : 0;
+    student.other_fee = profile.other_fee !== undefined ? Number(profile.other_fee) : 0;
+    student.fee_discount = profile.fee_discount !== undefined ? Number(profile.fee_discount) : 0;
+    student.fee_discount_reason = profile.fee_discount_reason || "";
+    student.total_monthly_fee = profile.total_monthly_fee !== undefined ? Number(profile.total_monthly_fee) : (
+      Number(student.monthly_fee || 0) +
+      Number(student.khoraki_fee || 0) +
+      Number(student.accommodation_fee || 0) +
+      Number(student.transport_fee || 0) +
+      Number(student.other_fee || 0) -
+      Number(student.fee_discount || 0)
+    );
+    student.father_occupation = profile.father_occupation || "";
     student.medical_notes = profile.medical_notes || student.medical_notes || "";
     student.remarks = profile.remarks || student.remarks || "";
 

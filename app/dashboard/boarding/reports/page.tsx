@@ -155,10 +155,10 @@ export default function MonthlyReportsPage() {
           return std.boarding_type === "হাফ-ফ্রি";
         }
         if (categoryFilter === "NON_RESIDENTIAL") {
-          return std.residential_status === "অনাবাসিক" && !std.is_boarding;
+          return !std.is_boarding;
         }
         if (categoryFilter === "BOARDING_ONLY") {
-          return std.is_boarding || std.residential_status === "আবাসিক";
+          return std.is_boarding;
         }
 
         return true;

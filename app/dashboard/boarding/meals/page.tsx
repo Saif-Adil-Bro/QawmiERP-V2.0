@@ -112,9 +112,9 @@ export default function DailyMealsPage() {
               onChange={(e) => setBoardingFilter(e.target.value as any)}
               className="border-none focus:outline-none focus:ring-0 text-sm font-medium text-slate-800 bg-transparent cursor-pointer"
             >
-              <option value="BOARDING">শুধু বোর্ডিং / আবাসিক</option>
-              <option value="ALL">সব শিক্ষার্থী</option>
-              <option value="NON_BOARDING">অনাবাসিক শিক্ষার্থী</option>
+              <option value="BOARDING">শুধু বোর্ডিং (খাবার সুবিধা চালু)</option>
+              <option value="ALL">সব শিক্ষার্থী (আবাসিক ও অনাবাসিক)</option>
+              <option value="NON_BOARDING">অনাবাসিক / খাবার সুবিধা বন্ধ</option>
             </select>
           </div>
 
@@ -234,9 +234,13 @@ export default function DailyMealsPage() {
                           >
                             {student.residential_status || "অনাবাসিক"}
                           </span>
-                          {student.is_boarding && (
-                            <span className="text-[11px] text-orange-700 font-medium">
+                          {student.is_boarding ? (
+                            <span className="text-[11px] text-orange-700 font-semibold bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">
                               বোর্ডিং: {student.boarding_type || "চালু"}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-500 font-medium bg-slate-100 px-1.5 py-0.5 rounded">
+                              বোর্ডিং: বন্ধ (খাবার নেই)
                             </span>
                           )}
                         </div>

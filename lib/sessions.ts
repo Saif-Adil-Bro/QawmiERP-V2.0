@@ -107,6 +107,16 @@ export interface ExtendedStudentProfile {
   room_no?: string;
   seat_no?: string;
   student_status?: "ACTIVE" | "IRREGULAR" | "GRADUATED" | "DROPOUT" | "ALUMNI" | "TC";
+  admission_fee?: number;
+  monthly_fee?: number;
+  khoraki_fee?: number;
+  accommodation_fee?: number;
+  transport_fee?: number;
+  other_fee?: number;
+  fee_discount?: number;
+  fee_discount_reason?: string;
+  total_monthly_fee?: number;
+  father_occupation?: string;
   medical_notes?: string;
   remarks?: string;
   updated_at?: string;
