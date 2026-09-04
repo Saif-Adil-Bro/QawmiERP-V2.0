@@ -1,3 +1,10 @@
+export interface EvaluationSubject {
+  id: string;
+  name: string;
+  max_marks: number;
+  obtained_marks: number;
+}
+
 export interface AdmissionApplication {
   id: string;
   madrasa_id: string;
@@ -49,14 +56,18 @@ export interface AdmissionApplication {
   
   // Entry Test Marks & Evaluation
   test_evaluation?: {
-    written_marks?: number; // Out of 50
-    oral_marks?: number; // Out of 30
-    quran_tilawat_marks?: number; // Out of 20
-    total_marks?: number; // Out of 100
+    subjects?: EvaluationSubject[];
+    written_marks?: number; // Out of 50 (or custom)
+    oral_marks?: number; // Out of 30 (or custom)
+    quran_tilawat_marks?: number; // Out of 20 (or custom)
+    total_marks?: number; // Sum of all obtained marks
+    total_max_marks?: number; // Sum of all max marks (e.g. 100)
+    pass_marks?: number; // e.g. 50
     percentage?: number;
     merit_position?: number;
     is_passed?: boolean;
     evaluated_by?: string;
+    evaluator_designation?: string;
     evaluated_at?: string;
     remarks?: string;
   };
@@ -79,6 +90,56 @@ export interface AdmissionApplication {
   created_at: string;
   updated_at: string;
   is_archived?: boolean;
+}
+
+export const STANDARD_QAWMI_CLASSES = [
+  { id: "cls_noorani_1", name: "নূরানী ১ম জামাত", category: "general" },
+  { id: "cls_noorani_2", name: "নূরানী ২য় জামাত", category: "general" },
+  { id: "cls_noorani_3", name: "নূরানী ৩য় জামাত", category: "general" },
+  { id: "cls_najera", name: "নাজেরা ও ক্বেরাত বিভাগ", category: "hifz" },
+  { id: "cls_hifz", name: "হিফজুল কুরআন বিভাগ", category: "hifz" },
+  { id: "cls_ibtidai", name: "ইবতিদাইয়্যাহ (প্রাথমিক জামাত)", category: "general" },
+  { id: "cls_mutawassita", name: "মুতাওয়াসসিতাহ (মিযান-নাহবেমীর)", category: "kitab" },
+  { id: "cls_sanabia", name: "সানাবিয়া (হিদায়া-জালালাইন)", category: "kitab" },
+  { id: "cls_fazilat", name: "ফযীলত (মেশকাত জামাত)", category: "kitab" },
+  { id: "cls_dawra", name: "দাওরায়ে হাদীস (তাকমীল/মাস্টার্স)", category: "kitab" },
+  { id: "cls_ifta", name: "ইফতা ও উচ্চতর গবেষণা", category: "kitab" },
+];
+
+/**
+ * Filter and deduplicate class lists, removing corrupted/dummy names
+ */
+export function curateClassList(rawClasses: Array<{ id?: string; name?: string }>): Array<{ id: string; name: string }> {
+  if (!rawClasses || rawClasses.length === 0) {
+    return STANDARD_QAWMI_CLASSES.map(c => ({ id: c.id, name: c.name }));
+  }
+
+  const seen = new Set<string>();
+  const curated: Array<{ id: string; name: string }> = [];
+
+  for (const c of rawClasses) {
+    if (!c || !c.name) continue;
+    const trimmed = c.name.trim();
+    // Filter out invalid/raw test entries
+    if (trimmed.length < 2 || trimmed.toLowerCase() === "test" || trimmed.toLowerCase() === "undefined" || trimmed.toLowerCase() === "null") {
+      continue;
+    }
+    // Normalize name for deduplication
+    const normalized = trimmed
+      .replace(/\s+/g, " ")
+      .replace(/[–—]/g, "-")
+      .toLowerCase();
+
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      curated.push({
+        id: c.id || `cls_${curated.length + 1}`,
+        name: trimmed,
+      });
+    }
+  }
+
+  return curated.length > 0 ? curated : STANDARD_QAWMI_CLASSES.map(c => ({ id: c.id, name: c.name }));
 }
 
 export const DEFAULT_EXAM_INSTRUCTIONS = [

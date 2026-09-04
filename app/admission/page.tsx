@@ -26,11 +26,12 @@ import {
   HelpCircle,
   Check,
   Building,
+  LogIn,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { submitAdmissionApplication, searchAdmissionPublic } from "@/app/actions/admissions";
 import { getClasses } from "@/app/actions/students";
-import { calculateBanglaAge, ADMISSION_STATUS_MAP } from "@/lib/admissions";
+import { calculateBanglaAge, ADMISSION_STATUS_MAP, curateClassList } from "@/lib/admissions";
 
 export default function PublicAdmissionPage() {
   const [activeTab, setActiveTab] = useState<"apply" | "search">("apply");
@@ -84,15 +85,7 @@ export default function PublicAdmissionPage() {
 
   useEffect(() => {
     getClasses().then((data) => {
-      const clsList = data && data.length > 0 ? data : [
-        { id: "cls_noorani", name: "নূরানী ১ম-৩য় জামাত" },
-        { id: "cls_hifz", name: "হিফজুল কুরআন বিভাগ" },
-        { id: "cls_najera", name: "নাজেরা ও ক্বেরাত বিভাগ" },
-        { id: "cls_ibtidai", name: "ইবতিদাইয়্যাহ (প্রাথমিক জামাত)" },
-        { id: "cls_mutawassita", name: "মুতাওয়াসসিতাহ (মিযান-নাহবেমীর)" },
-        { id: "cls_sanabia", name: "সানাবিয়া (হিদায়া-জালালাইন)" },
-        { id: "cls_dawra", name: "দাওরায়ে হাদীস (মাস্টার্স)" },
-      ];
+      const clsList = curateClassList(data || []);
       setClasses(clsList);
       if (clsList.length > 0 && !formData.target_class_id) {
         const firstCls = clsList[0];
@@ -865,14 +858,25 @@ export default function PublicAdmissionPage() {
                               <h4 className="font-bold text-slate-900 text-base mt-1">
                                 {app.applicant_name_bn}
                               </h4>
-                              <p className="text-xs text-slate-500">জামাত: {app.target_class_name}</p>
+                              <p className="text-xs text-slate-500">জামাত: {app.assigned_class_name || app.target_class_name}</p>
                             </div>
 
                             <div className="text-right">
-                              <span className="text-xs text-slate-500 block">পরীক্ষার রোল</span>
-                              <span className="font-mono font-bold text-slate-800 text-sm">
-                                {app.roll_number}
-                              </span>
+                              {app.status === "CONFIRMED" ? (
+                                <div>
+                                  <span className="text-[11px] text-emerald-700 font-bold block">শ্রেণী রোল (Class Roll)</span>
+                                  <span className="font-mono font-black text-emerald-800 text-base bg-emerald-100/70 border border-emerald-300 px-2.5 py-0.5 rounded-md inline-block">
+                                    {toBanglaNumber(app.assigned_permanent_roll || "০১")}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div>
+                                  <span className="text-xs text-slate-500 block">পরীক্ষার রোল</span>
+                                  <span className="font-mono font-bold text-slate-800 text-sm">
+                                    {app.roll_number}
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -893,14 +897,57 @@ export default function PublicAdmissionPage() {
                             <div className="bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between text-xs">
                               <span className="text-slate-600 font-medium">ভর্তি পরীক্ষার মোট নম্বর:</span>
                               <span className="font-bold text-emerald-800 font-mono">
-                                {toBanglaNumber(app.test_evaluation.total_marks || 0)} / ১০০
+                                {toBanglaNumber(app.test_evaluation.total_marks || 0)} / {toBanglaNumber(app.test_evaluation.total_max_marks || 100)}
                               </span>
                             </div>
                           )}
 
-                          {/* Action Link */}
+                          {/* Action / Next Step Section */}
                           <div className="pt-1">
-                            {hasAdmitCard ? (
+                            {app.status === "CONFIRMED" ? (
+                              <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3.5 space-y-3">
+                                <div className="flex items-start gap-2.5">
+                                  <div className="p-2 bg-emerald-600 text-white rounded-lg shrink-0 mt-0.5 shadow-xs">
+                                    <ShieldCheck className="w-4 h-4" />
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <h5 className="text-xs font-bold text-emerald-950">ভর্তি চূড়ান্তভাবে সম্পন্ন হয়েছে</h5>
+                                      <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-bold px-1.5 py-0.2 rounded">নিয়মিত ছাত্র</span>
+                                    </div>
+                                    <p className="text-[11px] text-emerald-800 leading-relaxed">
+                                      আপনার ভর্তি কার্যক্রম সফল হয়েছে। ক্লাস রুটিন, দৈনিক হাজিরা, নোটিশ ও অন্যান্য একাডেমিক সেবার জন্য সরাসরি শিক্ষার্থী/অভিভাবক পোর্টালে লগইন করুন।
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                  <Link
+                                    href="/login"
+                                    className="flex-1 py-2.5 px-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition"
+                                  >
+                                    <LogIn className="w-3.5 h-3.5 text-emerald-200" />
+                                    <span>পোর্টালে লগইন করুন</span>
+                                  </Link>
+                                  <Link
+                                    href="/portal"
+                                    className="py-2.5 px-3 bg-white hover:bg-emerald-100/70 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition text-center whitespace-nowrap"
+                                  >
+                                    <span>সরাসরি ড্যাশবোর্ড</span>
+                                    <ArrowRight className="w-3.5 h-3.5" />
+                                  </Link>
+                                </div>
+                              </div>
+                            ) : app.status === "MERIT_SELECTED" ? (
+                              <Link
+                                href={`/admission/card/${app.id}`}
+                                target="_blank"
+                                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-xs"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                <span>মেধাতালিকা উত্তীর্ণ প্রবেশপত্র প্রিন্ট করুন</span>
+                              </Link>
+                            ) : app.status === "ADMIT_ISSUED" ? (
                               <Link
                                 href={`/admission/card/${app.id}`}
                                 target="_blank"
@@ -909,6 +956,10 @@ export default function PublicAdmissionPage() {
                                 <Printer className="w-3.5 h-3.5" />
                                 <span>প্রবেশপত্র (Admit Card) প্রিন্ট করুন</span>
                               </Link>
+                            ) : app.status === "REJECTED" ? (
+                              <div className="w-full py-2 bg-rose-100/70 border border-rose-200 text-rose-800 rounded-lg text-xs text-center font-medium">
+                                এই সেশনের জন্য আবেদনটি গৃহীত হয়নি
+                              </div>
                             ) : (
                               <div className="w-full py-2 bg-amber-100/70 border border-amber-200 text-amber-800 rounded-lg text-xs text-center font-medium">
                                 মাদরাসা অফিস থেকে প্রবেশপত্র অনুমোদনের অপেক্ষায়

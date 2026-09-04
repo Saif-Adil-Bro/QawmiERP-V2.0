@@ -28,7 +28,7 @@ import {
   Layers,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-import { AdmissionApplication, ADMISSION_STATUS_MAP } from "@/lib/admissions";
+import { AdmissionApplication, ADMISSION_STATUS_MAP, EvaluationSubject, curateClassList } from "@/lib/admissions";
 import {
   submitAdmissionApplication,
   updateAdmissionApplication,
@@ -51,6 +51,7 @@ export default function AdmissionsClient({
   initialApplications,
   classes,
 }: AdmissionsClientProps) {
+  const curatedClasses = curateClassList(classes || []);
   const [applications, setApplications] = useState<AdmissionApplication[]>(initialApplications);
   const [activeTab, setActiveTab] = useState<"all" | "evaluation" | "confirmed">("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -87,8 +88,8 @@ export default function AdmissionsClient({
     emergency_phone: "",
     present_address: "",
     permanent_address: "",
-    target_class_id: classes[0]?.id || "",
-    target_class_name: classes[0]?.name || "",
+    target_class_id: curatedClasses[0]?.id || "",
+    target_class_name: curatedClasses[0]?.name || "",
     residential_status: "আবাসিক",
     previous_institution: "",
     previous_class_or_para: "",
@@ -107,12 +108,24 @@ export default function AdmissionsClient({
     room_no: "১০১ (একাডেমিক ভবন)",
   });
 
-  // Evaluation Form
-  const [evalData, setEvalData] = useState({
-    written_marks: 0,
-    oral_marks: 0,
-    quran_tilawat_marks: 0,
+  // Evaluation Form with Dynamic Custom Subjects & Examiner Profile
+  const [evalData, setEvalData] = useState<{
+    subjects: EvaluationSubject[];
+    evaluated_by: string;
+    evaluator_designation: string;
+    remarks: string;
+    pass_cutoff: number;
+    written_marks?: number;
+    oral_marks?: number;
+    quran_tilawat_marks?: number;
+  }>({
+    subjects: [
+      { id: "sub_1", name: "লিখিত পরীক্ষা (Written)", max_marks: 40, obtained_marks: 0 },
+      { id: "sub_2", name: "মৌখিক পরীক্ষা (Oral)", max_marks: 30, obtained_marks: 0 },
+      { id: "sub_3", name: "কুরআন তিলাওয়াত (Tilawat)", max_marks: 30, obtained_marks: 0 },
+    ],
     evaluated_by: "",
+    evaluator_designation: "প্রধান পরীক্ষক",
     remarks: "",
     pass_cutoff: 50,
   });
@@ -199,11 +212,100 @@ export default function AdmissionsClient({
     }
   };
 
+  const handleAddSubject = () => {
+    const newId = `sub_${Date.now()}`;
+    setEvalData({
+      ...evalData,
+      subjects: [
+        ...evalData.subjects,
+        { id: newId, name: "", max_marks: 20, obtained_marks: 0 },
+      ],
+    });
+  };
+
+  const handleRemoveSubject = (id: string) => {
+    if (evalData.subjects.length <= 1) {
+      alert("কমপক্ষে একটি পরীক্ষা বিষয় রাখা আবশ্যক!");
+      return;
+    }
+    setEvalData({
+      ...evalData,
+      subjects: evalData.subjects.filter((s) => s.id !== id),
+    });
+  };
+
+  const handleSubjectChange = (
+    id: string,
+    field: "name" | "max_marks" | "obtained_marks",
+    value: any
+  ) => {
+    setEvalData({
+      ...evalData,
+      subjects: evalData.subjects.map((s) => (s.id === id ? { ...s, [field]: value } : s)),
+    });
+  };
+
+  const applySubjectPreset = (preset: "hifz" | "kitab" | "general" | "nurani") => {
+    if (preset === "hifz") {
+      setEvalData({
+        ...evalData,
+        subjects: [
+          { id: "sub_1", name: "হিফজ শুনানী ও মুখস্থ মান", max_marks: 50, obtained_marks: 0 },
+          { id: "sub_2", name: "তাজবীদ ও মাখরাজ শুদ্ধতা", max_marks: 30, obtained_marks: 0 },
+          { id: "sub_3", name: "সাধারণ মাসায়েল ও লিখিত", max_marks: 20, obtained_marks: 0 },
+        ],
+      });
+    } else if (preset === "kitab") {
+      setEvalData({
+        ...evalData,
+        subjects: [
+          { id: "sub_1", name: "আরবি ব্যাকরণ ও এবারত (নাহব-সরফ)", max_marks: 40, obtained_marks: 0 },
+          { id: "sub_2", name: "পূর্ববর্তী কিতাব ও তারজমা", max_marks: 30, obtained_marks: 0 },
+          { id: "sub_3", name: "কুরআন তিলাওয়াত ও দ্বীনিয়াত", max_marks: 30, obtained_marks: 0 },
+        ],
+      });
+    } else if (preset === "nurani") {
+      setEvalData({
+        ...evalData,
+        subjects: [
+          { id: "sub_1", name: "কুরআন নাজেরা ও সিফাত", max_marks: 40, obtained_marks: 0 },
+          { id: "sub_2", name: "মৌখিক দোয়া ও হাদিস", max_marks: 30, obtained_marks: 0 },
+          { id: "sub_3", name: "বাংলা ও গণিত হাতেখড়ি", max_marks: 30, obtained_marks: 0 },
+        ],
+      });
+    } else {
+      setEvalData({
+        ...evalData,
+        subjects: [
+          { id: "sub_1", name: "লিখিত পরীক্ষা (বাংলা, আরবি, গণিত)", max_marks: 40, obtained_marks: 0 },
+          { id: "sub_2", name: "মৌখিক পরীক্ষা ও সাধারণ জ্ঞান", max_marks: 30, obtained_marks: 0 },
+          { id: "sub_3", name: "কুরআন তিলাওয়াত ও মাসনুন দোয়া", max_marks: 30, obtained_marks: 0 },
+        ],
+      });
+    }
+  };
+
   const handleEvalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedApp) return;
     setIsLoading(true);
-    const res = await evaluateAdmissionTest(selectedApp.id, evalData);
+
+    const totalMax = evalData.subjects.reduce((sum, s) => sum + (Number(s.max_marks) || 0), 0);
+    const totalObtained = evalData.subjects.reduce((sum, s) => sum + (Number(s.obtained_marks) || 0), 0);
+
+    const payload = {
+      subjects: evalData.subjects,
+      evaluated_by: evalData.evaluated_by,
+      evaluator_designation: evalData.evaluator_designation,
+      remarks: evalData.remarks,
+      pass_cutoff: evalData.pass_cutoff,
+      total_marks: totalObtained,
+      written_marks: evalData.subjects[0]?.obtained_marks || 0,
+      oral_marks: evalData.subjects[1]?.obtained_marks || 0,
+      quran_tilawat_marks: evalData.subjects[2]?.obtained_marks || 0,
+    };
+
+    const res = await evaluateAdmissionTest(selectedApp.id, payload);
     setIsLoading(false);
 
     if (res.error) {
@@ -213,9 +315,11 @@ export default function AdmissionsClient({
       setShowEvalModal(false);
       showNotification(
         "success",
-        `নম্বর এন্ট্রি সংরক্ষিত হয়েছে! মোট প্রাপ্ত নম্বর: ${toBanglaNumber(
+        `নম্বর এন্ট্রি সংরক্ষিত হয়েছে! প্রাপ্ত নম্বর: ${toBanglaNumber(
           res.application.test_evaluation?.total_marks || 0
-        )} (${res.application.status === "MERIT_SELECTED" ? "মেধাতালিকায় নির্বাচিত" : "বাতিল"})`
+        )}/${toBanglaNumber(totalMax)} (${
+          res.application.status === "MERIT_SELECTED" ? "মেধাতালিকায় উত্তীর্ণ" : "বাতিল / অপেক্ষমান"
+        })`
       );
     }
   };
@@ -331,14 +435,46 @@ export default function AdmissionsClient({
 
   const openEvaluation = (app: AdmissionApplication) => {
     setSelectedApp(app);
-    setEvalData({
-      written_marks: app.test_evaluation?.written_marks || 0,
-      oral_marks: app.test_evaluation?.oral_marks || 0,
-      quran_tilawat_marks: app.test_evaluation?.quran_tilawat_marks || 0,
-      evaluated_by: app.test_evaluation?.evaluated_by || "",
-      remarks: app.test_evaluation?.remarks || "",
-      pass_cutoff: 50,
-    });
+    const existingSubs = app.test_evaluation?.subjects;
+    if (existingSubs && existingSubs.length > 0) {
+      setEvalData({
+        subjects: existingSubs,
+        evaluated_by: app.test_evaluation?.evaluated_by || "",
+        evaluator_designation: app.test_evaluation?.evaluator_designation || "প্রধান পরীক্ষক",
+        remarks: app.test_evaluation?.remarks || "",
+        pass_cutoff: 50,
+      });
+    } else {
+      const clsName = app.target_class_name || "";
+      const isHifz = clsName.includes("হিফজ") || clsName.includes("নাজেরা");
+      const isKitab = clsName.includes("মিযান") || clsName.includes("নাহবেমীর") || clsName.includes("হেদায়া") || clsName.includes("দাওরা") || clsName.includes("সানাবিয়া");
+
+      const defaultSubs: EvaluationSubject[] = isHifz
+        ? [
+            { id: "sub_1", name: "হিফজ শুনানী ও মুখস্থ মান", max_marks: 50, obtained_marks: app.test_evaluation?.oral_marks || 0 },
+            { id: "sub_2", name: "তাজবীদ ও মাখরাজ শুদ্ধতা", max_marks: 30, obtained_marks: app.test_evaluation?.quran_tilawat_marks || 0 },
+            { id: "sub_3", name: "সাধারণ মাসায়েল ও লিখিত", max_marks: 20, obtained_marks: app.test_evaluation?.written_marks || 0 },
+          ]
+        : isKitab
+        ? [
+            { id: "sub_1", name: "আরবি ব্যাকরণ ও এবারত (নাহব-সরফ)", max_marks: 40, obtained_marks: app.test_evaluation?.written_marks || 0 },
+            { id: "sub_2", name: "পূর্ববর্তী কিতাব ও তারজমা", max_marks: 30, obtained_marks: app.test_evaluation?.oral_marks || 0 },
+            { id: "sub_3", name: "কুরআন তিলাওয়াত ও দ্বীনিয়াত", max_marks: 30, obtained_marks: app.test_evaluation?.quran_tilawat_marks || 0 },
+          ]
+        : [
+            { id: "sub_1", name: "লিখিত পরীক্ষা (বাংলা, আরবি, গণিত)", max_marks: 40, obtained_marks: app.test_evaluation?.written_marks || 0 },
+            { id: "sub_2", name: "মৌখিক পরীক্ষা ও সাধারণ জ্ঞান", max_marks: 30, obtained_marks: app.test_evaluation?.oral_marks || 0 },
+            { id: "sub_3", name: "কুরআন তিলাওয়াত ও মাসনুন দোয়া", max_marks: 30, obtained_marks: app.test_evaluation?.quran_tilawat_marks || 0 },
+          ];
+
+      setEvalData({
+        subjects: defaultSubs,
+        evaluated_by: app.test_evaluation?.evaluated_by || "",
+        evaluator_designation: app.test_evaluation?.evaluator_designation || "প্রধান পরীক্ষক",
+        remarks: app.test_evaluation?.remarks || "",
+        pass_cutoff: 50,
+      });
+    }
     setShowEvalModal(true);
   };
 
@@ -775,51 +911,96 @@ export default function AdmissionsClient({
 
                     <td className="p-3.5 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        {/* Approve Schedule for Pending/Issued */}
-                        {app.status !== "CONFIRMED" && (
+                        {/* 1. If Pending: Show Schedule & Approve button */}
+                        {app.status === "PENDING" && (
                           <button
                             onClick={() => openScheduleModal(app)}
-                            title="পরীক্ষার শিডিউল ও প্রবেশপত্র অনুমোদন"
-                            className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                            title="পরীক্ষার শিডিউল ও প্রবেশপত্র অনুমোদন করুন"
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
                           >
-                            <Calendar className="w-4 h-4" />
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">শিডিউল দিন</span>
                           </button>
                         )}
 
-                        {/* Print Admit Card */}
-                        <Link
-                          href={`/admission/card/${app.id}`}
-                          target="_blank"
-                          title="প্রবেশপত্র প্রিন্ট"
-                          className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
-                        >
-                          <Printer className="w-4 h-4" />
-                        </Link>
+                        {/* 2. If Admit Issued: Show Print Admit Card, Evaluate Marks, and Reschedule */}
+                        {app.status === "ADMIT_ISSUED" && (
+                          <>
+                            <Link
+                              href={`/admission/card/${app.id}`}
+                              target="_blank"
+                              title="প্রবেশপত্র প্রিন্ট করুন"
+                              className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </Link>
 
-                        {/* Evaluate Marks */}
-                        <button
-                          onClick={() => openEvaluation(app)}
-                          title="এন্ট্রি টেস্ট নম্বর ইনপুট"
-                          className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
-                        >
-                          <Award className="w-4 h-4" />
-                        </button>
+                            <button
+                              onClick={() => openEvaluation(app)}
+                              title="ভর্তি পরীক্ষার বিষয় ও নম্বর মূল্যায়ন এন্ট্রি"
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
+                            >
+                              <Award className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">নম্বর এন্ট্রি</span>
+                            </button>
 
-                        {/* Confirm to Student if not yet confirmed */}
-                        {app.status !== "CONFIRMED" && (
-                          <button
-                            onClick={() => openConfirm(app)}
-                            title="ভর্তি নিশ্চিতকরণ ও শিক্ষার্থী আইডি প্রদান"
-                            className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                            <button
+                              onClick={() => openScheduleModal(app)}
+                              title="শিডিউল পরিবর্তন করুন"
+                              className="p-1.5 text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                            >
+                              <Calendar className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+
+                        {/* 3. If Merit Selected: Show Confirm Admission (Primary), Re-evaluate & Print Merit Card */}
+                        {app.status === "MERIT_SELECTED" && (
+                          <>
+                            <button
+                              onClick={() => openConfirm(app)}
+                              title="ভর্তি নিশ্চিত করুন ও শিক্ষার্থী আইডি প্রদান করুন"
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
+                            >
+                              <UserCheck className="w-3.5 h-3.5" />
+                              <span>ভর্তি নিশ্চিত করুন</span>
+                            </button>
+
+                            <button
+                              onClick={() => openEvaluation(app)}
+                              title="নম্বর বা বিষয় পুনঃমূল্যায়ন"
+                              className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+                            >
+                              <Award className="w-4 h-4" />
+                            </button>
+
+                            <Link
+                              href={`/admission/card/${app.id}`}
+                              target="_blank"
+                              title="মেধা ফলাফল ও প্রবেশপত্র প্রিন্ট"
+                              className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </Link>
+                          </>
+                        )}
+
+                        {/* 4. If Confirmed: Show Student Profile Link in Student Management */}
+                        {app.status === "CONFIRMED" && (
+                          <Link
+                            href={`/dashboard/students?search=${encodeURIComponent(app.applicant_name_bn)}`}
+                            title="ছাত্র ব্যবস্থাপনা মডিউলে শিক্ষার্থীর বিস্তারিত প্রোফাইল দেখুন"
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold transition cursor-pointer"
                           >
-                            <UserCheck className="w-4 h-4" />
-                          </button>
+                            <UserCheck className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>ছাত্র প্রোফাইল</span>
+                          </Link>
                         )}
 
                         {/* Edit Button */}
                         <button
                           onClick={() => openEdit(app)}
-                          title="সম্পাদনা করুন"
+                          title="আবেদনের তথ্য সম্পাদনা করুন"
                           className="p-1.5 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition cursor-pointer"
                         >
                           <Edit className="w-4 h-4" />
@@ -1103,10 +1284,10 @@ export default function AdmissionsClient({
         </div>
       )}
 
-      {/* MODAL 3: Evaluation / Test Marks Input */}
+      {/* MODAL 3: Evaluation / Test Marks Input & Manual Subject Management */}
       {showEvalModal && selectedApp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl my-8">
             <div className="flex items-center justify-between border-b pb-3">
               <div>
                 <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
@@ -1114,115 +1295,238 @@ export default function AdmissionsClient({
                   <span>ভর্তি পরীক্ষা মূল্যায়ন ও নম্বর এন্ট্রি</span>
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  শিক্ষার্থী: {selectedApp.applicant_name_bn} • রোল: {selectedApp.roll_number}
+                  শিক্ষার্থী: <span className="font-bold text-slate-800">{selectedApp.applicant_name_bn}</span> • জামাত: <span className="font-bold text-slate-800">{selectedApp.target_class_name}</span> • পরীক্ষার রোল: <span className="font-bold text-indigo-700">{selectedApp.roll_number}</span>
                 </p>
               </div>
               <button
                 onClick={() => setShowEvalModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
+            {/* Quick Presets Bar */}
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                  <span>দ্রুত বিষয় সিলেক্ট (Presets):</span>
+                </span>
+                <span className="text-[11px] text-slate-400">প্রয়োজনে যেকোনো বিষয় ও নম্বর পরিবর্তন করতে পারবেন</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => applySubjectPreset("nurani")}
+                  className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+                >
+                  নূরানী ও নাজেরা
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applySubjectPreset("hifz")}
+                  className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+                >
+                  হিফজুল কুরআন
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applySubjectPreset("kitab")}
+                  className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+                >
+                  কিতাব বিভাগ (নাহব/সরফ)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applySubjectPreset("general")}
+                  className="px-2.5 py-1 bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+                >
+                  সাধারণ ও প্রাথমিক জামাত
+                </button>
+              </div>
+            </div>
+
             <form onSubmit={handleEvalSubmit} className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    লিখিত পরীক্ষা (৫০)
+              {/* Dynamic Subjects List */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-800">
+                    পরীক্ষার বিষয় ও নম্বর বিভাজন (Exam Subjects & Marks)
                   </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={50}
-                    value={evalData.written_marks}
-                    onChange={(e) =>
-                      setEvalData({ ...evalData, written_marks: Number(e.target.value) })
-                    }
-                    className="w-full px-3 py-2 border rounded-xl text-center text-base font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500"
-                  />
+                  <button
+                    type="button"
+                    onClick={handleAddSubject}
+                    className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ বিষয় যোগ করুন</span>
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    মৌখিক পরীক্ষা (৩০)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={30}
-                    value={evalData.oral_marks}
-                    onChange={(e) =>
-                      setEvalData({ ...evalData, oral_marks: Number(e.target.value) })
-                    }
-                    className="w-full px-3 py-2 border rounded-xl text-center text-base font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
+                <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-200">
+                  <div className="grid grid-cols-12 bg-slate-100 p-2.5 text-xs font-bold text-slate-700 text-center">
+                    <div className="col-span-6 text-left px-2">বিষয়ের নাম</div>
+                    <div className="col-span-3">পূর্ণমান (Max)</div>
+                    <div className="col-span-2">প্রাপ্ত নম্বর</div>
+                    <div className="col-span-1">মুছুন</div>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    কুরআন তিলাওয়াত (২০)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={20}
-                    value={evalData.quran_tilawat_marks}
-                    onChange={(e) =>
-                      setEvalData({ ...evalData, quran_tilawat_marks: Number(e.target.value) })
-                    }
-                    className="w-full px-3 py-2 border rounded-xl text-center text-base font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500"
-                  />
+                  {evalData.subjects.map((sub, idx) => (
+                    <div key={sub.id || idx} className="grid grid-cols-12 p-2 gap-2 items-center bg-white">
+                      <div className="col-span-6 px-1">
+                        <input
+                          type="text"
+                          required
+                          placeholder="যেমন: মৌখিক পরীক্ষা"
+                          value={sub.name}
+                          onChange={(e) => handleSubjectChange(sub.id, "name", e.target.value)}
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs sm:text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div className="col-span-3 px-1">
+                        <input
+                          type="number"
+                          required
+                          min={1}
+                          max={200}
+                          value={sub.max_marks}
+                          onChange={(e) =>
+                            handleSubjectChange(sub.id, "max_marks", Number(e.target.value))
+                          }
+                          className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-center text-xs sm:text-sm font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 font-mono"
+                        />
+                      </div>
+                      <div className="col-span-2 px-1">
+                        <input
+                          type="number"
+                          required
+                          min={0}
+                          max={sub.max_marks || 100}
+                          value={sub.obtained_marks}
+                          onChange={(e) =>
+                            handleSubjectChange(sub.id, "obtained_marks", Number(e.target.value))
+                          }
+                          className="w-full px-2 py-1.5 border-2 border-indigo-300 rounded-lg text-center text-xs sm:text-sm font-black text-indigo-900 focus:ring-2 focus:ring-indigo-500 bg-indigo-50/50 font-mono"
+                        />
+                      </div>
+                      <div className="col-span-1 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSubject(sub.id)}
+                          title="এই বিষয় মুছুন"
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {/* Total Calculation Display */}
-              <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-xl flex items-center justify-between">
+              {/* Total Calculation & Status Preview */}
+              {(() => {
+                const totalMax = evalData.subjects.reduce(
+                  (sum, s) => sum + (Number(s.max_marks) || 0),
+                  0
+                );
+                const totalObtained = evalData.subjects.reduce(
+                  (sum, s) => sum + (Number(s.obtained_marks) || 0),
+                  0
+                );
+                const pct = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : 0;
+                const isPassed = totalObtained >= (evalData.pass_cutoff || 50);
+
+                return (
+                  <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-indigo-900">
+                          সর্বমোট প্রাপ্ত নম্বর:
+                        </span>
+                        <span className="text-xs text-indigo-600 font-semibold">
+                          (শতকরা {toBanglaNumber(pct)}%)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-600 font-medium">
+                          পাস নম্বর নির্ধারণ:
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={totalMax}
+                          value={evalData.pass_cutoff}
+                          onChange={(e) =>
+                            setEvalData({ ...evalData, pass_cutoff: Number(e.target.value) })
+                          }
+                          className="w-16 px-2 py-0.5 border border-indigo-200 rounded text-center text-xs font-bold bg-white text-indigo-900"
+                        />
+                        <span className="text-[11px] text-slate-500">নম্বর</span>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-2xl font-black text-indigo-950 font-mono">
+                        {toBanglaNumber(totalObtained)} / {toBanglaNumber(totalMax)}
+                      </div>
+                      <div className="mt-0.5">
+                        {isPassed ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-xs font-extrabold">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>উত্তীর্ণ (মেধাতালিকায় যাবে)</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-100 text-rose-800 rounded-full text-xs font-bold">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            <span>অনুপযুক্ত / ফেল</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Evaluator & Remarks Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <span className="text-xs text-indigo-700 font-semibold block">সর্বমোট প্রাপ্ত নম্বর (১০০ এর মধ্যে):</span>
-                  <span className="text-xs text-indigo-500">পাস নম্বর: ৫০</span>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    মূল্যায়নকারী পরীক্ষকের নাম
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="যেমন: মাওলানা ক্বারী ইলিয়াস আহমদ"
+                    value={evalData.evaluated_by}
+                    onChange={(e) => setEvalData({ ...evalData, evaluated_by: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500"
+                  />
                 </div>
-                <div className="text-right">
-                  <span className="text-2xl font-black text-indigo-900 font-mono">
-                    {toBanglaNumber(
-                      (evalData.written_marks || 0) +
-                        (evalData.oral_marks || 0) +
-                        (evalData.quran_tilawat_marks || 0)
-                    )}
-                  </span>
-                  <span className="text-xs text-slate-500 font-bold block">
-                    {(evalData.written_marks || 0) +
-                      (evalData.oral_marks || 0) +
-                      (evalData.quran_tilawat_marks || 0) >=
-                    50 ? (
-                      <span className="text-emerald-700 font-extrabold">উত্তীর্ণ (পাস)</span>
-                    ) : (
-                      <span className="text-rose-600 font-bold">অনুপযুক্ত</span>
-                    )}
-                  </span>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    পরীক্ষকের পদবি / দায়িত্ব
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="যেমন: প্রধান পরীক্ষক / সিনিয়র উস্তাদ"
+                    value={evalData.evaluator_designation}
+                    onChange={(e) =>
+                      setEvalData({ ...evalData, evaluator_designation: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500"
+                  />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  মূল্যায়নকারী পরীক্ষকের নাম
+                  পরীক্ষকের মন্তব্য ও পর্যালোচনা
                 </label>
                 <input
                   type="text"
-                  placeholder="যেমন: মাওলানা ক্বারী ইলিয়াস আহমদ"
-                  value={evalData.evaluated_by}
-                  onChange={(e) => setEvalData({ ...evalData, evaluated_by: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  মন্তব্য
-                </label>
-                <input
-                  type="text"
-                  placeholder="তেলাওয়াত সুন্দর, উচ্চারণ পরিষ্কার"
+                  placeholder="যেমন: তেলাওয়াত অত্যন্ত সুন্দর ও বিশুদ্ধ, এবারত পড়া সন্তোষজনক"
                   value={evalData.remarks}
                   onChange={(e) => setEvalData({ ...evalData, remarks: e.target.value })}
                   className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500"
@@ -1242,7 +1546,7 @@ export default function AdmissionsClient({
                   disabled={isLoading}
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer"
                 >
-                  {isLoading ? "সংরক্ষণ হচ্ছে..." : "নম্বর সংরক্ষণ করুন"}
+                  {isLoading ? "সংরক্ষণ হচ্ছে..." : "নম্বর ও বিষয়াদি সংরক্ষণ করুন"}
                 </button>
               </div>
             </form>

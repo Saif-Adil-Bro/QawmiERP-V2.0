@@ -412,12 +412,21 @@ export async function updateAdmissionApplication(id: string, updates: Partial<Ad
 export async function evaluateAdmissionTest(
   id: string,
   evaluation: {
+    subjects?: Array<{
+      id: string;
+      name: string;
+      max_marks: number;
+      obtained_marks: number;
+    }>;
     written_marks?: number;
     oral_marks?: number;
     quran_tilawat_marks?: number;
-    evaluated_by?: string;
-    remarks?: string;
+    total_marks?: number;
+    total_max_marks?: number;
     pass_cutoff?: number;
+    evaluated_by?: string;
+    evaluator_designation?: string;
+    remarks?: string;
   }
 ) {
   try {
@@ -433,22 +442,44 @@ export async function evaluateAdmissionTest(
       return { error: "আবেদন খুঁজে পাওয়া যায়নি।" };
     }
 
-    const written = Number(evaluation.written_marks || 0);
-    const oral = Number(evaluation.oral_marks || 0);
-    const quran = Number(evaluation.quran_tilawat_marks || 0);
-    const total = written + oral + quran;
-    const percentage = Math.round((total / 100) * 100);
+    let total = 0;
+    let totalMax = 100;
+    let written = Number(evaluation.written_marks || 0);
+    let oral = Number(evaluation.oral_marks || 0);
+    let quran = Number(evaluation.quran_tilawat_marks || 0);
+
+    if (evaluation.subjects && evaluation.subjects.length > 0) {
+      total = evaluation.subjects.reduce((sum, s) => sum + Number(s.obtained_marks || 0), 0);
+      totalMax = evaluation.subjects.reduce((sum, s) => sum + Number(s.max_marks || 0), 0) || 100;
+      
+      // Map to legacy fields for backward compatibility if names match
+      const wSub = evaluation.subjects.find(s => s.name.includes("লিখিত"));
+      const oSub = evaluation.subjects.find(s => s.name.includes("মৌখিক"));
+      const qSub = evaluation.subjects.find(s => s.name.includes("তিলাওয়াত") || s.name.includes("হিফজ") || s.name.includes("কুরআন"));
+      if (wSub) written = wSub.obtained_marks;
+      if (oSub) oral = oSub.obtained_marks;
+      if (qSub) quran = qSub.obtained_marks;
+    } else {
+      total = written + oral + quran;
+      totalMax = 100;
+    }
+
+    const percentage = totalMax > 0 ? Math.round((total / totalMax) * 100) : 0;
     const cutoff = evaluation.pass_cutoff ?? 50;
     const is_passed = total >= cutoff;
 
     const testEval = {
+      subjects: evaluation.subjects,
       written_marks: written,
       oral_marks: oral,
       quran_tilawat_marks: quran,
       total_marks: total,
+      total_max_marks: totalMax,
+      pass_marks: cutoff,
       percentage,
       is_passed,
       evaluated_by: evaluation.evaluated_by || "পরীক্ষক প্যানেল",
+      evaluator_designation: evaluation.evaluator_designation || "নাজেমে তা'লীমাত / পরীক্ষক",
       evaluated_at: new Date().toISOString().split("T")[0],
       remarks: evaluation.remarks || (is_passed ? "উত্তীর্ণ" : "অনুপযুক্ত"),
       merit_position: list[idx].test_evaluation?.merit_position,
@@ -467,6 +498,7 @@ export async function evaluateAdmissionTest(
     await saveMadrasaMetadata(madrasaId, meta);
 
     revalidatePath("/dashboard/admissions");
+    revalidatePath("/admission");
     return { success: true, application: list[idx] };
   } catch (err: any) {
     return { error: err.message };
