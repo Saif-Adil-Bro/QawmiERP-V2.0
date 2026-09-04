@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { StudentIDCard } from "@/lib/id-card-management";
+import { StudentIDCard, IDCardFieldVisibility } from "@/lib/id-card-management";
 import StudentIdCardTemplate, { IDCardTemplateType } from "@/app/components/StudentIdCardTemplate";
 import {
   IdCard,
@@ -30,6 +30,8 @@ interface DigitalIdCardViewProps {
   themeColor?: string;
   madrasaNameSize?: string;
   customExpiryDate?: string;
+  fieldVisibility?: Partial<IDCardFieldVisibility>;
+  customInstructions?: string[];
 }
 
 export default function DigitalIdCardView({
@@ -42,6 +44,8 @@ export default function DigitalIdCardView({
   themeColor,
   madrasaNameSize,
   customExpiryDate,
+  fieldVisibility,
+  customInstructions,
 }: DigitalIdCardViewProps) {
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [copied, setCopied] = useState(false);
@@ -227,6 +231,8 @@ export default function DigitalIdCardView({
               madrasaNameSize={madrasaNameSize}
               customExpiryDate={customExpiryDate}
               studentPhotoUrl={effectivePhotoUrl}
+              fieldVisibility={fieldVisibility}
+              customInstructions={customInstructions}
               madrasaInfo={madrasaInfo}
               qrDataUrl={qrDataUrl}
               scale={1.25}
@@ -298,6 +304,8 @@ export default function DigitalIdCardView({
                 madrasaNameSize={madrasaNameSize}
                 customExpiryDate={customExpiryDate}
                 studentPhotoUrl={effectivePhotoUrl}
+                fieldVisibility={fieldVisibility}
+                customInstructions={customInstructions}
                 madrasaInfo={madrasaInfo}
                 qrDataUrl={qrDataUrl}
               />
@@ -312,6 +320,8 @@ export default function DigitalIdCardView({
                 madrasaNameSize={madrasaNameSize}
                 customExpiryDate={customExpiryDate}
                 studentPhotoUrl={effectivePhotoUrl}
+                fieldVisibility={fieldVisibility}
+                customInstructions={customInstructions}
                 madrasaInfo={madrasaInfo}
                 qrDataUrl={qrDataUrl}
               />

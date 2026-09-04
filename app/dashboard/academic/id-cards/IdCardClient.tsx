@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import PrintButton from "@/app/components/PrintButton";
 import {
   IdCard,
@@ -43,13 +43,17 @@ import {
   IDCardAuditLog,
   normalizeStudentIdCode,
   IDCardFieldVisibility,
+  IDCardBuilderConfig,
   DEFAULT_FIELD_VISIBILITY,
+  DEFAULT_BUILDER_CONFIG,
 } from "@/lib/id-card-management";
 import {
   issueStudentIdCard,
   bulkGenerateIdCards,
   reissueStudentIdCard,
   updateIdCardStatus,
+  saveIdCardBuilderConfig,
+  resetIdCardBuilderConfig,
 } from "@/app/actions/id-card-management";
 import DigitalIdCardView from "@/app/components/DigitalIdCardView";
 import StudentIdCardTemplate from "@/app/components/StudentIdCardTemplate";
@@ -84,6 +88,7 @@ interface IdCardClientProps {
     templates: any[];
     auditLogs: IDCardAuditLog[];
     stats: { total: number; active: number; expired: number; lost: number; blocked: number; reissued: number };
+    builderConfig?: IDCardBuilderConfig;
   };
   allStudents: any[];
   classes: { id: string; name: string }[];
@@ -109,6 +114,8 @@ export default function IdCardClient({
   userType,
   madrasaInfo,
 }: IdCardClientProps) {
+  const cfg = initialData?.builderConfig;
+
   const [activeTab, setActiveTab] = useState<"cards" | "generator" | "builder" | "audit">("cards");
   const [cards, setCards] = useState<StudentIDCard[]>(initialData.cards || []);
   const [auditLogs, setAuditLogs] = useState<IDCardAuditLog[]>(initialData.auditLogs || []);
@@ -124,18 +131,49 @@ export default function IdCardClient({
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [previewCard, setPreviewCard] = useState<StudentIDCard | null>(null);
   const [selectedStudentForIssue, setSelectedStudentForIssue] = useState("");
+  const [issueModalSearch, setIssueModalSearch] = useState("");
+  const [issueModalClassFilter, setIssueModalClassFilter] = useState("ALL");
+  const [issueModalCardFilter, setIssueModalCardFilter] = useState<"ALL" | "UNISSUED" | "ISSUED">("ALL");
   const [bulkClassId, setBulkClassId] = useState("ALL");
   const [reissueReason, setReissueReason] = useState("");
   const [cardToReissue, setCardToReissue] = useState<StudentIDCard | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
+  const [isSavingBuilder, setIsSavingBuilder] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // Active Card Mapping
+  const activeCardStudentIds = useMemo(() => {
+    return new Set(cards.filter((c) => c.status === "ACTIVE").map((c) => c.student_id));
+  }, [cards]);
+
+  // Filtered Students for Modal 1 (Issue ID Card)
+  const filteredStudentsForIssue = useMemo(() => {
+    return (allStudents || []).filter((s, idx) => {
+      const sId = s.student_id || (s.roll_number ? `480${String(s.roll_number).padStart(3, "0")}` : `480${String(idx + 1).padStart(3, "0")}`);
+      const name = `${s.first_name || ""} ${s.last_name || ""}`.toLowerCase();
+      const roll = String(s.roll_number || "");
+      const q = issueModalSearch.toLowerCase().trim();
+
+      const matchesSearch = !q || name.includes(q) || sId.toLowerCase().includes(q) || roll.includes(q);
+      const matchesClass = issueModalClassFilter === "ALL" || s.class_id === issueModalClassFilter || s.classes?.id === issueModalClassFilter;
+      const hasActiveCard = activeCardStudentIds.has(s.id);
+      const matchesCardStatus =
+        issueModalCardFilter === "ALL"
+          ? true
+          : issueModalCardFilter === "UNISSUED"
+          ? !hasActiveCard
+          : hasActiveCard;
+
+      return matchesSearch && matchesClass && matchesCardStatus;
+    });
+  }, [allStudents, issueModalSearch, issueModalClassFilter, issueModalCardFilter, activeCardStudentIds]);
+
   // Print Generator Customization States
-  const [template, setTemplate] = useState("classic_islamic");
-  const [themeColor, setThemeColor] = useState("blue");
-  const [madrasaNameSize, setMadrasaNameSize] = useState("medium");
-  const [cardSide, setCardSide] = useState<"front" | "back" | "both">("both");
-  const [banglaFont, setBanglaFont] = useState("font-solaiman");
+  const [template, setTemplate] = useState(cfg?.template || "classic_islamic");
+  const [themeColor, setThemeColor] = useState(cfg?.themeColor || "emerald");
+  const [madrasaNameSize, setMadrasaNameSize] = useState(cfg?.madrasaNameSize || "medium");
+  const [cardSide, setCardSide] = useState<"front" | "back" | "both">(cfg?.cardSide || "both");
+  const [banglaFont, setBanglaFont] = useState(cfg?.banglaFont || "font-solaiman");
   const [titleFontSize, setTitleFontSize] = useState(11);
   const [addressFontSize, setAddressFontSize] = useState(8.5);
   const [nameFontSize, setNameFontSize] = useState(12.5);
@@ -147,18 +185,18 @@ export default function IdCardClient({
 
   // ID Card Builder & Customizer State
   const [editableMadrasaInfo, setEditableMadrasaInfo] = useState({
-    name: madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন",
-    name_arabic: "الجامعة الإسلامية دار العلوم",
-    address: madrasaInfo?.address || "কাটিয়ারচর, কিশোরগঞ্জ",
-    phone: madrasaInfo?.phone || "01600989555",
-    website: madrasaInfo?.website || "www.qawmierp.app",
-    logo_url: madrasaInfo?.logo_url || "",
-    principal_name: madrasaInfo?.principal_name || "",
-    signature_url: madrasaInfo?.signature_url || madrasaInfo?.principal_signature_url || "",
+    name: cfg?.editableMadrasaInfo?.name || madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন",
+    name_arabic: cfg?.editableMadrasaInfo?.name_arabic || "الجامعة الإسلامية دار العلوم",
+    address: cfg?.editableMadrasaInfo?.address || madrasaInfo?.address || "কাটিয়ারচর, কিশোরগঞ্জ",
+    phone: cfg?.editableMadrasaInfo?.phone || madrasaInfo?.phone || "01600989555",
+    website: cfg?.editableMadrasaInfo?.website || madrasaInfo?.website || "www.qawmierp.app",
+    logo_url: cfg?.editableMadrasaInfo?.logo_url || madrasaInfo?.logo_url || "",
+    principal_name: cfg?.editableMadrasaInfo?.principal_name !== undefined ? cfg.editableMadrasaInfo.principal_name : (madrasaInfo?.principal_name || ""),
+    signature_url: cfg?.editableMadrasaInfo?.signature_url || madrasaInfo?.signature_url || madrasaInfo?.principal_signature_url || "",
   });
 
   useEffect(() => {
-    if (madrasaInfo) {
+    if (madrasaInfo && !cfg?.editableMadrasaInfo) {
       setEditableMadrasaInfo((prev) => ({
         ...prev,
         name: madrasaInfo.name || prev.name,
@@ -170,14 +208,16 @@ export default function IdCardClient({
         signature_url: madrasaInfo.signature_url || madrasaInfo.principal_signature_url || prev.signature_url,
       }));
     }
-  }, [madrasaInfo]);
+  }, [madrasaInfo, cfg]);
 
-  const [signatureTitle, setSignatureTitle] = useState("মুহতামিম / অধ্যক্ষ");
-  const [qrLabel, setQrLabel] = useState("যাচাই করুন");
-  const [customExpiryDate, setCustomExpiryDate] = useState("31-08-2027");
+  const [signatureTitle, setSignatureTitle] = useState(cfg?.signatureTitle || "মুহতামিম / অধ্যক্ষ");
+  const [qrLabel, setQrLabel] = useState(cfg?.qrLabel || "যাচাই করুন");
+  const [customExpiryDate, setCustomExpiryDate] = useState(cfg?.customExpiryDate || "31-08-2027");
 
   // Field Selection Visibility (Customizable Card Fields)
-  const [fieldVisibility, setFieldVisibility] = useState<IDCardFieldVisibility>(DEFAULT_FIELD_VISIBILITY);
+  const [fieldVisibility, setFieldVisibility] = useState<IDCardFieldVisibility>(
+    cfg?.fieldVisibility ? { ...DEFAULT_FIELD_VISIBILITY, ...cfg.fieldVisibility } : DEFAULT_FIELD_VISIBILITY
+  );
 
   // Sample overrides for interactive canvas preview
   const [sampleCustomBloodGroup, setSampleCustomBloodGroup] = useState<string>("");
@@ -193,15 +233,20 @@ export default function IdCardClient({
   const [editorSubTab, setEditorSubTab] = useState<"template" | "branding" | "fields" | "backside" | "advanced">("template");
   const [newInstructionText, setNewInstructionText] = useState("");
 
-  const [customInstructions, setCustomInstructions] = useState<string[]>([
-    "মাদরাসায় অবস্থানকালীন সময়ে কার্ডটি পরিধান করা বাধ্যতামূলক।",
-    "এই কার্ডটি মাদরাসার সম্পত্তি এবং এটি হস্তান্তরযোগ্য নয়।",
-    "কার্ড হারিয়ে গেলে কর্তৃপক্ষকে অবিলম্বে অবহিত করতে হবে।",
-    "কার্ডটি পাওয়া গেলে নিচের ঠিকানায় ফেরত দিন।",
-  ]);
+  const [customInstructions, setCustomInstructions] = useState<string[]>(
+    cfg?.customInstructions && cfg.customInstructions.length > 0
+      ? cfg.customInstructions
+      : [
+          "মাদরাসায় অবস্থানকালীন সময়ে কার্ডটি পরিধান করা বাধ্যতামূলক।",
+          "এই কার্ডটি মাদরাসার সম্পত্তি এবং এটি হস্তান্তরযোগ্য নয়।",
+          "কার্ড হারিয়ে গেলে কর্তৃপক্ষকে অবিলম্বে অবহিত করতে হবে।",
+          "কার্ডটি পাওয়া গেলে নিচের ঠিকানায় ফেরত দিন।",
+        ]
+  );
 
   const [termsAndConditions, setTermsAndConditions] = useState<string>(
-    "This identity card is issued by the authority. It is non-transferable and must be returned if found."
+    cfg?.termsAndConditions ||
+      "This identity card is issued by the authority. It is non-transferable and must be returned if found."
   );
 
   const handleAddInstruction = () => {
@@ -214,10 +259,24 @@ export default function IdCardClient({
     setCustomInstructions(customInstructions.filter((_, i) => i !== index));
   };
 
-  const handleResetBuilderDefaults = () => {
+  const handleResetBuilderDefaults = async () => {
+    setIsSavingBuilder(true);
+    setActionMessage(null);
+
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("qm_id_card_builder_config");
+      }
+    } catch {}
+
+    const res = await resetIdCardBuilderConfig();
+    setIsSavingBuilder(false);
+
     setTemplate("classic_islamic");
-    setThemeColor("blue");
+    setThemeColor("emerald");
     setMadrasaNameSize("medium");
+    setBanglaFont("font-solaiman");
+    setCardSide("both");
     setFieldVisibility(DEFAULT_FIELD_VISIBILITY);
     setEditableMadrasaInfo({
       name: madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন",
@@ -238,11 +297,54 @@ export default function IdCardClient({
       "কার্ড হারিয়ে গেলে কর্তৃপক্ষকে অবিলম্বে অবহিত করতে হবে।",
       "কার্ডটি পাওয়া গেলে নিচের ঠিকানায় ফেরত দিন।",
     ]);
-    setActionMessage({ type: "success", text: "ডিফল্ট কাস্টমাইজেশন রিস্টোর করা হয়েছে!" });
+    setTermsAndConditions(
+      "This identity card is issued by the authority. It is non-transferable and must be returned if found."
+    );
+
+    if (res.error) {
+      setActionMessage({ type: "error", text: res.error });
+    } else {
+      setActionMessage({ type: "success", text: "ডিফল্ট কাস্টমাইজেশন ডাটাবেজ সহ রিস্টোর করা হয়েছে!" });
+    }
   };
 
-  const handleSaveBuilderSettings = () => {
-    setActionMessage({ type: "success", text: "আইডি কার্ডের টেমপ্লেট ও কাস্টম ডিজাইন সেটিংস সফলভাবে সংরক্ষণ করা হয়েছে!" });
+  const handleSaveBuilderSettings = async () => {
+    setIsSavingBuilder(true);
+    setActionMessage(null);
+
+    const configToSave: IDCardBuilderConfig = {
+      template,
+      themeColor,
+      madrasaNameSize,
+      banglaFont,
+      cardSide,
+      fieldVisibility,
+      editableMadrasaInfo,
+      signatureTitle,
+      qrLabel,
+      customExpiryDate,
+      customInstructions,
+      termsAndConditions,
+      updated_at: new Date().toISOString(),
+    };
+
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("qm_id_card_builder_config", JSON.stringify(configToSave));
+      }
+    } catch {}
+
+    const res = await saveIdCardBuilderConfig(configToSave);
+    setIsSavingBuilder(false);
+
+    if (res.error) {
+      setActionMessage({ type: "error", text: res.error });
+    } else {
+      setActionMessage({
+        type: "success",
+        text: "আইডি কার্ডের টেমপ্লেট ও কাস্টম ফিল্ড টিকমার্ক ডিজাইন সেটিংস সফলভাবে ডাটাবেজে সংরক্ষিত হয়েছে!",
+      });
+    }
   };
 
   const handlePrintTestCard = () => {
@@ -864,6 +966,7 @@ export default function IdCardClient({
                     templateId={template}
                     themeColor={themeColor}
                     madrasaNameSize={madrasaNameSize}
+                    fieldVisibility={fieldVisibility}
                     customExpiryDate={customExpiryDate}
                     madrasaInfo={editableMadrasaInfo}
                     customInstructions={customInstructions}
@@ -940,16 +1043,18 @@ export default function IdCardClient({
               <button
                 type="button"
                 onClick={handleSaveBuilderSettings}
-                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                disabled={isSavingBuilder}
+                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 text-xs font-black rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Save className="w-4 h-4" />
-                <span>ডিজাইন সেভ করুন</span>
+                <span>{isSavingBuilder ? "সংরক্ষণ হচ্ছে..." : "ডিজাইন সেভ করুন"}</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleResetBuilderDefaults}
-                className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                disabled={isSavingBuilder}
+                className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                 title="ডিফল্ট সেটিংস রিসেট করুন"
               >
                 <RotateCcw className="w-4 h-4" />
@@ -1881,41 +1986,231 @@ export default function IdCardClient({
         </div>
       )}
 
-      {/* MODAL 1: Single Issue Modal */}
+      {/* MODAL 1: Single Issue Modal with Search & Filters */}
       {showIssueModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in duration-150">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="font-black text-slate-900 text-base">নতুন শিক্ষার্থী আইডি কার্ড ইস্যু</h3>
-              <button type="button" onClick={() => setShowIssueModal(false)} className="text-slate-400 hover:text-slate-600">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100">
+                  <IdCard className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-sm sm:text-base">নতুন শিক্ষার্থী আইডি কার্ড ইস্যু</h3>
+                  <p className="text-[11px] text-slate-500">শিক্ষার্থী খুঁজে বের করে ডিজিটাল আইডি কার্ড প্রস্তুত করুন</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowIssueModal(false);
+                  setIssueModalSearch("");
+                  setIssueModalClassFilter("ALL");
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3">
-              <label className="text-xs font-bold text-slate-700 block">শিক্ষার্থী নির্বাচন করুন:</label>
-              <select
-                value={selectedStudentForIssue}
-                onChange={(e) => setSelectedStudentForIssue(e.target.value)}
-                className="w-full p-3 border border-slate-200 rounded-2xl text-xs font-semibold bg-slate-50 focus:bg-white focus:outline-none"
-              >
-                <option value="">-- শিক্ষার্থী বাছাই করুন --</option>
-                {allStudents.map((s, idx) => {
-                  const sId = s.student_id || (s.roll_number ? `480${String(s.roll_number).padStart(3, "0")}` : `480${String(idx + 1).padStart(3, "0")}`);
-                  return (
-                    <option key={s.id} value={s.id}>
-                      [আইডি: {sId}] {s.first_name} {s.last_name || ""} ({s.classes?.name || "জামাতহীন"} - রোল: {s.roll_number || "-"})
-                    </option>
-                  );
-                })}
-              </select>
+            {/* Search & Class Filters Bar */}
+            <div className="space-y-2.5 shrink-0">
+              <div className="flex flex-col sm:flex-row gap-2">
+                {/* Search Input */}
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                  <input
+                    type="text"
+                    value={issueModalSearch}
+                    onChange={(e) => setIssueModalSearch(e.target.value)}
+                    placeholder="নাম, আইডি কোড বা রোল দিয়ে খুঁজুন..."
+                    className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:bg-white focus:border-emerald-500 focus:outline-none transition"
+                  />
+                  {issueModalSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setIssueModalSearch("")}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Class Filter Dropdown */}
+                <div className="sm:w-44">
+                  <select
+                    value={issueModalClassFilter}
+                    onChange={(e) => setIssueModalClassFilter(e.target.value)}
+                    className="w-full py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-none transition"
+                  >
+                    <option value="ALL">সকল জামাত</option>
+                    {classes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Status Filter Chips */}
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setIssueModalCardFilter("ALL")}
+                  className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                    issueModalCardFilter === "ALL"
+                      ? "bg-slate-900 text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  সকল শিক্ষার্থী ({allStudents.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIssueModalCardFilter("UNISSUED")}
+                  className={`px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1 ${
+                    issueModalCardFilter === "UNISSUED"
+                      ? "bg-amber-600 text-white shadow-2xs"
+                      : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200/60"
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span>কার্ড নেই ({allStudents.filter((s) => !activeCardStudentIds.has(s.id)).length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIssueModalCardFilter("ISSUED")}
+                  className={`px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1 ${
+                    issueModalCardFilter === "ISSUED"
+                      ? "bg-emerald-600 text-white shadow-2xs"
+                      : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/60"
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span>ইস্যুকৃত ({allStudents.filter((s) => activeCardStudentIds.has(s.id)).length})</span>
+                </button>
+              </div>
             </div>
 
-            <div className="pt-2 flex justify-end gap-2">
+            {/* Student List View */}
+            <div className="flex-1 overflow-y-auto min-h-[160px] max-h-[240px] pr-1 space-y-1.5 border border-slate-100 rounded-2xl p-1 bg-slate-50/50">
+              {filteredStudentsForIssue.length > 0 ? (
+                filteredStudentsForIssue.map((s, idx) => {
+                  const sId = s.student_id || (s.roll_number ? `480${String(s.roll_number).padStart(3, "0")}` : `480${String(idx + 1).padStart(3, "0")}`);
+                  const isSelected = selectedStudentForIssue === s.id;
+                  const hasActiveCard = activeCardStudentIds.has(s.id);
+                  const photoUrl = getDirectPhotoUrl(s.photo_url);
+
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSelectedStudentForIssue(s.id)}
+                      className={`w-full text-left p-2.5 rounded-xl border transition flex items-center justify-between gap-3 cursor-pointer ${
+                        isSelected
+                          ? "bg-emerald-50/80 border-emerald-500 shadow-2xs ring-1 ring-emerald-500"
+                          : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {/* Avatar */}
+                        <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
+                          {photoUrl ? (
+                            <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-[11px] font-black text-slate-500">
+                              {(s.first_name || "শ")[0]}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Info */}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-bold text-slate-900 truncate">
+                              {s.first_name} {s.last_name || ""}
+                            </p>
+                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-bold">
+                              ID: {sId}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 truncate">
+                            {s.classes?.name || "জামাতহীন"} • রোল: {s.roll_number || "—"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Status Badges & Selection Indicator */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {hasActiveCard ? (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                            সচল কার্ড আছে
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                            কার্ড নেই
+                          </span>
+                        )}
+
+                        <div
+                          className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                            isSelected
+                              ? "border-emerald-600 bg-emerald-600 text-white"
+                              : "border-slate-300 bg-white"
+                          }`}
+                        >
+                          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="py-8 text-center space-y-1">
+                  <Search className="w-6 h-6 text-slate-300 mx-auto" />
+                  <p className="text-xs font-bold text-slate-600">কোনো শিক্ষার্থী পাওয়া যায়নি</p>
+                  <p className="text-[10px] text-slate-400">ফিল্টার অথবা অনুসন্ধানের কি-ওয়ার্ড পরিবর্তন করুন</p>
+                </div>
+              )}
+            </div>
+
+            {/* Selected Student Confirmation Pill */}
+            {selectedStudentForIssue && (
+              <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between text-xs shrink-0">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <span className="font-bold text-emerald-950">
+                      {allStudents.find((s) => s.id === selectedStudentForIssue)?.first_name}{" "}
+                      {allStudents.find((s) => s.id === selectedStudentForIssue)?.last_name || ""}
+                    </span>
+                    <span className="text-[11px] text-emerald-800 ml-1.5">
+                      ({allStudents.find((s) => s.id === selectedStudentForIssue)?.classes?.name || "জামাতহীন"} - রোল:{" "}
+                      {allStudents.find((s) => s.id === selectedStudentForIssue)?.roll_number || "—"})
+                    </span>
+                  </div>
+                </div>
+                {activeCardStudentIds.has(selectedStudentForIssue) && (
+                  <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
+                    রি-ইস্যু হবে
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="pt-2 border-t border-slate-100 flex justify-end gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => setShowIssueModal(false)}
-                className="px-4 py-2.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl"
+                onClick={() => {
+                  setShowIssueModal(false);
+                  setIssueModalSearch("");
+                  setIssueModalClassFilter("ALL");
+                }}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
               >
                 বাতিল
               </button>
@@ -1924,9 +2219,19 @@ export default function IdCardClient({
                 type="button"
                 onClick={handleIssueSingle}
                 disabled={loadingAction || !selectedStudentForIssue}
-                className="px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-xs hover:bg-emerald-700 transition disabled:opacity-50"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-xs transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
               >
-                {loadingAction ? "ইস্যু হচ্ছে..." : "ইস্যু করুন"}
+                {loadingAction ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>ইস্যু হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <IdCard className="w-4 h-4" />
+                    <span>আইডি কার্ড ইস্যু করুন</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -2063,6 +2368,8 @@ export default function IdCardClient({
               themeColor={themeColor}
               madrasaNameSize={madrasaNameSize}
               customExpiryDate={customExpiryDate}
+              fieldVisibility={fieldVisibility}
+              customInstructions={customInstructions}
               showActions={true}
             />
           </div>

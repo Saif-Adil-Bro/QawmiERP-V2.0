@@ -8,7 +8,9 @@ import {
   IDCardStatus,
   IDCardTemplateConfig,
   IDCardAuditLog,
+  IDCardBuilderConfig,
   DEFAULT_IDCARD_TEMPLATES,
+  DEFAULT_BUILDER_CONFIG,
   generateVerificationToken,
   formatCardNumber,
   normalizeStudentIdCode,
@@ -168,6 +170,7 @@ export async function getIdCardsData(filters?: {
       templates,
       auditLogs,
       stats,
+      builderConfig: meta.id_card_builder_config || DEFAULT_BUILDER_CONFIG,
     };
   } catch (err) {
     console.error("Error in getIdCardsData:", err);
@@ -176,6 +179,7 @@ export async function getIdCardsData(filters?: {
       templates: DEFAULT_IDCARD_TEMPLATES,
       auditLogs: [],
       stats: { total: 0, active: 0, expired: 0, lost: 0, blocked: 0, reissued: 0 },
+      builderConfig: DEFAULT_BUILDER_CONFIG,
     };
   }
 }
@@ -652,10 +656,120 @@ export async function getStudentDigitalId(studentId: string) {
         address: madrasa?.address || "ঢাকা, বাংলাদেশ",
         phone: madrasa?.contact_phone || "01700000000",
       },
+      builderConfig: meta.id_card_builder_config || DEFAULT_BUILDER_CONFIG,
     };
   } catch (err) {
     console.error("Error fetching student digital ID:", err);
     return null;
+  }
+}
+
+/**
+ * Persist ID Card Builder and Template Customization Settings
+ */
+export async function saveIdCardBuilderConfig(config: Partial<IDCardBuilderConfig>) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত ব্যবহারকারী" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const meta = await getMadrasaMetadata(madrasaId);
+
+    const existingConfig: IDCardBuilderConfig = meta.id_card_builder_config || DEFAULT_BUILDER_CONFIG;
+
+    const mergedConfig: IDCardBuilderConfig = {
+      ...existingConfig,
+      ...config,
+      fieldVisibility: {
+        ...existingConfig.fieldVisibility,
+        ...(config.fieldVisibility || {}),
+      },
+      editableMadrasaInfo: {
+        ...(existingConfig.editableMadrasaInfo || {}),
+        ...(config.editableMadrasaInfo || {}),
+      },
+      updated_at: new Date().toISOString(),
+    };
+
+    meta.id_card_builder_config = mergedConfig;
+
+    // Also sync the template list if needed
+    const templates: IDCardTemplateConfig[] = meta.id_card_templates || DEFAULT_IDCARD_TEMPLATES;
+    const currentTplIdx = templates.findIndex((t) => t.id === mergedConfig.template);
+    if (currentTplIdx >= 0) {
+      templates[currentTplIdx] = {
+        ...templates[currentTplIdx],
+        theme_color: mergedConfig.themeColor,
+        field_visibility: mergedConfig.fieldVisibility,
+        custom_instructions: mergedConfig.customInstructions || templates[currentTplIdx].custom_instructions,
+        terms_and_conditions: mergedConfig.termsAndConditions || templates[currentTplIdx].terms_and_conditions,
+      };
+      meta.id_card_templates = templates;
+    }
+
+    // Audit log
+    const auditLogs: IDCardAuditLog[] = meta.id_card_audit_logs || [];
+    auditLogs.unshift({
+      id: `log_${Date.now()}`,
+      madrasa_id: madrasaId,
+      action: "CREATED",
+      user_name: user.email?.split("@")[0] || "Admin",
+      student_id: "SETTINGS",
+      card_number: "BUILDER-CONFIG",
+      details: `আইডি কার্ডের টেমপ্লেট (${mergedConfig.template}) ও ফিল্ড প্রদর্শন সেটিংস সফলভাবে আপডেট ও সংরক্ষণ করা হয়েছে।`,
+      created_at: new Date().toISOString(),
+    });
+    meta.id_card_audit_logs = auditLogs;
+
+    const saved = await saveMadrasaMetadata(madrasaId, meta);
+    if (!saved) {
+      return { error: "মেটাডাটা ডাটাবেজে সংরক্ষণ করতে ব্যর্থ হয়েছে।" };
+    }
+
+    revalidatePath("/dashboard/academic/id-cards");
+    revalidatePath("/dashboard/students");
+
+    return {
+      success: true,
+      builderConfig: mergedConfig,
+    };
+  } catch (err: any) {
+    console.error("Error saving ID card builder config:", err);
+    return { error: err.message || "আইডি কার্ড সেটিংস সংরক্ষণ করতে ব্যর্থ হয়েছে।" };
+  }
+}
+
+/**
+ * Reset ID Card Builder Configuration to Default
+ */
+export async function resetIdCardBuilderConfig() {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত ব্যবহারকারী" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const meta = await getMadrasaMetadata(madrasaId);
+
+    meta.id_card_builder_config = {
+      ...DEFAULT_BUILDER_CONFIG,
+      updated_at: new Date().toISOString(),
+    };
+
+    const saved = await saveMadrasaMetadata(madrasaId, meta);
+    if (!saved) {
+      return { error: "রিসেট ডাটাবেজে সংরক্ষণ করতে ব্যর্থ হয়েছে।" };
+    }
+
+    revalidatePath("/dashboard/academic/id-cards");
+    return {
+      success: true,
+      builderConfig: meta.id_card_builder_config,
+    };
+  } catch (err: any) {
+    console.error("Error resetting ID card builder config:", err);
+    return { error: err.message || "রিসেট করতে ব্যর্থ হয়েছে।" };
   }
 }
 

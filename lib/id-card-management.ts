@@ -62,6 +62,50 @@ export const DEFAULT_FIELD_VISIBILITY: IDCardFieldVisibility = {
   qr_code: true,
 };
 
+export interface IDCardBuilderConfig {
+  template: string;
+  themeColor: string;
+  madrasaNameSize: string;
+  banglaFont?: string;
+  cardSide?: "front" | "back" | "both";
+  fieldVisibility: IDCardFieldVisibility;
+  editableMadrasaInfo?: {
+    name?: string;
+    name_arabic?: string;
+    address?: string;
+    phone?: string;
+    website?: string;
+    logo_url?: string;
+    principal_name?: string;
+    signature_url?: string;
+  };
+  signatureTitle?: string;
+  qrLabel?: string;
+  customExpiryDate?: string;
+  customInstructions?: string[];
+  termsAndConditions?: string;
+  updated_at?: string;
+}
+
+export const DEFAULT_BUILDER_CONFIG: IDCardBuilderConfig = {
+  template: "classic_islamic",
+  themeColor: "emerald",
+  madrasaNameSize: "medium",
+  banglaFont: "font-solaiman",
+  cardSide: "both",
+  fieldVisibility: DEFAULT_FIELD_VISIBILITY,
+  signatureTitle: "মুহতামিম / অধ্যক্ষ",
+  qrLabel: "যাচাই করুন",
+  customExpiryDate: "31-08-2027",
+  customInstructions: [
+    "মাদরাসায় অবস্থানকালীন সময়ে কার্ডটি পরিধান করা বাধ্যতামূলক।",
+    "এই কার্ডটি মাদরাসার সম্পত্তি এবং এটি হস্তান্তরযোগ্য নয়।",
+    "কার্ড হারিয়ে গেলে কর্তৃপক্ষকে অবিলম্বে অবহিত করতে হবে।",
+    "কার্ডটি পাওয়া গেলে নিচের ঠিকানায় ফেরত দিন।",
+  ],
+  termsAndConditions: "This identity card is issued by the authority. It is non-transferable and must be returned if found.",
+};
+
 export interface IDCardTemplateConfig {
   id: string;
   name: string;
@@ -86,6 +130,7 @@ export interface IDCardAuditLog {
 export interface MadrasaIDCardMetadata {
   id_cards?: StudentIDCard[];
   id_card_templates?: IDCardTemplateConfig[];
+  id_card_builder_config?: IDCardBuilderConfig;
   id_card_audit_logs?: IDCardAuditLog[];
   id_card_counter?: number;
 }
