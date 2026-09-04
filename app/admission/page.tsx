@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   GraduationCap,
@@ -19,10 +19,18 @@ import {
   ArrowRight,
   ShieldCheck,
   ChevronRight,
+  Upload,
+  Camera,
+  X,
+  BookOpen,
+  HelpCircle,
+  Check,
+  Building,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { submitAdmissionApplication, searchAdmissionPublic } from "@/app/actions/admissions";
 import { getClasses } from "@/app/actions/students";
+import { calculateBanglaAge, ADMISSION_STATUS_MAP } from "@/lib/admissions";
 
 export default function PublicAdmissionPage() {
   const [activeTab, setActiveTab] = useState<"apply" | "search">("apply");
@@ -37,6 +45,12 @@ export default function PublicAdmissionPage() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
 
+  // File Upload State
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [photoPreview, setPhotoPreview] = useState<string>("");
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState<boolean>(false);
+  const [uploadProvider, setUploadProvider] = useState<string>("");
+
   // Form State
   const [formData, setFormData] = useState({
     applicant_name_bn: "",
@@ -45,6 +59,7 @@ export default function PublicAdmissionPage() {
     gender: "MALE" as "MALE" | "FEMALE",
     blood_group: "",
     birth_reg_no: "",
+    photo_url: "",
     father_name: "",
     father_occupation: "",
     mother_name: "",
@@ -52,6 +67,7 @@ export default function PublicAdmissionPage() {
     guardian_relation: "পিতা",
     guardian_phone: "",
     emergency_phone: "",
+    email: "",
     present_address: "",
     permanent_address: "",
     target_class_id: "",
@@ -59,6 +75,11 @@ export default function PublicAdmissionPage() {
     residential_status: "আবাসিক" as "আবাসিক" | "অনাবাসিক" | "ডে-কেয়ার",
     previous_institution: "",
     previous_class_or_para: "",
+    department_category: "general" as "hifz" | "kitab" | "general",
+    hifz_para_memorized: "",
+    hifz_tajweed_quality: "উত্তম",
+    kitab_previous_kitab: "",
+    kitab_previous_grade: "মুমতাজ (১ম বিভাগ)",
   });
 
   useEffect(() => {
@@ -74,10 +95,16 @@ export default function PublicAdmissionPage() {
       ];
       setClasses(clsList);
       if (clsList.length > 0 && !formData.target_class_id) {
+        const firstCls = clsList[0];
+        const isHifz = firstCls.name.includes("হিফজ") || firstCls.name.includes("নাজেরা");
+        const isKitab = firstCls.name.includes("মিযান") || firstCls.name.includes("কিতাব") || firstCls.name.includes("সানাবিয়া") || firstCls.name.includes("দাওরা");
+        const cat = isHifz ? "hifz" : isKitab ? "kitab" : "general";
+
         setFormData((prev) => ({
           ...prev,
-          target_class_id: clsList[0].id,
-          target_class_name: clsList[0].name,
+          target_class_id: firstCls.id,
+          target_class_name: firstCls.name,
+          department_category: cat,
         }));
       }
     });
@@ -85,25 +112,88 @@ export default function PublicAdmissionPage() {
 
   const handleClassChange = (classId: string) => {
     const selected = classes.find((c) => c.id === classId);
+    const clsName = selected ? selected.name : "";
+    const isHifz = clsName.includes("হিফজ") || clsName.includes("নাজেরা");
+    const isKitab = clsName.includes("মিযান") || clsName.includes("কিতাব") || clsName.includes("সানাবিয়া") || clsName.includes("দাওরা") || clsName.includes("হিদায়া");
+    const cat = isHifz ? "hifz" : isKitab ? "kitab" : "general";
+
     setFormData((prev) => ({
       ...prev,
       target_class_id: classId,
-      target_class_name: selected ? selected.name : "",
+      target_class_name: clsName,
+      department_category: cat,
     }));
   };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert("ছবির সাইজ সর্বোচ্চ ২ মেগাবাইট হতে পারবে।");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        setPhotoPreview(base64);
+        setIsUploadingPhoto(true);
+        setUploadProvider("");
+
+        try {
+          const res = await fetch("/api/upload-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imageBase64: base64,
+              filename: file.name,
+            }),
+          });
+          const data = await res.json();
+          if (data.url) {
+            setFormData((prev) => ({ ...prev, photo_url: data.url }));
+            setUploadProvider(data.provider || "Free Image Host");
+          } else {
+            setFormData((prev) => ({ ...prev, photo_url: base64 }));
+          }
+        } catch (err) {
+          console.warn("Failed to upload to external host, saving local data URL:", err);
+          setFormData((prev) => ({ ...prev, photo_url: base64 }));
+        } finally {
+          setIsUploadingPhoto(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removePhoto = () => {
+    setPhotoPreview("");
+    setUploadProvider("");
+    setFormData((prev) => ({ ...prev, photo_url: "" }));
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const computedAge = formData.date_of_birth
+    ? calculateBanglaAge(formData.date_of_birth)
+    : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    if (!formData.applicant_name_bn || !formData.father_name || !formData.guardian_phone || !formData.present_address) {
+    if (!formData.applicant_name_bn.trim() || !formData.father_name.trim() || !formData.guardian_phone.trim() || !formData.present_address.trim()) {
       setErrorMessage("দয়া করে সকল বাধ্যতামূলক তথ্য (তারকাচিহ্নিত) সঠিকভাবে পূরণ করুন।");
       setIsSubmitting(false);
       return;
     }
 
-    const res = await submitAdmissionApplication(formData);
+    const res = await submitAdmissionApplication({
+      ...formData,
+      status: "PENDING", // By default stays in pending review
+    });
     setIsSubmitting(false);
 
     if (res.error) {
@@ -134,10 +224,10 @@ export default function PublicAdmissionPage() {
             </div>
             <div>
               <h1 className="font-bold text-lg sm:text-xl text-slate-900 leading-tight">
-                অনলাইন ভর্তি ও প্রবেশপত্র পোর্টাল
+                অনলাইন ভর্তি ও ফলাফল পোর্টাল
               </h1>
               <p className="text-xs text-slate-500">
-                নতুন শিক্ষাবর্ষ ১৪৪৭-৪৮ হিজরি (২০২৬-২৭) • কওমি মাদরাসা ভর্তি ব্যবস্থা
+                শিক্ষাবর্ষ ১৪৪৭-৪৮ হিজরি (২০২৬-২৭) • কওমি মাদরাসা ভর্তি ব্যবস্থা
               </p>
             </div>
           </div>
@@ -146,7 +236,7 @@ export default function PublicAdmissionPage() {
               href="/dashboard"
               className="text-xs sm:text-sm font-semibold text-slate-600 hover:text-emerald-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-emerald-300 transition"
             >
-              অফিস লগইন
+              মাদরাসা লগইন
             </Link>
           </div>
         </div>
@@ -160,7 +250,7 @@ export default function PublicAdmissionPage() {
               setActiveTab("apply");
               setSubmissionSuccess(null);
             }}
-            className={`flex-1 py-2.5 px-4 text-xs sm:text-sm font-bold rounded-lg transition flex items-center justify-center gap-2 ${
+            className={`flex-1 py-2.5 px-4 text-xs sm:text-sm font-bold rounded-lg transition flex items-center justify-center gap-2 cursor-pointer ${
               activeTab === "apply"
                 ? "bg-white text-emerald-700 shadow-xs"
                 : "text-slate-600 hover:text-slate-900"
@@ -171,7 +261,7 @@ export default function PublicAdmissionPage() {
           </button>
           <button
             onClick={() => setActiveTab("search")}
-            className={`flex-1 py-2.5 px-4 text-xs sm:text-sm font-bold rounded-lg transition flex items-center justify-center gap-2 ${
+            className={`flex-1 py-2.5 px-4 text-xs sm:text-sm font-bold rounded-lg transition flex items-center justify-center gap-2 cursor-pointer ${
               activeTab === "search"
                 ? "bg-white text-emerald-700 shadow-xs"
                 : "text-slate-600 hover:text-slate-900"
@@ -194,7 +284,7 @@ export default function PublicAdmissionPage() {
                 <div className="space-y-2 max-w-md mx-auto">
                   <h2 className="text-2xl font-bold text-slate-900">ভর্তি আবেদন সফলভাবে গৃহীত হয়েছে!</h2>
                   <p className="text-slate-600 text-sm">
-                    আলহামদুলিল্লাহ, আপনার আবেদনটি নিবন্ধিত হয়েছে। ভর্তি পরীক্ষার প্রবেশপত্র তৈরি প্রস্তুত।
+                    আলহামদুলিল্লাহ, আপনার আবেদনটি নিবন্ধিত হয়েছে। মাদরাসা কর্তৃপক্ষ তথ্য পর্যালোচনা করে পরীক্ষার সময়সূচি চূড়ান্ত করবে।
                   </p>
                 </div>
 
@@ -206,13 +296,13 @@ export default function PublicAdmissionPage() {
                     </p>
                   </div>
                   <div>
-                    <span className="text-xs text-slate-500 font-medium">পরীক্ষার রোল (Exam Roll):</span>
+                    <span className="text-xs text-slate-500 font-medium">পরীক্ষার সম্ভাব্য রোল:</span>
                     <p className="text-base sm:text-lg font-bold text-slate-900 font-mono">
                       {submissionSuccess.roll_number}
                     </p>
                   </div>
                   <div>
-                    <span className="text-xs text-slate-500 font-medium">শিক্ষার্থী:</span>
+                    <span className="text-xs text-slate-500 font-medium">শিক্ষার্থীর নাম:</span>
                     <p className="text-sm font-semibold text-slate-800">
                       {submissionSuccess.application?.applicant_name_bn}
                     </p>
@@ -225,6 +315,16 @@ export default function PublicAdmissionPage() {
                   </div>
                 </div>
 
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl max-w-lg mx-auto text-xs text-amber-800 text-left space-y-1">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-amber-600" />
+                    <span>পরবর্তী করণীয়:</span>
+                  </p>
+                  <p>
+                    আপনার আবেদন নম্বর <span className="font-mono font-bold text-amber-900">{submissionSuccess.application_no}</span> টি সংরক্ষণ করুন। মাদরাসা অফিস থেকে আবেদন অনুমোদিত হলে আপনি &quot;প্রবেশপত্র খুঁজুন&quot; ট্যাব থেকে প্রবেশপত্র প্রিন্ট করতে পারবেন।
+                  </p>
+                </div>
+
                 <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                   <Link
                     href={`/admission/card/${submissionSuccess.application?.id}`}
@@ -232,12 +332,13 @@ export default function PublicAdmissionPage() {
                     className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md transition"
                   >
                     <Printer className="w-4 h-4" />
-                    <span>প্রবেশপত্র (Admit Card) প্রিন্ট করুন</span>
+                    <span>প্রবেশপত্র ভিউ / প্রিন্ট</span>
                   </Link>
 
                   <button
                     onClick={() => {
                       setSubmissionSuccess(null);
+                      setPhotoPreview("");
                       setFormData({
                         applicant_name_bn: "",
                         applicant_name_en: "",
@@ -245,6 +346,7 @@ export default function PublicAdmissionPage() {
                         gender: "MALE",
                         blood_group: "",
                         birth_reg_no: "",
+                        photo_url: "",
                         father_name: "",
                         father_occupation: "",
                         mother_name: "",
@@ -252,6 +354,7 @@ export default function PublicAdmissionPage() {
                         guardian_relation: "পিতা",
                         guardian_phone: "",
                         emergency_phone: "",
+                        email: "",
                         present_address: "",
                         permanent_address: "",
                         target_class_id: classes[0]?.id || "",
@@ -259,9 +362,14 @@ export default function PublicAdmissionPage() {
                         residential_status: "আবাসিক",
                         previous_institution: "",
                         previous_class_or_para: "",
+                        department_category: "general",
+                        hifz_para_memorized: "",
+                        hifz_tajweed_quality: "উত্তম",
+                        kitab_previous_kitab: "",
+                        kitab_previous_grade: "মুমতাজ (১ম বিভাগ)",
                       });
                     }}
-                    className="inline-flex items-center gap-2 px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm rounded-xl transition"
+                    className="inline-flex items-center gap-2 px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm rounded-xl transition cursor-pointer"
                   >
                     <span>নতুন আবেদন করুন</span>
                   </button>
@@ -276,7 +384,7 @@ export default function PublicAdmissionPage() {
                     <span>অনলাইনে ভর্তি ফরম পূরণ (১৪৪৭-৪৮ হিজরি)</span>
                   </h2>
                   <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                    নিচের তথ্যগুলো যথাযথভাবে পূরণ করুন। আবেদন সম্পন্ন হলে তাৎক্ষণিক প্রবেশপত্র ডাউনলোড করা যাবে।
+                    নিচের তথ্যগুলো যথাযথভাবে পূরণ করুন। তারকাচিহ্নিত (*) ফিল্ডগুলো পূরণ করা আবশ্যক।
                   </p>
                 </div>
 
@@ -291,7 +399,7 @@ export default function PublicAdmissionPage() {
                   {/* Step 1: Academic Choice */}
                   <div className="space-y-4">
                     <h3 className="text-sm font-bold text-emerald-800 uppercase tracking-wider bg-emerald-50 px-3 py-1.5 rounded-md inline-block">
-                      ১. জামাত ও আবাসিক তথ্য
+                      ১. জামাত ও আবাসিক ধরন
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
@@ -301,7 +409,7 @@ export default function PublicAdmissionPage() {
                         <select
                           value={formData.target_class_id}
                           onChange={(e) => handleClassChange(e.target.value)}
-                          className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                          className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-white font-medium"
                           required
                         >
                           {classes.map((cls) => (
@@ -332,11 +440,77 @@ export default function PublicAdmissionPage() {
                     </div>
                   </div>
 
-                  {/* Step 2: Student Details */}
+                  {/* Step 2: Student Personal Details & Photo */}
                   <div className="space-y-4 pt-2">
                     <h3 className="text-sm font-bold text-emerald-800 uppercase tracking-wider bg-emerald-50 px-3 py-1.5 rounded-md inline-block">
-                      ২. শিক্ষার্থীর ব্যক্তিগত তথ্য
+                      ২. শিক্ষার্থীর ব্যক্তিগত তথ্য ও ছবি
                     </h3>
+
+                    {/* Photo Upload Box */}
+                    <div className="flex flex-col sm:flex-row items-center gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-300 bg-white overflow-hidden flex items-center justify-center relative shrink-0">
+                        {photoPreview ? (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={photoPreview}
+                              alt="Applicant"
+                              className="w-full h-full object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={removePhoto}
+                              className="absolute top-1 right-1 bg-rose-600 text-white rounded-full p-0.5 shadow-md hover:bg-rose-700 cursor-pointer"
+                              title="ছবি মুছুন"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-center text-slate-400 p-2">
+                            <Camera className="w-6 h-6 mx-auto mb-1 opacity-70" />
+                            <span className="text-[10px] block font-medium">ছবি যুক্ত করুন</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 space-y-2 text-center sm:text-left">
+                        <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handlePhotoUpload}
+                            className="hidden"
+                            id="applicant-photo-upload"
+                          />
+                          <label
+                            htmlFor="applicant-photo-upload"
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-white border border-slate-300 hover:border-emerald-500 rounded-lg text-xs font-semibold text-slate-700 hover:text-emerald-700 transition cursor-pointer shadow-2xs"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>ডিভাইস থেকে ছবি আপলোড</span>
+                          </label>
+
+                          {isUploadingPhoto && (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md font-medium animate-pulse">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                              ইমেজ সার্ভারে আপলোড হচ্ছে...
+                            </span>
+                          )}
+
+                          {!isUploadingPhoto && uploadProvider && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 rounded-md font-medium">
+                              ✓ {uploadProvider}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          পাসপোর্ট সাইজের রঙিন ছবি (সর্বোচ্চ ২ মেগাবাইট)। ছবিটি স্বয়ংক্রিয়ভাবে ক্লাউড ইমেজ হোস্টিং সার্ভারে (iili.io / FreeImage / ImgBB) আপলোড হয়ে লিংক যুক্ত হবে।
+                        </p>
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -366,9 +540,16 @@ export default function PublicAdmissionPage() {
                       </div>
 
                       <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          জন্ম তারিখ <span className="text-rose-500">*</span>
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-semibold text-slate-700">
+                            জন্ম তারিখ <span className="text-rose-500">*</span>
+                          </label>
+                          {computedAge && (
+                            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                              বয়স: {computedAge.formattedBn}
+                            </span>
+                          )}
+                        </div>
                         <input
                           type="date"
                           required
@@ -427,10 +608,86 @@ export default function PublicAdmissionPage() {
                     </div>
                   </div>
 
-                  {/* Step 3: Parents & Guardian */}
+                  {/* Step 3: Dynamic Department Specific Fields */}
+                  {formData.department_category === "hifz" && (
+                    <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-3">
+                      <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
+                        <BookOpen className="w-4 h-4 text-emerald-700" />
+                        <span>হিফজুল কুরআন বিভাগ সম্পর্কিত তথ্য</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            পূর্বে কত পারা মুখস্থ আছে? (যদি থাকে)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="যেমন: ৩ পারা সমাপ্ত / নতুন শুরু"
+                            value={formData.hifz_para_memorized}
+                            onChange={(e) => setFormData({ ...formData, hifz_para_memorized: e.target.value })}
+                            className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            নাজেরা ও তিলাওয়াত মান
+                          </label>
+                          <select
+                            value={formData.hifz_tajweed_quality}
+                            onChange={(e) => setFormData({ ...formData, hifz_tajweed_quality: e.target.value })}
+                            className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-white"
+                          >
+                            <option value="মাখরাজ ও তাজবীদসহ বিশুদ্ধ">মাখরাজ ও তাজবীদসহ বিশুদ্ধ</option>
+                            <option value="সাধারণ নাজেরা তিলাওয়াত">সাধারণ নাজেরা তিলাওয়াত</option>
+                            <option value="প্রাথমিক কায়দা সমাপ্ত">প্রাথমিক কায়দা সমাপ্ত</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.department_category === "kitab" && (
+                    <div className="p-4 bg-blue-50/60 border border-blue-200 rounded-xl space-y-3">
+                      <div className="flex items-center gap-2 text-blue-900 font-bold text-sm">
+                        <BookOpen className="w-4 h-4 text-blue-700" />
+                        <span>কিতাব বিভাগ সম্পর্কিত পূর্ববর্তী অভিজ্ঞতা</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            বিগত জামাতে পঠিত কিতাবসমূহ
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="যেমন: মিযান, মুনশাইব, নাহবেমীর"
+                            value={formData.kitab_previous_kitab}
+                            onChange={(e) => setFormData({ ...formData, kitab_previous_kitab: e.target.value })}
+                            className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            বিগত বার্ষিক পরীক্ষার ফলাফল
+                          </label>
+                          <select
+                            value={formData.kitab_previous_grade}
+                            onChange={(e) => setFormData({ ...formData, kitab_previous_grade: e.target.value })}
+                            className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 bg-white"
+                          >
+                            <option value="মুমতাজ (১ম বিভাগ)">মুমতাজ (১ম বিভাগ)</option>
+                            <option value="জায়্যিদ জিদ্দান (২য় বিভাগ)">জায়্যিদ জিদ্দান (২য় বিভাগ)</option>
+                            <option value="জায়্যিদ (৩য় বিভাগ)">জায়্যিদ (৩য় বিভাগ)</option>
+                            <option value="মাকবুল (উত্তীর্ণ)">মাকবুল (উত্তীর্ণ)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 4: Parents & Guardian */}
                   <div className="space-y-4 pt-2">
                     <h3 className="text-sm font-bold text-emerald-800 uppercase tracking-wider bg-emerald-50 px-3 py-1.5 rounded-md inline-block">
-                      ৩. পিতা, মাতা ও অভিভাবকের তথ্য
+                      ৪. পিতা, মাতা ও অভিভাবকের তথ্য
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
@@ -523,7 +780,7 @@ export default function PublicAdmissionPage() {
                       <span>ঘোষণা:</span>
                     </p>
                     <p>
-                      আমি অঙ্গীকার করছি যে উপরে প্রদত্ত সকল তথ্য সত্য ও নির্ভুল। মাদরাসার নিয়মকানুন মেনে চলতে বাধ্য থাকব। আবেদন দাখিল করার সাথে সাথেই পরীক্ষার রোল ও প্রবেশপত্র জেনারেট হবে।
+                      আমি অঙ্গীকার করছি যে উপরে প্রদত্ত সকল তথ্য সত্য ও নির্ভুল। মাদরাসার নিয়মকানুন মেনে চলতে বাধ্য থাকব। আবেদন দাখিল করার পর মাদরাসা অফিস থেকে প্রবেশপত্র ও পরীক্ষার তারিখ অনুমোদন করা হবে।
                     </p>
                   </div>
 
@@ -537,7 +794,7 @@ export default function PublicAdmissionPage() {
                         <span>আবেদন জমা হচ্ছে...</span>
                       ) : (
                         <>
-                          <span>আবেদন দাখিল ও প্রবেশপত্র তৈরি করুন</span>
+                          <span>অনলাইন ভর্তি আবেদন দাখিল করুন</span>
                           <ArrowRight className="w-4 h-4" />
                         </>
                       )}
@@ -586,78 +843,81 @@ export default function PublicAdmissionPage() {
                     <AlertCircle className="w-8 h-8 text-slate-400 mx-auto" />
                     <p className="text-sm font-semibold">কোনো আবেদন পাওয়া যায়নি</p>
                     <p className="text-xs text-slate-400">
-                      দয়া করে আবেদন নম্বর বা মোবাইল নম্বরটি পুনরায় যাচাই করুন।
+                      দয়া করে আবেদন নম্বর বা মোবাইল নম্বরটি সঠিক ফরম্যাটে লিখে পুনরায় অনুসন্ধান করুন।
                     </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {searchResults.map((app) => (
-                      <div
-                        key={app.id}
-                        className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4 hover:border-emerald-300 transition"
-                      >
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <span className="text-xs font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
-                              {app.application_no}
-                            </span>
-                            <h4 className="font-bold text-slate-900 text-base mt-1">
-                              {app.applicant_name_bn}
-                            </h4>
-                            <p className="text-xs text-slate-500">জামাত: {app.target_class_name}</p>
+                    {searchResults.map((app) => {
+                      const statusConfig = ADMISSION_STATUS_MAP[app.status as keyof typeof ADMISSION_STATUS_MAP] || ADMISSION_STATUS_MAP.PENDING;
+                      const hasAdmitCard = app.status === "ADMIT_ISSUED" || app.status === "MERIT_SELECTED" || app.status === "CONFIRMED";
+
+                      return (
+                        <div
+                          key={app.id}
+                          className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4 hover:border-emerald-300 transition"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <span className="text-xs font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                                {app.application_no}
+                              </span>
+                              <h4 className="font-bold text-slate-900 text-base mt-1">
+                                {app.applicant_name_bn}
+                              </h4>
+                              <p className="text-xs text-slate-500">জামাত: {app.target_class_name}</p>
+                            </div>
+
+                            <div className="text-right">
+                              <span className="text-xs text-slate-500 block">পরীক্ষার রোল</span>
+                              <span className="font-mono font-bold text-slate-800 text-sm">
+                                {app.roll_number}
+                              </span>
+                            </div>
                           </div>
 
-                          <div className="text-right">
-                            <span className="text-xs text-slate-500 block">পরীক্ষার রোল</span>
-                            <span className="font-mono font-bold text-slate-800 text-sm">
-                              {app.roll_number}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Status badge */}
-                        <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200">
-                          <div>
-                            <span className="text-slate-500">অবস্থা: </span>
-                            {app.status === "CONFIRMED" ? (
-                              <span className="font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
-                                ভর্তি নিশ্চিত হয়েছে
+                          {/* Status and description */}
+                          <div className="space-y-1.5 pt-2 border-t border-slate-200">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-500">বর্তমান অবস্থা: </span>
+                              <span className={`font-bold px-2.5 py-0.5 rounded-full border text-xs ${statusConfig.badge}`}>
+                                {statusConfig.labelBn}
                               </span>
-                            ) : app.status === "MERIT_SELECTED" ? (
-                              <span className="font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-md">
-                                মেধাতালিকায় নির্বাচিত
-                              </span>
-                            ) : app.status === "REJECTED" ? (
-                              <span className="font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md">
-                                অনুপযুক্ত / বাতিল
-                              </span>
-                            ) : (
-                              <span className="font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
-                                প্রবেশপত্র ইস্যু হয়েছে
-                              </span>
-                            )}
+                            </div>
+                            <p className="text-[11px] text-slate-500 leading-relaxed">
+                              {statusConfig.description}
+                            </p>
                           </div>
 
                           {app.test_evaluation && (
-                            <span className="text-xs font-bold text-slate-700">
-                              প্রাপ্ত নম্বর: {toBanglaNumber(app.test_evaluation.total_marks || 0)}/১০০
-                            </span>
+                            <div className="bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between text-xs">
+                              <span className="text-slate-600 font-medium">ভর্তি পরীক্ষার মোট নম্বর:</span>
+                              <span className="font-bold text-emerald-800 font-mono">
+                                {toBanglaNumber(app.test_evaluation.total_marks || 0)} / ১০০
+                              </span>
+                            </div>
                           )}
-                        </div>
 
-                        {/* Action Link */}
-                        <div className="pt-1">
-                          <Link
-                            href={`/admission/card/${app.id}`}
-                            target="_blank"
-                            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                            <span>প্রবেশপত্র (Admit Card) প্রিন্ট করুন</span>
-                          </Link>
+                          {/* Action Link */}
+                          <div className="pt-1">
+                            {hasAdmitCard ? (
+                              <Link
+                                href={`/admission/card/${app.id}`}
+                                target="_blank"
+                                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                <span>প্রবেশপত্র (Admit Card) প্রিন্ট করুন</span>
+                              </Link>
+                            ) : (
+                              <div className="w-full py-2 bg-amber-100/70 border border-amber-200 text-amber-800 rounded-lg text-xs text-center font-medium">
+                                মাদরাসা অফিস থেকে প্রবেশপত্র অনুমোদনের অপেক্ষায়
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -668,3 +928,4 @@ export default function PublicAdmissionPage() {
     </div>
   );
 }
+

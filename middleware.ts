@@ -16,6 +16,10 @@ export async function middleware(request: NextRequest) {
 
   const isAuthRoute = request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname === '/';
   const isApiRoute = request.nextUrl.pathname.startsWith('/api');
+  const isPublicRoute =
+    request.nextUrl.pathname.startsWith('/admission') ||
+    request.nextUrl.pathname.startsWith('/verify') ||
+    request.nextUrl.pathname.startsWith('/pay');
 
   // Next.js marks client-side soft-navigations (Link clicks / prefetches
   // that fetch just the RSC payload, not a full document) with this header.
@@ -89,7 +93,7 @@ export async function middleware(request: NextRequest) {
     user = null;
   }
 
-  if (!user && !isAuthRoute && !isApiRoute) {
+  if (!user && !isAuthRoute && !isApiRoute && !isPublicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     const redirectResponse = NextResponse.redirect(url);

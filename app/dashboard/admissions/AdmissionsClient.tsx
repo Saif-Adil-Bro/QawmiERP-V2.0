@@ -28,7 +28,7 @@ import {
   Layers,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-import { AdmissionApplication } from "@/lib/admissions";
+import { AdmissionApplication, ADMISSION_STATUS_MAP } from "@/lib/admissions";
 import {
   submitAdmissionApplication,
   updateAdmissionApplication,
@@ -38,7 +38,9 @@ import {
   bulkConfirmAdmissions,
   deleteAdmissionApplication,
   archiveAdmissionApplication,
+  approveAdmissionSchedule,
 } from "@/app/actions/admissions";
+import { getNextClassRoll } from "@/app/actions/students";
 
 interface AdmissionsClientProps {
   initialApplications: AdmissionApplication[];
@@ -63,6 +65,9 @@ export default function AdmissionsClient({
   const [showEditModal, setShowEditModal] = useState(false);
   const [showEvalModal, setShowEvalModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showTabulationModal, setShowTabulationModal] = useState(false);
+  const [showMeritModal, setShowMeritModal] = useState(false);
   const [selectedApp, setSelectedApp] = useState<AdmissionApplication | null>(null);
 
   // Form States
@@ -87,6 +92,19 @@ export default function AdmissionsClient({
     residential_status: "আবাসিক",
     previous_institution: "",
     previous_class_or_para: "",
+    department_category: "general",
+    hifz_para_memorized: "",
+    hifz_tajweed_quality: "উত্তম",
+    kitab_previous_kitab: "",
+    kitab_previous_grade: "মুমতাজ (১ম বিভাগ)",
+  });
+
+  // Schedule / Admit Approval Form
+  const [scheduleData, setScheduleData] = useState({
+    exam_date: "২০২৬-০৫-১৫",
+    exam_time: "সকাল ০৯:৩০ ঘটিকা",
+    venue: "মাদরাসা কেন্দ্রীয় ক্যাম্পাস ও অডিটোরিয়াম",
+    room_no: "১০১ (একাডেমিক ভবন)",
   });
 
   // Evaluation Form
@@ -324,11 +342,40 @@ export default function AdmissionsClient({
     setShowEvalModal(true);
   };
 
-  const openConfirm = (app: AdmissionApplication) => {
+  const handleApproveSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedApp) return;
+    setIsLoading(true);
+    const res = await approveAdmissionSchedule(selectedApp.id, scheduleData);
+    setIsLoading(false);
+
+    if (res.error) {
+      showNotification("error", res.error);
+    } else if (res.application) {
+      setApplications(applications.map((a) => (a.id === selectedApp.id ? res.application! : a)));
+      setShowScheduleModal(false);
+      showNotification("success", `প্রবেশপত্র ও পরীক্ষার শিডিউল অনুমোদিত হয়েছে! রোল: ${res.application.roll_number}`);
+    }
+  };
+
+  const openScheduleModal = (app: AdmissionApplication) => {
     setSelectedApp(app);
+    setScheduleData({
+      exam_date: app.exam_schedule?.exam_date || "২০২৬-০৫-১৫",
+      exam_time: app.exam_schedule?.exam_time || "সকাল ০৯:৩০ ঘটিকা",
+      venue: app.exam_schedule?.venue || "মাদরাসা কেন্দ্রীয় ক্যাম্পাস ও অডিটোরিয়াম",
+      room_no: app.exam_schedule?.room_no || "১০১ (একাডেমিক ভবন)",
+    });
+    setShowScheduleModal(true);
+  };
+
+  const openConfirm = async (app: AdmissionApplication) => {
+    setSelectedApp(app);
+    // Dynamic next roll from database
+    const rollRes = await getNextClassRoll(app.target_class_id);
     setConfirmData({
       assignedClassId: app.target_class_id,
-      assignedRoll: String(100 + applications.filter((a) => a.status === "CONFIRMED").length + 1),
+      assignedRoll: rollRes.nextRoll || "১",
       remarks: "",
     });
     setShowConfirmModal(true);
@@ -537,6 +584,7 @@ export default function AdmissionsClient({
               className="px-3 py-1.5 border border-slate-300 rounded-xl text-xs sm:text-sm bg-white text-slate-700"
             >
               <option value="all">সকল অবস্থা</option>
+              <option value="PENDING">অপেক্ষমান / পর্যালোচনায়</option>
               <option value="ADMIT_ISSUED">প্রবেশপত্র ইস্যু</option>
               <option value="MERIT_SELECTED">মেধাতালিকায় নির্বাচিত</option>
               <option value="WAITING_LIST">অপেক্ষমান তালিকা</option>
@@ -546,7 +594,25 @@ export default function AdmissionsClient({
           </div>
 
           {/* Action Tools */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowTabulationModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+              title="ভর্তি পরীক্ষার দিন শিক্ষকদের মার্কস এন্ট্রির জন্য প্রিন্টযোগ্য ট্যাবুলেশন শিট"
+            >
+              <Printer className="w-3.5 h-3.5 text-slate-600" />
+              <span>পরীক্ষক শিট</span>
+            </button>
+
+            <button
+              onClick={() => setShowMeritModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+              title="নোটিশ বোর্ডের জন্য চূড়ান্ত মেধা তালিকা প্রিন্ট"
+            >
+              <Award className="w-3.5 h-3.5 text-indigo-600" />
+              <span>মেধা তালিকা শিট</span>
+            </button>
+
             {activeTab === "evaluation" && (
               <button
                 onClick={handleAutoRank}
@@ -694,8 +760,13 @@ export default function AdmissionsClient({
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-100 text-rose-800 font-bold text-xs rounded-full">
                             <span>বাতিল</span>
                           </span>
+                        ) : app.status === "PENDING" ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-900 font-bold text-xs rounded-full">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                            <span>অপেক্ষমান আবেদন</span>
+                          </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-800 font-bold text-xs rounded-full">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-800 font-bold text-xs rounded-full">
                             <span>প্রবেশপত্র ইস্যু</span>
                           </span>
                         )}
@@ -704,6 +775,17 @@ export default function AdmissionsClient({
 
                     <td className="p-3.5 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {/* Approve Schedule for Pending/Issued */}
+                        {app.status !== "CONFIRMED" && (
+                          <button
+                            onClick={() => openScheduleModal(app)}
+                            title="পরীক্ষার শিডিউল ও প্রবেশপত্র অনুমোদন"
+                            className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                          >
+                            <Calendar className="w-4 h-4" />
+                          </button>
+                        )}
+
                         {/* Print Admit Card */}
                         <Link
                           href={`/admission/card/${app.id}`}
@@ -1253,6 +1335,330 @@ export default function AdmissionsClient({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: Schedule & Admit Card Approval Modal */}
+      {showScheduleModal && selectedApp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-amber-600" />
+                  <span>পরীক্ষার শিডিউল ও প্রবেশপত্র অনুমোদন</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  আবেদনকারীর জন্য ভর্তি পরীক্ষার তারিখ, সময় ও স্থান নির্ধারণ
+                </p>
+              </div>
+              <button
+                onClick={() => setShowScheduleModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl space-y-1 text-xs">
+              <p className="font-bold text-amber-950">
+                শিক্ষার্থী: {selectedApp.applicant_name_bn}
+              </p>
+              <p className="text-amber-800">আবেদন নং: {selectedApp.application_no} • জামাত: {selectedApp.target_class_name}</p>
+              <p className="text-amber-800">বর্তমান স্ট্যাটাস: {ADMISSION_STATUS_MAP[selectedApp.status]?.labelBn || selectedApp.status}</p>
+            </div>
+
+            <form onSubmit={handleApproveSchedule} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  পরীক্ষার তারিখ <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="যেমন: ২০২৬-০৫-১৫"
+                  value={scheduleData.exam_date}
+                  onChange={(e) => setScheduleData({ ...scheduleData, exam_date: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  পরীক্ষার সময় <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="যেমন: সকাল ০৯:৩০ ঘটিকা"
+                  value={scheduleData.exam_time}
+                  onChange={(e) => setScheduleData({ ...scheduleData, exam_time: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  পরীক্ষা কেন্দ্র / ভেন্যু <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="যেমন: মাদরাসা কেন্দ্রীয় ক্যাম্পাস ও অডিটোরিয়াম"
+                  value={scheduleData.venue}
+                  onChange={(e) => setScheduleData({ ...scheduleData, venue: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  কক্ষ নম্বর (Room No)
+                </label>
+                <input
+                  type="text"
+                  placeholder="যেমন: ১০১ (একাডেমিক ভবন)"
+                  value={scheduleData.room_no}
+                  onChange={(e) => setScheduleData({ ...scheduleData, room_no: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-4 border-t">
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleModal(false)}
+                  className="px-4 py-2 border rounded-xl text-xs sm:text-sm font-semibold text-slate-600"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer"
+                >
+                  {isLoading ? "অনুমোদন হচ্ছে..." : "শিডিউল ও প্রবেশপত্র অনুমোদন করুন"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 6: Tabulation Sheet / Examiner Marks Entry Sheet Print Modal */}
+      {showTabulationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 space-y-5 shadow-2xl my-8">
+            <div className="flex items-center justify-between border-b pb-3 print:hidden">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Printer className="w-5 h-5 text-emerald-600" />
+                  <span>পরীক্ষক মূল্যায়ন ও ট্যাবুলেশন শিট (Examiner Tabulation Sheet)</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  ভর্তি পরীক্ষার দিন পরীক্ষকদের হাতে দেওয়ার মতো প্রিন্ট কপি
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>প্রিন্ট করুন</span>
+                </button>
+                <button
+                  onClick={() => setShowTabulationModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Printable Content Area */}
+            <div className="border border-slate-300 p-6 rounded-xl bg-white space-y-4 print:border-none print:p-0">
+              <div className="text-center border-b pb-3 space-y-1">
+                <h2 className="text-xl font-black text-slate-900">কওমি মাদরাসা শিক্ষা বোর্ড ও ভর্তি পরীক্ষা</h2>
+                <p className="text-sm font-bold text-slate-700">ভর্তি পরীক্ষা — পরীক্ষক মূল্যায়ন ও ট্যাবুলেশন শিট</p>
+                <div className="flex items-center justify-center gap-6 text-xs text-slate-600 pt-1 font-semibold">
+                  <span>জামাত: {classFilter === "all" ? "সকল জামাত" : classes.find((c) => c.id === classFilter)?.name}</span>
+                  <span>মোট পরীক্ষার্থী: {toBanglaNumber(filteredApps.length)} জন</span>
+                  <span>তারিখ: ...........................</span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse border border-slate-300">
+                  <thead className="bg-slate-100 font-bold text-slate-800">
+                    <tr>
+                      <th className="border border-slate-300 p-2 text-center w-10">ক্রম</th>
+                      <th className="border border-slate-300 p-2 text-center w-24">রোল নম্বর</th>
+                      <th className="border border-slate-300 p-2">আবেদনকারীর নাম</th>
+                      <th className="border border-slate-300 p-2">পিতার নাম</th>
+                      <th className="border border-slate-300 p-2 text-center">আবেদনকৃত জামাত</th>
+                      <th className="border border-slate-300 p-2 text-center w-16">লিখিত (৪০)</th>
+                      <th className="border border-slate-300 p-2 text-center w-16">মৌখিক (৩০)</th>
+                      <th className="border border-slate-300 p-2 text-center w-16">তিলাওয়াত (৩০)</th>
+                      <th className="border border-slate-300 p-2 text-center w-16">মোট (১০০)</th>
+                      <th className="border border-slate-300 p-2 text-center w-24">স্বাক্ষর ও মন্তব্য</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredApps.map((app, idx) => (
+                      <tr key={app.id} className="border-b border-slate-200">
+                        <td className="border border-slate-300 p-2 text-center font-mono">{toBanglaNumber(idx + 1)}</td>
+                        <td className="border border-slate-300 p-2 text-center font-mono font-bold">{app.roll_number}</td>
+                        <td className="border border-slate-300 p-2 font-bold text-slate-900">{app.applicant_name_bn}</td>
+                        <td className="border border-slate-300 p-2 text-slate-700">{app.father_name}</td>
+                        <td className="border border-slate-300 p-2 text-center">{app.target_class_name}</td>
+                        <td className="border border-slate-300 p-2 text-center font-mono">
+                          {app.test_evaluation?.written_marks ? toBanglaNumber(app.test_evaluation.written_marks) : ""}
+                        </td>
+                        <td className="border border-slate-300 p-2 text-center font-mono">
+                          {app.test_evaluation?.oral_marks ? toBanglaNumber(app.test_evaluation.oral_marks) : ""}
+                        </td>
+                        <td className="border border-slate-300 p-2 text-center font-mono">
+                          {app.test_evaluation?.quran_tilawat_marks ? toBanglaNumber(app.test_evaluation.quran_tilawat_marks) : ""}
+                        </td>
+                        <td className="border border-slate-300 p-2 text-center font-mono font-bold">
+                          {app.test_evaluation?.total_marks ? toBanglaNumber(app.test_evaluation.total_marks) : ""}
+                        </td>
+                        <td className="border border-slate-300 p-2 text-center text-[10px] text-slate-400">
+                          {app.test_evaluation?.evaluated_by || ""}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="pt-8 flex items-center justify-between text-xs text-slate-700 font-semibold">
+                <div>
+                  <div className="border-t border-slate-400 pt-1 w-36 text-center">প্রধান পরীক্ষকের স্বাক্ষর</div>
+                </div>
+                <div>
+                  <div className="border-t border-slate-400 pt-1 w-36 text-center">নাজেমে তা'লীমাত (শিক্ষা সচিব)</div>
+                </div>
+                <div>
+                  <div className="border-t border-slate-400 pt-1 w-36 text-center">মুহতামিম / প্রিন্সিপাল</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: Merit List Notice Board Sheet Print Modal */}
+      {showMeritModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 space-y-5 shadow-2xl my-8">
+            <div className="flex items-center justify-between border-b pb-3 print:hidden">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Award className="w-5 h-5 text-indigo-600" />
+                  <span>চূড়ান্ত মেধা তালিকা শিট (Notice Board Merit List)</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  নোটিশ বোর্ড ও ভর্তির ফলাফলের জন্য অফিসিয়াল প্রিন্ট কপি
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>প্রিন্ট করুন</span>
+                </button>
+                <button
+                  onClick={() => setShowMeritModal(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Printable Content Area */}
+            <div className="border border-slate-300 p-6 rounded-xl bg-white space-y-4 print:border-none print:p-0">
+              <div className="text-center border-b pb-3 space-y-1">
+                <h2 className="text-xl font-black text-slate-900">ভর্তি পরীক্ষা — ফলাফল ও মেধা তালিকা</h2>
+                <p className="text-sm font-bold text-indigo-700">নতুন শিক্ষাবর্ষে ভর্তির জন্য নির্বাচিত শিক্ষার্থীদের তালিকা</p>
+                <div className="flex items-center justify-center gap-6 text-xs text-slate-600 pt-1 font-semibold">
+                  <span>জামাত: {classFilter === "all" ? "সকল জামাত" : classes.find((c) => c.id === classFilter)?.name}</span>
+                  <span>প্রকাশের তারিখ: {new Date().toLocaleDateString("bn-BD")}</span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse border border-slate-300">
+                  <thead className="bg-indigo-50 font-bold text-indigo-950">
+                    <tr>
+                      <th className="border border-slate-300 p-2 text-center w-16">মেধা ক্রম</th>
+                      <th className="border border-slate-300 p-2 text-center w-24">পরীক্ষার রোল</th>
+                      <th className="border border-slate-300 p-2">আবেদনকারীর নাম</th>
+                      <th className="border border-slate-300 p-2">পিতার নাম</th>
+                      <th className="border border-slate-300 p-2 text-center">জামাত</th>
+                      <th className="border border-slate-300 p-2 text-center w-20">প্রাপ্ত নম্বর (১০০)</th>
+                      <th className="border border-slate-300 p-2 text-center w-28">বর্তমান স্ট্যাটাস</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredApps
+                      .slice()
+                      .sort((a, b) => {
+                        const rankA = a.test_evaluation?.merit_position || 9999;
+                        const rankB = b.test_evaluation?.merit_position || 9999;
+                        return rankA - rankB;
+                      })
+                      .map((app, idx) => (
+                        <tr key={app.id} className="border-b border-slate-200">
+                          <td className="border border-slate-300 p-2 text-center font-bold text-indigo-900">
+                            {app.test_evaluation?.merit_position ? (
+                              <span className="px-2 py-0.5 bg-indigo-100 rounded-md">
+                                {toBanglaNumber(app.test_evaluation.merit_position)}
+                              </span>
+                            ) : (
+                              toBanglaNumber(idx + 1)
+                            )}
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center font-mono font-bold">{app.roll_number}</td>
+                          <td className="border border-slate-300 p-2 font-bold text-slate-900">{app.applicant_name_bn}</td>
+                          <td className="border border-slate-300 p-2 text-slate-700">{app.father_name}</td>
+                          <td className="border border-slate-300 p-2 text-center">{app.target_class_name}</td>
+                          <td className="border border-slate-300 p-2 text-center font-mono font-bold">
+                            {toBanglaNumber(app.test_evaluation?.total_marks || 0)}
+                          </td>
+                          <td className="border border-slate-300 p-2 text-center font-semibold">
+                            {app.status === "CONFIRMED" ? (
+                              <span className="text-emerald-700">ভর্তি নিশ্চিত</span>
+                            ) : app.status === "MERIT_SELECTED" ? (
+                              <span className="text-indigo-700 font-bold">উত্তীর্ণ (মেধাতালিকা)</span>
+                            ) : app.status === "WAITING_LIST" ? (
+                              <span className="text-amber-700">অপেক্ষমান</span>
+                            ) : app.status === "REJECTED" ? (
+                              <span className="text-rose-600">অনুপযুক্ত</span>
+                            ) : (
+                              <span className="text-slate-600">মূল্যায়নাধীন</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="pt-8 flex items-center justify-between text-xs text-slate-700 font-semibold">
+                <div>
+                  <div className="border-t border-slate-400 pt-1 w-36 text-center">নাজেমে তা'লীমাত</div>
+                </div>
+                <div>
+                  <div className="border-t border-slate-400 pt-1 w-36 text-center">মুহতামিম</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

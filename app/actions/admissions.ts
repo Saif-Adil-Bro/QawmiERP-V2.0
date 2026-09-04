@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
-import { getAuthMadrasaId, getClasses } from "@/app/actions/students";
+import { getAuthMadrasaId, getClasses, getNextClassRoll } from "@/app/actions/students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import {
   AdmissionApplication,
@@ -9,6 +9,7 @@ import {
   generateExamRollNumber,
   getDefaultAdmissionsSeed,
   DEFAULT_EXAM_INSTRUCTIONS,
+  normalizePhoneNumber,
 } from "@/lib/admissions";
 import { revalidatePath } from "next/cache";
 
@@ -149,12 +150,23 @@ export async function searchAdmissionPublic(query: string) {
     const list: AdmissionApplication[] = meta.admissions || getDefaultAdmissionsSeed(madrasaId);
 
     const q = query.trim().toLowerCase();
-    const results = list.filter(
-      (item) =>
-        item.application_no.toLowerCase() === q ||
-        item.roll_number.toLowerCase() === q ||
-        item.guardian_phone.trim() === q
-    );
+    const normalizedQPhone = normalizePhoneNumber(q);
+
+    const results = list.filter((item) => {
+      const appNo = (item.application_no || "").toLowerCase();
+      const rollNo = (item.roll_number || "").toLowerCase();
+      const rawPhone = item.guardian_phone || "";
+      const normItemPhone = normalizePhoneNumber(rawPhone);
+      const nameBn = (item.applicant_name_bn || "").toLowerCase();
+
+      return (
+        appNo === q ||
+        rollNo === q ||
+        (normalizedQPhone && normItemPhone.includes(normalizedQPhone)) ||
+        rawPhone.trim() === q ||
+        (q.length >= 3 && nameBn.includes(q))
+      );
+    });
 
     return results;
   } catch (err) {
@@ -189,8 +201,14 @@ export async function submitAdmissionApplication(formData: {
   residential_status: "আবাসিক" | "অনাবাসিক" | "ডে-কেয়ার";
   previous_institution?: string;
   previous_class_or_para?: string;
+  department_category?: "hifz" | "kitab" | "general";
+  hifz_para_memorized?: string;
+  hifz_tajweed_quality?: string;
+  kitab_previous_kitab?: string;
+  kitab_previous_grade?: string;
   session_name?: string;
   academic_year?: string;
+  status?: "PENDING" | "ADMIT_ISSUED";
   exam_date?: string;
   exam_time?: string;
   venue?: string;
@@ -225,6 +243,9 @@ export async function submitAdmissionApplication(formData: {
     const roll_number = generateExamRollNumber(seq);
     const now = new Date().toISOString();
 
+    const applicationStatus = formData.status || "PENDING";
+    const hasExamSchedule = applicationStatus === "ADMIT_ISSUED" || Boolean(formData.exam_date);
+
     const newApplication: AdmissionApplication = {
       id: `adm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       madrasa_id: safeMadrasaId,
@@ -254,15 +275,22 @@ export async function submitAdmissionApplication(formData: {
       residential_status: formData.residential_status || "আবাসিক",
       previous_institution: formData.previous_institution || "",
       previous_class_or_para: formData.previous_class_or_para || "",
-      status: "ADMIT_ISSUED",
-      exam_schedule: {
-        exam_date: formData.exam_date || "২০২৬-০৫-১৫",
-        exam_time: formData.exam_time || "সকাল ০৯:৩০ ঘটিকা",
-        venue: formData.venue || "মাদরাসা কেন্দ্রীয় ক্যাম্পাস ও অডিটোরিয়াম",
-        room_no: formData.room_no || "১০৩ (একাডেমিক ভবন)",
-        reporting_time: "পরীক্ষা শুরুর ৩০ মিনিট পূর্বে",
-        instructions: DEFAULT_EXAM_INSTRUCTIONS,
-      },
+      department_category: formData.department_category || "general",
+      hifz_para_memorized: formData.hifz_para_memorized || "",
+      hifz_tajweed_quality: formData.hifz_tajweed_quality || "",
+      kitab_previous_kitab: formData.kitab_previous_kitab || "",
+      kitab_previous_grade: formData.kitab_previous_grade || "",
+      status: applicationStatus,
+      exam_schedule: hasExamSchedule
+        ? {
+            exam_date: formData.exam_date || "২০২৬-০৫-১৫",
+            exam_time: formData.exam_time || "সকাল ০৯:৩০ ঘটিকা",
+            venue: formData.venue || "মাদরাসা কেন্দ্রীয় ক্যাম্পাস ও অডিটোরিয়াম",
+            room_no: formData.room_no || "১০১ (একাডেমিক ভবন)",
+            reporting_time: "পরীক্ষা শুরুর ৩০ মিনিট পূর্বে",
+            instructions: DEFAULT_EXAM_INSTRUCTIONS,
+          }
+        : undefined,
       created_at: now,
       updated_at: now,
     };
@@ -286,6 +314,61 @@ export async function submitAdmissionApplication(formData: {
   } catch (err: any) {
     console.error("Error creating admission:", err);
     return { error: err.message || "ভর্তি ফরম প্রক্রিয়াকরণে সমস্যা হয়েছে।" };
+  }
+}
+
+/**
+ * Approve application and issue Admit Card with customized exam schedule
+ */
+export async function approveAdmissionSchedule(
+  id: string,
+  schedule: {
+    exam_date: string;
+    exam_time: string;
+    venue: string;
+    room_no: string;
+    instructions?: string[];
+  }
+) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+
+    const meta = await getMadrasaMetadata(madrasaId);
+    let list: AdmissionApplication[] = meta.admissions || [];
+
+    const idx = list.findIndex((x) => x.id === id);
+    if (idx === -1) {
+      return { error: "আবেদন খুঁজে পাওয়া যায়নি।" };
+    }
+
+    list[idx] = {
+      ...list[idx],
+      status: "ADMIT_ISSUED",
+      exam_schedule: {
+        exam_date: schedule.exam_date || "২০২৬-০৫-১৫",
+        exam_time: schedule.exam_time || "সকাল ০৯:৩০ ঘটিকা",
+        venue: schedule.venue || "মাদরাসা কেন্দ্রীয় ক্যাম্পাস ও অডিটোরিয়াম",
+        room_no: schedule.room_no || "১০১ (একাডেমিক ভবন)",
+        reporting_time: "পরীক্ষা শুরুর ৩০ মিনিট পূর্বে",
+        instructions: schedule.instructions && schedule.instructions.length > 0
+          ? schedule.instructions
+          : DEFAULT_EXAM_INSTRUCTIONS,
+      },
+      updated_at: new Date().toISOString(),
+    };
+
+    meta.admissions = list;
+    await saveMadrasaMetadata(madrasaId, meta);
+
+    revalidatePath("/dashboard/admissions");
+    revalidatePath("/admission");
+    revalidatePath(`/admission/card/${id}`);
+
+    return { success: true, application: list[idx] };
+  } catch (err: any) {
+    return { error: err.message || "প্রবেশপত্র অনুমোদনে ত্রুটি হয়েছে।" };
   }
 }
 
@@ -446,7 +529,7 @@ export async function autoRankMeritList(classId?: string, passCutoff = 50) {
 export async function confirmAdmissionToStudent(params: {
   admissionId: string;
   assignedClassId: string;
-  assignedRoll: string;
+  assignedRoll?: string;
   remarks?: string;
 }) {
   try {
@@ -467,18 +550,26 @@ export async function confirmAdmissionToStudent(params: {
       return { error: "এই শিক্ষার্থীর ভর্তি ইতিমধ্যে নিশ্চিত করা হয়েছে।" };
     }
 
-    // 1. Get class details
+    // 1. Determine Target Class and Roll
+    const targetClassId = params.assignedClassId || adm.target_class_id;
+    let finalRoll = (params.assignedRoll || "").trim();
+
+    if (!finalRoll) {
+      const { nextRoll } = await getNextClassRoll(targetClassId);
+      finalRoll = nextRoll || "1";
+    }
+
     const { data: clsData } = await adminClient
       .from("classes")
       .select("id, name")
-      .eq("id", params.assignedClassId)
+      .eq("id", targetClassId)
       .single();
 
     const className = clsData?.name || adm.target_class_name;
 
     // 2. Prepare names
-    const names = adm.applicant_name_bn.split(" ");
-    const firstName = names[0] || adm.applicant_name_bn;
+    const names = adm.applicant_name_bn.trim().split(" ");
+    const firstName = names[0] || adm.applicant_name_bn.trim();
     const lastName = names.slice(1).join(" ") || "আহমদ";
 
     // 3. Insert student record into students table
@@ -486,8 +577,8 @@ export async function confirmAdmissionToStudent(params: {
       madrasa_id: madrasaId,
       first_name: firstName,
       last_name: lastName,
-      roll_number: params.assignedRoll,
-      class_id: params.assignedClassId,
+      roll_number: finalRoll,
+      class_id: targetClassId,
       class_name: className,
       father_name: adm.father_name || "",
       parent_phone: adm.guardian_phone || "",
@@ -528,7 +619,38 @@ export async function confirmAdmissionToStudent(params: {
       return { error: `শিক্ষার্থী প্রোফাইল তৈরিতে ত্রুটি: ${insertError?.message || "অজানা ত্রুটি"}` };
     }
 
-    // Auto enroll student into current active academic session
+    // 4. Populate Extended Student Profile in Metadata
+    if (!meta.student_profiles) {
+      meta.student_profiles = {};
+    }
+
+    const isBoarding = adm.residential_status === "আবাসিক";
+    meta.student_profiles[newStudent.id] = {
+      first_name: firstName,
+      last_name: lastName,
+      roll_number: finalRoll,
+      class_id: targetClassId,
+      class_name: className,
+      father_name: adm.father_name || "",
+      father_occupation: adm.father_occupation || "",
+      mother_name: adm.mother_name || "",
+      guardian_name: adm.guardian_name || adm.father_name || "",
+      guardian_relation: adm.guardian_relation || "পিতা",
+      parent_phone: adm.guardian_phone || "",
+      emergency_contact: adm.emergency_phone || adm.guardian_phone || "",
+      address: adm.present_address || "",
+      photo_url: adm.photo_url || "",
+      residential_status: adm.residential_status || "আবাসিক",
+      is_boarding: isBoarding,
+      boarding_type: isBoarding ? "সাধারণ পেইং" : "অনাবাসিক",
+      nid_or_birth_cert: adm.birth_reg_no || "",
+      previous_madrasa: adm.previous_institution || "",
+      student_status: "ACTIVE",
+      date_of_birth: adm.date_of_birth || "",
+      blood_group: adm.blood_group || "",
+    };
+
+    // 5. Auto enroll student into current active academic session
     try {
       const { getDefaultSessions } = await import("@/lib/sessions");
       const sessions = meta.sessions || getDefaultSessions(madrasaId);
@@ -543,9 +665,9 @@ export async function confirmAdmissionToStudent(params: {
           madrasa_id: madrasaId,
           student_id: newStudent.id,
           session_id: currentSession.id,
-          class_id: params.assignedClassId,
+          class_id: targetClassId,
           class_name: className,
-          roll_number: params.assignedRoll,
+          roll_number: finalRoll,
           status: "ACTIVE" as const,
           enrollment_date: new Date().toISOString().split("T")[0],
           created_at: new Date().toISOString(),
@@ -561,14 +683,14 @@ export async function confirmAdmissionToStudent(params: {
       console.warn("Auto enrollment error on admission confirm:", enrollErr);
     }
 
-    // 4. Update admission record
+    // 6. Update admission record
     const idx = list.findIndex((x) => x.id === params.admissionId);
     list[idx] = {
       ...list[idx],
       status: "CONFIRMED",
       confirmed_student_id: newStudent.id,
-      assigned_permanent_roll: params.assignedRoll,
-      assigned_class_id: params.assignedClassId,
+      assigned_permanent_roll: finalRoll,
+      assigned_class_id: targetClassId,
       assigned_class_name: className,
       updated_at: new Date().toISOString(),
     };
@@ -582,7 +704,7 @@ export async function confirmAdmissionToStudent(params: {
     return {
       success: true,
       student: newStudent,
-      message: `${adm.applicant_name_bn}-এর ভর্তি সফলভাবে নিশ্চিত হয়েছে এবং শিক্ষার্থী তালিকায় অন্তর্ভুক্ত হয়েছে।`,
+      message: `${adm.applicant_name_bn}-এর ভর্তি সফলভাবে নিশ্চিত হয়েছে এবং রোল নং ${finalRoll} নির্ধারিত হয়েছে।`,
     };
   } catch (err: any) {
     console.error("Exception in confirmAdmissionToStudent:", err);
@@ -591,18 +713,39 @@ export async function confirmAdmissionToStudent(params: {
 }
 
 /**
- * Bulk Confirm Admissions for merit selected candidates
+ * Bulk Confirm Admissions for merit selected candidates with sequential class rolls
  */
 export async function bulkConfirmAdmissions(admissionIds: string[]) {
   try {
     let successCount = 0;
-    for (let i = 0; i < admissionIds.length; i++) {
-      const id = admissionIds[i];
+
+    // Load admissions
+    const applicationsToConfirm: AdmissionApplication[] = [];
+    for (const id of admissionIds) {
       const adm = await getAdmissionById(id);
       if (adm && adm.status !== "CONFIRMED") {
-        const assignedRoll = String(100 + i + 1);
+        applicationsToConfirm.push(adm);
+      }
+    }
+
+    // Group by class to assign realistic consecutive rolls
+    const classGroups: Record<string, AdmissionApplication[]> = {};
+    for (const app of applicationsToConfirm) {
+      const clsId = app.target_class_id || "default";
+      if (!classGroups[clsId]) classGroups[clsId] = [];
+      classGroups[clsId].push(app);
+    }
+
+    for (const clsId of Object.keys(classGroups)) {
+      const group = classGroups[clsId];
+      const { nextRoll } = await getNextClassRoll(clsId);
+      let currentRollNum = parseInt(nextRoll || "1", 10);
+      if (isNaN(currentRollNum) || currentRollNum <= 0) currentRollNum = 1;
+
+      for (const adm of group) {
+        const assignedRoll = String(currentRollNum++);
         const res = await confirmAdmissionToStudent({
-          admissionId: id,
+          admissionId: adm.id,
           assignedClassId: adm.target_class_id,
           assignedRoll,
         });

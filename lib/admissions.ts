@@ -37,6 +37,13 @@ export interface AdmissionApplication {
   previous_institution?: string;
   previous_class_or_para?: string;
 
+  // Department Specialized Fields
+  department_category?: "hifz" | "kitab" | "general";
+  hifz_para_memorized?: string;
+  hifz_tajweed_quality?: string;
+  kitab_previous_kitab?: string;
+  kitab_previous_grade?: string;
+
   // Status
   status: "PENDING" | "ADMIT_ISSUED" | "EXAM_TAKEN" | "MERIT_SELECTED" | "WAITING_LIST" | "CONFIRMED" | "REJECTED";
   
@@ -55,7 +62,7 @@ export interface AdmissionApplication {
   };
 
   // Exam Schedule for Admit Card
-  exam_schedule: {
+  exam_schedule?: {
     exam_date: string;
     exam_time: string;
     venue: string;
@@ -235,3 +242,130 @@ export function getDefaultAdmissionsSeed(madrasaId: string): AdmissionApplicatio
     }
   ];
 }
+
+export const ADMISSION_STATUS_MAP: Record<
+  AdmissionApplication["status"],
+  { labelBn: string; color: string; bg: string; border: string; badge: string; description: string }
+> = {
+  PENDING: {
+    labelBn: "আবেদন পর্যালোচনায়",
+    color: "text-amber-700",
+    bg: "bg-amber-50",
+    border: "border-amber-200",
+    badge: "bg-amber-100 text-amber-800 border-amber-300",
+    description: "আবেদনপত্র সফলভাবে জমা হয়েছে। মাদরাসা অফিস যাচাই করে পরীক্ষার সময়সূচি নির্ধারণ করবে।",
+  },
+  ADMIT_ISSUED: {
+    labelBn: "প্রবেশপত্র অনুমোদিত",
+    color: "text-blue-700",
+    bg: "bg-blue-50",
+    border: "border-blue-200",
+    badge: "bg-blue-100 text-blue-800 border-blue-300",
+    description: "ভর্তি পরীক্ষার প্রবেশপত্র প্রস্তুত। আপনি প্রিন্ট বা ডাউনলোড করতে পারেন।",
+  },
+  EXAM_TAKEN: {
+    labelBn: "পরীক্ষা সম্পন্ন",
+    color: "text-purple-700",
+    bg: "bg-purple-50",
+    border: "border-purple-200",
+    badge: "bg-purple-100 text-purple-800 border-purple-300",
+    description: "ভর্তি পরীক্ষা সম্পন্ন হয়েছে, খাতা ও মৌখিক মূল্যায়ন চলমান রয়েছে।",
+  },
+  MERIT_SELECTED: {
+    labelBn: "মেধাতালিকায় নির্বাচিত",
+    color: "text-emerald-700",
+    bg: "bg-emerald-50",
+    border: "border-emerald-200",
+    badge: "bg-emerald-100 text-emerald-800 border-emerald-300",
+    description: "অভিনন্দন! শিক্ষার্থী ভর্তি পরীক্ষায় উত্তীর্ণ হয়ে ভর্তির জন্য চূড়ান্তভাবে নির্বাচিত হয়েছে।",
+  },
+  WAITING_LIST: {
+    labelBn: "অপেক্ষমাণ তালিকা",
+    color: "text-orange-700",
+    bg: "bg-orange-50",
+    border: "border-orange-200",
+    badge: "bg-orange-100 text-orange-800 border-orange-300",
+    description: "শিক্ষার্থী অপেক্ষমাণ তালিকায় রয়েছে। আসন শূন্য সাপেক্ষে ভর্তি করা হবে।",
+  },
+  CONFIRMED: {
+    labelBn: "ভর্তি নিশ্চিতকৃত",
+    color: "text-teal-700",
+    bg: "bg-teal-50",
+    border: "border-teal-200",
+    badge: "bg-teal-100 text-teal-800 border-teal-300",
+    description: "শিক্ষার্থী হিসেবে ভর্তি সম্পন্ন হয়েছে এবং রোল ও জামাত নির্ধারিত হয়েছে।",
+  },
+  REJECTED: {
+    labelBn: "অননুমোদিত / বাতিল",
+    color: "text-rose-700",
+    bg: "bg-rose-50",
+    border: "border-rose-200",
+    badge: "bg-rose-100 text-rose-800 border-rose-300",
+    description: "আবেদনটি বাতিল বা অকৃতকার্য হয়েছে। বিস্তারিত তথ্যের জন্য মাদরাসা অফিসে যোগাযোগ করুন।",
+  },
+};
+
+/**
+ * Normalizes phone numbers (converts Bengali digits to English, strips +88/88/spaces/dashes)
+ */
+export function normalizePhoneNumber(phone: string): string {
+  if (!phone) return "";
+  const bnToEn: Record<string, string> = {
+    "০": "0", "১": "1", "২": "2", "৩": "3", "৪": "4",
+    "৫": "5", "৬": "6", "৭": "7", "৮": "8", "৯": "9"
+  };
+  let cleaned = phone.replace(/[০-৯]/g, (d) => bnToEn[d] || d);
+  cleaned = cleaned.replace(/[\s\-\+\(\)]/g, "");
+  if (cleaned.startsWith("880")) {
+    cleaned = cleaned.substring(2);
+  }
+  return cleaned;
+}
+
+/**
+ * Calculates exact age in Bengali digits & words
+ */
+export function calculateBanglaAge(birthDateStr: string): {
+  years: number;
+  months: number;
+  days: number;
+  formattedBn: string;
+} | null {
+  if (!birthDateStr) return null;
+  const birth = new Date(birthDateStr);
+  if (isNaN(birth.getTime())) return null;
+
+  const now = new Date();
+  let years = now.getFullYear() - birth.getFullYear();
+  let months = now.getMonth() - birth.getMonth();
+  let days = now.getDate() - birth.getDate();
+
+  if (days < 0) {
+    months -= 1;
+    const prevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+    days += prevMonth.getDate();
+  }
+
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+
+  if (years < 0) return null;
+
+  const toBn = (n: number) =>
+    String(n).replace(/[0-9]/g, (d) => "০১২৩৪৫৬৭৮৯"[parseInt(d, 10)]);
+
+  let parts: string[] = [];
+  if (years > 0) parts.push(`${toBn(years)} বছর`);
+  if (months > 0) parts.push(`${toBn(months)} মাস`);
+  if (days > 0 || parts.length === 0) parts.push(`${toBn(days)} দিন`);
+
+  return {
+    years,
+    months,
+    days,
+    formattedBn: parts.join(" "),
+  };
+}
+

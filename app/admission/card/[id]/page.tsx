@@ -136,25 +136,25 @@ export default async function AdmitCardPrintPage({
             <div>
               <span className="text-slate-500 print:text-black block text-[11px]">পরীক্ষার তারিখ:</span>
               <span className="font-bold text-slate-900 print:text-black">
-                {admission.exam_schedule.exam_date}
+                {admission.exam_schedule?.exam_date || "বিজ্ঞপ্তির মাধ্যমে জানানো হবে"}
               </span>
             </div>
             <div>
               <span className="text-slate-500 print:text-black block text-[11px]">পরীক্ষার সময়:</span>
               <span className="font-bold text-slate-900 print:text-black">
-                {admission.exam_schedule.exam_time}
+                {admission.exam_schedule?.exam_time || "সকাল ০৯:৩০ ঘটিকা"}
               </span>
             </div>
             <div>
               <span className="text-slate-500 print:text-black block text-[11px]">কক্ষ নম্বর:</span>
               <span className="font-bold text-slate-900 print:text-black">
-                {admission.exam_schedule.room_no}
+                {admission.exam_schedule?.room_no || "১০১ (একাডেমিক ভবন)"}
               </span>
             </div>
             <div>
               <span className="text-slate-500 print:text-black block text-[11px]">কেন্দ্র:</span>
               <span className="font-bold text-slate-900 print:text-black">
-                {admission.exam_schedule.venue}
+                {admission.exam_schedule?.venue || "মাদরাসা কেন্দ্রীয় ক্যাম্পাস"}
               </span>
             </div>
           </div>
@@ -164,9 +164,17 @@ export default async function AdmitCardPrintPage({
         <div className="py-3 text-[11px] text-slate-600 print:text-black space-y-1">
           <p className="font-bold text-slate-800 print:text-black">পরীক্ষার্থীদের জন্য বিশেষ নির্দেশনাবলি:</p>
           <ol className="list-decimal list-inside space-y-0.5">
-            {admission.exam_schedule.instructions?.map((inst, idx) => (
-              <li key={idx}>{inst}</li>
-            ))}
+            {admission.exam_schedule?.instructions ? (
+              admission.exam_schedule.instructions.map((inst, idx) => (
+                <li key={idx}>{inst}</li>
+              ))
+            ) : (
+              <>
+                <li>পরীক্ষা শুরুর অন্তত ৩০ মিনিট পূর্বে কেন্দ্রে উপস্থিত হতে হবে।</li>
+                <li>প্রবেশপত্রের মূল কপি সঙ্গে আনতে হবে।</li>
+                <li>প্রয়োজনীয় কলম, পেন্সিল ও স্কেল সঙ্গে রাখা আবশ্যক।</li>
+              </>
+            )}
           </ol>
         </div>
 
