@@ -18,10 +18,46 @@ export default function AddFeeForm({
 }) {
   const [state, formAction, isPending] = useActionState(createFee, initialState);
   const [showFormOnly, setShowFormOnly] = useState(false);
+  const [activeStudent, setActiveStudent] = useState<any | null>(null);
+  const [feeType, setFeeType] = useState<string>("Monthly");
+  const [amountValue, setAmountValue] = useState<string>("");
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
 
   const selectedStudent = state?.fee ? students.find(s => s.id === state.fee.student_id) : null;
+
+  const handleStudentChange = (studentId: string, std?: any) => {
+    setActiveStudent(std || null);
+    if (std) {
+      // Auto-suggest fee amount based on feeType and student profile
+      if (feeType === "Monthly") {
+        const netMonthly = std.total_monthly_fee !== undefined ? std.total_monthly_fee : std.monthly_fee;
+        if (netMonthly !== undefined && netMonthly !== null) {
+          setAmountValue(String(netMonthly));
+        }
+      } else if (feeType === "Admission" && std.admission_fee) {
+        setAmountValue(String(std.admission_fee));
+      } else if (feeType === "Hostel" && (std.khoraki_fee || std.accommodation_fee)) {
+        setAmountValue(String((Number(std.khoraki_fee) || 0) + (Number(std.accommodation_fee) || 0)));
+      }
+    }
+  };
+
+  const handleFeeTypeChange = (newType: string) => {
+    setFeeType(newType);
+    if (activeStudent) {
+      if (newType === "Monthly") {
+        const netMonthly = activeStudent.total_monthly_fee !== undefined ? activeStudent.total_monthly_fee : activeStudent.monthly_fee;
+        if (netMonthly !== undefined && netMonthly !== null) {
+          setAmountValue(String(netMonthly));
+        }
+      } else if (newType === "Admission" && activeStudent.admission_fee) {
+        setAmountValue(String(activeStudent.admission_fee));
+      } else if (newType === "Hostel" && (activeStudent.khoraki_fee || activeStudent.accommodation_fee)) {
+        setAmountValue(String((Number(activeStudent.khoraki_fee) || 0) + (Number(activeStudent.accommodation_fee) || 0)));
+      }
+    }
+  };
 
   const handleResetForm = () => {
     window.location.reload();
@@ -96,8 +132,38 @@ export default function AddFeeForm({
                 id="student_id"
                 label="শিক্ষার্থী নির্বাচন করুন"
                 placeholder="শিক্ষার্থী বেছে নিন (নাম বা রোল লিখে খুঁজুন)..."
+                onChange={handleStudentChange}
                 required
               />
+
+              {activeStudent && (
+                <div className="mt-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 flex flex-wrap items-center gap-x-4 gap-y-1.5 animate-in fade-in duration-200">
+                  <span className="font-semibold text-slate-900">
+                    💡 শিক্ষার্থী ফি প্রোফাইল:
+                  </span>
+                  <span>
+                    মাসিক বেতন: <b className="text-slate-900">৳{activeStudent.monthly_fee ?? 0}</b>
+                  </span>
+                  {activeStudent.khoraki_fee !== undefined && (
+                    <span>
+                      খোরাকি/খাবার: <b className="text-slate-900">৳{activeStudent.khoraki_fee}</b>
+                    </span>
+                  )}
+                  {activeStudent.admission_fee !== undefined && (
+                    <span>
+                      ভর্তি ফি: <b className="text-slate-900">৳{activeStudent.admission_fee}</b>
+                    </span>
+                  )}
+                  {activeStudent.fee_discount > 0 && (
+                    <span className="text-emerald-700 font-medium">
+                      ছাড়: ৳{activeStudent.fee_discount} {activeStudent.fee_discount_reason ? `(${activeStudent.fee_discount_reason})` : ''}
+                    </span>
+                  )}
+                  <span className="ml-auto font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
+                    মোট প্রদেয়: ৳{activeStudent.total_monthly_fee ?? activeStudent.monthly_fee ?? 0}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -108,6 +174,8 @@ export default function AddFeeForm({
                 id="fee_type"
                 name="fee_type"
                 required
+                value={feeType}
+                onChange={(e) => handleFeeTypeChange(e.target.value)}
                 className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white text-sm"
               >
                 <option value="Monthly">মাসিক বেতন (Monthly)</option>
@@ -120,9 +188,28 @@ export default function AddFeeForm({
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="amount" className="text-sm font-semibold text-slate-700">
-                পরিমাণ (৳) <span className="text-red-500">*</span>
-              </label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="amount" className="text-sm font-semibold text-slate-700">
+                  পরিমাণ (৳) <span className="text-red-500">*</span>
+                </label>
+                {activeStudent && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (feeType === "Monthly") {
+                        setAmountValue(String(activeStudent.total_monthly_fee ?? activeStudent.monthly_fee ?? 0));
+                      } else if (feeType === "Admission") {
+                        setAmountValue(String(activeStudent.admission_fee ?? 0));
+                      } else if (feeType === "Hostel") {
+                        setAmountValue(String((Number(activeStudent.khoraki_fee) || 0) + (Number(activeStudent.accommodation_fee) || 0)));
+                      }
+                    }}
+                    className="text-[11px] text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                  >
+                    স্বয়ংক্রিয় রেট বসান
+                  </button>
+                )}
+              </div>
               <input
                 type="number"
                 id="amount"
@@ -130,6 +217,8 @@ export default function AddFeeForm({
                 required
                 min="0"
                 step="0.01"
+                value={amountValue}
+                onChange={(e) => setAmountValue(e.target.value)}
                 placeholder="যেমন: 1500"
                 className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition text-sm font-semibold"
               />

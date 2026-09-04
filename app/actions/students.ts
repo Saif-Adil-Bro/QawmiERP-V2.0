@@ -285,6 +285,80 @@ export async function getAuthMadrasaId(supabase?: any, user?: any): Promise<stri
   }
 }
 
+export async function getNextClassRoll(classId: string): Promise<{ nextRoll: string; existingRolls: string[] }> {
+  try {
+    if (!classId) return { nextRoll: "1", existingRolls: [] };
+    const adminClient = await createAdminClient();
+    const { data: students } = await adminClient
+      .from("students")
+      .select("id, roll_number, class_id, first_name, last_name")
+      .eq("class_id", classId);
+
+    const rolls: string[] = [];
+    let maxRollNum = 0;
+
+    (students || []).forEach((s) => {
+      if (s.roll_number !== undefined && s.roll_number !== null) {
+        const rollStr = String(s.roll_number).trim();
+        if (rollStr) {
+          rolls.push(rollStr);
+          // Convert any Bengali digits to standard integer
+          const numeric = parseInt(
+            rollStr.replace(/[০-৯]/g, (d) => "০১২৩৪৫৬৭৮৯".indexOf(d).toString()),
+            10
+          );
+          if (!isNaN(numeric) && numeric > maxRollNum) {
+            maxRollNum = numeric;
+          }
+        }
+      }
+    });
+
+    const nextRoll = (maxRollNum + 1).toString();
+    return { nextRoll, existingRolls: rolls };
+  } catch (err) {
+    console.error("Error in getNextClassRoll:", err);
+    return { nextRoll: "1", existingRolls: [] };
+  }
+}
+
+export async function checkRollAvailability(
+  classId: string,
+  rollNumber: string,
+  excludeStudentId?: string
+): Promise<{ available: boolean; conflictStudentName?: string; nextRoll?: string }> {
+  try {
+    if (!classId || !rollNumber) {
+      return { available: true };
+    }
+    const adminClient = await createAdminClient();
+    const { data: students } = await adminClient
+      .from("students")
+      .select("id, roll_number, class_id, first_name, last_name")
+      .eq("class_id", classId);
+
+    const normalizedTarget = rollNumber.trim().toLowerCase();
+    const conflict = (students || []).find((s) => {
+      if (excludeStudentId && s.id === excludeStudentId) return false;
+      const sRoll = String(s.roll_number || "").trim().toLowerCase();
+      return sRoll && sRoll === normalizedTarget;
+    });
+
+    if (conflict) {
+      const conflictName = `${conflict.first_name || ""} ${conflict.last_name || ""}`.trim() || "অন্য শিক্ষার্থী";
+      return {
+        available: false,
+        conflictStudentName: conflictName,
+      };
+    }
+
+    return { available: true };
+  } catch (err) {
+    console.error("Error in checkRollAvailability:", err);
+    return { available: true };
+  }
+}
+
 export async function createStudent(prevState: any, formData: FormData) {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
@@ -295,36 +369,36 @@ export async function createStudent(prevState: any, formData: FormData) {
     return { error: "No Madrasa exists in the system. Please register a Madrasa first." };
   }
 
-  const firstName = formData.get("first_name") as string;
-  const lastName = formData.get("last_name") as string;
-  const rollNumber = formData.get("roll_number") as string;
-  const classId = formData.get("class_id") as string;
+  const firstName = (formData.get("first_name") as string)?.trim();
+  const lastName = (formData.get("last_name") as string)?.trim() || "";
+  let rollNumber = (formData.get("roll_number") as string)?.trim() || "";
+  const classId = (formData.get("class_id") as string)?.trim();
   const bloodGroup = (formData.get("blood_group") as string) || "";
   const dateOfBirth = (formData.get("date_of_birth") as string) || "";
-  const parentPhone = formData.get("parent_phone") as string;
-  const parentEmail = formData.get("parent_email") as string;
+  const parentPhone = (formData.get("parent_phone") as string)?.trim() || "";
+  const parentEmail = (formData.get("parent_email") as string)?.trim() || "";
   const password = formData.get("password") as string;
-  const fatherName = formData.get("father_name") as string;
-  const address = formData.get("address") as string;
-  const photoUrl = formData.get("photo_url") as string;
+  const fatherName = (formData.get("father_name") as string)?.trim() || "";
+  const address = (formData.get("address") as string)?.trim() || "";
+  const photoUrl = (formData.get("photo_url") as string)?.trim() || "";
 
   // Extended fields
   const residentialStatus = (formData.get("residential_status") as string) || "অনাবাসিক";
   const isBoardingRaw = formData.get("is_boarding");
   const isBoarding = isBoardingRaw === "true" || isBoardingRaw === "on" || residentialStatus === "আবাসিক";
   const boardingType = (formData.get("boarding_type") as string) || (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
-  const motherName = (formData.get("mother_name") as string) || "";
-  const fatherOccupation = (formData.get("father_occupation") as string) || "";
-  const guardianName = (formData.get("guardian_name") as string) || "";
-  const guardianRelation = (formData.get("guardian_relation") as string) || "";
-  const emergencyContact = (formData.get("emergency_contact") as string) || "";
-  const nidOrBirthCert = (formData.get("nid_or_birth_cert") as string) || "";
-  const previousMadrasa = (formData.get("previous_madrasa") as string) || "";
-  const roomNo = (formData.get("room_no") as string) || "";
-  const seatNo = (formData.get("seat_no") as string) || "";
+  const motherName = (formData.get("mother_name") as string)?.trim() || "";
+  const fatherOccupation = (formData.get("father_occupation") as string)?.trim() || "";
+  const guardianName = (formData.get("guardian_name") as string)?.trim() || "";
+  const guardianRelation = (formData.get("guardian_relation") as string)?.trim() || "";
+  const emergencyContact = (formData.get("emergency_contact") as string)?.trim() || "";
+  const nidOrBirthCert = (formData.get("nid_or_birth_cert") as string)?.trim() || "";
+  const previousMadrasa = (formData.get("previous_madrasa") as string)?.trim() || "";
+  const roomNo = (formData.get("room_no") as string)?.trim() || "";
+  const seatNo = (formData.get("seat_no") as string)?.trim() || "";
   const studentStatus = (formData.get("student_status") as string) || "ACTIVE";
-  const medicalNotes = (formData.get("medical_notes") as string) || "";
-  const remarks = (formData.get("remarks") as string) || "";
+  const medicalNotes = (formData.get("medical_notes") as string)?.trim() || "";
+  const remarks = (formData.get("remarks") as string)?.trim() || "";
 
   // Fee structure fields
   const admissionFee = Number(formData.get("admission_fee") || 0);
@@ -334,11 +408,25 @@ export async function createStudent(prevState: any, formData: FormData) {
   const transportFee = Number(formData.get("transport_fee") || 0);
   const otherFee = Number(formData.get("other_fee") || 0);
   const feeDiscount = Number(formData.get("fee_discount") || 0);
-  const feeDiscountReason = (formData.get("fee_discount_reason") as string) || "";
+  const feeDiscountReason = (formData.get("fee_discount_reason") as string)?.trim() || "";
   const totalMonthlyFee = Math.max(0, (monthlyFee + khorakiFee + accommodationFee + transportFee + otherFee) - feeDiscount);
 
-  if (!firstName || !lastName || !classId) {
-    return { error: "First name, Last name and Class are required." };
+  if (!firstName || !classId) {
+    return { error: "শিক্ষার্থীর নাম এবং জামাত/শ্রেণি নির্বাচন আবশ্যক।" };
+  }
+
+  // Auto-calculate next sequential roll if roll is not explicitly provided
+  if (!rollNumber) {
+    const { nextRoll } = await getNextClassRoll(classId);
+    rollNumber = nextRoll;
+  } else {
+    // Check for duplicate roll in this class
+    const rollCheck = await checkRollAvailability(classId, rollNumber);
+    if (!rollCheck.available) {
+      return {
+        error: `এই জামাতে '${rollNumber}' রোল নম্বরটি ইতিমধ্যে অন্য একজন শিক্ষার্থীর (${rollCheck.conflictStudentName}) জন্য নির্ধারিত আছে। অনুগ্রহ করে ভিন্ন রোল নম্বর দিন।`,
+      };
+    }
   }
 
   let authUserId = null;
@@ -536,8 +624,18 @@ export async function updateStudent(prevState: any, formData: FormData) {
     ? Math.max(0, ((monthlyFee || 0) + (khorakiFee || 0) + (accommodationFee || 0) + (transportFee || 0) + (otherFee || 0)) - (feeDiscount || 0))
     : undefined;
 
-  if (!id || !firstName || !lastName || !classId) {
-    return { error: "আইডি, প্রথম নাম, শেষ নাম এবং জামাত আবশ্যক।" };
+  if (!id || !firstName || !classId) {
+    return { error: "শিক্ষার্থীর আইডি, নাম এবং জামাত/শ্রেণি আবশ্যক।" };
+  }
+
+  // Check roll duplication in this class
+  if (rollNumber) {
+    const rollCheck = await checkRollAvailability(classId, rollNumber, id);
+    if (!rollCheck.available) {
+      return {
+        error: `এই জামাতে '${rollNumber}' রোল নম্বরটি ইতিমধ্যে অন্য একজন শিক্ষার্থীর (${rollCheck.conflictStudentName}) জন্য নির্ধারিত আছে। অনুগ্রহ করে ভিন্ন রোল নম্বর দিন।`,
+      };
+    }
   }
 
   // 1. Look up class details for class_name and madrasa_id

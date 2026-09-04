@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useState, useMemo } from "react";
-import { updateStudent } from "@/app/actions/students";
+import { updateStudent, getNextClassRoll, checkRollAvailability } from "@/app/actions/students";
 import { useRouter } from "next/navigation";
 import { getStudentIdNumber, convertToBanglaNumber } from "@/lib/student-utils";
 import ImageUploader from "@/components/ImageUploader";
@@ -20,7 +20,10 @@ import {
   Bus,
   Bed,
   Calculator,
-  Sparkles
+  Sparkles,
+  RefreshCw,
+  Gift,
+  Percent
 } from "lucide-react";
 
 const initialState: { error?: string; success?: boolean } = {};
@@ -41,6 +44,12 @@ export default function EditStudentForm({
     initialState
   );
   const router = useRouter();
+
+  // Class & Roll tracking states
+  const [selectedClassId, setSelectedClassId] = useState<string>(student.class_id || "");
+  const [rollNumber, setRollNumber] = useState<string>(student.roll_number || "");
+  const [isFetchingRoll, setIsFetchingRoll] = useState<boolean>(false);
+  const [rollWarning, setRollWarning] = useState<string | null>(null);
 
   // Controlled states for residential and boarding synchronization
   const initialResidential = student.residential_status || "অনাবাসিক";
@@ -72,6 +81,81 @@ export default function EditStudentForm({
     }
   }, [state, router]);
 
+  // Handle Class Change with optional roll refresh
+  const handleClassChange = async (classId: string) => {
+    setSelectedClassId(classId);
+    if (classId && classId !== student.class_id) {
+      setIsFetchingRoll(true);
+      try {
+        const { nextRoll } = await getNextClassRoll(classId);
+        setRollNumber(nextRoll);
+        setRollWarning(null);
+      } catch (err) {
+        console.error("Error fetching next roll:", err);
+      } finally {
+        setIsFetchingRoll(false);
+      }
+    }
+  };
+
+  // Handle Roll Change with duplicate check
+  const handleRollChange = async (newRoll: string) => {
+    setRollNumber(newRoll);
+    if (selectedClassId && newRoll.trim()) {
+      const check = await checkRollAvailability(selectedClassId, newRoll, student.id);
+      if (!check.available) {
+        setRollWarning(`⚠️ সতর্কবার্তা: '${newRoll}' রোল নম্বরটি এই জামাতে ইতিমধ্যে ${check.conflictStudentName}-এর জন্য নির্ধারিত আছে!`);
+      } else {
+        setRollWarning(null);
+      }
+    } else {
+      setRollWarning(null);
+    }
+  };
+
+  // Quick Fee Preset Handlers
+  const applyFullFreePreset = () => {
+    setMonthlyFee(0);
+    setAdmissionFee(0);
+    setKhorakiFee(0);
+    setAccommodationFee(0);
+    setTransportFee(0);
+    setOtherFee(0);
+    setFeeDiscount(0);
+    setFeeDiscountReason("১০০% সম্পূর্ণ ফ্রি / অবৈতনিক শিক্ষার্থী (এতিম ও দরিদ্র তহবিল)");
+  };
+
+  const applyHalfFreePreset = () => {
+    const base = monthlyFee > 0 ? monthlyFee : 1000;
+    setMonthlyFee(base);
+    setFeeDiscount(Math.round(base * 0.5));
+    setFeeDiscountReason("হাফ-ফ্রি সুবিধা (৫০% মাসিক বেতন মওকুফ)");
+  };
+
+  const applyLillahBoardingPreset = () => {
+    setResidentialStatus("আবাসিক");
+    setIsBoarding(true);
+    setBoardingType("লিল্লাহ বোর্ডিং");
+    setKhorakiFee(0);
+    setAccommodationFee(0);
+    setFeeDiscountReason("লিল্লাহ বোর্ডিং সুবিধা (বিনামূল্যে খাবার ও বোর্ডিং)");
+  };
+
+  const applyStandardPreset = () => {
+    setMonthlyFee(1000);
+    setFeeDiscount(0);
+    setFeeDiscountReason("");
+    if (residentialStatus === "আবাসিক") {
+      setKhorakiFee(2000);
+      setAccommodationFee(500);
+      setBoardingType("সাধারণ পেইং");
+    } else {
+      setKhorakiFee(0);
+      setAccommodationFee(0);
+      setBoardingType("অনাবাসিক");
+    }
+  };
+
   const handleResidentialChange = (newVal: string) => {
     setResidentialStatus(newVal);
     if (newVal === "আবাসিক") {
@@ -79,19 +163,22 @@ export default function EditStudentForm({
       if (boardingType === "অনাবাসিক") {
         setBoardingType("সাধারণ পেইং");
       }
-      if (khorakiFee === 0) setKhorakiFee(2000);
-      if (accommodationFee === 0) setAccommodationFee(500);
+      if (khorakiFee === 0 && !feeDiscountReason.includes("লিল্লাহ")) setKhorakiFee(2000);
+      if (accommodationFee === 0 && !feeDiscountReason.includes("লিল্লাহ")) setAccommodationFee(500);
     } else if (newVal === "অনাবাসিক") {
       setIsBoarding(false);
       setBoardingType("অনাবাসিক");
+      setKhorakiFee(0);
+      setAccommodationFee(0);
     }
   };
 
   const handleBoardingTypeChange = (val: string) => {
     setBoardingType(val);
-    if (val === "লিল্লাহ বোর্ডিং" && !feeDiscountReason) {
+    if (val === "লিল্লাহ বোর্ডিং") {
+      setKhorakiFee(0);
       setFeeDiscountReason("লিল্লাহ বোর্ডিং (বিনামূল্যে খাবার)");
-    } else if (val === "হাফ-ফ্রি" && !feeDiscountReason) {
+    } else if (val === "হাফ-ফ্রি") {
       setFeeDiscountReason("হাফ-ফ্রি বোর্ডিং (৫০% ছাড়)");
     }
   };
@@ -164,13 +251,12 @@ export default function EditStudentForm({
 
             <div className="space-y-1.5">
               <label htmlFor="last_name" className="text-xs font-semibold text-slate-700">
-                শেষ নাম / পদবী <span className="text-red-500">*</span>
+                শেষ নাম / পদবী <span className="text-slate-400 font-normal">(ঐচ্ছিক)</span>
               </label>
               <input
                 type="text"
                 id="last_name"
                 name="last_name"
-                required
                 defaultValue={student.last_name || ""}
                 placeholder="যেমন: আব্দুল্লাহ"
                 className="w-full px-3.5 py-2 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 transition"
@@ -185,7 +271,8 @@ export default function EditStudentForm({
                 id="class_id"
                 name="class_id"
                 required
-                defaultValue={student.class_id || ""}
+                value={selectedClassId}
+                onChange={(e) => handleClassChange(e.target.value)}
                 className="w-full px-3.5 py-2 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white"
               >
                 <option value="">ক্লাস নির্বাচন করুন</option>
@@ -198,17 +285,45 @@ export default function EditStudentForm({
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="roll_number" className="text-xs font-semibold text-slate-700">
-                শ্রেণি রোল নম্বর
-              </label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="roll_number" className="text-xs font-semibold text-slate-700">
+                  শ্রেণি রোল নম্বর
+                </label>
+                {selectedClassId && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsFetchingRoll(true);
+                      const { nextRoll } = await getNextClassRoll(selectedClassId);
+                      setRollNumber(nextRoll);
+                      setRollWarning(null);
+                      setIsFetchingRoll(false);
+                    }}
+                    disabled={isFetchingRoll}
+                    className="text-[10px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-semibold cursor-pointer"
+                    title="স্বয়ংক্রিয় পরবর্তী রোল নম্বর লোড করুন"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isFetchingRoll ? "animate-spin" : ""}`} />
+                    <span>অটো রোল</span>
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
                 id="roll_number"
                 name="roll_number"
-                defaultValue={student.roll_number || ""}
+                value={rollNumber}
+                onChange={(e) => handleRollChange(e.target.value)}
                 placeholder="যেমন: ১২"
-                className="w-full px-3.5 py-2 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 transition"
+                className={`w-full px-3.5 py-2 text-sm border rounded-xl focus:outline-none focus:ring-2 transition ${
+                  rollWarning ? "border-amber-500 focus:ring-amber-500 bg-amber-50/50" : "focus:ring-slate-900"
+                }`}
               />
+              {rollWarning && (
+                <p className="text-[11px] text-amber-700 font-medium animate-in fade-in">
+                  {rollWarning}
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -245,7 +360,7 @@ export default function EditStudentForm({
         </div>
 
         {/* ========================================================
-            SECTION 2: ফি কাঠামো ও আর্থিক চুক্তি (User Requested Highlight!)
+            SECTION 2: ফি কাঠামো ও আর্থিক চুক্তি
         ======================================================== */}
         <div className="space-y-4 bg-gradient-to-br from-emerald-50/70 via-teal-50/40 to-slate-50 p-5 rounded-2xl border border-emerald-200/90 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-emerald-200/80">
@@ -253,10 +368,58 @@ export default function EditStudentForm({
               <CreditCard className="w-5 h-5 text-emerald-700" />
               <span>২. ফি কাঠামো ও নির্ধারিত চার্জ (Fee Structure & Charges)</span>
             </div>
-            <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1.5">
-              <Calculator className="w-3.5 h-3.5" />
-              <span>প্রাক্কলিত মাসিক ফি: {totalMonthlyCalculated.toLocaleString()} ৳</span>
+            <div className="flex items-center gap-2">
+              {totalMonthlyCalculated === 0 && (
+                <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-600 text-white shadow-xs">
+                  ✓ ১০০% অবৈতনিক / ফ্রি শিক্ষার্থী
+                </span>
+              )}
+              <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1.5">
+                <Calculator className="w-3.5 h-3.5" />
+                <span>প্রাক্কলিত মাসিক ফি: {totalMonthlyCalculated.toLocaleString()} ৳</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Quick Presets Bar */}
+          <div className="bg-white/80 p-3 rounded-xl border border-emerald-200/80 space-y-2">
+            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <span>দ্রুত ফি প্যাকেজ / ফ্রি সুবিধা নির্বাচন (Quick Presets):</span>
             </span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={applyFullFreePreset}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Gift className="w-3.5 h-3.5" />
+                <span>১০০% সম্পূর্ণ ফ্রি / অবৈতনিক</span>
+              </button>
+              <button
+                type="button"
+                onClick={applyHalfFreePreset}
+                className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Percent className="w-3.5 h-3.5" />
+                <span>৫০% হাফ-ফ্রি স্কলারশিপ</span>
+              </button>
+              <button
+                type="button"
+                onClick={applyLillahBoardingPreset}
+                className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Utensils className="w-3.5 h-3.5" />
+                <span>লিল্লাহ বোর্ডিং (খাবার ফ্রি)</span>
+              </button>
+              <button
+                type="button"
+                onClick={applyStandardPreset}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+              >
+                <span>সাধারণ পেইং (Standard)</span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">

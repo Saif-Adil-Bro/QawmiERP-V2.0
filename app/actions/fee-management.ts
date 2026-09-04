@@ -411,20 +411,53 @@ export async function generateMonthlyFees(params: {
           (s) => s.session_id === params.sessionId && s.class_id === "ALL"
         );
 
-      // Student discounts/waivers
+      // Student discounts/waivers from discounts array or individual student profile
+      const studentProfile = meta.student_profiles?.[student.id];
       const studentDiscounts = (meta.discounts || []).filter(
         (d) => d.student_id === student.id && d.status === "APPROVED"
       );
 
       for (const ft of selectedFeeTypes) {
-        // Calculate base amount: custom override > structure item amount > fee type default
+        // Calculate base amount: custom override > student individual profile fee > structure item amount > fee type default
         let baseAmount = ft.default_amount || 0;
+        const ftCode = (ft.code || "").toUpperCase();
+        const ftCat = (ft.category || "").toUpperCase();
+        const ftName = ft.name || "";
+
         if (
           params.customAmounts &&
           params.customAmounts[ft.id] !== undefined &&
           !isNaN(Number(params.customAmounts[ft.id]))
         ) {
           baseAmount = Number(params.customAmounts[ft.id]);
+        } else if (studentProfile) {
+          // Check student profile personalized fee settings
+          if (ftCat === "TUITION" || ftCode === "MONTHLY" || ftName.includes("বেতন")) {
+            if (studentProfile.monthly_fee !== undefined && studentProfile.monthly_fee !== null) {
+              baseAmount = Number(studentProfile.monthly_fee);
+            }
+          } else if (ftCat === "FOOD" || ftCode === "FOOD" || ftName.includes("খাবার") || ftName.includes("খোরাকি")) {
+            if (studentProfile.khoraki_fee !== undefined && studentProfile.khoraki_fee !== null) {
+              baseAmount = Number(studentProfile.khoraki_fee);
+            }
+          } else if (ftCat === "HOSTEL" || ftCode === "HOSTEL" || ftName.includes("আবাসন") || ftName.includes("হোস্টেল")) {
+            if (studentProfile.accommodation_fee !== undefined && studentProfile.accommodation_fee !== null) {
+              baseAmount = Number(studentProfile.accommodation_fee);
+            }
+          } else if (ftCat === "TRANSPORT" || ftCode === "TRANSPORT" || ftName.includes("পরিবহন") || ftName.includes("গাড়ি")) {
+            if (studentProfile.transport_fee !== undefined && studentProfile.transport_fee !== null) {
+              baseAmount = Number(studentProfile.transport_fee);
+            }
+          } else if (ftCat === "ADMISSION" || ftCode === "ADMISSION" || ftName.includes("ভর্তি")) {
+            if (studentProfile.admission_fee !== undefined && studentProfile.admission_fee !== null) {
+              baseAmount = Number(studentProfile.admission_fee);
+            }
+          } else if (matchingStruct) {
+            const sItem = matchingStruct.items.find((it) => it.fee_type_id === ft.id);
+            if (sItem && sItem.amount > 0) {
+              baseAmount = sItem.amount;
+            }
+          }
         } else if (matchingStruct) {
           const sItem = matchingStruct.items.find((it) => it.fee_type_id === ft.id);
           if (sItem && sItem.amount > 0) {
@@ -481,6 +514,12 @@ export async function generateMonthlyFees(params: {
           } else if (applicableDiscount.discount_type === "FIXED") {
             discountAmount = Math.min(baseAmount, applicableDiscount.value);
             discountReason = applicableDiscount.reason || "নির্ধারিত ছাড়";
+          }
+        } else if (studentProfile?.fee_discount && Number(studentProfile.fee_discount) > 0) {
+          // If tuition/monthly fee, apply student profile monthly discount
+          if (ftCat === "TUITION" || ftCode === "MONTHLY" || ftName.includes("বেতন")) {
+            discountAmount = Math.min(baseAmount, Number(studentProfile.fee_discount));
+            discountReason = studentProfile.fee_discount_reason || "শিক্ষার্থী প্রোফাইল ভিত্তিক ছাড়";
           }
         }
 

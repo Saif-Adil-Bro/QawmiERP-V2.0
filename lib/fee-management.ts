@@ -189,4 +189,5 @@ export interface MadrasaFeeData {
   discounts?: FeeDiscountWaiver[];
   audit_logs?: FeeAuditLog[];
   receipt_counter?: number;
+  student_profiles?: Record<string, any>;
 }
