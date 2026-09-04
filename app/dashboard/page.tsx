@@ -1,9 +1,12 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getStaffMetadataFull } from "@/app/actions/staff";
 import ReportingCharts from "./components/ReportingCharts";
 import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
+import { getPortalRedirectUrl } from "@/lib/role-redirect";
+
 
 
 export default async function DashboardPage() {
@@ -53,6 +56,12 @@ export default async function DashboardPage() {
     profile = response.data;
     error = response.error;
     earlyWarningData = alerts;
+
+    // Check if user is a teacher, parent or student and should be in their dedicated portal
+    const targetUrl = getPortalRedirectUrl(profile?.role || user.user_metadata?.role);
+    if (targetUrl !== "/dashboard") {
+      redirect(targetUrl);
+    }
 
     if (profile?.madrasa_id) {
       const today = new Date().toISOString().split('T')[0];

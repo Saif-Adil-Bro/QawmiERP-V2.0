@@ -102,8 +102,16 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user && isAuthRoute) {
+    const userRole = user.user_metadata?.role;
+    let targetPath = '/dashboard';
+    if (userRole === 'teacher' || userRole === 'hifz_teacher' || userRole === 'ustad') {
+      targetPath = '/teacher-portal';
+    } else if (userRole === 'parent' || userRole === 'guardian' || userRole === 'student') {
+      targetPath = '/portal';
+    }
+
     const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
+    url.pathname = targetPath;
     const redirectResponse = NextResponse.redirect(url);
     
     const setCookies = supabaseResponse.headers.getSetCookie();

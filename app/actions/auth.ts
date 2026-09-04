@@ -1,9 +1,11 @@
 "use server";
-import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { getPortalRedirectUrl } from "@/lib/role-redirect";
 
 export async function login(prevState: any, formData: FormData) {
   let isSuccess = false;
+  let targetRedirectUrl = "/dashboard";
   
   try {
     const email = formData.get("email") as string;
@@ -28,6 +30,53 @@ export async function login(prevState: any, formData: FormData) {
       return { error: error.message };
     }
 
+    if (data.user) {
+      let userRole = data.user.user_metadata?.role || "staff";
+      let additionalRoles: string[] = [];
+
+      try {
+        const adminClient = await createAdminClient();
+        const { data: userData } = await adminClient
+          .from("users")
+          .select("role, madrasa_id")
+          .eq("id", data.user.id)
+          .maybeSingle();
+
+        if (userData?.role) {
+          userRole = userData.role;
+        }
+
+        if (userRole === "staff" || !userRole) {
+          const { data: teacherRow } = await adminClient
+            .from("teachers")
+            .select("id")
+            .eq("email", email)
+            .maybeSingle();
+          if (teacherRow) {
+            userRole = "teacher";
+          }
+        }
+
+        if (userData?.madrasa_id) {
+          const { data: madrasaRow } = await adminClient
+            .from("madrasas")
+            .select("registration_no")
+            .eq("id", userData.madrasa_id)
+            .maybeSingle();
+          if (madrasaRow?.registration_no?.startsWith("{")) {
+            const parsed = JSON.parse(madrasaRow.registration_no);
+            const profile = parsed.user_security_profiles?.[data.user.id];
+            if (profile?.primaryRole) userRole = profile.primaryRole;
+            if (profile?.roles) additionalRoles = profile.roles;
+          }
+        }
+      } catch (e) {
+        console.warn("Role lookup in login action error:", e);
+      }
+
+      targetRedirectUrl = getPortalRedirectUrl(userRole, additionalRoles);
+    }
+
     isSuccess = true;
   } catch (err: any) {
     console.error("SignIn catch block:", err);
@@ -35,18 +84,7 @@ export async function login(prevState: any, formData: FormData) {
   }
 
   if (isSuccess) {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (user) {
-      const { data: userData } = await supabase.from("users").select("role").eq("id", user.id).single();
-      if (userData?.role === 'parent' || userData?.role === 'student') {
-        redirect("/portal");
-      }
-      if (userData?.role === 'teacher') {
-        redirect("/teacher-portal");
-      }
-    }
-    redirect("/dashboard");
+    redirect(targetRedirectUrl);
   }
 }
 
@@ -59,3 +97,4 @@ export async function logout() {
   }
   redirect("/login");
 }
+

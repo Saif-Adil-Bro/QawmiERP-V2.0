@@ -187,3 +187,89 @@ export function parseExpenseFund(rawDesc: string | null | undefined): { cleanDes
   return { cleanDesc, fundId, fundName };
 }
 
+// Canonical normalize fund names/codes/types into matching active fund names
+export function normalizeFundName(input?: string | null, customFunds?: FundItem[]): string {
+  if (!input) return "সাধারণ ফান্ড (General Fund)";
+  const trimmed = input.trim();
+
+  // If a list of known funds is passed, check exact or code match first
+  if (customFunds && customFunds.length > 0) {
+    const found = customFunds.find(
+      (f) =>
+        f.name === trimmed ||
+        f.code?.toLowerCase() === trimmed.toLowerCase() ||
+        f.id === trimmed
+    );
+    if (found) return found.name;
+  }
+
+  const lower = trimmed.toLowerCase();
+
+  if (
+    lower === "zakat" ||
+    lower === "zkt" ||
+    lower === "fund-zakat" ||
+    trimmed.includes("যাকাত") ||
+    lower.includes("zakat fund")
+  ) {
+    return "যাকাত ফান্ড (Zakat Fund)";
+  }
+
+  if (
+    lower === "lillah" ||
+    lower === "lil" ||
+    lower === "fund-lillah" ||
+    trimmed.includes("লিল্লাহ") ||
+    lower.includes("lillah fund")
+  ) {
+    return "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
+  }
+
+  if (
+    lower === "fitra" ||
+    lower === "ftr" ||
+    lower === "sadaqah" ||
+    lower === "fund-fitra" ||
+    trimmed.includes("ফিতরা") ||
+    lower.includes("fitra & sadaqah")
+  ) {
+    return "ফিতরা ও সদকা ফান্ড (Fitra & Sadaqah)";
+  }
+
+  if (
+    lower === "development" ||
+    lower === "dev" ||
+    lower === "building" ||
+    lower === "fund-dev" ||
+    trimmed.includes("মসজিদ ও উন্নয়ন") ||
+    trimmed.includes("উন্নয়ন ও নির্মাণ") ||
+    trimmed.includes("উন্নয়ন ফান্ড")
+  ) {
+    return "মসজিদ ও উন্নয়ন ফান্ড (Development Fund)";
+  }
+
+  if (
+    lower === "orphan" ||
+    lower === "orp" ||
+    lower === "education" ||
+    lower === "fund-orphan" ||
+    trimmed.includes("এতিম কল্যাণ") ||
+    lower.includes("orphan welfare")
+  ) {
+    return "এতিম কল্যাণ ফান্ড (Orphan Welfare Fund)";
+  }
+
+  if (
+    lower === "general" ||
+    lower === "gen" ||
+    lower === "fund-general" ||
+    trimmed.includes("সাধারণ") ||
+    lower.includes("general fund")
+  ) {
+    return "সাধারণ ফান্ড (General Fund)";
+  }
+
+  return trimmed;
+}
+
+

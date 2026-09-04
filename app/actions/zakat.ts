@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
-import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem } from "@/lib/fund-utils";
+import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, normalizeFundName } from "@/lib/fund-utils";
 
 // In-memory fallback cache for custom funds if database table is not yet created
 const customFundsStore: Map<string, FundItem[]> = new Map();
@@ -27,6 +27,7 @@ export async function getFunds(): Promise<FundItem[]> {
 
       if (!dbErr && dbFunds && dbFunds.length > 0) {
         const existingCodes = new Set(dbFunds.map((f: any) => f.code || f.id));
+        const existingNames = new Set(dbFunds.map((f: any) => f.name?.toLowerCase()));
         const formatted: FundItem[] = dbFunds.map((f: any) => ({
           id: f.id,
           madrasa_id: f.madrasa_id,
@@ -42,7 +43,7 @@ export async function getFunds(): Promise<FundItem[]> {
           created_at: f.created_at,
         }));
         return [
-          ...DEFAULT_FUNDS.filter((df) => !existingCodes.has(df.code) && !existingCodes.has(df.id)),
+          ...DEFAULT_FUNDS.filter((df) => !existingCodes.has(df.code) && !existingCodes.has(df.id) && !existingNames.has(df.name.toLowerCase())),
           ...formatted,
         ];
       }
@@ -61,8 +62,10 @@ export async function getFunds(): Promise<FundItem[]> {
         if (meta.custom_funds && Array.isArray(meta.custom_funds)) {
           const customList: FundItem[] = meta.custom_funds;
           const existingIds = new Set(customList.map((f) => f.id));
+          const existingCodes = new Set(customList.map((f) => f.code));
+          const existingNames = new Set(customList.map((f) => f.name?.toLowerCase()));
           return [
-            ...DEFAULT_FUNDS.filter((f) => !existingIds.has(f.id)),
+            ...DEFAULT_FUNDS.filter((f) => !existingIds.has(f.id) && !existingCodes.has(f.code) && !existingNames.has(f.name.toLowerCase())),
             ...customList,
           ];
         }
@@ -71,7 +74,13 @@ export async function getFunds(): Promise<FundItem[]> {
 
     // 3. Fallback to in-memory custom funds merged with defaults
     const madrasaCustom = customFundsStore.get(finalMadrasaId) || [];
-    return [...DEFAULT_FUNDS, ...madrasaCustom];
+    const customIds = new Set(madrasaCustom.map(f => f.id));
+    const customCodes = new Set(madrasaCustom.map(f => f.code));
+    const customNames = new Set(madrasaCustom.map(f => f.name?.toLowerCase()));
+    return [
+      ...DEFAULT_FUNDS.filter(f => !customIds.has(f.id) && !customCodes.has(f.code) && !customNames.has(f.name.toLowerCase())),
+      ...madrasaCustom,
+    ];
   } catch (err) {
     console.error("Error in getFunds:", err);
     return DEFAULT_FUNDS;
@@ -514,28 +523,10 @@ export async function getDonations(filters?: {
     const fundNameMap = new Map(funds.map(f => [f.name, f]));
 
     return (data || []).map((d: any, index: number) => {
-      // Resolve fund name and fund ID
-      let fundName = d.donation_type || "সাধারণ ফান্ড";
-      let fundId = "";
-
-      // Try matching fund by type/name
-      if (fundNameMap.has(d.donation_type)) {
-        const found = fundNameMap.get(d.donation_type)!;
-        fundName = found.name;
-        fundId = found.id;
-      } else if (d.donation_type === "General") {
-        fundName = "সাধারণ ফান্ড (General Fund)";
-        fundId = "fund-general";
-      } else if (d.donation_type === "Lillah") {
-        fundName = "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
-        fundId = "fund-lillah";
-      } else if (d.donation_type === "Zakat") {
-        fundName = "যাকাত ফান্ড (Zakat Fund)";
-        fundId = "fund-zakat";
-      } else if (d.donation_type === "Fitra") {
-        fundName = "ফিতরা ও সদকা ফান্ড (Fitra & Sadaqah)";
-        fundId = "fund-fitra";
-      }
+      // Resolve canonical fund name and fund ID
+      const fundName = normalizeFundName(d.donation_type, funds);
+      const matchedFund = fundNameMap.get(fundName);
+      const fundId = matchedFund?.id || "";
 
       // Parse payment method or transaction notes if structured
       let paymentMethod = "Cash";
@@ -555,7 +546,7 @@ export async function getDonations(filters?: {
         madrasa_id: d.madrasa_id,
         donor_id: d.donor_id,
         amount: Number(d.amount || 0),
-        donation_type: d.donation_type,
+        donation_type: fundName,
         fund_id: fundId,
         fund_name: fundName,
         donation_date: d.donation_date,
@@ -594,15 +585,7 @@ export async function getDonationById(id: string): Promise<DonationItem | null> 
     if (error || !data) return null;
 
     const funds = await getFunds();
-    const fundNameMap = new Map(funds.map(f => [f.name, f]));
-    let fundName = data.donation_type || "সাধারণ ফান্ড";
-
-    if (fundNameMap.has(data.donation_type)) {
-      fundName = fundNameMap.get(data.donation_type)!.name;
-    } else if (data.donation_type === "General") fundName = "সাধারণ ফান্ড (General Fund)";
-    else if (data.donation_type === "Lillah") fundName = "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
-    else if (data.donation_type === "Zakat") fundName = "যাকাত ফান্ড (Zakat Fund)";
-    else if (data.donation_type === "Fitra") fundName = "ফিতরা ও সদকা ফান্ড";
+    const fundName = normalizeFundName(data.donation_type, funds);
 
     let paymentMethod = "Cash";
     let cleanNotes = data.notes || "";
@@ -619,7 +602,7 @@ export async function getDonationById(id: string): Promise<DonationItem | null> 
       madrasa_id: data.madrasa_id,
       donor_id: data.donor_id,
       amount: Number(data.amount || 0),
-      donation_type: data.donation_type,
+      donation_type: fundName,
       fund_name: fundName,
       donation_date: data.donation_date,
       receipt_no: data.receipt_no || `ZR${data.id.substring(0, 6).toUpperCase()}`,
@@ -706,7 +689,9 @@ export async function addDonation(prevState: any, formData: FormData) {
     }
 
     const amount = parseFloat(formData.get("amount") as string);
-    const donation_type = (formData.get("donation_type") as string) || "General"; // Selected Fund name or code
+    const raw_donation_type = (formData.get("donation_type") as string) || "General";
+    const fundsList = await getFunds();
+    const donation_type = normalizeFundName(raw_donation_type, fundsList);
     const donation_date = (formData.get("donation_date") as string) || new Date().toISOString().split("T")[0];
     const payment_method = (formData.get("payment_method") as string) || "Cash";
     const receipt_no_input = (formData.get("receipt_no") as string)?.trim();
@@ -826,7 +811,7 @@ export async function getZakatReportStats() {
       const amt = Number(d.amount || 0);
       grandTotal += amt;
 
-      const fType = d.donation_type || "সাধারণ ফান্ড";
+      const fType = normalizeFundName(d.donation_type, funds);
       if (!fundTotals[fType]) {
         fundTotals[fType] = {
           name: fType,

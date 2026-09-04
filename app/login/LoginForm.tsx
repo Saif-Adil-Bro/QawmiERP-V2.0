@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { login } from "@/app/actions/auth";
 import { createClient } from "@/lib/supabase/client";
+import { getPortalRedirectUrl } from "@/lib/role-redirect";
 
 export default function LoginForm() {
   const [error, setError] = useState<string | null>(null);
@@ -33,19 +34,35 @@ export default function LoginForm() {
         return;
       }
 
-      // 2. Also ensure server session sync
+      let targetUrl = "/dashboard";
+
+      // 2. Sync server session and get role-based target redirect
       try {
-        await fetch("/api/auth/login", {
+        const res = await fetch("/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, password }),
         });
+        const loginData = await res.json();
+        if (loginData?.redirectUrl) {
+          targetUrl = loginData.redirectUrl;
+        }
       } catch (apiErr) {
-        // Safe fallback
+        // Fallback client role resolution
+        if (authData?.user) {
+          const { data: userRow } = await supabase
+            .from("users")
+            .select("role")
+            .eq("id", authData.user.id)
+            .maybeSingle();
+
+          const clientRole = userRow?.role || authData.user.user_metadata?.role;
+          targetUrl = getPortalRedirectUrl(clientRole);
+        }
       }
 
-      // 3. Navigate directly to dashboard
-      window.location.href = "/dashboard";
+      // 3. Navigate directly to the designated portal
+      window.location.href = targetUrl;
     } catch (err: any) {
       console.error("Login submission error:", err);
       setError(err?.message || "লগইন করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
@@ -94,3 +111,4 @@ export default function LoginForm() {
     </form>
   );
 }
+
