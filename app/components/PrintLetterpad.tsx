@@ -76,9 +76,18 @@ const fontOptions = [
 ];
 
 export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }: PrintLetterpadProps) {
+  // Normalize madrasa info whether nested in .madrasa or directly on object
+  const resolvedMadrasa = (madrasaInfo as any)?.madrasa || madrasaInfo || {};
+  const mName = resolvedMadrasa?.name || "আল-মাদরাসাতুল ইসলামিয়া";
+  const mAddress = resolvedMadrasa?.address || "ঢাকা, বাংলাদেশ";
+  const mPhone = resolvedMadrasa?.phone || resolvedMadrasa?.contact_phone || "০১XXXXXXXXX";
+  const mRegNo = resolvedMadrasa?.registration_no || resolvedMadrasa?.reg_no || "১২৪৫/বি";
+  const mEstYear = resolvedMadrasa?.established_year || "২০০২";
+  const resolvedLogoUrl = logoUrl || (madrasaInfo as any)?.logoUrl || resolvedMadrasa?.logo_url || "";
+
   const [padEnabled, setPadEnabled] = useState(true);
-  const [establishedYear, setEstablishedYear] = useState(madrasaInfo?.established_year || "২০০২");
-  const [registrationNumber, setRegistrationNumber] = useState(madrasaInfo?.registration_no || madrasaInfo?.reg_no || "১২৪৫/বি");
+  const [establishedYear, setEstablishedYear] = useState(mEstYear);
+  const [registrationNumber, setRegistrationNumber] = useState(mRegNo);
   const [selectedQuoteIndex, setSelectedQuoteIndex] = useState(0);
   const [selectedThemeId, setSelectedThemeId] = useState("green");
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
@@ -86,6 +95,16 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
   const [memoNumber, setMemoNumber] = useState("মাপ্র/২০২৬/");
   const [currentDate, setCurrentDate] = useState("");
+
+  // Sync state if props change
+  useEffect(() => {
+    if (mEstYear && mEstYear !== "২০০২") {
+      setEstablishedYear(mEstYear);
+    }
+    if (mRegNo && mRegNo !== "১২৪৫/বি") {
+      setRegistrationNumber(mRegNo);
+    }
+  }, [mEstYear, mRegNo]);
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -100,15 +119,12 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
       const savedMemo = localStorage.getItem("pad_print_memo");
 
       if (savedPadEnabled !== null) setPadEnabled(savedPadEnabled === "true");
-      if (savedEstYear !== null) {
+      // Only use localStorage if valid and prop wasn't specifically provided
+      if (savedEstYear && (!mEstYear || mEstYear === "২০০২")) {
         setEstablishedYear(savedEstYear);
-      } else if (madrasaInfo?.established_year) {
-        setEstablishedYear(madrasaInfo.established_year);
       }
-      if (savedRegNum !== null) {
+      if (savedRegNum && (!mRegNo || mRegNo === "১২৪৫/বি")) {
         setRegistrationNumber(savedRegNum);
-      } else if (madrasaInfo?.registration_no || madrasaInfo?.reg_no) {
-        setRegistrationNumber(madrasaInfo.registration_no || madrasaInfo.reg_no || "");
       }
       if (savedQuoteIdx !== null) setSelectedQuoteIndex(parseInt(savedQuoteIdx, 10));
       if (savedTheme !== null) setSelectedThemeId(savedTheme);
@@ -125,11 +141,10 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
         const banglaDate = today.toLocaleDateString("bn-BD", options);
         setCurrentDate(banglaDate);
       } catch (e) {
-        // Fallback to formatted english
         setCurrentDate(today.toLocaleDateString());
       }
     }
-  }, []);
+  }, [mEstYear, mRegNo]);
 
   // Save changes to localStorage
   const handleTogglePad = (val: boolean) => {
@@ -175,12 +190,8 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
   const currentTheme = themes.find(t => t.id === selectedThemeId) || themes[0];
   const activeQuote = quotes[selectedQuoteIndex] || quotes[0];
 
-  const mName = madrasaInfo?.name || "আল-মাদরাসাতুল ইসলামিয়া";
-  const mAddress = madrasaInfo?.address || "ঢাকা, বাংলাদেশ";
-  const mPhone = madrasaInfo?.phone || madrasaInfo?.contact_phone || "০১XXXXXXXXX";
-
   // First letter of madrasa name for custom monogram logo
-  const monogramLetter = mName.charAt(0);
+  const monogramLetter = (mName || "আ").charAt(0);
 
   return (
     <div className="w-full relative">
@@ -352,9 +363,9 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
               {/* Left Column: Logo & Established */}
               <div className="flex items-center space-x-3 print:space-x-2 shrink-0">
                 <div className={`w-16 h-16 print:w-10 print:h-10 rounded-full border-2 ${currentTheme.border} p-1 bg-white flex items-center justify-center shadow-sm relative shrink-0`}>
-                  {logoUrl ? (
+                  {resolvedLogoUrl ? (
                     <img 
-                      src={logoUrl} 
+                      src={resolvedLogoUrl} 
                       alt="Logo" 
                       className="w-full h-full object-contain"
                       referrerPolicy="no-referrer"
@@ -387,7 +398,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
                   <span>|</span>
                   <span className="flex items-center gap-1">
                     <MapPin className="w-3 h-3 print:w-2.5 print:h-2.5 text-slate-400" />
-                    {madrasaInfo?.address || "ঢাকা"}
+                    {mAddress}
                   </span>
                 </div>
               </div>

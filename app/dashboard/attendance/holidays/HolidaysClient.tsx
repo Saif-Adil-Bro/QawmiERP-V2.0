@@ -5,7 +5,7 @@ import {
   Plus, Search, Filter, Calendar, CalendarDays, Edit3, Trash2, 
   Archive, RotateCcw, Printer, FileText, CheckCircle2, AlertCircle, 
   Clock, Sparkles, Building, Layers, Eye, EyeOff, X, ArrowRight,
-  Download, Share2, Info, Bell, Check, Loader2
+  Download, Share2, Info, Bell, Check, Loader2, GraduationCap
 } from "lucide-react";
 import { 
   createAcademicHoliday, 
@@ -616,6 +616,43 @@ export default function HolidaysClient({
                         <strong className="text-indigo-700">{h.reopen_date}</strong>
                       </div>
                     )}
+
+                    {/* Applicable Classes / Department Badge */}
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 text-[11px] text-slate-600">
+                      <span className="flex items-center gap-1 text-slate-500">
+                        <GraduationCap className="w-3.5 h-3.5 text-slate-400" />
+                        প্রযোজ্য জামাত:
+                      </span>
+                      <span className="font-semibold text-slate-800 text-right truncate max-w-[180px]" title={
+                        h.applicable_to === "all"
+                          ? "সকল বিভাগ ও জামাত"
+                          : h.applicable_to === "specific_classes" && h.applicable_classes && h.applicable_classes.length > 0
+                          ? h.applicable_classes.map(cid => classes.find(c => c.id === cid)?.name || cid).join(", ")
+                          : h.applicable_to === "hifz"
+                          ? "হিফজুল কুরআন বিভাগ"
+                          : h.applicable_to === "kitab"
+                          ? "কিতাব বিভাগ"
+                          : h.applicable_to === "nurani"
+                          ? "নূরানী ও মক্তব বিভাগ"
+                          : h.applicable_to === "najera"
+                          ? "নাজেরা বিভাগ"
+                          : "নির্ধারিত বিভাগ"
+                      }>
+                        {h.applicable_to === "all"
+                          ? "সকল বিভাগ ও জামাত"
+                          : h.applicable_to === "specific_classes" && h.applicable_classes && h.applicable_classes.length > 0
+                          ? h.applicable_classes.map(cid => classes.find(c => c.id === cid)?.name || cid).join(", ")
+                          : h.applicable_to === "hifz"
+                          ? "হিফজ বিভাগ"
+                          : h.applicable_to === "kitab"
+                          ? "কিতাব বিভাগ"
+                          : h.applicable_to === "nurani"
+                          ? "নূরানী ও মক্তব"
+                          : h.applicable_to === "najera"
+                          ? "নাজেরা বিভাগ"
+                          : "নির্ধারিত বিভাগ"}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Description / Instructions */}
@@ -813,15 +850,96 @@ export default function HolidaysClient({
                 </label>
                 <select
                   value={formData.applicable_to}
-                  onChange={(e) => setFormData({ ...formData, applicable_to: e.target.value })}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    let newClasses = [...formData.applicable_classes];
+                    if (val === "all") {
+                      newClasses = [];
+                    } else if (val === "hifz") {
+                      newClasses = classes.filter(c => c.name.includes("হিফজ") || c.name.includes("নাজেরা")).map(c => c.id);
+                    } else if (val === "nurani") {
+                      newClasses = classes.filter(c => c.name.includes("নূরানী") || c.name.includes("মক্তব")).map(c => c.id);
+                    } else if (val === "kitab") {
+                      newClasses = classes.filter(c => !c.name.includes("হিফজ") && !c.name.includes("নূরানী") && !c.name.includes("মক্তব")).map(c => c.id);
+                    }
+                    setFormData({ ...formData, applicable_to: val, applicable_classes: newClasses });
+                  }}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
                 >
                   <option value="all">সকল বিভাগ ও জামাতের জন্য প্রযোজ্য</option>
+                  <option value="specific_classes">নির্দিষ্ট জামাতসমূহ (বাছাই করুন)</option>
                   <option value="kitab">শুধু কিতাব বিভাগ</option>
                   <option value="hifz">শুধু হিফজুল কুরআন বিভাগ</option>
                   <option value="najera">শুধু নাজেরা বিভাগ</option>
                   <option value="nurani">শুধু নূরানী ও মক্তব বিভাগ</option>
                 </select>
+              </div>
+
+              {/* Class Selection Box */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                    <GraduationCap className="w-3.5 h-3.5 text-emerald-600" />
+                    মাদরাসার জামাতসমূহ নির্বাচন ({classes.length}টি জামাত উপলব্ধ):
+                  </label>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, applicable_to: "specific_classes", applicable_classes: classes.map(c => c.id) })}
+                      className="text-emerald-700 hover:underline font-semibold"
+                    >
+                      সকল জামাত
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, applicable_classes: [] })}
+                      className="text-slate-500 hover:underline"
+                    >
+                      ক্লিয়ার করুন
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto p-1 bg-white rounded-lg border border-slate-200">
+                  {classes.map((cls) => {
+                    const isChecked = formData.applicable_classes.includes(cls.id);
+                    return (
+                      <button
+                        key={cls.id}
+                        type="button"
+                        onClick={() => {
+                          const next = isChecked
+                            ? formData.applicable_classes.filter((id) => id !== cls.id)
+                            : [...formData.applicable_classes, cls.id];
+                          setFormData({
+                            ...formData,
+                            applicable_to: next.length > 0 && next.length < classes.length ? "specific_classes" : formData.applicable_to,
+                            applicable_classes: next,
+                          });
+                        }}
+                        className={`flex items-center gap-1.5 p-1.5 rounded text-left transition text-xs border ${
+                          isChecked
+                            ? "bg-emerald-50 border-emerald-300 text-emerald-900 font-semibold"
+                            : "bg-white border-slate-100 text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 pointer-events-none shrink-0"
+                        />
+                        <span className="truncate">{cls.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {formData.applicable_classes.length > 0 && (
+                  <div className="text-[11px] text-emerald-800 font-medium">
+                    ✓ নির্বাচিত জামাত: {toBanglaNumber(formData.applicable_classes.length)}টি
+                  </div>
+                )}
               </div>
 
               <div>
@@ -884,8 +1002,40 @@ export default function HolidaysClient({
 
       {/* Modal: Official Vacation Notice for Printing */}
       {noticeHoliday && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto animate-fadeIn">
-          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-100 space-y-4 my-8 text-left">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto animate-fadeIn print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:block print:h-auto">
+          {/* Print Media Isolation */}
+          <style dangerouslySetInnerHTML={{
+            __html: `
+              @media print {
+                /* Hide everything in the page */
+                body * {
+                  visibility: hidden !important;
+                }
+                /* Expose ONLY the printable official notice */
+                #printable-holiday-notice,
+                #printable-holiday-notice * {
+                  visibility: visible !important;
+                }
+                #printable-holiday-notice {
+                  position: absolute !important;
+                  left: 0 !important;
+                  top: 0 !important;
+                  width: 100% !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  border: none !important;
+                  box-shadow: none !important;
+                  background: #ffffff !important;
+                }
+                @page {
+                  size: A4 portrait;
+                  margin: 8mm;
+                }
+              }
+            `
+          }} />
+
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-100 space-y-4 my-8 text-left print:max-w-none print:w-full print:p-0 print:m-0 print:border-none print:shadow-none print:rounded-none print:my-0">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 print:hidden">
               <div className="flex items-center gap-2">
                 <Printer className="w-5 h-5 text-indigo-600" />
@@ -897,7 +1047,7 @@ export default function HolidaysClient({
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-4 py-1.5 text-xs font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition flex items-center gap-1.5 shadow-sm"
+                  className="px-4 py-1.5 text-xs font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   প্রিন্ট / PDF ডাউনলোড
@@ -905,7 +1055,7 @@ export default function HolidaysClient({
                 <button
                   type="button"
                   onClick={() => setNoticeHoliday(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -913,7 +1063,7 @@ export default function HolidaysClient({
             </div>
 
             {/* Official Letterhead Notice Body */}
-            <div className="border border-slate-200 rounded-xl p-6 bg-white print:border-none print:p-0">
+            <div id="printable-holiday-notice" className="border border-slate-200 rounded-xl p-6 bg-white print:border-none print:p-0">
               <PrintLetterpad madrasaInfo={madrasaInfo} title="ছুটির বিজ্ঞপ্তি">
                 <div className="space-y-6 pt-4 text-slate-800 font-serif">
                   {/* Notice Meta Line */}
@@ -938,14 +1088,20 @@ export default function HolidaysClient({
                     <h2 className="text-lg sm:text-xl font-bold underline decoration-2 underline-offset-4 text-slate-900">
                       বিষয়: {noticeHoliday.title}
                     </h2>
-                    <span className="text-xs text-slate-500 font-sans">
+                    <span className="text-xs text-slate-600 font-sans">
                       (প্রযোজ্য:{" "}
                       {noticeHoliday.applicable_to === "all"
-                        ? "সকল বিভাগ ও জামাত"
+                        ? "মাদরাসার সকল বিভাগ ও জামাত"
+                        : noticeHoliday.applicable_to === "specific_classes" && noticeHoliday.applicable_classes && noticeHoliday.applicable_classes.length > 0
+                        ? `নির্দিষ্ট জামাতসমূহ (${noticeHoliday.applicable_classes.map(cid => classes.find(c => c.id === cid)?.name || cid).join(", ")})`
                         : noticeHoliday.applicable_to === "hifz"
                         ? "হিফজুল কুরআন বিভাগ"
                         : noticeHoliday.applicable_to === "kitab"
                         ? "কিতাব বিভাগ"
+                        : noticeHoliday.applicable_to === "nurani"
+                        ? "নূরানী ও মক্তব বিভাগ"
+                        : noticeHoliday.applicable_to === "najera"
+                        ? "নাজেরা বিভাগ"
                         : "নির্ধারিত বিভাগ"}
                       )
                     </span>

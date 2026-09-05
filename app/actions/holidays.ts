@@ -1,9 +1,82 @@
 "use server";
 
-import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata, AcademicHoliday, HOLIDAY_CATEGORIES } from "@/lib/sessions";
+
+/**
+ * Automatically syncs a holiday notice with the public.notices table
+ * so that guardians and teachers see it instantly in their portals.
+ */
+async function syncHolidayNotice(holiday: AcademicHoliday, madrasaId: string) {
+  try {
+    const admin = await createAdminClient();
+    const noticeTag = `[HOLIDAY_REF:${holiday.id}]`;
+
+    if (!holiday.publish_to_portal || holiday.is_archived) {
+      // If holiday is archived or unpublished, deactivate the notice
+      await admin
+        .from("notices")
+        .update({ is_active: false })
+        .eq("madrasa_id", madrasaId)
+        .ilike("content", `%${noticeTag}%`);
+      return;
+    }
+
+    const noticeTitle = `ছুটির বিজ্ঞপ্তি: ${holiday.title}`;
+    const noticeContent = `এতদ্বারা সম্মানিত অভিভাবক, শিক্ষক ও শিক্ষার্থীদের অবগতির জন্য জানানো যাচ্ছে যে, "${holiday.title}" উপলক্ষে আগামী ${holiday.start_date} হতে ${holiday.end_date} পর্যন্ত মোট ${holiday.total_days || 1} দিন মাদরাসার যাবতীয় পাঠদান কার্যক্রম বন্ধ থাকবে।${holiday.reopen_date ? `\n\nছুটি শেষে মাদরাসা পুনরায় খোলার তারিখ: ${holiday.reopen_date} খ্রিষ্টাব্দ (সকাল ৮:০০ ঘটিকা)` : ""}${holiday.description ? `\n\nবিশেষ নির্দেশনাবলী: ${holiday.description}` : ""}\n\nছুটিকালীন সময়ে শিক্ষার্থীদের নিয়মিত পাঁচ ওয়াক্ত নামায আদায়, কুরআন তিলাওয়াত ও পড়াশোনা বজায় রাখার জন্য অভিভাবকদের বিশেষভাবে অনুরোধ করা হলো।\n\n${noticeTag}`;
+
+    const { data: existingNotices } = await admin
+      .from("notices")
+      .select("id")
+      .eq("madrasa_id", madrasaId)
+      .ilike("content", `%${noticeTag}%`)
+      .limit(1);
+
+    if (existingNotices && existingNotices.length > 0) {
+      await admin
+        .from("notices")
+        .update({
+          title: noticeTitle,
+          content: noticeContent,
+          target_audience: "All",
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingNotices[0].id);
+    } else {
+      await admin
+        .from("notices")
+        .insert({
+          madrasa_id: madrasaId,
+          title: noticeTitle,
+          content: noticeContent,
+          target_audience: "All",
+          is_active: true,
+        });
+    }
+  } catch (syncErr) {
+    console.warn("syncHolidayNotice warning:", syncErr);
+  }
+}
+
+/**
+ * Permanently removes synced holiday notice from the public.notices table
+ */
+async function deleteHolidayNotice(holidayId: string, madrasaId: string) {
+  try {
+    const admin = await createAdminClient();
+    const noticeTag = `[HOLIDAY_REF:${holidayId}]`;
+    await admin
+      .from("notices")
+      .delete()
+      .eq("madrasa_id", madrasaId)
+      .ilike("content", `%${noticeTag}%`);
+  } catch (err) {
+    console.warn("deleteHolidayNotice warning:", err);
+  }
+}
 
 /**
  * Calculates total inclusive days between start and end date
@@ -137,10 +210,15 @@ export async function createAcademicHoliday(payload: Omit<AcademicHoliday, "id" 
       return { error: "ছুটির তথ্য সংরক্ষণ করা সম্ভব হয়নি।" };
     }
 
+    // Auto-sync notice with public.notices table for Guardian & Student Portal
+    await syncHolidayNotice(newHoliday, madrasaId);
+
     revalidatePath("/dashboard/attendance");
     revalidatePath("/dashboard/attendance/holidays");
     revalidatePath("/dashboard/academic/routine");
+    revalidatePath("/dashboard/communication/notices");
     revalidatePath("/portal/holidays");
+    revalidatePath("/portal/notices");
     revalidatePath("/portal/leave");
     revalidatePath("/portal", "layout");
 
@@ -197,10 +275,16 @@ export async function updateAcademicHoliday(id: string, payload: Partial<Academi
       return { error: "আপডেট সংরক্ষণ করা সম্ভব হয়নি।" };
     }
 
+    // Auto-sync notice update with public.notices table
+    await syncHolidayNotice(meta.academic_holidays[index], madrasaId);
+
     revalidatePath("/dashboard/attendance");
     revalidatePath("/dashboard/attendance/holidays");
     revalidatePath("/dashboard/academic/routine");
+    revalidatePath("/dashboard/communication/notices");
     revalidatePath("/portal/holidays");
+    revalidatePath("/portal/notices");
+    revalidatePath("/portal/leave");
     revalidatePath("/portal", "layout");
 
     return { success: true, holiday: meta.academic_holidays[index] };
@@ -232,9 +316,15 @@ export async function deleteAcademicHoliday(id: string) {
       return { error: "মুছে ফেলা সম্ভব হয়নি।" };
     }
 
+    // Remove notice from public.notices table
+    await deleteHolidayNotice(id, madrasaId);
+
     revalidatePath("/dashboard/attendance");
     revalidatePath("/dashboard/attendance/holidays");
+    revalidatePath("/dashboard/communication/notices");
     revalidatePath("/portal/holidays");
+    revalidatePath("/portal/notices");
+    revalidatePath("/portal", "layout");
 
     return { success: true };
   } catch (err: any) {
@@ -369,26 +459,37 @@ export async function seedDefaultQawmiHolidays(year?: string) {
       },
     ];
 
+    const addedHolidays: AcademicHoliday[] = [];
     for (const item of defaultList) {
       const totalDays = calculateDays(item.start_date, item.end_date);
-      meta.academic_holidays.push({
+      const hol: AcademicHoliday = {
         ...item,
         id: `hol_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         total_days: totalDays,
         created_at: new Date().toISOString(),
-      });
+      };
+      meta.academic_holidays.push(hol);
+      addedHolidays.push(hol);
     }
 
     const saved = await saveMadrasaMetadata(madrasaId, meta);
     if (!saved) return { error: "ডিফল্ট ছুটি যুক্ত করা সম্ভব হয়নি।" };
 
+    // Sync all seeded holidays with notices table
+    for (const hol of addedHolidays) {
+      await syncHolidayNotice(hol, madrasaId);
+    }
+
     revalidatePath("/dashboard/attendance/holidays");
     revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/communication/notices");
     revalidatePath("/portal/holidays");
+    revalidatePath("/portal/notices");
+    revalidatePath("/portal", "layout");
 
     return {
       success: true,
-      message: `${defaultList.length}টি কওমি মাদরাসার প্রচলিত ছুটির তালিকা সফলভাবে যুক্ত করা হয়েছে!`,
+      message: `${defaultList.length}টি কওমি মাদরাসার প্রচলিত ছুটির তালিকা সফলভাবে যুক্ত ও নোটিশে প্রকাশ করা হয়েছে!`,
     };
   } catch (err: any) {
     console.error("seedDefaultQawmiHolidays error:", err);
@@ -451,7 +552,8 @@ export async function getPublicHolidaysForPortal(madrasaId?: string) {
     }
 
     if (!targetMadrasaId) {
-      const { data: firstM } = await supabase.from("madrasas").select("id").limit(1).single();
+      const admin = await createAdminClient();
+      const { data: firstM } = await admin.from("madrasas").select("id").limit(1).single();
       targetMadrasaId = firstM?.id;
     }
 

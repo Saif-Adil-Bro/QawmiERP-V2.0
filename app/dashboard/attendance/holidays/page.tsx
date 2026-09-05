@@ -1,18 +1,58 @@
 import { getAcademicHolidays } from "@/app/actions/holidays";
-import { getClasses } from "@/app/actions/students";
+import { getClasses } from "@/app/actions/classes";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
 import HolidaysClient from "./HolidaysClient";
 import Link from "next/link";
-import { CalendarDays, ArrowLeft, Plus } from "lucide-react";
+import { CalendarDays, ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
+// Standard Qawmi Jamat names as fallback if database classes are not yet populated
+const DEFAULT_QAWMI_CLASSES = [
+  { id: "dawra", name: "দাওরায়ে হাদীস (মাস্টার্স)" },
+  { id: "meshkat", name: "মেশকাত (ফযীলত)" },
+  { id: "jalalain", name: "জালালাইন (সানাবিয়্যা উলইয়া)" },
+  { id: "sharhe_bekaya", name: "শরহে বেকায়া" },
+  { id: "hedaya", name: "হেদায়াতুন্নাহু" },
+  { id: "kafiya", name: "কাফিয়া" },
+  { id: "mizan", name: "মীযান ও মুনশাইব" },
+  { id: "taisir", name: "তাইসীর ও ফার্সি" },
+  { id: "hifz", name: "হিফজুল কুরআন বিভাগ" },
+  { id: "najera", name: "নাজেরা বিভাগ" },
+  { id: "nurani_3", name: "নূরানী ৩য় শ্রেণি" },
+  { id: "nurani_2", name: "নূরানী ২য় শ্রেণি" },
+  { id: "nurani_1", name: "নূরানী ১ম শ্রেণি" },
+  { id: "maktab", name: "মক্তব ও শিশু শ্রেণি" },
+];
+
 export default async function AcademicHolidaysPage() {
-  const [holidays, classes, madrasaInfo] = await Promise.all([
+  const [holidays, rawClasses, madrasaProfile] = await Promise.all([
     getAcademicHolidays(true), // include archived to allow filter toggle
     getClasses(),
     getMadrasaProfileWithLogo(),
   ]);
+
+  // Ensure classes is a rich list
+  const classes =
+    rawClasses && rawClasses.length > 0
+      ? rawClasses.map((c: any) => ({ id: c.id, name: c.name }))
+      : DEFAULT_QAWMI_CLASSES;
+
+  // Normalize madrasa info into flat structure
+  const rawMadrasa = (madrasaProfile as any)?.madrasa || madrasaProfile || {};
+  const normalizedMadrasa = {
+    ...rawMadrasa,
+    id: rawMadrasa.id || "",
+    name: rawMadrasa.name || "আল-মাদরাসাতুল ইসলামিয়া",
+    address: rawMadrasa.address || "ঢাকা, বাংলাদেশ",
+    phone: rawMadrasa.phone || rawMadrasa.contact_phone || "০১XXXXXXXXX",
+    email: rawMadrasa.email || rawMadrasa.contact_email || "",
+    registration_no: rawMadrasa.registration_no || rawMadrasa.reg_no || "১২৪৫/বি",
+    established_year: rawMadrasa.established_year || "২০০২",
+    principal_name: rawMadrasa.principal_name || "মুহতামিম / অধ্যক্ষ",
+    logoUrl: (madrasaProfile as any)?.logoUrl || rawMadrasa.logo_url || "",
+    signatureUrl: (madrasaProfile as any)?.signatureUrl || rawMadrasa.principal_signature_url || "",
+  };
 
   return (
     <div className="space-y-6">
@@ -49,8 +89,8 @@ export default async function AcademicHolidaysPage() {
       {/* Client Component */}
       <HolidaysClient
         initialHolidays={holidays}
-        classes={classes || []}
-        madrasaInfo={madrasaInfo}
+        classes={classes}
+        madrasaInfo={normalizedMadrasa}
       />
     </div>
   );
