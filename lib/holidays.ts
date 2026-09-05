@@ -6,6 +6,7 @@ export interface AcademicHoliday {
   end_date: string;
   total_days: number;
   reopen_date?: string;
+  reopen_time?: string; // e.g. "সকাল ৮:০০ ঘটিকা", "বাদ ফজর", "বাদ মাগরিব", "সকাল ৯:০০ ঘটিকা"
   applicable_to?: string; // "all" | "hifz" | "kitab" | "nurani" | "najera"
   applicable_classes?: string[];
   description?: string;

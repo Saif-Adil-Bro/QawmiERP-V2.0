@@ -387,20 +387,19 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
                 <h1 className={`text-2xl sm:text-3xl print:text-lg font-extrabold tracking-wide ${currentTheme.text} mb-1 print:mb-0 text-center`}>
                   {mName}
                 </h1>
-                <p className="text-xs sm:text-sm print:text-[10px] text-slate-600 font-medium text-center line-clamp-1">
-                  {mAddress}
-                </p>
-                <div className="flex items-center justify-center space-x-4 print:space-x-2 text-[10px] sm:text-xs print:text-[9px] text-slate-500 mt-1 flex-wrap">
-                  <span className="flex items-center gap-1">
-                    <Phone className="w-3 h-3 print:w-2.5 print:h-2.5 text-slate-400" />
-                    {mPhone}
-                  </span>
-                  <span>|</span>
-                  <span className="flex items-center gap-1">
-                    <MapPin className="w-3 h-3 print:w-2.5 print:h-2.5 text-slate-400" />
+                {mAddress && (
+                  <p className="text-xs sm:text-sm print:text-[10px] text-slate-600 font-medium text-center line-clamp-1">
                     {mAddress}
-                  </span>
-                </div>
+                  </p>
+                )}
+                {mPhone && (
+                  <div className="flex items-center justify-center space-x-4 print:space-x-2 text-[10px] sm:text-xs print:text-[9px] text-slate-500 mt-1 flex-wrap">
+                    <span className="flex items-center gap-1">
+                      <Phone className="w-3 h-3 print:w-2.5 print:h-2.5 text-slate-400" />
+                      {mPhone}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Right Column: Dynamic Print Date & Memo Placeholder */}

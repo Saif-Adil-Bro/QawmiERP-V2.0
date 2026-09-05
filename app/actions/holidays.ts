@@ -25,7 +25,11 @@ async function syncHolidayNotice(holiday: AcademicHoliday, madrasaId: string) {
     }
 
     const noticeTitle = `ছুটির বিজ্ঞপ্তি: ${holiday.title}`;
-    const noticeContent = `এতদ্বারা সম্মানিত অভিভাবক, শিক্ষক ও শিক্ষার্থীদের অবগতির জন্য জানানো যাচ্ছে যে, "${holiday.title}" উপলক্ষে আগামী ${holiday.start_date} হতে ${holiday.end_date} পর্যন্ত মোট ${holiday.total_days || 1} দিন মাদরাসার যাবতীয় পাঠদান কার্যক্রম বন্ধ থাকবে।${holiday.reopen_date ? `\n\nছুটি শেষে মাদরাসা পুনরায় খোলার তারিখ: ${holiday.reopen_date} খ্রিষ্টাব্দ (সকাল ৮:০০ ঘটিকা)` : ""}${holiday.description ? `\n\nবিশেষ নির্দেশনাবলী: ${holiday.description}` : ""}\n\nছুটিকালীন সময়ে শিক্ষার্থীদের নিয়মিত পাঁচ ওয়াক্ত নামায আদায়, কুরআন তিলাওয়াত ও পড়াশোনা বজায় রাখার জন্য অভিভাবকদের বিশেষভাবে অনুরোধ করা হলো।\n\n${noticeTag}`;
+    const reopenTimeStr = holiday.reopen_time ? ` (${holiday.reopen_time})` : " (সকাল ৮:০০ ঘটিকা)";
+    const reopenNotice = holiday.reopen_date
+      ? `\n\nছুটি শেষে মাদরাসা পুনরায় খোলার তারিখ: ${holiday.reopen_date} খ্রিষ্টাব্দ${reopenTimeStr}`
+      : "";
+    const noticeContent = `এতদ্বারা সম্মানিত অভিভাবক, শিক্ষক ও শিক্ষার্থীদের অবগতির জন্য জানানো যাচ্ছে যে, "${holiday.title}" উপলক্ষে আগামী ${holiday.start_date} হতে ${holiday.end_date} পর্যন্ত মোট ${holiday.total_days || 1} দিন মাদরাসার যাবতীয় পাঠদান কার্যক্রম বন্ধ থাকবে।${reopenNotice}${holiday.description ? `\n\nবিশেষ নির্দেশনাবলী: ${holiday.description}` : ""}\n\nছুটিকালীন সময়ে শিক্ষার্থীদের নিয়মিত পাঁচ ওয়াক্ত নামায আদায়, কুরআন তিলাওয়াত ও পড়াশোনা বজায় রাখার জন্য অভিভাবকদের বিশেষভাবে অনুরোধ করা হলো।\n\n${noticeTag}`;
 
     const { data: existingNotices } = await admin
       .from("notices")
@@ -193,6 +197,7 @@ export async function createAcademicHoliday(payload: Omit<AcademicHoliday, "id" 
       end_date: payload.end_date,
       total_days: totalDays,
       reopen_date: payload.reopen_date || undefined,
+      reopen_time: payload.reopen_time?.trim() || undefined,
       applicable_to: payload.applicable_to || "all",
       applicable_classes: payload.applicable_classes || [],
       description: payload.description?.trim() || "",

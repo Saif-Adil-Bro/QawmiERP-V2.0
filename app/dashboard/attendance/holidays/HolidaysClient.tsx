@@ -102,6 +102,7 @@ export default function HolidaysClient({
     start_date: new Date().toISOString().split("T")[0],
     end_date: new Date().toISOString().split("T")[0],
     reopen_date: "",
+    reopen_time: "সকাল ৮:০০ ঘটিকা",
     applicable_to: "all",
     applicable_classes: [] as string[],
     description: "",
@@ -132,6 +133,7 @@ export default function HolidaysClient({
       start_date: today,
       end_date: today,
       reopen_date: "",
+      reopen_time: "সকাল ৮:০০ ঘটিকা",
       applicable_to: "all",
       applicable_classes: [],
       description: "",
@@ -150,6 +152,7 @@ export default function HolidaysClient({
       start_date: h.start_date,
       end_date: h.end_date,
       reopen_date: h.reopen_date || "",
+      reopen_time: h.reopen_time || "সকাল ৮:০০ ঘটিকা",
       applicable_to: h.applicable_to || "all",
       applicable_classes: h.applicable_classes || [],
       description: h.description || "",
@@ -178,8 +181,90 @@ export default function HolidaysClient({
       start_date: sDate,
       end_date: eDate,
       reopen_date: rDate,
+      reopen_time: "সকাল ৮:০০ ঘটিকা",
       description: preset.description,
     }));
+  };
+
+  /**
+   * Universal Mobile & Desktop Print Engine
+   * Clones notice directly into document.body with #temp-print-frame
+   * Solves Android Chrome print spooler blank page issue!
+   */
+  const handlePrintNotice = () => {
+    const printableElement = document.getElementById("printable-holiday-notice");
+    if (!printableElement) {
+      window.print();
+      return;
+    }
+
+    const existingFrame = document.getElementById("temp-print-frame");
+    if (existingFrame) existingFrame.remove();
+
+    const existingStyle = document.getElementById("temp-holiday-print-style");
+    if (existingStyle) existingStyle.remove();
+
+    const style = document.createElement("style");
+    style.id = "temp-holiday-print-style";
+    style.innerHTML = `
+      @media print {
+        @page {
+          size: A4 portrait;
+          margin: 6mm 8mm;
+        }
+        html, body {
+          width: 100% !important;
+          height: auto !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          overflow: visible !important;
+        }
+        body > *:not(#temp-print-frame) {
+          display: none !important;
+        }
+        #temp-print-frame {
+          display: block !important;
+          position: static !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          box-shadow: none !important;
+          border: none !important;
+          box-sizing: border-box !important;
+        }
+        #temp-print-frame * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    const clone = printableElement.cloneNode(true) as HTMLElement;
+    clone.id = "temp-print-frame";
+    clone.style.border = "none";
+    clone.style.boxShadow = "none";
+    clone.style.padding = "0";
+    clone.style.margin = "0";
+    clone.style.width = "100%";
+    clone.style.background = "#ffffff";
+
+    document.body.appendChild(clone);
+    document.body.classList.add("is-printing-now");
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove("is-printing-now");
+        const temp = document.getElementById("temp-print-frame");
+        if (temp) temp.remove();
+        const tempStyle = document.getElementById("temp-holiday-print-style");
+        if (tempStyle) tempStyle.remove();
+      }, 1000);
+    }, 250);
   };
 
   // Handle Save (Create / Update)
@@ -613,7 +698,9 @@ export default function HolidaysClient({
                     {h.reopen_date && (
                       <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 text-indigo-900 font-medium">
                         <span>মাদরাসা খোলার তারিখ:</span>
-                        <strong className="text-indigo-700">{h.reopen_date}</strong>
+                        <strong className="text-indigo-700">
+                          {h.reopen_date} {h.reopen_time ? `(${h.reopen_time})` : ""}
+                        </strong>
                       </div>
                     )}
 
@@ -804,43 +891,79 @@ export default function HolidaysClient({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    শুরু তারিখ <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={formData.start_date}
-                    onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                    className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      শুরু তারিখ <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={formData.start_date}
+                      onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      শেষ তারিখ <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={formData.end_date}
+                      onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      মাদরাসা খোলার তারিখ
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.reopen_date}
+                      onChange={(e) => setFormData({ ...formData, reopen_date: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    শেষ তারিখ <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={formData.end_date}
-                    onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                    className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    মাদরাসা খোলার তারিখ
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.reopen_date}
-                    onChange={(e) => setFormData({ ...formData, reopen_date: e.target.value })}
-                    className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+                {/* Dynamic Reopen Time Setting */}
+                <div className="pt-2.5 border-t border-slate-200/70">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                      মাদরাসা খোলার সময় / উপস্থিতির সময়:
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.reopen_time}
+                      onChange={(e) => setFormData({ ...formData, reopen_time: e.target.value })}
+                      placeholder="উদা: সকাল ৮:০০ ঘটিকা / বাদ ফজর / বাদ মাগরিব"
+                      className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 sm:w-64 font-medium"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    <span className="text-[10px] text-slate-400">দ্রুত নির্বাচন:</span>
+                    {["সকাল ৮:০০ ঘটিকা", "সকাল ৯:০০ ঘটিকা", "বাদ ফজর", "বাদ মাগরিব", "সকাল ১০:০০ ঘটিকা", "বাদ আসর"].map((timeChip) => (
+                      <button
+                        key={timeChip}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, reopen_time: timeChip })}
+                        className={`text-[11px] px-2 py-0.5 rounded-md border transition ${
+                          formData.reopen_time === timeChip
+                            ? "bg-indigo-50 border-indigo-300 text-indigo-800 font-bold"
+                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        {timeChip}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -1002,41 +1125,9 @@ export default function HolidaysClient({
 
       {/* Modal: Official Vacation Notice for Printing */}
       {noticeHoliday && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto animate-fadeIn print:static print:p-0 print:m-0 print:bg-white print:overflow-visible print:block print:h-auto">
-          {/* Print Media Isolation */}
-          <style dangerouslySetInnerHTML={{
-            __html: `
-              @media print {
-                /* Hide everything in the page */
-                body * {
-                  visibility: hidden !important;
-                }
-                /* Expose ONLY the printable official notice */
-                #printable-holiday-notice,
-                #printable-holiday-notice * {
-                  visibility: visible !important;
-                }
-                #printable-holiday-notice {
-                  position: absolute !important;
-                  left: 0 !important;
-                  top: 0 !important;
-                  width: 100% !important;
-                  margin: 0 !important;
-                  padding: 0 !important;
-                  border: none !important;
-                  box-shadow: none !important;
-                  background: #ffffff !important;
-                }
-                @page {
-                  size: A4 portrait;
-                  margin: 8mm;
-                }
-              }
-            `
-          }} />
-
-          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-100 space-y-4 my-8 text-left print:max-w-none print:w-full print:p-0 print:m-0 print:border-none print:shadow-none print:rounded-none print:my-0">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 print:hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto animate-fadeIn">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-100 space-y-4 my-8 text-left">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Printer className="w-5 h-5 text-indigo-600" />
                 <h3 className="text-base font-bold text-slate-800">
@@ -1046,8 +1137,8 @@ export default function HolidaysClient({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="px-4 py-1.5 text-xs font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  onClick={handlePrintNotice}
+                  className="px-4 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   প্রিন্ট / PDF ডাউনলোড
@@ -1062,8 +1153,43 @@ export default function HolidaysClient({
               </div>
             </div>
 
+            {/* Quick Live Adjustment of Reopen Time before printing */}
+            {noticeHoliday.reopen_date && (
+              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                <div className="flex items-center gap-2 text-amber-900">
+                  <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+                  <span className="font-semibold">মাদরাসা খোলার সময় (প্রিন্টে প্রদর্শিত হবে):</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={noticeHoliday.reopen_time || "সকাল ৮:০০ ঘটিকা"}
+                    onChange={(e) => setNoticeHoliday({ ...noticeHoliday, reopen_time: e.target.value })}
+                    className="px-2.5 py-1 text-xs border border-amber-300 rounded-lg bg-white font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-44"
+                    placeholder="উপস্থিতির সময়"
+                  />
+                  <div className="flex gap-1">
+                    {["সকাল ৮:০০ ঘটিকা", "সকাল ৯:০০ ঘটিকা", "বাদ ফজর", "বাদ মাগরিব"].map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => setNoticeHoliday({ ...noticeHoliday, reopen_time: chip })}
+                        className={`text-[10px] px-2 py-0.5 rounded transition border ${
+                          (noticeHoliday.reopen_time || "সকাল ৮:০০ ঘটিকা") === chip
+                            ? "bg-amber-200 border-amber-400 text-amber-950 font-bold"
+                            : "bg-white border-amber-200 text-slate-700 hover:bg-amber-100"
+                        }`}
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Official Letterhead Notice Body */}
-            <div id="printable-holiday-notice" className="border border-slate-200 rounded-xl p-6 bg-white print:border-none print:p-0">
+            <div id="printable-holiday-notice" className="border border-slate-200 rounded-xl p-6 bg-white">
               <PrintLetterpad madrasaInfo={madrasaInfo} title="ছুটির বিজ্ঞপ্তি">
                 <div className="space-y-6 pt-4 text-slate-800 font-serif">
                   {/* Notice Meta Line */}
@@ -1121,7 +1247,7 @@ export default function HolidaysClient({
                       <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center font-sans font-bold text-slate-900 text-sm">
                         ছুটি শেষে মাদরাসা পুনরায় খোলার তারিখ:{" "}
                         <span className="text-emerald-700 underline underline-offset-2">
-                          {noticeHoliday.reopen_date} খ্রিষ্টাব্দ (সকাল ৮:০০ ঘটিকা)
+                          {noticeHoliday.reopen_date} খ্রিষ্টাব্দ ({noticeHoliday.reopen_time || "সকাল ৮:০০ ঘটিকা"})
                         </span>
                       </div>
                     )}
