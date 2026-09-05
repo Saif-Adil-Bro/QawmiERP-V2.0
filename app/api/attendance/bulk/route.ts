@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { createClient } from "@/lib/supabase/server";
 
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,6 +51,10 @@ export async function POST(req: NextRequest) {
         ]);
       }
     }
+
+    revalidatePath("/teacher-portal/attendance");
+    revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/attendance/students");
 
     return NextResponse.json({ success: true, count: records.length });
   } catch (error: any) {

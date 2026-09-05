@@ -26,6 +26,13 @@ interface AttendanceFormProps {
   currentClassId: string;
   currentDate: string;
   madrasaId?: string;
+  holidayInfo?: {
+    isHoliday: boolean;
+    isWeekend: boolean;
+    holiday: any;
+    dayName?: string;
+    autoSavedAsLeave?: boolean;
+  } | null;
 }
 
 export default function AttendanceForm({
@@ -38,6 +45,7 @@ export default function AttendanceForm({
   currentClassId,
   currentDate,
   madrasaId,
+  holidayInfo,
 }: AttendanceFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -48,13 +56,19 @@ export default function AttendanceForm({
   const allClasses = classes || initialClasses || [];
   const allAttendance = existingAttendance || initialAttendance || [];
 
+  const isOffDay = Boolean(holidayInfo?.isHoliday || holidayInfo?.isWeekend);
+  const defaultStatus = isOffDay ? "Leave" : "Present";
+  const defaultNotes = isOffDay
+    ? (holidayInfo?.holiday?.title ? `নির্ধারিত একাডেমিক ছুটি: ${holidayInfo.holiday.title}` : "সাপ্তাহিক ছুটি")
+    : "";
+
   // Map student attendance state
   const initialMap: Record<string, { status: string; notes: string }> = {};
   allStudents.forEach((student) => {
     const existing = allAttendance.find((a) => a.student_id === student.id);
     initialMap[student.id] = {
-      status: existing ? existing.status : "Present",
-      notes: existing ? existing.notes || "" : "",
+      status: existing ? existing.status : defaultStatus,
+      notes: existing ? existing.notes || "" : defaultNotes,
     };
   });
 
@@ -63,16 +77,22 @@ export default function AttendanceForm({
   >(initialMap);
 
   useEffect(() => {
+    const isOffDay = Boolean(holidayInfo?.isHoliday || holidayInfo?.isWeekend);
+    const defaultStatus = isOffDay ? "Leave" : "Present";
+    const defaultNotes = isOffDay
+      ? (holidayInfo?.holiday?.title ? `নির্ধারিত একাডেমিক ছুটি: ${holidayInfo.holiday.title}` : "সাপ্তাহিক ছুটি")
+      : "";
+
     const updatedMap: Record<string, { status: string; notes: string }> = {};
     allStudents.forEach((student) => {
       const existing = allAttendance.find((a) => a.student_id === student.id);
       updatedMap[student.id] = {
-        status: existing ? existing.status : "Present",
-        notes: existing ? existing.notes || "" : "",
+        status: existing ? existing.status : defaultStatus,
+        notes: existing ? existing.notes || "" : defaultNotes,
       };
     });
     setAttendanceState(updatedMap);
-  }, [allStudents, allAttendance]);
+  }, [allStudents, allAttendance, holidayInfo]);
 
   const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     router.push(
@@ -175,10 +195,57 @@ export default function AttendanceForm({
 
   const presentCount = Object.values(attendanceState).filter((a) => a.status === "Present").length;
   const absentCount = Object.values(attendanceState).filter((a) => a.status === "Absent").length;
-  const lateCount = Object.values(attendanceState).filter((a) => a.status === "Late" || a.status === "Leave").length;
+  const lateCount = Object.values(attendanceState).filter((a) => a.status === "Late").length;
+  const leaveCount = Object.values(attendanceState).filter((a) => a.status === "Leave").length;
 
   return (
     <div className="space-y-5">
+      {/* Holiday / Weekend Notice Banner */}
+      {holidayInfo && (holidayInfo.isHoliday || holidayInfo.isWeekend) && (
+        <div className="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl shrink-0 mt-0.5">
+              <Calendar className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs sm:text-sm font-bold text-amber-950">
+                  📌 নির্ধারিত একাডেমিক ছুটি: {holidayInfo.holiday?.title || (holidayInfo.isWeekend ? "সাপ্তাহিক ছুটি" : "ছুটি")}
+                </span>
+                <span className="px-2 py-0.5 text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  অটো-সেভ সক্রিয়
+                </span>
+              </div>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                {holidayInfo.holiday ? (
+                  <>
+                    মেয়াদ: <span className="font-semibold">{holidayInfo.holiday.start_date}</span> হতে{" "}
+                    <span className="font-semibold">{holidayInfo.holiday.end_date}</span>{" "}
+                    ({toBanglaNumber(holidayInfo.holiday.total_days || 1)} দিন)। ছুটির দিনের সকল শিক্ষার্থীর হাজিরা স্বয়ংক্রিয়ভাবে &quot;ছুটি (Leave)&quot; হিসেবে সংরক্ষিত হয়েছে।
+                  </>
+                ) : (
+                  <>
+                    আজকের দিনটি মাদরাসার নির্ধারিত সাপ্তাহিক ছুটি। সকল শিক্ষার্থীর হাজিরা স্বয়ংক্রিয়ভাবে &quot;ছুটি (Leave)&quot; হিসেবে চিহ্নিত হয়েছে।
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => markAllStatus("Leave")}
+              className="px-3.5 py-2 bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold text-xs rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <CheckCircle2 className="w-4 h-4 text-amber-800" />
+              <span>সকলকে &quot;ছুটি (Leave)&quot; মার্ক করুন</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Control Bar */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
@@ -214,7 +281,7 @@ export default function AttendanceForm({
 
         {/* Quick Stats & Bulk Actions */}
         <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold text-slate-500">স্ট্যাটাস সামারি:</span>
             <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-800">
               উপস্থিত: {toBanglaNumber(presentCount)}
@@ -224,13 +291,16 @@ export default function AttendanceForm({
             </span>
             {lateCount > 0 && (
               <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-800">
-                বিলম্ব/ছুটি: {toBanglaNumber(lateCount)}
+                বিলম্ব: {toBanglaNumber(lateCount)}
               </span>
             )}
+            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-blue-100 text-blue-800">
+              ছুটি (Leave): {toBanglaNumber(leaveCount)}
+            </span>
           </div>
 
           {/* Bulk Buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => markAllStatus("Present")}
@@ -246,6 +316,14 @@ export default function AttendanceForm({
             >
               <X className="w-3.5 h-3.5" />
               <span>সবাই অনুপস্থিত</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => markAllStatus("Leave")}
+              className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>সবাই ছুটি</span>
             </button>
           </div>
         </div>
