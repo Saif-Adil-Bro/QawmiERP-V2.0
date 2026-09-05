@@ -103,12 +103,12 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
     if (madrasaId) {
       const { data: ms } = await adminClient
         .from("students")
-        .select("id, first_name, last_name, parent_phone, father_name, mother_name, roll_number, student_id, madrasa_id");
+        .select("id, first_name, last_name, parent_phone, father_name, roll_number, madrasa_id");
       madrasaStudents = ms || [];
     } else {
       const { data: ms } = await adminClient
         .from("students")
-        .select("id, first_name, last_name, parent_phone, father_name, mother_name, roll_number, student_id, madrasa_id");
+        .select("id, first_name, last_name, parent_phone, father_name, roll_number, madrasa_id");
       madrasaStudents = ms || [];
     }
 

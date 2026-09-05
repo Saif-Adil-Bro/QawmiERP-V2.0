@@ -51,7 +51,7 @@ export default async function ParentPortalRoutine(props: {
 
   let studentsQuery = supabase
     .from("students")
-    .select("id, first_name, last_name, roll_number, student_id, class_id, class_name, classes(id, name)")
+    .select("id, first_name, last_name, roll_number, class_id, class_name, classes(id, name)")
     .order("roll_number", { ascending: true });
 
   if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
@@ -66,7 +66,7 @@ export default async function ParentPortalRoutine(props: {
   if (students.length === 0) {
     const { data: fallbackStudents } = await supabase
       .from("students")
-      .select("id, first_name, last_name, roll_number, student_id, class_id, class_name, classes(id, name)")
+      .select("id, first_name, last_name, roll_number, class_id, class_name, classes(id, name)")
       .limit(5);
     students = fallbackStudents || [];
   }

@@ -31,7 +31,7 @@ export default async function StudentPortalCertificatesPage(props: {
 
   let studentsQuery = supabase
     .from("students")
-    .select("id, first_name, last_name, roll_number, student_id, class_name, classes(name)")
+    .select("id, first_name, last_name, roll_number, class_name, classes(name)")
     .order("roll_number", { ascending: true });
 
   if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
@@ -46,7 +46,7 @@ export default async function StudentPortalCertificatesPage(props: {
   if (allStudents.length === 0) {
     const { data: fallbackStudents } = await supabase
       .from("students")
-      .select("id, first_name, last_name, roll_number, student_id, class_name, classes(name)")
+      .select("id, first_name, last_name, roll_number, class_name, classes(name)")
       .limit(5);
     allStudents = fallbackStudents || [];
   }

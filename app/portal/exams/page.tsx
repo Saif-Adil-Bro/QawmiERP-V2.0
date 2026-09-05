@@ -35,7 +35,7 @@ export default async function ParentPortalExams(props: {
 
   let studentsQuery = supabase
     .from("students")
-    .select("id, first_name, last_name, roll_number, student_id, class_name, classes(name)")
+    .select("id, first_name, last_name, roll_number, class_name, classes(name)")
     .order("roll_number", { ascending: true });
 
   if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
@@ -50,7 +50,7 @@ export default async function ParentPortalExams(props: {
   if (students.length === 0) {
     const { data: fallbackStudents } = await supabase
       .from("students")
-      .select("id, first_name, last_name, roll_number, student_id, class_name, classes(name)")
+      .select("id, first_name, last_name, roll_number, class_name, classes(name)")
       .limit(5);
     students = fallbackStudents || [];
   }
@@ -117,7 +117,7 @@ export default async function ParentPortalExams(props: {
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900">পরীক্ষা ও ফলাফল বিবরণী</h1>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            শিক্ষার্থী: <strong className="text-slate-800">{child.first_name} {child.last_name}</strong> (রোল: {toBanglaNumber(child.roll_number || child.student_id || "-")})
+            শিক্ষার্থী: <strong className="text-slate-800">{child.first_name} {child.last_name}</strong> (রোল: {toBanglaNumber(child.roll_number || "-")})
           </p>
         </div>
 
