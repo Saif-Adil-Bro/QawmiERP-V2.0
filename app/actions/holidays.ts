@@ -580,3 +580,45 @@ export async function getPublicHolidaysForPortal(madrasaId?: string) {
     return [];
   }
 }
+
+/**
+ * Update Madrasa Weekly Holidays (weekend days e.g. Friday, Thursday)
+ */
+export async function updateWeeklyHolidays(weekendDays: string[]) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
+
+    // 1. Update metadata
+    const meta = await getMadrasaMetadata(madrasaId);
+    meta.weekend_days = weekendDays;
+    await saveMadrasaMetadata(madrasaId, meta);
+
+    // 2. Also update database column if present
+    try {
+      const admin = await createAdminClient();
+      await admin
+        .from("madrasas")
+        .update({ weekend_days: weekendDays })
+        .eq("id", madrasaId);
+    } catch (colErr) {
+      console.warn("Could not update madrasas table column weekend_days:", colErr);
+    }
+
+    // 3. Invalidate caches
+    revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/attendance/holidays");
+    revalidatePath("/dashboard/settings");
+    revalidatePath("/dashboard/academic/routine");
+
+    return { success: true, weekend_days: weekendDays };
+  } catch (err: any) {
+    console.error("updateWeeklyHolidays error:", err);
+    return { error: err?.message || "সাপ্তাহিক ছুটি সংরক্ষণ ব্যর্থ হয়েছে।" };
+  }
+}
+

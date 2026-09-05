@@ -26,6 +26,7 @@ interface PrintLetterpadProps {
   madrasaInfo?: MadrasaInfo;
   logoUrl?: string;
   title?: string;
+  memoNumber?: string;
 }
 
 const quotes = [
@@ -75,7 +76,7 @@ const fontOptions = [
   { id: "font-shahrazad", name: "শেহরেযাদ আরবি (Scheherazade New)" }
 ];
 
-export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }: PrintLetterpadProps) {
+export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, memoNumber: propMemoNumber }: PrintLetterpadProps) {
   // Normalize madrasa info whether nested in .madrasa or directly on object
   const resolvedMadrasa = (madrasaInfo as any)?.madrasa || madrasaInfo || {};
   const mName = resolvedMadrasa?.name || "আল-মাদরাসাতুল ইসলামিয়া";
@@ -93,7 +94,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
   const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
-  const [memoNumber, setMemoNumber] = useState("মাপ্র/২০২৬/");
+  const [memoNumber, setMemoNumber] = useState(propMemoNumber || "মাপ্র/২০২৬/");
   const [currentDate, setCurrentDate] = useState("");
 
   // Sync state if props change
@@ -104,7 +105,10 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
     if (mRegNo && mRegNo !== "১২৪৫/বি") {
       setRegistrationNumber(mRegNo);
     }
-  }, [mEstYear, mRegNo]);
+    if (propMemoNumber) {
+      setMemoNumber(propMemoNumber);
+    }
+  }, [mEstYear, mRegNo, propMemoNumber]);
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -284,13 +288,13 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
 
             {/* Memo Number */}
             <div className="space-y-2">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">স্মারক নম্বর প্রিফিক্স</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">স্মারক নম্বর (Memo No.)</label>
               <input 
                 type="text" 
                 value={memoNumber}
                 onChange={(e) => handleMemoChange(e.target.value)}
-                placeholder="উদা: মাপ্র/২০২৬/"
-                className="w-full bg-white px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition font-medium text-slate-800"
+                placeholder="উদা: মাদ/ছুটি/২০২৬/০১ বা মাপ্র/২০২৬/"
+                className="w-full bg-white px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition font-medium text-slate-800 font-mono"
               />
             </div>
 
@@ -414,6 +418,14 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title }
               <div>স্মারক: <span className="font-semibold text-slate-800">{memoNumber}</span></div>
               <div>তারিখ: <span className="font-semibold text-slate-800">{currentDate}</span></div>
             </div>
+          </div>
+        )}
+ 
+        {/* If pad is disabled (printing on pre-printed physical pad paper), show a clean single memo and date row */}
+        {!padEnabled && (
+          <div className="flex items-center justify-between text-xs border-b border-slate-200 pb-2 mb-4 text-slate-600 font-sans">
+            <span>স্মারক নং: <strong className="font-mono text-slate-800">{memoNumber}</strong></span>
+            <span>তারিখ: <strong>{currentDate}</strong></span>
           </div>
         )}
 

@@ -40,6 +40,13 @@ export default async function AcademicHolidaysPage() {
 
   // Normalize madrasa info into flat structure
   const rawMadrasa = (madrasaProfile as any)?.madrasa || madrasaProfile || {};
+  const weekendDays =
+    Array.isArray(rawMadrasa.weekend_days) && rawMadrasa.weekend_days.length > 0
+      ? rawMadrasa.weekend_days
+      : Array.isArray(rawMadrasa.metadata?.weekend_days) && rawMadrasa.metadata.weekend_days.length > 0
+      ? rawMadrasa.metadata.weekend_days
+      : ["Friday"];
+
   const normalizedMadrasa = {
     ...rawMadrasa,
     id: rawMadrasa.id || "",
@@ -52,6 +59,7 @@ export default async function AcademicHolidaysPage() {
     principal_name: rawMadrasa.principal_name || "মুহতামিম / অধ্যক্ষ",
     logoUrl: (madrasaProfile as any)?.logoUrl || rawMadrasa.logo_url || "",
     signatureUrl: (madrasaProfile as any)?.signatureUrl || rawMadrasa.principal_signature_url || "",
+    weekend_days: weekendDays,
   };
 
   return (
@@ -91,6 +99,7 @@ export default async function AcademicHolidaysPage() {
         initialHolidays={holidays}
         classes={classes}
         madrasaInfo={normalizedMadrasa}
+        initialWeekendDays={weekendDays}
       />
     </div>
   );

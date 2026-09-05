@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { 
   Plus, Search, Filter, Calendar, CalendarDays, Edit3, Trash2, 
   Archive, RotateCcw, Printer, FileText, CheckCircle2, AlertCircle, 
   Clock, Sparkles, Building, Layers, Eye, EyeOff, X, ArrowRight,
-  Download, Share2, Info, Bell, Check, Loader2, GraduationCap
+  Download, Share2, Info, Bell, Check, Loader2, GraduationCap, Settings
 } from "lucide-react";
 import { 
   createAcademicHoliday, 
@@ -13,7 +14,8 @@ import {
   deleteAcademicHoliday, 
   archiveAcademicHoliday, 
   restoreAcademicHoliday, 
-  seedDefaultQawmiHolidays
+  seedDefaultQawmiHolidays,
+  updateWeeklyHolidays
 } from "@/app/actions/holidays";
 import { AcademicHoliday, HOLIDAY_CATEGORIES } from "@/lib/holidays";
 import { toBanglaNumber } from "@/lib/numberToBangla";
@@ -23,6 +25,7 @@ interface HolidaysClientProps {
   initialHolidays: AcademicHoliday[];
   classes: { id: string; name: string }[];
   madrasaInfo?: any;
+  initialWeekendDays?: string[];
 }
 
 const PRESET_TEMPLATES = [
@@ -82,16 +85,34 @@ const PRESET_TEMPLATES = [
   },
 ];
 
+const WEEKDAYS_CONFIG = [
+  { id: "Friday", bn: "শুক্রবার", ar: "الجمعة", sub: "প্রধান কওমি ছুটি", isPrimary: true },
+  { id: "Thursday", bn: "বৃহস্পতিবার", ar: "الخميس", sub: "অর্ধদিবস / সাপ্তাহিক ছুটি" },
+  { id: "Saturday", bn: "শনিবার", ar: "السبت", sub: "সাপ্তাহিক" },
+  { id: "Sunday", bn: "রবিবার", ar: "الأحد", sub: "সাপ্তাহিক" },
+  { id: "Monday", bn: "সোমবার", ar: "الاثنين", sub: "সাপ্তাহিক" },
+  { id: "Tuesday", bn: "মঙ্গলবার", ar: "الثلاثاء", sub: "সাপ্তাহিক" },
+  { id: "Wednesday", bn: "বুধবার", ar: "الأربعاء", sub: "সাপ্তাহিক" },
+];
+
 export default function HolidaysClient({
   initialHolidays = [],
   classes = [],
   madrasaInfo,
+  initialWeekendDays = ["Friday"],
 }: HolidaysClientProps) {
   const [holidays, setHolidays] = useState<AcademicHoliday[]>(initialHolidays);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("active_upcoming");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+
+  // Weekly Holidays (Weekend) Settings State
+  const [weekendDays, setWeekendDays] = useState<string[]>(
+    initialWeekendDays && initialWeekendDays.length > 0 ? initialWeekendDays : ["Friday"]
+  );
+  const [isWeekendSelectorOpen, setIsWeekendSelectorOpen] = useState(false);
+  const [savingWeekend, setSavingWeekend] = useState(false);
 
   // Form Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -121,6 +142,28 @@ export default function HolidaysClient({
   const showFeedback = (type: "success" | "error", text: string) => {
     setFeedback({ type, text });
     setTimeout(() => setFeedback(null), 4500);
+  };
+
+  // Save Weekly Holidays (Weekend)
+  const handleSaveWeekendDays = async () => {
+    if (weekendDays.length === 0) {
+      showFeedback("error", "কমপক্ষে একটি দিন সাপ্তাহিক ছুটি হিসেবে নির্ধারণ করতে হবে।");
+      return;
+    }
+    setSavingWeekend(true);
+    try {
+      const res = await updateWeeklyHolidays(weekendDays);
+      if (res.error) {
+        showFeedback("error", res.error);
+      } else {
+        showFeedback("success", "সাপ্তাহিক ছুটির দিন সফলভাবে সংরক্ষিত ও কার্যকর হয়েছে!");
+        setIsWeekendSelectorOpen(false);
+      }
+    } catch (err) {
+      showFeedback("error", "সাপ্তাহিক ছুটি সংরক্ষণ ব্যর্থ হয়েছে।");
+    } finally {
+      setSavingWeekend(false);
+    }
   };
 
   // Open Create Modal
@@ -442,6 +485,190 @@ export default function HolidaysClient({
           <span>{feedback.text}</span>
         </div>
       )}
+
+      {/* Weekly Holiday Settings Banner */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs print:hidden space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
+              <Calendar className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-bold text-slate-800">
+                  সাপ্তাহিক নিয়মিত ছুটি (Weekly Holidays)
+                </h3>
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  {toBanglaNumber(weekendDays.length)} দিন নির্ধারিত
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                হাজিরা গণনা, শিক্ষাপঞ্জি ও রুটিনে এই দিনগুলোতে স্বয়ংক্রিয়ভাবে সাপ্তাহিক ছুটি গণ্য হবে
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsWeekendSelectorOpen(!isWeekendSelectorOpen)}
+              className="px-3.5 py-1.5 text-xs font-semibold rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              {isWeekendSelectorOpen ? "সিলেকশন লুকান" : "সাপ্তাহিক ছুটি পরিবর্তন / নির্ধারণ করুন"}
+            </button>
+            <Link
+              href="/dashboard/settings"
+              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition text-xs flex items-center gap-1"
+              title="মাদরাসা জেনারেল সেটিংস থেকেও পরিবর্তন করা যায়"
+            >
+              <Settings className="w-4 h-4" />
+            </Link>
+          </div>
+        </div>
+
+        {/* Current Active Weekend Day Chips */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <span className="text-xs font-semibold text-slate-600 mr-1">বর্তমান সাপ্তাহিক ছুটি:</span>
+          {weekendDays.map((dId) => {
+            const dayMeta = WEEKDAYS_CONFIG.find((w) => w.id === dId);
+            return (
+              <span
+                key={dId}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-emerald-50 border border-emerald-300 text-emerald-950 shadow-2xs"
+              >
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                <span>{dayMeta?.bn || dId}</span>
+                <span className="text-[10px] text-emerald-700 font-normal">({dayMeta?.sub || "সাপ্তাহিক"})</span>
+              </span>
+            );
+          })}
+        </div>
+
+        {/* Expanded Weekend Day Selector Panel */}
+        {isWeekendSelectorOpen && (
+          <div className="mt-3 pt-4 border-t border-slate-100 space-y-4 bg-slate-50/70 p-4 rounded-xl border border-slate-200 animate-fadeIn">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="text-xs text-slate-600">
+                মাদরাসার জন্য সাপ্তাহিক ছুটির দিনসমূহ টিক দিয়ে নির্বাচন করুন:
+              </div>
+
+              {/* Quick Presets */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-semibold text-slate-500">দ্রুত নির্বাচন:</span>
+                <button
+                  type="button"
+                  onClick={() => setWeekendDays(["Friday"])}
+                  className={`px-2.5 py-0.5 text-xs rounded-lg font-medium border transition cursor-pointer ${
+                    weekendDays.length === 1 && weekendDays.includes("Friday")
+                      ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs font-bold"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  শুধু জুমাবার (Friday)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWeekendDays(["Thursday", "Friday"])}
+                  className={`px-2.5 py-0.5 text-xs rounded-lg font-medium border transition cursor-pointer ${
+                    weekendDays.length === 2 && weekendDays.includes("Thursday") && weekendDays.includes("Friday")
+                      ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs font-bold"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  বৃহস্পতি ও জুমাবার
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWeekendDays(["Friday", "Saturday"])}
+                  className={`px-2.5 py-0.5 text-xs rounded-lg font-medium border transition cursor-pointer ${
+                    weekendDays.length === 2 && weekendDays.includes("Friday") && weekendDays.includes("Saturday")
+                      ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs font-bold"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                  }`}
+                >
+                  শুক্র ও শনিবার
+                </button>
+              </div>
+            </div>
+
+            {/* Day Selector Buttons Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+              {WEEKDAYS_CONFIG.map((day) => {
+                const isSelected = weekendDays.includes(day.id);
+                return (
+                  <button
+                    key={day.id}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        if (weekendDays.length > 1) {
+                          setWeekendDays(weekendDays.filter((d) => d !== day.id));
+                        } else {
+                          showFeedback("error", "কমপক্ষে একটি দিন সাপ্তাহিক ছুটি থাকতে হবে।");
+                        }
+                      } else {
+                        setWeekendDays([...weekendDays, day.id]);
+                      }
+                    }}
+                    className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition relative overflow-hidden cursor-pointer ${
+                      isSelected
+                        ? "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs"
+                        : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-bold ${isSelected ? "text-emerald-900" : "text-slate-800"}`}>
+                          {day.bn}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-serif">{day.ar}</span>
+                      </div>
+                      <span className={`text-[10px] block mt-0.5 ${isSelected ? "text-emerald-700 font-medium" : "text-slate-500"}`}>
+                        {day.sub}
+                      </span>
+                    </div>
+
+                    <div className="mt-2 flex items-center justify-between pt-1 border-t border-slate-100">
+                      <span className="text-[9px] text-slate-400">{day.id}</span>
+                      <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                        isSelected ? "bg-emerald-600 text-white" : "border border-slate-300"
+                      }`}>
+                        {isSelected && <Check className="w-2.5 h-2.5" />}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Save & Cancel Actions */}
+            <div className="flex items-center justify-between pt-2 border-t border-slate-200/80">
+              <div className="text-[11px] text-slate-500">
+                * সংরক্ষণ করার সাথে সাথে হাজিরা শিট ও অভিভাবক পোর্টালে সাপ্তাহিক ছুটি স্বয়ংক্রিয়ভাবে আপডেট হবে।
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsWeekendSelectorOpen(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800 font-medium rounded-lg hover:bg-slate-200/60 transition cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveWeekendDays}
+                  disabled={savingWeekend}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {savingWeekend ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  সাপ্তাহিক ছুটি সংরক্ষণ করুন
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* KPI Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
@@ -1153,62 +1380,66 @@ export default function HolidaysClient({
               </div>
             </div>
 
-            {/* Quick Live Adjustment of Reopen Time before printing */}
-            {noticeHoliday.reopen_date && (
-              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+            {/* Quick Live Adjustment of Reopen Time and Memo Number before printing */}
+            <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-4">
+                {/* Reopen Time */}
+                {noticeHoliday.reopen_date && (
+                  <div className="flex items-center gap-2 text-amber-900">
+                    <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span className="font-semibold">মাদরাসা খোলার সময়:</span>
+                    <input
+                      type="text"
+                      value={noticeHoliday.reopen_time || "সকাল ৮:০০ ঘটিকা"}
+                      onChange={(e) => setNoticeHoliday({ ...noticeHoliday, reopen_time: e.target.value })}
+                      className="px-2.5 py-1 text-xs border border-amber-300 rounded-lg bg-white font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-36"
+                      placeholder="উপস্থিতির সময়"
+                    />
+                  </div>
+                )}
+
+                {/* Memo Number */}
                 <div className="flex items-center gap-2 text-amber-900">
-                  <Clock className="w-4 h-4 text-amber-700 shrink-0" />
-                  <span className="font-semibold">মাদরাসা খোলার সময় (প্রিন্টে প্রদর্শিত হবে):</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-semibold">স্মারক নম্বর:</span>
                   <input
                     type="text"
-                    value={noticeHoliday.reopen_time || "সকাল ৮:০০ ঘটিকা"}
-                    onChange={(e) => setNoticeHoliday({ ...noticeHoliday, reopen_time: e.target.value })}
-                    className="px-2.5 py-1 text-xs border border-amber-300 rounded-lg bg-white font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-44"
-                    placeholder="উপস্থিতির সময়"
+                    value={noticeHoliday.notice_number || ""}
+                    onChange={(e) => setNoticeHoliday({ ...noticeHoliday, notice_number: e.target.value })}
+                    className="px-2.5 py-1 text-xs border border-amber-300 rounded-lg bg-white font-mono font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-44"
+                    placeholder="উদা: মাদ/ছুটি/২০২৬/০১"
                   />
-                  <div className="flex gap-1">
-                    {["সকাল ৮:০০ ঘটিকা", "সকাল ৯:০০ ঘটিকা", "বাদ ফজর", "বাদ মাগরিব"].map((chip) => (
-                      <button
-                        key={chip}
-                        type="button"
-                        onClick={() => setNoticeHoliday({ ...noticeHoliday, reopen_time: chip })}
-                        className={`text-[10px] px-2 py-0.5 rounded transition border ${
-                          (noticeHoliday.reopen_time || "সকাল ৮:০০ ঘটিকা") === chip
-                            ? "bg-amber-200 border-amber-400 text-amber-950 font-bold"
-                            : "bg-white border-amber-200 text-slate-700 hover:bg-amber-100"
-                        }`}
-                      >
-                        {chip}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
-            )}
+
+              {/* Time Presets */}
+              {noticeHoliday.reopen_date && (
+                <div className="flex items-center gap-1">
+                  {["সকাল ৮:০০ ঘটিকা", "সকাল ৯:০০ ঘটিকা", "বাদ ফজর", "বাদ মাগরিব"].map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => setNoticeHoliday({ ...noticeHoliday, reopen_time: chip })}
+                      className={`text-[10px] px-2 py-0.5 rounded transition border cursor-pointer ${
+                        (noticeHoliday.reopen_time || "সকাল ৮:০০ ঘটিকা") === chip
+                          ? "bg-amber-200 border-amber-400 text-amber-950 font-bold"
+                          : "bg-white border-amber-200 text-slate-700 hover:bg-amber-100"
+                      }`}
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Official Letterhead Notice Body */}
             <div id="printable-holiday-notice" className="border border-slate-200 rounded-xl p-6 bg-white">
-              <PrintLetterpad madrasaInfo={madrasaInfo} title="ছুটির বিজ্ঞপ্তি">
+              <PrintLetterpad
+                madrasaInfo={madrasaInfo}
+                title="ছুটির বিজ্ঞপ্তি"
+                memoNumber={noticeHoliday.notice_number || "মাদ/ছুটি/২০২৬/০১"}
+              >
                 <div className="space-y-6 pt-4 text-slate-800 font-serif">
-                  {/* Notice Meta Line */}
-                  <div className="flex items-center justify-between text-xs border-b border-slate-200 pb-2 text-slate-600">
-                    <span>
-                      স্মারক নং: <strong>{noticeHoliday.notice_number || "মাদ/ছুটি/২০২৬/বিজ্ঞপ্তি"}</strong>
-                    </span>
-                    <span>
-                      তারিখ:{" "}
-                      <strong>
-                        {new Date().toLocaleDateString("bn-BD", {
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
-                        })}
-                      </strong>
-                    </span>
-                  </div>
-
                   {/* Subject Headline */}
                   <div className="text-center space-y-1.5 py-2">
                     <h2 className="text-lg sm:text-xl font-bold underline decoration-2 underline-offset-4 text-slate-900">
