@@ -53,3 +53,29 @@ export function parsePhoneContact(phoneStr?: string | null): {
     displayFormatted: phoneStr,
   };
 }
+
+/**
+ * Detects if a string contains Arabic characters
+ */
+export function isArabicText(text: string = ""): boolean {
+  if (!text) return false;
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
+}
+
+/**
+ * Converts a number to Bengali numerals (০-৯)
+ */
+export function toBengaliNumerals(num: number | string = 0): string {
+  if (num === null || num === undefined) return "০";
+  const digits = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
+  return num.toString().split("").map(d => digits[parseInt(d)] || d).join("");
+}
+
+/**
+ * Converts a number to Arabic-Indic numerals (٠-٩)
+ */
+export function toArabicNumerals(num: number | string = 0): string {
+  if (num === null || num === undefined) return "٠";
+  const digits = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
+  return num.toString().split("").map(d => digits[parseInt(d)] || d).join("");
+}

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { saveQuestion, deleteQuestion, updateQuestion } from "@/app/actions/questions";
-import { Plus, Trash2, Loader2, Save, Printer, FileText, Type, X, Globe, Building2, BookOpen, Clock, Award, Check, Pencil, CheckSquare, RotateCcw, ArrowUp, ArrowDown, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Loader2, Save, Printer, FileText, Type, X, Globe, Building2, BookOpen, Clock, Award, Check, Pencil, CheckSquare, RotateCcw, ArrowUp, ArrowDown, CheckCircle2, Sparkles, Scroll, Scale, HelpCircle, Columns, Layers } from "lucide-react";
+import SpecializedQuestionView, { getQuestionTypeBadge } from "@/components/exams/SpecializedQuestionView";
 
 // Helper function to detect Arabic script in text
 function isArabicText(text: string): boolean {
@@ -67,6 +68,105 @@ export default function QuestionBankClient({
   const [newMarks, setNewMarks] = useState(10);
   const [newOptions, setNewOptions] = useState(["", "", "", ""]);
   const [newTextDirection, setNewTextDirection] = useState<"auto" | "rtl" | "ltr">("auto");
+  
+  // Specialized question fields:
+  // 1. إعراب العبارة (Irab)
+  const [newIrabText, setNewIrabText] = useState("");
+  const [newTargetWords, setNewTargetWords] = useState("");
+
+  // 2. تحقيق الكلمات (Tahqeeq)
+  const [newTahqeeqWords, setNewTahqeeqWords] = useState<string[]>(["يَنْصُرُونَ", "اِسْتَغْفَرَ", "لَا تَقْنَطُوا"]);
+  const [tahqeeqInput, setTahqeeqInput] = useState("");
+
+  // 3. شعر وتوضيح (Sher / Poetry)
+  const [newVerses, setNewVerses] = useState<Array<{ first: string; second: string }>>([
+    { first: "إذا غامَرْتَ في شَرَفٍ مَرُومِ", second: "فَلا تَقْنَعْ بما دونَ النّجومِ" }
+  ]);
+  const [newPoetName, setNewPoetName] = useState("");
+
+  // 4. مسألة فقهية (Masala / Fiqh)
+  const [newScenario, setNewScenario] = useState("");
+  const [newSubQuestions, setNewSubQuestions] = useState<string[]>([]);
+  const [subQuestionInput, setSubQuestionInput] = useState("");
+
+  // 5. અથવા / বিকল্প প্রশ্ন (Or / أو)
+  const [newHasOr, setNewHasOr] = useState(false);
+  const [newOrText, setNewOrText] = useState("");
+  const [newOrIrabText, setNewOrIrabText] = useState("");
+  const [newOrScenario, setNewOrScenario] = useState("");
+
+  // Sample Loaders for 1-click test and setup
+  const loadSampleIrab = () => {
+    setNewText("أعرب الكلمات التي تحتها خط في العبارة الآتية مع الضبط بالشكل وبيان موقعها الإعرابي:");
+    setNewIrabText("إِنَّمَا يَخْشَى اللَّهَ مِنْ عِبَادِهِ الْعُلَمَاءُ، وَإِنَّ الدِّينَ عِنْدَ اللَّهِ الْإِسْلَامُ، وَمَنْ يَبْتَغِ غَيْرَ الْإِسْلَامِ دِينًا فَلَنْ يُقْبَلَ مِنْهُ");
+    setNewTargetWords("اللهَ، الْعُلَمَاءُ، دِينًا");
+    setNewMarks(10);
+    setNewTextDirection("rtl");
+  };
+
+  const loadSampleTahqeeq = () => {
+    setNewText("حقق الكلمات الآتية ببيان الصيغة والبحث والباب والمصدر والمادة:");
+    setNewTahqeeqWords(["يَنْصُرُونَ", "اِسْتَغْفَرَ", "تُسَبِّحُونَ", "مُسْتَقِيمٌ", "لَا تَقْنَطُوا"]);
+    setNewMarks(10);
+    setNewTextDirection("rtl");
+  };
+
+  const loadSampleSher = () => {
+    setNewText("اشرح الأبيات الآتية شرحاً وافياً مع ترجمة المفردات وبيان المعنى الإجمالي:");
+    setNewVerses([
+      { first: "إذا غامَرْتَ في شَرَفٍ مَرُومِ", second: "فَلا تَقْنَعْ بما دونَ النّجومِ" },
+      { first: "فَطَعْمُ المَوْتِ في أمْرٍ حَقِيرٍ", second: "كطَعْمِ المَوْتِ في أمْرٍ عَظِيمِ" }
+    ]);
+    setNewPoetName("أبو الطيب المتنبي");
+    setNewMarks(10);
+    setNewTextDirection("rtl");
+  };
+
+  const loadSampleMasala = () => {
+    setNewText("নিম্নোক্ত সুরতহালের ফিকহি সমাধান ও দলিল বিস্তারিত লেখ:");
+    setNewScenario("এক ব্যক্তি জোহরের চার রাকাত ফরজ নামাজ পড়ার সময় প্রথম বৈঠকে তাশাহহুদ না পড়ে ভুলবশত ৩য় রাকাতে দাঁড়িয়ে গেল এবং সুরা ফাতিহা পড়ে রুকুতে চলে গেল...");
+    setNewSubQuestions([
+      "১) এমতাবস্থায় সে কি পুনরায় প্রথম বৈঠকে ফিরে আসবে নাকি নামাজ চালিয়ে যাবে?",
+      "২) এই অবস্থায় সাহু সিজদা কখন এবং কীভাবে আদায় করতে হবে? দলীলসহ ব্যাখ্যা কর।"
+    ]);
+    setNewMarks(10);
+    setNewTextDirection("ltr");
+  };
+
+  const loadSampleOr = () => {
+    setNewHasOr(true);
+    setNewOrText("أو: أعرب ما تحته خط في الحديث الشريف الآتي: (إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ وَإِنَّمَا لِكُلِّ امْرِئٍ مَا نَوَى)");
+    setNewOrIrabText("إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ وَإِنَّمَا لِكُلِّ امْرِئٍ مَا نَوَى، فَمَنْ كَانَتْ هِجْرَتُهُ إِلَى اللَّهِ وَرَسُولِهِ فَهِجْرَتُهُ إِلَى اللَّهِ وَرَسُولِهِ");
+  };
+
+  const handleAddTahqeeqWord = () => {
+    if (!tahqeeqInput.trim()) return;
+    const words = tahqeeqInput.split(/[,،\s]+/).filter(w => w.trim().length > 0);
+    setNewTahqeeqWords(prev => [...prev, ...words]);
+    setTahqeeqInput("");
+  };
+
+  const handleRemoveTahqeeqWord = (index: number) => {
+    setNewTahqeeqWords(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddVerseRow = () => {
+    setNewVerses(prev => [...prev, { first: "", second: "" }]);
+  };
+
+  const handleRemoveVerseRow = (index: number) => {
+    setNewVerses(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddSubQuestion = () => {
+    if (!subQuestionInput.trim()) return;
+    setNewSubQuestions(prev => [...prev, subQuestionInput.trim()]);
+    setSubQuestionInput("");
+  };
+
+  const handleRemoveSubQuestion = (index: number) => {
+    setNewSubQuestions(prev => prev.filter((_, i) => i !== index));
+  };
   
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -133,8 +233,30 @@ export default function QuestionBankClient({
     setNewType(q.question_type);
     setNewText(q.question_text);
     setNewMarks(q.marks || 10);
-    setNewOptions(q.options && q.options.length ? [...q.options, "", "", "", ""].slice(0, 4) : ["", "", "", ""]);
-    setNewTextDirection("auto");
+    
+    const opts = q.options || {};
+    if (Array.isArray(opts)) {
+      setNewOptions([...opts, "", "", "", ""].slice(0, 4));
+    } else {
+      if (opts.mcq_options) {
+        setNewOptions([...opts.mcq_options, "", "", "", ""].slice(0, 4));
+      } else {
+        setNewOptions(["", "", "", ""]);
+      }
+      setNewIrabText(opts.irab_text || "");
+      setNewTargetWords(opts.target_words || "");
+      setNewTahqeeqWords(opts.tahqeeq_words && opts.tahqeeq_words.length > 0 ? opts.tahqeeq_words : ["يَنْصُرُونَ", "اِسْتَغْفَرَ"]);
+      setNewVerses(opts.verses && opts.verses.length > 0 ? opts.verses : [{ first: "", second: "" }]);
+      setNewPoetName(opts.poet_name || "");
+      setNewScenario(opts.scenario || "");
+      setNewSubQuestions(opts.sub_questions || []);
+      setNewHasOr(Boolean(opts.has_or));
+      setNewOrText(opts.or_text || "");
+      setNewOrIrabText(opts.or_irab_text || "");
+      setNewOrScenario(opts.or_scenario || "");
+    }
+
+    setNewTextDirection(isArabicText(q.question_text) ? "rtl" : "auto");
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -166,14 +288,66 @@ export default function QuestionBankClient({
     }
 
     setSaving(true);
-    let optionsData = null;
+    let optionsData: any = null;
+
     if (newType === "MCQ") {
-      optionsData = newOptions.filter(o => o.trim() !== "");
-      if (optionsData.length < 2) {
+      const validOpts = newOptions.filter(o => o.trim() !== "");
+      if (validOpts.length < 2) {
         alert("এমসিকিউ (MCQ) এর জন্য অন্তত ২টি অপশন প্রদান করুন");
         setSaving(false);
         return;
       }
+      optionsData = { mcq_options: validOpts };
+    } else if (newType === "Irab" || newType === "إعراب العبارة") {
+      if (!newIrabText.trim()) {
+        alert("অনুগ্রহ করে ইবারতের আরবি মূল টেক্সট (العبارة) প্রদান করুন");
+        setSaving(false);
+        return;
+      }
+      optionsData = {
+        irab_text: newIrabText.trim(),
+        target_words: newTargetWords.trim()
+      };
+    } else if (newType === "Tahqeeq" || newType === "تحقيق الكلمات") {
+      if (newTahqeeqWords.length === 0) {
+        alert("অনুগ্রহ করে অন্তত ১টি তাহকীক শব্দ যোগ করুন");
+        setSaving(false);
+        return;
+      }
+      optionsData = {
+        tahqeeq_words: newTahqeeqWords
+      };
+    } else if (newType === "Sher" || newType === "شعر وتوضيح") {
+      const validVerses = newVerses.filter(v => v.first.trim() || v.second.trim());
+      if (validVerses.length === 0) {
+        alert("অনুগ্রহ করে অন্তত ১টি শের/শ্লোক (মিসরা) প্রদান করুন");
+        setSaving(false);
+        return;
+      }
+      optionsData = {
+        verses: validVerses,
+        poet_name: newPoetName.trim()
+      };
+    } else if (newType === "Masala" || newType === "مسألة فقهية") {
+      if (!newScenario.trim()) {
+        alert("অনুগ্রহ করে ফিকহি সুরতহাল / বাস্তব ঘটনার বিবরণ প্রদান করুন");
+        setSaving(false);
+        return;
+      }
+      optionsData = {
+        scenario: newScenario.trim(),
+        sub_questions: newSubQuestions
+      };
+    }
+
+    if (newHasOr && newOrText.trim()) {
+      optionsData = {
+        ...(optionsData || {}),
+        has_or: true,
+        or_text: newOrText.trim(),
+        or_irab_text: newOrIrabText.trim() || undefined,
+        or_scenario: newOrScenario.trim() || undefined
+      };
     }
 
     const questionData = {
@@ -301,12 +475,16 @@ export default function QuestionBankClient({
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
-              className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 outline-none text-sm bg-white"
+              className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 outline-none text-sm bg-white font-medium"
             >
               <option value="">সকল ধরণ (All Types)</option>
-              <option value="MCQ">বহুনির্বাচনী (MCQ)</option>
-              <option value="Short">সংক্ষিপ্ত প্রশ্ন (Short)</option>
-              <option value="Broad">রচনামূলক প্রশ্ন (Broad)</option>
+              <option value="Broad">📝 রচনামূলক প্রশ্ন (Broad)</option>
+              <option value="Short">✍️ সংক্ষিপ্ত প্রশ্ন (Short)</option>
+              <option value="Irab">📜 إعراب العبارة (ইবারত ও এরাব)</option>
+              <option value="Tahqeeq">🔍 تحقيق الكلمات (তাহকীক ও ছরফ)</option>
+              <option value="Sher">📖 شعر وتوضيح (নযম ও শের)</option>
+              <option value="Masala">⚖️ مسألة فقهية (ফিকহি মাসআলা)</option>
+              <option value="MCQ">🔘 বহুনির্বাচনী (MCQ)</option>
             </select>
           </div>
         </div>
@@ -434,31 +612,349 @@ export default function QuestionBankClient({
                 <select
                   required
                   value={newType}
-                  onChange={(e) => setNewType(e.target.value)}
-                  className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 outline-none text-sm bg-white"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setNewType(val);
+                    if (val === "Irab" && !newIrabText) loadSampleIrab();
+                    else if (val === "Tahqeeq" && newTahqeeqWords.length === 0) loadSampleTahqeeq();
+                    else if (val === "Sher" && (!newVerses[0]?.first)) loadSampleSher();
+                    else if (val === "Masala" && !newScenario) loadSampleMasala();
+                  }}
+                  className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 outline-none text-sm bg-white font-medium"
                 >
-                  <option value="Broad">রচনামূলক প্রশ্ন (Broad)</option>
-                  <option value="Short">সংক্ষিপ্ত প্রশ্ন (Short)</option>
-                  <option value="MCQ">বহুনির্বাচনী (MCQ)</option>
+                  <option value="Broad">📝 রচনামূলক প্রশ্ন (Broad)</option>
+                  <option value="Short">✍️ সংক্ষিপ্ত প্রশ্ন (Short)</option>
+                  <option value="Irab">📜 إعراب العبارة (ইবারত ও এরাব লাগানো)</option>
+                  <option value="Tahqeeq">🔍 تحقيق الكلمات (তাহকীক ও ছরফী বিশ্লেষণ)</option>
+                  <option value="Sher">📖 شعر وتوضيح (নযম ও শেরের ব্যাখ্যা)</option>
+                  <option value="Masala">⚖️ مسألة فقهية (ফিকহি মাসআলা ও সমাধান)</option>
+                  <option value="MCQ">🔘 বহুনির্বাচনী (MCQ)</option>
                 </select>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">প্রশ্নের মূল টেক্সট (Question Text) *</label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-xs font-semibold text-slate-700">প্রশ্নের মূল টেক্সট (Question Title / Instruction) *</label>
+                {newType === "Irab" && (
+                  <button type="button" onClick={loadSampleIrab} className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> নমুনা ইবারত প্রশ্ন লোড করুন
+                  </button>
+                )}
+                {newType === "Tahqeeq" && (
+                  <button type="button" onClick={loadSampleTahqeeq} className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> নমুনা তাহকীক প্রশ্ন লোড করুন
+                  </button>
+                )}
+                {newType === "Sher" && (
+                  <button type="button" onClick={loadSampleSher} className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> নমুনা শের প্রশ্ন লোড করুন
+                  </button>
+                )}
+                {newType === "Masala" && (
+                  <button type="button" onClick={loadSampleMasala} className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> নমুনা মাসআলা প্রশ্ন লোড করুন
+                  </button>
+                )}
+              </div>
               <textarea
                 required
                 value={newText}
                 onChange={(e) => setNewText(e.target.value)}
-                rows={3}
+                rows={2}
                 dir={newTextDirection === "rtl" ? "rtl" : (newTextDirection === "ltr" ? "ltr" : "auto")}
                 className={`w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 outline-none bg-white text-base leading-relaxed ${
                   newTextDirection === "rtl" || isArabicText(newText) ? "font-amiri text-right text-lg leading-loose" : "font-solaiman text-left"
                 }`}
-                placeholder={newTextDirection === "rtl" ? "اكتب السؤال هنا..." : "প্রশ্নের বিবরণ এখানে লিখুন (বাংলা বা আরবিতে)..."}
+                placeholder={newTextDirection === "rtl" ? "اكتب السؤال هنا..." : "প্রশ্নের মূল নির্দেশনা বা বিবরণ লিখুন..."}
               />
             </div>
 
+            {/* 1. Specialized: إعراب العبارة (Irab) */}
+            {newType === "Irab" && (
+              <div className="p-4 bg-emerald-50/50 rounded-xl border border-emerald-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                    <Scroll className="w-4 h-4 text-emerald-700" />
+                    <span>العبارة المطلوب إعرابها (ইবারতের আরবি মূল পাঠ ও চিহ্নিত শব্দ)</span>
+                  </span>
+                  <span className="text-[11px] text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                    আরবি হরকত/এরাব সমর্থিত
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    সম্পূর্ণ আরবি ইবারত (Arabic Passage):
+                  </label>
+                  <textarea
+                    rows={3}
+                    dir="rtl"
+                    value={newIrabText}
+                    onChange={(e) => setNewIrabText(e.target.value)}
+                    className="w-full p-3 font-amiri text-right text-xl leading-[2.2] bg-white border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs"
+                    placeholder="اكتب هنا النص العربي كاملا مع التشكيل أو بدونه..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    চিহ্নিত বা উদ্দেশ্যকৃত শব্দসমূহ (Target Words for Irab - কমা বা স্পেস দিয়ে লিখুন):
+                  </label>
+                  <input
+                    type="text"
+                    dir="rtl"
+                    value={newTargetWords}
+                    onChange={(e) => setNewTargetWords(e.target.value)}
+                    className="w-full p-2.5 font-amiri text-right text-base bg-white border border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="مثال: اللهَ، الْعُلَمَاءُ، دِينًا"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* 2. Specialized: تحقيق الكلمات (Tahqeeq) */}
+            {newType === "Tahqeeq" && (
+              <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-200 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                    <Columns className="w-4 h-4 text-blue-700" />
+                    <span>تحقيق الكلمات (তাহকীক ও ছরফী বিশ্লেষণের জন্য শব্দ তালিকা ও ছক)</span>
+                  </span>
+                  <span className="text-[11px] text-blue-800 bg-white px-2 py-0.5 rounded border border-blue-200">
+                    স্বয়ংক্রিয় ছক জেনারেটর
+                  </span>
+                </div>
+
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    dir="rtl"
+                    value={tahqeeqInput}
+                    onChange={(e) => setTahqeeqInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddTahqeeqWord();
+                      }
+                    }}
+                    placeholder="আরবি শব্দ লিখুন (যেমন: يَسْتَغْفِرُونَ) এবং এন্টার চাপুন..."
+                    className="flex-1 p-2.5 font-amiri text-right text-base bg-white border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddTahqeeqWord}
+                    className="px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-lg text-xs transition cursor-pointer shrink-0"
+                  >
+                    + শব্দ যোগ করুন
+                  </button>
+                </div>
+
+                {/* Word Chips */}
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span className="text-xs font-semibold text-slate-600">যুক্ত শব্দসমূহ:</span>
+                  {newTahqeeqWords.map((word, wIdx) => (
+                    <span
+                      key={wIdx}
+                      dir="rtl"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-blue-300 rounded-full font-amiri text-base text-blue-900 shadow-xs"
+                    >
+                      <span>{word}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTahqeeqWord(wIdx)}
+                        className="text-red-500 hover:text-red-700 p-0.5 rounded-full hover:bg-red-50 cursor-pointer"
+                        title="শব্দটি বাদ দিন"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                  {newTahqeeqWords.length === 0 && (
+                    <span className="text-xs text-amber-700 italic">এখনো কোনো শব্দ যোগ করা হয়নি। উপরে লিখে যোগ করুন।</span>
+                  )}
+                </div>
+
+                {/* Live mini table preview */}
+                {newTahqeeqWords.length > 0 && (
+                  <div className="bg-white p-3 rounded-lg border border-blue-200">
+                    <span className="text-[11px] font-bold text-slate-600 block mb-2">পরীক্ষার খাতায়/প্রশ্নে যেভাবে ছক তৈরি হবে:</span>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-center text-xs border-collapse border border-slate-300" dir="rtl">
+                        <thead className="bg-slate-100 font-amiri text-sm font-bold">
+                          <tr>
+                            <th className="border border-slate-300 p-1.5">الرقم</th>
+                            <th className="border border-slate-300 p-1.5">الكلمة</th>
+                            <th className="border border-slate-300 p-1.5">الصيغة</th>
+                            <th className="border border-slate-300 p-1.5">البحث</th>
+                            <th className="border border-slate-300 p-1.5">الباب</th>
+                            <th className="border border-slate-300 p-1.5">المصدر</th>
+                            <th className="border border-slate-300 p-1.5">المادة</th>
+                          </tr>
+                        </thead>
+                        <tbody className="font-amiri text-sm">
+                          {newTahqeeqWords.map((word, i) => (
+                            <tr key={i}>
+                              <td className="border border-slate-300 p-1 text-slate-500 font-sans">{i + 1}</td>
+                              <td className="border border-slate-300 p-1 font-bold text-slate-900">{word}</td>
+                              <td className="border border-slate-300 p-1 text-slate-400">---</td>
+                              <td className="border border-slate-300 p-1 text-slate-400">---</td>
+                              <td className="border border-slate-300 p-1 text-slate-400">---</td>
+                              <td className="border border-slate-300 p-1 text-slate-400">---</td>
+                              <td className="border border-slate-300 p-1 text-slate-400">---</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 3. Specialized: شعر وتوضيح (Sher / Poetry) */}
+            {newType === "Sher" && (
+              <div className="p-4 bg-purple-50/50 rounded-xl border border-purple-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-purple-700" />
+                    <span>شعر وتوضيح (নযম ও শেরের শ্লোক/বায়েতসমূহ)</span>
+                  </span>
+                  <div className="w-48">
+                    <input
+                      type="text"
+                      dir="auto"
+                      value={newPoetName}
+                      onChange={(e) => setNewPoetName(e.target.value)}
+                      placeholder="কবি / কিতাবের নাম (ঐচ্ছিক)"
+                      className="w-full text-xs p-1.5 bg-white border border-purple-300 rounded-md outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2.5">
+                  {newVerses.map((verse, vIdx) => (
+                    <div key={vIdx} className="bg-white p-2.5 rounded-lg border border-purple-200 flex items-center gap-2">
+                      <span className="text-xs font-bold text-purple-800 w-6 text-center">{vIdx + 1}</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1">
+                        <input
+                          type="text"
+                          dir="rtl"
+                          value={verse.first}
+                          onChange={(e) => {
+                            const updated = [...newVerses];
+                            updated[vIdx].first = e.target.value;
+                            setNewVerses(updated);
+                          }}
+                          placeholder="المصرع الأول (প্রথম চরণ/মিসরা)"
+                          className="p-2 font-amiri text-right text-base border border-slate-300 rounded-md focus:ring-1 focus:ring-purple-500 outline-none"
+                        />
+                        <input
+                          type="text"
+                          dir="rtl"
+                          value={verse.second}
+                          onChange={(e) => {
+                            const updated = [...newVerses];
+                            updated[vIdx].second = e.target.value;
+                            setNewVerses(updated);
+                          }}
+                          placeholder="المصرع الثاني (দ্বিতীয় চরণ/মিসরা)"
+                          className="p-2 font-amiri text-right text-base border border-slate-300 rounded-md focus:ring-1 focus:ring-purple-500 outline-none"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveVerseRow(vIdx)}
+                        disabled={newVerses.length <= 1}
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg disabled:opacity-30 cursor-pointer"
+                        title="এই শ্লোক বাদ দিন"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAddVerseRow}
+                  className="px-3 py-1.5 bg-white border border-purple-300 text-purple-800 hover:bg-purple-100 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> + আরও একটি শের/শ্লোক যুক্ত করুন
+                </button>
+              </div>
+            )}
+
+            {/* 4. Specialized: مسألة فقهية (Masala / Fiqh) */}
+            {newType === "Masala" && (
+              <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                    <Scale className="w-4 h-4 text-amber-700" />
+                    <span>مسألة فقهية (ফিকহি সুরতহাল / বাস্তব প্রেক্ষাপট ও সমাধান)</span>
+                  </span>
+                  <span className="text-[11px] text-amber-800 bg-white px-2 py-0.5 rounded border border-amber-200">
+                    বাস্তবধর্মী সমাধান ফরম্যাট
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    সুরতহাল বা ঘটনার বিবরণ (Scenario Text):
+                  </label>
+                  <textarea
+                    rows={3}
+                    dir="auto"
+                    value={newScenario}
+                    onChange={(e) => setNewScenario(e.target.value)}
+                    placeholder="বাস্তব সুরতহাল বা ঘটনার বিবরণ লিখুন..."
+                    className="w-full p-3 text-sm bg-white border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none leading-relaxed"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-semibold text-slate-700">
+                    নির্দিষ্ট ফিকহি প্রশ্ন বা সমাধান উপ-প্রশ্নসমূহ (Sub-questions):
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      dir="auto"
+                      value={subQuestionInput}
+                      onChange={(e) => setSubQuestionInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddSubQuestion();
+                        }
+                      }}
+                      placeholder="উপ-প্রশ্ন লিখুন (যেমন: ১. এতে কি নামাজ ভেঙে যাবে?)..."
+                      className="flex-1 p-2 text-xs bg-white border border-amber-300 rounded-lg outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddSubQuestion}
+                      className="px-3 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-bold cursor-pointer shrink-0"
+                    >
+                      + যোগ করুন
+                    </button>
+                  </div>
+
+                  {newSubQuestions.map((sq, sqIdx) => (
+                    <div key={sqIdx} className="flex items-center justify-between bg-white px-3 py-1.5 rounded-md border border-amber-200 text-xs">
+                      <span>{sq}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSubQuestion(sqIdx)}
+                        className="text-red-500 hover:text-red-700 p-0.5 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 5. MCQ Options */}
             {newType === "MCQ" && (
               <div className="p-4 bg-white rounded-lg border border-slate-200 space-y-3">
                 <label className="block text-xs font-bold text-slate-700">এমসিকিউ অপশনসমূহ (MCQ Options)</label>
@@ -490,6 +986,65 @@ export default function QuestionBankClient({
                 </div>
               </div>
             )}
+
+            {/* 6. Universal বিকল্প প্রশ্ন (অথবা / বা / أو) Section */}
+            <div className="p-4 bg-orange-50/40 rounded-xl border border-orange-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={newHasOr}
+                    onChange={(e) => setNewHasOr(e.target.checked)}
+                    className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500 border-orange-300 cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-orange-950">
+                    বিকল্প প্রশ্ন (অথবা / বা / أو) যুক্ত করুন
+                  </span>
+                </label>
+                {newHasOr && (
+                  <button
+                    type="button"
+                    onClick={loadSampleOr}
+                    className="text-xs text-orange-800 hover:underline font-semibold flex items-center gap-1"
+                  >
+                    <Sparkles className="w-3 h-3" /> নমুনা বিকল্প প্রশ্ন লোড করুন
+                  </button>
+                )}
+              </div>
+
+              {newHasOr && (
+                <div className="space-y-2.5 pt-2 border-t border-orange-200">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      বিকল্প প্রশ্নের টেক্সট (Alternative Question Text) *
+                    </label>
+                    <textarea
+                      rows={2}
+                      dir="auto"
+                      value={newOrText}
+                      onChange={(e) => setNewOrText(e.target.value)}
+                      placeholder="أو: বিকল্প প্রশ্নের টেক্সট এখানে লিখুন..."
+                      className="w-full p-2.5 text-sm bg-white border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none leading-relaxed font-solaiman"
+                    />
+                  </div>
+                  {newType === "Irab" && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        বিকল্প ইবারত (Alternative Arabic Passage - ঐচ্ছিক):
+                      </label>
+                      <textarea
+                        rows={2}
+                        dir="rtl"
+                        value={newOrIrabText}
+                        onChange={(e) => setNewOrIrabText(e.target.value)}
+                        placeholder="বিকল্প ইবারত এখানে লিখুন..."
+                        className="w-full p-2 font-amiri text-right text-base bg-white border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end justify-between">
               <div className="w-full sm:w-48">
@@ -572,41 +1127,33 @@ export default function QuestionBankClient({
                       />
                     </td>
                     <td className="px-4 py-4">
-                      <div 
-                        dir={qIsArabic ? "rtl" : "auto"}
-                        className={`font-semibold text-slate-900 mb-1 ${
-                          qIsArabic ? "font-amiri text-right text-lg leading-loose" : "font-solaiman text-left text-sm leading-relaxed"
-                        }`}
-                      >
-                        <span className="font-bold text-slate-500 mr-2 ml-2">
-                          {qIsArabic ? toArabicNumerals(idx + 1) : toBengaliNumerals(idx + 1)}.
-                        </span>
-                        {q.question_text}
-                      </div>
-                      {q.question_type === "MCQ" && q.options && (
-                        <div 
-                          dir={qIsArabic ? "rtl" : "auto"}
-                          className={`grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-100 text-xs text-slate-600 ${
-                            qIsArabic ? "font-amiri text-right text-sm" : ""
-                          }`}
-                        >
-                          {q.options.map((opt: string, i: number) => (
-                            <div key={i} className="flex items-center gap-1.5">
-                              <span className="font-bold text-slate-500">{getOptionLabel(i, qIsArabic)}</span>
-                              <span>{opt}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <SpecializedQuestionView
+                        question={q}
+                        index={idx}
+                        isPrint={false}
+                        hideMarks={true}
+                      />
                     </td>
                     <td className="px-4 py-4">
                       <div className="font-bold text-slate-800">{q.class?.name || "শ্রেণি অনির্ধারিত"}</div>
                       <div className="text-xs text-slate-500 font-medium">{q.subject?.name || "বিষয় অনির্ধারিত"}</div>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="inline-block px-2.5 py-1 bg-slate-100 text-slate-700 rounded-md text-xs font-semibold">
-                        {q.question_type === "MCQ" ? "বহুনির্বাচনী" : (q.question_type === "Short" ? "সংক্ষিপ্ত" : "রচনামূলক")}
-                      </span>
+                      {(() => {
+                        const badge = getQuestionTypeBadge(q.question_type);
+                        return (
+                          <div className="space-y-1">
+                            <span className={`inline-block px-2.5 py-1 rounded-md text-xs font-semibold border ${badge.color}`}>
+                              {badge.label}
+                            </span>
+                            {q.options?.has_or && (
+                              <span className="block text-[10px] font-bold text-orange-800 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200 w-fit">
+                                + অথবা (أو) সহ
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-4 font-bold text-slate-800">
                       {toBengaliNumerals(q.marks || 0)}
@@ -856,75 +1403,45 @@ export default function QuestionBankClient({
                     return (
                       <div 
                         key={`${q.id}-${idx}`} 
-                        dir={isRTL ? "rtl" : "ltr"}
-                        className={`space-y-1.5 group relative ${isRTL ? "font-amiri text-right" : "text-left"} border border-transparent hover:border-emerald-200 hover:bg-emerald-50/50 p-2 -mx-2 rounded-lg transition-all`}
+                        className="group relative border border-transparent hover:border-emerald-200 hover:bg-emerald-50/50 p-2 -mx-2 rounded-lg transition-all"
                       >
-                        <div className="flex justify-between items-start gap-3">
-                          <div className="flex-1">
-                            <p 
-                              className={`font-semibold text-slate-900 ${
-                                isRTL 
-                                  ? "text-xl leading-[2.2] tracking-wide font-amiri" 
-                                  : "text-base leading-relaxed"
-                              }`}
-                            >
-                              <span className={`font-bold text-slate-900 ml-1.5 mr-1.5 inline-block ${isRTL ? "font-amiri" : ""}`}>
-                                {formatQuestionNumber(idx, isRTL)}
-                              </span>
-                              {q.question_text}
-                            </p>
-                          </div>
-                          
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className={`font-bold text-slate-800 text-sm px-2 py-0.5 bg-slate-100 rounded border border-slate-300 ${isRTL ? "font-amiri" : ""}`}>
-                              [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
-                            </span>
-                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 print:hidden absolute right-2 top-2 bg-white/90 backdrop-blur-sm p-1 rounded-md shadow-sm border border-emerald-100">
-                              <button
-                                type="button"
-                                onClick={() => moveQuestionUp(idx)}
-                                disabled={idx === 0}
-                                className="p-1 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                                title="উপরে নিন"
-                              >
-                                <ArrowUp className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => moveQuestionDown(idx)}
-                                disabled={idx === selectedQuestions.length - 1}
-                                className="p-1 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                                title="নিচে নিন"
-                              >
-                                <ArrowDown className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => toggleQuestionSelection(q)}
-                                className="p-1 text-red-500 hover:bg-red-50 rounded transition cursor-pointer"
-                                title="প্রশ্নপত্র থেকে বাদ দিন"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
+                        <SpecializedQuestionView
+                          question={q}
+                          index={idx}
+                          isRTL={isRTL}
+                          formatNumber={formatQuestionNumber}
+                          isPrint={false}
+                        />
 
-                        {/* MCQ Options */}
-                        {q.question_type === "MCQ" && q.options && (
-                          <div 
-                            className={`grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 ${
-                              isRTL ? "pr-6 text-base leading-loose" : "pl-6 text-sm"
-                            }`}
+                        {/* Hover Action Buttons */}
+                        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 print:hidden absolute right-2 top-2 bg-white/95 backdrop-blur-sm p-1 rounded-md shadow-sm border border-emerald-200 z-10">
+                          <button
+                            type="button"
+                            onClick={() => moveQuestionUp(idx)}
+                            disabled={idx === 0}
+                            className="p-1 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="উপরে নিন"
                           >
-                            {q.options.map((opt: string, i: number) => (
-                              <div key={i} className="flex items-center gap-1.5 text-slate-800">
-                                <span className="font-bold text-slate-700">{getOptionLabel(i, isRTL)}</span>
-                                <span>{opt}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                            <ArrowUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveQuestionDown(idx)}
+                            disabled={idx === selectedQuestions.length - 1}
+                            className="p-1 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="নিচে নিন"
+                          >
+                            <ArrowDown className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleQuestionSelection(q)}
+                            className="p-1 text-red-500 hover:bg-red-50 rounded transition cursor-pointer"
+                            title="প্রশ্নপত্র থেকে বাদ দিন"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -1009,44 +1526,15 @@ export default function QuestionBankClient({
               return (
                 <div 
                   key={`${q.id}-${idx}`} 
-                  dir={isRTL ? "rtl" : "ltr"}
-                  className={`break-inside-avoid space-y-1.5 ${isRTL ? "font-amiri text-right" : "text-left"}`}
+                  className="break-inside-avoid"
                 >
-                  <div className="flex justify-between items-start gap-4">
-                    <div className="flex-1">
-                      <p 
-                        className={`font-semibold ${
-                          isRTL 
-                            ? "text-xl leading-[2.3] tracking-wide" 
-                            : "text-base leading-relaxed"
-                        }`}
-                      >
-                        <span className="font-bold ml-1.5 mr-1.5 inline-block">
-                          {formatQuestionNumber(idx, isRTL)}
-                        </span>
-                        {q.question_text}
-                      </p>
-                    </div>
-                    <span className="font-bold text-sm shrink-0 px-2 py-0.5 border border-black rounded">
-                      [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
-                    </span>
-                  </div>
-
-                  {/* MCQ Options in Print */}
-                  {q.question_type === "MCQ" && q.options && (
-                    <div 
-                      className={`grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 ${
-                        isRTL ? "pr-6 text-base leading-loose" : "pl-6 text-sm"
-                      }`}
-                    >
-                      {q.options.map((opt: string, i: number) => (
-                        <div key={i} className="flex items-center gap-1.5">
-                          <span className="font-bold">{getOptionLabel(i, isRTL)}</span>
-                          <span>{opt}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <SpecializedQuestionView
+                    question={q}
+                    index={idx}
+                    isRTL={isRTL}
+                    formatNumber={formatQuestionNumber}
+                    isPrint={true}
+                  />
                 </div>
               );
             })}

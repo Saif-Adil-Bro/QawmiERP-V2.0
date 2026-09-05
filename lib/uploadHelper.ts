@@ -9,12 +9,12 @@ export interface UploadResult {
 
 /**
  * Compresses an image file client-side using an offscreen HTML canvas.
- * Reduces 10MB+ phone camera snaps to ~250KB while retaining high clarity for book pages.
+ * Reduces 10MB+ phone camera snaps to ~150KB while retaining high clarity for book pages and handwriting.
  */
 async function compressImageFile(
   file: File,
-  maxDimension = 1600,
-  quality = 0.82
+  maxDimension = 1280,
+  quality = 0.78
 ): Promise<{ file: File; dataUrl: string; base64Clean: string }> {
   return new Promise((resolve) => {
     // If not a standard raster image (e.g. svg or invalid), return data URL directly
@@ -108,9 +108,9 @@ async function compressImageFile(
 }
 
 /**
- * Uploads an image file to iili.io / Catbox / Cloud storage automatically.
- * Automatically compresses camera snaps to ~250KB for fast, reliable upload.
- * Tries server-side proxy route `/api/upload-image` with Catbox/iili.io/local fallback.
+ * Uploads an image file to Supabase Storage / iili.io / Cloud storage automatically.
+ * Automatically compresses camera snaps to ~150KB for fast, reliable upload.
+ * Tries server-side route `/api/upload-image` with Supabase/ImgBB/Catbox/local fallback.
  */
 export async function uploadImageAuto(
   file: File,
@@ -123,19 +123,18 @@ export async function uploadImageAuto(
   // Fast client-side image compression
   const { file: compressedFile, dataUrl, base64Clean } = await compressImageFile(file);
 
-  // 1. Try server-side API route (handles iili.io -> Catbox -> ImgBB with fallback)
+  // 1. Try server-side API route via FormData (handles Supabase -> ImgBB -> iili.io with fallback)
   try {
+    const formData = new FormData();
+    formData.append("file", compressedFile);
+    formData.append("imageBase64", dataUrl);
+    formData.append("type", type);
+    formData.append("filename", compressedFile.name || file.name || "image.jpg");
+
     const res = await fetch("/api/upload-image", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        imageBase64: dataUrl,
-        filename: compressedFile.name || file.name || "image.jpg",
-        type,
-      }),
-      signal: AbortSignal.timeout(15000),
+      body: formData,
+      signal: AbortSignal.timeout(20000),
     });
 
     const text = await res.text();

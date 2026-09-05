@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export async function POST(req: NextRequest) {
     let fileBuffer: Buffer | null = null;
     let mimeType = "image/jpeg";
     let rawDataUrl = "";
+    let uploadType = "general";
 
     const contentType = req.headers.get("content-type") || "";
 
@@ -18,6 +20,8 @@ export async function POST(req: NextRequest) {
         const formData = await req.formData();
         const file = formData.get("file") as File | null;
         const base64Field = (formData.get("imageBase64") || formData.get("image")) as string | null;
+        const typeField = formData.get("type") as string | null;
+        if (typeField) uploadType = typeField;
 
         if (file && typeof file !== "string") {
           const arrayBuf = await file.arrayBuffer();
@@ -41,6 +45,7 @@ export async function POST(req: NextRequest) {
       try {
         const body = await req.json();
         const base64Input = body.imageBase64 || body.image || "";
+        if (body.type) uploadType = body.type;
         if (base64Input) {
           rawDataUrl = base64Input;
           cleanBase64 = base64Input.replace(/^data:image\/[a-z]+;base64,/, "");
@@ -55,6 +60,8 @@ export async function POST(req: NextRequest) {
         try {
           const formData = await req.formData();
           const file = formData.get("file") as File | null;
+          const typeField = formData.get("type") as string | null;
+          if (typeField) uploadType = typeField;
           if (file && typeof file !== "string") {
             const arrayBuf = await file.arrayBuffer();
             fileBuffer = Buffer.from(arrayBuf);
@@ -75,6 +82,51 @@ export async function POST(req: NextRequest) {
         { error: "কোনো ছবি পাওয়া যায়নি (No valid image payload provided)" },
         { status: 400 }
       );
+    }
+
+    // 0. PRIORITY 1: Supabase Storage (Safe, permanent, internal CDN)
+    try {
+      const adminClient = await createAdminClient();
+      const bucketName = uploadType === "logo" ? "logos" : (uploadType === "signature" ? "signatures" : "assignments");
+
+      // Ensure target bucket exists
+      try {
+        await adminClient.storage.createBucket(bucketName, {
+          public: true,
+          fileSizeLimit: 10485760, // 10MB
+          allowedMimeTypes: ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml"]
+        });
+      } catch {
+        // Bucket might already exist
+      }
+
+      if (fileBuffer) {
+        const fileExt = originalFilename.split(".").pop() || (mimeType === "image/png" ? "png" : "jpg");
+        const uniqueFileName = `${uploadType}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+
+        const { data: uploadData, error: uploadErr } = await adminClient.storage
+          .from(bucketName)
+          .upload(uniqueFileName, fileBuffer, {
+            contentType: mimeType,
+            upsert: true,
+          });
+
+        if (!uploadErr && uploadData?.path) {
+          const { data: { publicUrl } } = adminClient.storage
+            .from(bucketName)
+            .getPublicUrl(uploadData.path);
+
+          if (publicUrl) {
+            return NextResponse.json({
+              success: true,
+              provider: "supabase",
+              url: publicUrl,
+            });
+          }
+        }
+      }
+    } catch (supabaseErr) {
+      console.warn("Supabase storage upload attempt error:", supabaseErr);
     }
 
     // 1. Try Freeimage.host (hosts directly on iili.io)

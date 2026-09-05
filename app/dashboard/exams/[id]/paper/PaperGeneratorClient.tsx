@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { getExamPaper, saveExamPaper } from "@/app/actions/questions";
 import { Plus, Trash2, Printer, Loader2, Save, FileSignature, CheckCircle2, Globe, Building2, BookOpen, Clock, Award, ArrowUp, ArrowDown } from "lucide-react";
+import SpecializedQuestionView, { getQuestionTypeBadge } from "@/components/exams/SpecializedQuestionView";
 
 // Helper function to detect Arabic script in text
 function isArabicText(text: string): boolean {
@@ -262,28 +263,24 @@ export default function PaperGeneratorClient({
                     >
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center space-x-2">
-                          {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                          <span className="text-xs font-semibold px-2 py-0.5 bg-white border border-slate-200 rounded text-slate-700">
-                            {q.question_type === "MCQ" ? "বহুনির্বাচনী" : (q.question_type === "Short" ? "সংক্ষিপ্ত" : "রচনামূলক")}
-                          </span>
+                          {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+                          {(() => {
+                            const badge = getQuestionTypeBadge(q.question_type);
+                            return (
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${badge.color}`}>
+                                {badge.label}
+                              </span>
+                            );
+                          })()}
+                          {q.options?.has_or && (
+                            <span className="text-[10px] font-bold text-orange-800 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">
+                              + বা (أو)
+                            </span>
+                          )}
                         </div>
                         <span className="text-xs font-bold text-slate-600">{toBengaliNumerals(q.marks)} Marks</span>
                       </div>
-                      <p 
-                        className={`text-sm font-semibold text-slate-800 ${
-                          isRTL ? "font-amiri text-right text-base leading-loose" : "font-solaiman text-left"
-                        }`} 
-                        dir={isRTL ? "rtl" : "auto"}
-                      >
-                        {q.question_text}
-                      </p>
-                      {q.question_type === "MCQ" && q.options && (
-                        <div className={`mt-2 text-xs text-slate-600 grid grid-cols-2 gap-1 ${isRTL ? "font-amiri text-right" : ""}`} dir={isRTL ? "rtl" : "auto"}>
-                          {q.options.map((opt: string, i: number) => (
-                            <div key={i} className="text-start">• {opt}</div>
-                          ))}
-                        </div>
-                      )}
+                      <SpecializedQuestionView question={q} hideMarks={true} isPrint={false} />
                     </div>
                   );
                 })}
@@ -393,56 +390,43 @@ export default function PaperGeneratorClient({
                       selectedQuestions.map((q, idx) => {
                         const isRTL = getQuestionDir(q.question_text) === "rtl";
                         return (
-                          <div key={idx} dir={isRTL ? "rtl" : "ltr"} className={`space-y-1 group relative p-2 rounded-lg hover:bg-slate-50 transition border border-transparent hover:border-slate-200 ${isRTL ? "font-amiri text-right" : "text-left"}`}>
-                            <div className="flex justify-between items-start gap-2">
-                              <p className={`font-semibold text-slate-900 flex-1 ${isRTL ? "text-lg leading-loose font-amiri" : "text-sm leading-relaxed"}`}>
-                                <span className={`font-bold ml-1 mr-1 ${isRTL ? "font-amiri" : ""}`}>{formatQuestionNumber(idx, isRTL)}</span>
-                                {q.question_text}
-                              </p>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <span className={`text-xs font-bold px-1.5 py-0.5 bg-slate-100 rounded border border-slate-300 ${isRTL ? "font-amiri" : ""}`}>
-                                  [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
-                                </span>
-                                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => moveQuestionUp(idx)}
-                                    disabled={idx === 0}
-                                    className="p-1 text-slate-500 hover:bg-slate-200 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                                    title="উপরে নিন"
-                                  >
-                                    <ArrowUp className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => moveQuestionDown(idx)}
-                                    disabled={idx === selectedQuestions.length - 1}
-                                    className="p-1 text-slate-500 hover:bg-slate-200 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                                    title="নিচে নিন"
-                                  >
-                                    <ArrowDown className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleQuestion(q)}
-                                    className="p-1 text-red-500 hover:bg-red-50 rounded transition cursor-pointer"
-                                    title="প্রশ্নপত্র থেকে বাদ দিন"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </div>
+                          <div key={`${q.id || idx}-${idx}`} className="group relative p-2 rounded-lg hover:bg-slate-50 transition border border-transparent hover:border-slate-200">
+                            <SpecializedQuestionView
+                              question={q}
+                              index={idx}
+                              isRTL={isRTL}
+                              formatNumber={formatQuestionNumber}
+                              isPrint={false}
+                            />
+                            {/* Hover Controls */}
+                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 absolute right-2 top-2 bg-white/95 backdrop-blur-sm p-1 rounded-md shadow-sm border border-slate-200 z-10">
+                              <button
+                                type="button"
+                                onClick={() => moveQuestionUp(idx)}
+                                disabled={idx === 0}
+                                className="p-1 text-slate-500 hover:bg-slate-200 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="উপরে নিন"
+                              >
+                                <ArrowUp className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveQuestionDown(idx)}
+                                disabled={idx === selectedQuestions.length - 1}
+                                className="p-1 text-slate-500 hover:bg-slate-200 rounded transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="নিচে নিন"
+                              >
+                                <ArrowDown className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleQuestion(q)}
+                                className="p-1 text-red-500 hover:bg-red-50 rounded transition cursor-pointer"
+                                title="প্রশ্নপত্র থেকে বাদ দিন"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
-                            {q.question_type === "MCQ" && q.options && (
-                              <div className={`grid grid-cols-2 gap-2 mt-2 ${isRTL ? "pr-6 text-sm" : "pl-6 text-xs"}`}>
-                                {q.options.map((opt: string, i: number) => (
-                                  <div key={i} className="flex items-center gap-1">
-                                    <span className="font-bold">{getOptionLabel(i, isRTL)}</span>
-                                    <span>{opt}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
                           </div>
                         );
                       })
@@ -494,26 +478,14 @@ export default function PaperGeneratorClient({
             {selectedQuestions.map((q, idx) => {
               const isRTL = getQuestionDir(q.question_text) === "rtl";
               return (
-                <div key={idx} dir={isRTL ? "rtl" : "ltr"} className={`break-inside-avoid space-y-1 ${isRTL ? "font-amiri text-right" : "text-left"}`}>
-                  <div className="flex justify-between items-start gap-4">
-                    <p className={`font-semibold ${isRTL ? "text-xl leading-[2.2] font-amiri" : "text-base leading-relaxed"}`}>
-                      <span className={`font-bold ml-1.5 mr-1.5 inline-block ${isRTL ? "font-amiri" : ""}`}>{formatQuestionNumber(idx, isRTL)}</span>
-                      {q.question_text}
-                    </p>
-                    <span className={`text-sm font-bold shrink-0 px-2 py-0.5 border border-black rounded ${isRTL ? "font-amiri" : ""}`}>
-                      [{isRTL ? toArabicNumerals(q.marks) : toBengaliNumerals(q.marks)}]
-                    </span>
-                  </div>
-                  {q.question_type === "MCQ" && q.options && (
-                    <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 ${isRTL ? "pr-6 text-base" : "pl-6 text-sm"}`}>
-                      {q.options.map((opt: string, i: number) => (
-                        <div key={i} className="flex items-center gap-1.5">
-                          <span className="font-bold">{getOptionLabel(i, isRTL)}</span>
-                          <span>{opt}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                <div key={idx} className="break-inside-avoid">
+                  <SpecializedQuestionView
+                    question={q}
+                    index={idx}
+                    isRTL={isRTL}
+                    formatNumber={formatQuestionNumber}
+                    isPrint={true}
+                  />
                 </div>
               );
             })}
