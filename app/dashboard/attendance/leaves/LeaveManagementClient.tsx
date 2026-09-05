@@ -85,6 +85,7 @@ export default function LeaveManagementClient({
 
   // Create Form State
   const [newTargetId, setNewTargetId] = useState("");
+  const [modalStudentSearch, setModalStudentSearch] = useState("");
   const [newLeaveType, setNewLeaveType] = useState("অসুস্থতাজনিত ছুটি");
   const [newStartDate, setNewStartDate] = useState(new Date().toISOString().split("T")[0]);
   const [newEndDate, setNewEndDate] = useState(new Date().toISOString().split("T")[0]);
@@ -299,6 +300,20 @@ export default function LeaveManagementClient({
       return true;
     });
   }, [teacherLeaves, statusFilter, searchQuery]);
+
+  // Filtered students for modal
+  const filteredModalStudents = useMemo(() => {
+    if (!modalStudentSearch.trim()) return students;
+    const q = modalStudentSearch.toLowerCase().trim();
+    return students.filter((s) => {
+      const name = `${s.first_name || ""} ${s.last_name || ""}`.toLowerCase();
+      const roll = String(s.roll_number || "").toLowerCase();
+      const cls = String(
+        (Array.isArray(s.classes) ? s.classes[0]?.name : s.classes?.name) || s.class_name || ""
+      ).toLowerCase();
+      return name.includes(q) || roll.includes(q) || cls.includes(q);
+    });
+  }, [students, modalStudentSearch]);
 
   // Counts
   const pendingStudentLeavesCount = studentLeaves.filter((l) => l.status === "PENDING").length;
@@ -990,44 +1005,92 @@ export default function LeaveManagementClient({
 
               {/* Target Selection */}
               {createType === "STUDENT" ? (
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">শিক্ষার্থী নির্বাচন করুন *</label>
-                  <select
-                    value={newTargetId}
-                    onChange={(e) => {
-                      setNewTargetId(e.target.value);
-                      const s = students.find((st) => st.id === e.target.value);
-                      if (s) {
-                        setNewGuardianPhone(s.parent_phone || s.phone || "");
-                      }
-                    }}
-                    required
-                    className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">-- শিক্ষার্থী বাছাই করুন --</option>
-                    {students.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.first_name} {s.last_name} {s.roll_number ? `(রোল: ${s.roll_number})` : ""} - {s.class_name || ""}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block font-bold text-slate-700">শিক্ষার্থী নির্বাচন করুন *</label>
+                    <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                      মোট {toBanglaNumber(students.length)} জন
+                    </span>
+                  </div>
+
+                  {students.length > 5 && (
+                    <input
+                      type="text"
+                      value={modalStudentSearch}
+                      onChange={(e) => setModalStudentSearch(e.target.value)}
+                      placeholder="শিক্ষার্থী নাম বা রোল দিয়ে খুঁজুন..."
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 focus:ring-1 focus:ring-blue-500 bg-slate-50 mb-1"
+                    />
+                  )}
+
+                  {students.length === 0 ? (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs">
+                      ⚠️ কোনো শিক্ষার্থীর তথ্য পাওয়া যায়নি। অনুগ্রহ করে ছাত্র ব্যবস্থাপনা থেকে শিক্ষার্থী যোগ করুন।
+                    </div>
+                  ) : (
+                    <select
+                      value={newTargetId}
+                      onChange={(e) => {
+                        setNewTargetId(e.target.value);
+                        const s = students.find((st) => st.id === e.target.value);
+                        if (s) {
+                          setNewGuardianPhone(s.parent_phone || s.phone || "");
+                          setNewGuardianName(s.guardian_name || s.father_name || "");
+                        }
+                      }}
+                      required
+                      className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="">
+                        -- শিক্ষার্থী বাছাই করুন ({toBanglaNumber(filteredModalStudents.length)} জন পাওয়া গেছে) --
                       </option>
-                    ))}
-                  </select>
+                      {filteredModalStudents.map((s) => {
+                        const name = [s.first_name, s.last_name].filter(Boolean).join(" ").trim() || s.name || "শিক্ষার্থী";
+                        const roll = s.roll_number !== undefined && s.roll_number !== null ? `(রোল: ${toBanglaNumber(s.roll_number)})` : "";
+                        const cls = s.class_name || (Array.isArray(s.classes) ? s.classes[0]?.name : s.classes?.name) || "";
+                        return (
+                          <option key={s.id} value={s.id}>
+                            {name} {roll} {cls ? `- ${cls}` : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
                 </div>
               ) : (
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">শিক্ষক / স্টাফ নির্বাচন করুন *</label>
-                  <select
-                    value={newTargetId}
-                    onChange={(e) => setNewTargetId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">-- শিক্ষক বাছাই করুন --</option>
-                    {teachers.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.first_name} {t.last_name} ({t.designation || "শিক্ষক"})
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block font-bold text-slate-700">শিক্ষক / স্টাফ নির্বাচন করুন *</label>
+                    <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                      মোট {toBanglaNumber(teachers.length)} জন
+                    </span>
+                  </div>
+
+                  {teachers.length === 0 ? (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs">
+                      ⚠️ কোনো শিক্ষক/স্টাফের তথ্য পাওয়া যায়নি।
+                    </div>
+                  ) : (
+                    <select
+                      value={newTargetId}
+                      onChange={(e) => setNewTargetId(e.target.value)}
+                      required
+                      className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="">
+                        -- শিক্ষক / স্টাফ বাছাই করুন ({toBanglaNumber(teachers.length)} জন) --
                       </option>
-                    ))}
-                  </select>
+                      {teachers.map((t) => {
+                        const name = [t.first_name, t.last_name].filter(Boolean).join(" ").trim() || t.name || "শিক্ষক";
+                        const des = t.designation || "শিক্ষক";
+                        return (
+                          <option key={t.id} value={t.id}>
+                            {name} ({des}) {t.phone ? `- ${t.phone}` : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
                 </div>
               )}
 

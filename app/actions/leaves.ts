@@ -2,9 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
-import { getAuthMadrasaId } from "@/app/actions/students";
+import { getAuthMadrasaId, getStudents, getClasses } from "@/app/actions/students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { getStaffMetadataFull } from "@/app/actions/staff";
+import {
+  getParentFeedbacks,
+  updateParentFeedbackStatus,
+  createParentFeedback,
+  ParentFeedbackItem,
+} from "@/app/actions/parent-communication";
 
 export interface StudentLeaveApplication {
   id: string;
@@ -118,7 +124,8 @@ export async function getAllLeaveData() {
     // Also fetch staff metadata to merge any leave_requests if not yet present
     const staffMeta = await getStaffMetadataFull();
     const existingTeacherLeaveIds = new Set(teacherLeaves.map((t) => t.id));
-    ((staffMeta as any)?.leave_requests || []).forEach((slr: any) => {
+    const rawStaffLeaves = ((staffMeta as any)?.staff_leave_requests || (staffMeta as any)?.leave_requests || []);
+    rawStaffLeaves.forEach((slr: any) => {
       if (!existingTeacherLeaveIds.has(slr.id)) {
         teacherLeaves.push({
           id: slr.id,
@@ -143,80 +150,130 @@ export async function getAllLeaveData() {
       }
     });
 
-    // Also merge any leave requests submitted from portal feedback table (e.g. from parent feedback)
-    const { data: feedbacks } = await supabase
-      .from("feedbacks")
-      .select("*")
-      .or("category.eq.ছুটির আবেদন,action_type.eq.LEAVE_APPLICATION")
-      .order("created_at", { ascending: false });
+    // Fetch authoritative student and class lists
+    const [studentsData, classesData] = await Promise.all([
+      getStudents(),
+      getClasses(),
+    ]);
 
+    const studentsList = studentsData || [];
+    const studentsMap = new Map<string, any>(studentsList.map((s: any) => [s.id, s]));
+
+    // Fetch all feedbacks / leave requests from parent communication log
+    const allParentFeedbacks: ParentFeedbackItem[] = await getParentFeedbacks();
     const existingFeedbackIds = new Set(studentLeaves.map((sl) => sl.feedback_id).filter(Boolean));
-    if (feedbacks && feedbacks.length > 0) {
-      feedbacks.forEach((fb: any) => {
-        if (!existingFeedbackIds.has(fb.id)) {
-          // Parse start and end date from description if available
-          let startDate = fb.preferred_date || new Date().toISOString().split("T")[0];
-          let endDate = startDate;
-          let reasonText = fb.description || "";
 
-          // Match pattern "ছুটির মেয়াদ: YYYY-MM-DD হতে YYYY-MM-DD"
-          const dateMatch = fb.description?.match(/মেয়াদ:\s*(\d{4}-\d{2}-\d{2})\s*হতে\s*(\d{4}-\d{2}-\d{2})/);
-          if (dateMatch) {
-            startDate = dateMatch[1];
-            endDate = dateMatch[2];
-          }
+    // Filter feedback entries that are leave applications
+    const leaveFeedbacks = allParentFeedbacks.filter((fb) => {
+      const isLeaveCategory = fb.category === "ছুটির আবেদন";
+      const isLeaveAction = fb.action_type === "GENERAL" || (fb.action_type as string) === "LEAVE_APPLICATION";
+      const subjectHasLeave = Boolean(fb.subject && fb.subject.includes("ছুটি"));
+      const descHasLeave = Boolean(fb.description && fb.description.includes("ছুটি"));
+      return isLeaveCategory || isLeaveAction || subjectHasLeave || descHasLeave;
+    });
 
-          studentLeaves.push({
-            id: `portal_fb_${fb.id}`,
-            feedback_id: fb.id,
-            madrasa_id: madrasaId,
-            student_id: fb.student_id || "",
-            student_name: fb.student_name || "শিক্ষার্থী",
-            student_roll: fb.student_roll || "",
-            class_name: fb.class_name || "",
-            guardian_name: fb.guardian_name || "অভিভাবক",
-            guardian_phone: fb.guardian_phone || "",
-            leave_type: fb.subject?.split("-")[0]?.trim() || "সাধারণ ছুটি",
-            start_date: startDate,
-            end_date: endDate,
-            total_days: calculateDays(startDate, endDate),
-            reason: reasonText,
-            status: fb.status === "RESOLVED" ? "APPROVED" : fb.status === "CLOSED" ? "REJECTED" : "PENDING",
-            admin_remarks: fb.official_response || "",
-            reviewed_by: fb.responded_by,
-            reviewed_at: fb.responded_at,
-            created_at: fb.created_at || new Date().toISOString(),
-            source: "PORTAL",
-          });
+    leaveFeedbacks.forEach((fb: ParentFeedbackItem) => {
+      if (!existingFeedbackIds.has(fb.id)) {
+        let startDate = fb.preferred_date || (fb.created_at ? fb.created_at.split("T")[0] : new Date().toISOString().split("T")[0]);
+        let endDate = startDate;
+        const reasonText = fb.description || "";
+
+        // Parse date pattern like "মেয়াদ: 2026-09-01 হতে 2026-09-03" or "2026-09-01 হতে 2026-09-03" or "2026-09-01 to 2026-09-03"
+        const dateMatch = fb.description?.match(/(\d{4}-\d{2}-\d{2})\s*(?:হতে|থেকে|-|to)\s*(\d{4}-\d{2}-\d{2})/i);
+        if (dateMatch) {
+          startDate = dateMatch[1];
+          endDate = dateMatch[2];
         }
-      });
-    }
+
+        // Try to match student info from student list if missing or partial
+        let matchedStudent = fb.student_id ? studentsMap.get(fb.student_id) : undefined;
+        if (!matchedStudent && fb.student_name) {
+          matchedStudent = studentsList.find((s: any) =>
+            `${s.first_name || ""} ${s.last_name || ""}`.trim().toLowerCase() === fb.student_name?.trim().toLowerCase()
+          );
+        }
+
+        const resolvedStudentName =
+          fb.student_name ||
+          (matchedStudent ? `${matchedStudent.first_name || ""} ${matchedStudent.last_name || ""}`.trim() : "শিক্ষার্থী");
+
+        const resolvedRoll =
+          fb.student_roll ||
+          (matchedStudent?.roll_number !== undefined && matchedStudent?.roll_number !== null
+            ? String(matchedStudent.roll_number)
+            : "");
+
+        const resolvedClass =
+          fb.class_name ||
+          matchedStudent?.class_name ||
+          (Array.isArray(matchedStudent?.classes)
+            ? matchedStudent?.classes[0]?.name
+            : matchedStudent?.classes?.name) ||
+          "";
+
+        const resolvedPhone =
+          fb.guardian_phone ||
+          matchedStudent?.parent_phone ||
+          matchedStudent?.phone ||
+          "";
+
+        studentLeaves.push({
+          id: `portal_fb_${fb.id}`,
+          feedback_id: fb.id,
+          madrasa_id: madrasaId,
+          student_id: fb.student_id || matchedStudent?.id || "",
+          student_name: resolvedStudentName,
+          student_roll: resolvedRoll,
+          class_name: resolvedClass,
+          guardian_name: fb.guardian_name || "সম্মানিত অভিভাবক",
+          guardian_phone: resolvedPhone,
+          leave_type: fb.subject?.split("-")[0]?.trim() || "সাধারণ ছুটি",
+          start_date: startDate,
+          end_date: endDate,
+          total_days: calculateDays(startDate, endDate),
+          reason: reasonText,
+          status: fb.status === "RESOLVED" ? "APPROVED" : fb.status === "CLOSED" ? "REJECTED" : "PENDING",
+          admin_remarks: fb.official_response || "",
+          reviewed_by: fb.responded_by,
+          reviewed_at: fb.responded_at,
+          created_at: fb.created_at || new Date().toISOString(),
+          source: "PORTAL",
+        });
+      }
+    });
 
     // Sort by created_at desc
     studentLeaves.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     teacherLeaves.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-    // Fetch student and teacher rosters for dropdowns
-    const { data: studentsData } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, phone, parent_phone")
-      .order("roll_number");
+    // Prepare teacher roster
+    let teachersData: any[] = [];
+    if (staffMeta?.staff_members && staffMeta.staff_members.length > 0) {
+      teachersData = staffMeta.staff_members.map((sm: any) => ({
+        id: sm.id,
+        first_name: sm.personal?.first_name || sm.first_name || "",
+        last_name: sm.personal?.last_name || sm.last_name || "",
+        designation: sm.designation_name || sm.designation || "শিক্ষক / স্টাফ",
+        phone: sm.personal?.contact_number || sm.phone || "",
+      }));
+    }
 
-    const { data: teachersData } = await supabase
-      .from("teachers")
-      .select("id, first_name, last_name, designation, phone")
-      .order("first_name");
-
-    const { data: classesData } = await supabase
-      .from("classes")
-      .select("id, name")
-      .order("name");
+    if (teachersData.length === 0) {
+      const adminClient = await createAdminClient();
+      const { data: rawTeachers } = await adminClient
+        .from("teachers")
+        .select("id, first_name, last_name, designation, phone")
+        .order("first_name");
+      if (rawTeachers && rawTeachers.length > 0) {
+        teachersData = rawTeachers;
+      }
+    }
 
     return {
       studentLeaves,
       teacherLeaves,
-      students: studentsData || [],
-      teachers: teachersData || [],
+      students: studentsList,
+      teachers: teachersData,
       classes: classesData || [],
     };
   } catch (err: any) {
@@ -246,27 +303,54 @@ export async function submitStudentLeaveRequest(payload: {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
 
-    const { data: student } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, parent_phone, phone, classes(name)")
-      .eq("id", payload.studentId)
-      .single();
+    const allStudents = await getStudents();
+    const student = (allStudents || []).find((s: any) => s.id === payload.studentId);
 
     if (!student) return { error: "শিক্ষার্থী পাওয়া যায়নি।" };
 
-    const studentName = `${student.first_name || ""} ${student.last_name || ""}`.trim();
-    const className = student.class_name || (Array.isArray(student.classes) ? student.classes[0]?.name : (student.classes as any)?.name) || "";
+    const studentName = `${student.first_name || ""} ${student.last_name || ""}`.trim() || student.name || "শিক্ষার্থী";
+    const className =
+      student.class_name ||
+      (Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) ||
+      "";
+    const studentRoll = student.roll_number !== undefined && student.roll_number !== null ? String(student.roll_number) : "";
     const totalDays = calculateDays(payload.startDate, payload.endDate);
+    const guardianName = payload.guardianName || student.guardian_name || student.father_name || "সম্মানিত অভিভাবক";
+    const guardianPhone = payload.guardianPhone || student.parent_phone || student.phone || "";
+
+    // Also sync to parent feedback log
+    let syncedFeedbackId = "";
+    try {
+      const fbRes = await createParentFeedback({
+        action_type: "GENERAL",
+        category: "ছুটির আবেদন",
+        subject: `${payload.leaveType || "ছুটি"} - ছুটির আবেদন`,
+        description: `ছুটির মেয়াদ: ${payload.startDate} হতে ${payload.endDate}\nকারণ: ${payload.reason}`,
+        student_id: student.id,
+        student_name: studentName,
+        student_roll: studentRoll,
+        class_name: className,
+        guardian_name: guardianName,
+        guardian_phone: guardianPhone,
+        preferred_date: payload.startDate,
+      });
+      if (fbRes?.id) {
+        syncedFeedbackId = fbRes.id;
+      }
+    } catch (fbErr) {
+      console.warn("Could not sync to parent feedback log:", fbErr);
+    }
 
     const newApp: StudentLeaveApplication = {
       id: `std_leave_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      feedback_id: syncedFeedbackId || undefined,
       madrasa_id: madrasaId,
       student_id: student.id,
       student_name: studentName,
-      student_roll: student.roll_number ? String(student.roll_number) : "",
+      student_roll: studentRoll,
       class_name: className,
-      guardian_name: payload.guardianName || "সম্মানিত অভিভাবক",
-      guardian_phone: payload.guardianPhone || student.parent_phone || student.phone || "",
+      guardian_name: guardianName,
+      guardian_phone: guardianPhone,
       leave_type: payload.leaveType || "অসুস্থতাজনিত ছুটি",
       start_date: payload.startDate,
       end_date: payload.endDate,
@@ -287,6 +371,7 @@ export async function submitStudentLeaveRequest(payload: {
     revalidatePath("/dashboard/attendance/leaves");
     revalidatePath("/dashboard/attendance/students");
     revalidatePath("/portal/leave");
+    revalidatePath("/dashboard/communication/feedback");
 
     return { success: true, application: newApp };
   } catch (err: any) {
@@ -392,11 +477,12 @@ export async function reviewStudentLeaveRequest(payload: {
     // Check if it was imported from feedback
     if (appIndex === -1 && payload.requestId.startsWith("portal_fb_")) {
       const fbId = payload.requestId.replace("portal_fb_", "");
-      const { data: fb } = await supabase.from("feedbacks").select("*").eq("id", fbId).single();
+      const allParentFeedbacks = await getParentFeedbacks();
+      const fb = allParentFeedbacks.find((f) => f.id === fbId);
       if (fb) {
-        let sd = fb.preferred_date || new Date().toISOString().split("T")[0];
+        let sd = fb.preferred_date || (fb.created_at ? fb.created_at.split("T")[0] : new Date().toISOString().split("T")[0]);
         let ed = sd;
-        const dateMatch = fb.description?.match(/মেয়াদ:\s*(\d{4}-\d{2}-\d{2})\s*হতে\s*(\d{4}-\d{2}-\d{2})/);
+        const dateMatch = fb.description?.match(/(\d{4}-\d{2}-\d{2})\s*(?:হতে|থেকে|-|to)\s*(\d{4}-\d{2}-\d{2})/i);
         if (dateMatch) {
           sd = dateMatch[1];
           ed = dateMatch[2];
@@ -447,17 +533,22 @@ export async function reviewStudentLeaveRequest(payload: {
     meta.student_leave_applications = applications;
     await saveMadrasaMetadata(madrasaId, meta);
 
-    // Sync with linked feedback if exists
+    // Sync with linked parent feedback entry if exists
     if (app.feedback_id) {
-      await adminClient
-        .from("feedbacks")
-        .update({
+      try {
+        await updateParentFeedbackStatus({
+          id: app.feedback_id,
           status: payload.status === "APPROVED" ? "RESOLVED" : "CLOSED",
-          official_response: payload.adminRemarks || (payload.status === "APPROVED" ? `ছুটি অনুমোদিত হয়েছে (${effectiveStartDate} হতে ${effectiveEndDate}, মোট ${effectiveTotalDays} দিন)` : "ছুটির আবেদনটি বাতিল করা হয়েছে।"),
+          official_response:
+            payload.adminRemarks ||
+            (payload.status === "APPROVED"
+              ? `ছুটি অনুমোদিত হয়েছে (${effectiveStartDate} হতে ${effectiveEndDate}, মোট ${effectiveTotalDays} দিন)`
+              : "ছুটির আবেদনটি বাতিল করা হয়েছে।"),
           responded_by: user.email || "অ্যাডমিন",
-          responded_at: nowStr,
-        })
-        .eq("id", app.feedback_id);
+        });
+      } catch (fbSyncErr) {
+        console.warn("Could not sync feedback status:", fbSyncErr);
+      }
     }
 
     // AUTOMATIC ATTENDANCE SYNC
@@ -627,9 +718,15 @@ export async function deleteLeaveApplication(requestId: string, type: "STUDENT" 
       meta.student_leave_applications = list.filter((a: StudentLeaveApplication) => a.id !== requestId);
       await saveMadrasaMetadata(madrasaId, meta);
 
-      if (itemToDelete?.feedback_id) {
-        const adminClient = await createAdminClient();
-        await adminClient.from("feedbacks").delete().eq("id", itemToDelete.feedback_id);
+      const targetFeedbackId =
+        itemToDelete?.feedback_id || (requestId.startsWith("portal_fb_") ? requestId.replace("portal_fb_", "") : undefined);
+      if (targetFeedbackId) {
+        try {
+          const adminClient = await createAdminClient();
+          await adminClient.from("fee_audit_logs").delete().eq("id", targetFeedbackId);
+        } catch (delLogErr) {
+          console.warn("Could not delete from fee_audit_logs:", delLogErr);
+        }
       }
     } else {
       let list: TeacherLeaveApplication[] = meta.teacher_leave_applications || [];
