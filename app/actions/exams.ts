@@ -1,8 +1,9 @@
 "use server";
 
-import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
+import { getMadrasaMetadata, saveMadrasaMetadata, MadrasaMetaWithSessions } from "@/lib/sessions";
 
 function computeExamStatus(
   startDate?: string | null,
@@ -99,10 +100,17 @@ export async function getExams() {
   }
 
   const examIds = exams.map(e => e.id);
-  const { data: routines } = examIds.length > 0 ? await supabase
-    .from("exam_routines")
-    .select("id, exam_id, exam_date")
-    .in("exam_id", examIds) : { data: [] };
+  const [{ data: routines }, madrasaMeta] = await Promise.all([
+    examIds.length > 0
+      ? supabase
+          .from("exam_routines")
+          .select("id, exam_id, exam_date")
+          .in("exam_id", examIds)
+      : Promise.resolve({ data: [] }),
+    getMadrasaMetadata(finalMadrasaId),
+  ]);
+
+  const publishedExams = madrasaMeta?.published_exams || {};
 
   const routinesByExam = new Map<string, any[]>();
   (routines || []).forEach(r => {
@@ -115,11 +123,19 @@ export async function getExams() {
   return exams.map(exam => {
     const examRoutines = routinesByExam.get(exam.id) || [];
     const computed = computeExamStatus(exam.start_date, examRoutines, exam.status, exam.end_date);
+    const publishInfo = publishedExams[exam.id];
+    const isPublished = Boolean(publishInfo?.is_published || exam.status === "Published");
+
     return {
       ...exam,
-      status: computed.status,
+      status: isPublished ? "Published" : computed.status,
+      computed_status: computed.status,
       dynamic_status: computed.status,
       dynamic_status_bangla: computed.statusTextBangla,
+      is_published: isPublished,
+      published_at: publishInfo?.published_at || null,
+      published_by: publishInfo?.published_by || null,
+      publish_note: publishInfo?.note || null,
       effective_start_date: computed.effectiveStartDate,
       effective_end_date: computed.effectiveEndDate,
       routine_count: computed.totalRoutineDays,
@@ -130,6 +146,9 @@ export async function getExams() {
 
 export async function getExamById(id: string) {
   const supabase = await createClient();
+  const user = await getAuthUser(supabase);
+  const finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
   const { data, error } = await supabase
     .from("exams")
     .select("*")
@@ -141,22 +160,121 @@ export async function getExamById(id: string) {
     return null;
   }
 
-  const { data: routines } = await supabase
-    .from("exam_routines")
-    .select("id, exam_id, exam_date")
-    .eq("exam_id", id);
+  const madrasaId = finalMadrasaId || data.madrasa_id;
+  const [{ data: routines }, madrasaMeta] = await Promise.all([
+    supabase
+      .from("exam_routines")
+      .select("id, exam_id, exam_date")
+      .eq("exam_id", id),
+    madrasaId ? getMadrasaMetadata(madrasaId) : Promise.resolve({} as MadrasaMetaWithSessions),
+  ]);
 
   const computed = computeExamStatus(data.start_date, routines, data.status, data.end_date);
+  const publishInfo = madrasaMeta?.published_exams?.[id];
+  const isPublished = Boolean(publishInfo?.is_published || data.status === "Published");
+
   return {
     ...data,
-    status: computed.status,
+    status: isPublished ? "Published" : computed.status,
+    computed_status: computed.status,
     dynamic_status: computed.status,
     dynamic_status_bangla: computed.statusTextBangla,
+    is_published: isPublished,
+    published_at: publishInfo?.published_at || null,
+    published_by: publishInfo?.published_by || null,
+    publish_note: publishInfo?.note || null,
     effective_start_date: computed.effectiveStartDate,
     effective_end_date: computed.effectiveEndDate,
     routine_count: computed.totalRoutineDays,
     last_routine_date: computed.effectiveEndDate,
   };
+}
+
+export async function toggleExamPublish(examId: string, isPublished: boolean, note?: string) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অনুগ্রহ করে পুনরায় লগইন করুন।" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসার তথ্য খুঁজে পাওয়া যায়নি।" };
+
+    const meta = await getMadrasaMetadata(madrasaId);
+    if (!meta.published_exams) {
+      meta.published_exams = {};
+    }
+
+    const { data: userData } = await supabase
+      .from("users")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single();
+
+    const publisherName = userData?.full_name || userData?.email || "কর্তৃপক্ষ";
+
+    meta.published_exams[examId] = {
+      is_published: isPublished,
+      published_at: new Date().toISOString(),
+      published_by: publisherName,
+      note: note || "",
+    };
+
+    const saved = await saveMadrasaMetadata(madrasaId, meta);
+    if (!saved) {
+      return { error: "ফলাফলের অবস্থা সংরক্ষণ করা যায়নি।" };
+    }
+
+    // Update status in exams table as well
+    const adminClient = await createAdminClient();
+    await adminClient
+      .from("exams")
+      .update({
+        status: isPublished ? "Published" : "Completed",
+      })
+      .eq("id", examId);
+
+    revalidatePath("/dashboard/exams");
+    revalidatePath(`/dashboard/exams/${examId}/results`);
+    revalidatePath(`/dashboard/exams/${examId}/merit-list`);
+    revalidatePath(`/dashboard/exams/${examId}/report-cards`);
+    revalidatePath("/portal/exams");
+    revalidatePath("/portal", "layout");
+
+    return {
+      success: true,
+      is_published: isPublished,
+      message: isPublished
+        ? "পরীক্ষার ফলাফল আনুষ্ঠানিকভাবে সফলভাবে প্রকাশিত হয়েছে! অভিভাবক ও শিক্ষার্থীরা এখন পোর্টালে রেজাল্ট ও মার্কশিট দেখতে পাবেন।"
+        : "পরীক্ষার ফলাফল স্থগিত/অপ্রকাশিত করা হয়েছে। পোর্টাল থেকে ফলাফল লুকানো হয়েছে।",
+    };
+  } catch (err: any) {
+    console.error("toggleExamPublish error:", err);
+    return { error: err.message || "একটি ত্রুটি হয়েছে" };
+  }
+}
+
+export async function getExamPublishStatus(examId: string) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { isPublished: false };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { isPublished: false };
+
+    const meta = await getMadrasaMetadata(madrasaId);
+    const publishInfo = meta?.published_exams?.[examId];
+
+    return {
+      isPublished: Boolean(publishInfo?.is_published),
+      publishedAt: publishInfo?.published_at || null,
+      publishedBy: publishInfo?.published_by || null,
+      note: publishInfo?.note || null,
+    };
+  } catch (err) {
+    console.error("getExamPublishStatus error:", err);
+    return { isPublished: false };
+  }
 }
 
 export async function createExam(prevState: any, formData: FormData) {

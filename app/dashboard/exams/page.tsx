@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { getExams } from "@/app/actions/exams";
-import { Plus, ArrowLeft, PenTool, FileText, Printer, IdCard, Trophy, Settings, FileSignature } from "lucide-react";
+import { Plus, ArrowLeft, PenTool, FileText, Printer, IdCard, Trophy, Settings, FileSignature, Globe } from "lucide-react";
 import { format } from "date-fns";
+import ExamPublishToggle from "./ExamPublishToggle";
 
 export default async function ExamsPage() {
   const exams = await getExams();
@@ -82,25 +83,39 @@ export default async function ExamsPage() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        {exam.status === "Ongoing" ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 shadow-sm">
-                            <span className="relative flex h-2 w-2 mr-1.5">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                            </span>
-                            চলমান
-                          </span>
-                        ) : exam.status === "Completed" ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
-                            সম্পন্ন
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5"></span>
-                            আসন্ন
-                          </span>
-                        )}
+                        <div className="space-y-1.5">
+                          <div>
+                            {exam.dynamic_status === "Ongoing" ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                <span className="relative flex h-2 w-2 mr-1.5">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                </span>
+                                চলমান
+                              </span>
+                            ) : exam.dynamic_status === "Completed" ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                                সম্পন্ন
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-1.5"></span>
+                                আসন্ন
+                              </span>
+                            )}
+                          </div>
+                          <div>
+                            <ExamPublishToggle
+                              examId={exam.id}
+                              initialPublished={exam.is_published}
+                              publishedAt={exam.published_at}
+                              publishedBy={exam.published_by}
+                              publishNote={exam.publish_note}
+                              size="compact"
+                            />
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right space-x-1.5">
                       <Link

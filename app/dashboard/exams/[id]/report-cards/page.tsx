@@ -49,6 +49,10 @@ export default async function ReportCardsPage({
           examTitle={exam.title} 
           examYear={exam.year}
           madrasaInfo={madrasaInfo}
+          initialPublished={exam.is_published}
+          publishedAt={exam.published_at}
+          publishedBy={exam.published_by}
+          publishNote={exam.publish_note}
         />
       </div>
     </div>

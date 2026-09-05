@@ -5,19 +5,28 @@ import { getStudentReportCard } from "@/app/actions/exams";
 import { Printer, Type, Award, User, CheckCircle, GraduationCap } from "lucide-react";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import ExamPublishToggle from "@/app/dashboard/exams/ExamPublishToggle";
 
 export default function ReportCardsClient({ 
   examId, 
   classes, 
   examTitle, 
   examYear,
-  madrasaInfo
+  madrasaInfo,
+  initialPublished = false,
+  publishedAt,
+  publishedBy,
+  publishNote
 }: { 
   examId: string; 
   classes: { id: string; name: string }[];
   examTitle: string;
   examYear: string;
   madrasaInfo: any;
+  initialPublished?: boolean;
+  publishedAt?: string | null;
+  publishedBy?: string | null;
+  publishNote?: string | null;
 }) {
   const [classId, setClassId] = useState("");
   const [selectedStudentId, setSelectedStudentId] = useState<string>("all");
@@ -65,6 +74,15 @@ export default function ReportCardsClient({
 
   return (
     <div className="space-y-6">
+      {/* Result Publication Status & Controls */}
+      <ExamPublishToggle
+        examId={examId}
+        initialPublished={initialPublished}
+        publishedAt={publishedAt}
+        publishedBy={publishedBy}
+        publishNote={publishNote}
+      />
+
       {/* Control Header for Screen */}
       <div className="flex flex-col md:flex-row gap-4 items-end bg-slate-50 p-4 rounded-xl border border-slate-200 print:hidden shadow-xs">
         <div className="w-full md:w-1/4">

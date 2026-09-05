@@ -27,6 +27,8 @@ interface Madrasa {
   slogan?: string;
   website?: string;
   logo_url?: string;
+  weekend_days?: string[];
+  metadata?: any;
 }
 
 export default function SettingsClient({
@@ -55,6 +57,14 @@ export default function SettingsClient({
   const [phone, setPhone] = useState(madrasa.contact_phone || "");
   const [email, setEmail] = useState(madrasa.contact_email || "");
   const [website, setWebsite] = useState(madrasa.website || "");
+
+  // Weekly Holidays State
+  const initialWeekend = Array.isArray(madrasa.weekend_days) && madrasa.weekend_days.length > 0
+    ? madrasa.weekend_days
+    : (Array.isArray(madrasa.metadata?.weekend_days) && madrasa.metadata.weekend_days.length > 0
+      ? madrasa.metadata.weekend_days
+      : ["Friday"]);
+  const [weekendDays, setWeekendDays] = useState<string[]>(initialWeekend);
 
   // Logo States
   const [logoMethod, setLogoMethod] = useState<"file" | "url">("file");
@@ -294,6 +304,7 @@ export default function SettingsClient({
       formData.append("phone", phone);
       formData.append("email", email);
       formData.append("website", website);
+      formData.append("weekendDays", JSON.stringify(weekendDays));
 
       // Logo handling: prefer lightweight URL to avoid server action body overflow
       if (currentLogoUrl) {
@@ -1105,12 +1116,150 @@ export default function SettingsClient({
                 </div>
               </div>
 
-              {/* Section 4: Address & Contact */}
+              {/* Section 4: Weekly Holiday Selection */}
+              <div className="space-y-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-emerald-600" />
+                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                      ৪. সাপ্তাহিক ছুটি নির্ধারণ (Weekly Holidays)
+                    </h2>
+                  </div>
+                  <span className="text-xs text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-medium border border-emerald-200">
+                    রুটিন ও হাজিরা সমন্বয়
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-500">
+                  মাদরাসার সাপ্তাহিক ছুটির দিন নির্ধারণ করুন। নির্বাচিত ছুটির দিনগুলো স্বয়ংক্রিয়ভাবে ক্লাস রুটিন, শিক্ষক-শিক্ষার্থী হাজিরা এবং অভিভাবক পোর্টালে ছুটির দিন হিসেবে প্রদর্শিত হবে।
+                </p>
+
+                {/* Quick Presets */}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="text-xs font-semibold text-slate-600">দ্রুত নির্বাচন:</span>
+                  <button
+                    type="button"
+                    onClick={() => setWeekendDays(["Friday"])}
+                    className={`px-3 py-1 text-xs rounded-lg font-medium border transition ${
+                      weekendDays.length === 1 && weekendDays.includes("Friday")
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    শুধু জুমাবার (Friday)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWeekendDays(["Thursday", "Friday"])}
+                    className={`px-3 py-1 text-xs rounded-lg font-medium border transition ${
+                      weekendDays.length === 2 && weekendDays.includes("Thursday") && weekendDays.includes("Friday")
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    বৃহস্পতি ও জুমাবার (Thu & Fri)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWeekendDays(["Friday", "Saturday"])}
+                    className={`px-3 py-1 text-xs rounded-lg font-medium border transition ${
+                      weekendDays.length === 2 && weekendDays.includes("Friday") && weekendDays.includes("Saturday")
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    শুক্র ও শনিবার (Fri & Sat)
+                  </button>
+                </div>
+
+                {/* Day Selection Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 pt-2">
+                  {[
+                    { id: "Friday", bn: "শুক্রবার", ar: "الجمعة", sub: "প্রধান ছুটি" },
+                    { id: "Thursday", bn: "বৃহস্পতিবার", ar: "الخميس", sub: "অর্ধদিবস/ছুটি" },
+                    { id: "Saturday", bn: "শনিবার", ar: "السبت", sub: "সাপ্তাহিক" },
+                    { id: "Sunday", bn: "রবিবার", ar: "الأحد", sub: "সাপ্তাহিক" },
+                    { id: "Monday", bn: "সোমবার", ar: "الاثنين", sub: "সাপ্তাহিক" },
+                    { id: "Tuesday", bn: "মঙ্গলবার", ar: "الثلاثاء", sub: "সাপ্তাহিক" },
+                    { id: "Wednesday", bn: "বুধবার", ar: "الأربعاء", sub: "সাপ্তাহিক" },
+                  ].map((day) => {
+                    const isSelected = weekendDays.includes(day.id);
+                    return (
+                      <button
+                        key={day.id}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            if (weekendDays.length > 1) {
+                              setWeekendDays(weekendDays.filter((d) => d !== day.id));
+                            }
+                          } else {
+                            setWeekendDays([...weekendDays, day.id]);
+                          }
+                        }}
+                        className={`p-3 rounded-xl border text-left flex flex-col justify-between transition relative overflow-hidden ${
+                          isSelected
+                            ? "bg-emerald-50/80 border-emerald-500 ring-2 ring-emerald-500/20 shadow-sm"
+                            : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-bold ${isSelected ? "text-emerald-900" : "text-slate-800"}`}>
+                              {day.bn}
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5"
+                            />
+                          </div>
+                          <span className={`text-[11px] block mt-0.5 ${isSelected ? "text-emerald-700" : "text-slate-400"}`}>
+                            {day.id}
+                          </span>
+                        </div>
+                        <span className={`text-[10px] mt-2 px-1.5 py-0.5 rounded font-medium inline-block w-fit ${
+                          isSelected ? "bg-emerald-200/60 text-emerald-800" : "bg-slate-100 text-slate-500"
+                        }`}>
+                          {isSelected ? "ছুটি নির্বাচিত" : "কর্মদিবস"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Selected Holidays summary pill */}
+                <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-700">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    বর্তমান সাপ্তাহিক ছুটির দিন:{" "}
+                    <strong>
+                      {weekendDays
+                        .map((d) => {
+                          const map: Record<string, string> = {
+                            Friday: "শুক্রবার",
+                            Thursday: "বৃহস্পতিবার",
+                            Saturday: "শনিবার",
+                            Sunday: "রবিবার",
+                            Monday: "সোমবার",
+                            Tuesday: "মঙ্গলবার",
+                            Wednesday: "বুধবার",
+                          };
+                          return map[d] || d;
+                        })
+                        .join(", ")}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Section 5: Address & Contact */}
               <div className="space-y-4 pt-4 border-t border-slate-100">
                 <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
                   <MapPin className="w-4 h-4 text-emerald-600" />
                   <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-                    ৪. যোগাযোগ ও ঠিকানা
+                    ৫. যোগাযোগ ও ঠিকানা
                   </h2>
                 </div>
 

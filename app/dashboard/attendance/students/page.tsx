@@ -3,9 +3,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { getStudentsForAttendance, saveAttendance } from "@/app/actions/attendance";
 import { getClasses } from "@/app/actions/students";
+import { checkHolidayForDate } from "@/app/actions/holidays";
 import { format } from "date-fns";
-import { Check, X, Clock, UserMinus, ArrowLeft, CheckCircle2, XCircle, Users, Search, Save } from "lucide-react";
+import { Check, X, Clock, UserMinus, ArrowLeft, CheckCircle2, XCircle, Users, Search, Save, CalendarDays, AlertTriangle } from "lucide-react";
 import Link from "next/link";
+import { toBanglaNumber } from "@/lib/numberToBangla";
 
 export default function AttendancePage() {
   const [date, setDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
@@ -16,6 +18,19 @@ export default function AttendancePage() {
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [holidayInfo, setHolidayInfo] = useState<{ isHoliday: boolean; isWeekend: boolean; holiday: any; dayName?: string } | null>(null);
+
+  useEffect(() => {
+    async function checkDateHoliday() {
+      try {
+        const info = await checkHolidayForDate(date);
+        setHolidayInfo(info);
+      } catch (err) {
+        console.error("Holiday check failed:", err);
+      }
+    }
+    checkDateHoliday();
+  }, [date]);
 
   useEffect(() => {
     async function loadClasses() {
@@ -152,6 +167,49 @@ export default function AttendancePage() {
           </div>
         </div>
       </div>
+
+      {/* Holiday / Weekend Notice Banner */}
+      {holidayInfo && (holidayInfo.isHoliday || holidayInfo.isWeekend) && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl shrink-0">
+              <CalendarDays className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-amber-900">
+                  {holidayInfo.isHoliday ? "📌 নির্ধারিত একাডেমিক ছুটি:" : "🌴 সাপ্তাহিক ছুটি:"}
+                </span>
+                <span className="text-xs font-extrabold text-amber-950 underline decoration-amber-400">
+                  {holidayInfo.isHoliday ? holidayInfo.holiday?.title : `${holidayInfo.dayName || "ছুটির দিন"} সাপ্তাহিক বন্ধ`}
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                {holidayInfo.isHoliday
+                  ? `মেয়াদ: ${holidayInfo.holiday?.start_date} হতে ${holidayInfo.holiday?.end_date} পর্যন্ত (${toBanglaNumber(holidayInfo.holiday?.total_days || 1)} দিন)`
+                  : "মাদরাসার নির্ধারিত সাপ্তাহিক বন্ধের দিন।"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleMarkAll("Leave")}
+              className="px-3 py-1.5 text-xs font-bold bg-amber-200/80 hover:bg-amber-300 text-amber-900 rounded-xl transition flex items-center gap-1.5"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              সকলকে "ছুটি (Leave)" মার্ক করুন
+            </button>
+            <Link
+              href="/dashboard/attendance/holidays"
+              className="px-3 py-1.5 text-xs font-medium text-amber-900 underline hover:text-amber-950"
+            >
+              ছুটির তালিকা দেখুন
+            </Link>
+          </div>
+        </div>
+      )}
 
       {message && (
         <div className={`p-4 rounded-xl text-sm font-semibold flex items-center justify-between shadow-xs ${message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'}`}>

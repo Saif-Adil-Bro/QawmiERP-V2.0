@@ -137,6 +137,7 @@ export async function getMadrasaDetails() {
     slogan: meta.slogan || "",
     website: meta.website || "",
     logo_url: meta.logo_url || logoData?.publicUrl || "",
+    weekend_days: data.weekend_days || meta.weekend_days || ["Friday"],
     metadata: meta,
   };
 }
@@ -208,6 +209,18 @@ export async function updateMadrasaDetails(formData: FormData) {
     const eiinCode = (formData.get("eiinCode") as string)?.trim() || "";
     const slogan = (formData.get("slogan") as string)?.trim() || "";
     const website = (formData.get("website") as string)?.trim() || "";
+    const weekendDaysRaw = formData.get("weekendDays") as string;
+    let weekendDays: string[] = ["Friday"];
+    if (weekendDaysRaw) {
+      try {
+        const parsed = JSON.parse(weekendDaysRaw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          weekendDays = parsed;
+        }
+      } catch {
+        // Fallback
+      }
+    }
 
     const logoFile = formData.get("logo") as File | null;
     const logoUrl = (formData.get("logoUrl") as string)?.trim() || "";
@@ -473,6 +486,7 @@ export async function updateMadrasaDetails(formData: FormData) {
       slogan: slogan,
       website: website,
       logo_url: finalLogoUrl,
+      weekend_days: weekendDays,
     };
 
     // 4. Update madrasas table
@@ -480,6 +494,7 @@ export async function updateMadrasaDetails(formData: FormData) {
       name,
       address,
       contact_phone: phone,
+      weekend_days: weekendDays,
       registration_no: JSON.stringify(metadataPayload),
     };
     if (email) {

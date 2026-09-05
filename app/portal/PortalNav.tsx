@@ -34,6 +34,7 @@ export default function PortalNav({ onItemClick }: PortalNavProps) {
     { href: "/portal/fees", label: "ফি ও পেমেন্ট হিস্ট্রি", icon: CreditCard },
     { href: "/portal/feedback", label: "অভিযোগ, পরামর্শ ও সাক্ষাতকার", icon: MessageSquarePlus },
     { href: "/portal/routine", label: "ক্লাস ও পরীক্ষার রুটিন", icon: CalendarDays },
+    { href: "/portal/holidays", label: "ছুটির ক্যালেন্ডার ও বন্ধ", icon: CalendarDays },
     { href: "/portal/notices", label: "মাদরাসা নোটিশ বোর্ড", icon: Bell },
     { href: "/portal/leave", label: "ছুটির আবেদন ও বার্তা", icon: Send },
   ];

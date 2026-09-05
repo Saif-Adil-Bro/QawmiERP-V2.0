@@ -5,19 +5,28 @@ import { getStudentReportCard } from "@/app/actions/exams";
 import { FileText } from "lucide-react";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
 import PrintLetterpad from "@/app/components/PrintLetterpad";
+import ExamPublishToggle from "@/app/dashboard/exams/ExamPublishToggle";
 
 export default function ExamResultsClient({ 
   examId, 
   classes, 
   examTitle, 
   examYear,
-  madrasaInfo
+  madrasaInfo,
+  initialPublished = false,
+  publishedAt,
+  publishedBy,
+  publishNote
 }: { 
   examId: string, 
   classes: { id: string, name: string }[],
   examTitle: string,
   examYear: string,
-  madrasaInfo?: any
+  madrasaInfo?: any,
+  initialPublished?: boolean,
+  publishedAt?: string | null,
+  publishedBy?: string | null,
+  publishNote?: string | null
 }) {
   const [classId, setClassId] = useState("");
   const [results, setResults] = useState<any[]>([]);
@@ -66,6 +75,16 @@ export default function ExamResultsClient({
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
       `}} />
+
+      {/* Result Publication Status & Controls */}
+      <ExamPublishToggle
+        examId={examId}
+        initialPublished={initialPublished}
+        publishedAt={publishedAt}
+        publishedBy={publishedBy}
+        publishNote={publishNote}
+      />
+
       <div className="flex flex-col sm:flex-row gap-4 items-end bg-slate-50 p-4 rounded-lg border border-slate-100 print:hidden">
         <div className="w-full sm:w-1/3">
           <label className="block text-sm font-medium text-slate-700 mb-1">ক্লাস (ঐচ্ছিক)</label>

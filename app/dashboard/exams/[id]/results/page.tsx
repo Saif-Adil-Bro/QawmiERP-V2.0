@@ -43,7 +43,17 @@ export default async function ExamResultsPage({
       <ExamNavTabs examId={examId} />
 
       <div className="bg-white rounded-xl shadow-sm border p-6 print:shadow-none print:border-none print:p-0">
-        <ExamResultsClient examId={examId} classes={classes} examTitle={exam.title} examYear={exam.year} madrasaInfo={madrasaInfo} />
+        <ExamResultsClient 
+          examId={examId} 
+          classes={classes} 
+          examTitle={exam.title} 
+          examYear={exam.year} 
+          madrasaInfo={madrasaInfo}
+          initialPublished={exam.is_published}
+          publishedAt={exam.published_at}
+          publishedBy={exam.published_by}
+          publishNote={exam.publish_note}
+        />
       </div>
     </div>
   );

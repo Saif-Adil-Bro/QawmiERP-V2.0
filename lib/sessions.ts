@@ -1,5 +1,8 @@
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
+import { AcademicHoliday, HOLIDAY_CATEGORIES } from "./holidays";
+
+export * from "./holidays";
 
 export interface AcademicSession {
   id: string;
@@ -129,6 +132,14 @@ export interface MadrasaMetaWithSessions {
   sessions?: AcademicSession[];
   enrollments?: StudentEnrollment[];
   student_profiles?: Record<string, ExtendedStudentProfile>;
+  academic_holidays?: AcademicHoliday[];
+  published_exams?: Record<string, {
+    is_published: boolean;
+    published_at: string;
+    published_by?: string;
+    note?: string;
+  }>;
+  weekend_days?: string[];
   [key: string]: any;
 }
 
