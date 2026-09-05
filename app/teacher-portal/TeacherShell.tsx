@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import TeacherNav from "./TeacherNav";
 import { logout } from "@/app/actions/auth";
+import GlobalNotificationBell from "@/components/notifications/GlobalNotificationBell";
 
 interface TeacherShellProps {
   user: any;
@@ -178,9 +179,30 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
           </div>
 
           <div className="flex items-center gap-2">
+            <GlobalNotificationBell />
             <div className="w-7 h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-xs">
               {(userData?.full_name || "উ")[0]}
             </div>
+          </div>
+        </header>
+
+        {/* DESKTOP TOPBAR */}
+        <header className="hidden md:flex bg-white border-b border-slate-200/80 px-6 py-3.5 items-center justify-between shrink-0 shadow-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-slate-800 text-sm">শিক্ষক পোর্টাল</span>
+            <span className="text-xs text-slate-300">•</span>
+            <span className="text-xs text-emerald-700 font-semibold">{userData?.full_name || "সম্মানিত উস্তাদ"}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <GlobalNotificationBell />
+            {isRoleAdminOrStaff && (
+              <Link
+                href="/dashboard"
+                className="px-3 py-1.5 rounded-xl text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition"
+              >
+                এডমিন প্যানেল
+              </Link>
+            )}
           </div>
         </header>
 

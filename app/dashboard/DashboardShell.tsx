@@ -20,6 +20,7 @@ import { SessionProvider } from "@/components/sessions/SessionContext";
 import SessionSelector from "@/components/sessions/SessionSelector";
 import ArchivedSessionBanner from "@/components/sessions/ArchivedSessionBanner";
 import { PermissionProvider, usePermissions } from "@/components/permissions/PermissionContext";
+import GlobalNotificationBell from "@/components/notifications/GlobalNotificationBell";
 
 function HeaderUserProfile() {
   const { profile, summary } = usePermissions();
@@ -223,9 +224,12 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                 <h1 className="text-base sm:text-lg font-bold text-slate-900 truncate">এডমিন পোর্টাল</h1>
               </div>
 
-              <div className="flex items-center space-x-3 shrink-0">
+              <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
                 {/* Global Academic Session Selector */}
                 <SessionSelector />
+
+                {/* Global Notification Bell */}
+                <GlobalNotificationBell />
 
                 <HeaderUserProfile />
               </div>

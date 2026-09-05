@@ -22,6 +22,7 @@ import {
   Boxes,
   Scale,
   UserCheck,
+  Bell,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/PermissionContext";
 
@@ -69,6 +70,7 @@ const navSections: NavSection[] = [
   {
     title: "অফিস ও ব্যবস্থাপনা",
     items: [
+      { name: "বিজ্ঞপ্তি ও অ্যাক্টিভিটি লগ", href: "/dashboard/notifications", icon: Bell, permission: "notification.view", roles: ["super_admin", "muhtamim", "admin", "office_staff", "teacher"] },
       { name: "যোগাযোগ ও নোটিশ", href: "/dashboard/communication", icon: MessageSquare, permission: "notification.view", roles: ["super_admin", "muhtamim", "admin", "office_staff", "teacher"] },
       { name: "অর্থ ও ফি (Finance)", href: "/dashboard/accounting", icon: Wallet, permission: "finance.view", roles: ["super_admin", "muhtamim", "admin", "accountant"] },
       { name: "বার্ষিক শুরা অডিট", href: "/dashboard/accounting/audit", icon: Scale, roles: ["super_admin", "muhtamim", "admin", "accountant"] },
