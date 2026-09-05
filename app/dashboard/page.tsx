@@ -6,6 +6,7 @@ import ReportingCharts from "./components/ReportingCharts";
 import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
+import { BookOpen, CheckSquare } from "lucide-react";
 
 
 
@@ -173,11 +174,29 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white p-8 rounded-xl border shadow-sm">
-        <h2 className="text-2xl font-bold text-slate-800 mb-2">স্বাগতম, {profile?.full_name || 'এডমিন'}</h2>
-        <p className="text-slate-600">
-          আপনি <span className="font-semibold text-slate-900">{profile?.madrasas?.name || 'আপনার মাদ্রাসা'}</span>-এ <span className="font-semibold capitalize text-slate-900">{profile?.role?.replace("_", " ") || 'সুপার এডমিন'}</span> হিসেবে লগইন করেছেন।
-        </p>
+      <div className="bg-white p-6 sm:p-8 rounded-xl border shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800 mb-1">স্বাগতম, {profile?.full_name || 'এডমিন'}</h2>
+          <p className="text-slate-600 text-sm">
+            আপনি <span className="font-semibold text-slate-900">{profile?.madrasas?.name || 'আপনার মাদ্রাসা'}</span>-এ <span className="font-semibold capitalize text-slate-900">{profile?.role?.replace("_", " ") || 'সুপার এডমিন'}</span> হিসেবে লগইন করেছেন।
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Link
+            href="/dashboard/assignments"
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition flex items-center gap-2"
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>দৈনিক পড়া ও অ্যাসাইনমেন্ট</span>
+          </Link>
+          <Link
+            href="/dashboard/attendance/students"
+            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-xl transition flex items-center gap-2"
+          >
+            <CheckSquare className="w-4 h-4" />
+            <span>হাজিরা গ্রহণ</span>
+          </Link>
+        </div>
       </div>
 
       {error && (

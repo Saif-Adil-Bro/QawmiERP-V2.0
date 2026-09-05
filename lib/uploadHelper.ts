@@ -8,9 +8,109 @@ export interface UploadResult {
 }
 
 /**
+ * Compresses an image file client-side using an offscreen HTML canvas.
+ * Reduces 10MB+ phone camera snaps to ~250KB while retaining high clarity for book pages.
+ */
+async function compressImageFile(
+  file: File,
+  maxDimension = 1600,
+  quality = 0.82
+): Promise<{ file: File; dataUrl: string; base64Clean: string }> {
+  return new Promise((resolve) => {
+    // If not a standard raster image (e.g. svg or invalid), return data URL directly
+    if (!file.type.startsWith("image/") || file.type.includes("svg")) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = (reader.result as string) || "";
+        const base64Clean = dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+        resolve({ file, dataUrl, base64Clean });
+      };
+      reader.onerror = () => resolve({ file, dataUrl: "", base64Clean: "" });
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    const img = new Image();
+    const blobUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(blobUrl);
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+
+      if (!ctx) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = (reader.result as string) || "";
+          const base64Clean = dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+          resolve({ file, dataUrl, base64Clean });
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      // Draw white background in case of transparent png
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const mimeType = file.type === "image/png" ? "image/png" : "image/jpeg";
+      const compressedDataUrl = canvas.toDataURL(mimeType, quality);
+      const base64Clean = compressedDataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+
+      canvas.toBlob(
+        (blob) => {
+          const ext = mimeType === "image/png" ? ".png" : ".jpg";
+          const newName = file.name.replace(/\.[^/.]+$/, "") + ext;
+          const compressedFile = blob
+            ? new File([blob], newName, { type: mimeType, lastModified: Date.now() })
+            : file;
+
+          resolve({
+            file: compressedFile,
+            dataUrl: compressedDataUrl,
+            base64Clean,
+          });
+        },
+        mimeType,
+        quality
+      );
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(blobUrl);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = (reader.result as string) || "";
+        const base64Clean = dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
+        resolve({ file, dataUrl, base64Clean });
+      };
+      reader.readAsDataURL(file);
+    };
+
+    img.src = blobUrl;
+  });
+}
+
+/**
  * Uploads an image file to iili.io / Catbox / Cloud storage automatically.
- * Tries client-side direct APIs first (for fastest speed & direct iili.io hosting),
- * then falls back to server-side proxy route `/api/upload-image`.
+ * Automatically compresses camera snaps to ~250KB for fast, reliable upload.
+ * Tries server-side proxy route `/api/upload-image` with Catbox/iili.io/local fallback.
  */
 export async function uploadImageAuto(
   file: File,
@@ -20,84 +120,107 @@ export async function uploadImageAuto(
     return { success: false, error: "কোনো ফাইল পাওয়া যায়নি।" };
   }
 
-  // 1. Try Client-side direct upload to Freeimage.host (iili.io)
+  // Fast client-side image compression
+  const { file: compressedFile, dataUrl, base64Clean } = await compressImageFile(file);
+
+  // 1. Try server-side API route (handles iili.io -> Catbox -> ImgBB with fallback)
   try {
-    const reader = new FileReader();
-    const base64Promise = new Promise<string>((resolve, reject) => {
-      reader.onload = () => {
-        const result = reader.result as string;
-        // remove data URL prefix to get raw base64
-        const base64Clean = result.replace(/^data:image\/[a-z]+;base64,/, "");
-        resolve(base64Clean);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-
-    const base64Data = await base64Promise;
-
-    const directFormData = new FormData();
-    directFormData.append("key", FREEIMAGE_API_KEY);
-    directFormData.append("action", "upload");
-    directFormData.append("source", base64Data);
-    directFormData.append("format", "json");
-
-    const directRes = await fetch("https://freeimage.host/api/1/upload", {
-      method: "POST",
-      body: directFormData,
-      signal: AbortSignal.timeout(6000),
-    });
-
-    if (directRes.ok) {
-      const data = await directRes.json();
-      if (data?.image?.url || data?.image?.display_url) {
-        return {
-          success: true,
-          url: data.image.url || data.image.display_url,
-          provider: "iili.io",
-        };
-      }
-    }
-  } catch {
-    // Client-side direct upload had CORS/network block, fallback to server route
-  }
-
-  // 2. Server API Route fallback (attempts iili.io -> Catbox -> Storage)
-  try {
-    const serverFormData = new FormData();
-    serverFormData.append("file", file);
-    serverFormData.append("type", type);
-
     const res = await fetch("/api/upload-image", {
       method: "POST",
-      body: serverFormData,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        imageBase64: dataUrl,
+        filename: compressedFile.name || file.name || "image.jpg",
+        type,
+      }),
       signal: AbortSignal.timeout(15000),
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.success && data?.url) {
+    const text = await res.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+
+    if (res.ok && data?.success && data?.url) {
+      return {
+        success: true,
+        url: data.url,
+        provider: data.provider || "cloud",
+      };
+    } else if (data?.url) {
+      return {
+        success: true,
+        url: data.url,
+        provider: data.provider || "cloud",
+      };
+    } else if (data?.error) {
+      // If external provider failed, fallback to local dataUrl so user is never blocked
+      if (dataUrl && dataUrl.startsWith("data:image/")) {
         return {
           success: true,
-          url: data.url,
-          provider: data.provider || "cloud",
+          url: dataUrl,
+          provider: "local",
         };
       }
       return {
         success: false,
-        error: data?.error || "আপলোড ব্যর্থ হয়েছে।",
-      };
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      return {
-        success: false,
-        error: errData?.error || "সার্ভার আপলোড ব্যর্থ হয়েছে।",
+        error: data.error,
       };
     }
-  } catch (err: any) {
+  } catch (serverErr: any) {
+    console.warn("Server proxy upload error, attempting direct client fallback:", serverErr);
+  }
+
+  // 2. Direct client-side Freeimage.host fallback (iili.io)
+  if (base64Clean) {
+    try {
+      const directFormData = new FormData();
+      directFormData.append("key", FREEIMAGE_API_KEY);
+      directFormData.append("action", "upload");
+      directFormData.append("source", base64Clean);
+      directFormData.append("format", "json");
+
+      const directRes = await fetch("https://freeimage.host/api/1/upload", {
+        method: "POST",
+        body: directFormData,
+        signal: AbortSignal.timeout(6000),
+      });
+
+      if (directRes.ok) {
+        const directText = await directRes.text();
+        try {
+          const directData = JSON.parse(directText);
+          const uploadedUrl = directData?.image?.url || directData?.image?.display_url;
+          if (uploadedUrl) {
+            return {
+              success: true,
+              url: uploadedUrl,
+              provider: "iili.io",
+            };
+          }
+        } catch {}
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 3. Resilient fallback: return data URL so work is NEVER lost
+  if (dataUrl && dataUrl.startsWith("data:image/")) {
     return {
-      success: false,
-      error: err?.message || "নেটওয়ার্ক সমস্যার কারণে ফাইল আপলোড করা যায়নি।",
+      success: true,
+      url: dataUrl,
+      provider: "local",
     };
   }
+
+  return {
+    success: false,
+    error: "ছবি আপলোড করা যায়নি। ইন্টারনেট কানেকশন চেক করুন অথবা লিংক পেস্ট করুন।",
+  };
 }

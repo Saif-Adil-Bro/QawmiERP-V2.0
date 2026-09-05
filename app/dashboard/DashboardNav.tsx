@@ -23,6 +23,7 @@ import {
   Scale,
   UserCheck,
   Bell,
+  FileText,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/PermissionContext";
 
@@ -48,11 +49,13 @@ const navSections: NavSection[] = [
       { name: "শিক্ষক ও স্টাফ (HR)", href: "/dashboard/staff", icon: Users, permission: "staff.view", roles: ["super_admin", "muhtamim", "admin", "hr_manager", "education_secretary"] },
       { name: "হাজিরা", href: "/dashboard/attendance", icon: CheckSquare, permission: "attendance.view", roles: ["super_admin", "muhtamim", "teacher", "attendance_manager", "admin"] },
       { name: "জামাত (Classes)", href: "/dashboard/classes", icon: BookOpen, permission: "academic.view", roles: ["super_admin", "muhtamim", "admin", "education_secretary", "office_staff"] },
+      { name: "দৈনিক পড়া ও অ্যাসাইনমেন্ট", href: "/dashboard/assignments", icon: FileText, roles: ["super_admin", "muhtamim", "admin", "office_staff", "teacher", "education_secretary"] },
     ],
   },
   {
     title: "একাডেমিক",
     items: [
+      { name: "দৈনিক পড়া ও অ্যাসাইনমেন্ট", href: "/dashboard/assignments", icon: FileText, roles: ["super_admin", "muhtamim", "admin", "office_staff", "teacher", "education_secretary"] },
       { name: "অনলাইন ভর্তি ও টেস্ট", href: "/dashboard/admissions", icon: GraduationCap, permission: "student.view", roles: ["super_admin", "muhtamim", "admin", "office_staff", "education_secretary"] },
       { name: "শিক্ষাবর্ষ (Sessions)", href: "/dashboard/academic/sessions", icon: CalendarDays, permission: "academic.manage", roles: ["super_admin", "muhtamim", "admin", "education_secretary"] },
       { name: "শিক্ষার্থী প্রমোশন", href: "/dashboard/students/promotion", icon: GraduationCap, permission: "student.edit", roles: ["super_admin", "muhtamim", "admin", "education_secretary"] },
