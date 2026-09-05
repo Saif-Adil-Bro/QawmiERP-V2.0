@@ -13,7 +13,31 @@ export default function AttendanceDashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-5">
+        <Link href="/dashboard/attendance/leaves" className="block">
+          <div className="bg-linear-to-br from-blue-50/60 to-indigo-50/60 p-5 rounded-2xl border-2 border-blue-400/40 shadow-xs hover:shadow-md hover:border-blue-500 transition group cursor-pointer h-full flex flex-col justify-between ring-1 ring-blue-500/20">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <div className="bg-blue-600 text-white p-3 rounded-xl group-hover:scale-105 transition shadow-xs">
+                    <CalendarDays className="w-6 h-6" />
+                  </div>
+                  <h2 className="text-base font-bold text-slate-900">ছুটির আবেদন ও অনুমোদন</h2>
+                </div>
+                <span className="text-[10px] bg-blue-600 text-white font-bold px-2 py-0.5 rounded-full animate-pulse">
+                  নতুন
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                শিক্ষক ও শিক্ষার্থীদের ছুটির দরখাস্ত অনুমোদন, সময়সীমা পরিবর্তন, মন্তব্য ও হাজিরা অটো-সিঙ্ক।
+              </p>
+            </div>
+            <div className="mt-4 pt-3 border-t border-blue-200/60 text-xs font-bold text-blue-700 flex items-center gap-1 group-hover:translate-x-1 transition">
+              দরখাস্ত অনুমোদন ও সিঙ্ক &rarr;
+            </div>
+          </div>
+        </Link>
+
         <Link href="/dashboard/attendance/students" className="block">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md hover:border-blue-300 transition group cursor-pointer h-full flex flex-col justify-between">
             <div>

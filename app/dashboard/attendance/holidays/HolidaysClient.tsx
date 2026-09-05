@@ -15,7 +15,8 @@ import {
   archiveAcademicHoliday, 
   restoreAcademicHoliday, 
   seedDefaultQawmiHolidays,
-  updateWeeklyHolidays
+  updateWeeklyHolidays,
+  syncAllAcademicHolidaysAttendance
 } from "@/app/actions/holidays";
 import { AcademicHoliday, HOLIDAY_CATEGORIES } from "@/lib/holidays";
 import { toBanglaNumber } from "@/lib/numberToBangla";
@@ -137,6 +138,7 @@ export default function HolidaysClient({
   // Loading & Feedback
   const [submitting, setSubmitting] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [syncingAttendance, setSyncingAttendance] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const showFeedback = (type: "success" | "error", text: string) => {
@@ -407,6 +409,26 @@ export default function HolidaysClient({
       showFeedback("error", err?.message || "ডিফল্ট লোড করতে ব্যর্থ হয়েছে।");
     } finally {
       setSeeding(false);
+    }
+  };
+
+  // Handle Bulk Sync All Holiday Attendance to "Leave"
+  const handleSyncAllAttendance = async () => {
+    if (!confirm("আপনি কি সকল ছুটির দিনগুলোর হাজিরা ডাটাবেসে স্বয়ংক্রিয়ভাবে 'ছুটি (Leave)' হিসেবে সেভ ও সিঙ্ক করতে চান?")) {
+      return;
+    }
+    setSyncingAttendance(true);
+    try {
+      const res = await syncAllAcademicHolidaysAttendance();
+      if (res.error) {
+        showFeedback("error", res.error);
+      } else {
+        showFeedback("success", res.message || "ছুটির হাজিরা সফলভাবে 'ছুটি' হিসেবে সেভ করা হয়েছে!");
+      }
+    } catch (err: any) {
+      showFeedback("error", err?.message || "হাজিরা সিঙ্ক ব্যর্থ হয়েছে।");
+    } finally {
+      setSyncingAttendance(false);
     }
   };
 
@@ -747,6 +769,19 @@ export default function HolidaysClient({
               >
                 {seeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-600" />}
                 কওমি বার্ষিক প্রিসেট লোড করুন
+              </button>
+            )}
+
+            {holidays.length > 0 && (
+              <button
+                type="button"
+                onClick={handleSyncAllAttendance}
+                disabled={syncingAttendance}
+                className="px-3.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                title="সকল ছুটির দিনগুলোর জন্য স্বয়ংক্রিয়ভাবে হাজিরা টেবিলে 'ছুটি (Leave)' সেভ করুন"
+              >
+                {syncingAttendance ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
+                ছুটির হাজিরা অটো-সিঙ্ক করুন
               </button>
             )}
 
@@ -1316,6 +1351,14 @@ export default function HolidaysClient({
                 <label htmlFor="portal_pub" className="text-xs text-slate-700 cursor-pointer font-medium">
                   প্যারেন্ট ও স্টুডেন্ট পোর্টালে ছুটির নোটিশ ও ক্যালেন্ডারে প্রকাশ করুন
                 </label>
+              </div>
+
+              {/* Auto Leave Sync Notice */}
+              <div className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-200 flex items-start gap-2.5 text-xs text-emerald-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <strong className="font-semibold">স্বয়ংক্রিয় ছুটির হাজিরা:</strong> এই ছুটি সংরক্ষণ করার সাথে সাথে ছুটির সকল দিনের ছাত্র ও স্টাফদের হাজিরা ডাটাবেসে স্বয়ংক্রিয়ভাবে <strong>"ছুটি (Leave)"</strong> হিসেবে সেভ হয়ে থাকবে।
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">

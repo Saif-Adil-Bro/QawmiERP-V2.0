@@ -61,6 +61,7 @@ const navSections: NavSection[] = [
       { name: "আইডি কার্ড", href: "/dashboard/academic/id-cards", icon: IdCard, permission: "id.view", roles: ["super_admin", "muhtamim", "office_staff", "admin"] },
       { name: "কিতাব ট্র্যাকিং", href: "/dashboard/kitab", icon: BookOpen, permission: "library.view", roles: ["super_admin", "muhtamim", "teacher", "librarian"] },
       { name: "পরীক্ষা ও ফলাফল", href: "/dashboard/exams", icon: BookOpen, permission: "exam.view", roles: ["super_admin", "muhtamim", "teacher", "exam_manager", "admin", "education_secretary"] },
+      { name: "ছুটি অনুমোদন ও দরখাস্ত", href: "/dashboard/attendance/leaves", icon: CalendarDays, permission: "attendance.view", roles: ["super_admin", "muhtamim", "admin", "education_secretary", "teacher", "office_staff"] },
       { name: "ছুটি ও অবকাশ (Holidays)", href: "/dashboard/attendance/holidays", icon: CalendarDays, permission: "attendance.view", roles: ["super_admin", "muhtamim", "admin", "education_secretary", "teacher", "office_staff"] },
       { name: "ফারিগীন ও অ্যালামনাই", href: "/dashboard/alumni", icon: UserCheck, permission: "student.view", roles: ["super_admin", "muhtamim", "admin", "office_staff", "teacher", "education_secretary"] },
     ],

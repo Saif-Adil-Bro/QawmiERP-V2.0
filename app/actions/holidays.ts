@@ -83,6 +83,214 @@ async function deleteHolidayNotice(holidayId: string, madrasaId: string) {
 }
 
 /**
+ * Safely generates all dates between startDate and endDate (inclusive, YYYY-MM-DD)
+ */
+function getDatesInRange(startDate: string, endDate: string): string[] {
+  try {
+    const dates: string[] = [];
+    const [sy, sm, sd] = startDate.split("-").map(Number);
+    const [ey, em, ed] = endDate.split("-").map(Number);
+    const curr = new Date(sy, sm - 1, sd);
+    const end = new Date(ey, em - 1, ed);
+
+    let guard = 0;
+    while (curr <= end && guard < 75) {
+      const y = curr.getFullYear();
+      const m = String(curr.getMonth() + 1).padStart(2, "0");
+      const d = String(curr.getDate()).padStart(2, "0");
+      dates.push(`${y}-${m}-${d}`);
+      curr.setDate(curr.getDate() + 1);
+      guard++;
+    }
+    return dates;
+  } catch {
+    return [startDate];
+  }
+}
+
+/**
+ * Automatically records and persists attendance as "Leave" (ছুটি)
+ * for students and staff for all dates within an academic holiday.
+ */
+export async function syncHolidayAttendanceRecords({
+  madrasaId,
+  startDate,
+  endDate,
+  applicableTo = "all",
+  applicableClasses = [],
+}: {
+  madrasaId: string;
+  startDate: string;
+  endDate: string;
+  applicableTo?: string;
+  applicableClasses?: string[];
+}) {
+  try {
+    const admin = await createAdminClient();
+    const dates = getDatesInRange(startDate, endDate);
+    if (dates.length === 0) return { success: true, count: 0 };
+
+    // 1. Fetch students for this madrasa
+    let studentQuery = admin
+      .from("students")
+      .select("id, class_id")
+      .eq("madrasa_id", madrasaId);
+
+    if (applicableTo === "specific_classes" && applicableClasses && applicableClasses.length > 0) {
+      studentQuery = studentQuery.in("class_id", applicableClasses);
+    }
+
+    const { data: students } = await studentQuery;
+
+    // 2. Fetch staff/teachers for this madrasa
+    const { data: teachers } = await admin
+      .from("teachers")
+      .select("id")
+      .eq("madrasa_id", madrasaId);
+
+    // 3. Upsert student attendance as Leave
+    if (students && students.length > 0) {
+      const studentRecords: {
+        madrasa_id: string;
+        student_id: string;
+        date: string;
+        status: string;
+      }[] = [];
+
+      for (const d of dates) {
+        for (const s of students) {
+          studentRecords.push({
+            madrasa_id: madrasaId,
+            student_id: s.id,
+            date: d,
+            status: "Leave",
+          });
+        }
+      }
+
+      for (let i = 0; i < studentRecords.length; i += 250) {
+        const chunk = studentRecords.slice(i, i + 250);
+        await admin
+          .from("attendance")
+          .upsert(chunk, { onConflict: "student_id, date" });
+      }
+    }
+
+    // 4. Upsert teacher attendance as Leave
+    if (teachers && teachers.length > 0) {
+      const teacherRecords: {
+        madrasa_id: string;
+        teacher_id: string;
+        date: string;
+        status: string;
+      }[] = [];
+
+      for (const d of dates) {
+        for (const t of teachers) {
+          teacherRecords.push({
+            madrasa_id: madrasaId,
+            teacher_id: t.id,
+            date: d,
+            status: "Leave",
+          });
+        }
+      }
+
+      for (let i = 0; i < teacherRecords.length; i += 250) {
+        const chunk = teacherRecords.slice(i, i + 250);
+        await admin
+          .from("teacher_attendance")
+          .upsert(chunk, { onConflict: "teacher_id, date" });
+      }
+    }
+
+    return { success: true, count: dates.length };
+  } catch (err) {
+    console.error("syncHolidayAttendanceRecords error:", err);
+    return { error: "স্বয়ংক্রিয় ছুটির হাজিরা সংরক্ষণে সমস্যা হয়েছে।" };
+  }
+}
+
+/**
+ * Clean up auto-generated leave attendance records when a holiday is deleted
+ */
+export async function cleanupHolidayAttendanceRecords({
+  madrasaId,
+  startDate,
+  endDate,
+}: {
+  madrasaId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  try {
+    const admin = await createAdminClient();
+    const dates = getDatesInRange(startDate, endDate);
+    if (dates.length === 0) return;
+
+    await admin
+      .from("attendance")
+      .delete()
+      .eq("madrasa_id", madrasaId)
+      .eq("status", "Leave")
+      .in("date", dates);
+
+    await admin
+      .from("teacher_attendance")
+      .delete()
+      .eq("madrasa_id", madrasaId)
+      .eq("status", "Leave")
+      .in("date", dates);
+  } catch (err) {
+    console.warn("cleanupHolidayAttendanceRecords warning:", err);
+  }
+}
+
+/**
+ * Bulk sync all active academic holidays to the attendance tables
+ */
+export async function syncAllAcademicHolidaysAttendance() {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসা তথ্য পাওয়া যায়নি" };
+
+    const meta = await getMadrasaMetadata(madrasaId);
+    const holidays = (meta.academic_holidays || []).filter((h) => !h.is_archived);
+
+    let totalSyncedDays = 0;
+    for (const h of holidays) {
+      const res = await syncHolidayAttendanceRecords({
+        madrasaId,
+        startDate: h.start_date,
+        endDate: h.end_date,
+        applicableTo: h.applicable_to,
+        applicableClasses: h.applicable_classes,
+      });
+      if (res?.count) totalSyncedDays += res.count;
+    }
+
+    revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/attendance/students");
+    revalidatePath("/dashboard/attendance/teachers");
+    revalidatePath("/dashboard/attendance/holidays");
+    revalidatePath("/dashboard/attendance/reports");
+    revalidatePath("/portal/attendance");
+
+    return {
+      success: true,
+      message: `${holidays.length}টি একাডেমিক ছুটির মোট ${totalSyncedDays} দিনের হাজিরা স্বয়ংক্রিয়ভাবে "ছুটি (Leave)" হিসেবে সেভ করা হয়েছে!`,
+    };
+  } catch (err: any) {
+    console.error("syncAllAcademicHolidaysAttendance error:", err);
+    return { error: err.message || "হাজিরা সিঙ্ক ব্যর্থ হয়েছে।" };
+  }
+}
+
+/**
  * Calculates total inclusive days between start and end date
  */
 function calculateDays(start: string, end: string): number {
@@ -218,7 +426,18 @@ export async function createAcademicHoliday(payload: Omit<AcademicHoliday, "id" 
     // Auto-sync notice with public.notices table for Guardian & Student Portal
     await syncHolidayNotice(newHoliday, madrasaId);
 
+    // Automatically save holiday attendance as "Leave" for students & staff
+    await syncHolidayAttendanceRecords({
+      madrasaId,
+      startDate: newHoliday.start_date,
+      endDate: newHoliday.end_date,
+      applicableTo: newHoliday.applicable_to,
+      applicableClasses: newHoliday.applicable_classes,
+    });
+
     revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/attendance/students");
+    revalidatePath("/dashboard/attendance/teachers");
     revalidatePath("/dashboard/attendance/holidays");
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/communication/notices");
@@ -283,7 +502,18 @@ export async function updateAcademicHoliday(id: string, payload: Partial<Academi
     // Auto-sync notice update with public.notices table
     await syncHolidayNotice(meta.academic_holidays[index], madrasaId);
 
+    // Auto-sync attendance as Leave for the updated holiday
+    await syncHolidayAttendanceRecords({
+      madrasaId,
+      startDate: meta.academic_holidays[index].start_date,
+      endDate: meta.academic_holidays[index].end_date,
+      applicableTo: meta.academic_holidays[index].applicable_to,
+      applicableClasses: meta.academic_holidays[index].applicable_classes,
+    });
+
     revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/attendance/students");
+    revalidatePath("/dashboard/attendance/teachers");
     revalidatePath("/dashboard/attendance/holidays");
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/communication/notices");
@@ -314,6 +544,7 @@ export async function deleteAcademicHoliday(id: string) {
     const meta = await getMadrasaMetadata(madrasaId);
     if (!meta.academic_holidays) return { success: true };
 
+    const targetHoliday = meta.academic_holidays.find((h) => h.id === id);
     meta.academic_holidays = meta.academic_holidays.filter((h) => h.id !== id);
 
     const saved = await saveMadrasaMetadata(madrasaId, meta);
@@ -324,7 +555,18 @@ export async function deleteAcademicHoliday(id: string) {
     // Remove notice from public.notices table
     await deleteHolidayNotice(id, madrasaId);
 
+    // Clean up auto-leave attendance records
+    if (targetHoliday) {
+      await cleanupHolidayAttendanceRecords({
+        madrasaId,
+        startDate: targetHoliday.start_date,
+        endDate: targetHoliday.end_date,
+      });
+    }
+
     revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/attendance/students");
+    revalidatePath("/dashboard/attendance/teachers");
     revalidatePath("/dashboard/attendance/holidays");
     revalidatePath("/dashboard/communication/notices");
     revalidatePath("/portal/holidays");
@@ -480,21 +722,31 @@ export async function seedDefaultQawmiHolidays(year?: string) {
     const saved = await saveMadrasaMetadata(madrasaId, meta);
     if (!saved) return { error: "ডিফল্ট ছুটি যুক্ত করা সম্ভব হয়নি।" };
 
-    // Sync all seeded holidays with notices table
+    // Sync all seeded holidays with notices table & auto-save attendance as Leave
     for (const hol of addedHolidays) {
       await syncHolidayNotice(hol, madrasaId);
+      await syncHolidayAttendanceRecords({
+        madrasaId,
+        startDate: hol.start_date,
+        endDate: hol.end_date,
+        applicableTo: hol.applicable_to,
+        applicableClasses: hol.applicable_classes,
+      });
     }
 
     revalidatePath("/dashboard/attendance/holidays");
     revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/attendance/students");
+    revalidatePath("/dashboard/attendance/teachers");
     revalidatePath("/dashboard/communication/notices");
     revalidatePath("/portal/holidays");
     revalidatePath("/portal/notices");
+    revalidatePath("/portal/leave");
     revalidatePath("/portal", "layout");
 
     return {
       success: true,
-      message: `${defaultList.length}টি কওমি মাদরাসার প্রচলিত ছুটির তালিকা সফলভাবে যুক্ত ও নোটিশে প্রকাশ করা হয়েছে!`,
+      message: `${defaultList.length}টি কওমি মাদরাসার প্রচলিত ছুটির তালিকা সফলভাবে যুক্ত, নোটিশে প্রকাশ ও হাজিরায় "ছুটি" হিসেবে সেভ করা হয়েছে!`,
     };
   } catch (err: any) {
     console.error("seedDefaultQawmiHolidays error:", err);
@@ -522,18 +774,21 @@ export async function checkHolidayForDate(dateStr: string) {
       (h) => !h.is_archived && dateStr >= h.start_date && dateStr <= h.end_date
     );
 
-    // Check weekly weekend
-    const dateObj = new Date(dateStr);
+    // Check weekly weekend timezone-safely
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d);
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const currentDayName = dayNames[dateObj.getDay()];
     const weekendDays = meta.weekend_days || ["Friday"];
     const isWeekend = weekendDays.includes(currentDayName);
+    const isHoliday = Boolean(matchedHoliday);
 
     return {
-      isHoliday: Boolean(matchedHoliday),
+      isHoliday,
       isWeekend,
       holiday: matchedHoliday || null,
       dayName: currentDayName,
+      autoSavedAsLeave: isHoliday || isWeekend,
     };
   } catch (err) {
     console.error("checkHolidayForDate error:", err);

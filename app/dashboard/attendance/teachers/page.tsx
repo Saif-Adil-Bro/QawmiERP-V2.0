@@ -100,18 +100,22 @@ export default function TeacherAttendancePage() {
               <CalendarDays className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold text-amber-900">
                   {holidayInfo.isHoliday ? "📌 নির্ধারিত ছুটি:" : "🌴 সাপ্তাহিক বন্ধ:"}
                 </span>
                 <span className="text-xs font-extrabold text-amber-950 underline decoration-amber-400">
                   {holidayInfo.isHoliday ? holidayInfo.holiday?.title : `${holidayInfo.dayName || "ছুটির দিন"} সাপ্তাহিক বন্ধ`}
                 </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                  অটো-সেভ সক্রিয়
+                </span>
               </div>
-              <p className="text-[11px] text-amber-800 mt-0.5">
+              <p className="text-[11px] text-amber-800 mt-1">
                 {holidayInfo.isHoliday
-                  ? `মেয়াদ: ${holidayInfo.holiday?.start_date} হতে ${holidayInfo.holiday?.end_date} পর্যন্ত (${toBanglaNumber(holidayInfo.holiday?.total_days || 1)} দিন)`
-                  : "মাদরাসার নির্ধারিত সাপ্তাহিক ছুটির দিন।"}
+                  ? `মেয়াদ: ${holidayInfo.holiday?.start_date} হতে ${holidayInfo.holiday?.end_date} পর্যন্ত (${toBanglaNumber(holidayInfo.holiday?.total_days || 1)} দিন)। ছুটির দিনের সকল স্টাফদের হাজিরা স্বয়ংক্রিয়ভাবে "ছুটি (Leave)" হিসেবে সংরক্ষিত হয়েছে।`
+                  : `মাদরাসার নির্ধারিত সাপ্তাহিক ছুটির দিন (${holidayInfo.dayName || ""})। স্টাফদের হাজিরা স্বয়ংক্রিয়ভাবে "ছুটি (Leave)" হিসেবে সংরক্ষিত হয়েছে।`}
               </p>
             </div>
           </div>

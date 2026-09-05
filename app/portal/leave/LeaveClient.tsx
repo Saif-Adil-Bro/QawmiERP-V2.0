@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { createParentFeedback } from "@/app/actions/parent-communication";
+import { submitStudentLeaveRequest } from "@/app/actions/leaves";
 
 interface Props {
   students: any[];
@@ -60,6 +61,22 @@ export default function LeaveClient({ students, userProfile, initialApplications
         setErrorMsg(res.error);
         setIsSubmitting(false);
         return;
+      }
+
+      // Also register in leave management system
+      try {
+        await submitStudentLeaveRequest({
+          studentId: selectedStudent?.id,
+          leaveType,
+          startDate,
+          endDate,
+          reason: reason.trim(),
+          guardianName: userProfile?.full_name || "সম্মানিত অভিভাবক",
+          guardianPhone: userProfile?.phone || "",
+          source: "PORTAL",
+        });
+      } catch (leaveSysErr) {
+        console.warn("Non-blocking leave sync:", leaveSysErr);
       }
 
       const newApp = {

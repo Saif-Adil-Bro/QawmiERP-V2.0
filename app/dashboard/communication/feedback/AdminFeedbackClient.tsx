@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   MessageSquare,
   MessageSquarePlus,
@@ -25,8 +26,10 @@ import {
   PhoneCall,
   ExternalLink,
   MessageCircle,
+  CalendarDays,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { parsePhoneContact } from "@/lib/utils";
 import type { ParentFeedbackItem } from "@/app/actions/parent-communication-types";
 import {
   createParentFeedback,
@@ -238,8 +241,48 @@ export default function AdminFeedbackClient({
     }
   };
 
+  const handlePromptPhone = (item: any, type: "whatsapp" | "call") => {
+    const input = prompt(
+      `"${item.guardian_name || item.student_name || "অভিভাবক"}"-এর ফোন নম্বর লিখুন:`,
+      item.guardian_phone || ""
+    );
+    if (!input) return;
+    const { whatsappUrl, telUrl } = parsePhoneContact(input);
+    if (type === "whatsapp") {
+      if (whatsappUrl) window.open(whatsappUrl, "_blank");
+      else alert("সঠিক ফোন নম্বর প্রদান করুন।");
+    } else {
+      if (telUrl) window.location.href = telUrl;
+      else alert("সঠিক ফোন নম্বর প্রদান করুন।");
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* Leave Management Quick Banner */}
+      <div className="bg-linear-to-r from-blue-600 to-indigo-700 rounded-2xl p-4 sm:p-5 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-white/10 rounded-xl">
+            <CalendarDays className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h3 className="text-sm sm:text-base font-bold">
+              শিক্ষক ও শিক্ষার্থীদের নতুন ছুটির দরখাস্ত ও হাজিরা অটো-সিঙ্ক সিস্টেম
+            </h3>
+            <p className="text-xs text-blue-100 mt-0.5">
+              ছুটির আবেদন অনুমোদন, সময়সীমা পরিবর্তন, মন্তব্য প্রদান এবং হাজিরা খাতায় স্বয়ংক্রিয় "ছুটি (Leave)" সেভ করার জন্য ডেডিকেটেড মডিউল যুক্ত হয়েছে।
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/dashboard/attendance/leaves"
+          className="px-4 py-2 bg-white text-indigo-800 font-bold text-xs rounded-xl shadow-xs hover:bg-blue-50 transition shrink-0 flex items-center justify-center gap-1.5"
+        >
+          <span>ছুটি মডিউলে যান</span>
+          <ChevronRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
@@ -394,9 +437,18 @@ export default function AdminFeedbackClient({
       ) : (
         <div className="space-y-4">
           {filteredList.map((item) => {
-            const cleanPhone = item.guardian_phone?.replace(/[^0-9]/g, "");
-            const whatsappIntl = cleanPhone?.startsWith("88") ? cleanPhone : `88${cleanPhone}`;
-            const whatsappLink = cleanPhone ? `https://wa.me/${whatsappIntl}` : "";
+            const studentPhone = item.student_id
+              ? students.find((s) => s.id === item.student_id)?.parent_phone ||
+                students.find((s) => s.id === item.student_id)?.phone
+              : "";
+            const phoneCandidate = item.guardian_phone || studentPhone || "";
+            const { cleanDigits, whatsappUrl, telUrl, displayFormatted } = parsePhoneContact(phoneCandidate);
+
+            const isLeaveApplication =
+              item.category === "ছুটির আবেদন" ||
+              item.action_type === "GENERAL" ||
+              item.subject?.includes("ছুটি") ||
+              item.description?.includes("ছুটি");
 
             return (
               <div
@@ -491,16 +543,25 @@ export default function AdminFeedbackClient({
                       {item.class_name && (
                         <div className="text-slate-500">জামাত: {item.class_name}</div>
                       )}
-                      {item.guardian_phone && (
-                        <div className="text-slate-700 font-mono font-bold flex items-center gap-1">
-                          <Phone className="w-3 h-3 text-slate-400" />
-                          {item.guardian_phone}
-                        </div>
-                      )}
+                      <div className="text-slate-700 font-mono font-bold flex items-center gap-1">
+                        <Phone className="w-3 h-3 text-slate-400" />
+                        <span>{displayFormatted || phoneCandidate || "ফোন নম্বর নেই"}</span>
+                      </div>
                     </div>
 
                     {/* Actions */}
                     <div className="pt-2 border-t border-slate-200 flex flex-col gap-2">
+                      {/* Leave Application Sync Shortcut */}
+                      {isLeaveApplication && (
+                        <Link
+                          href="/dashboard/attendance/leaves"
+                          className="w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
+                        >
+                          <CalendarDays className="w-3.5 h-3.5" />
+                          ছুটি অনুমোদন ও হাজিরা সিঙ্ক
+                        </Link>
+                      )}
+
                       <button
                         onClick={() => handleOpenRespond(item)}
                         className="w-full py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-sm"
@@ -510,9 +571,9 @@ export default function AdminFeedbackClient({
                       </button>
 
                       <div className="grid grid-cols-2 gap-2">
-                        {whatsappLink ? (
+                        {cleanDigits ? (
                           <a
-                            href={whatsappLink}
+                            href={whatsappUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="py-1.5 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center justify-center gap-1 transition"
@@ -523,16 +584,19 @@ export default function AdminFeedbackClient({
                           </a>
                         ) : (
                           <button
-                            disabled
-                            className="py-1.5 px-2 rounded-lg bg-slate-200 text-slate-400 text-[11px] font-bold"
+                            type="button"
+                            onClick={() => handlePromptPhone(item, "whatsapp")}
+                            className="py-1.5 px-2 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold text-[11px] flex items-center justify-center gap-1 transition cursor-pointer"
+                            title="ফোন নম্বর যুক্ত করে WhatsApp করুন"
                           >
+                            <MessageCircle className="w-3.5 h-3.5" />
                             WhatsApp
                           </button>
                         )}
 
-                        {cleanPhone ? (
+                        {cleanDigits ? (
                           <a
-                            href={`tel:${cleanPhone}`}
+                            href={telUrl}
                             className="py-1.5 px-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] flex items-center justify-center gap-1 transition"
                           >
                             <PhoneCall className="w-3.5 h-3.5" />
@@ -540,9 +604,12 @@ export default function AdminFeedbackClient({
                           </a>
                         ) : (
                           <button
-                            disabled
-                            className="py-1.5 px-2 rounded-lg bg-slate-200 text-slate-400 text-[11px] font-bold"
+                            type="button"
+                            onClick={() => handlePromptPhone(item, "call")}
+                            className="py-1.5 px-2 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold text-[11px] flex items-center justify-center gap-1 transition cursor-pointer"
+                            title="ফোন নম্বর যুক্ত করে কল করুন"
                           >
+                            <PhoneCall className="w-3.5 h-3.5" />
                             কল করুন
                           </button>
                         )}
