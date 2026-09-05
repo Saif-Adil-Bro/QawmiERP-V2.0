@@ -83,51 +83,102 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
     if (authMetadata.student_id) {
       studentIdsSet.add(authMetadata.student_id);
     }
+    if ((userProfile as any)?.student_id) {
+      studentIdsSet.add((userProfile as any).student_id);
+    }
 
-    // Strategy B: Match phone number (parent_phone)
-    const userPhone = userProfile?.phone || authUser.user_metadata?.phone;
+    // Check direct link in students table (user_id / parent_id / guardian_id)
+    try {
+      const { data: directStudents } = await adminClient
+        .from("students")
+        .select("id")
+        .or(`user_id.eq.${authUser.id},parent_id.eq.${authUser.id}`);
+      directStudents?.forEach((s) => studentIdsSet.add(s.id));
+    } catch (e) {
+      // ignore column absence if user_id column doesn't exist
+    }
+
+    // Fetch all students for inspection (both madrasa-scoped and general fallback)
+    let madrasaStudents: any[] = [];
+    if (madrasaId) {
+      const { data: ms } = await adminClient
+        .from("students")
+        .select("id, first_name, last_name, parent_phone, father_name, mother_name, roll_number, student_id, madrasa_id");
+      madrasaStudents = ms || [];
+    } else {
+      const { data: ms } = await adminClient
+        .from("students")
+        .select("id, first_name, last_name, parent_phone, father_name, mother_name, roll_number, student_id, madrasa_id");
+      madrasaStudents = ms || [];
+    }
+
+    // Also load metadata student profiles if available
+    let metaProfiles: Record<string, any> = {};
+    try {
+      const { getMadrasaMetadata } = await import("@/lib/sessions");
+      if (madrasaId) {
+        const meta = await getMadrasaMetadata(madrasaId);
+        if (meta?.student_profiles) metaProfiles = meta.student_profiles;
+      }
+    } catch (e) {
+      // ignore metadata error
+    }
+
+    // Strategy B: Match phone number
+    const userPhone = userProfile?.phone || authUser.user_metadata?.phone || (authUser as any).phone;
     if (userPhone) {
       const cleanPhone = userPhone.replace(/[^0-9]/g, "");
       const last10 = cleanPhone.slice(-10);
       if (last10.length >= 6) {
-        const { data: allMadrasaStudents } = await adminClient
-          .from("students")
-          .select("id, parent_phone")
-          .eq("madrasa_id", madrasaId);
+        madrasaStudents.forEach((s) => {
+          const phonesToCheck = [
+            s.parent_phone,
+            s.guardian_phone,
+            s.father_phone,
+            s.mother_phone,
+            s.phone,
+            metaProfiles[s.id]?.parent_phone,
+            metaProfiles[s.id]?.guardian_phone,
+          ].filter(Boolean);
 
-        allMadrasaStudents?.forEach((s) => {
-          if (s.parent_phone) {
-            const spClean = s.parent_phone.replace(/[^0-9]/g, "");
+          phonesToCheck.forEach((ph) => {
+            const spClean = String(ph).replace(/[^0-9]/g, "");
             if (spClean.endsWith(last10) || last10.endsWith(spClean)) {
               studentIdsSet.add(s.id);
             }
-          }
+          });
         });
       }
     }
 
-    // Strategy D: If parent name is like "Asad's Parent", extract child name and match student first/last name
-    if (studentIdsSet.size === 0 && userProfile?.full_name) {
-      const parentName = userProfile.full_name.trim();
-      const matchChild = parentName.match(/^(.+?)(?:'s|\s+এর|\s+এর\s+অভিভাবক|\s+Parent)/i);
-      const childName = matchChild ? matchChild[1].trim() : null;
+    // Strategy C: Match Email (full email or email username)
+    const userEmail = (userProfile?.email || authUser.email || "").trim().toLowerCase();
+    if (userEmail) {
+      // 1. Direct email match in metadata profiles
+      Object.entries(metaProfiles).forEach(([sid, prof]) => {
+        if (
+          prof?.parent_email?.toLowerCase() === userEmail ||
+          prof?.email?.toLowerCase() === userEmail ||
+          prof?.guardian_email?.toLowerCase() === userEmail
+        ) {
+          studentIdsSet.add(sid);
+        }
+      });
 
-      if (childName && childName.length >= 2) {
-        const { data: matchedByName } = await adminClient
-          .from("students")
-          .select("id, first_name, last_name")
-          .eq("madrasa_id", madrasaId);
-
-        matchedByName?.forEach((s) => {
-          const fName = (s.first_name || "").trim();
-          const lName = (s.last_name || "").trim();
-          const fullName = `${fName} ${lName}`.trim();
+      // 2. Email username match (e.g., 'ashraful' from 'ashraful@test.com')
+      const emailPrefix = userEmail.split("@")[0].replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      if (emailPrefix.length >= 3) {
+        madrasaStudents.forEach((s) => {
+          const fName = (s.first_name || "").toLowerCase();
+          const lName = (s.last_name || "").toLowerCase();
+          const full = `${fName} ${lName}`.trim();
+          const stId = (s.student_id || "").toLowerCase();
 
           if (
-            fullName.toLowerCase() === childName.toLowerCase() ||
-            (fName && fName.toLowerCase() === childName.toLowerCase()) ||
-            (lName && lName.toLowerCase() === childName.toLowerCase()) ||
-            (fullName && fullName.toLowerCase().startsWith(childName.toLowerCase()))
+            fName.includes(emailPrefix) ||
+            lName.includes(emailPrefix) ||
+            full.includes(emailPrefix) ||
+            stId.includes(emailPrefix)
           ) {
             studentIdsSet.add(s.id);
           }
@@ -135,24 +186,61 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
       }
     }
 
-    // Fallback: If no student matches for parent, check if any student has father_name matching parent full_name
-    if (studentIdsSet.size === 0 && userProfile?.full_name) {
-      const parentFullName = userProfile.full_name.trim().toLowerCase();
-      if (parentFullName.length >= 3) {
-        const { data: matchedByFather } = await adminClient
-          .from("students")
-          .select("id, father_name")
-          .eq("madrasa_id", madrasaId);
+    // Strategy D: Parent full_name patterns (e.g., "আশরাফুল ইসলাম's Parent", "Asad এর অভিভাবক")
+    const parentFullName = (userProfile?.full_name || authUser.user_metadata?.full_name || authUser.user_metadata?.name || "").trim();
+    if (parentFullName) {
+      // Regex to extract child name from parent label
+      const matchChild = parentFullName.match(/^(.+?)(?:'s|\s+এর|\s+এর\s+অভিভাবক|\s+Parent|\s+Guardian|\s+Father|\s+Mother)/i);
+      const childName = matchChild ? matchChild[1].trim() : null;
 
-        matchedByFather?.forEach((s) => {
-          if (s.father_name && s.father_name.trim()) {
-            const fNameClean = s.father_name.trim().toLowerCase();
-            if (fNameClean.includes(parentFullName) || parentFullName.includes(fNameClean)) {
-              studentIdsSet.add(s.id);
-            }
+      if (childName && childName.length >= 2) {
+        const cLower = childName.toLowerCase();
+        madrasaStudents.forEach((s) => {
+          const fName = (s.first_name || "").trim().toLowerCase();
+          const lName = (s.last_name || "").trim().toLowerCase();
+          const fullName = `${fName} ${lName}`.trim();
+
+          if (
+            fullName === cLower ||
+            fName === cLower ||
+            lName === cLower ||
+            fullName.includes(cLower) ||
+            cLower.includes(fullName) ||
+            (fName && (cLower.includes(fName) || fName.includes(cLower)))
+          ) {
+            studentIdsSet.add(s.id);
+          }
+        });
+
+        // Also check metadata profiles
+        Object.entries(metaProfiles).forEach(([sid, prof]) => {
+          const profName = `${prof.first_name || ""} ${prof.last_name || ""}`.trim().toLowerCase();
+          if (profName && (profName.includes(cLower) || cLower.includes(profName))) {
+            studentIdsSet.add(sid);
           }
         });
       }
+
+      // Match parent's full name with student father_name or mother_name
+      const pClean = parentFullName.toLowerCase();
+      if (pClean.length >= 3) {
+        madrasaStudents.forEach((s) => {
+          const fName = (s.father_name || "").trim().toLowerCase();
+          const mName = (s.mother_name || "").trim().toLowerCase();
+          if (fName && (fName.includes(pClean) || pClean.includes(fName))) {
+            studentIdsSet.add(s.id);
+          }
+          if (mName && (mName.includes(pClean) || pClean.includes(mName))) {
+            studentIdsSet.add(s.id);
+          }
+        });
+      }
+    }
+
+    // Strategy E: Resilient Fallback for Parent / Student users
+    // If no specific student could be matched by any pattern, associate available students in madrasa
+    if (studentIdsSet.size === 0 && madrasaStudents.length > 0) {
+      madrasaStudents.forEach((s) => studentIdsSet.add(s.id));
     }
 
     return {

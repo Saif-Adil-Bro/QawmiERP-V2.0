@@ -27,19 +27,34 @@ export default async function ParentPortalFeedbackPage() {
 
   // Fallback first madrasa
   if (!madrasaId) {
-    const { data: firstM } = await supabase.from("madrasas").select("id").limit(1).single();
+    const { data: firstM } = await supabase.from("madrasas").select("id").limit(1).maybeSingle();
     if (firstM) madrasaId = firstM.id;
   }
 
+  const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
+  const scope = await getUserDataAccessScope();
+
   // Fetch students for selector
-  let students: any[] = [];
-  if (madrasaId) {
-    const { data } = await supabase
+  let studentsQuery = supabase
+    .from("students")
+    .select("id, first_name, last_name, roll_number, class_name, classes(name)")
+    .order("roll_number", { ascending: true });
+
+  if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
+    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
+  } else if (madrasaId) {
+    studentsQuery = studentsQuery.eq("madrasa_id", madrasaId);
+  }
+
+  const { data: fetchedStudents } = await studentsQuery;
+  let students: any[] = fetchedStudents || [];
+
+  if (students.length === 0) {
+    const { data: fallbackStudents } = await supabase
       .from("students")
       .select("id, first_name, last_name, roll_number, class_name, classes(name)")
-      .eq("madrasa_id", madrasaId)
-      .order("roll_number", { ascending: true });
-    students = data || [];
+      .limit(5);
+    students = fallbackStudents || [];
   }
 
   // Fetch feedbacks

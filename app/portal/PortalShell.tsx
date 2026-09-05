@@ -202,7 +202,7 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
               ? pathname === item.href
               : pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
-            const targetHref = item.href;
+            const targetHref = studentId ? `${item.href}?student_id=${studentId}` : item.href;
 
             return (
               <Link
