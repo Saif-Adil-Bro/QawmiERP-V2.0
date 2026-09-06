@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { saveQuestion, deleteQuestion, updateQuestion } from "@/app/actions/questions";
-import { Plus, Trash2, Loader2, Save, Printer, FileText, Type, X, Globe, Building2, BookOpen, Clock, Award, Check, Pencil, CheckSquare, RotateCcw, ArrowUp, ArrowDown, CheckCircle2, Sparkles, Scroll, Scale, HelpCircle, Columns, Layers, FileSpreadsheet, Tag, Gauge } from "lucide-react";
+import { Plus, Trash2, Loader2, Save, Printer, FileText, Type, X, Globe, Building2, BookOpen, Clock, Award, Check, Pencil, CheckSquare, RotateCcw, ArrowUp, ArrowDown, CheckCircle2, Sparkles, Scroll, Scale, HelpCircle, Columns, Layers, FileSpreadsheet, Tag, Gauge, ListChecks } from "lucide-react";
 import SpecializedQuestionView, { getQuestionTypeBadge, getDifficultyBadge } from "@/components/exams/SpecializedQuestionView";
 import BulkImportModal from "@/components/exams/BulkImportModal";
 
@@ -92,16 +92,112 @@ export default function QuestionBankClient({
   ]);
   const [newPoetName, setNewPoetName] = useState("");
 
-  // 4. مسألة فقهية (Masala / Fiqh)
+  // 4. مسألة فقهية / General Sub-questions (উপ-প্রশ্নাবলী: ক, খ, গ... বা أ، ب، ج...)
   const [newScenario, setNewScenario] = useState("");
-  const [newSubQuestions, setNewSubQuestions] = useState<string[]>([]);
+  const [newSubQuestions, setNewSubQuestions] = useState<Array<{ text: string; marks?: number }>>([]);
   const [subQuestionInput, setSubQuestionInput] = useState("");
+  const [subQuestionMarksInput, setSubQuestionMarksInput] = useState<number | "">("");
 
   // 5. અથવા / বিকল্প প্রশ্ন (Or / أو)
   const [newHasOr, setNewHasOr] = useState(false);
   const [newOrText, setNewOrText] = useState("");
   const [newOrIrabText, setNewOrIrabText] = useState("");
   const [newOrScenario, setNewOrScenario] = useState("");
+
+  // Sub-question presets
+  const applySubQuestionPreset = (type: "bn_2" | "bn_3" | "bn_4" | "ar_2" | "ar_3" | "ar_4") => {
+    switch (type) {
+      case "bn_2":
+        setNewSubQuestions([
+          { text: "এর শাব্দিক ও পারিভাষিক অর্থ বিশ্লেষণ কর।", marks: 5 },
+          { text: "কুরআন ও সুন্নাহর আলোকে প্রাসঙ্গিক হুকুম দলীলসহ আলোচনা কর।", marks: 5 }
+        ]);
+        break;
+      case "bn_3":
+        setNewSubQuestions([
+          { text: "সংজ্ঞা ও মৌলিক পরিচয় উল্লেখ কর।", marks: 4 },
+          { text: "এর প্রয়োজনীয় শর্তাবলি ও নিয়মাবলি লিখ।", marks: 3 },
+          { text: "বর্তমান প্রেক্ষাপটে এর প্রয়োগ ও ফিকহি সমাধান বিশ্লেষণ কর।", marks: 3 }
+        ]);
+        break;
+      case "bn_4":
+        setNewSubQuestions([
+          { text: "পারিভাষিক অর্থ কী?", marks: 2.5 },
+          { text: "প্রকারভেদ উদাহরণসহ সংক্ষেপে লিখ।", marks: 2.5 },
+          { text: "মূল বৈশিষ্ট্যসমূহ চিহ্নিত কর।", marks: 2.5 },
+          { text: "গুরুত্ব ও তাৎপর্য আলোচনা কর।", marks: 2.5 }
+        ]);
+        break;
+      case "ar_2":
+        setNewTextDirection("rtl");
+        setNewSubQuestions([
+          { text: "ترجم النص المذكور إلى اللغة البنغالية ترجمة وافية وسلسة.", marks: 5 },
+          { text: "اشرح المعنى الإجمالي مع ذكر الفوائد المستنبطة بالتفصيل.", marks: 5 }
+        ]);
+        break;
+      case "ar_3":
+        setNewTextDirection("rtl");
+        setNewSubQuestions([
+          { text: "بيّن المعنى اللغوي والاصطلاحي مع التمثيل الواضح.", marks: 4 },
+          { text: "أعرب الكلمات المحددة إعراباً تفصيلياً.", marks: 3 },
+          { text: "استخرج الحكم الشرعي المستفاد مع دليله المعتمد.", marks: 3 }
+        ]);
+        break;
+      case "ar_4":
+        setNewTextDirection("rtl");
+        setNewSubQuestions([
+          { text: "عرّف المصطلح المذكور لغة واصطلاحا.", marks: 2.5 },
+          { text: "اذكر الأقسام والشروط بالتفصيل.", marks: 2.5 },
+          { text: "حقّق الصيغ الواردة في العبارة.", marks: 2.5 },
+          { text: "بيّن موقع الجملة الإعرابي مع السبب.", marks: 2.5 }
+        ]);
+        break;
+    }
+  };
+
+  // Full Arabic Template Presets
+  const applyArabicTemplate = (templateType: "hadith" | "nahw" | "adab" | "fiqh") => {
+    setNewTextDirection("rtl");
+    if (templateType === "hadith") {
+      setNewType("Broad");
+      setNewText("اقرأ الحديث الشريف الآتي قراءة واعية ثم أجب عن الأسئلة الآتية:");
+      setNewSubQuestions([
+        { text: "ترجم الحديث الشريف إلى اللغة البنغالية بأسلوب سليم وفصيح.", marks: 5 },
+        { text: "اشرح المفردات الصعبة وبيّن الأحكام والفوائد المستنبطة منه.", marks: 5 }
+      ]);
+      setNewMarks(10);
+    } else if (templateType === "nahw") {
+      setNewType("Broad");
+      setNewText("أجب عن الأسئلة النحوية الآتية مع ذكر الشواهد والأمثلة:");
+      setNewSubQuestions([
+        { text: "عرّف المبتدأ والخبر وبيّن أحوال تقديمه وتأخيره.", marks: 5 },
+        { text: "اذكر مواضع حذف المبتدأ وجوباً مع الأمثلة التوضيحية.", marks: 5 }
+      ]);
+      setNewMarks(10);
+    } else if (templateType === "adab") {
+      setNewType("Sher");
+      setNewText("اشرح الأبيات الشعرية الآتية وأجب عما يلي:");
+      setNewVerses([
+        { first: "إذا غامَرْتَ في شَرَفٍ مَرُومِ", second: "فَلا تَقْنَعْ بما دونَ النّجومِ" },
+        { first: "فَطَعْمُ المَوْتِ في أمْرٍ حَقِيرٍ", second: "كطَعْمِ المَوْتِ في أمْرٍ عَظِيمِ" }
+      ]);
+      setNewPoetName("أبو الطيب المتنبي");
+      setNewSubQuestions([
+        { text: "اذكر مناسبة هذه الأبيات ومقصد الشاعر الأساسي.", marks: 5 },
+        { text: "استخرج المحسنات البلاغية والبيانية من البيتين.", marks: 5 }
+      ]);
+      setNewMarks(10);
+    } else if (templateType === "fiqh") {
+      setNewType("Masala");
+      setNewText("اقرأ صورة المسألة الآتية وبيّن الحكم الفقهي مع الدليل:");
+      setNewScenario("رجل نسي القعدة الأولى في صلاة الظهر وقام إلى الركعة الثالثة وشرع في قراءة الفاتحة ثم تذكر...");
+      setNewSubQuestions([
+        { text: "هل يعود إلى القعدة الأولى أم يستمر في صلاته؟", marks: 5 },
+        { text: "كيف ومتى يسجد للسهو؟ بيّن ذلك بالدليل والتعليل.", marks: 5 }
+      ]);
+      setNewMarks(10);
+    }
+  };
 
   // Sample Loaders for 1-click test and setup
   const loadSampleIrab = () => {
@@ -134,8 +230,8 @@ export default function QuestionBankClient({
     setNewText("নিম্নোক্ত সুরতহালের ফিকহি সমাধান ও দলিল বিস্তারিত লেখ:");
     setNewScenario("এক ব্যক্তি জোহরের চার রাকাত ফরজ নামাজ পড়ার সময় প্রথম বৈঠকে তাশাহহুদ না পড়ে ভুলবশত ৩য় রাকাতে দাঁড়িয়ে গেল এবং সুরা ফাতিহা পড়ে রুকুতে চলে গেল...");
     setNewSubQuestions([
-      "১) এমতাবস্থায় সে কি পুনরায় প্রথম বৈঠকে ফিরে আসবে নাকি নামাজ চালিয়ে যাবে?",
-      "২) এই অবস্থায় সাহু সিজদা কখন এবং কীভাবে আদায় করতে হবে? দলীলসহ ব্যাখ্যা কর।"
+      { text: "এমতাবস্থায় সে কি পুনরায় প্রথম বৈঠকে ফিরে আসবে নাকি নামাজ চালিয়ে যাবে?", marks: 5 },
+      { text: "এই অবস্থায় সাহু সিজদা কখন এবং কীভাবে আদায় করতে হবে? দলীলসহ ব্যাখ্যা কর।", marks: 5 }
     ]);
     setNewMarks(10);
     setNewTextDirection("ltr");
@@ -143,8 +239,12 @@ export default function QuestionBankClient({
 
   const loadSampleOr = () => {
     setNewHasOr(true);
-    setNewOrText("أو: أعرب ما تحته خط في الحديث الشريف الآتي: (إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ وَإِنَّمَا لِكُلِّ امْرِئٍ مَا نَوَى)");
-    setNewOrIrabText("إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ وَإِنَّمَا لِكُلِّ امْرِئٍ مَا نَوَى، فَمَنْ كَانَتْ هِجْرَتُهُ إِلَى اللَّهِ وَرَسُولِهِ فَهِجْرَتُهُ إِلَى اللَّهِ وَرَسُولِهِ");
+    if (newTextDirection === "rtl" || isArabicText(newText)) {
+      setNewOrText("بيّن معاني المفردات الآتية مع ذكر علامة الإعراب لكل كلمة:");
+      setNewOrIrabText("إِنَّمَا الأَعْمَالُ بِالنِّيَّاتِ وَإِنَّمَا لِكُلِّ امْرِئٍ مَا نَوَى، فَمَنْ كَانَتْ هِجْرَتُهُ إِلَى اللَّهِ وَرَسُولِهِ فَهِجْرَتُهُ إِلَى اللَّهِ وَرَسُولِهِ");
+    } else {
+      setNewOrText("অথবা: উপরোক্ত বিষয়ের বিপরীত মত ও প্রাসঙ্গিক শর্তাবলি বিস্তারিত আলোচনা কর।");
+    }
   };
 
   const handleAddTahqeeqWord = () => {
@@ -168,13 +268,19 @@ export default function QuestionBankClient({
 
   const handleAddSubQuestion = () => {
     if (!subQuestionInput.trim()) return;
-    setNewSubQuestions(prev => [...prev, subQuestionInput.trim()]);
+    const item = {
+      text: subQuestionInput.trim(),
+      marks: subQuestionMarksInput !== "" ? Number(subQuestionMarksInput) : undefined
+    };
+    setNewSubQuestions(prev => [...prev, item]);
     setSubQuestionInput("");
+    setSubQuestionMarksInput("");
   };
 
   const handleRemoveSubQuestion = (index: number) => {
     setNewSubQuestions(prev => prev.filter((_, i) => i !== index));
   };
+
   
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -275,7 +381,13 @@ export default function QuestionBankClient({
       setNewVerses(opts.verses && opts.verses.length > 0 ? opts.verses : [{ first: "", second: "" }]);
       setNewPoetName(opts.poet_name || "");
       setNewScenario(opts.scenario || "");
-      setNewSubQuestions(opts.sub_questions || []);
+      
+      const parsedSubQ = (opts.sub_questions || []).map((sq: any) => {
+        if (typeof sq === "string") return { text: sq, marks: undefined };
+        return { text: sq.text || "", marks: sq.marks };
+      });
+      setNewSubQuestions(parsedSubQ);
+
       setNewHasOr(Boolean(opts.has_or));
       setNewOrText(opts.or_text || "");
       setNewOrIrabText(opts.or_irab_text || "");
@@ -361,7 +473,13 @@ export default function QuestionBankClient({
         return;
       }
       optionsData = {
-        scenario: newScenario.trim(),
+        scenario: newScenario.trim()
+      };
+    }
+
+    if (newSubQuestions.length > 0) {
+      optionsData = {
+        ...(optionsData || {}),
         sub_questions: newSubQuestions
       };
     }
@@ -709,27 +827,67 @@ export default function QuestionBankClient({
               </div>
             </div>
 
+            {/* Templates & Quick Presets */}
+            <div className="bg-slate-100/80 p-3 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                  <span>দ্রুত প্রশ্ন প্রিসেট ও টেমপ্লেট (1-Click Templates):</span>
+                </span>
+                <span className="text-[11px] text-slate-500">প্রয়োজনে এডিট করে ব্যবহার করতে পারবেন</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => applyArabicTemplate("hadith")}
+                  className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                >
+                  <span>📜 হাদিস / নস প্রশ্ন (আরবি)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyArabicTemplate("nahw")}
+                  className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                >
+                  <span>📐 নাহু / সরফ প্রশ্ন (আরবি)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyArabicTemplate("adab")}
+                  className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                >
+                  <span>📖 আদব / নযম বায়েত (আরবি)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyArabicTemplate("fiqh")}
+                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                >
+                  <span>⚖️ ফিকহি সুরতহাল (আরবি)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={loadSampleMasala}
+                  className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 border border-slate-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                >
+                  <span>🇧🇩 বাংলা ফিকহ / মাসআলা</span>
+                </button>
+              </div>
+            </div>
+
             <div>
               <div className="flex justify-between items-center mb-1">
-                <label className="block text-xs font-semibold text-slate-700">প্রশ্নের মূল টেক্সট (Question Title / Instruction) *</label>
+                <label className="block text-xs font-semibold text-slate-700">
+                  {newTextDirection === "rtl" || isArabicText(newText) ? "نص السؤال الأساسي / التعليمات *" : "প্রশ্নের মূল টেক্সট বা সাধারণ নির্দেশনা *"}
+                </label>
                 {newType === "Irab" && (
-                  <button type="button" onClick={loadSampleIrab} className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" /> নমুনা ইবারত প্রশ্ন লোড করুন
+                  <button type="button" onClick={loadSampleIrab} className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1 cursor-pointer">
+                    <Sparkles className="w-3 h-3" /> নমুনা ইবারত লোড করুন
                   </button>
                 )}
                 {newType === "Tahqeeq" && (
-                  <button type="button" onClick={loadSampleTahqeeq} className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" /> নমুনা তাহকীক প্রশ্ন লোড করুন
-                  </button>
-                )}
-                {newType === "Sher" && (
-                  <button type="button" onClick={loadSampleSher} className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" /> নমুনা শের প্রশ্ন লোড করুন
-                  </button>
-                )}
-                {newType === "Masala" && (
-                  <button type="button" onClick={loadSampleMasala} className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" /> নমুনা মাসআলা প্রশ্ন লোড করুন
+                  <button type="button" onClick={loadSampleTahqeeq} className="text-xs text-emerald-700 hover:underline font-semibold flex items-center gap-1 cursor-pointer">
+                    <Sparkles className="w-3 h-3" /> নমুনা তাহকীক লোড করুন
                   </button>
                 )}
               </div>
@@ -742,7 +900,7 @@ export default function QuestionBankClient({
                 className={`w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 outline-none bg-white text-base leading-relaxed ${
                   newTextDirection === "rtl" || isArabicText(newText) ? "font-amiri text-right text-lg leading-loose" : "font-solaiman text-left"
                 }`}
-                placeholder={newTextDirection === "rtl" ? "اكتب السؤال هنا..." : "প্রশ্নের মূল নির্দেশনা বা বিবরণ লিখুন..."}
+                placeholder={newTextDirection === "rtl" || isArabicText(newText) ? "اكتب السؤال أو التوجيه هنا..." : "প্রশ্নের মূল নির্দেশনা বা বিবরণ লিখুন..."}
               />
             </div>
 
@@ -959,16 +1117,13 @@ export default function QuestionBankClient({
               </div>
             )}
 
-            {/* 4. Specialized: مسألة فقهية (Masala / Fiqh) */}
+            {/* 4. Specialized: مسألة فقهية (Masala / Scenario) */}
             {newType === "Masala" && (
               <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
                     <Scale className="w-4 h-4 text-amber-700" />
-                    <span>مسألة فقهية (ফিকহি সুরতহাল / বাস্তব প্রেক্ষাপট ও সমাধান)</span>
-                  </span>
-                  <span className="text-[11px] text-amber-800 bg-white px-2 py-0.5 rounded border border-amber-200">
-                    বাস্তবধর্মী সমাধান ফরম্যাট
+                    <span>مسألة فقهية (ফিকহি সুরতহাল / বাস্তব প্রেক্ষাপট)</span>
                   </span>
                 </div>
 
@@ -978,59 +1133,136 @@ export default function QuestionBankClient({
                   </label>
                   <textarea
                     rows={3}
-                    dir="auto"
+                    dir={newTextDirection === "rtl" || isArabicText(newScenario) ? "rtl" : "auto"}
                     value={newScenario}
                     onChange={(e) => setNewScenario(e.target.value)}
                     placeholder="বাস্তব সুরতহাল বা ঘটনার বিবরণ লিখুন..."
-                    className="w-full p-3 text-sm bg-white border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none leading-relaxed"
+                    className={`w-full p-3 text-sm bg-white border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none leading-relaxed ${
+                      newTextDirection === "rtl" || isArabicText(newScenario) ? "font-amiri text-right text-base" : "font-solaiman"
+                    }`}
                   />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-[11px] font-semibold text-slate-700">
-                    নির্দিষ্ট ফিকহি প্রশ্ন বা সমাধান উপ-প্রশ্নসমূহ (Sub-questions):
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      dir="auto"
-                      value={subQuestionInput}
-                      onChange={(e) => setSubQuestionInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          handleAddSubQuestion();
-                        }
-                      }}
-                      placeholder="উপ-প্রশ্ন লিখুন (যেমন: ১. এতে কি নামাজ ভেঙে যাবে?)..."
-                      className="flex-1 p-2 text-xs bg-white border border-amber-300 rounded-lg outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddSubQuestion}
-                      className="px-3 py-2 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-bold cursor-pointer shrink-0"
-                    >
-                      + যোগ করুন
-                    </button>
-                  </div>
-
-                  {newSubQuestions.map((sq, sqIdx) => (
-                    <div key={sqIdx} className="flex items-center justify-between bg-white px-3 py-1.5 rounded-md border border-amber-200 text-xs">
-                      <span>{sq}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveSubQuestion(sqIdx)}
-                        className="text-red-500 hover:text-red-700 p-0.5 cursor-pointer"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
                 </div>
               </div>
             )}
 
-            {/* 5. MCQ Options */}
+            {/* 5. Sub-Questions Builder (উপ-প্রশ্নাবলী: (ক), (খ) বা (أ)، (ب)...) for ALL Question Types */}
+            {newType !== "MCQ" && (
+              <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-200 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                    <ListChecks className="w-4 h-4 text-indigo-700" />
+                    <span>উপ-প্রশ্নাবলী ও প্রিসেট (Sub-Questions / الأسئلة الفرعية)</span>
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className="text-slate-500 font-medium">প্রিসেট:</span>
+                    <button
+                      type="button"
+                      onClick={() => applySubQuestionPreset("bn_2")}
+                      className="px-2 py-0.5 bg-white border border-indigo-300 hover:bg-indigo-100 rounded text-indigo-800 font-bold transition cursor-pointer"
+                    >
+                      (ক)+(খ)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applySubQuestionPreset("bn_3")}
+                      className="px-2 py-0.5 bg-white border border-indigo-300 hover:bg-indigo-100 rounded text-indigo-800 font-bold transition cursor-pointer"
+                    >
+                      (ক)+(খ)+(গ)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applySubQuestionPreset("ar_2")}
+                      className="px-2 py-0.5 bg-white border border-emerald-400 hover:bg-emerald-100 rounded text-emerald-900 font-bold font-amiri transition cursor-pointer"
+                    >
+                      (أ) + (ب)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applySubQuestionPreset("ar_3")}
+                      className="px-2 py-0.5 bg-white border border-emerald-400 hover:bg-emerald-100 rounded text-emerald-900 font-bold font-amiri transition cursor-pointer"
+                    >
+                      (أ) + (ب) + (ج)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    dir={newTextDirection === "rtl" || isArabicText(subQuestionInput) ? "rtl" : "auto"}
+                    value={subQuestionInput}
+                    onChange={(e) => setSubQuestionInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddSubQuestion();
+                      }
+                    }}
+                    placeholder={newTextDirection === "rtl" ? "اكتب السؤال الفرعي هنا..." : "উপ-প্রশ্ন লিখুন (যেমন: এর শাব্দিক ও পারিভাষিক অর্থ লিখ)..."}
+                    className={`flex-1 p-2.5 text-xs bg-white border border-indigo-300 rounded-lg outline-none ${
+                      newTextDirection === "rtl" || isArabicText(subQuestionInput) ? "font-amiri text-right text-sm" : "font-solaiman"
+                    }`}
+                  />
+                  <input
+                    type="number"
+                    value={subQuestionMarksInput}
+                    onChange={(e) => setSubQuestionMarksInput(e.target.value === "" ? "" : Number(e.target.value))}
+                    placeholder="নম্বর"
+                    className="w-16 p-2.5 text-xs text-center bg-white border border-indigo-300 rounded-lg outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddSubQuestion}
+                    className="px-3.5 py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg text-xs font-bold cursor-pointer shrink-0"
+                  >
+                    + যোগ
+                  </button>
+                </div>
+
+                {newSubQuestions.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    {newSubQuestions.map((sq, sqIdx) => {
+                      const isArabicSq = isArabicText(sq.text);
+                      const arabicLabels = ["(أ)", "(ب)", "(ج)", "(د)", "(هـ)"];
+                      const bnLabels = ["(ক)", "(খ)", "(গ)", "(ঘ)", "(ঙ)"];
+                      const prefix = isArabicSq ? (arabicLabels[sqIdx] || `(${sqIdx + 1})`) : (bnLabels[sqIdx] || `(${sqIdx + 1})`);
+
+                      return (
+                        <div
+                          key={sqIdx}
+                          dir={isArabicSq ? "rtl" : "ltr"}
+                          className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-indigo-200 text-xs gap-2"
+                        >
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className={`font-bold text-indigo-900 shrink-0 ${isArabicSq ? "font-amiri text-sm" : "font-solaiman"}`}>
+                              {prefix}
+                            </span>
+                            <span className={`flex-1 ${isArabicSq ? "font-amiri text-sm text-right" : "font-solaiman"}`}>
+                              {sq.text}
+                            </span>
+                          </div>
+                          {sq.marks !== undefined && (
+                            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200 shrink-0">
+                              {toBengaliNumerals(sq.marks)} নম্বর
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSubQuestion(sqIdx)}
+                            className="text-red-500 hover:text-red-700 p-1 cursor-pointer shrink-0"
+                            title="মুছুন"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 6. MCQ Options */}
             {newType === "MCQ" && (
               <div className="p-4 bg-white rounded-lg border border-slate-200 space-y-3">
                 <label className="block text-xs font-bold text-slate-700">এমসিকিউ অপশনসমূহ (MCQ Options)</label>
@@ -1063,7 +1295,7 @@ export default function QuestionBankClient({
               </div>
             )}
 
-            {/* 6. Universal বিকল্প প্রশ্ন (অথবা / বা / أو) Section */}
+            {/* 7. Universal বিকল্প প্রশ্ন (Strictly Segregated: বা / অথবা vs أو) */}
             <div className="p-4 bg-orange-50/40 rounded-xl border border-orange-200 space-y-3">
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -1074,16 +1306,17 @@ export default function QuestionBankClient({
                     className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500 border-orange-300 cursor-pointer"
                   />
                   <span className="text-xs font-bold text-orange-950">
-                    বিকল্প প্রশ্ন (অথবা / বা / أو) যুক্ত করুন
+                    {newTextDirection === "rtl" || isArabicText(newText) ? "إضافة سؤال بديل (أو)" : "বিকল্প প্রশ্ন (অথবা) যুক্ত করুন"}
                   </span>
                 </label>
                 {newHasOr && (
                   <button
                     type="button"
                     onClick={loadSampleOr}
-                    className="text-xs text-orange-800 hover:underline font-semibold flex items-center gap-1"
+                    className="text-xs text-orange-800 hover:underline font-semibold flex items-center gap-1 cursor-pointer"
                   >
-                    <Sparkles className="w-3 h-3" /> নমুনা বিকল্প প্রশ্ন লোড করুন
+                    <Sparkles className="w-3 h-3" />
+                    <span>{newTextDirection === "rtl" || isArabicText(newText) ? "تحميل نموذج بديل" : "নমুনা বিকল্প প্রশ্ন লোড করুন"}</span>
                   </button>
                 )}
               </div>
@@ -1092,28 +1325,30 @@ export default function QuestionBankClient({
                 <div className="space-y-2.5 pt-2 border-t border-orange-200">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      বিকল্প প্রশ্নের টেক্সট (Alternative Question Text) *
+                      {newTextDirection === "rtl" || isArabicText(newText) ? "نص السؤال البديل *" : "বিকল্প প্রশ্নের টেক্সট *"}
                     </label>
                     <textarea
                       rows={2}
-                      dir="auto"
+                      dir={newTextDirection === "rtl" || isArabicText(newOrText) ? "rtl" : "auto"}
                       value={newOrText}
                       onChange={(e) => setNewOrText(e.target.value)}
-                      placeholder="أو: বিকল্প প্রশ্নের টেক্সট এখানে লিখুন..."
-                      className="w-full p-2.5 text-sm bg-white border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none leading-relaxed font-solaiman"
+                      placeholder={newTextDirection === "rtl" || isArabicText(newText) ? "اكتب نص السؤال البديل هنا..." : "বিকল্প প্রশ্নের টেক্সট এখানে লিখুন..."}
+                      className={`w-full p-2.5 text-sm bg-white border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none leading-relaxed ${
+                        newTextDirection === "rtl" || isArabicText(newOrText) ? "font-amiri text-right text-base" : "font-solaiman"
+                      }`}
                     />
                   </div>
                   {newType === "Irab" && (
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                        বিকল্প ইবারত (Alternative Arabic Passage - ঐচ্ছিক):
+                        বিকল্প ইবারত (العبارة البديلة - ঐচ্ছিক):
                       </label>
                       <textarea
                         rows={2}
                         dir="rtl"
                         value={newOrIrabText}
                         onChange={(e) => setNewOrIrabText(e.target.value)}
-                        placeholder="বিকল্প ইবারত এখানে লিখুন..."
+                        placeholder="اكتب هنا النص العربي البديل..."
                         className="w-full p-2 font-amiri text-right text-base bg-white border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
                       />
                     </div>
@@ -1509,11 +1744,12 @@ export default function QuestionBankClient({
             <div className="p-6 overflow-y-auto flex-1 bg-slate-200 flex justify-center">
               <div 
                 className={`bg-white p-8 sm:p-12 shadow-lg rounded-lg w-full max-w-3xl border border-slate-300 text-slate-900 ${selectedFont}`}
+                data-font={selectedFont}
               >
                 {/* Paper Header */}
                 <div className="text-center border-b-2 border-slate-900 pb-4 mb-6">
                   {/* Bismillah / Top Calligraphy */}
-                  <div className="font-amiri text-lg text-slate-800 mb-1 tracking-wider" dir="rtl">
+                  <div className="text-lg text-slate-800 mb-1 tracking-wider" dir="rtl">
                     بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيْمِ
                   </div>
 
@@ -1565,6 +1801,7 @@ export default function QuestionBankClient({
                           isRTL={isRTL}
                           formatNumber={formatQuestionNumber}
                           isPrint={false}
+                          fontFamilyClass={selectedFont}
                         />
 
                         {/* Hover Action Buttons */}
@@ -1640,11 +1877,12 @@ export default function QuestionBankClient({
       <div 
         id="question-paper-print" 
         className={`hidden print:block print:w-full print:bg-white print:text-black print:p-0 print:m-0 ${selectedFont}`}
+        data-font={selectedFont}
       >
         <div className="max-w-4xl mx-auto p-4 bg-white text-black">
           {/* Header */}
           <div className="text-center border-b-2 border-black pb-3 mb-6">
-            <div className="font-amiri text-base mb-1 tracking-wider" dir="rtl">
+            <div className="text-base mb-1 tracking-wider" dir="rtl">
               بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيْمِ
             </div>
             <h1 className="text-3xl font-extrabold mb-1" dir="auto">
@@ -1688,6 +1926,7 @@ export default function QuestionBankClient({
                     isRTL={isRTL}
                     formatNumber={formatQuestionNumber}
                     isPrint={true}
+                    fontFamilyClass={selectedFont}
                   />
                 </div>
               );

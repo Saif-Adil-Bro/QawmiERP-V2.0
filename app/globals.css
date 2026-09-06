@@ -33,30 +33,72 @@
   src: url('/fonts/shorif_shishir.ttf') format('truetype');
 }
 
+@font-face {
+  font-family: 'Hind Siliguri';
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+  src: url('/fonts/hind_siliguri.ttf') format('truetype'),
+       url('https://fonts.gstatic.com/s/hindsiliguri/v12/ijwOs5juQtsyLLR5jN4CXCxcAlZr.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Amiri';
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+  src: url('/fonts/amiri_regular.ttf') format('truetype'),
+       url('https://fonts.gstatic.com/s/amiri/v27/J7acnp3WhNm0-md3QA.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Scheherazade New';
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+  src: url('/fonts/scheherazade_new.ttf') format('truetype'),
+       url('https://fonts.gstatic.com/s/scheherazadenew/v13/1Ptxg8zYS_SKggPNqCYY9w0DGzflW72a.woff2') format('woff2');
+}
+
 /* Default App Font is SolaimanLipi with Arabic & Bangla fallbacks */
 body, input, textarea, select, button {
   font-family: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'Noto Sans Arabic', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
-/* Custom Font Utilities for Documents & Official Cards */
-.font-solaiman {
-  font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
+/* Custom Font Utilities for Documents & Official Cards & Exam Papers */
+.font-solaiman, 
+.font-solaiman *,
+[data-font="font-solaiman"],
+[data-font="font-solaiman"] * {
+  font-family: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', sans-serif !important;
 }
 
-.font-shorif {
-  font-family: 'ShorifShishir', 'SolaimanLipi', sans-serif !important;
+.font-shorif, 
+.font-shorif *,
+[data-font="font-shorif"],
+[data-font="font-shorif"] * {
+  font-family: 'ShorifShishir', 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', sans-serif !important;
 }
 
-.font-hindsiliguri {
-  font-family: 'Hind Siliguri', 'SolaimanLipi', sans-serif !important;
+.font-hindsiliguri, 
+.font-hindsiliguri *,
+[data-font="font-hindsiliguri"],
+[data-font="font-hindsiliguri"] * {
+  font-family: 'Hind Siliguri', 'SolaimanLipi', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', sans-serif !important;
 }
 
-.font-amiri {
-  font-family: 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', serif !important;
+.font-amiri, 
+.font-amiri *,
+[data-font="font-amiri"],
+[data-font="font-amiri"] * {
+  font-family: 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'SolaimanLipi', serif !important;
 }
 
-.font-shahrazad {
-  font-family: 'Scheherazade New', 'Amiri', 'Noto Naskh Arabic', serif !important;
+.font-shahrazad, 
+.font-shahrazad *,
+[data-font="font-shahrazad"],
+[data-font="font-shahrazad"] * {
+  font-family: 'Scheherazade New', 'Amiri', 'Noto Naskh Arabic', 'SolaimanLipi', serif !important;
 }
 
 /* Specific Arabic rendering helper class */

@@ -2121,6 +2121,7 @@ export default function PaperGeneratorClient({
                         } ${
                           paperMargin === "narrow" ? "p-4 sm:p-5" : paperMargin === "wide" ? "p-8 sm:p-10" : "p-6 sm:p-8"
                         }`}
+                        data-font={selectedFont}
                       >
                         <PaperFrameWrapper borderStyle={borderStyle}>
                           <MadrasaPaperHeader
@@ -2186,6 +2187,7 @@ export default function PaperGeneratorClient({
                                               isRTL={isRTL}
                                               formatNumber={formatQuestionNumber}
                                               isPrint={true}
+                                              fontFamilyClass={selectedFont}
                                             />
                                             <div className="opacity-0 group-hover/live:opacity-100 transition-opacity absolute right-0 -top-2 print:hidden flex items-center gap-1 z-20 bg-white/95 backdrop-blur-xs shadow-xs px-2 py-0.5 rounded-full border border-blue-300">
                                               <button
@@ -2220,6 +2222,7 @@ export default function PaperGeneratorClient({
                                         isRTL={isRTL}
                                         formatNumber={formatQuestionNumber}
                                         isPrint={true}
+                                        fontFamilyClass={selectedFont}
                                       />
                                       <div className="opacity-0 group-hover/live:opacity-100 transition-opacity absolute right-0 -top-2 print:hidden flex items-center gap-1 z-20 bg-white/95 backdrop-blur-xs shadow-xs px-2 py-0.5 rounded-full border border-blue-300">
                                         <button
@@ -2261,6 +2264,7 @@ export default function PaperGeneratorClient({
       <div 
         id="exam-paper-print-view" 
         className={`hidden print:block print:w-full print:bg-white print:text-black print:p-0 print:m-0 ${selectedFont}`}
+        data-font={selectedFont}
       >
         <PaperFrameWrapper borderStyle={borderStyle} className="w-full">
           <MadrasaPaperHeader
@@ -2327,6 +2331,7 @@ export default function PaperGeneratorClient({
                               isRTL={isRTL}
                               formatNumber={formatQuestionNumber}
                               isPrint={true}
+                              fontFamilyClass={selectedFont}
                             />
                           </div>
                         );
@@ -2351,6 +2356,7 @@ export default function PaperGeneratorClient({
                         isRTL={isRTL}
                         formatNumber={formatQuestionNumber}
                         isPrint={true}
+                        fontFamilyClass={selectedFont}
                       />
                     </div>
                   );
