@@ -153,6 +153,9 @@ export default function SettingsClient({
           setLogoPreview(res.url);
           setLogoProvider(res.provider || "iili.io");
           setMessage(`লোগোটি সফলভাবে ক্লাউডে (${res.provider === "catbox.moe" ? "Catbox" : res.provider === "iili.io" ? "iili.io" : "ক্লাউড সিডিএন"}) আপলোড হয়েছে এবং লিংক যোগ হয়েছে!`);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("madrasa-logo-updated", { detail: { logoUrl: res.url } }));
+          }
         } else {
           // If auto upload had an issue, fallback to normal form upload
           setLogoProvider("");
@@ -332,6 +335,13 @@ export default function SettingsClient({
         setMessage(response.message || "মাদরাসার তথ্য ও স্বাক্ষর সফলভাবে আপডেট করা হয়েছে।");
         setSelectedLogoFile(null);
         setSelectedSigFile(null);
+        if (typeof window !== "undefined" && (currentLogoUrl || logoUrl)) {
+          window.dispatchEvent(
+            new CustomEvent("madrasa-logo-updated", {
+              detail: { logoUrl: currentLogoUrl || logoUrl },
+            })
+          );
+        }
         router.refresh();
       }
     } catch (err: any) {
@@ -943,6 +953,13 @@ export default function SettingsClient({
                     </h2>
                   </div>
                   <span className="text-xs text-slate-500">অনুপাত ১:১ (বর্গাকার / বৃত্তাকার)</span>
+                </div>
+
+                <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3 flex items-start gap-2.5 text-xs text-emerald-800">
+                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="leading-relaxed">
+                    <span className="font-semibold text-emerald-900">ব্রাউজার ফেভিকন (Favicon) ও ডিজিটাল ব্র্যান্ডিং:</span> এখানে যুক্ত করা মাদরাসার লোগোটি স্বয়ংক্রিয়ভাবে ব্রাউজার ট্যাবের আইকন (Favicon), ডিজিটাল আইডি কার্ড, প্রবেশপত্র, রশিদ ও সার্টিফিকেটসমূহে ব্যবহৃত হবে।
+                  </div>
                 </div>
 
                 <div className="space-y-3">
