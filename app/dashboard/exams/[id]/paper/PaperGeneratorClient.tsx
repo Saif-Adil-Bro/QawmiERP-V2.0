@@ -119,7 +119,9 @@ export default function PaperGeneratorClient({
   const [borderStyle, setBorderStyle] = useState<BorderStyle>("double_classic");
   const [paperSize, setPaperSize] = useState<PaperSize>("a4");
   const [paperOrientation, setPaperOrientation] = useState<PaperOrientation>("portrait");
+  const [paperMargin, setPaperMargin] = useState<"narrow" | "normal" | "wide">("normal");
   const [compactSpacing, setCompactSpacing] = useState<boolean>(true);
+  const [previewZoom, setPreviewZoom] = useState<number>(100);
 
   // Typography & Script Settings
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
@@ -776,6 +778,7 @@ export default function PaperGeneratorClient({
           -webkit-column-count: 2 !important;
           column-gap: 24px !important;
           -webkit-column-gap: 24px !important;
+          column-fill: balance !important;
         }
         .qawmi-columns-1 {
           column-count: 1 !important;
@@ -787,8 +790,8 @@ export default function PaperGeneratorClient({
           -webkit-column-rule: 1.5px solid #000000 !important;
         }
         .qawmi-col-divider-dashed {
-          column-rule: 1.5px dashed #444444 !important;
-          -webkit-column-rule: 1.5px dashed #444444 !important;
+          column-rule: 1.5px dashed #333333 !important;
+          -webkit-column-rule: 1.5px dashed #333333 !important;
         }
         .qawmi-col-divider-double {
           column-rule: 3.5px double #000000 !important;
@@ -799,17 +802,21 @@ export default function PaperGeneratorClient({
           -webkit-column-rule: none !important;
         }
         .qawmi-section-header {
-          column-span: all !important;
-          -webkit-column-span: all !important;
           break-inside: avoid !important;
           page-break-inside: avoid !important;
           -webkit-column-break-inside: avoid !important;
+        }
+        .qawmi-section-block {
+          break-inside: auto !important;
+          page-break-inside: auto !important;
         }
         .qawmi-question-item {
           break-inside: avoid !important;
           page-break-inside: avoid !important;
           -webkit-column-break-inside: avoid !important;
-          margin-bottom: ${compactSpacing ? "0.75rem" : "1.25rem"} !important;
+          display: block !important;
+          width: 100% !important;
+          margin-bottom: ${compactSpacing ? "0.65rem" : "1.1rem"} !important;
         }
 
         @media print {
@@ -819,15 +826,27 @@ export default function PaperGeneratorClient({
                 ? "8.5in 14in" 
                 : paperSize === "folio" 
                   ? "8.5in 13in" 
-                  : "A4"
+                  : paperSize === "letter"
+                    ? "8.5in 11in"
+                    : "A4"
             } ${paperOrientation};
-            margin: ${compactSpacing ? "6mm 8mm" : "10mm 12mm"};
+            margin: ${
+              paperMargin === "narrow"
+                ? "5mm 6mm"
+                : paperMargin === "wide"
+                  ? "15mm 16mm"
+                  : compactSpacing
+                    ? "6mm 8mm"
+                    : "10mm 12mm"
+            };
           }
           html, body {
             background: #ffffff !important;
             color: #000000 !important;
             margin: 0 !important;
             padding: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           body * {
             visibility: hidden !important;
@@ -1911,7 +1930,7 @@ export default function PaperGeneratorClient({
                           <h4 className="text-sm font-bold text-slate-900">কাগজের সাইজ ও ওরিয়েন্টেশন (Paper Size)</h4>
                         </div>
                         <span className="text-[11px] bg-slate-100 text-slate-700 font-bold px-2 py-0.5 rounded-full">
-                          A4 / Legal / Folio
+                          {paperSize.toUpperCase()} • {paperOrientation === "portrait" ? "লম্বালম্বি" : "আড়াআড়ি"}
                         </span>
                       </div>
 
@@ -1924,6 +1943,7 @@ export default function PaperGeneratorClient({
                               { id: "a4", title: "A4 সাইজ (210 × 297 mm)", desc: "দৈনন্দিন ও স্ট্যান্ডার্ড পরীক্ষা" },
                               { id: "legal", title: "লিগ্যাল সাইজ (Legal 8.5 × 14 in)", desc: "কওমি মাদ্রাসার দীর্ঘ প্রশ্নপত্রের প্রধান পছন্দ" },
                               { id: "folio", title: "ফোলিও সাইজ (Folio 8.5 × 13 in)", desc: "লিথো প্রেস ও মাদ্রাসার সনাতন সাইজ" },
+                              { id: "letter", title: "লেটার সাইজ (Letter 8.5 × 11 in)", desc: "স্ট্যান্ডার্ড অফিস সাইজ" },
                             ].map((ps) => (
                               <button
                                 key={ps.id}
@@ -1945,7 +1965,7 @@ export default function PaperGeneratorClient({
                           </div>
                         </div>
 
-                        {/* Orientation & Spacing */}
+                        {/* Orientation, Margins & Spacing */}
                         <div className="space-y-3">
                           <div>
                             <label className="block text-xs font-bold text-slate-700 mb-1">পৃষ্ঠার দিক (Orientation)</label>
@@ -1972,6 +1992,30 @@ export default function PaperGeneratorClient({
                               >
                                 ↔️ আড়াআড়ি (Landscape)
                               </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">মার্জিনের চওড়া (Page Margins)</label>
+                            <div className="grid grid-cols-3 gap-1.5">
+                              {[
+                                { id: "narrow", label: "সংকীর্ণ (5mm)" },
+                                { id: "normal", label: "স্বাভাবিক (10mm)" },
+                                { id: "wide", label: "প্রশস্ত (15mm)" },
+                              ].map(m => (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => setPaperMargin(m.id as "narrow" | "normal" | "wide")}
+                                  className={`py-1.5 px-2 text-[11px] font-bold rounded-lg border text-center transition cursor-pointer ${
+                                    paperMargin === m.id
+                                      ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                                  }`}
+                                >
+                                  {m.label}
+                                </button>
+                              ))}
                             </div>
                           </div>
 
@@ -2010,26 +2054,74 @@ export default function PaperGeneratorClient({
                 {/* TAB 3: Live Sheet Preview */}
                 {activeTab === "preview" && (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-200">
-                      <div className="text-xs font-bold text-slate-800 flex items-center gap-2">
-                        <Eye className="w-4 h-4 text-emerald-600" />
-                        <span>প্রিন্ট শিট লাইভ প্রিভিউ ({paperSize.toUpperCase()} • {columnLayout === "2_column" ? "২-কলাম" : "১-কলাম"})</span>
+                    <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                          <Eye className="w-4 h-4 text-emerald-600" />
+                          <span>প্রিন্ট শিট লাইভ প্রিভিউ</span>
+                        </div>
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          {paperSize.toUpperCase()} ({paperSize === "legal" ? "8.5×14 in" : paperSize === "folio" ? "8.5×13 in" : paperSize === "letter" ? "8.5×11 in" : "210×297 mm"})
+                        </span>
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                          {paperOrientation === "portrait" ? "লম্বালম্বি (Portrait)" : "আড়াআড়ি (Landscape)"}
+                        </span>
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                          {columnLayout === "2_column" ? "২-কলাম (দ্বিমুখী)" : "১-কলাম (একক)"}
+                        </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={handlePrint}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                        <span>এখনই প্রিন্ট করুন</span>
-                      </button>
+
+                      <div className="flex items-center gap-2">
+                        {/* Zoom Controls */}
+                        <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewZoom(prev => Math.max(70, prev - 15))}
+                            className="px-2 py-1 hover:bg-white rounded text-slate-700 transition cursor-pointer"
+                            title="জুম আউট"
+                          >
+                            -
+                          </button>
+                          <span className="px-2 text-slate-800">{previewZoom}%</span>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewZoom(prev => Math.min(130, prev + 15))}
+                            className="px-2 py-1 hover:bg-white rounded text-slate-700 transition cursor-pointer"
+                            title="জুম ইন"
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handlePrint}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>এখনই প্রিন্ট করুন</span>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Paper Preview Canvas */}
-                    <div className="bg-slate-300 p-4 sm:p-6 rounded-xl overflow-x-auto">
-                      <div className={`mx-auto bg-white shadow-2xl rounded-sm ${selectedFont} ${
-                        paperSize === "legal" ? "max-w-2xl min-h-[900px]" : "max-w-xl min-h-[750px]"
-                      }`}>
+                    <div className="bg-slate-300 p-4 sm:p-8 rounded-xl overflow-x-auto flex justify-center">
+                      <div 
+                        style={{ transform: `scale(${previewZoom / 100})`, transformOrigin: "top center" }}
+                        className={`bg-white shadow-2xl rounded-sm transition-all duration-200 ${selectedFont} ${
+                          paperOrientation === "landscape"
+                            ? paperSize === "legal" ? "w-[1280px] min-h-[750px]"
+                              : paperSize === "folio" ? "w-[1200px] min-h-[750px]"
+                              : paperSize === "letter" ? "w-[1050px] min-h-[750px]"
+                              : "w-[1120px] min-h-[750px]"
+                            : paperSize === "legal" ? "w-[780px] min-h-[1050px]"
+                              : paperSize === "folio" ? "w-[780px] min-h-[960px]"
+                              : paperSize === "letter" ? "w-[760px] min-h-[880px]"
+                              : "w-[760px] min-h-[920px]"
+                        } ${
+                          paperMargin === "narrow" ? "p-4 sm:p-5" : paperMargin === "wide" ? "p-8 sm:p-10" : "p-6 sm:p-8"
+                        }`}
+                      >
                         <PaperFrameWrapper borderStyle={borderStyle}>
                           <MadrasaPaperHeader
                             customMadrasaName={customMadrasaName}
@@ -2048,7 +2140,7 @@ export default function PaperGeneratorClient({
                           />
 
                           {/* Paper Body: 1-Column or 2-Column */}
-                          <div className={`${columnClasses} ${dividerClasses}`}>
+                          <div className="mt-4">
                             {isSectioned ? (
                               sections.map((section, secIndex) => {
                                 let questionOffset = 0;
@@ -2058,77 +2150,92 @@ export default function PaperGeneratorClient({
                                   }
                                 }
 
+                                const isSectionRTL = textDirectionMode === "rtl" || (
+                                  textDirectionMode === "auto" && section.questions.some(q => isArabicText(q.question_text))
+                                );
+
                                 return (
-                                  <div key={section.id} className="mb-4">
-                                    <div className="qawmi-section-header text-center border-y-2 border-black py-1 my-2">
-                                      <div className="font-extrabold text-sm text-black" dir="auto">
+                                  <div key={section.id} className="mb-6 qawmi-section-block">
+                                    <div className="qawmi-section-header text-center border-y-2 border-black py-1 my-2 bg-slate-50/60">
+                                      <div className="font-extrabold text-sm sm:text-base text-black" dir="auto">
                                         【 {section.name} 】 {section.targetMarks ? `(পূর্ণমান: ${toBengaliNumerals(section.targetMarks)})` : ""}
                                       </div>
                                       {section.instruction && (
-                                        <div className="text-[11px] font-semibold mt-0.5 italic text-black" dir="auto">
+                                        <div className="text-[11px] sm:text-xs font-semibold mt-0.5 italic text-black" dir="auto">
                                           [{section.instruction}]
                                         </div>
                                       )}
                                     </div>
 
-                                    {section.questions.map((q, qIndex) => {
-                                      const isRTL = getQuestionDir(q.question_text) === "rtl";
-                                      const questionDisplayIndex = numberingScheme === "continuous" 
-                                        ? questionOffset + qIndex 
-                                        : qIndex;
+                                    {/* Questions rendered in 1 or 2 columns */}
+                                    <div 
+                                      className={`${columnClasses} ${dividerClasses} mt-2.5`}
+                                      dir={isSectionRTL ? "rtl" : "auto"}
+                                    >
+                                      {section.questions.map((q, qIndex) => {
+                                        const isRTL = getQuestionDir(q.question_text) === "rtl";
+                                        const questionDisplayIndex = numberingScheme === "continuous" 
+                                          ? questionOffset + qIndex 
+                                          : qIndex;
 
-                                      return (
-                                        <div key={`${q.id}-${qIndex}`} className="qawmi-question-item relative group/live">
-                                          <SpecializedQuestionView
-                                            question={q}
-                                            index={questionDisplayIndex}
-                                            isRTL={isRTL}
-                                            formatNumber={formatQuestionNumber}
-                                            isPrint={true}
-                                          />
-                                          <div className="opacity-0 group-hover/live:opacity-100 transition-opacity absolute right-0 -top-2 print:hidden flex items-center gap-1 z-20 bg-white/95 backdrop-blur-xs shadow-xs px-2 py-0.5 rounded-full border border-blue-300">
-                                            <button
-                                              type="button"
-                                              onClick={() => handleOpenSwapModal(q, section.name)}
-                                              className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer"
-                                              title="বিকল্প প্রশ্ন দিয়ে পরিবর্তন (Swap) করুন"
-                                            >
-                                              <ArrowLeftRight className="w-3 h-3 text-blue-600" />
-                                              <span>সোয়াপ</span>
-                                            </button>
+                                        return (
+                                          <div key={`${q.id}-${qIndex}`} className="qawmi-question-item relative group/live">
+                                            <SpecializedQuestionView
+                                              question={q}
+                                              index={questionDisplayIndex}
+                                              isRTL={isRTL}
+                                              formatNumber={formatQuestionNumber}
+                                              isPrint={true}
+                                            />
+                                            <div className="opacity-0 group-hover/live:opacity-100 transition-opacity absolute right-0 -top-2 print:hidden flex items-center gap-1 z-20 bg-white/95 backdrop-blur-xs shadow-xs px-2 py-0.5 rounded-full border border-blue-300">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleOpenSwapModal(q, section.name)}
+                                                className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer"
+                                                title="বিকল্প প্রশ্ন দিয়ে পরিবর্তন (Swap) করুন"
+                                              >
+                                                <ArrowLeftRight className="w-3 h-3 text-blue-600" />
+                                                <span>সোয়াপ</span>
+                                              </button>
+                                            </div>
                                           </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                );
-                              })
-                            ) : (
-                              unsectionedQuestions.map((q, idx) => {
-                                const isRTL = getQuestionDir(q.question_text) === "rtl";
-                                return (
-                                  <div key={idx} className="qawmi-question-item relative group/live">
-                                    <SpecializedQuestionView
-                                      question={q}
-                                      index={idx}
-                                      isRTL={isRTL}
-                                      formatNumber={formatQuestionNumber}
-                                      isPrint={true}
-                                    />
-                                    <div className="opacity-0 group-hover/live:opacity-100 transition-opacity absolute right-0 -top-2 print:hidden flex items-center gap-1 z-20 bg-white/95 backdrop-blur-xs shadow-xs px-2 py-0.5 rounded-full border border-blue-300">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOpenSwapModal(q)}
-                                        className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer"
-                                        title="বিকল্প প্রশ্ন দিয়ে পরিবর্তন (Swap) করুন"
-                                      >
-                                        <ArrowLeftRight className="w-3 h-3 text-blue-600" />
-                                        <span>সোয়াপ</span>
-                                      </button>
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 );
                               })
+                            ) : (
+                              <div 
+                                className={`${columnClasses} ${dividerClasses}`}
+                                dir={textDirectionMode === "rtl" ? "rtl" : "auto"}
+                              >
+                                {unsectionedQuestions.map((q, idx) => {
+                                  const isRTL = getQuestionDir(q.question_text) === "rtl";
+                                  return (
+                                    <div key={idx} className="qawmi-question-item relative group/live">
+                                      <SpecializedQuestionView
+                                        question={q}
+                                        index={idx}
+                                        isRTL={isRTL}
+                                        formatNumber={formatQuestionNumber}
+                                        isPrint={true}
+                                      />
+                                      <div className="opacity-0 group-hover/live:opacity-100 transition-opacity absolute right-0 -top-2 print:hidden flex items-center gap-1 z-20 bg-white/95 backdrop-blur-xs shadow-xs px-2 py-0.5 rounded-full border border-blue-300">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenSwapModal(q)}
+                                          className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer"
+                                          title="বিকল্প প্রশ্ন দিয়ে পরিবর্তন (Swap) করুন"
+                                        >
+                                          <ArrowLeftRight className="w-3 h-3 text-blue-600" />
+                                          <span>সোয়াপ</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             )}
                           </div>
                         </PaperFrameWrapper>
@@ -2173,7 +2280,7 @@ export default function PaperGeneratorClient({
           />
 
           {/* Section Wise Question Paper Output with 1-Column or 2-Column */}
-          <div className={`${columnClasses} ${dividerClasses}`}>
+          <div className="mt-3">
             {isSectioned ? (
               sections.map((section, secIndex) => {
                 let questionOffset = 0;
@@ -2183,10 +2290,14 @@ export default function PaperGeneratorClient({
                   }
                 }
 
+                const isSectionRTL = textDirectionMode === "rtl" || (
+                  textDirectionMode === "auto" && section.questions.some(q => isArabicText(q.question_text))
+                );
+
                 return (
-                  <div key={section.id} className="mb-4">
+                  <div key={section.id} className="mb-5 qawmi-section-block">
                     {/* Section Header Ornamentation */}
-                    <div className="qawmi-section-header text-center border-y-2 border-black py-1 my-2.5">
+                    <div className="qawmi-section-header text-center border-y-2 border-black py-1 my-2">
                       <div className="font-extrabold text-base" dir="auto">
                         【 {section.name} 】 {section.targetMarks ? `(পূর্ণমান: ${toBengaliNumerals(section.targetMarks)})` : ""}
                       </div>
@@ -2197,44 +2308,54 @@ export default function PaperGeneratorClient({
                       )}
                     </div>
 
-                    {/* Section Questions */}
-                    {section.questions.map((q, qIndex) => {
-                      const isRTL = getQuestionDir(q.question_text) === "rtl";
-                      const questionDisplayIndex = numberingScheme === "continuous" 
-                        ? questionOffset + qIndex 
-                        : qIndex;
+                    {/* Section Questions in 1 or 2 Columns */}
+                    <div 
+                      className={`${columnClasses} ${dividerClasses} mt-2`}
+                      dir={isSectionRTL ? "rtl" : "auto"}
+                    >
+                      {section.questions.map((q, qIndex) => {
+                        const isRTL = getQuestionDir(q.question_text) === "rtl";
+                        const questionDisplayIndex = numberingScheme === "continuous" 
+                          ? questionOffset + qIndex 
+                          : qIndex;
 
-                      return (
-                        <div key={`${q.id}-${qIndex}`} className="qawmi-question-item">
-                          <SpecializedQuestionView
-                            question={q}
-                            index={questionDisplayIndex}
-                            isRTL={isRTL}
-                            formatNumber={formatQuestionNumber}
-                            isPrint={true}
-                          />
-                        </div>
-                      );
-                    })}
+                        return (
+                          <div key={`${q.id}-${qIndex}`} className="qawmi-question-item">
+                            <SpecializedQuestionView
+                              question={q}
+                              index={questionDisplayIndex}
+                              isRTL={isRTL}
+                              formatNumber={formatQuestionNumber}
+                              isPrint={true}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })
             ) : (
               /* Unsectioned Standard Output */
-              unsectionedQuestions.map((q, idx) => {
-                const isRTL = getQuestionDir(q.question_text) === "rtl";
-                return (
-                  <div key={idx} className="qawmi-question-item">
-                    <SpecializedQuestionView
-                      question={q}
-                      index={idx}
-                      isRTL={isRTL}
-                      formatNumber={formatQuestionNumber}
-                      isPrint={true}
-                    />
-                  </div>
-                );
-              })
+              <div 
+                className={`${columnClasses} ${dividerClasses}`}
+                dir={textDirectionMode === "rtl" ? "rtl" : "auto"}
+              >
+                {unsectionedQuestions.map((q, idx) => {
+                  const isRTL = getQuestionDir(q.question_text) === "rtl";
+                  return (
+                    <div key={idx} className="qawmi-question-item">
+                      <SpecializedQuestionView
+                        question={q}
+                        index={idx}
+                        isRTL={isRTL}
+                        formatNumber={formatQuestionNumber}
+                        isPrint={true}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         </PaperFrameWrapper>

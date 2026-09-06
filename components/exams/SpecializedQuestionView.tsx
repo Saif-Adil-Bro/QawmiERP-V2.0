@@ -122,9 +122,15 @@ export default function SpecializedQuestionView({
   };
 
   return (
-    <div className={`specialized-question-container ${autoRTL ? "font-amiri text-right" : "font-solaiman text-left"}`}>
+    <div 
+      className={`specialized-question-container ${autoRTL ? "font-amiri text-right" : "font-solaiman text-left"}`}
+      dir={autoRTL ? "rtl" : "ltr"}
+    >
       {/* 1. Main Question Prompt Header */}
-      <div className="flex justify-between items-start gap-3">
+      <div 
+        className="flex justify-between items-start gap-3"
+        dir={autoRTL ? "rtl" : "ltr"}
+      >
         <div className="flex-1">
           <p
             className={`font-semibold text-slate-900 ${
@@ -132,11 +138,11 @@ export default function SpecializedQuestionView({
                 ? "text-lg sm:text-xl leading-[2.2] tracking-wide font-amiri"
                 : "text-base sm:text-lg leading-relaxed"
             }`}
-            dir={autoRTL ? "rtl" : "auto"}
+            dir={autoRTL ? "rtl" : "ltr"}
           >
             {typeof index === "number" && (
               <span className={`font-bold text-slate-900 inline-block ${autoRTL ? "ml-2" : "mr-2"}`}>
-                {formatNumber ? formatNumber(index, autoRTL) : `${index + 1}.`}
+                {formatNumber ? formatNumber(index, autoRTL) : (autoRTL ? `${toArabicNumerals(index + 1)}.` : `${index + 1}.`)}
               </span>
             )}
             <span>{question.question_text}</span>

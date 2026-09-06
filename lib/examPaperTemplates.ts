@@ -2,8 +2,9 @@ export type ColumnLayout = "1_column" | "2_column";
 export type ColumnDivider = "solid" | "dashed" | "double" | "none";
 export type CalligraphyStyle = "thuluth_classic" | "ornate_frame" | "bismillah_hamd" | "riqa_simple" | "none";
 export type BorderStyle = "none" | "double_classic" | "islamic_corner" | "decorative_vintage" | "simple_box";
-export type PaperSize = "a4" | "legal" | "folio";
+export type PaperSize = "a4" | "legal" | "folio" | "letter";
 export type PaperOrientation = "portrait" | "landscape";
+export type PaperMargin = "narrow" | "normal" | "wide";
 export type LogoPosition = "left" | "center_top" | "right" | "dual";
 
 export interface PaperDesignConfig {
@@ -17,6 +18,7 @@ export interface PaperDesignConfig {
   borderStyle: BorderStyle;
   paperSize: PaperSize;
   paperOrientation: PaperOrientation;
+  paperMargin?: PaperMargin;
   compactSpacing: boolean;
   fontSize: "sm" | "base" | "lg";
 }
@@ -32,6 +34,7 @@ export const DEFAULT_PAPER_DESIGN: PaperDesignConfig = {
   borderStyle: "double_classic",
   paperSize: "a4",
   paperOrientation: "portrait",
+  paperMargin: "normal",
   compactSpacing: true,
   fontSize: "base",
 };

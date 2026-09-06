@@ -475,31 +475,53 @@ export function generatePaperFromBlueprint(
   // Shuffle available pool for randomized variety
   const shuffledAvailable = shuffleArray(availableQuestions);
 
-  // Helper to pick candidates
-  const pickForCategory = (category: BlueprintCategoryType, count: number): any[] => {
+  // Helper to pick or generate candidates for a specific category
+  const pickForCategory = (item: BlueprintCategoryItem): any[] => {
+    const { category, count, marksPerQuestion } = item;
     const matched = shuffledAvailable.filter(
       q => !usedQuestionIds.has(q.id) && questionMatchesCategory(q, category)
     );
 
     const picked: any[] = [];
     for (let i = 0; i < Math.min(count, matched.length); i++) {
-      picked.push(matched[i]);
-      usedQuestionIds.add(matched[i].id);
+      const q = matched[i];
+      usedQuestionIds.add(q.id);
+      picked.push({
+        ...q,
+        id: `bp-q-${q.id || "gen"}-${Date.now()}-${picked.length}`,
+        marks: marksPerQuestion || q.marks || 10,
+      });
     }
 
-    // Fallback: If not enough exact matches, pick closest available unused questions
+    // Fallback 1: If not enough exact matches, pick closest available unused questions from pool
     if (picked.length < count) {
       const remainingUnused = shuffledAvailable.filter(q => !usedQuestionIds.has(q.id));
       const needed = count - picked.length;
       for (let i = 0; i < Math.min(needed, remainingUnused.length); i++) {
-        picked.push(remainingUnused[i]);
-        usedQuestionIds.add(remainingUnused[i].id);
+        const q = remainingUnused[i];
+        usedQuestionIds.add(q.id);
+        picked.push({
+          ...q,
+          id: `bp-q-${q.id || "gen"}-${Date.now()}-${picked.length}`,
+          marks: marksPerQuestion || q.marks || 10,
+        });
       }
+    }
 
-      if (picked.length < count) {
-        const catName = CATEGORY_LABELS[category]?.name || category;
-        warnings.push(`"${catName}"-এর জন্য প্রশ্নব্যাংকে প্রয়োজনীয় সংখ্যক (${count}টি) প্রশ্ন পাওয়া যায়নি। বর্তমানে ${picked.length}টি যুক্ত হয়েছে।`);
+    // Fallback 2: If pool still has fewer questions than requested, generate high-quality synthetic Qawmi questions
+    if (picked.length < count) {
+      const needed = count - picked.length;
+      const templates = getSyntheticQawmiQuestions(category, needed, marksPerQuestion);
+      for (let i = 0; i < needed; i++) {
+        const synQ = templates[i % templates.length];
+        picked.push({
+          ...synQ,
+          id: `bp-syn-q-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          marks: marksPerQuestion || 10,
+        });
       }
+      const catName = CATEGORY_LABELS[category]?.name || category;
+      warnings.push(`"${catName}"-এর পর্যাপ্ত প্রশ্ন না থাকায় ${needed}টি প্রমিত নমুনা প্রশ্ন স্বয়ংক্রিয়ভাবে সংকলন করা হয়েছে।`);
     }
 
     return picked;
@@ -510,7 +532,7 @@ export function generatePaperFromBlueprint(
     sectionMap.forEach((secData, secKey) => {
       const secQuestions: any[] = [];
       secData.items.forEach(item => {
-        const picked = pickForCategory(item.category, item.count);
+        const picked = pickForCategory(item);
         secQuestions.push(...picked);
       });
 
@@ -526,7 +548,7 @@ export function generatePaperFromBlueprint(
   } else {
     // Unsectioned mode
     blueprint.items.forEach(item => {
-      const picked = pickForCategory(item.category, item.count);
+      const picked = pickForCategory(item);
       allPickedQuestions.push(...picked);
     });
   }
@@ -596,4 +618,134 @@ export function findAlternativeQuestions(
       matchReason: reasons.join(" • ") || "অন্যান্য প্রশ্ন",
     };
   }).sort((a, b) => b.matchScore - a.matchScore);
+}
+
+/**
+ * Generates authentic Qawmi Madrasa synthetic questions for blueprints
+ */
+export function getSyntheticQawmiQuestions(
+  category: BlueprintCategoryType,
+  count: number,
+  marks: number = 10
+): any[] {
+  const bank: Record<BlueprintCategoryType, any[]> = {
+    broad: [
+      {
+        question_text: "مذكوره كِتابের কেন্দ্রীয় মূলভাব ও আলোচ্য বিষয় বিশদভাবে পর্যালোচনা কর।",
+        question_type: "broad",
+        marks,
+      },
+      {
+        question_text: "ইমাম আবু হানিফা (রহ.) এবং সাহেবাইনের মধ্যকার মতানৈক্য ও যুক্তি বিশ্লেষণ কর।",
+        question_type: "broad",
+        marks,
+      },
+      {
+        question_text: "মুসান্নিফের জীবনী, কিতাব সংকলনের প্রেক্ষাপট এবং তার গৃহীত মূলনীতি আলোচনা কর।",
+        question_type: "broad",
+        marks,
+      },
+    ],
+    short: [
+      {
+        question_text: "শরয়ী পরিভাষায় এর পারিভাষিক সংজ্ঞা ও প্রয়োজনীয় শর্তাবলি উল্লেখ কর।",
+        question_type: "short",
+        marks,
+      },
+      {
+        question_text: "হাদিসের সানাদ ও মাতন অনুযায়ী প্রকারভেদ সংক্ষেপে লিখ।",
+        question_type: "short",
+        marks,
+      },
+      {
+        question_text: "উক্ত ইবারতটির সংক্ষিপ্ত ব্যাখ্যা উদাহরণসহ উল্লেখ কর।",
+        question_type: "short",
+        marks,
+      },
+    ],
+    irab_tahqeeq: [
+      {
+        question_text: "أعرب الكلمات الآتية مع ذكر علامة الإعراب والسبب بالتفصيل:",
+        question_type: "irab",
+        marks,
+        irab_words: ["الْعَالِمُ", "مُجْتَهِدًا", "فِي الْمَسْجِدِ", "الْمُتَّقِينَ"],
+      },
+      {
+        question_text: "حقّق الصيغ الآتية مع بيان الباب والماضي والمضارع والمصدر:",
+        question_type: "tahqeeq",
+        marks,
+        tahqeeq_words: [
+          { word: "يَسْتَغْفِرُونَ", seegha: "جمع مذكر غائب", bahs: "اثبات فعل مضارع معروف", baab: "استفعال", root: "غ ف ر", meaning: "তারা ক্ষমা প্রার্থনা করে" },
+          { word: "انْطَلَقُوا", seegha: "جمع مذكر غائب", bahs: "اثبات فعل ماضي معروف", baab: "انفعال", root: "ط ل ق", meaning: "তারা প্রস্থান করল" },
+        ],
+      },
+    ],
+    translation: [
+      {
+        question_text: "ترجم العبارة الآتية إلى اللغة البنغالية ترجمة وافية وسلسة:",
+        question_type: "translation",
+        passage: "قَالَ رَسُولُ اللَّهِ صَلَّى اللَّهُ عَلَيْهِ وَسَلَّمَ: «طَلَبُ الْعِلْمِ فَرِيضَةٌ عَلَى كُلِّ مُسْلِمٍ»، وَإِنَّ الْمَلَائِكَةَ لَتَضَعُ أَجْنِحَتَهَا لِطَالِبِ الْعِلْمِ رِضًا بِمَا يَصْنَعُ.",
+        marks,
+      },
+      {
+        question_text: "নিম্নোক্ত আরবি ইবারতের প্রাঞ্জল বাংলা তরজমা কর:",
+        question_type: "translation",
+        passage: "الْعَدْلُ أَسَاسُ الْمُلْكِ، وَبِهِ تَقُومُ السَّمَاوَاتُ وَالْأَرْضُ، وَمَنْ حَكَمَ بِالْعَدْلِ نَالَ رِضَا رَبِّهِ وَمَحَبَّةَ النَّاسِ.",
+        marks,
+      },
+    ],
+    masala: [
+      {
+        question_text: "নিম্নোক্ত সুরতে ফিকহি হুকুম ও মাসআলার সমাধান দালিলসহ বর্ণনা কর:",
+        question_type: "masala",
+        marks,
+      },
+      {
+        question_text: "মাসবুকের নামাজের আহকাম এবং সাহু সেজদার ওয়াজিব হওয়ার কারণসমূহ বিস্তারিত লিখ।",
+        question_type: "masala",
+        marks,
+      },
+    ],
+    sher: [
+      {
+        question_text: "اشرح الأبيات الآتية مع بيان مفردات الألفاظ والمقصد الأساسي:",
+        question_type: "sher",
+        sher_lines: [
+          "تَعَلَّمْ فَلَيْسَ الْمَرْءُ يُولَدُ عَالِمًا • وَلَيْسَ أَخُو عِلْمٍ كَمَنْ هُوَ جَاهِلُ",
+          "وَإِنَّ كَبِيرَ الْقَوْمِ لَا عِلْمَ عِنْدَهُ • صَغِيرٌ إِذَا الْتَفَّتْ عَلَيْهِ الْجَحَافِلُ",
+        ],
+        marks,
+      },
+    ],
+    mcq: [
+      {
+        question_text: "আরবি ব্যাকরণে কালেমা কয় ভাগে বিভক্ত?",
+        question_type: "mcq",
+        options: ["২ প্রকার", "৩ প্রকার", "৪ প্রকার", "৫ প্রকার"],
+        correct_answer: "৩ প্রকার",
+        marks,
+      },
+      {
+        question_text: "হাদিসের বিশুদ্ধতম সংকলন কোনটি?",
+        question_type: "mcq",
+        options: ["সহিহ বুখারি", "সুনানে আবু দাউদ", "জামে তিরমিযি", "সুনানে নাসায়ি"],
+        correct_answer: "সহিহ বুখারি",
+        marks,
+      },
+    ],
+    any: [
+      {
+        question_text: "মাদ্রাসার নির্ধারিত পাঠ্যসূচি অনুযায়ী প্রাসঙ্গিক বিষয়ের উপর সংক্ষিপ্ত ও সারগর্ভ উত্তর দাও।",
+        question_type: "general",
+        marks,
+      },
+    ],
+  };
+
+  const pool = bank[category] || bank.any;
+  const result: any[] = [];
+  for (let i = 0; i < count; i++) {
+    result.push(pool[i % pool.length]);
+  }
+  return result;
 }
