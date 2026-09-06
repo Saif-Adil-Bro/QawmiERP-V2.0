@@ -2,13 +2,14 @@
 
 import { useState, useRef, DragEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { updateMadrasaDetails } from "@/app/actions/tenant";
 import { uploadImageAuto } from "@/lib/uploadHelper";
 import { 
   Building2, MapPin, Phone, Mail, Upload, Loader2, CheckCircle, 
   AlertTriangle, Globe, FileImage, PenTool, Hash, Calendar, 
   Sparkles, HelpCircle, ExternalLink, X, ShieldCheck,
-  Copy, Check, Info
+  Copy, Check, Info, Database
 } from "lucide-react";
 
 interface Madrasa {
@@ -373,14 +374,24 @@ export default function SettingsClient({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowApiGuide(!showApiGuide)}
-          className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl border border-indigo-200/70 transition shrink-0"
-        >
-          <HelpCircle className="w-4 h-4" />
-          {showApiGuide ? "গাইড বন্ধ করুন" : "ইমেজ হোস্ট (Catbox/iili.io) গাইড"}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href="/dashboard/settings/backup"
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl border border-emerald-200/80 transition shadow-xs"
+          >
+            <Database className="w-4 h-4 text-emerald-600" />
+            <span>ডাটা ব্যাকআপ ও রিস্টোর</span>
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => setShowApiGuide(!showApiGuide)}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl border border-indigo-200/70 transition shrink-0"
+          >
+            <HelpCircle className="w-4 h-4" />
+            {showApiGuide ? "গাইড বন্ধ করুন" : "ইমেজ হোস্ট গাইড"}
+          </button>
+        </div>
       </div>
 
       {/* External Image Host / API Helper Banner */}

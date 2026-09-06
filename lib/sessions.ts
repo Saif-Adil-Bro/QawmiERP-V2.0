@@ -98,6 +98,7 @@ export interface ExtendedStudentProfile {
   photo_url?: string;
   blood_group?: string;
   date_of_birth?: string;
+  gender?: "MALE" | "FEMALE" | string;
   residential_status?: "আবাসিক" | "অনাবাসিক" | "ডে-কেয়ার";
   is_boarding?: boolean;
   boarding_type?: "লিল্লাহ" | "সাধারণ পেইং" | "হাফ-ফ্রি" | "অনাবাসিক" | string;

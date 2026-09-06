@@ -32,6 +32,7 @@ import {
   FolderOpen,
   FolderMinus,
   Sparkles,
+  Database,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/PermissionContext";
 
@@ -429,6 +430,16 @@ const navGroups: NavGroup[] = [
         permission: "user.view",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin"],
         keywords: ["user", "role", "permission", "ইউজার", "পারমিশন"],
+      },
+      {
+        name: "ডাটা ব্যাকআপ ও রিস্টোর",
+        href: "/dashboard/settings/backup",
+        icon: Database,
+        badge: "ক্লাউড ভল্ট",
+        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        permission: "settings.view",
+        roles: ["super_admin", "muhtamim", "admin"],
+        keywords: ["backup", "restore", "export", "import", "ডাটা ব্যাকআপ", "রিস্টোর", "ক্লাউড ব্যাকআপ"],
       },
       {
         name: "মাদ্রাসা সেটিংস",

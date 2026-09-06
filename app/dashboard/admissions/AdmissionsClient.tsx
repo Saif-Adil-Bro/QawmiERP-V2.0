@@ -845,7 +845,14 @@ export default function AdmissionsClient({
                       </span>
                     </td>
                     <td className="p-3.5">
-                      <div className="font-bold text-slate-900">{app.applicant_name_bn}</div>
+                      <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                        <span>{app.applicant_name_bn}</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold ${
+                          app.gender === "FEMALE" ? "bg-rose-50 text-rose-700 border border-rose-200" : "bg-blue-50 text-blue-700 border border-blue-200"
+                        }`}>
+                          {app.gender === "FEMALE" ? "ছাত্রী" : "ছাত্র"}
+                        </span>
+                      </div>
                       <div className="text-xs text-slate-500">পিতা: {app.father_name}</div>
                     </td>
                     <td className="p-3.5">
@@ -1072,6 +1079,23 @@ export default function AdmissionsClient({
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    শিক্ষার্থীর লিঙ্গ (Gender) <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={formData.gender || "MALE"}
+                    onChange={(e) =>
+                      setFormData({ ...formData, gender: e.target.value as "MALE" | "FEMALE" })
+                    }
+                    className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-white font-medium"
+                    required
+                  >
+                    <option value="MALE">ছাত্র (পুরুষ / বালক)</option>
+                    <option value="FEMALE">ছাত্রী (মহিলা / বালিকা)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
                     ভর্তির জামাত <span className="text-rose-500">*</span>
                   </label>
                   <select
@@ -1243,6 +1267,23 @@ export default function AdmissionsClient({
                     onChange={(e) => setFormData({ ...formData, guardian_phone: e.target.value })}
                     className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    শিক্ষার্থীর লিঙ্গ (Gender) <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={formData.gender || "MALE"}
+                    onChange={(e) =>
+                      setFormData({ ...formData, gender: e.target.value as "MALE" | "FEMALE" })
+                    }
+                    className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 bg-white font-medium"
+                    required
+                  >
+                    <option value="MALE">ছাত্র (পুরুষ / বালক)</option>
+                    <option value="FEMALE">ছাত্রী (মহিলা / বালিকা)</option>
+                  </select>
                 </div>
 
                 <div>

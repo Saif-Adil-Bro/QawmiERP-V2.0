@@ -122,6 +122,11 @@ export default async function StudentsPage(props: {
                           <span>
                             {student.first_name} {student.last_name}
                           </span>
+                          {student.gender === "FEMALE" && (
+                            <span className="text-[10px] bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.2 rounded-full font-semibold">
+                              ছাত্রী
+                            </span>
+                          )}
                         </Link>
                       </td>
                       <td className="px-6 py-4">

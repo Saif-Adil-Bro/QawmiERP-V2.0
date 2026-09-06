@@ -264,6 +264,22 @@ export default function EditStudentForm({
             </div>
 
             <div className="space-y-1.5">
+              <label htmlFor="gender" className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                <span>শিক্ষার্থীর লিঙ্গ (Gender) <span className="text-red-500">*</span></span>
+              </label>
+              <select
+                id="gender"
+                name="gender"
+                defaultValue={student.gender || "MALE"}
+                className="w-full px-3.5 py-2 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white font-medium"
+                required
+              >
+                <option value="MALE">ছাত্র (পুরুষ / বালক)</option>
+                <option value="FEMALE">ছাত্রী (মহিলা / বালিকা)</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
               <label htmlFor="class_id" className="text-xs font-semibold text-slate-700">
                 জামাত / শ্রেণি <span className="text-red-500">*</span>
               </label>

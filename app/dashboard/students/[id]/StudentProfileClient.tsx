@@ -129,6 +129,15 @@ export default function StudentProfileClient({
               </span>
               <span
                 className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                  student.gender === "FEMALE"
+                    ? "bg-rose-100 text-rose-800 border border-rose-200"
+                    : "bg-indigo-100 text-indigo-800 border border-indigo-200"
+                }`}
+              >
+                {student.gender === "FEMALE" ? "ছাত্রী (মহিলা)" : "ছাত্র (পুরুষ)"}
+              </span>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
                   student.residential_status === "আবাসিক"
                     ? "bg-amber-100 text-amber-800 border border-amber-300"
                     : student.residential_status === "ডে-কেয়ার"
@@ -480,6 +489,13 @@ export default function StudentProfileClient({
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs sm:text-sm">
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-slate-400 block text-xs">লিঙ্গ (Gender)</span>
+                <span className="font-bold text-slate-800 mt-1 block">
+                  {student.gender === "FEMALE" ? "ছাত্রী (মহিলা)" : "ছাত্র (পুরুষ)"}
+                </span>
+              </div>
+
               <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100">
                 <span className="text-slate-400 block text-xs">জন্ম তারিখ</span>
                 <span className="font-bold text-slate-800 mt-1 block">

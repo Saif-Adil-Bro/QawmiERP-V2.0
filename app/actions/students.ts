@@ -69,6 +69,7 @@ function hydrateStudentWithMetadata(student: any, meta: any) {
     remarks: profile.remarks !== undefined ? profile.remarks : (student.remarks || ""),
     blood_group: profile.blood_group || student.blood_group || admission?.blood_group || "",
     date_of_birth: profile.date_of_birth || student.date_of_birth || admission?.date_of_birth || "",
+    gender: profile.gender || student.gender || admission?.gender || "MALE",
   };
 }
 
@@ -375,6 +376,7 @@ export async function createStudent(prevState: any, formData: FormData) {
   const classId = (formData.get("class_id") as string)?.trim();
   const bloodGroup = (formData.get("blood_group") as string) || "";
   const dateOfBirth = (formData.get("date_of_birth") as string) || "";
+  const gender = (formData.get("gender") as string) || "MALE";
   const parentPhone = (formData.get("parent_phone") as string)?.trim() || "";
   const parentEmail = (formData.get("parent_email") as string)?.trim() || "";
   const password = formData.get("password") as string;
@@ -469,6 +471,7 @@ export async function createStudent(prevState: any, formData: FormData) {
     class_id: classId,
     blood_group: bloodGroup,
     date_of_birth: dateOfBirth,
+    gender: gender,
     parent_phone: parentPhone,
     father_name: fatherName,
     address: address,
@@ -479,10 +482,11 @@ export async function createStudent(prevState: any, formData: FormData) {
   const { data: resData, error } = await supabase.from("students").insert(studentPayload).select("id").single();
   
   if (error) {
-    // If blood_group or date_of_birth column doesn't exist in students table, retry without them
-    if (error.message?.includes("blood_group") || error.message?.includes("date_of_birth")) {
+    // If blood_group, date_of_birth or gender column doesn't exist in students table, retry without them
+    if (error.message?.includes("blood_group") || error.message?.includes("date_of_birth") || error.message?.includes("gender")) {
       delete studentPayload.blood_group;
       delete studentPayload.date_of_birth;
+      delete studentPayload.gender;
       const { data: fallbackData, error: fallbackError } = await supabase.from("students").insert(studentPayload).select("id").single();
       if (fallbackError) {
         console.error("Error creating student:", fallbackError);
@@ -517,6 +521,7 @@ export async function createStudent(prevState: any, formData: FormData) {
         photo_url: photoUrl,
         blood_group: bloodGroup,
         date_of_birth: dateOfBirth,
+        gender: gender,
         residential_status: residentialStatus as any,
         is_boarding: isBoarding,
         boarding_type: boardingType as any,
@@ -586,6 +591,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
   const classId = formData.get("class_id") as string;
   const bloodGroup = (formData.get("blood_group") as string) || "";
   const dateOfBirth = (formData.get("date_of_birth") as string) || "";
+  const gender = (formData.get("gender") as string) || "MALE";
   const parentPhone = (formData.get("parent_phone") as string)?.trim() || "";
   const fatherName = (formData.get("father_name") as string)?.trim() || "";
   const address = (formData.get("address") as string)?.trim() || "";
@@ -685,6 +691,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
     photo_url: photoUrl,
     blood_group: bloodGroup,
     date_of_birth: dateOfBirth,
+    gender: gender,
   };
 
   let { error: updateError } = await adminClient
@@ -693,9 +700,10 @@ export async function updateStudent(prevState: any, formData: FormData) {
     .eq("id", id);
 
   if (updateError) {
-    // If blood_group or date_of_birth do not exist in the physical students table
+    // If blood_group, date_of_birth or gender do not exist in the physical students table
     delete updatePayload.blood_group;
     delete updatePayload.date_of_birth;
+    delete updatePayload.gender;
     let res = await adminClient.from("students").update(updatePayload).eq("id", id);
     if (res.error && res.error.message?.includes("class_name")) {
       delete updatePayload.class_name;
@@ -712,6 +720,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
     // Fallback attempt with standard supabase client
     delete updatePayload.blood_group;
     delete updatePayload.date_of_birth;
+    delete updatePayload.gender;
     const { error: userClientErr } = await supabase
       .from("students")
       .update(updatePayload)
@@ -737,6 +746,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
         roll_number: rollNumber,
         class_id: classId,
         class_name: className,
+        gender: gender,
         residential_status: residentialStatus as any,
         is_boarding: isBoarding,
         boarding_type: boardingType as any,

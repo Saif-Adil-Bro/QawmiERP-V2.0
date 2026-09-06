@@ -620,6 +620,7 @@ export async function confirmAdmissionToStudent(params: {
 
     if (adm.date_of_birth) studentPayload.date_of_birth = adm.date_of_birth;
     if (adm.blood_group) studentPayload.blood_group = adm.blood_group;
+    if (adm.gender) studentPayload.gender = adm.gender;
 
     let { data: newStudent, error: insertError } = await adminClient
       .from("students")
@@ -627,16 +628,18 @@ export async function confirmAdmissionToStudent(params: {
       .select()
       .single();
 
-    // If blood_group or date_of_birth column does not exist in schema cache, gracefully retry without them
+    // If blood_group, date_of_birth or gender column does not exist in schema cache, gracefully retry without them
     if (
       insertError &&
       (insertError.message?.includes("blood_group") ||
         insertError.message?.includes("date_of_birth") ||
+        insertError.message?.includes("gender") ||
         insertError.message?.includes("schema cache") ||
         insertError.code === "PGRST204")
     ) {
       delete studentPayload.blood_group;
       delete studentPayload.date_of_birth;
+      delete studentPayload.gender;
       const retryResult = await adminClient
         .from("students")
         .insert(studentPayload)
@@ -663,6 +666,7 @@ export async function confirmAdmissionToStudent(params: {
       roll_number: finalRoll,
       class_id: targetClassId,
       class_name: className,
+      gender: adm.gender || "MALE",
       father_name: adm.father_name || "",
       father_occupation: adm.father_occupation || "",
       mother_name: adm.mother_name || "",
