@@ -22,188 +22,35 @@ export type {
 };
 
 /**
- * Generates realistic initial seed activities if no logs exist yet
+ * Filter out legacy fake dummy seed logs that were previously generated
  */
-function getDefaultActivityLogsSeed(madrasaId: string): GlobalActivityLogItem[] {
-  const now = Date.now();
-  const dayMs = 24 * 60 * 60 * 1000;
-  const hourMs = 60 * 60 * 1000;
-
-  return [
-    {
-      id: `act_${now - 15 * 60 * 1000}`,
-      action_type: "ATTENDANCE",
-      module: "ATTENDANCE",
-      module_name_bn: "হাজিরা ও ছুটি",
-      title: "দৈনিক শ্রেণি হাজিরা গ্রহণ সম্পন্ন",
-      description: "মিজান ও কাফিয়া জামাতের আজ সকালের হাজিরা গ্রহণ সম্পন্ন হয়েছে। মোট উপস্থিত: ৮৭ জন, অনুপস্থিত: ৩ জন।",
-      actor_name: "মাওলানা আব্দুল্লাহ আল-মামুন",
-      actor_role: "সহকারী শিক্ষক ও হাজিরা ইনচার্জ",
-      actor_email: "mamun@qawmi.edu",
-      timestamp: new Date(now - 15 * 60 * 1000).toISOString(),
-      severity: "SUCCESS",
-      device: "ক্রোম ব্রাউজার (ডেস্কটপ)",
-      ip_address: "192.168.1.105",
-      link: "/dashboard/attendance",
-      metadata: { class: "মিজান", present: 87, absent: 3 },
-    },
-    {
-      id: `act_${now - 45 * 60 * 1000}`,
-      action_type: "CREATE",
-      module: "STUDENTS",
-      module_name_bn: "ছাত্র ব্যবস্থাপনা",
-      title: "নতুন শিক্ষার্থীর পূর্ণাঙ্গ প্রোফাইল এন্ট্রি",
-      description: "মুহাম্মদ তাহমিদ হাসান কে মিজান জামাতে রোল ১২ সহ নতুন ছাত্র হিসেবে ভর্তি ও নিবন্ধন করা হয়েছে।",
-      actor_name: "মাওলানা মাহমুদুল হাসান",
-      actor_role: "নাজেমে তালিমাত",
-      actor_email: "education@qawmi.edu",
-      timestamp: new Date(now - 45 * 60 * 1000).toISOString(),
-      severity: "SUCCESS",
-      device: "ফায়ারফক্স (ডেস্কটপ)",
-      ip_address: "192.168.1.102",
-      link: "/dashboard/students",
-      metadata: { student_name: "মুহাম্মদ তাহমিদ হাসান", roll: "১২", class: "মিজান" },
-    },
-    {
-      id: `act_${now - 2 * hourMs}`,
-      action_type: "PAYMENT",
-      module: "FINANCE",
-      module_name_bn: "হিসাব ও ফি",
-      title: "মাসিক বেতন ও খোরাকি ফি আদায়",
-      description: "শিক্ষার্থী আব্দুল্লাহ (আইডি: STD-1029) এর শাবান মাসের আবাসিক ফি ২,৫০০ টাকা আদায়পূর্বক রশিদ নং #REC-4829 প্রিন্ট করা হয়েছে।",
-      actor_name: "মুফতি আব্দুর রহমান",
-      actor_role: "হিসাবরক্ষক",
-      actor_email: "accounts@qawmi.edu",
-      timestamp: new Date(now - 2 * hourMs).toISOString(),
-      severity: "SUCCESS",
-      device: "ক্রোম ব্রাউজার",
-      ip_address: "192.168.1.110",
-      link: "/dashboard/finance/fees",
-      metadata: { amount: 2500, receipt_no: "REC-4829" },
-    },
-    {
-      id: `act_${now - 5 * hourMs}`,
-      action_type: "EXAM",
-      module: "EXAMS",
-      module_name_bn: "পরীক্ষা ও মূল্যায়ন",
-      title: "হিফজুল কুরআন মাসিক পরীক্ষার নম্বর এন্ট্রি",
-      description: "হিফজ বিভাগ (শাখা-ক)-এর ৩০ জন শিক্ষার্থীর তিলাওয়াত, হিফজ ও তাজবিদ বিষয়ের নম্বরবন্টন সফলভাবে ডাটাবেজে সংরক্ষণ করা হয়েছে।",
-      actor_name: "হাফেজ কারী নূরুল ইসলাম",
-      actor_role: "হিফজ শিক্ষক ও পরীক্ষক",
-      actor_email: "hifz@qawmi.edu",
-      timestamp: new Date(now - 5 * hourMs).toISOString(),
-      severity: "INFO",
-      device: "মোবাইল ক্রোম (অ্যান্ড্রয়েড)",
-      ip_address: "192.168.1.115",
-      link: "/dashboard/exams",
-      metadata: { department: "হিফজ", student_count: 30 },
-    },
-    {
-      id: `act_${now - 8 * hourMs}`,
-      action_type: "APPROVE",
-      module: "ATTENDANCE",
-      module_name_bn: "হাজিরা ও ছুটি",
-      title: "শিক্ষার্থীর ছুটির আবেদন অনুমোদন",
-      description: "শিক্ষার্থী মুহাম্মদ খালিদ সাইফুল্লাহ এর পারিবারিক কারণে ৩ দিনের ছুটির আবেদন মঞ্জুর করা হয়েছে।",
-      actor_name: "মাওলানা মাহমুদুল হাসান",
-      actor_role: "নাজেমে তালিমাত",
-      actor_email: "education@qawmi.edu",
-      timestamp: new Date(now - 8 * hourMs).toISOString(),
-      severity: "SUCCESS",
-      device: "ক্রোম ব্রাউজার",
-      ip_address: "192.168.1.102",
-      link: "/dashboard/attendance/leaves",
-      metadata: { student: "মুহাম্মদ খালিদ সাইফুল্লাহ", days: 3 },
-    },
-    {
-      id: `act_${now - 14 * hourMs}`,
-      action_type: "BACKUP",
-      module: "BACKUP",
-      module_name_bn: "ব্যাকআপ ও রিস্টোর",
-      title: "ডাটাবেজ পূর্ণাঙ্গ ব্যাকআপ এক্সপোর্ট",
-      description: "মাদরাসার সকল ছাত্র, শিক্ষক, ফলাফল ও ফি ডাটার সম্পূর্ণ এনক্রিপ্টেড JSON ব্যাকআপ ডাউনলোড করা হয়েছে।",
-      actor_name: "মুহতামিম সাহেব",
-      actor_role: "প্রধান অ্যাডমিন",
-      actor_email: "muhtamim@qawmi.edu",
-      timestamp: new Date(now - 14 * hourMs).toISOString(),
-      severity: "SUCCESS",
-      device: "ডেস্কটপ (উইন্ডোজ)",
-      ip_address: "192.168.1.101",
-      link: "/dashboard/settings/backup",
-      metadata: { format: "JSON", auto_audit: true },
-    },
-    {
-      id: `act_${now - 1 * dayMs}`,
-      action_type: "CREATE",
-      module: "ADMISSIONS",
-      module_name_bn: "ভর্তি ব্যবস্থাপনা",
-      title: "নতুন অনলাইন ভর্তি আবেদন দাখিল",
-      description: "অভিভাবক কর্তৃক অনলাইন পোর্টাল হতে প্রার্থী 'মুহাম্মদ উমর ফারুক' এর হিফজ জামাতে ভর্তি আবেদন জমা হয়েছে।",
-      actor_name: "অনলাইন ভর্তি পোর্টাল",
-      actor_role: "অভিভাবক",
-      actor_email: "public_portal@qawmi.edu",
-      timestamp: new Date(now - 1 * dayMs).toISOString(),
-      severity: "INFO",
-      device: "মোবাইল সাফারি",
-      ip_address: "103.142.12.45",
-      link: "/dashboard/admissions",
-      metadata: { applicant: "মুহাম্মদ উমর ফারুক", class: "হিফজ" },
-    },
-    {
-      id: `act_${now - 1 * dayMs - 3 * hourMs}`,
-      action_type: "UPDATE",
-      module: "ACADEMIC",
-      module_name_bn: "জামাত ও রুটিন",
-      title: "সাপ্তাহিক ক্লাস রুটিন সমন্বয়",
-      description: "শরহে বেকায়া জামাতের বৃহস্পতিবারের ৩য় ও ৪র্থ ঘণ্টার কিতাব ও উস্তাদ পুনর্বণ্টন করা হয়েছে।",
-      actor_name: "মাওলানা মাহমুদুল হাসান",
-      actor_role: "নাজেমে তালিমাত",
-      actor_email: "education@qawmi.edu",
-      timestamp: new Date(now - 1 * dayMs - 3 * hourMs).toISOString(),
-      severity: "INFO",
-      device: "ক্রোম ব্রাউজার",
-      ip_address: "192.168.1.102",
-      link: "/dashboard/routines",
-      metadata: { class: "শরহে বেকায়া", day: "বৃহস্পতিবার" },
-    },
-    {
-      id: `act_${now - 2 * dayMs}`,
-      action_type: "NOTICE",
-      module: "COMMUNICATION",
-      module_name_bn: "অভিভাবক যোগাযোগ",
-      title: "রমজানুল মুবারকের ছুটি ও সময়সূচি নোটিশ জারি",
-      description: "আগামী পবিত্র রমজান উপলক্ষে মাদরাসার ক্লাস ছুটি ও হোস্টেল ব্যবস্থাপনার জরুরি নোটিশ সকল অভিভাবকের পোর্টালে প্রকাশ করা হয়েছে।",
-      actor_name: "মুহতামিম সাহেব",
-      actor_role: "প্রধান অ্যাডমিন",
-      actor_email: "muhtamim@qawmi.edu",
-      timestamp: new Date(now - 2 * dayMs).toISOString(),
-      severity: "SUCCESS",
-      device: "ডেস্কটপ",
-      ip_address: "192.168.1.101",
-      link: "/dashboard/communication/notices",
-      metadata: { notice_type: "HOLIDAY" },
-    },
-    {
-      id: `act_${now - 3 * dayMs}`,
-      action_type: "UPDATE",
-      module: "SETTINGS",
-      module_name_bn: "সিস্টেম ও সেটিংস",
-      title: "মাদরাসার প্রাতিষ্ঠানিক তথ্য ও লোগো আপডেট",
-      description: "মাদরাসার প্রাতিষ্ঠানিক পরিচিতি, ওয়েবসাইট শিরোনাম এবং যোগাযোগ নম্বর সফলভাবে হালনাগাদ করা হয়েছে।",
-      actor_name: "মুহতামim সাহেব",
-      actor_role: "প্রধান অ্যাডমিন",
-      actor_email: "muhtamim@qawmi.edu",
-      timestamp: new Date(now - 3 * dayMs).toISOString(),
-      severity: "INFO",
-      device: "ডেস্কটপ",
-      ip_address: "192.168.1.101",
-      link: "/dashboard/settings",
-    },
+function isRealLog(log: GlobalActivityLogItem): boolean {
+  if (!log || !log.title) return false;
+  const fakeActors = [
+    "মাওলানা আব্দুল্লাহ আল-মামুন",
+    "মাওলানা মাহমুদুল হাসান",
+    "মুফতি আব্দুর রহমান",
+    "হাফেজ কারী নূরুল ইসলাম",
+    "মুহতামim সাহেব",
   ];
+  if (fakeActors.includes(log.actor_name)) return false;
+  if (
+    log.id?.startsWith("act_") &&
+    (log.title === "দৈনিক শ্রেণি হাজিরা গ্রহণ সম্পন্ন" ||
+      log.title === "নতুন শিক্ষার্থীর পূর্ণাঙ্গ প্রোফাইল এন্ট্রি" ||
+      log.title === "হিফজুল কুরআন মাসিক পরীক্ষার নম্বর এন্ট্রি" ||
+      log.title === "সাপ্তাহিক ক্লাস রুটিন সমন্বয়" ||
+      log.title === "রমজানুল মুবারকের ছুটি ও সময়সূচি নোটিশ জারি" ||
+      log.title === "মাদরাসার প্রাতিষ্ঠানিক তথ্য ও লোগো আপডেট")
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /**
- * Fetch all global activity history logs with optional filters
+ * Fetch all global activity history logs dynamically aggregated from
+ * 100% REAL system events, database tables, and metadata audits.
  */
 export async function getActivityLogs(filters?: ActivityLogFilters): Promise<{
   success: boolean;
@@ -213,6 +60,7 @@ export async function getActivityLogs(filters?: ActivityLogFilters): Promise<{
 }> {
   try {
     const supabase = await createClient();
+    const adminClient = await createAdminClient();
     const user = await getAuthUser(supabase);
     const madrasaId = await getAuthMadrasaId(supabase, user);
 
@@ -231,20 +79,362 @@ export async function getActivityLogs(filters?: ActivityLogFilters): Promise<{
       };
     }
 
-    const meta = await getMadrasaMetadata(madrasaId);
-    let allLogs: GlobalActivityLogItem[] = meta.activity_logs || [];
+    const currentUserName =
+      user?.user_metadata?.full_name ||
+      user?.email?.split("@")[0] ||
+      "সুপার অ্যাডমিন";
 
-    // If no logs yet, seed realistic default logs and persist
-    if (!allLogs || allLogs.length === 0) {
-      allLogs = getDefaultActivityLogsSeed(madrasaId);
-      meta.activity_logs = allLogs;
-      await saveMadrasaMetadata(madrasaId, meta);
+    // 1. Fetch Madrasa metadata
+    const meta = await getMadrasaMetadata(madrasaId);
+
+    const compiledLogs: GlobalActivityLogItem[] = [];
+
+    // --- A. Runtime & Manual Activity Logs (Real only) ---
+    if (Array.isArray(meta.activity_logs)) {
+      const realRuntimeLogs = meta.activity_logs.filter(isRealLog);
+      compiledLogs.push(...realRuntimeLogs);
+
+      // Clean metadata if fake logs were present
+      if (realRuntimeLogs.length !== meta.activity_logs.length) {
+        meta.activity_logs = realRuntimeLogs;
+        saveMadrasaMetadata(madrasaId, meta).catch((e) =>
+          console.warn("Error purging fake logs from meta:", e)
+        );
+      }
     }
 
-    // Sort newest first
-    allLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // --- B. Real Backup History ---
+    if (Array.isArray(meta.backup_history)) {
+      meta.backup_history.forEach((b: any) => {
+        const isRestore = b.type?.includes("RESTORE");
+        compiledLogs.push({
+          id: `bk_${b.id}`,
+          action_type: isRestore ? "RESTORE" : "BACKUP",
+          module: "BACKUP",
+          module_name_bn: "ব্যাকআপ ও রিস্টোর",
+          title: isRestore ? "ডাটাবেজ ব্যাকআপ রিস্টোর" : "ডাটাবেজ পূর্ণাঙ্গ ব্যাকআপ এক্সপোর্ট",
+          description:
+            b.note ||
+            `মাদরাসার সম্পূর্ণ ডাটাবেজ ব্যাকআপ ${isRestore ? "রিস্টোর" : "এক্সপোর্ট"} সম্পন্ন (${b.total_records || 0} রেকর্ড${b.file_size_kb ? `, ${b.file_size_kb} KB` : ""})।`,
+          actor_name: b.actor_name || b.actor_email || currentUserName,
+          actor_role: "সুপার অ্যাডমিন",
+          actor_email: b.actor_email || user?.email,
+          timestamp: b.timestamp || new Date().toISOString(),
+          severity: b.status === "FAILED" ? "CRITICAL" : "SUCCESS",
+          link: "/dashboard/settings/backup",
+          metadata: { total_records: b.total_records, modules: b.modules },
+        });
+      });
+    }
 
-    // Calculate stats before filtering
+    // --- C. Real Certificate Audit Logs ---
+    if (Array.isArray(meta.certificate_audit_logs)) {
+      meta.certificate_audit_logs.forEach((c: any) => {
+        const actionType: ActivityActionType =
+          c.action === "DELETED" ? "DELETE" : c.action === "REVOKED" ? "REJECT" : "CREATE";
+        const title =
+          c.action === "CREATED"
+            ? "শিক্ষার্থীর প্রশংসাপত্র/সনদপত্র তৈরি"
+            : c.action === "REVOKED"
+            ? "সনদপত্র প্রত্যাহার/বাতিল"
+            : "সনদপত্র রেকর্ড অপসারণ";
+        compiledLogs.push({
+          id: `cert_${c.id}`,
+          action_type: actionType,
+          module: "ACADEMIC",
+          module_name_bn: "জামাত ও রুটিন",
+          title,
+          description: c.details || `সনদপত্র নং: ${c.certificate_number || ""}`,
+          actor_name: c.user_name || currentUserName,
+          actor_role: "সনদপত্র ইনচার্জ",
+          timestamp: c.created_at || new Date().toISOString(),
+          severity: c.action === "DELETED" ? "WARNING" : "SUCCESS",
+          link: "/dashboard/certificates",
+          metadata: { cert_no: c.certificate_number, student: c.student_name },
+        });
+      });
+    }
+
+    // --- D. Real ID Card Audit Logs ---
+    if (Array.isArray(meta.id_card_audit_logs)) {
+      meta.id_card_audit_logs.forEach((i: any) => {
+        compiledLogs.push({
+          id: `idcard_${i.id}`,
+          action_type: "CREATE",
+          module: "STUDENTS",
+          module_name_bn: "ছাত্র ব্যবস্থাপনা",
+          title: "শিক্ষার্থীর ডিজিটাল আইডি কার্ড জেনারেশন",
+          description: i.details || "শিক্ষার্থীর ডিজিটাল পরিচয়পত্র তৈরি করা হয়েছে।",
+          actor_name: i.user_name || currentUserName,
+          actor_role: "আইডি কার্ড ইনচার্জ",
+          timestamp: i.created_at || new Date().toISOString(),
+          severity: "SUCCESS",
+          link: "/dashboard/academic/id-cards",
+          metadata: { card_number: i.card_number, student_id: i.student_id },
+        });
+      });
+    }
+
+    // --- E. Real Student Leave Applications ---
+    if (Array.isArray(meta.student_leave_applications)) {
+      meta.student_leave_applications.forEach((l: any) => {
+        const isApproved = l.status === "APPROVED";
+        const isRejected = l.status === "REJECTED";
+        compiledLogs.push({
+          id: `leave_${l.id}`,
+          action_type: isApproved ? "APPROVE" : isRejected ? "REJECT" : "CREATE",
+          module: "ATTENDANCE",
+          module_name_bn: "হাজিরা ও ছুটি",
+          title: isApproved
+            ? "শিক্ষার্থীর ছুটির আবেদন মঞ্জুর"
+            : isRejected
+            ? "শিক্ষার্থীর ছুটির আবেদন বাতিল"
+            : "নতুন ছুটির আবেদন দাখিল",
+          description: `${l.guardian_name ? `অভিভাবক: ${l.guardian_name} | ` : ""}${
+            l.student_name ? `শিক্ষার্থী: ${l.student_name}` : ""
+          } এর ${l.total_days || 1} দিনের ছুটি (${l.leave_type || "ছুটি"})। ${
+            l.admin_remarks ? `মন্তব্য: ${l.admin_remarks}` : ""
+          }`.trim(),
+          actor_name: l.reviewed_by || l.guardian_name || currentUserName,
+          actor_role: l.reviewed_by ? "হাজিরা ইনচার্জ" : "অভিভাবক",
+          timestamp: l.reviewed_at || l.created_at || new Date().toISOString(),
+          severity: isApproved ? "SUCCESS" : isRejected ? "WARNING" : "INFO",
+          link: "/dashboard/attendance/leaves",
+          metadata: {
+            leave_id: l.id,
+            start: l.start_date,
+            end: l.end_date,
+            status: l.status,
+          },
+        });
+      });
+    }
+
+    // --- F. Real Staff Audit Logs ---
+    if (Array.isArray(meta.staff_audit_logs)) {
+      meta.staff_audit_logs.forEach((s: any) => {
+        compiledLogs.push({
+          id: `stf_${s.id}`,
+          action_type: s.action?.includes("নিয়োগ") ? "CREATE" : "UPDATE",
+          module: "SETTINGS",
+          module_name_bn: "সিস্টেম ও সেটিংস",
+          title: s.action || "কর্মী ব্যবস্থাপনা ও পদবী হালনাগাদ",
+          description: s.details || "স্টাফ রেকর্ড হালনাগাদ করা হয়েছে।",
+          actor_name: s.user_email || currentUserName,
+          actor_role: "মুহতামিম",
+          timestamp: s.created_at || new Date().toISOString(),
+          severity: "INFO",
+          link: "/dashboard/staff",
+        });
+      });
+    }
+
+    // --- G. Real Finance & Fee Audit Logs ---
+    if (Array.isArray(meta.audit_logs)) {
+      meta.audit_logs.forEach((f: any) => {
+        const isFeeCollect = f.action === "COLLECT_FEE_PAYMENT";
+        compiledLogs.push({
+          id: `fin_${f.id}`,
+          action_type: "PAYMENT",
+          module: "FINANCE",
+          module_name_bn: "হিসাব ও ফি",
+          title: isFeeCollect ? "শিক্ষার্থীর ফি আদায় ও রশিদ প্রদান" : "মাসিক বেতন ও ফি শিডিউল তৈরি",
+          description: f.details || "ফি সংক্রান্ত হিসাব হালনাগাদ করা হয়েছে।",
+          actor_name: f.user_name || currentUserName,
+          actor_role: f.user_role === "accountant" ? "হিসাবরক্ষক" : "অ্যাডমিন",
+          timestamp: f.created_at || new Date().toISOString(),
+          severity: "SUCCESS",
+          link: "/dashboard/accounting/fees",
+        });
+      });
+    }
+
+    // --- H. Real Online Admissions & Confirmations ---
+    if (Array.isArray(meta.admissions)) {
+      meta.admissions.forEach((adm: any) => {
+        const isConfirmed = adm.status === "CONFIRMED" || adm.confirmed_student_id;
+        const applicantName =
+          adm.applicant_name_bn || adm.first_name || adm.applicant_name_en || "ভর্তি পরীক্ষার্থী";
+        compiledLogs.push({
+          id: `adm_${adm.id}`,
+          action_type: isConfirmed ? "APPROVE" : "CREATE",
+          module: "ADMISSIONS",
+          module_name_bn: "ভর্তি ব্যবস্থাপনা",
+          title: isConfirmed
+            ? `শিক্ষার্থী ভর্তি চূড়ান্তকরণ: ${applicantName}`
+            : `অনলাইন ভর্তি আবেদন দাখিল: ${applicantName}`,
+          description: `${adm.target_class_name ? `জামাত: ${adm.target_class_name}` : ""}${
+            adm.assigned_permanent_roll ? ` | স্থায়ী রোল: ${adm.assigned_permanent_roll}` : ""
+          }${adm.application_no ? ` | আবেদন নং: ${adm.application_no}` : ""}${
+            adm.test_evaluation?.total_marks ? ` | প্রাপ্ত নম্বর: ${adm.test_evaluation.total_marks}` : ""
+          }`.trim(),
+          actor_name: adm.test_evaluation?.evaluated_by || currentUserName,
+          actor_role: "ভর্তি ইনচার্জ",
+          timestamp: adm.updated_at || adm.created_at || new Date().toISOString(),
+          severity: isConfirmed ? "SUCCESS" : "INFO",
+          link: "/dashboard/admissions",
+          metadata: {
+            applicant: applicantName,
+            status: adm.status,
+            roll: adm.assigned_permanent_roll,
+          },
+        });
+      });
+    }
+
+    // --- I. Real Students Table Records ---
+    try {
+      const { data: realStudents } = await adminClient
+        .from("students")
+        .select("id, first_name, last_name, roll_number, created_at, classes(name)")
+        .eq("madrasa_id", madrasaId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (Array.isArray(realStudents)) {
+        realStudents.forEach((st: any) => {
+          const sName = `${st.first_name || ""} ${st.last_name || ""}`.trim() || "শিক্ষার্থী";
+          const className = st.classes?.name || "";
+          compiledLogs.push({
+            id: `std_reg_${st.id}`,
+            action_type: "CREATE",
+            module: "STUDENTS",
+            module_name_bn: "ছাত্র ব্যবস্থাপনা",
+            title: `নতুন শিক্ষার্থী নিবন্ধন: ${sName}`,
+            description: `শ্রেণি রোল ${st.roll_number || "অনির্ধারিত"}${
+              className ? ` (${className})` : ""
+            } সহ ছাত্র প্রোফাইল ডাটাবেজে সংরক্ষিত হয়েছে।`,
+            actor_name: currentUserName,
+            actor_role: "ছাত্র ইনচার্জ",
+            timestamp: st.created_at,
+            severity: "SUCCESS",
+            link: `/dashboard/students/${st.id}`,
+            metadata: { student_id: st.id, roll: st.roll_number },
+          });
+        });
+      }
+    } catch (stdErr) {
+      console.warn("Error fetching real students for activity logs:", stdErr);
+    }
+
+    // --- J. Real Exams Table Records ---
+    try {
+      const { data: realExams } = await adminClient
+        .from("exams")
+        .select("id, title, status, start_date, created_at")
+        .eq("madrasa_id", madrasaId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (Array.isArray(realExams)) {
+        realExams.forEach((ex: any) => {
+          compiledLogs.push({
+            id: `exam_reg_${ex.id}`,
+            action_type: "EXAM",
+            module: "EXAMS",
+            module_name_bn: "পরীক্ষা ও মূল্যায়ন",
+            title: `পরীক্ষা শিডিউল: ${ex.title}`,
+            description: `স্ট্যাটাস: ${ex.status || "চলমান"}${
+              ex.start_date ? ` | শুরুর তারিখ: ${ex.start_date}` : ""
+            }`,
+            actor_name: currentUserName,
+            actor_role: "পরীক্ষা নিয়ন্ত্রক",
+            timestamp: ex.created_at,
+            severity: "INFO",
+            link: "/dashboard/exams",
+            metadata: { exam_id: ex.id, status: ex.status },
+          });
+        });
+      }
+    } catch (examErr) {
+      console.warn("Error fetching real exams for activity logs:", examErr);
+    }
+
+    // --- K. Real Notices Table Records ---
+    try {
+      const { data: realNotices } = await adminClient
+        .from("notices")
+        .select("id, title, content, created_at")
+        .eq("madrasa_id", madrasaId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (Array.isArray(realNotices)) {
+        realNotices.forEach((nt: any) => {
+          compiledLogs.push({
+            id: `nt_reg_${nt.id}`,
+            action_type: "NOTICE",
+            module: "COMMUNICATION",
+            module_name_bn: "অভিভাবক যোগাযোগ",
+            title: `বিজ্ঞপ্তি প্রকাশ: ${nt.title?.trim()}`,
+            description: nt.content
+              ? nt.content.substring(0, 100) + (nt.content.length > 100 ? "..." : "")
+              : "মাদরাসার অফিশিয়াল নোটিশ জারি করা হয়েছে।",
+            actor_name: currentUserName,
+            actor_role: "প্রধান অ্যাডমিন",
+            timestamp: nt.created_at,
+            severity: "INFO",
+            link: "/dashboard/communication/notices",
+          });
+        });
+      }
+    } catch (noticeErr) {
+      console.warn("Error fetching real notices for activity logs:", noticeErr);
+    }
+
+    // --- L. Real Attendance Grouped Records ---
+    try {
+      const { data: attRows } = await adminClient
+        .from("attendance")
+        .select("date, created_at")
+        .eq("madrasa_id", madrasaId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (Array.isArray(attRows) && attRows.length > 0) {
+        const attByDate: Record<string, { count: number; timestamp: string }> = {};
+        attRows.forEach((r: any) => {
+          if (!r.date) return;
+          if (!attByDate[r.date]) {
+            attByDate[r.date] = { count: 0, timestamp: r.created_at };
+          }
+          attByDate[r.date].count += 1;
+        });
+
+        Object.entries(attByDate).forEach(([dateStr, info]) => {
+          compiledLogs.push({
+            id: `att_day_${dateStr}`,
+            action_type: "ATTENDANCE",
+            module: "ATTENDANCE",
+            module_name_bn: "হাজিরা ও ছুটি",
+            title: `দৈনিক শ্রেণি উপস্থিতি গ্রহণ (${dateStr})`,
+            description: `তারিখ ${dateStr}-এ শিক্ষার্থীদের উপস্থিতি গ্রহণ সম্পন্ন হয়েছে।`,
+            actor_name: currentUserName,
+            actor_role: "হাজিরা ইনচার্জ",
+            timestamp: info.timestamp,
+            severity: "SUCCESS",
+            link: "/dashboard/attendance",
+          });
+        });
+      }
+    } catch (attErr) {
+      console.warn("Error fetching real attendance for activity logs:", attErr);
+    }
+
+    // Deduplicate by unique id
+    const seenIds = new Set<string>();
+    const uniqueLogs: GlobalActivityLogItem[] = [];
+    for (const log of compiledLogs) {
+      if (!seenIds.has(log.id)) {
+        seenIds.add(log.id);
+        uniqueLogs.push(log);
+      }
+    }
+
+    // Sort strictly chronological (newest first)
+    uniqueLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    // Compute accurate stats
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const startOfWeek = startOfToday - 7 * 24 * 60 * 60 * 1000;
@@ -254,7 +444,7 @@ export async function getActivityLogs(filters?: ActivityLogFilters): Promise<{
     let successCount = 0;
     const moduleCounts: Record<string, number> = {};
 
-    allLogs.forEach((item) => {
+    uniqueLogs.forEach((item) => {
       const itemTime = new Date(item.timestamp).getTime();
       if (itemTime >= startOfToday) todayCount++;
       if (itemTime >= startOfWeek) weekCount++;
@@ -263,15 +453,15 @@ export async function getActivityLogs(filters?: ActivityLogFilters): Promise<{
     });
 
     const stats: ActivityStats = {
-      totalLogs: allLogs.length,
+      totalLogs: uniqueLogs.length,
       todayCount,
       weekCount,
       successCount,
       moduleCounts,
     };
 
-    // Apply filtering
-    let filtered = [...allLogs];
+    // Apply filters
+    let filtered = [...uniqueLogs];
 
     if (filters?.module && filters.module !== "ALL") {
       filtered = filtered.filter((l) => l.module === filters.module);
@@ -386,6 +576,8 @@ export async function recordActivityLog(entry: {
       metadata: entry.metadata,
       device: entry.device || "ওয়েব ড্যাশবোর্ড",
       ip_address: entry.ip_address || "লোকাল ক্লায়েন্ট",
+      entity_id: entry.entity_id,
+      entity_type: entry.entity_type,
     };
 
     meta.activity_logs.unshift(newLog);
