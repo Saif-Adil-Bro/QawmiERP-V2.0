@@ -13,6 +13,8 @@ import {
   BookOpen,
   Wallet,
   Shield,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import DashboardNav from "./DashboardNav";
 import { logout } from "@/app/actions/auth";
@@ -147,7 +149,32 @@ function MobileBottomNav({
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const pathname = usePathname();
+
+  // Load saved preference for desktop sidebar
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("qawmi_desktop_sidebar");
+      if (saved !== null) {
+        setDesktopSidebarOpen(saved === "true");
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, []);
+
+  const toggleDesktopSidebar = () => {
+    setDesktopSidebarOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("qawmi_desktop_sidebar", String(next));
+      } catch {
+        // Ignore localStorage errors
+      }
+      return next;
+    });
+  };
 
   // Automatically close mobile sidebar on route change
   useEffect(() => {
@@ -157,7 +184,8 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   return (
     <PermissionProvider>
       <SessionProvider>
-        <div className="flex h-screen bg-slate-50 print:bg-white print:h-auto overflow-hidden">
+        {/* Fixed screen wrapper: h-screen overflow-hidden ensures fixed viewport on big screens */}
+        <div className="flex h-screen w-full bg-slate-50 print:bg-white print:h-auto overflow-hidden">
           {/* Mobile Backdrop Overlay */}
           {sidebarOpen && (
             <div
@@ -166,52 +194,74 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             />
           )}
 
-          {/* Sidebar Drawer */}
+          {/* Sidebar Drawer: w-72 sm:w-80 on mobile/tablet, w-72 lg:w-80 (320px) on desktop for spacious layout */}
           <aside
-            className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-300 flex flex-col transition-transform duration-200 ease-in-out lg:static lg:translate-x-0 print:hidden ${
+            className={`fixed inset-y-0 left-0 z-50 w-72 sm:w-80 lg:w-80 bg-slate-900 text-slate-300 flex flex-col transition-all duration-200 ease-in-out lg:static print:hidden shrink-0 select-none ${
               sidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
+            } ${
+              desktopSidebarOpen
+                ? "lg:translate-x-0 lg:w-80"
+                : "lg:-translate-x-full lg:w-0 lg:overflow-hidden"
             }`}
           >
-            <div className="p-5 border-b border-slate-800 shrink-0 flex items-center justify-between">
+            {/* Sidebar Brand Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-800 shrink-0 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-black text-white tracking-tight">QawmiERP</h2>
-                <p className="text-[11px] text-slate-400 mt-0.5">মাদরাসা ম্যানেজমেন্ট</p>
+                <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+                  <span className="bg-emerald-600 text-white p-1 rounded-lg text-sm font-black">Q</span>
+                  <span>QawmiERP</span>
+                </h2>
+                <p className="text-[11px] text-slate-400 mt-0.5 font-medium">মাদরাসা ম্যানেজমেন্ট সিস্টেম</p>
               </div>
-              {/* Close button for mobile */}
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(false)}
-                className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
-                aria-label="Close menu"
-              >
-                <X className="w-5 h-5" />
-              </button>
+
+              <div className="flex items-center gap-1">
+                {/* Desktop Collapse Toggle */}
+                <button
+                  type="button"
+                  onClick={toggleDesktopSidebar}
+                  className="hidden lg:flex p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+                  title="সাইডবার লুকান (Hide Sidebar)"
+                  aria-label="Collapse sidebar"
+                >
+                  <PanelLeftClose className="w-5 h-5" />
+                </button>
+
+                {/* Mobile Close Button */}
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(false)}
+                  className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+                  aria-label="Close menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            {/* Dynamic Nav Menu */}
-            <div className="flex-1 overflow-y-auto">
+            {/* Dynamic Nav Menu with Independent Scroll */}
+            <div className="flex-1 overflow-y-auto overscroll-contain">
               <DashboardNav />
             </div>
 
             {/* Logout Button */}
-            <div className="p-4 border-t border-slate-800 shrink-0">
+            <div className="p-3.5 sm:p-4 border-t border-slate-800 shrink-0">
               <form action={logout}>
                 <button
                   type="submit"
-                  className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl hover:bg-slate-800 text-rose-400 hover:text-rose-300 transition text-sm font-medium cursor-pointer"
+                  className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl hover:bg-slate-800 text-rose-400 hover:text-rose-300 transition text-xs sm:text-sm font-semibold cursor-pointer"
                 >
-                  <LogOut className="w-5 h-5" />
+                  <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
                   <span>লগআউট</span>
                 </button>
               </form>
             </div>
           </aside>
 
-          {/* Main Content Area */}
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden print:overflow-visible">
-            {/* Top Header */}
-            <header className="h-16 bg-white border-b border-slate-200/80 flex items-center justify-between px-4 sm:px-8 print:hidden shrink-0 gap-3">
-              <div className="flex items-center gap-3 min-w-0">
+          {/* Main Content Area (Fixed layout, independent scrolling viewport) */}
+          <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:overflow-visible">
+            {/* Top Fixed Header */}
+            <header className="h-16 bg-white/95 backdrop-blur-xs border-b border-slate-200/80 flex items-center justify-between px-4 sm:px-6 lg:px-8 print:hidden shrink-0 gap-3 z-20">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                 {/* Mobile Hamburger Toggle */}
                 <button
                   type="button"
@@ -221,6 +271,21 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                 >
                   <Menu className="w-5 h-5" />
                 </button>
+
+                {/* Desktop Expand Button when sidebar is collapsed */}
+                {!desktopSidebarOpen && (
+                  <button
+                    type="button"
+                    onClick={toggleDesktopSidebar}
+                    className="hidden lg:flex items-center gap-1.5 p-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200"
+                    title="সাইডবার খুলুন (Open Sidebar)"
+                    aria-label="Expand sidebar"
+                  >
+                    <PanelLeftOpen className="w-5 h-5 text-emerald-600" />
+                    <span className="text-xs font-semibold text-slate-700">মেনু</span>
+                  </button>
+                )}
+
                 <h1 className="text-base sm:text-lg font-bold text-slate-900 truncate">এডমিন পোর্টাল</h1>
               </div>
 
@@ -238,7 +303,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             {/* Archived Session Notice Banner */}
             <ArchivedSessionBanner />
 
-            {/* Page Content */}
+            {/* Page Content: Dedicated smooth scrolling main viewport */}
             <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-20 lg:pb-8 print:p-0 print:overflow-visible">
               {children}
             </main>

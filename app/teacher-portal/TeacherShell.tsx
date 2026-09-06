@@ -45,7 +45,7 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* DESKTOP SIDEBAR */}
-      <aside className="hidden md:flex w-64 lg:w-72 bg-slate-950 text-slate-300 flex-col border-r border-slate-800 shrink-0 select-none">
+      <aside className="hidden md:flex w-72 lg:w-80 bg-slate-950 text-slate-300 flex-col border-r border-slate-800 shrink-0 select-none">
         {/* Madrasa Brand */}
         <div className="p-4 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
           <Link href="/teacher-portal" className="flex items-center gap-3 min-w-0">
