@@ -1,14 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { getExamPaper, saveExamPaper } from "@/app/actions/questions";
+import { useState, useEffect, useMemo } from "react";
+import { getExamPaper, saveExamPaper, seedSampleQuestionsForSubject, saveQuestion } from "@/app/actions/questions";
 import { 
   Plus, Trash2, Printer, Loader2, Save, FileSignature, CheckCircle2, 
   BookOpen, ArrowUp, ArrowDown, Layers, Sparkles, Check, 
   Image as ImageIcon, Upload, FileText, Settings2, Eye, LayoutTemplate,
-  Columns, Palette, RotateCw
+  Columns, Palette, RotateCw, ArrowLeftRight, Sliders, AlertCircle, AlertTriangle,
+  History, Copy
 } from "lucide-react";
 import SpecializedQuestionView, { getQuestionTypeBadge } from "@/components/exams/SpecializedQuestionView";
+import AutoPaperBlueprintModal from "@/components/exams/AutoPaperBlueprintModal";
+import QuestionSwapModal from "@/components/exams/QuestionSwapModal";
+import CloneFromPastModal from "@/components/exams/CloneFromPastModal";
+import { 
+  AutoPaperBlueprint, 
+  BUILT_IN_BLUEPRINTS, 
+  generatePaperFromBlueprint 
+} from "@/lib/autoPaperEngine";
 import { 
   ExamPaperSection, 
   INSTRUCTION_PRESETS, 
@@ -119,11 +128,241 @@ export default function PaperGeneratorClient({
   
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+
+  // Local copy of questions to allow dynamic updates when seeding or adding
+  const [localQuestions, setLocalQuestions] = useState<any[]>(questions);
+  useEffect(() => {
+    setLocalQuestions(questions);
+  }, [questions]);
 
   // Available questions for selected class and subject
-  const availableQuestions = questions.filter(
-    (q) => q.class_id === classId && q.subject_id === subjectId
-  );
+  const availableQuestions = useMemo(() => {
+    return localQuestions.filter(
+      (q) => q.class_id === classId && q.subject_id === subjectId
+    );
+  }, [localQuestions, classId, subjectId]);
+
+  // 1-Click Auto Paper Blueprint & Question Swap states
+  const [isAutoBlueprintModalOpen, setIsAutoBlueprintModalOpen] = useState(false);
+  const [isCloneFromPastModalOpen, setIsCloneFromPastModalOpen] = useState(false);
+  const [lastGeneratedBlueprint, setLastGeneratedBlueprint] = useState<AutoPaperBlueprint | null>(null);
+  const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
+  const [swapTargetQuestion, setSwapTargetQuestion] = useState<any | null>(null);
+  const [swapTargetSectionName, setSwapTargetSectionName] = useState<string | undefined>(undefined);
+
+  const handleApplyPastPaper = (pastPaper: any) => {
+    if (!pastPaper) return;
+
+    // Update metadata
+    if (pastPaper.title) setPaperTitle(pastPaper.title);
+    if (pastPaper.exam_time) setExamTime(pastPaper.exam_time);
+    if (pastPaper.total_marks) setTotalMarks(Number(pastPaper.total_marks));
+    if (pastPaper.exam_name) setExamName(pastPaper.exam_name);
+    
+    // If different class/subject was chosen in past paper, switch to it
+    if (pastPaper.class_id && pastPaper.class_id !== classId) {
+      setClassId(pastPaper.class_id);
+    }
+    if (pastPaper.subject_id && pastPaper.subject_id !== subjectId) {
+      setSubjectId(pastPaper.subject_id);
+    }
+
+    const qData = pastPaper.questions;
+    if (qData) {
+      if (qData.is_sectioned && Array.isArray(qData.sections)) {
+        setIsSectioned(true);
+        setSections(qData.sections.map((sec: any, sIdx: number) => ({
+          ...sec,
+          id: `cloned-sec-${Date.now()}-${sIdx}`,
+          questions: (sec.questions || []).map((q: any, qIdx: number) => ({
+            ...q,
+            id: `cloned-q-${Date.now()}-${sIdx}-${qIdx}`,
+          }))
+        })));
+        if (qData.numbering_scheme) {
+          setNumberingScheme(qData.numbering_scheme);
+        }
+      } else if (Array.isArray(qData)) {
+        setIsSectioned(false);
+        setUnsectionedQuestions(qData.map((q: any, qIdx: number) => ({
+          ...q,
+          id: `cloned-q-${Date.now()}-${qIdx}`,
+        })));
+      } else if (Array.isArray(qData.questions)) {
+        setIsSectioned(false);
+        setUnsectionedQuestions(qData.questions.map((q: any, qIdx: number) => ({
+          ...q,
+          id: `cloned-q-${Date.now()}-${qIdx}`,
+        })));
+      }
+
+      // Design config restoration if present
+      if (qData.design_config) {
+        const dc = qData.design_config;
+        if (dc.columnLayout) setColumnLayout(dc.columnLayout);
+        if (dc.columnDivider) setColumnDivider(dc.columnDivider);
+        if (dc.calligraphyStyle) setCalligraphyStyle(dc.calligraphyStyle);
+        if (dc.borderStyle) setBorderStyle(dc.borderStyle);
+        if (dc.paperSize) setPaperSize(dc.paperSize);
+        if (dc.paperOrientation) setPaperOrientation(dc.paperOrientation);
+        if (dc.selectedFont) setSelectedFont(dc.selectedFont);
+        if (dc.customMadrasaName) setCustomMadrasaName(dc.customMadrasaName);
+      }
+    }
+
+    setActiveTab("sections");
+    alert("বিগত বছরের প্রশ্নপত্রটি সফলভাবে বর্তমান এডিটরে লোড করা হয়েছে! প্রয়োজন অনুযায়ী পরিবর্তন করে সংরক্ষণ করুন।");
+  };
+
+  const currentlyUsedQuestionIds = useMemo(() => {
+    if (isSectioned) {
+      return new Set<string>(sections.flatMap(s => s.questions.map(q => String(q.id))));
+    }
+    return new Set<string>(unsectionedQuestions.map(q => String(q.id)));
+  }, [isSectioned, sections, unsectionedQuestions]);
+
+  const ensureQuestionsInBank = async (): Promise<any[]> => {
+    if (availableQuestions.length > 0) return availableQuestions;
+
+    const confirmSeed = window.confirm(
+      "নির্বাচিত শ্রেণি ও বিষয়ের প্রশ্নব্যাংক বর্তমানে খালি আছে। আপনি কি কওমি মাদ্রাসার প্রমিত নমুনা প্রশ্নাবলী (রচনামূলক, সংক্ষিপ্ত, এরাব, তাহকীক, অনুবাদ, ফিকহ) স্বয়ংক্রিয়ভাবে প্রশ্নব্যাংকে যুক্ত করে প্রশ্নপত্র তৈরি করতে চান?"
+    );
+    if (!confirmSeed) return [];
+
+    setSeeding(true);
+    try {
+      const res = await seedSampleQuestionsForSubject(classId, subjectId);
+      if (res?.success && res.questions) {
+        const addedQuestions = res.questions;
+        setLocalQuestions(prev => [...prev, ...addedQuestions]);
+        return addedQuestions;
+      } else {
+        alert(res?.error || "নমুনা প্রশ্ন যোগ করা যায়নি।");
+        return [];
+      }
+    } catch (err) {
+      console.error("Seed error:", err);
+      return [];
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  const handleOpenAutoBlueprintModal = async () => {
+    if (!classId || !subjectId) {
+      alert("অনুগ্রহ করে প্রথমে শ্রেণি ও বিষয় নির্বাচন করুন।");
+      return;
+    }
+    if (availableQuestions.length === 0) {
+      await ensureQuestionsInBank();
+    }
+    setIsAutoBlueprintModalOpen(true);
+  };
+
+  const executeBlueprintGeneration = (bp: AutoPaperBlueprint, pool: any[]) => {
+    const result = generatePaperFromBlueprint(bp, pool);
+    if (!result.success && result.totalQuestions === 0) {
+      alert("ব্লুপ্রিন্ট অনুযায়ী প্রশ্ন নির্বাচন করা সম্ভব হয়নি। প্রশ্নব্যাংকে পর্যাপ্ত প্রশ্ন আছে কি না তা যাচাই করুন।");
+      return;
+    }
+
+    if (bp.isSectioned) {
+      setIsSectioned(true);
+      setSections(result.sections);
+      if (result.sections.length > 0) {
+        setActiveSectionId(result.sections[0].id);
+      }
+    } else {
+      setIsSectioned(false);
+      setUnsectionedQuestions(result.flatQuestions);
+    }
+
+    setTotalMarks(bp.totalMarks);
+    setExamTime(bp.time);
+    if (bp.paperInstructions) {
+      setPaperInstructions(bp.paperInstructions);
+    }
+    setLastGeneratedBlueprint(bp);
+    setIsAutoBlueprintModalOpen(false);
+    setActiveTab("sections");
+
+    if (result.warnings && result.warnings.length > 0) {
+      alert(`অটো-প্রশ্নপত্র তৈরি সম্পন্ন হয়েছে!\n\nবিশেষ দ্রষ্টব্য:\n${result.warnings.join("\n")}`);
+    }
+  };
+
+  const handleQuickApplyBlueprint = async (bp: AutoPaperBlueprint) => {
+    if (!classId || !subjectId) {
+      alert("অনুগ্রহ করে প্রথমে শ্রেণি ও বিষয় নির্বাচন করুন।");
+      return;
+    }
+    let pool = availableQuestions;
+    if (pool.length === 0) {
+      pool = await ensureQuestionsInBank();
+      if (pool.length === 0) return;
+    }
+    executeBlueprintGeneration(bp, pool);
+  };
+
+  const handleReshufflePaper = () => {
+    if (!lastGeneratedBlueprint) return;
+    executeBlueprintGeneration(lastGeneratedBlueprint, availableQuestions);
+  };
+
+  const handleOpenSwapModal = (question: any, sectionName?: string) => {
+    setSwapTargetQuestion(question);
+    setSwapTargetSectionName(sectionName);
+    setIsSwapModalOpen(true);
+  };
+
+  const handleSwapQuestion = (oldQuestionId: string, newQuestion: any) => {
+    if (isSectioned) {
+      setSections(prevSections => prevSections.map(sec => {
+        const idx = sec.questions.findIndex(q => q.id === oldQuestionId);
+        if (idx !== -1) {
+          const updated = [...sec.questions];
+          updated[idx] = newQuestion;
+          return { ...sec, questions: updated };
+        }
+        return sec;
+      }));
+    } else {
+      setUnsectionedQuestions(prev => {
+        const idx = prev.findIndex(q => q.id === oldQuestionId);
+        if (idx !== -1) {
+          const updated = [...prev];
+          updated[idx] = newQuestion;
+          return updated;
+        }
+        return prev;
+      });
+    }
+    setIsSwapModalOpen(false);
+    setSwapTargetQuestion(null);
+  };
+
+  const handleQuickAddAndSwap = async (newQuestionData: any) => {
+    if (!swapTargetQuestion || !classId || !subjectId) return;
+    const oldId = swapTargetQuestion.id;
+    const res = await saveQuestion({
+      ...newQuestionData,
+      class_id: classId,
+      subject_id: subjectId,
+    });
+    if (res?.error) {
+      alert(res.error);
+      return;
+    }
+    const newQ = {
+      id: `custom-q-${Date.now()}`,
+      class_id: classId,
+      subject_id: subjectId,
+      ...newQuestionData,
+    };
+    setLocalQuestions(prev => [newQ, ...prev]);
+    handleSwapQuestion(oldId, newQ);
+  };
 
   useEffect(() => {
     if (classId && subjectId) {
@@ -186,6 +425,10 @@ export default function PaperGeneratorClient({
           if (typeof cfg.compactSpacing === "boolean") setCompactSpacing(cfg.compactSpacing);
           if (cfg.selectedFont) setSelectedFont(cfg.selectedFont);
           if (cfg.customMadrasaName) setCustomMadrasaName(cfg.customMadrasaName);
+        }
+
+        if (qData.last_blueprint) {
+          setLastGeneratedBlueprint(qData.last_blueprint);
         }
       } else if (Array.isArray(qData)) {
         // Legacy array of questions
@@ -459,12 +702,14 @@ export default function PaperGeneratorClient({
             numbering_scheme: numberingScheme,
             sections: sections,
             flat_questions: sections.flatMap(s => s.questions),
-            design_config: designConfig
+            design_config: designConfig,
+            last_blueprint: lastGeneratedBlueprint
           }
         : {
             is_sectioned: false,
             questions: unsectionedQuestions,
-            design_config: designConfig
+            design_config: designConfig,
+            last_blueprint: lastGeneratedBlueprint
           };
 
       const result = await saveExamPaper({
@@ -638,6 +883,15 @@ export default function PaperGeneratorClient({
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             <button
+              type="button"
+              onClick={() => setIsCloneFromPastModalOpen(true)}
+              className="flex items-center space-x-2 px-3.5 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg hover:bg-indigo-100 transition flex-1 md:flex-none justify-center cursor-pointer font-semibold text-sm shadow-2xs"
+              title="বিগত সেমিস্টার বা বছরের প্রশ্নপত্র থেকে সরাসরি বর্তমান এডিটরে লোড করুন"
+            >
+              <History className="w-4 h-4 text-indigo-600" />
+              <span>বিগত প্রশ্ন ক্লোন</span>
+            </button>
+            <button
               onClick={handleSave}
               disabled={saving || loading || !classId || !subjectId}
               className="flex items-center space-x-2 px-4 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition disabled:opacity-50 flex-1 md:flex-none justify-center cursor-pointer font-semibold text-sm shadow-sm"
@@ -654,6 +908,101 @@ export default function PaperGeneratorClient({
               <span>প্রিন্ট প্রশ্নপত্র ({paperSize.toUpperCase()})</span>
             </button>
           </div>
+        </div>
+
+        {/* 1-Click Smart Auto-Paper Generator Banner */}
+        <div className="bg-gradient-to-r from-emerald-950 via-teal-950 to-slate-950 text-white p-4 sm:p-5 rounded-2xl shadow-md border border-emerald-500/40 relative overflow-hidden">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300 shrink-0 shadow-inner">
+                <Sparkles className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-base sm:text-lg text-white font-solaiman">
+                    ১-ক্লিকে অটো প্রশ্নপত্র জেনারেটর (Smart Auto-Paper Generator)
+                  </h3>
+                  <span className="text-[11px] bg-emerald-400/20 text-emerald-300 font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-400/30">
+                    ১-ক্লিক ব্লুপ্রিন্ট
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-emerald-100/80 mt-0.5 max-w-2xl font-solaiman">
+                  শিক্ষক শুধু ব্লুপ্রিন্ট দেবেন: <span className="text-emerald-200 font-semibold">"মোট ১০০ নম্বর: রচনামূলক ৪টি (৪০), সংক্ষিপ্ত ৫টি (২৫), এরাব ও তাহকীক ২টি (১৫), অনুবাদ ২টি (২০)"</span>। সিস্টেম স্বয়ংক্রিয়ভাবে প্রশ্নব্যাংক থেকে ব্যালান্সড প্রশ্নপত্র সাজিয়ে দেবে।
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+              <button
+                type="button"
+                onClick={handleOpenAutoBlueprintModal}
+                disabled={!classId || !subjectId || seeding}
+                className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transform active:scale-95"
+              >
+                {seeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-emerald-200" />}
+                <span>ব্লুপ্রিন্ট কনফিগার ও অটো তৈরি করুন</span>
+              </button>
+
+              {lastGeneratedBlueprint && (
+                <button
+                  type="button"
+                  onClick={handleReshufflePaper}
+                  disabled={!classId || !subjectId}
+                  className="px-3 py-2.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold rounded-xl border border-slate-700 transition flex items-center gap-1.5 cursor-pointer"
+                  title="একই ব্লুপ্রিন্ট দিয়ে নতুনভাবে প্রশ্ন অদলবদল (Reshuffle) করুন"
+                >
+                  <RotateCw className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>পুনরায় শাফেল</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Quick Preset Badges below */}
+          <div className="mt-3.5 pt-3 border-t border-emerald-500/20 flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-emerald-300 font-bold text-[11px] flex items-center gap-1">
+              <span>১-ক্লিক দ্রুত প্রিসেট:</span>
+            </span>
+            {BUILT_IN_BLUEPRINTS.slice(0, 5).map(bp => (
+              <button
+                key={bp.id}
+                type="button"
+                onClick={() => handleQuickApplyBlueprint(bp)}
+                disabled={!classId || !subjectId || seeding}
+                className="px-2.5 py-1 bg-emerald-950/70 hover:bg-emerald-800/90 text-emerald-200 hover:text-white text-[11px] font-medium rounded-lg border border-emerald-600/40 transition cursor-pointer disabled:opacity-40"
+              >
+                ⚡ {bp.name}
+              </button>
+            ))}
+          </div>
+
+          {/* Active Blueprint Feedback Bar */}
+          {lastGeneratedBlueprint && (
+            <div className="bg-emerald-900/40 border border-emerald-500/30 px-3 py-2 rounded-xl flex items-center justify-between text-xs mt-3">
+              <div className="flex items-center gap-2 text-emerald-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>সক্রিয় ব্লুপ্রিন্ট: <strong className="text-white font-bold">{lastGeneratedBlueprint.name}</strong> ({toBengaliNumerals(lastGeneratedBlueprint.totalMarks)} নম্বর)</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleReshufflePaper}
+                  className="text-emerald-300 hover:text-white flex items-center gap-1 font-bold underline cursor-pointer"
+                >
+                  <RotateCw className="w-3 h-3" />
+                  <span>অন্য প্রশ্ন বাছাই করুন</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAutoBlueprintModalOpen(true)}
+                  className="text-slate-300 hover:text-white flex items-center gap-1 font-medium cursor-pointer"
+                >
+                  <Sliders className="w-3 h-3" />
+                  <span>ব্লুপ্রিন্ট পরিবর্তন</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Section Management Toolbar */}
@@ -1098,7 +1447,7 @@ export default function PaperGeneratorClient({
                                     ? questionOffset + qIndex 
                                     : qIndex;
 
-                                  return (
+                                   return (
                                     <div 
                                       key={`${q.id}-${qIndex}`} 
                                       className="group relative p-2.5 rounded-lg bg-slate-50 border border-slate-200 hover:border-emerald-400 transition"
@@ -1111,7 +1460,32 @@ export default function PaperGeneratorClient({
                                         isPrint={false}
                                       />
 
+                                      {/* Visible card bottom bar with quick Swap action */}
+                                      <div className="mt-2 pt-1.5 border-t border-slate-200/70 flex items-center justify-between text-xs">
+                                        <span className="text-[11px] text-slate-500 font-medium">
+                                          প্রশ্ন নং {formatQuestionNumber(questionDisplayIndex, isRTL)} • {toBengaliNumerals(q.marks || 10)} নম্বর
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenSwapModal(q, section.name)}
+                                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50/90 hover:bg-blue-100 hover:text-blue-900 border border-blue-200/90 rounded-md transition cursor-pointer"
+                                        >
+                                          <ArrowLeftRight className="w-3.5 h-3.5 text-blue-600" />
+                                          <span>বিকল্প প্রশ্ন দিয়ে পরিবর্তন (Swap)</span>
+                                        </button>
+                                      </div>
+
                                       <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1.5 absolute right-2 top-2 bg-white/95 backdrop-blur-sm p-1 rounded-md shadow-sm border border-slate-200 z-10">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenSwapModal(q, section.name)}
+                                          className="p-1 px-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded flex items-center gap-1 text-[10px] font-bold border border-blue-200 cursor-pointer transition shadow-2xs"
+                                          title="প্রশ্নব্যাংকের বিকল্প প্রশ্ন দিয়ে পরিবর্তন (Swap) করুন"
+                                        >
+                                          <ArrowLeftRight className="w-3 h-3 text-blue-600" />
+                                          <span>সোয়াপ</span>
+                                        </button>
+
                                         {sections.length > 1 && (
                                           <select
                                             value={section.id}
@@ -1180,7 +1554,33 @@ export default function PaperGeneratorClient({
                                   formatNumber={formatQuestionNumber}
                                   isPrint={false}
                                 />
+
+                                {/* Card bottom bar with quick Swap action */}
+                                <div className="mt-2 pt-1.5 border-t border-slate-200/70 flex items-center justify-between text-xs">
+                                  <span className="text-[11px] text-slate-500 font-medium">
+                                    প্রশ্ন নং {formatQuestionNumber(idx, isRTL)} • {toBengaliNumerals(q.marks || 10)} নম্বর
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenSwapModal(q)}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50/90 hover:bg-blue-100 hover:text-blue-900 border border-blue-200/90 rounded-md transition cursor-pointer"
+                                  >
+                                    <ArrowLeftRight className="w-3.5 h-3.5 text-blue-600" />
+                                    <span>বিকল্প প্রশ্ন দিয়ে পরিবর্তন (Swap)</span>
+                                  </button>
+                                </div>
+
                                 <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1.5 absolute right-2 top-2 bg-white/95 backdrop-blur-sm p-1 rounded-md shadow-sm border border-slate-200 z-10">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenSwapModal(q)}
+                                    className="p-1 px-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded flex items-center gap-1 text-[10px] font-bold border border-blue-200 cursor-pointer transition shadow-2xs"
+                                    title="প্রশ্নব্যাংকের বিকল্প প্রশ্ন দিয়ে পরিবর্তন (Swap) করুন"
+                                  >
+                                    <ArrowLeftRight className="w-3 h-3 text-blue-600" />
+                                    <span>সোয়াপ</span>
+                                  </button>
+
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -1678,7 +2078,7 @@ export default function PaperGeneratorClient({
                                         : qIndex;
 
                                       return (
-                                        <div key={`${q.id}-${qIndex}`} className="qawmi-question-item">
+                                        <div key={`${q.id}-${qIndex}`} className="qawmi-question-item relative group/live">
                                           <SpecializedQuestionView
                                             question={q}
                                             index={questionDisplayIndex}
@@ -1686,6 +2086,17 @@ export default function PaperGeneratorClient({
                                             formatNumber={formatQuestionNumber}
                                             isPrint={true}
                                           />
+                                          <div className="opacity-0 group-hover/live:opacity-100 transition-opacity absolute right-0 -top-2 print:hidden flex items-center gap-1 z-20 bg-white/95 backdrop-blur-xs shadow-xs px-2 py-0.5 rounded-full border border-blue-300">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleOpenSwapModal(q, section.name)}
+                                              className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer"
+                                              title="বিকল্প প্রশ্ন দিয়ে পরিবর্তন (Swap) করুন"
+                                            >
+                                              <ArrowLeftRight className="w-3 h-3 text-blue-600" />
+                                              <span>সোয়াপ</span>
+                                            </button>
+                                          </div>
                                         </div>
                                       );
                                     })}
@@ -1696,7 +2107,7 @@ export default function PaperGeneratorClient({
                               unsectionedQuestions.map((q, idx) => {
                                 const isRTL = getQuestionDir(q.question_text) === "rtl";
                                 return (
-                                  <div key={idx} className="qawmi-question-item">
+                                  <div key={idx} className="qawmi-question-item relative group/live">
                                     <SpecializedQuestionView
                                       question={q}
                                       index={idx}
@@ -1704,6 +2115,17 @@ export default function PaperGeneratorClient({
                                       formatNumber={formatQuestionNumber}
                                       isPrint={true}
                                     />
+                                    <div className="opacity-0 group-hover/live:opacity-100 transition-opacity absolute right-0 -top-2 print:hidden flex items-center gap-1 z-20 bg-white/95 backdrop-blur-xs shadow-xs px-2 py-0.5 rounded-full border border-blue-300">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenSwapModal(q)}
+                                        className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer"
+                                        title="বিকল্প প্রশ্ন দিয়ে পরিবর্তন (Swap) করুন"
+                                      >
+                                        <ArrowLeftRight className="w-3 h-3 text-blue-600" />
+                                        <span>সোয়াপ</span>
+                                      </button>
+                                    </div>
                                   </div>
                                 );
                               })
@@ -1817,6 +2239,45 @@ export default function PaperGeneratorClient({
           </div>
         </PaperFrameWrapper>
       </div>
+
+      {/* 1-Click Smart Auto-Paper Blueprint Modal */}
+      <AutoPaperBlueprintModal
+        isOpen={isAutoBlueprintModalOpen}
+        onClose={() => setIsAutoBlueprintModalOpen(false)}
+        onGenerate={(bp: AutoPaperBlueprint) => executeBlueprintGeneration(bp, availableQuestions)}
+        currentSubjectName={subjects.find(s => s.id === subjectId)?.name || ""}
+        currentClassName={classes.find(c => c.id === classId)?.name || ""}
+        totalAvailableQuestions={availableQuestions.length}
+      />
+
+      {/* Question Swap Modal */}
+      {swapTargetQuestion && (
+        <QuestionSwapModal
+          isOpen={isSwapModalOpen}
+          onClose={() => {
+            setIsSwapModalOpen(false);
+            setSwapTargetQuestion(null);
+          }}
+          targetQuestion={swapTargetQuestion}
+          targetSectionName={swapTargetSectionName}
+          availableQuestions={availableQuestions}
+          currentlyUsedQuestionIds={currentlyUsedQuestionIds}
+          onSwap={(oldId: string, newQ: any) => handleSwapQuestion(oldId, newQ)}
+          onQuickAddAndSwap={handleQuickAddAndSwap}
+        />
+      )}
+
+      {/* Clone From Past Papers Modal */}
+      <CloneFromPastModal
+        isOpen={isCloneFromPastModalOpen}
+        onClose={() => setIsCloneFromPastModalOpen(false)}
+        currentExamId={examId}
+        currentClassId={classId}
+        currentSubjectId={subjectId}
+        classes={classes}
+        subjects={subjects}
+        onApplyPastPaper={handleApplyPastPaper}
+      />
     </div>
   );
 }

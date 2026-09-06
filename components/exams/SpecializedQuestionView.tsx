@@ -81,6 +81,22 @@ export function getQuestionTypeBadge(type: string) {
   }
 }
 
+export function getDifficultyBadge(diff?: string) {
+  const d = (diff || "medium").toLowerCase();
+  switch (d) {
+    case "easy":
+    case "সহজ":
+      return { label: "সহজ (Easy)", color: "bg-emerald-100 text-emerald-800 border-emerald-300 ring-emerald-500/20" };
+    case "hard":
+    case "কঠিন":
+      return { label: "কঠিন (Hard)", color: "bg-rose-100 text-rose-800 border-rose-300 ring-rose-500/20" };
+    case "medium":
+    case "মধ্যম":
+    default:
+      return { label: "মধ্যম (Medium)", color: "bg-amber-100 text-amber-800 border-amber-300 ring-amber-500/20" };
+  }
+}
+
 export default function SpecializedQuestionView({
   question,
   index,
