@@ -399,13 +399,22 @@ export default function GlobalNotificationBell() {
           </div>
 
           {/* Footer view all link */}
-          <div className="p-2.5 bg-slate-50 border-t border-slate-100 text-center shrink-0">
+          <div className="p-2.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between shrink-0 px-4">
             <Link
               href="/dashboard/notifications"
               onClick={() => setIsOpen(false)}
-              className="text-xs font-bold text-emerald-700 hover:text-emerald-800 transition flex items-center justify-center gap-1.5 py-1"
+              className="text-xs font-bold text-emerald-700 hover:text-emerald-800 transition flex items-center gap-1 py-1"
             >
-              <span>সকল নোটিফিকেশন ও অ্যাক্টিভিটি লগ দেখুন</span>
+              <span>সকল বিজ্ঞপ্তি</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+
+            <Link
+              href="/dashboard/notifications?tab=activity"
+              onClick={() => setIsOpen(false)}
+              className="text-xs font-bold text-indigo-700 hover:text-indigo-800 transition flex items-center gap-1 py-1"
+            >
+              <span>অ্যাক্টিভিটি লগ</span>
               <ChevronRight className="w-3.5 h-3.5" />
             </Link>
           </div>

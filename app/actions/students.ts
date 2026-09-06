@@ -573,6 +573,22 @@ export async function createStudent(prevState: any, formData: FormData) {
     }
   }
 
+  try {
+    const { recordActivityLog } = await import("@/app/actions/activity-logs");
+    await recordActivityLog({
+      action_type: "CREATE",
+      module: "STUDENTS",
+      title: "নতুন শিক্ষার্থী নিবন্ধন সম্পন্ন",
+      description: `${firstName} ${lastName || ""} কে শ্রেণি রোল ${rollNumber || "অনির্ধারিত"} সহ নতুন শিক্ষার্থী হিসেবে ভর্তি ও নিবন্ধন করা হয়েছে।`,
+      entity_id: insertedStudent?.id || undefined,
+      entity_type: "student",
+      link: insertedStudent?.id ? `/dashboard/students/${insertedStudent.id}` : "/dashboard/students",
+      severity: "SUCCESS",
+    });
+  } catch (actErr) {
+    console.warn("Activity log creation error:", actErr);
+  }
+
   revalidatePath("/dashboard/students");
   revalidatePath("/dashboard/academic/sessions");
   revalidatePath("/dashboard/boarding/meals");
@@ -890,6 +906,22 @@ export async function updateStudent(prevState: any, formData: FormData) {
     console.error("Error syncing student update with metadata:", syncErr);
   }
 
+  try {
+    const { recordActivityLog } = await import("@/app/actions/activity-logs");
+    await recordActivityLog({
+      action_type: "UPDATE",
+      module: "STUDENTS",
+      title: "শিক্ষার্থীর তথ্য হালনাগাদ",
+      description: `${firstName} ${lastName || ""} (আইডি: ${id}) এর ব্যক্তিগত ও একাডেমিক তথ্য সফলভাবে হালনাগাদ করা হয়েছে।`,
+      entity_id: id,
+      entity_type: "student",
+      link: `/dashboard/students/${id}`,
+      severity: "INFO",
+    });
+  } catch (actErr) {
+    console.warn("Activity log update error:", actErr);
+  }
+
   revalidatePath("/dashboard/students");
   revalidatePath(`/dashboard/students/${id}`);
   revalidatePath(`/dashboard/students/${id}/edit`);
@@ -911,6 +943,21 @@ export async function deleteStudent(studentId: string) {
   if (error) {
     console.error("Error deleting student:", error);
     return { error: error.message };
+  }
+
+  try {
+    const { recordActivityLog } = await import("@/app/actions/activity-logs");
+    await recordActivityLog({
+      action_type: "DELETE",
+      module: "STUDENTS",
+      title: "শিক্ষার্থীর প্রোফাইল মুছে ফেলা হয়েছে",
+      description: `শিক্ষার্থী আইডি (${studentId}) এর রেকর্ড সিস্টেম থেকে অপসারণ করা হয়েছে।`,
+      entity_id: studentId,
+      entity_type: "student",
+      severity: "WARNING",
+    });
+  } catch (actErr) {
+    console.warn("Activity log delete error:", actErr);
   }
 
   revalidatePath("/dashboard/students");

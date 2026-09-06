@@ -559,6 +559,20 @@ export async function generateBackupExport(options?: {
       last_backup_date: isoDate,
     });
 
+    try {
+      const { recordActivityLog } = await import("@/app/actions/activity-logs");
+      await recordActivityLog({
+        action_type: "BACKUP",
+        module: "BACKUP",
+        title: "ডাটাবেজ পূর্ণাঙ্গ ব্যাকআপ এক্সপোর্ট",
+        description: `${selectedModules.length}টি মডিউলের সর্বমোট ${totalCount}টি রেকর্ডের ব্যাকআপ ফাইল ডাউনলোড করা হয়েছে (${sizeKb} KB)।`,
+        severity: "SUCCESS",
+        link: "/dashboard/settings/backup",
+      });
+    } catch (actErr) {
+      console.warn("Activity log backup export error:", actErr);
+    }
+
     return {
       success: true,
       backupPayload: finalPayload,
@@ -994,6 +1008,20 @@ export async function executeDataRestore({
     const finalHistory = [restoreAuditLog, ...(currentMeta.backup_history || [])].slice(0, 50);
     currentMeta.backup_history = finalHistory;
     await saveMadrasaMetadata(madrasaId, currentMeta);
+
+    try {
+      const { recordActivityLog } = await import("@/app/actions/activity-logs");
+      await recordActivityLog({
+        action_type: "RESTORE",
+        module: "BACKUP",
+        title: "ডাটাবেজ ব্যাকআপ রিস্টোর সম্পন্ন",
+        description: `${modulesToRestore.length}টি মডিউলের সর্বমোট ${totalRestored}টি রেকর্ড সফলভাবে ডাটাবেজে রিস্টোর ও মার্জ করা হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড)।`,
+        severity: "SUCCESS",
+        link: "/dashboard/settings/backup",
+      });
+    } catch (e) {
+      console.warn("Activity log restore error:", e);
+    }
 
     // Revalidate all affected routes
     revalidatePath("/dashboard");
