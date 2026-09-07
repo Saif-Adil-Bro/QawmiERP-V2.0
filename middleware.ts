@@ -54,11 +54,8 @@ export async function middleware(request: NextRequest) {
             return request.cookies.getAll();
           },
           setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
+            cookiesToSet.forEach(({ name, value }) => {
               request.cookies.set(name, value);
-            });
-            supabaseResponse = NextResponse.next({
-              request,
             });
             cookiesToSet.forEach(({ name, value, options }) => {
               supabaseResponse.cookies.set(name, value, {
@@ -76,8 +73,8 @@ export async function middleware(request: NextRequest) {
 
     const { data, error } = await supabase.auth.getUser();
     if (error) {
-      // Only clear cookies if refresh token is explicitly missing/invalid (400 or 401)
-      if (error.status === 400 || error.status === 401 || error.code === 'refresh_token_not_found') {
+      // Only clear cookies if refresh token is explicitly missing/invalid
+      if (error.code === 'refresh_token_not_found') {
         request.cookies.getAll().forEach(c => {
           if (c.name.includes("sb-") || c.name.includes("auth-token")) {
             supabaseResponse.cookies.set(c.name, "", { maxAge: 0, path: "/" });

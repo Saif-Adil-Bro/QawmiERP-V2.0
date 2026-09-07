@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -11,6 +11,7 @@ import {
   Search,
   BookOpen,
   Phone,
+  Loader2,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
@@ -27,6 +28,7 @@ export default function ExamMarksForm({
   const router = useRouter();
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
+  const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [subjectInput, setSubjectInput] = useState(currentSubject || "কুরআন মাজীদ");
@@ -39,8 +41,8 @@ export default function ExamMarksForm({
     Record<string, { marks_obtained: string; total_marks: string }>
   >(() => {
     const initialState: Record<string, any> = {};
-    students.forEach((s: any) => {
-      const existing = existingMarks.find((m: any) => m.student_id === s.id);
+    (students || []).forEach((s: any) => {
+      const existing = (existingMarks || []).find((m: any) => m.student_id === s.id);
       initialState[s.id] = {
         marks_obtained: existing?.marks_obtained?.toString() || "",
         total_marks: existing?.total_marks?.toString() || "100",
@@ -51,8 +53,8 @@ export default function ExamMarksForm({
 
   useEffect(() => {
     const initialState: Record<string, any> = {};
-    students.forEach((s: any) => {
-      const existing = existingMarks.find((m: any) => m.student_id === s.id);
+    (students || []).forEach((s: any) => {
+      const existing = (existingMarks || []).find((m: any) => m.student_id === s.id);
       initialState[s.id] = {
         marks_obtained: existing?.marks_obtained?.toString() || "",
         total_marks: existing?.total_marks?.toString() || "100",
@@ -64,7 +66,9 @@ export default function ExamMarksForm({
   const handleFilterChange = (key: string, value: string) => {
     const url = new URL(window.location.href);
     url.searchParams.set(key, value);
-    router.push(url.pathname + url.search);
+    startTransition(() => {
+      router.push(url.pathname + url.search);
+    });
   };
 
   const handleChange = (studentId: string, field: string, value: string) => {
@@ -86,9 +90,9 @@ export default function ExamMarksForm({
   };
 
   const filteredStudents = useMemo(() => {
-    if (!searchQuery.trim()) return students;
+    if (!searchQuery.trim()) return students || [];
     const q = searchQuery.toLowerCase();
-    return students.filter(
+    return (students || []).filter(
       (s: any) =>
         s.first_name?.toLowerCase().includes(q) ||
         s.last_name?.toLowerCase().includes(q) ||
@@ -100,29 +104,18 @@ export default function ExamMarksForm({
     setLoading(true);
     setMessage("");
     try {
-      const recordsToUpsert = students
+      const recordsToUpsert = (students || [])
         .map((s: any) => {
-          const existing = existingMarks.find((m: any) => m.student_id === s.id);
           const state = marksState[s.id];
-
-          if (state.marks_obtained === "") return null;
+          if (!state || state.marks_obtained === "") return null;
 
           return {
-            id: existing?.id,
-            madrasa_id: madrasaId,
             student_id: s.id,
-            class_id: currentClassId || null,
-            exam_id: currentExamId,
-            subject_name: currentSubject,
             marks_obtained: Number(state.marks_obtained),
-            total_marks: Number(state.total_marks),
+            total_marks: Number(state.total_marks || 100),
           };
         })
-        .filter(Boolean)
-        .map((r: any) => {
-          if (!r.id) delete r.id;
-          return r;
-        });
+        .filter(Boolean);
 
       if (recordsToUpsert.length === 0) {
         setMessage("কোন নম্বর ইনপুট দেওয়া হয়নি।");
@@ -130,31 +123,63 @@ export default function ExamMarksForm({
         return;
       }
 
-      const { error } = await supabase
-        .from("exam_results")
-        .upsert(recordsToUpsert, { onConflict: "student_id, exam_id, subject_name" });
+      // Try server API first with admin privileges
+      try {
+        const res = await fetch("/api/teacher/save-marks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            exam_id: currentExamId,
+            class_id: currentClassId,
+            subject_name: currentSubject,
+            madrasa_id: madrasaId,
+            records: recordsToUpsert,
+          }),
+        });
+        const apiData = await res.json();
+        if (!res.ok || apiData.error) {
+          throw new Error(apiData.error || "সার্ভার রেসপন্স ব্যর্থ হয়েছে");
+        }
+      } catch (apiErr) {
+        // Fallback: client upsert
+        const dbRecords = recordsToUpsert.map((r: any) => ({
+          madrasa_id: madrasaId,
+          student_id: r.student_id,
+          class_id: currentClassId || null,
+          exam_id: currentExamId,
+          subject_name: currentSubject,
+          marks_obtained: r.marks_obtained,
+          total_marks: r.total_marks,
+        }));
 
-      if (error) {
-        for (const record of recordsToUpsert) {
-          const { data: existing } = await supabase
-            .from("exam_results")
-            .select("id")
-            .eq("student_id", record.student_id)
-            .eq("exam_id", record.exam_id)
-            .eq("subject_name", record.subject_name)
-            .maybeSingle();
+        const { error } = await supabase
+          .from("exam_results")
+          .upsert(dbRecords, { onConflict: "student_id, exam_id, subject_name" });
 
-          if (existing) {
-            await supabase.from("exam_results").update(record).eq("id", existing.id);
-          } else {
-            await supabase.from("exam_results").insert([record]);
+        if (error) {
+          for (const record of dbRecords) {
+            const { data: existing } = await supabase
+              .from("exam_results")
+              .select("id")
+              .eq("student_id", record.student_id)
+              .eq("exam_id", record.exam_id)
+              .eq("subject_name", record.subject_name)
+              .maybeSingle();
+
+            if (existing) {
+              await supabase.from("exam_results").update(record).eq("id", existing.id);
+            } else {
+              await supabase.from("exam_results").insert([record]);
+            }
           }
         }
       }
 
       setMessage("পরীক্ষার নম্বর ও গ্রেড সফলভাবে সংরক্ষিত হয়েছে!");
       setTimeout(() => setMessage(""), 4000);
-      router.refresh();
+      startTransition(() => {
+        router.refresh();
+      });
     } catch (err: any) {
       console.error(err);
       setMessage("নম্বর সংরক্ষণ করতে সমস্যা হয়েছে।");
@@ -165,6 +190,14 @@ export default function ExamMarksForm({
 
   return (
     <div className="space-y-5">
+      {/* Pending Transition Loading Indicator */}
+      {isPending && (
+        <div className="flex items-center gap-2 p-3 bg-purple-50 text-purple-800 rounded-xl border border-purple-200 text-xs sm:text-sm font-medium animate-pulse">
+          <Loader2 className="w-4 h-4 animate-spin shrink-0 text-purple-700" />
+          <span>ডেটা লোড হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...</span>
+        </div>
+      )}
+
       {/* Selection Control Bar */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
@@ -174,12 +207,14 @@ export default function ExamMarksForm({
             </label>
             <select
               value={currentExamId}
+              disabled={isPending || loading}
               onChange={(e) => handleFilterChange("exam_id", e.target.value)}
-              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
+              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
             >
+              {exams.length === 0 && <option value="">কোন পরীক্ষা পাওয়া যায়নি</option>}
               {exams.map((e: any) => (
                 <option key={e.id} value={e.id}>
-                  {e.name || e.title}
+                  {e.name || e.title} {e.year ? `(${toBanglaNumber(e.year)})` : ""}
                 </option>
               ))}
             </select>
@@ -191,9 +226,11 @@ export default function ExamMarksForm({
             </label>
             <select
               value={currentClassId}
+              disabled={isPending || loading}
               onChange={(e) => handleFilterChange("class_id", e.target.value)}
-              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
+              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
             >
+              {classes.length === 0 && <option value="">কোন জামাত পাওয়া যায়নি</option>}
               {classes.map((c: any) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -210,6 +247,7 @@ export default function ExamMarksForm({
               <input
                 type="text"
                 list="popular-subjects"
+                disabled={isPending || loading}
                 value={subjectInput}
                 onChange={(e) => setSubjectInput(e.target.value)}
                 onBlur={() => {
@@ -226,7 +264,7 @@ export default function ExamMarksForm({
                   }
                 }}
                 placeholder="যেমন: কুরআন মাজীদ, হাদিস, আরবি"
-                className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-purple-600 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
               />
               <datalist id="popular-subjects">
                 <option value="কুরআন মাজীদ" />
@@ -243,8 +281,9 @@ export default function ExamMarksForm({
               {subjectInput !== currentSubject && (
                 <button
                   type="button"
+                  disabled={isPending || loading}
                   onClick={() => handleFilterChange("subject_name", subjectInput.trim())}
-                  className="px-3 py-1 bg-purple-600 text-white rounded-xl text-xs font-bold shrink-0 hover:bg-purple-700 transition"
+                  className="px-3 py-1 bg-purple-600 text-white rounded-xl text-xs font-bold shrink-0 hover:bg-purple-700 transition disabled:opacity-50"
                 >
                   প্রয়োগ
                 </button>

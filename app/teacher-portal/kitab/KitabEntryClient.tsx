@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -12,6 +12,7 @@ import {
   BookOpen,
   Calendar,
   Phone,
+  Loader2,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
@@ -38,6 +39,12 @@ export default function KitabEntryClient({
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [isChangingClass, startClassTransition] = useTransition();
+  const [selectedClassId, setSelectedClassId] = useState(currentClassId);
+
+  useEffect(() => {
+    setSelectedClassId(currentClassId);
+  }, [currentClassId]);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Default subject/kitab for whole class entry or per student
@@ -94,11 +101,18 @@ export default function KitabEntryClient({
   }, [students, existingLogs]);
 
   const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    router.push(`/teacher-portal/kitab?class_id=${e.target.value}&date=${currentDate}`);
+    const newClassId = e.target.value;
+    setSelectedClassId(newClassId);
+    startClassTransition(() => {
+      router.push(`/teacher-portal/kitab?class_id=${newClassId}&date=${currentDate}`);
+    });
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    router.push(`/teacher-portal/kitab?class_id=${currentClassId}&date=${e.target.value}`);
+    const newDate = e.target.value;
+    startClassTransition(() => {
+      router.push(`/teacher-portal/kitab?class_id=${selectedClassId || currentClassId}&date=${newDate}`);
+    });
   };
 
   const handleChange = (studentId: string, field: string, value: string) => {
@@ -224,13 +238,22 @@ export default function KitabEntryClient({
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              জামাত / কিতাব বিভাগ <span className="text-indigo-600">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-slate-700">
+                জামাত / কিতাব বিভাগ <span className="text-indigo-600">*</span>
+              </label>
+              {isChangingClass && (
+                <span className="flex items-center gap-1 text-[11px] text-indigo-600 font-medium">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>লোড হচ্ছে...</span>
+                </span>
+              )}
+            </div>
             <select
-              value={currentClassId}
+              value={selectedClassId || currentClassId}
               onChange={handleClassChange}
-              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-indigo-600 focus:outline-none"
+              disabled={isChangingClass}
+              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-indigo-600 focus:outline-none disabled:opacity-60"
             >
               {classes.map((c: any) => (
                 <option key={c.id} value={c.id}>

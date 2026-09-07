@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -12,6 +12,7 @@ import {
   Star,
   User,
   Phone,
+  Loader2,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
@@ -29,6 +30,12 @@ export default function HifzForm({
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isChangingClass, startClassTransition] = useTransition();
+  const [selectedClassId, setSelectedClassId] = useState(currentClassId);
+
+  useEffect(() => {
+    setSelectedClassId(currentClassId);
+  }, [currentClassId]);
 
   const [hifzState, setHifzState] = useState<Record<string, any>>(() => {
     const initialState: Record<string, any> = {};
@@ -61,15 +68,22 @@ export default function HifzForm({
   }, [students, existingLogs]);
 
   const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    router.push(
-      `/teacher-portal/hifz?class_id=${e.target.value}&date=${currentDate}`
-    );
+    const newClassId = e.target.value;
+    setSelectedClassId(newClassId);
+    startClassTransition(() => {
+      router.push(
+        `/teacher-portal/hifz?class_id=${newClassId}&date=${currentDate}`
+      );
+    });
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    router.push(
-      `/teacher-portal/hifz?class_id=${currentClassId}&date=${e.target.value}`
-    );
+    const newDate = e.target.value;
+    startClassTransition(() => {
+      router.push(
+        `/teacher-portal/hifz?class_id=${selectedClassId || currentClassId}&date=${newDate}`
+      );
+    });
   };
 
   const handleChange = (studentId: string, field: string, value: string) => {
@@ -163,13 +177,22 @@ export default function HifzForm({
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              হিফজ জামাত / গ্রুপ নির্বাচন করুন <span className="text-teal-600">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-slate-700">
+                হিফজ জামাত / গ্রুপ নির্বাচন করুন <span className="text-teal-600">*</span>
+              </label>
+              {isChangingClass && (
+                <span className="flex items-center gap-1 text-[11px] text-teal-700 font-medium">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>লোড হচ্ছে...</span>
+                </span>
+              )}
+            </div>
             <select
-              value={currentClassId}
+              value={selectedClassId || currentClassId}
               onChange={handleClassChange}
-              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-teal-600 focus:outline-none"
+              disabled={isChangingClass}
+              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-teal-600 focus:outline-none disabled:opacity-60"
             >
               {classes.map((c: any) => (
                 <option key={c.id} value={c.id}>

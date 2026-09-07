@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Calendar,
@@ -50,6 +50,7 @@ export default function AttendanceForm({
 }: AttendanceFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -96,15 +97,21 @@ export default function AttendanceForm({
   }, [allStudents, allAttendance, holidayInfo]);
 
   const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    router.push(
-      `/teacher-portal/attendance?class_id=${e.target.value}&date=${currentDate}`
-    );
+    const newClass = e.target.value;
+    startTransition(() => {
+      router.push(
+        `/teacher-portal/attendance?class_id=${newClass}&date=${currentDate}`
+      );
+    });
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    router.push(
-      `/teacher-portal/attendance?class_id=${currentClassId}&date=${e.target.value}`
-    );
+    const newDate = e.target.value;
+    startTransition(() => {
+      router.push(
+        `/teacher-portal/attendance?class_id=${currentClassId}&date=${newDate}`
+      );
+    });
   };
 
   const handleStatusChange = (studentId: string, status: string) => {
@@ -247,6 +254,14 @@ export default function AttendanceForm({
         </div>
       )}
 
+      {/* Pending Transition Loading Indicator */}
+      {isPending && (
+        <div className="flex items-center gap-2 p-3 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200 text-xs sm:text-sm font-medium animate-pulse">
+          <div className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin shrink-0" />
+          <span>হাজিরা ডেটা লোড হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...</span>
+        </div>
+      )}
+
       {/* Control Bar */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
@@ -256,8 +271,9 @@ export default function AttendanceForm({
             </label>
             <select
               value={currentClassId}
+              disabled={isPending || loading}
               onChange={handleClassChange}
-              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
             >
               {allClasses.map((c: any) => (
                 <option key={c.id} value={c.id}>
@@ -274,8 +290,9 @@ export default function AttendanceForm({
             <input
               type="date"
               value={currentDate}
+              disabled={isPending || loading}
               onChange={handleDateChange}
-              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
             />
           </div>
         </div>

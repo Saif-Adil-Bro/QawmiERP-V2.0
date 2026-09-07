@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import KitabEntryClient from "./KitabEntryClient";
 import { getMadrasaMetadata } from "@/lib/sessions";
 
@@ -9,23 +9,44 @@ export default async function TeacherPortalKitab(props: {
 }) {
   const params = props.searchParams ? (await props.searchParams) || {} : {};
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser(supabase);
 
   if (!user) return null;
 
-  const { data: userData } = await supabase
-    .from("users")
-    .select("madrasa_id, full_name")
-    .eq("id", user.id)
-    .single();
-  const madrasaId = userData?.madrasa_id;
+  // Safe user profile lookup
+  let madrasaId = "";
+  try {
+    const admin = await createAdminClient();
+    const { data: uAdmin } = await admin
+      .from("users")
+      .select("madrasa_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    madrasaId = uAdmin?.madrasa_id || "";
+  } catch {
+    const { data: u } = await supabase
+      .from("users")
+      .select("madrasa_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    madrasaId = u?.madrasa_id || "";
+  }
 
-  const { data: teacher } = await supabase
-    .from("teachers")
-    .select("id, first_name, last_name")
-    .eq("madrasa_id", madrasaId)
-    .or(`email.eq.${user.email},phone.eq.${userData?.full_name || ""}`)
-    .maybeSingle();
+  // Safe teacher lookup
+  let teacherId: string | undefined = undefined;
+  if (madrasaId && user.email) {
+    try {
+      const { data: teacher } = await supabase
+        .from("teachers")
+        .select("id, first_name, last_name")
+        .eq("madrasa_id", madrasaId)
+        .eq("email", user.email)
+        .maybeSingle();
+      teacherId = teacher?.id;
+    } catch {
+      // ignore
+    }
+  }
 
   const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
   const scope = await getUserDataAccessScope();
@@ -45,7 +66,7 @@ export default async function TeacherPortalKitab(props: {
           existingLogs={[]}
           currentClassId=""
           currentDate={params.date || new Date().toISOString().split("T")[0]}
-          teacherId={teacher?.id}
+          teacherId={teacherId}
           madrasaId={madrasaId}
         />
       );
@@ -61,35 +82,60 @@ export default async function TeacherPortalKitab(props: {
   const currentClassId = params.class_id || classes?.[0]?.id || "";
   const currentDate = params.date || new Date().toISOString().split("T")[0];
 
-  const { data: rawStudents } = await supabase
-    .from("students")
-    .select("id, first_name, last_name, roll_number, photo_url, phone")
-    .eq("madrasa_id", madrasaId)
-    .eq("class_id", currentClassId)
-    .order("roll_number", { ascending: true });
+  let students: any[] = [];
+  let existingLogs: any[] = [];
 
-  const { data: existingLogs } = await supabase
-    .from("kitab_logs")
-    .select("*")
-    .eq("madrasa_id", madrasaId)
-    .eq("log_date", currentDate);
+  if (currentClassId) {
+    let rawStudents: any[] = [];
+    try {
+      const admin = await createAdminClient();
+      const { data: sAdmin } = await admin
+        .from("students")
+        .select("id, first_name, last_name, roll_number, photo_url, phone, parent_phone")
+        .eq("class_id", currentClassId)
+        .order("roll_number", { ascending: true });
+      if (sAdmin) rawStudents = sAdmin;
+    } catch {
+      // fallback
+    }
 
-  const students = (rawStudents || []).map((s: any) => {
-    const profile = meta?.student_profiles?.[s.id] || {};
-    const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === s.id);
-    const resolvedPhoto = profile.photo_url || s.photo_url || admission?.photo_url || "";
-    const resolvedPhone = profile.parent_phone || s.parent_phone || admission?.guardian_phone || admission?.emergency_phone || s.phone || "";
+    if (rawStudents.length === 0) {
+      const { data: s } = await supabase
+        .from("students")
+        .select("id, first_name, last_name, roll_number, photo_url, phone, parent_phone")
+        .eq("class_id", currentClassId)
+        .order("roll_number", { ascending: true });
+      rawStudents = s || [];
+    }
 
-    return {
-      ...s,
-      first_name: profile.first_name || s.first_name || "",
-      last_name: profile.last_name || s.last_name || "",
-      roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (s.roll_number || ""),
-      photo_url: resolvedPhoto,
-      phone: resolvedPhone,
-      parent_phone: resolvedPhone,
-    };
-  });
+    students = (rawStudents || []).map((s: any) => {
+      const profile = meta?.student_profiles?.[s.id] || {};
+      const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === s.id);
+      const resolvedPhoto = profile.photo_url || s.photo_url || admission?.photo_url || "";
+      const resolvedPhone = profile.parent_phone || s.parent_phone || admission?.guardian_phone || admission?.emergency_phone || s.phone || "";
+
+      return {
+        ...s,
+        first_name: profile.first_name || s.first_name || "",
+        last_name: profile.last_name || s.last_name || "",
+        roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (s.roll_number || ""),
+        photo_url: resolvedPhoto,
+        phone: resolvedPhone,
+        parent_phone: resolvedPhone,
+      };
+    });
+
+    // Guard: Only query kitab_logs if there are students, preventing PostgREST in.() 400 error
+    if (students.length > 0) {
+      const studentIds = students.map((st: any) => st.id);
+      const { data: el } = await supabase
+        .from("kitab_logs")
+        .select("*")
+        .in("student_id", studentIds)
+        .eq("log_date", currentDate);
+      existingLogs = el || [];
+    }
+  }
 
   return (
     <KitabEntryClient
@@ -98,7 +144,7 @@ export default async function TeacherPortalKitab(props: {
       existingLogs={existingLogs || []}
       currentClassId={currentClassId}
       currentDate={currentDate}
-      teacherId={teacher?.id}
+      teacherId={teacherId}
       madrasaId={madrasaId}
     />
   );
