@@ -7,6 +7,7 @@ import {
   getPaymentGatewayConfig,
   getStudentPublicFeeInfo,
 } from "@/app/actions/payment-gateway";
+import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import ParentPortalFeesClient from "./ParentPortalFeesClient";
 import DirectPayClient from "@/app/pay/DirectPayClient";
 import Link from "next/link";
@@ -114,29 +115,72 @@ export default async function ParentPortalFees(props: {
     );
   }
 
-  // Combine payments
+  // Helper to extract receipt number from fee notes (e.g. [রিসিট: MR-2026-00108] or [অনলাইন পেমেন্ট: MR-2026-00108])
+  const extractReceiptNo = (notes?: string | null): string | null => {
+    if (!notes) return null;
+    const match = notes.match(/\[(?:রিসিট|অনলাইন পেমেন্ট|Receipt|রসিদ):\s*([A-Za-z0-9-_]+)/i);
+    return match ? match[1].trim() : null;
+  };
+
+  // Combine payments with strict deduplication
   const combinedPayments = [...metadataPayments];
   if (sqlFees) {
     sqlFees.forEach((sf) => {
-      if (
-        !combinedPayments.some(
-          (p) => p.receipt_no === sf.receipt_number || p.id === sf.id
-        )
-      ) {
+      const extractedReceipt = extractReceiptNo(sf.notes);
+      const sfReceiptNo = sf.receipt_number || extractedReceipt;
+      const sfAmount = Number(sf.amount_paid) || Number(sf.amount) || 0;
+
+      // Check if this payment is already present in combinedPayments
+      const isDuplicate = combinedPayments.some((p) => {
+        // 1. Direct ID match or linked DB fee ID
+        if (p.id === sf.id || p.db_fee_id === sf.id) return true;
+
+        // 2. Receipt number match (case-insensitive)
+        if (
+          sfReceiptNo &&
+          p.receipt_no &&
+          p.receipt_no.trim().toUpperCase() === sfReceiptNo.trim().toUpperCase()
+        ) {
+          return true;
+        }
+
+        // 3. Fallback check: same payment date and identical amount for this student
+        if (
+          p.payment_date &&
+          sf.payment_date &&
+          p.payment_date.split("T")[0] === sf.payment_date.split("T")[0] &&
+          Math.abs((Number(p.total_amount_received) || 0) - sfAmount) < 0.01
+        ) {
+          if (extractedReceipt && p.receipt_no === extractedReceipt) return true;
+          if (sf.notes && p.receipt_no && sf.notes.includes(p.receipt_no)) return true;
+          // Both record the same payment on the same date with same amount
+          if (!sfReceiptNo) return true;
+        }
+
+        return false;
+      });
+
+      if (!isDuplicate) {
         combinedPayments.push({
           id: sf.id,
-          receipt_no: sf.receipt_number || `REC-${sf.id.slice(0, 6)}`,
-          total_amount_received:
-            Number(sf.amount_paid) || Number(sf.amount) || 0,
+          receipt_no: sfReceiptNo || `REC-${sf.id.slice(0, 6).toUpperCase()}`,
+          total_amount_received: sfAmount,
           payment_date: sf.payment_date,
           payment_method: sf.payment_method || "Cash",
-          notes: sf.notes || sf.description,
+          notes: sf.notes || sf.description || "",
           student_name: `${child.first_name} ${child.last_name}`,
           class_name: child.class_name,
         });
       }
     });
   }
+
+  // Sort payments chronologically (newest first)
+  combinedPayments.sort((a, b) => {
+    const dateA = new Date(a.payment_date || a.created_at || 0).getTime();
+    const dateB = new Date(b.payment_date || b.created_at || 0).getTime();
+    return dateB - dateA;
+  });
 
   const totalPaid = combinedPayments.reduce(
     (sum, p) => sum + (Number(p.total_amount_received) || 0),
@@ -146,8 +190,11 @@ export default async function ParentPortalFees(props: {
   const unpaidInvoices =
     feeProfile?.fees?.filter((f: any) => f.due_amount > 0) || [];
 
-  // Get gateway configuration
-  const gatewayConfig = await getPaymentGatewayConfig();
+  // Get gateway configuration and madrasa info
+  const [gatewayConfig, madrasaInfo] = await Promise.all([
+    getPaymentGatewayConfig(),
+    getMadrasaInfo(),
+  ]);
 
   return (
     <ParentPortalFeesClient
@@ -158,6 +205,7 @@ export default async function ParentPortalFees(props: {
       unpaidInvoices={unpaidInvoices}
       combinedPayments={combinedPayments}
       gatewayConfig={gatewayConfig}
+      madrasaInfo={madrasaInfo}
     />
   );
 }

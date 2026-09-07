@@ -903,6 +903,10 @@ export async function collectFeePayment(paymentData: {
       .select("id")
       .single();
 
+    if (dbFee?.id) {
+      newPayment.db_fee_id = dbFee.id;
+    }
+
     // Record audit log
     const auditLogs = meta.audit_logs || [];
     auditLogs.unshift({

@@ -99,6 +99,7 @@ export interface FeePayment {
   collector_name: string;
   notes?: string;
   status: PaymentStatus;
+  db_fee_id?: string;
   reversal_reason?: string;
   reversed_at?: string;
   reversed_by?: string;

@@ -16,10 +16,13 @@ import {
   ShieldCheck,
   Building2,
   ChevronDown,
+  Eye,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
 import OnlinePaymentCheckoutModal from "@/components/payments/OnlinePaymentCheckoutModal";
+import DualMoneyReceipt from "@/components/accounting/DualMoneyReceipt";
 import type { PaymentGatewayConfig } from "@/lib/payment-gateway";
 
 interface Props {
@@ -37,6 +40,7 @@ interface Props {
   unpaidInvoices: any[];
   combinedPayments: any[];
   gatewayConfig?: PaymentGatewayConfig;
+  madrasaInfo?: any;
 }
 
 export default function ParentPortalFeesClient({
@@ -47,8 +51,10 @@ export default function ParentPortalFeesClient({
   unpaidInvoices,
   combinedPayments,
   gatewayConfig,
+  madrasaInfo,
 }: Props) {
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
+  const [selectedReceiptFee, setSelectedReceiptFee] = useState<any | null>(null);
 
   return (
     <div className="space-y-6">
@@ -240,6 +246,7 @@ export default function ParentPortalFeesClient({
                 <th className="px-4 py-3.5">পরিশোধের মাধ্যম</th>
                 <th className="px-4 py-3.5 text-right">টাকার পরিমাণ</th>
                 <th className="px-4 py-3.5 text-center">স্ট্যাটাস</th>
+                <th className="px-4 py-3.5 text-right">রসিদ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
@@ -273,11 +280,38 @@ export default function ParentPortalFeesClient({
                         <span>পরিশোধিত</span>
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedReceiptFee({
+                            id: p.id,
+                            receipt_no: p.receipt_no,
+                            amount: p.total_amount_received,
+                            payment_date: p.payment_date,
+                            notes: p.notes,
+                            payment_method: p.payment_method,
+                            allocations: p.allocations,
+                            students: {
+                              first_name: child.first_name,
+                              last_name: child.last_name,
+                              roll_number: child.roll_number || child.student_id,
+                              class_name: child.class_name,
+                            },
+                          })
+                        }
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 text-xs font-semibold transition cursor-pointer"
+                        title="মানি রিসিট দেখুন ও প্রিন্ট করুন"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>রসিদ</span>
+                      </button>
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="text-center py-10 text-slate-400 text-sm">
+                  <td colSpan={7} className="text-center py-10 text-slate-400 text-sm">
                     কোন পরিশোধিত ফির তথ্য পাওয়া যায়নি।
                   </td>
                 </tr>
@@ -286,6 +320,35 @@ export default function ParentPortalFeesClient({
           </table>
         </div>
       </div>
+
+      {/* View & Print Money Receipt Modal */}
+      {selectedReceiptFee && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-4xl w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 shadow-2xl space-y-4 my-auto relative">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 print:hidden">
+              <div className="flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-emerald-700" />
+                <h3 className="font-bold text-slate-900 text-base sm:text-lg">
+                  মানি রিসিট (ফি পরিশোধ রশিদ)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedReceiptFee(null)}
+                className="p-1.5 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <DualMoneyReceipt
+              fee={selectedReceiptFee}
+              student={selectedReceiptFee.students}
+              madrasaInfo={madrasaInfo}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Online Payment Modal */}
       <OnlinePaymentCheckoutModal

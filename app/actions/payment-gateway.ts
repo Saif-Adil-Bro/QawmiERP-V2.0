@@ -421,7 +421,7 @@ export async function verifyAndCompleteOnlinePayment(params: {
     txns[txnIndex] = updatedTxn;
 
     // 5. Insert into Supabase `fees` table for backwards compatibility
-    await adminClient.from("fees").insert({
+    const { data: dbFee } = await adminClient.from("fees").insert({
       madrasa_id: madrasaId,
       student_id: targetTxn.student_id,
       fee_type: "Monthly",
@@ -430,7 +430,11 @@ export async function verifyAndCompleteOnlinePayment(params: {
       fee_month: new Date().toLocaleString("en-US", { month: "long" }),
       fee_year: currentYear,
       notes: `[অনলাইন পেমেন্ট: ${receiptNo} | Trx: ${targetTxn.transaction_id}]`,
-    });
+    }).select("id").single();
+
+    if (dbFee?.id) {
+      newPayment.db_fee_id = dbFee.id;
+    }
 
     // 6. Save fee metadata
     await saveFeeMetadata(madrasaId, {

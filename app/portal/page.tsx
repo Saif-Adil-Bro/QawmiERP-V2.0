@@ -19,6 +19,10 @@ import {
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { getStudentAssignments } from "@/app/actions/assignments";
+import {
+  getStudentFeeProfile,
+  getFeeMetadata,
+} from "@/app/actions/fee-management";
 
 export const dynamic = "force-dynamic";
 
@@ -108,14 +112,76 @@ export default async function PortalOverview(props: {
     .limit(1)
     .maybeSingle();
 
-  // Fetch fees records
-  const { data: feesList } = await supabase
-    .from("fees")
-    .select("*")
-    .eq("student_id", child.id)
-    .order("payment_date", { ascending: false });
+  // Fetch fees records and metadata
+  const [feeProfile, feeMeta, { data: feesList }] = await Promise.all([
+    getStudentFeeProfile(child.id),
+    madrasaId ? getFeeMetadata(madrasaId) : null,
+    supabase
+      .from("fees")
+      .select("*")
+      .eq("student_id", child.id)
+      .order("payment_date", { ascending: false }),
+  ]);
 
-  const totalPaid = feesList?.reduce((acc, curr) => acc + (Number(curr.amount_paid) || 0), 0) || 0;
+  const metadataPayments = (feeMeta?.payments || []).filter(
+    (p) => p.student_id === child.id && p.status !== "REVERSED"
+  );
+
+  // Extract receipt number helper
+  const extractReceiptNo = (notes?: string | null): string | null => {
+    if (!notes) return null;
+    const match = notes.match(/\[(?:রিসিট|অনলাইন পেমেন্ট|Receipt|রসিদ):\s*([A-Za-z0-9-_]+)/i);
+    return match ? match[1].trim() : null;
+  };
+
+  // Combine payments with deduplication
+  const combinedPayments: any[] = [...metadataPayments];
+  if (feesList) {
+    feesList.forEach((sf) => {
+      const extractedReceipt = extractReceiptNo(sf.notes);
+      const sfReceiptNo = sf.receipt_number || extractedReceipt;
+      const sfAmount = Number(sf.amount_paid) || Number(sf.amount) || 0;
+
+      const isDuplicate = combinedPayments.some((p) => {
+        if (p.id === sf.id || p.db_fee_id === sf.id) return true;
+        if (
+          sfReceiptNo &&
+          p.receipt_no &&
+          p.receipt_no.trim().toUpperCase() === sfReceiptNo.trim().toUpperCase()
+        ) {
+          return true;
+        }
+        if (
+          p.payment_date &&
+          sf.payment_date &&
+          p.payment_date.split("T")[0] === sf.payment_date.split("T")[0] &&
+          Math.abs((Number(p.total_amount_received) || 0) - sfAmount) < 0.01
+        ) {
+          return true;
+        }
+        return false;
+      });
+
+      if (!isDuplicate) {
+        combinedPayments.push({
+          id: sf.id,
+          receipt_no: sfReceiptNo || `REC-${sf.id.slice(0, 6).toUpperCase()}`,
+          total_amount_received: sfAmount,
+          payment_date: sf.payment_date,
+        });
+      }
+    });
+  }
+
+  const totalPaid = combinedPayments.reduce(
+    (acc, curr) => acc + (Number(curr.total_amount_received) || 0),
+    0
+  );
+  const latestReceiptNo =
+    combinedPayments[0]?.receipt_no ||
+    extractReceiptNo(feesList?.[0]?.notes) ||
+    feesList?.[0]?.receipt_number ||
+    "স্বয়ংক্রিয় রসিদ";
 
   // Fetch latest exam results
   const { data: examResults } = await supabase
@@ -251,8 +317,8 @@ export default async function PortalOverview(props: {
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>হালনাগাদ ফি পরিশোধিত</span>
           </p>
-          <div className="mt-2 text-[11px] text-slate-500">
-            সর্বশেষ রশিদ: {feesList?.[0]?.receipt_number || "স্বয়ংক্রিয় রসিদ"}
+          <div className="mt-2 text-[11px] text-slate-500 font-mono">
+            সর্বশেষ রশিদ: {latestReceiptNo}
           </div>
         </div>
 
