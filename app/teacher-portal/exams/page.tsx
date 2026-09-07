@@ -47,7 +47,7 @@ export default async function TeacherExamsPage(props: { searchParams?: Promise<{
   let existingMarks: any[] = [];
 
   if (classId && examId) {
-    const { data: s } = await supabase.from("students").select("id, first_name, last_name, roll_number").eq("class_id", classId).order("roll_number");
+    const { data: s } = await supabase.from("students").select("id, first_name, last_name, roll_number, photo_url").eq("class_id", classId).order("roll_number");
     students = s || [];
 
     const { data: m } = await supabase.from("exam_results").select("*").in("student_id", students.map(st => st.id)).eq("exam_id", examId).eq("subject_name", subjectName);

@@ -59,7 +59,7 @@ export default async function TeacherPortalKitab(props: {
 
   const { data: students } = await supabase
     .from("students")
-    .select("id, first_name, last_name, roll_number")
+    .select("id, first_name, last_name, roll_number, photo_url")
     .eq("madrasa_id", madrasaId)
     .eq("class_id", currentClassId)
     .order("roll_number", { ascending: true });

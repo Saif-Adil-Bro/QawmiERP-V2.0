@@ -46,7 +46,7 @@ export default async function TeacherHifzPage(props: { searchParams?: Promise<{ 
   let existingLogs: any[] = [];
 
   if (classId) {
-    const { data: s } = await supabase.from("students").select("id, first_name, last_name, roll_number").eq("class_id", classId).order("roll_number");
+    const { data: s } = await supabase.from("students").select("id, first_name, last_name, roll_number, photo_url").eq("class_id", classId).order("roll_number");
     students = s || [];
 
     const { data: l } = await supabase.from("hifz_logs").select("*").in("student_id", students.map(st => st.id)).eq("log_date", dateStr);

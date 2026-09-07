@@ -49,7 +49,7 @@ export default async function TeacherAttendancePage(props: { searchParams?: Prom
   if (classId) {
     const { data: s } = await supabase
       .from("students")
-      .select("id, first_name, last_name, roll_number, student_id")
+      .select("id, first_name, last_name, roll_number, student_id, photo_url")
       .eq("class_id", classId)
       .order("roll_number");
     students = s || [];
