@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import HifzForm from "./HifzForm";
+import { getMadrasaMetadata } from "@/lib/sessions";
 
 export default async function TeacherHifzPage(props: { searchParams?: Promise<{ date?: string, class_id?: string }> }) {
   const supabase = await createClient();
@@ -35,7 +36,10 @@ export default async function TeacherHifzPage(props: { searchParams?: Promise<{ 
     classesQuery = classesQuery.in("id", scope.allowedClassIds);
   }
 
-  const { data: classes } = await classesQuery;
+  const [{ data: classes }, meta] = await Promise.all([
+    classesQuery,
+    madrasaId ? getMadrasaMetadata(madrasaId) : null,
+  ]);
 
   // Await search params
   const awaitedSearchParams = props.searchParams ? (await props.searchParams) || {} : {};
@@ -46,8 +50,28 @@ export default async function TeacherHifzPage(props: { searchParams?: Promise<{ 
   let existingLogs: any[] = [];
 
   if (classId) {
-    const { data: s } = await supabase.from("students").select("id, first_name, last_name, roll_number, photo_url").eq("class_id", classId).order("roll_number");
-    students = s || [];
+    const { data: rawStudents } = await supabase
+      .from("students")
+      .select("id, first_name, last_name, roll_number, photo_url, phone")
+      .eq("class_id", classId)
+      .order("roll_number");
+
+    students = (rawStudents || []).map((s: any) => {
+      const profile = meta?.student_profiles?.[s.id] || {};
+      const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === s.id);
+      const resolvedPhoto = profile.photo_url || s.photo_url || admission?.photo_url || "";
+      const resolvedPhone = profile.parent_phone || s.parent_phone || admission?.guardian_phone || admission?.emergency_phone || s.phone || "";
+
+      return {
+        ...s,
+        first_name: profile.first_name || s.first_name || "",
+        last_name: profile.last_name || s.last_name || "",
+        roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (s.roll_number || ""),
+        photo_url: resolvedPhoto,
+        phone: resolvedPhone,
+        parent_phone: resolvedPhone,
+      };
+    });
 
     const { data: l } = await supabase.from("hifz_logs").select("*").in("student_id", students.map(st => st.id)).eq("log_date", dateStr);
     existingLogs = l || [];

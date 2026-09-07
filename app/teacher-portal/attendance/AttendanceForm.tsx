@@ -13,6 +13,7 @@ import {
   CheckCheck,
   X,
   AlertCircle,
+  Phone,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
@@ -330,11 +331,17 @@ export default function AttendanceForm({
 
         {/* Search within class */}
         <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            }}
             placeholder="শিক্ষার্থীর নাম বা রোল নম্বর দিয়ে খুঁজুন..."
             className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
           />
@@ -367,7 +374,7 @@ export default function AttendanceForm({
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                 <th className="px-5 py-3.5">রোল</th>
-                <th className="px-5 py-3.5">শিক্ষার্থীর নাম</th>
+                <th className="px-5 py-3.5">শিক্ষার্থীর বিবরণ</th>
                 <th className="px-5 py-3.5">হাজিরা স্ট্যাটাস</th>
                 <th className="px-5 py-3.5">মন্তব্য / কারণ</th>
               </tr>
@@ -383,8 +390,31 @@ export default function AttendanceForm({
                         {toBanglaNumber(s.roll_number || s.student_id || "-")}
                       </td>
                       <td className="px-5 py-3.5">
-                        <div className="font-bold text-slate-900">{s.first_name} {s.last_name}</div>
-                        <div className="text-[11px] text-slate-400">আইডি: {s.student_id || s.id.slice(0, 8)}</div>
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden border border-emerald-200 shadow-xs">
+                            {s.photo_url ? (
+                              <img src={s.photo_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <span>{s.first_name?.[0] || "শ"}</span>
+                            )}
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-900 leading-tight">{s.first_name} {s.last_name}</div>
+                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+                              <span>আইডি: {s.student_id || s.roll_number || s.id.slice(0, 8)}</span>
+                              {s.parent_phone && (
+                                <a
+                                  href={`tel:${s.parent_phone}`}
+                                  className="flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded-md transition"
+                                  title="অভিভাবককে কল করুন"
+                                >
+                                  <Phone className="w-2.5 h-2.5" />
+                                  <span>{s.parent_phone}</span>
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-1.5">
@@ -439,14 +469,35 @@ export default function AttendanceForm({
               const state = attendanceState[s.id] || { status: "Present", notes: "" };
 
               return (
-                <div key={s.id} className="p-4 space-y-3">
+                <div key={s.id} className="p-4 space-y-3 bg-white">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md mr-2">
-                        রোল: {toBanglaNumber(s.roll_number || "-")}
-                      </span>
-                      <strong className="text-sm text-slate-900">{s.first_name} {s.last_name}</strong>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden border border-emerald-200 shadow-xs">
+                        {s.photo_url ? (
+                          <img src={s.photo_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span>{s.first_name?.[0] || "শ"}</span>
+                        )}
+                      </div>
+                      <div>
+                        <strong className="text-sm text-slate-900 leading-tight block">{s.first_name} {s.last_name}</strong>
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
+                          <span>আইডি: {s.student_id || s.roll_number || s.id.slice(0, 8)}</span>
+                          {s.parent_phone && (
+                            <a
+                              href={`tel:${s.parent_phone}`}
+                              className="flex items-center gap-1 text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded-md"
+                            >
+                              <Phone className="w-2.5 h-2.5" />
+                              <span>{s.parent_phone}</span>
+                            </a>
+                          )}
+                        </div>
+                      </div>
                     </div>
+                    <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md shrink-0">
+                      রোল: {toBanglaNumber(s.roll_number || "-")}
+                    </span>
                   </div>
 
                   {/* Status Toggle Buttons */}

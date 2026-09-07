@@ -10,6 +10,7 @@ import {
   Award,
   Search,
   BookOpen,
+  Phone,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
@@ -28,6 +29,11 @@ export default function ExamMarksForm({
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [subjectInput, setSubjectInput] = useState(currentSubject || "কুরআন মাজীদ");
+
+  useEffect(() => {
+    setSubjectInput(currentSubject || "কুরআন মাজীদ");
+  }, [currentSubject]);
 
   const [marksState, setMarksState] = useState<
     Record<string, { marks_obtained: string; total_marks: string }>
@@ -200,23 +206,66 @@ export default function ExamMarksForm({
             <label className="block text-xs font-bold text-slate-700 mb-1.5">
               বিষয়ের নাম <span className="text-purple-600">*</span>
             </label>
-            <input
-              type="text"
-              value={currentSubject}
-              onChange={(e) => handleFilterChange("subject", e.target.value)}
-              placeholder="যেমন: কুরআন মাজীদ, হাদিস, আরবি"
-              className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-purple-600 focus:outline-none"
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                list="popular-subjects"
+                value={subjectInput}
+                onChange={(e) => setSubjectInput(e.target.value)}
+                onBlur={() => {
+                  if (subjectInput.trim() && subjectInput !== currentSubject) {
+                    handleFilterChange("subject_name", subjectInput.trim());
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (subjectInput.trim() && subjectInput !== currentSubject) {
+                      handleFilterChange("subject_name", subjectInput.trim());
+                    }
+                  }
+                }}
+                placeholder="যেমন: কুরআন মাজীদ, হাদিস, আরবি"
+                className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-purple-600 focus:outline-none"
+              />
+              <datalist id="popular-subjects">
+                <option value="কুরআন মাজীদ" />
+                <option value="হিফজ" />
+                <option value="হাদিস শরীফ" />
+                <option value="ফিকহ" />
+                <option value="নাহব ও সরফ" />
+                <option value="আকাইদ" />
+                <option value="তাফসীর" />
+                <option value="বাংলা" />
+                <option value="গণিত" />
+                <option value="ইংরেজি" />
+              </datalist>
+              {subjectInput !== currentSubject && (
+                <button
+                  type="button"
+                  onClick={() => handleFilterChange("subject_name", subjectInput.trim())}
+                  className="px-3 py-1 bg-purple-600 text-white rounded-xl text-xs font-bold shrink-0 hover:bg-purple-700 transition"
+                >
+                  প্রয়োগ
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Student Search */}
         <div className="relative pt-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            }}
             placeholder="শিক্ষার্থীর নাম বা রোল লিখে সার্চ করুন..."
             className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
           />
@@ -269,7 +318,30 @@ export default function ExamMarksForm({
                         {toBanglaNumber(s.roll_number || s.student_id || "-")}
                       </td>
                       <td className="px-5 py-3.5">
-                        <div className="font-bold text-slate-900">{s.first_name} {s.last_name}</div>
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden border border-purple-200 shadow-2xs">
+                            {s.photo_url ? (
+                              <img src={s.photo_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <span>{s.first_name?.[0] || "শ"}</span>
+                            )}
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-900">{s.first_name} {s.last_name}</div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
+                              <span className="font-mono">আইডি: {s.student_id || s.id?.slice(0, 6)}</span>
+                              {s.phone && (
+                                <>
+                                  <span>•</span>
+                                  <a href={`tel:${s.phone}`} className="text-purple-700 hover:underline inline-flex items-center gap-0.5 font-mono">
+                                    <Phone className="w-2.5 h-2.5" />
+                                    <span>{s.phone}</span>
+                                  </a>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-5 py-3.5">
                         <input
@@ -321,8 +393,31 @@ export default function ExamMarksForm({
               return (
                 <div key={s.id} className="p-4 space-y-3 bg-white">
                   <div className="flex items-center justify-between">
-                    <strong className="text-sm text-slate-900">{s.first_name} {s.last_name}</strong>
-                    <span className="text-xs font-bold text-purple-800 bg-purple-50 px-2 py-0.5 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden border border-purple-200">
+                        {s.photo_url ? (
+                          <img src={s.photo_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span>{s.first_name?.[0] || "শ"}</span>
+                        )}
+                      </div>
+                      <div>
+                        <strong className="text-sm text-slate-900 leading-tight block">{s.first_name} {s.last_name}</strong>
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
+                          <span>আইডি: {s.student_id || s.id.slice(0, 6)}</span>
+                          {s.phone && (
+                            <>
+                              <span>•</span>
+                              <a href={`tel:${s.phone}`} className="text-purple-700 hover:underline inline-flex items-center gap-0.5">
+                                <Phone className="w-2.5 h-2.5" />
+                                <span>{s.phone}</span>
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-purple-800 bg-purple-50 px-2.5 py-0.5 rounded-lg shrink-0">
                       রোল: {toBanglaNumber(s.roll_number || "-")}
                     </span>
                   </div>

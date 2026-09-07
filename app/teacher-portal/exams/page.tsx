@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import ExamMarksForm from "./ExamMarksForm";
+import { getMadrasaMetadata } from "@/lib/sessions";
 
 export default async function TeacherExamsPage(props: { searchParams?: Promise<{ exam_id?: string, class_id?: string, subject_name?: string }> }) {
   const supabase = await createClient();
@@ -37,7 +38,10 @@ export default async function TeacherExamsPage(props: { searchParams?: Promise<{
     classesQuery = classesQuery.in("id", scope.allowedClassIds);
   }
 
-  const { data: classes } = await classesQuery;
+  const [{ data: classes }, meta] = await Promise.all([
+    classesQuery,
+    madrasaId ? getMadrasaMetadata(madrasaId) : null,
+  ]);
   
   const examId = awaitedSearchParams?.exam_id || (exams?.[0]?.id || "");
   const classId = awaitedSearchParams?.class_id || (classes?.[0]?.id || "");
@@ -47,8 +51,28 @@ export default async function TeacherExamsPage(props: { searchParams?: Promise<{
   let existingMarks: any[] = [];
 
   if (classId && examId) {
-    const { data: s } = await supabase.from("students").select("id, first_name, last_name, roll_number, photo_url").eq("class_id", classId).order("roll_number");
-    students = s || [];
+    const { data: rawStudents } = await supabase
+      .from("students")
+      .select("id, first_name, last_name, roll_number, photo_url, phone")
+      .eq("class_id", classId)
+      .order("roll_number");
+
+    students = (rawStudents || []).map((s: any) => {
+      const profile = meta?.student_profiles?.[s.id] || {};
+      const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === s.id);
+      const resolvedPhoto = profile.photo_url || s.photo_url || admission?.photo_url || "";
+      const resolvedPhone = profile.parent_phone || s.parent_phone || admission?.guardian_phone || admission?.emergency_phone || s.phone || "";
+
+      return {
+        ...s,
+        first_name: profile.first_name || s.first_name || "",
+        last_name: profile.last_name || s.last_name || "",
+        roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (s.roll_number || ""),
+        photo_url: resolvedPhoto,
+        phone: resolvedPhone,
+        parent_phone: resolvedPhone,
+      };
+    });
 
     const { data: m } = await supabase.from("exam_results").select("*").in("student_id", students.map(st => st.id)).eq("exam_id", examId).eq("subject_name", subjectName);
     existingMarks = m || [];

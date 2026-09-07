@@ -75,6 +75,7 @@ export default async function DashboardPage() {
         { count: presentCount },
         { count: absentCount },
         { count: leaveCount },
+        { count: lateCount },
 
         { data: feesData },
         { data: donationsData },
@@ -91,6 +92,7 @@ export default async function DashboardPage() {
         supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Present"),
         supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Absent"),
         supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Leave"),
+        supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Late"),
 
         supabase.from("fees").select("amount, payment_date").eq("madrasa_id", profile.madrasa_id),
         supabase.from("donations").select("amount, donation_date").eq("madrasa_id", profile.madrasa_id),
@@ -135,10 +137,12 @@ export default async function DashboardPage() {
       let presentTotal = 0;
       let absentTotal = 0;
       let leaveTotal = 0;
+      let lateTotal = 0;
       (attendanceAllData || []).forEach((a: any) => {
         if (a.status === 'Present') presentTotal++;
         else if (a.status === 'Absent') absentTotal++;
         else if (a.status === 'Leave') leaveTotal++;
+        else if (a.status === 'Late') lateTotal++;
       });
 
       // Process Exam Pass Rate
@@ -162,13 +166,15 @@ export default async function DashboardPage() {
       todayAttendanceData = [
         { name: 'উপস্থিত', value: todayPresent },
         { name: 'অনুপস্থিত', value: todayAbsent },
-        { name: 'ছুটি', value: leaveCount || 0 }
+        { name: 'ছুটি', value: leaveCount || 0 },
+        { name: 'বিলম্ব', value: lateCount || 0 },
       ].filter(d => d.value > 0);
 
       attendanceData = [
         { name: 'উপস্থিত', value: presentTotal },
         { name: 'ছুটি', value: leaveTotal },
-        { name: 'অনুপস্থিত', value: absentTotal }
+        { name: 'বিলম্ব', value: lateTotal },
+        { name: 'অনুপস্থিত', value: absentTotal },
       ].filter(d => d.value > 0);
 
       examPassRateData = Object.keys(examStats).map(exam => ({

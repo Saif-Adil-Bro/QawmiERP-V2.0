@@ -1,6 +1,7 @@
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import AttendanceForm from "./AttendanceForm";
 import { checkHolidayForDate } from "@/app/actions/holidays";
+import { getMadrasaMetadata } from "@/lib/sessions";
 
 export default async function TeacherAttendancePage(props: { searchParams?: Promise<{ date?: string, class_id?: string }> }) {
   const supabase = await createClient();
@@ -41,18 +42,57 @@ export default async function TeacherAttendancePage(props: { searchParams?: Prom
   const classId = awaitedSearchParams?.class_id || (classes?.[0]?.id || "");
 
   // Check holiday or weekend status for the requested date
-  const holidayInfo = await checkHolidayForDate(dateStr);
+  const [holidayInfo, meta] = await Promise.all([
+    checkHolidayForDate(dateStr),
+    madrasaId ? getMadrasaMetadata(madrasaId) : null,
+  ]);
 
   let students: any[] = [];
   let existingAttendance: any[] = [];
 
   if (classId) {
-    const { data: s } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, student_id, photo_url")
-      .eq("class_id", classId)
-      .order("roll_number");
-    students = s || [];
+    let rawStudents: any[] = [];
+    try {
+      const admin = await createAdminClient();
+      const { data: sAdmin, error: adminErr } = await admin
+        .from("students")
+        .select("id, first_name, last_name, roll_number, photo_url, parent_phone, class_id, class_name")
+        .eq("class_id", classId)
+        .order("roll_number", { ascending: true });
+      if (!adminErr && sAdmin) {
+        rawStudents = sAdmin;
+      }
+    } catch {
+      // fallback to user client
+    }
+
+    if (rawStudents.length === 0) {
+      const { data: s } = await supabase
+        .from("students")
+        .select("id, first_name, last_name, roll_number, photo_url, parent_phone, class_id, class_name")
+        .eq("class_id", classId)
+        .order("roll_number", { ascending: true });
+      rawStudents = s || [];
+    }
+
+    // Hydrate students with metadata
+    students = rawStudents.map((st: any) => {
+      const profile = meta?.student_profiles?.[st.id] || {};
+      const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === st.id);
+      const resolvedPhoto = profile.photo_url || st.photo_url || admission?.photo_url || "";
+      const resolvedPhone = profile.parent_phone || st.parent_phone || admission?.guardian_phone || admission?.emergency_phone || "";
+
+      return {
+        ...st,
+        first_name: profile.first_name || st.first_name || "",
+        last_name: profile.last_name || st.last_name || "",
+        roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (st.roll_number || ""),
+        student_id: profile.student_id || st.student_id || st.roll_number || st.id.slice(0, 8),
+        photo_url: resolvedPhoto,
+        parent_phone: resolvedPhone,
+        phone: resolvedPhone,
+      };
+    });
 
     const studentIds = students.map((st: any) => st.id);
     if (studentIds.length > 0) {

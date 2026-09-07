@@ -150,7 +150,18 @@ function MobileBottomNav({
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
   const pathname = usePathname();
+
+  const handleLogout = async () => {
+    try {
+      setLoggingOut(true);
+      await logout();
+    } catch (e) {
+      console.error(e);
+      setLoggingOut(false);
+    }
+  };
 
   // Load saved preference for desktop sidebar
   useEffect(() => {
@@ -245,15 +256,15 @@ export default function DashboardShell({ children }: { children: React.ReactNode
 
             {/* Logout Button */}
             <div className="p-3.5 sm:p-4 border-t border-slate-800 shrink-0">
-              <form action={logout}>
-                <button
-                  type="submit"
-                  className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl hover:bg-slate-800 text-rose-400 hover:text-rose-300 transition text-xs sm:text-sm font-semibold cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span>লগআউট</span>
-                </button>
-              </form>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl hover:bg-slate-800 text-rose-400 hover:text-rose-300 transition text-xs sm:text-sm font-semibold cursor-pointer disabled:opacity-50"
+              >
+                <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span>{loggingOut ? "লগআউট হচ্ছে..." : "লগআউট"}</span>
+              </button>
             </div>
           </aside>
 

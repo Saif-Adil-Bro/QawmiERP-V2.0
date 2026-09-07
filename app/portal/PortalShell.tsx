@@ -28,9 +28,20 @@ interface PortalShellProps {
 
 export default function PortalShell({ user, userData, children }: PortalShellProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const studentId = searchParams.get("student_id");
+
+  const handleLogout = async () => {
+    try {
+      setLoggingOut(true);
+      await logout();
+    } catch (e) {
+      console.error(e);
+      setLoggingOut(false);
+    }
+  };
 
   // Bottom navigation items for mobile
   const bottomNavItems = [
@@ -85,15 +96,15 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
             </div>
           </div>
 
-          <form action={logout}>
-            <button
-              type="submit"
-              className="flex items-center justify-center w-full px-3 py-2 text-xs font-semibold text-red-400 rounded-lg hover:bg-red-950/40 hover:text-red-300 transition-colors"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              লগআউট করুন
-            </button>
-          </form>
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="flex items-center justify-center w-full px-3 py-2 text-xs font-semibold text-red-400 rounded-lg hover:bg-red-950/40 hover:text-red-300 transition-colors disabled:opacity-50"
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            {loggingOut ? "লগআউট হচ্ছে..." : "লগআউট করুন"}
+          </button>
         </div>
       </aside>
 
@@ -147,15 +158,15 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
                 </div>
               </div>
 
-              <form action={logout}>
-                <button
-                  type="submit"
-                  className="flex items-center justify-center w-full px-3 py-2 text-xs font-semibold text-red-400 rounded-xl bg-red-950/30 hover:bg-red-950/60"
-                >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  লগআউট
-                </button>
-              </form>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                className="flex items-center justify-center w-full px-3 py-2 text-xs font-semibold text-red-400 rounded-xl bg-red-950/30 hover:bg-red-950/60 disabled:opacity-50"
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                {loggingOut ? "লগআউট হচ্ছে..." : "লগআউট"}
+              </button>
             </div>
           </div>
         </div>

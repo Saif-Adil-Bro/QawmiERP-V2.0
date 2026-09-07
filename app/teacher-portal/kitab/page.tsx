@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import KitabEntryClient from "./KitabEntryClient";
+import { getMadrasaMetadata } from "@/lib/sessions";
 
 export const dynamic = "force-dynamic";
 
@@ -52,14 +53,17 @@ export default async function TeacherPortalKitab(props: {
     classesQuery = classesQuery.in("id", scope.allowedClassIds);
   }
 
-  const { data: classes } = await classesQuery;
+  const [{ data: classes }, meta] = await Promise.all([
+    classesQuery,
+    madrasaId ? getMadrasaMetadata(madrasaId) : null,
+  ]);
 
   const currentClassId = params.class_id || classes?.[0]?.id || "";
   const currentDate = params.date || new Date().toISOString().split("T")[0];
 
-  const { data: students } = await supabase
+  const { data: rawStudents } = await supabase
     .from("students")
-    .select("id, first_name, last_name, roll_number, photo_url")
+    .select("id, first_name, last_name, roll_number, photo_url, phone")
     .eq("madrasa_id", madrasaId)
     .eq("class_id", currentClassId)
     .order("roll_number", { ascending: true });
@@ -70,10 +74,27 @@ export default async function TeacherPortalKitab(props: {
     .eq("madrasa_id", madrasaId)
     .eq("log_date", currentDate);
 
+  const students = (rawStudents || []).map((s: any) => {
+    const profile = meta?.student_profiles?.[s.id] || {};
+    const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === s.id);
+    const resolvedPhoto = profile.photo_url || s.photo_url || admission?.photo_url || "";
+    const resolvedPhone = profile.parent_phone || s.parent_phone || admission?.guardian_phone || admission?.emergency_phone || s.phone || "";
+
+    return {
+      ...s,
+      first_name: profile.first_name || s.first_name || "",
+      last_name: profile.last_name || s.last_name || "",
+      roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (s.roll_number || ""),
+      photo_url: resolvedPhoto,
+      phone: resolvedPhone,
+      parent_phone: resolvedPhone,
+    };
+  });
+
   return (
     <KitabEntryClient
       classes={classes || []}
-      students={students || []}
+      students={students}
       existingLogs={existingLogs || []}
       currentClassId={currentClassId}
       currentDate={currentDate}
