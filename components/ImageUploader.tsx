@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useRef, DragEvent } from "react";
+import { useState, useRef, DragEvent, useEffect } from "react";
 import { uploadImageAuto } from "@/lib/uploadHelper";
 import { 
   Upload, Loader2, CheckCircle, Copy, Check, X, 
-  FileImage, Globe, AlertCircle 
+  Globe, AlertCircle, RefreshCw, Sparkles, Cloud
 } from "lucide-react";
 
 interface ImageUploaderProps {
@@ -28,17 +28,38 @@ export default function ImageUploader({
   accept = "image/png, image/jpeg, image/jpg, image/webp",
   required = false,
   aspectRatio = "portrait",
-  placeholder = "https://iili.io/... অথবা https://files.catbox.moe/..."
+  placeholder = "https://iili.io/... অথবা https://i.ibb.co/..."
 }: ImageUploaderProps) {
   const [method, setMethod] = useState<"file" | "url">("file");
   const [url, setUrl] = useState<string>(defaultValue || "");
   const [preview, setPreview] = useState<string | null>(defaultValue || null);
   const [uploading, setUploading] = useState<boolean>(false);
-  const [provider, setProvider] = useState<string>("");
+  const [preferredProvider, setPreferredProvider] = useState<"auto" | "iili.io" | "imgbb">("auto");
+  
+  // Detect provider from existing URL if present
+  const detectInitialProvider = (val: string) => {
+    if (!val) return "";
+    if (val.includes("iili.io") || val.includes("freeimage")) return "iili.io";
+    if (val.includes("ibb.co") || val.includes("imgbb")) return "ImgBB";
+    if (val.includes("catbox")) return "Catbox";
+    if (val.includes("supabase")) return "Supabase";
+    return "ক্লাউড";
+  };
+
+  const [provider, setProvider] = useState<string>(detectInitialProvider(defaultValue));
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync if defaultValue changes (e.g., student edit load)
+  useEffect(() => {
+    if (defaultValue && defaultValue !== url) {
+      setUrl(defaultValue);
+      setPreview(defaultValue);
+      setProvider(detectInitialProvider(defaultValue));
+    }
+  }, [defaultValue]);
 
   const handleDrag = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -63,12 +84,12 @@ export default function ImageUploader({
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      setError("অনুগ্রহ করে শুধুমাত্র একটি ইমেজ ফাইল নির্বাচন করুন।");
+      setError("অনুগ্রহ করে শুধুমাত্র একটি ছবি (Image) ফাইল নির্বাচন করুন।");
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError("ফাইলের সাইজ ৫ মেগাবাইটের কম হতে হবে।");
+    if (file.size > 8 * 1024 * 1024) {
+      setError("ফাইলের সাইজ ৮ মেগাবাইটের কম হতে হবে।");
       return;
     }
 
@@ -81,10 +102,10 @@ export default function ImageUploader({
     };
     reader.readAsDataURL(file);
 
-    // Automatic cloud upload to iili.io / Catbox
+    // Automatic cloud upload to iili.io / ImgBB
     setUploading(true);
     try {
-      const res = await uploadImageAuto(file, type);
+      const res = await uploadImageAuto(file, type, preferredProvider);
       if (res.success && res.url) {
         setUrl(res.url);
         setPreview(res.url);
@@ -122,38 +143,60 @@ export default function ImageUploader({
       {/* Hidden input to pass the final URL in standard form submissions */}
       <input type="hidden" name={name} value={url} required={required && !url} />
 
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
-          <span>{label}</span>
-          {required && <span className="text-red-500">*</span>}
-        </label>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+            <span>{label}</span>
+            {required && <span className="text-red-500">*</span>}
+          </label>
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+            <Cloud className="w-3 h-3 text-indigo-500" />
+            <span>iili.io / ImgBB</span>
+          </span>
+        </div>
 
         {/* Tab switch between File and Direct URL */}
-        <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
-          <button
-            type="button"
-            onClick={() => setMethod("file")}
-            className={`px-2.5 py-1 rounded-md transition font-medium flex items-center gap-1 ${
-              method === "file"
-                ? "bg-white text-slate-800 shadow-xs font-semibold"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            <Upload className="w-3 h-3" />
-            <span>ফাইল আপলোড</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMethod("url")}
-            className={`px-2.5 py-1 rounded-md transition font-medium flex items-center gap-1 ${
-              method === "url"
-                ? "bg-white text-slate-800 shadow-xs font-semibold"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            <Globe className="w-3 h-3" />
-            <span>সরাসরি লিংক</span>
-          </button>
+        <div className="flex items-center gap-2">
+          {/* Provider selector */}
+          <div className="hidden sm:flex items-center gap-1 text-[11px] text-slate-500 mr-1">
+            <span>সার্ভার:</span>
+            <select
+              value={preferredProvider}
+              onChange={(e) => setPreferredProvider(e.target.value as any)}
+              className="bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-[11px] text-slate-700 font-medium focus:outline-none"
+            >
+              <option value="auto">iili.io (স্বয়ংক্রিয়)</option>
+              <option value="imgbb">ImgBB</option>
+              <option value="iili.io">iili.io শুধুমাত্র</option>
+            </select>
+          </div>
+
+          <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
+            <button
+              type="button"
+              onClick={() => setMethod("file")}
+              className={`px-2.5 py-1 rounded-md transition font-medium flex items-center gap-1 ${
+                method === "file"
+                  ? "bg-white text-slate-800 shadow-xs font-semibold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Upload className="w-3 h-3" />
+              <span>ফাইল আপলোড</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMethod("url")}
+              className={`px-2.5 py-1 rounded-md transition font-medium flex items-center gap-1 ${
+                method === "url"
+                  ? "bg-white text-slate-800 shadow-xs font-semibold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Globe className="w-3 h-3" />
+              <span>সরাসরি লিংক</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -197,10 +240,10 @@ export default function ImageUploader({
                 <div className="flex flex-col items-center justify-center py-2">
                   <Loader2 className="w-7 h-7 text-emerald-600 animate-spin mb-2" />
                   <p className="text-xs font-bold text-emerald-700 animate-pulse">
-                    স্বয়ংক্রিয়ভাবে iili.io / Catbox ক্লাউডে আপলোড হচ্ছে...
+                    স্বয়ংক্রিয়ভাবে iili.io / ImgBB ক্লাউডে আপলোড হচ্ছে...
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    আপলোড সম্পন্ন হলে সরাসরি ক্লাউড লিংক যুক্ত ও সেভ হবে
+                    আপলোড সম্পন্ন হলে ডিজিটাল আইডি কার্ড ও সার্টিফিকেটের জন্য স্থায়ী ক্লাউড লিংক প্রস্তুত হবে
                   </p>
                 </div>
               ) : (
@@ -209,7 +252,7 @@ export default function ImageUploader({
                     <Upload className="w-4 h-4 text-slate-500 group-hover:text-emerald-600" />
                   </div>
                   <p className="text-xs font-semibold text-slate-700">
-                    ডিভাইস থেকে ফাইল নির্বাচন করতে ক্লিক করুন অথবা ড্র্যাগ করুন
+                    {preview ? "ছবি পরিবর্তন করতে ক্লিক করুন অথবা নতুন ফাইল ড্র্যাগ করুন" : "ডিভাইস থেকে ফাইল নির্বাচন করতে ক্লিক করুন অথবা ড্র্যাগ করুন"}
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     {subLabel}
@@ -231,13 +274,14 @@ export default function ImageUploader({
                 const val = e.target.value;
                 setUrl(val);
                 setPreview(val.trim() ? val.trim() : null);
+                setProvider(detectInitialProvider(val));
               }}
               className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 text-xs transition"
               placeholder={placeholder}
             />
           </div>
           <p className="text-[11px] text-slate-500">
-            Catbox, iili.io, ImgBB বা যেকোনো সরাসরি পাবলিক ইমেজ লিংক পেস্ট করুন
+            iili.io, ImgBB বা যেকোনো সরাসরি পাবলিক ইমেজ লিংক পেস্ট করুন
           </p>
         </div>
       )}
@@ -251,7 +295,7 @@ export default function ImageUploader({
             }`}>
               <img
                 src={preview}
-                alt="Preview"
+                alt="Student Preview"
                 className="w-full h-full object-cover"
                 onError={(e) => {
                   // Fallback on broken image
@@ -266,16 +310,35 @@ export default function ImageUploader({
                 <span className="text-xs font-semibold text-slate-800 truncate">
                   {provider ? `${provider} ক্লাউডে আপলোড সম্পন্ন` : "ছবি সফলভাবে যুক্ত হয়েছে"}
                 </span>
+                {provider && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 uppercase">
+                    {provider}
+                  </span>
+                )}
               </div>
               {url && (
-                <p className="text-[11px] text-slate-500 font-mono truncate max-w-[200px] sm:max-w-[320px]">
+                <p className="text-[11px] text-slate-500 font-mono truncate max-w-[200px] sm:max-w-[340px]">
                   {url}
                 </p>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Change photo button for easy editing */}
+            <button
+              type="button"
+              onClick={() => {
+                setMethod("file");
+                fileInputRef.current?.click();
+              }}
+              title="নতুন ছবি নির্বাচন করুন"
+              className="p-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-100 hover:text-slate-900 transition text-xs flex items-center gap-1"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[11px] hidden md:inline">পরিবর্তন</span>
+            </button>
+
             {url && (
               <button
                 type="button"

@@ -32,12 +32,14 @@ interface GenerateClientProps {
   sessions: AcademicSession[];
   classes: any[];
   feeTypes: FeeType[];
+  initialBatches?: any[];
 }
 
 export default function GenerateClient({
   sessions = [],
   classes = [],
   feeTypes: initialFeeTypes = [],
+  initialBatches = [],
 }: GenerateClientProps) {
   const router = useRouter();
   const currentYear = new Date().getFullYear();
@@ -71,6 +73,11 @@ export default function GenerateClient({
   });
 
   const [forceUpdate, setForceUpdate] = useState(false);
+  const [syncStudentProfiles, setSyncStudentProfiles] = useState(true);
+  const [batchesList, setBatchesList] = useState<any[]>(initialBatches);
+  const [deletingBatchPeriod, setDeletingBatchPeriod] = useState<string | null>(null);
+  const [batchDeleteMsg, setBatchDeleteMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
   const [dueDate, setDueDate] = useState<string>(
     new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
   );
@@ -84,6 +91,59 @@ export default function GenerateClient({
     message?: string;
     error?: string;
   } | null>(null);
+
+  const fetchBatches = async () => {
+    try {
+      const res = await fetch("/api/fees/batches");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setBatchesList(data);
+      }
+    } catch {}
+  };
+
+  const handleDeleteBatch = async (batch: any) => {
+    const confirmMsg = `আপনি কি নিশ্চিত যে "${batch.billingPeriod}"-এর অপরিশোধিত ফি রেকর্ডগুলো সম্পূর্ণ মুছে ফেলতে চান?\n\n- শিক্ষার্থী সংখ্যা: ${batch.studentCount} জন\n- অপরিশোধিত ফি: ${batch.unpaidCount} টি (মোট ৳ ${batch.totalDue.toLocaleString("bn-BD")})\n\n(উল্লেখ্য: ইতিমধ্যে আদায়কৃত ফি সংরক্ষিত থাকবে)।`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeletingBatchPeriod(batch.billingPeriod);
+    setBatchDeleteMsg(null);
+
+    try {
+      const res = await fetch("/api/fees/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "DELETE_BATCH",
+          sessionId: batch.sessionId,
+          billingPeriod: batch.billingPeriod,
+        }),
+      });
+
+      const data = await res.json();
+      if (data?.success) {
+        setBatchDeleteMsg({
+          type: "success",
+          text: data.message || `সফলভাবে ${batch.billingPeriod}-এর ফি মুছে ফেলা হয়েছে।`,
+        });
+        setBatchesList((prev) => prev.filter((b) => b.billingPeriod !== batch.billingPeriod));
+        router.refresh();
+      } else {
+        setBatchDeleteMsg({
+          type: "error",
+          text: data?.error || "ফি মুছে ফেলা সম্ভব হয়নি।",
+        });
+      }
+    } catch (err: any) {
+      console.error("handleDeleteBatch error:", err);
+      setBatchDeleteMsg({
+        type: "error",
+        text: "ফি মুছে ফেলতে সমস্যা হয়েছে।",
+      });
+    } finally {
+      setDeletingBatchPeriod(null);
+    }
+  };
 
   // Modal State for Add / Edit Fee Type
   const [showFeeTypeModal, setShowFeeTypeModal] = useState(false);
@@ -271,6 +331,7 @@ export default function GenerateClient({
             feeTypeIds: selectedFeeTypeIds,
             customAmounts,
             forceUpdate,
+            syncStudentProfiles,
             dueDate,
           }),
         });
@@ -291,6 +352,7 @@ export default function GenerateClient({
           feeTypeIds: selectedFeeTypeIds,
           customAmounts,
           forceUpdate,
+          syncStudentProfiles,
           dueDate,
         });
       }
@@ -299,6 +361,7 @@ export default function GenerateClient({
 
       if (res?.success) {
         router.refresh();
+        await fetchBatches();
       }
     } catch (err: any) {
       console.error("generateMonthlyFees failed:", err);
@@ -719,6 +782,27 @@ export default function GenerateClient({
               </div>
             </div>
 
+            {/* Student Profile & Waiver Sync Option */}
+            <div className="pt-2 border-t border-slate-800">
+              <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={syncStudentProfiles}
+                  onChange={(e) => setSyncStudentProfiles(e.target.checked)}
+                  className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-400 mt-0.5"
+                />
+                <div>
+                  <span className="font-bold text-white flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-emerald-400" />
+                    শিক্ষার্থীদের প্রোফাইল চুক্তি ও ছাড়/মওকুফ সমন্বয় (Profile Sync)
+                  </span>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    ভর্তি বা প্রোফাইলে নির্ধারিত খোরাকি, মাসিক বেতন, ফ্রি (১০০% মওকুফ) বা নির্ধারিত ছাড় অনুযায়ী স্বয়ংক্রিয়ভাবে হিসাব হবে। কোনো শিক্ষার্থীর অযাচিত অতিরিক্ত ফি যোগ হবে না।
+                  </p>
+                </div>
+              </label>
+            </div>
+
             {/* Force Overwrite Checkbox */}
             <div className="pt-2 border-t border-slate-800">
               <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-300">
@@ -729,7 +813,7 @@ export default function GenerateClient({
                   className="rounded border-slate-700 text-emerald-600 focus:ring-emerald-500 mt-0.5"
                 />
                 <span>
-                  <strong>ফোর্স আপডেট (Force Update):</strong> পূর্বে জেনারেট হয়ে থাকা অপরিশোধিত ইনভয়েসে সংশোধিত টাকার পরিমাণ ও নতুন ফি খাত স্বয়ংক্রিয়ভাবে আপডেট করুন।
+                  <strong>ফোর্স আপডেট (Force Update):</strong> ইতিপূর্বে ভুল ফি জেনারেট হয়ে থাকলে তা শিক্ষার্থীর বর্তমান প্রোফাইল ও মওকুফ অনুযায়ী সংশোধন করতে এটি সক্রিয় করুন।
                 </span>
               </label>
             </div>
@@ -764,6 +848,165 @@ export default function GenerateClient({
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Generated Batches & Batch Delete Management Section */}
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Layers className="w-5 h-5 text-indigo-600" />
+              <span>ইতিপূর্বে জেনারেটকৃত মাসিক ফি ব্যাচ ও ডিলিট ব্যবস্থাপনা</span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              কোনো মাসে ভুল ফি জেনারেট হয়ে থাকলে তা এক ক্লিকে সম্পূর্ণ মুছে ফেলে পুনরায় জেনারেট করতে পারবেন।
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={fetchBatches}
+            className="self-start sm:self-auto text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl transition flex items-center gap-1.5"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>তালিক রিফ্রেশ করুন</span>
+          </button>
+        </div>
+
+        {/* Delete Feedback Message */}
+        {batchDeleteMsg && (
+          <div
+            className={`p-4 rounded-2xl border text-xs sm:text-sm flex items-center justify-between gap-3 ${
+              batchDeleteMsg.type === "success"
+                ? "bg-emerald-50 text-emerald-900 border-emerald-200"
+                : "bg-red-50 text-red-900 border-red-200"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {batchDeleteMsg.type === "success" ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              )}
+              <span>{batchDeleteMsg.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBatchDeleteMsg(null)}
+              className="p-1 hover:opacity-75"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Batches Cards */}
+        {batchesList.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
+            <Clock className="w-8 h-8 text-slate-300 mx-auto" />
+            <p className="text-xs sm:text-sm font-medium text-slate-600">
+              এখনো কোনো মাসিক ফি ব্যাচ জেনারেট করা হয়নি।
+            </p>
+            <p className="text-[11px] text-slate-400">
+              উপরের ফর্ম পূরণ করে 'ফি ইনভয়েস জেনারেট করুন' বাটনে ক্লিক করলে এখানে তালিকা যুক্ত হবে।
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {batchesList.map((batch) => {
+              const isDeleting = deletingBatchPeriod === batch.billingPeriod;
+              return (
+                <div
+                  key={`${batch.sessionId}_${batch.billingPeriod}`}
+                  className="p-5 rounded-2xl border border-slate-200 hover:border-slate-300 bg-slate-50/50 hover:bg-slate-50 transition space-y-4"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-bold text-slate-900 text-base">
+                          {batch.billingPeriod}
+                        </h3>
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {batch.studentCount} জন শিক্ষার্থী
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 mt-1">
+                        <span>ফি খাত:</span>
+                        {batch.feeTypeNames?.map((ftName: string, idx: number) => (
+                          <span
+                            key={idx}
+                            className="bg-white px-2 py-0.5 rounded-md border border-slate-200 text-slate-700 font-medium text-[11px]"
+                          >
+                            {ftName}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Delete Batch Button */}
+                    <div>
+                      <button
+                        type="button"
+                        disabled={isDeleting}
+                        onClick={() => handleDeleteBatch(batch)}
+                        className="w-full sm:w-auto px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 hover:text-red-800 border border-red-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        title="এই ব্যাচের সকল অপরিশোধিত ফি মুছে ফেলুন"
+                      >
+                        {isDeleting ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>মুছে ফেলা হচ্ছে...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                            <span>এই মাসের ফি ব্যাচ ডিলিট করুন</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Financial Stats Breakdown */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-200/80 text-xs">
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                      <div className="text-slate-400 text-[10px]">মোট ধার্যকৃত:</div>
+                      <div className="font-bold font-mono text-slate-800 text-sm">
+                        ৳ {batch.totalPayable?.toLocaleString("bn-BD")}
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                      <div className="text-amber-600 text-[10px] font-semibold">বকেয়া / অপরিশোধিত:</div>
+                      <div className="font-bold font-mono text-amber-700 text-sm">
+                        ৳ {batch.totalDue?.toLocaleString("bn-BD")}
+                        <span className="text-[10px] text-slate-400 font-normal ml-1">({batch.unpaidCount} টি)</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                      <div className="text-emerald-600 text-[10px] font-semibold">আদায়কৃত:</div>
+                      <div className="font-bold font-mono text-emerald-700 text-sm">
+                        ৳ {batch.totalPaid?.toLocaleString("bn-BD")}
+                        <span className="text-[10px] text-slate-400 font-normal ml-1">({batch.paidCount} টি)</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200 flex flex-col justify-center">
+                      <Link
+                        href={`/dashboard/accounting/due`}
+                        className="text-indigo-600 hover:text-indigo-800 font-bold hover:underline flex items-center gap-1 text-[11px]"
+                      >
+                        <span>বকেয়া তালিকা দেখুন</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Add / Edit Fee Type Modal */}

@@ -998,11 +998,11 @@ export default function EditStudentForm({
             <ImageUploader
               name="photo_url"
               label="শিক্ষার্থীর প্রোফাইল ছবি"
-              subLabel="পাসপোর্ট বা স্কয়ার সাইজ ছবি আপলোড করুন (স্বয়ংক্রিয়ভাবে ক্লাউডে আপলোড হয়ে ডিজিটাল আইডি কার্ডে দৃশ্যমান হবে)"
+              subLabel="পাসপোর্ট বা স্কয়ার সাইজ ছবি আপলোড করুন (স্বয়ংক্রিয়ভাবে iili.io / ImgBB ক্লাউডে আপলোড হয়ে ডিজিটাল আইডি কার্ডে দৃশ্যমান হবে)"
               defaultValue={student.photo_url || ""}
               type="general"
               aspectRatio="portrait"
-              placeholder="উদা: https://iili.io/xyz.png অথবা https://files.catbox.moe/abc.jpg"
+              placeholder="উদা: https://iili.io/xyz.png অথবা https://i.ibb.co/abc.jpg"
             />
           </div>
         </div>

@@ -18,8 +18,14 @@ import {
   CheckCircle2,
   ChevronRight,
   ExternalLink,
+  Trash2,
+  X,
+  RefreshCw,
+  Eye,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 interface DueClientProps {
   initialData: any;
@@ -32,17 +38,83 @@ export default function DueClient({
   sessions,
   classes,
 }: DueClientProps) {
+  const router = useRouter();
   const [selectedSessionId, setSelectedSessionId] = useState<string>("ALL");
   const [selectedClassId, setSelectedClassId] = useState<string>("ALL");
   const [agingFilter, setAgingFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  const studentDueList = initialData?.studentDueList || [];
+  const [studentDueList, setStudentDueList] = useState<any[]>(initialData?.studentDueList || []);
+  const [selectedStudentForInvoices, setSelectedStudentForInvoices] = useState<any | null>(null);
+  const [deletingFeeId, setDeletingFeeId] = useState<string | null>(null);
+
   const aging = initialData?.aging || {
     aging_0_30: 0,
     aging_31_60: 0,
     aging_61_90: 0,
     aging_90_plus: 0,
+  };
+
+  const handleDeleteSingleFee = async (feeId: string, feeName: string, studentId: string) => {
+    if (!window.confirm(`আপনি কি "${feeName}"-এর এই ফি ইনভয়েসটি মুছে ফেলতে চান?`)) {
+      return;
+    }
+
+    setDeletingFeeId(feeId);
+    try {
+      const res = await fetch("/api/fees/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "DELETE_SINGLE",
+          feeId,
+        }),
+      });
+
+      const data = await res.json();
+      if (data?.success) {
+        // Update local state
+        setStudentDueList((prevList) => {
+          return prevList
+            .map((item) => {
+              if (item.student?.id === studentId) {
+                const updatedItems = item.feeItems.filter((f: any) => f.id !== feeId);
+                const newTotalDue = updatedItems.reduce((s: number, f: any) => s + (f.due_amount || 0), 0);
+                return {
+                  ...item,
+                  feeItems: updatedItems,
+                  totalDue: newTotalDue,
+                };
+              }
+              return item;
+            })
+            .filter((item) => item.feeItems.length > 0);
+        });
+
+        // Update selectedStudentForInvoices modal state if open
+        if (selectedStudentForInvoices && selectedStudentForInvoices.student?.id === studentId) {
+          const updatedItems = selectedStudentForInvoices.feeItems.filter((f: any) => f.id !== feeId);
+          if (updatedItems.length === 0) {
+            setSelectedStudentForInvoices(null);
+          } else {
+            setSelectedStudentForInvoices({
+              ...selectedStudentForInvoices,
+              feeItems: updatedItems,
+              totalDue: updatedItems.reduce((s: number, f: any) => s + (f.due_amount || 0), 0),
+            });
+          }
+        }
+
+        router.refresh();
+      } else {
+        alert(data?.error || "ফি মুছে ফেলা সম্ভব হয়নি।");
+      }
+    } catch (err) {
+      console.error("handleDeleteSingleFee error:", err);
+      alert("মুছে ফেলতে ত্রুটি হয়েছে।");
+    } finally {
+      setDeletingFeeId(null);
+    }
   };
 
   // Client-side filtering for fast interactive search & filter
@@ -379,6 +451,14 @@ export default function DueClient({
                       {/* Actions */}
                       <td className="py-3 px-4 text-right print:hidden">
                         <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedStudentForInvoices(item)}
+                            className="p-1.5 text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+                            title="বকেয়া ফি'র বিস্তারিত ও ডিলিট অপশন দেখুন"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
                           <Link
                             href={`/dashboard/accounting/fees/new?student_id=${student.id}`}
                             className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-2xs"
@@ -414,6 +494,123 @@ export default function DueClient({
           </div>
         )}
       </div>
+
+      {/* Student Invoices Detail & Single Delete Modal */}
+      {selectedStudentForInvoices && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 space-y-5 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                  <User className="w-4 h-4 text-emerald-600" />
+                  <span>
+                    {selectedStudentForInvoices.student?.first_name}{" "}
+                    {selectedStudentForInvoices.student?.last_name}-এর বকেয়া ইনভয়েস
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  জামাত: {selectedStudentForInvoices.student?.class_name || "সাধারণ"} | রোল:{" "}
+                  {toBanglaNumber(selectedStudentForInvoices.student?.roll_number || "-")} | মোট বকেয়া:{" "}
+                  <strong className="text-red-600 font-mono font-bold">
+                    ৳ {formatBanglaCurrency(selectedStudentForInvoices.totalDue)}
+                  </strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedStudentForInvoices(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Invoices List with Delete Button */}
+            <div className="space-y-3">
+              {selectedStudentForInvoices.feeItems?.map((fee: any) => {
+                const isDeleting = deletingFeeId === fee.id;
+                return (
+                  <div
+                    key={fee.id}
+                    className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-900 text-sm">{fee.fee_type_name}</span>
+                        <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {fee.billing_period}
+                        </span>
+                        {fee.discount_amount > 0 && (
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            ছাড়: ৳{fee.discount_amount} ({fee.discount_reason || "মওকুফ"})
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-500 flex items-center gap-3">
+                        <span>মূল ফি: ৳{fee.base_amount || fee.payable_amount}</span>
+                        <span>ধার্য: ৳{fee.payable_amount}</span>
+                        <span className="text-red-600 font-bold">
+                          বকেয়া: ৳{formatBanglaCurrency(fee.due_amount)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Delete Individual Fee Button */}
+                    <div className="flex items-center gap-2">
+                      {fee.paid_amount > 0 ? (
+                        <span className="text-[11px] text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg border">
+                          আদায় হয়েছে (৳{fee.paid_amount})
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isDeleting}
+                          onClick={() =>
+                            handleDeleteSingleFee(
+                              fee.id,
+                              fee.fee_type_name,
+                              selectedStudentForInvoices.student?.id
+                            )
+                          }
+                          className="px-3 py-1.5 text-xs font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 border border-red-200 hover:border-red-600 rounded-xl transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          title="এই ফি ইনভয়েসটি সম্পূর্ণ মুছে ফেলুন"
+                        >
+                          {isDeleting ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>মুছছে...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>ইনভয়েস মুছুন</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
+              <span className="text-xs text-slate-400">
+                ভুলক্রমে জেনারেট হয়ে থাকলে এখান থেকে সহজেই ইনভয়েস মুছে ফেলা যাবে।
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedStudentForInvoices(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                বন্ধ করুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

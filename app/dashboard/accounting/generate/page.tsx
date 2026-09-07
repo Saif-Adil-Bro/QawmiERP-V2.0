@@ -1,15 +1,16 @@
 import { getAcademicSessions } from "@/app/actions/sessions";
 import { getClasses } from "@/app/actions/students";
-import { getFeeTypes } from "@/app/actions/fee-management";
+import { getFeeTypes, getGeneratedFeeBatches } from "@/app/actions/fee-management";
 import GenerateClient from "./GenerateClient";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 export default async function GenerateFeesPage() {
-  const [sessions, classes, feeTypes] = await Promise.all([
+  const [sessions, classes, feeTypes, batches] = await Promise.all([
     getAcademicSessions(),
     getClasses(),
     getFeeTypes(),
+    getGeneratedFeeBatches(),
   ]);
 
   return (
@@ -33,6 +34,7 @@ export default async function GenerateFeesPage() {
         sessions={sessions}
         classes={classes}
         feeTypes={feeTypes}
+        initialBatches={batches}
       />
     </div>
   );

@@ -29,6 +29,7 @@ export async function getFeeMetadata(madrasaId: string): Promise<MadrasaFeeData>
     discounts: meta.discounts || [],
     audit_logs: meta.audit_logs || [],
     receipt_counter: meta.receipt_counter || 100,
+    student_profiles: meta.student_profiles || {},
   };
 }
 
@@ -316,6 +317,7 @@ export async function generateMonthlyFees(params: {
   feeTypeIds?: string[];
   customAmounts?: Record<string, number>;
   forceUpdate?: boolean;
+  syncStudentProfiles?: boolean;
   dueDate?: string;
 }) {
   try {
@@ -398,6 +400,8 @@ export async function generateMonthlyFees(params: {
       params.dueDate ||
       new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
+    const shouldSyncProfiles = params.syncStudentProfiles !== false;
+
     for (const student of students) {
       const studentClassId = student.class_id || params.classId || "ALL";
       const studentClassName = student.class_name || "সাধারণ";
@@ -418,88 +422,85 @@ export async function generateMonthlyFees(params: {
       );
 
       for (const ft of selectedFeeTypes) {
-        // Calculate base amount: custom override > student individual profile fee > structure item amount > fee type default
         let baseAmount = ft.default_amount || 0;
         const ftCode = (ft.code || "").toUpperCase();
         const ftCat = (ft.category || "").toUpperCase();
         const ftName = ft.name || "";
 
-        if (
+        const isTuition =
+          ftCat === "TUITION" ||
+          ftCode === "MONTHLY" ||
+          ftName.includes("বেতন") ||
+          ftName.includes("টিউশন");
+        const isFood =
+          ftCat === "BOARDING" ||
+          ftCode === "HOSTEL" ||
+          ftCode === "FOOD" ||
+          ftName.includes("খাবার") ||
+          ftName.includes("খোরাকি") ||
+          ftName.includes("বোর্ডিং");
+        const isHostel =
+          ftCat === "HOSTEL" ||
+          ftName.includes("আবাসন") ||
+          ftName.includes("সিট") ||
+          ftName.includes("হোস্টেল");
+        const isTransport =
+          ftCat === "TRANSPORT" ||
+          ftCode === "TRANSPORT" ||
+          ftName.includes("পরিবহন") ||
+          ftName.includes("গাড়ি");
+        const isAdmission =
+          ftCat === "ADMISSION" ||
+          ftCode === "ADMISSION" ||
+          ftName.includes("ভর্তি");
+        const isOther =
+          ftCat === "OTHER" ||
+          ftCode === "OTHER" ||
+          ftName.includes("অন্যান্য") ||
+          ftName.includes("বিবিধ");
+
+        // 1. Check student individual profile agreed fee (from admission or student edit)
+        let profileAgreedFee: number | undefined = undefined;
+        if (shouldSyncProfiles && studentProfile) {
+          if (isTuition && studentProfile.monthly_fee !== undefined && studentProfile.monthly_fee !== null) {
+            profileAgreedFee = Number(studentProfile.monthly_fee);
+          } else if (isFood && studentProfile.khoraki_fee !== undefined && studentProfile.khoraki_fee !== null) {
+            profileAgreedFee = Number(studentProfile.khoraki_fee);
+          } else if (isHostel && studentProfile.accommodation_fee !== undefined && studentProfile.accommodation_fee !== null) {
+            profileAgreedFee = Number(studentProfile.accommodation_fee);
+          } else if (isTransport && studentProfile.transport_fee !== undefined && studentProfile.transport_fee !== null) {
+            profileAgreedFee = Number(studentProfile.transport_fee);
+          } else if (isAdmission && studentProfile.admission_fee !== undefined && studentProfile.admission_fee !== null) {
+            profileAgreedFee = Number(studentProfile.admission_fee);
+          } else if (isOther && studentProfile.other_fee !== undefined && studentProfile.other_fee !== null) {
+            profileAgreedFee = Number(studentProfile.other_fee);
+          }
+        }
+
+        if (profileAgreedFee !== undefined && !isNaN(profileAgreedFee)) {
+          // Individual contract takes precedence
+          baseAmount = profileAgreedFee;
+        } else if (
           params.customAmounts &&
           params.customAmounts[ft.id] !== undefined &&
           !isNaN(Number(params.customAmounts[ft.id]))
         ) {
+          // Generator custom amount override
           baseAmount = Number(params.customAmounts[ft.id]);
-        } else if (studentProfile) {
-          // Check student profile personalized fee settings
-          if (ftCat === "TUITION" || ftCode === "MONTHLY" || ftName.includes("বেতন")) {
-            if (studentProfile.monthly_fee !== undefined && studentProfile.monthly_fee !== null) {
-              baseAmount = Number(studentProfile.monthly_fee);
-            }
-          } else if (ftCat === "FOOD" || ftCode === "FOOD" || ftName.includes("খাবার") || ftName.includes("খোরাকি")) {
-            if (studentProfile.khoraki_fee !== undefined && studentProfile.khoraki_fee !== null) {
-              baseAmount = Number(studentProfile.khoraki_fee);
-            }
-          } else if (ftCat === "HOSTEL" || ftCode === "HOSTEL" || ftName.includes("আবাসন") || ftName.includes("হোস্টেল")) {
-            if (studentProfile.accommodation_fee !== undefined && studentProfile.accommodation_fee !== null) {
-              baseAmount = Number(studentProfile.accommodation_fee);
-            }
-          } else if (ftCat === "TRANSPORT" || ftCode === "TRANSPORT" || ftName.includes("পরিবহন") || ftName.includes("গাড়ি")) {
-            if (studentProfile.transport_fee !== undefined && studentProfile.transport_fee !== null) {
-              baseAmount = Number(studentProfile.transport_fee);
-            }
-          } else if (ftCat === "ADMISSION" || ftCode === "ADMISSION" || ftName.includes("ভর্তি")) {
-            if (studentProfile.admission_fee !== undefined && studentProfile.admission_fee !== null) {
-              baseAmount = Number(studentProfile.admission_fee);
-            }
-          } else if (matchingStruct) {
-            const sItem = matchingStruct.items.find((it) => it.fee_type_id === ft.id);
-            if (sItem && sItem.amount > 0) {
-              baseAmount = sItem.amount;
-            }
-          }
         } else if (matchingStruct) {
           const sItem = matchingStruct.items.find((it) => it.fee_type_id === ft.id);
-          if (sItem && sItem.amount > 0) {
+          if (sItem && sItem.amount >= 0) {
             baseAmount = sItem.amount;
           }
         }
 
         if (baseAmount < 0) baseAmount = 0;
 
-        // Idempotency: Check if already exists for this period
-        const existingIdx = currentStudentFees.findIndex(
-          (f) =>
-            f.session_id === params.sessionId &&
-            f.student_id === student.id &&
-            f.fee_type_id === ft.id &&
-            f.billing_period === params.billingPeriod
-        );
-
-        if (existingIdx >= 0) {
-          if (params.forceUpdate && currentStudentFees[existingIdx].status === "UNPAID") {
-            const oldFee = currentStudentFees[existingIdx];
-            const discountAmt = oldFee.discount_amount || 0;
-            const newPayable = Math.max(0, baseAmount - discountAmt);
-            currentStudentFees[existingIdx] = {
-              ...oldFee,
-              base_amount: baseAmount,
-              payable_amount: newPayable,
-              due_amount: newPayable,
-              due_date: dueDate,
-              status: newPayable === 0 ? "WAIVED" : "UNPAID",
-              updated_at: now,
-            };
-            updatedCount++;
-          } else {
-            skippedCount++;
-          }
-          continue;
-        }
-
-        // Calculate discount if applicable
+        // 2. Calculate discount & waiver (মওকুফ / বিশেষ ছাড়)
         let discountAmount = 0;
         let discountReason = "";
+
+        // Check formal approved discounts table
         const applicableDiscount = studentDiscounts.find(
           (d) => !d.fee_type_id || d.fee_type_id === ft.id
         );
@@ -515,15 +516,63 @@ export async function generateMonthlyFees(params: {
             discountAmount = Math.min(baseAmount, applicableDiscount.value);
             discountReason = applicableDiscount.reason || "নির্ধারিত ছাড়";
           }
-        } else if (studentProfile?.fee_discount && Number(studentProfile.fee_discount) > 0) {
-          // If tuition/monthly fee, apply student profile monthly discount
-          if (ftCat === "TUITION" || ftCode === "MONTHLY" || ftName.includes("বেতন")) {
-            discountAmount = Math.min(baseAmount, Number(studentProfile.fee_discount));
-            discountReason = studentProfile.fee_discount_reason || "শিক্ষার্থী প্রোফাইল ভিত্তিক ছাড়";
+        } else if (shouldSyncProfiles && studentProfile) {
+          // Check if student is 100% Free / Waiver
+          const isFreeStudent =
+            studentProfile.is_free === true ||
+            studentProfile.student_status === "SCHOLARSHIP" ||
+            (studentProfile.total_monthly_fee !== undefined &&
+              Number(studentProfile.total_monthly_fee) === 0 &&
+              Number(studentProfile.monthly_fee || 0) === 0 &&
+              Number(studentProfile.khoraki_fee || 0) === 0);
+
+          if (isFreeStudent) {
+            discountAmount = baseAmount;
+            discountReason = studentProfile.fee_discount_reason || "১০০% সম্পূর্ণ ফ্রি / ইয়ানতপ্রাপ্ত শিক্ষার্থী";
+          } else if (studentProfile.fee_discount && Number(studentProfile.fee_discount) > 0) {
+            // Apply monthly profile waiver / discount (e.g. food waiver or tuition waiver)
+            const pDiscount = Number(studentProfile.fee_discount);
+            discountAmount = Math.min(baseAmount, pDiscount);
+            discountReason = studentProfile.fee_discount_reason || "শিক্ষার্থী প্রোফাইল ভিত্তিক ছাড় / মওকুফ";
           }
         }
 
+        if (discountAmount > baseAmount) discountAmount = baseAmount;
         const payable = Math.max(0, baseAmount - discountAmount);
+
+        // Idempotency: Check if already exists for this period
+        const existingIdx = currentStudentFees.findIndex(
+          (f) =>
+            f.session_id === params.sessionId &&
+            f.student_id === student.id &&
+            f.fee_type_id === ft.id &&
+            f.billing_period === params.billingPeriod
+        );
+
+        if (existingIdx >= 0) {
+          if (
+            params.forceUpdate &&
+            currentStudentFees[existingIdx].status !== "PAID" &&
+            (currentStudentFees[existingIdx].paid_amount || 0) === 0
+          ) {
+            const oldFee = currentStudentFees[existingIdx];
+            currentStudentFees[existingIdx] = {
+              ...oldFee,
+              base_amount: baseAmount,
+              discount_amount: discountAmount,
+              discount_reason: discountReason,
+              payable_amount: payable,
+              due_amount: payable,
+              due_date: dueDate,
+              status: payable === 0 ? "WAIVED" : "UNPAID",
+              updated_at: now,
+            };
+            updatedCount++;
+          } else {
+            skippedCount++;
+          }
+          continue;
+        }
 
         const newFee: StudentFee = {
           id: `fee_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -1241,5 +1290,230 @@ export async function getFeeDashboardOverview() {
   } catch (err) {
     console.error("Error in getFeeDashboardOverview:", err);
     return null;
+  }
+}
+
+/**
+ * 9. Delete an individual student fee record (Audit-compliant, only if unpaid)
+ */
+export async function deleteStudentFee(feeId: string): Promise<{ success?: boolean; error?: string; message?: string }> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদ্রাসা সনাক্ত করা যায়নি।" };
+
+    const meta = await getFeeMetadata(madrasaId);
+    const studentFees = meta.student_fees || [];
+    const targetFee = studentFees.find((f) => f.id === feeId);
+
+    if (!targetFee) {
+      return { error: "ফি রেকর্ডটি পাওয়া যায়নি বা ইতিমধ্যে মুছে ফেলা হয়েছে।" };
+    }
+
+    // Protection: If payment was received for this fee, do not allow direct deletion
+    if (targetFee.paid_amount > 0) {
+      return {
+        error: `এই ফি বাবদ ৳${targetFee.paid_amount} আদায় করা হয়েছে। ডিলিট করার আগে অনুগ্রহ করে 'ফি ও পেমেন্ট তালিকা' থেকে পেমেন্ট রিভার্স/বাতিল করুন।`,
+      };
+    }
+
+    const updatedFees = studentFees.filter((f) => f.id !== feeId);
+    const auditLogs = meta.audit_logs || [];
+    auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      madrasa_id: madrasaId,
+      action: "DELETE_STUDENT_FEE",
+      user_name: user?.email || "হিসাবরক্ষক",
+      user_role: "accountant",
+      details: `${targetFee.student_name || "শিক্ষার্থী"} (${targetFee.class_name || ""})-এর ${targetFee.billing_period} সেশনের ${targetFee.fee_type_name} (৳${targetFee.payable_amount}) মুছে ফেলা হয়েছে।`,
+      created_at: new Date().toISOString(),
+    });
+
+    const success = await saveFeeMetadata(madrasaId, {
+      student_fees: updatedFees,
+      audit_logs: auditLogs,
+    });
+
+    if (!success) {
+      return { error: "ডাটাবেজে পরিবর্তন সংরক্ষণ করা যায়নি।" };
+    }
+
+    revalidatePath("/dashboard/accounting/due");
+    revalidatePath("/dashboard/accounting/fees");
+    revalidatePath("/dashboard/accounting/generate");
+    revalidatePath("/dashboard/accounting");
+
+    return { success: true, message: "ফি ইনভয়েসটি সফলভাবে মুছে ফেলা হয়েছে।" };
+  } catch (err: any) {
+    console.error("Error in deleteStudentFee:", err);
+    return { error: err?.message || "ফি মুছতে সমস্যা হয়েছে।" };
+  }
+}
+
+/**
+ * 10. Delete a generated fee batch (e.g. all unpaid fees for a month or class)
+ */
+export async function deleteGeneratedFeeBatch(params: {
+  sessionId?: string;
+  billingPeriod: string;
+  feeTypeId?: string;
+  classId?: string;
+}): Promise<{ success?: boolean; error?: string; count?: number; message?: string }> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদ্রাসা সনাক্ত করা যায়নি।" };
+
+    const meta = await getFeeMetadata(madrasaId);
+    const studentFees = meta.student_fees || [];
+
+    let deletedCount = 0;
+    let paidBlockedCount = 0;
+
+    const remainingFees = studentFees.filter((f) => {
+      // Check match
+      const matchPeriod = f.billing_period === params.billingPeriod;
+      const matchSession = !params.sessionId || params.sessionId === "ALL" || f.session_id === params.sessionId;
+      const matchFeeType = !params.feeTypeId || params.feeTypeId === "ALL" || f.fee_type_id === params.feeTypeId;
+      const matchClass = !params.classId || params.classId === "ALL" || f.class_id === params.classId || f.class_name === params.classId;
+
+      if (matchPeriod && matchSession && matchFeeType && matchClass) {
+        // If fee has been paid, do NOT delete it
+        if (f.paid_amount > 0) {
+          paidBlockedCount++;
+          return true; // keep
+        }
+        deletedCount++;
+        return false; // remove
+      }
+      return true; // keep
+    });
+
+    if (deletedCount === 0) {
+      if (paidBlockedCount > 0) {
+        return {
+          error: `এই ব্যাচের সকল ফি ইতিমধ্যে আদায় বা আংশিক পরিশোধিত থাকায় কোনো ফি মুছে ফেলা যায়নি।`,
+        };
+      }
+      return { error: "মুছে ফেলার মতো কোনো ফি ইনভয়েস পাওয়া যায়নি।" };
+    }
+
+    const auditLogs = meta.audit_logs || [];
+    auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      madrasa_id: madrasaId,
+      action: "DELETE_FEE_BATCH",
+      user_name: user?.email || "হিসাবরক্ষক",
+      user_role: "accountant",
+      details: `${params.billingPeriod} সময়ের জন্য জেনারেটকৃত ${deletedCount} টি অপরিশোধিত ফি রেকর্ড সম্পূর্ণ মুছে ফেলা হয়েছে${paidBlockedCount > 0 ? ` (${paidBlockedCount} টি পরিশোধিত ফি সুরক্ষিত রাখা হয়েছে)` : ""}।`,
+      created_at: new Date().toISOString(),
+    });
+
+    const success = await saveFeeMetadata(madrasaId, {
+      student_fees: remainingFees,
+      audit_logs: auditLogs,
+    });
+
+    if (!success) {
+      return { error: "ডাটাবেজে পরিবর্তন সংরক্ষণ করা যায়নি।" };
+    }
+
+    revalidatePath("/dashboard/accounting/due");
+    revalidatePath("/dashboard/accounting/fees");
+    revalidatePath("/dashboard/accounting/generate");
+    revalidatePath("/dashboard/accounting");
+
+    return {
+      success: true,
+      count: deletedCount,
+      message: `সফলভাবে ${deletedCount} টি জেনারেটকৃত ফি মুছে ফেলা হয়েছে${paidBlockedCount > 0 ? ` (${paidBlockedCount} টি পরিশোধিত ফি সুরক্ষিত রাখা হয়েছে)` : ""}।`,
+    };
+  } catch (err: any) {
+    console.error("Error in deleteGeneratedFeeBatch:", err);
+    return { error: err?.message || "ফি ব্যাচ মুছতে সমস্যা হয়েছে।" };
+  }
+}
+
+/**
+ * 11. Get summary list of all generated fee batches to display on the Generator page
+ */
+export async function getGeneratedFeeBatches() {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return [];
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return [];
+
+    const meta = await getFeeMetadata(madrasaId);
+    const studentFees = meta.student_fees || [];
+
+    // Group by billing_period
+    const batchMap = new Map<string, {
+      billingPeriod: string;
+      sessionId: string;
+      feeTypeNames: Set<string>;
+      feeTypeIds: Set<string>;
+      totalStudents: Set<string>;
+      totalPayable: number;
+      totalPaid: number;
+      totalDue: number;
+      unpaidCount: number;
+      paidCount: number;
+      createdAt: string;
+    }>();
+
+    studentFees.forEach((f) => {
+      const key = `${f.session_id}_${f.billing_period}`;
+      let batch = batchMap.get(key);
+      if (!batch) {
+        batch = {
+          billingPeriod: f.billing_period,
+          sessionId: f.session_id,
+          feeTypeNames: new Set(),
+          feeTypeIds: new Set(),
+          totalStudents: new Set(),
+          totalPayable: 0,
+          totalPaid: 0,
+          totalDue: 0,
+          unpaidCount: 0,
+          paidCount: 0,
+          createdAt: f.created_at || new Date().toISOString(),
+        };
+        batchMap.set(key, batch);
+      }
+
+      batch.feeTypeNames.add(f.fee_type_name);
+      batch.feeTypeIds.add(f.fee_type_id);
+      batch.totalStudents.add(f.student_id);
+      batch.totalPayable += f.payable_amount || 0;
+      batch.totalPaid += f.paid_amount || 0;
+      batch.totalDue += f.due_amount || 0;
+      if (f.paid_amount > 0) batch.paidCount++;
+      else batch.unpaidCount++;
+    });
+
+    return Array.from(batchMap.values()).map((b) => ({
+      billingPeriod: b.billingPeriod,
+      sessionId: b.sessionId,
+      feeTypeNames: Array.from(b.feeTypeNames),
+      studentCount: b.totalStudents.size,
+      totalPayable: b.totalPayable,
+      totalPaid: b.totalPaid,
+      totalDue: b.totalDue,
+      unpaidCount: b.unpaidCount,
+      paidCount: b.paidCount,
+      createdAt: b.createdAt,
+    })).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } catch (err) {
+    console.error("Error in getGeneratedFeeBatches:", err);
+    return [];
   }
 }

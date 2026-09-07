@@ -144,7 +144,7 @@ export default function PublicAdmissionPage() {
           const data = await res.json();
           if (data.url) {
             setFormData((prev) => ({ ...prev, photo_url: data.url }));
-            setUploadProvider(data.provider || "Free Image Host");
+            setUploadProvider(data.provider || "iili.io");
           } else {
             setFormData((prev) => ({ ...prev, photo_url: base64 }));
           }
