@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { getStaffMetadataFull } from "./staff";
@@ -79,13 +79,14 @@ export async function getStudentsForAttendance(date: string, classId?: string) {
     const unsavedStudents = students.filter(s => !attendanceMap.has(s.id));
     if (unsavedStudents.length > 0) {
       try {
+        const adminClient = await createAdminClient();
         const autoLeaveRecords = unsavedStudents.map(s => ({
           madrasa_id: finalMadrasaId,
           student_id: s.id,
           date: date,
           status: "Leave",
         }));
-        const { error: upsertErr } = await supabase
+        const { error: upsertErr } = await adminClient
           .from("attendance")
           .upsert(autoLeaveRecords, { onConflict: "student_id, date" });
 
@@ -121,7 +122,8 @@ export async function saveAttendance(date: string, attendanceData: { student_id:
     status: record.status,
   }));
 
-  const { error } = await supabase
+  const adminClient = await createAdminClient();
+  const { error } = await adminClient
     .from("attendance")
     .upsert(recordsToUpsert, { onConflict: 'student_id, date' });
 
@@ -131,6 +133,7 @@ export async function saveAttendance(date: string, attendanceData: { student_id:
   }
 
   revalidatePath("/dashboard/attendance");
+  revalidatePath("/dashboard/attendance/students");
   return { success: true };
 }
 
@@ -215,13 +218,14 @@ export async function getTeachersForAttendance(date: string) {
     const unsavedTeachers = teachersList.filter(t => !attendanceMap.has(t.id));
     if (unsavedTeachers.length > 0) {
       try {
+        const adminClient = await createAdminClient();
         const autoLeaveRecords = unsavedTeachers.map(t => ({
           madrasa_id: finalMadrasaId,
           teacher_id: t.id,
           date: date,
           status: "Leave",
         }));
-        const { error: upsertErr } = await supabase
+        const { error: upsertErr } = await adminClient
           .from("teacher_attendance")
           .upsert(autoLeaveRecords, { onConflict: "teacher_id, date" });
 
@@ -257,7 +261,8 @@ export async function saveTeacherAttendance(date: string, attendanceData: { teac
     status: record.status,
   }));
 
-  const { error } = await supabase
+  const adminClient = await createAdminClient();
+  const { error } = await adminClient
     .from("teacher_attendance")
     .upsert(recordsToUpsert, { onConflict: 'teacher_id, date' });
 

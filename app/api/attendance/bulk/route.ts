@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
@@ -20,9 +20,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid records format" }, { status: 400 });
     }
 
+    const admin = await createAdminClient();
+
     // Process upsert
     for (const record of records) {
-      const { data: existing } = await supabase
+      const { data: existing } = await admin
         .from("attendance")
         .select("id")
         .eq("student_id", record.student_id)
@@ -30,7 +32,7 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (existing) {
-        await supabase
+        await admin
           .from("attendance")
           .update({
             status: record.status,
@@ -39,7 +41,7 @@ export async function POST(req: NextRequest) {
           })
           .eq("id", existing.id);
       } else {
-        await supabase.from("attendance").insert([
+        await admin.from("attendance").insert([
           {
             student_id: record.student_id,
             class_id: record.class_id,

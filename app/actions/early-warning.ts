@@ -85,8 +85,8 @@ export async function getEarlyWarningAlerts(): Promise<EarlyWarningSummary> {
         let lastPresentDate: string | undefined;
 
         for (const entry of logs) {
-          const statusLower = (entry.status || "").toLowerCase();
-          if (statusLower === "absent" || statusLower === "অনুপস্থিত") {
+          const statusLower = (entry.status || "").toLowerCase().trim();
+          if (statusLower.includes("absent") || statusLower.includes("অনুপস্থিত")) {
             consecutiveAbsent++;
             absentDates.push(entry.date);
           } else {
@@ -114,132 +114,87 @@ export async function getEarlyWarningAlerts(): Promise<EarlyWarningSummary> {
       });
     }
 
-    // Fallback seed alert if database has newly initialized or sparse attendance records
-    if (result.attendance_alerts.length === 0 && students.length >= 2) {
-      const sampleStudent = students[0];
-      const today = new Date();
-      const d1 = new Date(today); d1.setDate(today.getDate() - 1);
-      const d2 = new Date(today); d2.setDate(today.getDate() - 2);
-      const d3 = new Date(today); d3.setDate(today.getDate() - 3);
-
-      result.attendance_alerts.push({
-        student_id: sampleStudent.id,
-        student_name: `${sampleStudent.first_name} ${sampleStudent.last_name}`,
-        roll_number: sampleStudent.roll_number || "১০৩",
-        class_id: sampleStudent.class_id,
-        class_name: resolveClassName(sampleStudent.classes) || "হিফজুল কুরআন বিভাগ",
-        parent_phone: sampleStudent.parent_phone || "01711002233",
-        consecutive_absent_days: 3,
-        last_absent_dates: [
-          d1.toISOString().split("T")[0],
-          d2.toISOString().split("T")[0],
-          d3.toISOString().split("T")[0],
-        ],
-        last_present_date: new Date(today.getTime() - 4 * 86400000).toISOString().split("T")[0],
-        alert_level: "HIGH",
-        remarks: "পরপর ৩ দিন মাদরাসায় অনুপস্থিত। অভিভাবককে এসএমএস/কল দেওয়া আবশ্যক।",
-      });
-    }
-
     // 3. Exam Score Drop Calculation: Drop of 15% - 20% or more compared to previous exam
-    // Fetch all exams for this madrasa sorted by date
-    const { data: exams } = await adminClient
-      .from("exams")
-      .select("id, title, start_date, created_at")
-      .eq("madrasa_id", madrasaId)
-      .order("created_at", { ascending: false });
+    // Fetch all exam results for this madrasa
+    const { data: allExamResults } = await adminClient
+      .from("exam_results")
+      .select("exam_id, student_id, marks_obtained, total_marks, subject_name")
+      .eq("madrasa_id", madrasaId);
 
-    if (exams && exams.length >= 2) {
-      const currentExam = exams[0];
-      const previousExam = exams[1];
+    if (allExamResults && allExamResults.length > 0) {
+      // Find distinct exams that actually have recorded results
+      const examIdsWithResults = Array.from(new Set(allExamResults.map((r) => r.exam_id)));
 
-      const { data: currentResults } = await adminClient
-        .from("exam_results")
-        .select("student_id, marks_obtained, total_marks")
-        .eq("exam_id", currentExam.id);
+      const { data: exams } = await adminClient
+        .from("exams")
+        .select("id, title, start_date, created_at")
+        .in("id", examIdsWithResults)
+        .order("created_at", { ascending: false });
 
-      const { data: previousResults } = await adminClient
-        .from("exam_results")
-        .select("student_id, marks_obtained, total_marks")
-        .eq("exam_id", previousExam.id);
+      if (exams && exams.length >= 2) {
+        const currentExam = exams[0];
+        const previousExam = exams[1];
 
-      if (currentResults && previousResults) {
-        // Calculate percentages per student in previous exam
-        const prevStats = new Map<string, { totalObtained: number; totalMax: number }>();
-        for (const r of previousResults) {
-          if (!prevStats.has(r.student_id)) {
-            prevStats.set(r.student_id, { totalObtained: 0, totalMax: 0 });
+        const currentResults = allExamResults.filter((r) => r.exam_id === currentExam.id);
+        const previousResults = allExamResults.filter((r) => r.exam_id === previousExam.id);
+
+        if (currentResults.length > 0 && previousResults.length > 0) {
+          // Calculate percentages per student in previous exam
+          const prevStats = new Map<string, { totalObtained: number; totalMax: number }>();
+          for (const r of previousResults) {
+            if (!prevStats.has(r.student_id)) {
+              prevStats.set(r.student_id, { totalObtained: 0, totalMax: 0 });
+            }
+            const s = prevStats.get(r.student_id)!;
+            s.totalObtained += Number(r.marks_obtained || 0);
+            s.totalMax += Number(r.total_marks || 100);
           }
-          const s = prevStats.get(r.student_id)!;
-          s.totalObtained += Number(r.marks_obtained || 0);
-          s.totalMax += Number(r.total_marks || 100);
+
+          // Calculate percentages per student in current exam
+          const currStats = new Map<string, { totalObtained: number; totalMax: number }>();
+          for (const r of currentResults) {
+            if (!currStats.has(r.student_id)) {
+              currStats.set(r.student_id, { totalObtained: 0, totalMax: 0 });
+            }
+            const s = currStats.get(r.student_id)!;
+            s.totalObtained += Number(r.marks_obtained || 0);
+            s.totalMax += Number(r.total_marks || 100);
+          }
+
+          // Compare each student
+          prevStats.forEach((prev: { totalObtained: number; totalMax: number }, studentId: string) => {
+            const curr = currStats.get(studentId);
+            if (!curr || prev.totalMax === 0 || curr.totalMax === 0) return;
+
+            const prevPct = (prev.totalObtained / prev.totalMax) * 100;
+            const currPct = (curr.totalObtained / curr.totalMax) * 100;
+            const drop = prevPct - currPct;
+
+            // Rule: Drop is 15% or more
+            if (drop >= 15) {
+              const studentInfo = studentMap.get(studentId);
+              if (!studentInfo) return;
+
+              result.exam_drop_alerts.push({
+                student_id: studentId,
+                student_name: studentInfo.name,
+                roll_number: studentInfo.roll_number,
+                class_id: studentInfo.class_id,
+                class_name: studentInfo.class_name,
+                parent_phone: studentInfo.parent_phone,
+                previous_exam_id: previousExam.id,
+                previous_exam_title: previousExam.title,
+                previous_percentage: Number(prevPct.toFixed(1)),
+                current_exam_id: currentExam.id,
+                current_exam_title: currentExam.title,
+                current_percentage: Number(currPct.toFixed(1)),
+                drop_percentage: Number(drop.toFixed(1)),
+                alert_level: drop >= 25 ? "CRITICAL" : "HIGH",
+              });
+            }
+          });
         }
-
-        // Calculate percentages per student in current exam
-        const currStats = new Map<string, { totalObtained: number; totalMax: number }>();
-        for (const r of currentResults) {
-          if (!currStats.has(r.student_id)) {
-            currStats.set(r.student_id, { totalObtained: 0, totalMax: 0 });
-          }
-          const s = currStats.get(r.student_id)!;
-          s.totalObtained += Number(r.marks_obtained || 0);
-          s.totalMax += Number(r.total_marks || 100);
-        }
-
-        // Compare each student
-        prevStats.forEach((prev: { totalObtained: number; totalMax: number }, studentId: string) => {
-          const curr = currStats.get(studentId);
-          if (!curr || prev.totalMax === 0 || curr.totalMax === 0) return;
-
-          const prevPct = (prev.totalObtained / prev.totalMax) * 100;
-          const currPct = (curr.totalObtained / curr.totalMax) * 100;
-          const drop = prevPct - currPct;
-
-          // Rule: Drop is 15% or more
-          if (drop >= 15) {
-            const studentInfo = studentMap.get(studentId);
-            if (!studentInfo) return;
-
-            result.exam_drop_alerts.push({
-              student_id: studentId,
-              student_name: studentInfo.name,
-              roll_number: studentInfo.roll_number,
-              class_id: studentInfo.class_id,
-              class_name: studentInfo.class_name,
-              parent_phone: studentInfo.parent_phone,
-              previous_exam_id: previousExam.id,
-              previous_exam_title: previousExam.title,
-              previous_percentage: Number(prevPct.toFixed(1)),
-              current_exam_id: currentExam.id,
-              current_exam_title: currentExam.title,
-              current_percentage: Number(currPct.toFixed(1)),
-              drop_percentage: Number(drop.toFixed(1)),
-              alert_level: drop >= 25 ? "CRITICAL" : "HIGH",
-            });
-          }
-        });
       }
-    }
-
-    // Fallback seed alert if exam history has only 1 exam or results are sparse
-    if (result.exam_drop_alerts.length === 0 && students.length >= 2) {
-      const sampleStudent = students[students.length > 1 ? 1 : 0];
-      result.exam_drop_alerts.push({
-        student_id: sampleStudent.id,
-        student_name: `${sampleStudent.first_name} ${sampleStudent.last_name}`,
-        roll_number: sampleStudent.roll_number || "১০৫",
-        class_id: sampleStudent.class_id,
-        class_name: resolveClassName(sampleStudent.classes) || "মিযান জামাত (কিতাব বিভাগ)",
-        parent_phone: sampleStudent.parent_phone || "01912334455",
-        previous_exam_id: "prev_exam_01",
-        previous_exam_title: "১ম সাময়িক পরীক্ষা ২০২৫",
-        previous_percentage: 82.5,
-        current_exam_id: "curr_exam_02",
-        current_exam_title: "২য় সাময়িক পরীক্ষা ২০২৫",
-        current_percentage: 63.0,
-        drop_percentage: 19.5,
-        alert_level: "HIGH",
-      });
     }
 
     // Distinct critical student count

@@ -87,6 +87,12 @@ export default function StudentsListClient({
   const [selectedSession, setSelectedSession] = useState<string>(
     searchParams?.get("session") || "ALL"
   );
+  const [selectedSystem, setSelectedSystem] = useState<string>(
+    searchParams?.get("system") || "ALL"
+  );
+  const [selectedFeeCategory, setSelectedFeeCategory] = useState<string>(
+    searchParams?.get("fee") || "ALL"
+  );
   const [selectedResidential, setSelectedResidential] = useState<string>(
     searchParams?.get("residential") || "ALL"
   );
@@ -112,6 +118,8 @@ export default function StudentsListClient({
     const params = new URLSearchParams();
     if (searchQuery) params.set("q", searchQuery);
     if (selectedClass !== "ALL") params.set("class", selectedClass);
+    if (selectedSystem !== "ALL") params.set("system", selectedSystem);
+    if (selectedFeeCategory !== "ALL") params.set("fee", selectedFeeCategory);
     if (selectedSession !== "ALL") params.set("session", selectedSession);
     if (selectedResidential !== "ALL") params.set("residential", selectedResidential);
     if (selectedStatus !== "ALL") params.set("status", selectedStatus);
@@ -124,6 +132,8 @@ export default function StudentsListClient({
   }, [
     searchQuery,
     selectedClass,
+    selectedSystem,
+    selectedFeeCategory,
     selectedSession,
     selectedResidential,
     selectedStatus,
@@ -136,20 +146,28 @@ export default function StudentsListClient({
   // Derive consolidated classes list with student counts
   const consolidatedClasses = useMemo(() => {
     const map = new Map<string, { id: string; name: string; count: number }>();
+    const idToNameMap = new Map<string, string>();
 
     // Add registered classes first
     (classes || []).forEach((c) => {
       if (c && c.name) {
-        map.set(c.name.trim(), { id: c.id, name: c.name.trim(), count: 0 });
+        const trimmed = c.name.trim();
+        map.set(trimmed, { id: c.id, name: trimmed, count: 0 });
+        if (c.id) idToNameMap.set(c.id, trimmed);
       }
     });
 
-    // Also include any class names existing on student records
+    // Count students matching classes
     students.forEach((s) => {
-      const cName =
+      let cName =
         (Array.isArray(s.classes) ? s.classes[0]?.name : s.classes?.name) ||
         s.class_name ||
         "";
+
+      if (!cName && s.class_id && idToNameMap.has(s.class_id)) {
+        cName = idToNameMap.get(s.class_id) || "";
+      }
+
       if (cName && cName.trim()) {
         const trimmed = cName.trim();
         if (!map.has(trimmed)) {
@@ -163,12 +181,70 @@ export default function StudentsListClient({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, "bn"));
   }, [classes, students]);
 
+  // System/Department classification helper
+  const getStudentSystem = (student: any): "হিফজ" | "কিতাব" | "নূরানী" | "নাজেরা" | "সাধারণ" => {
+    const cName = (
+      (Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) ||
+      student.class_name ||
+      ""
+    ).toLowerCase();
+
+    if (cName.includes("হিফজ") || cName.includes("তাহফিজ") || cName.includes("কুরআন")) {
+      return "হিফজ";
+    }
+    if (cName.includes("নাজেরা")) {
+      return "নাজেরা";
+    }
+    if (cName.includes("নূরানী") || cName.includes("মক্তব") || cName.includes("শিশু")) {
+      return "নূরানী";
+    }
+    if (
+      cName.includes("মীযান") ||
+      cName.includes("নাহবেমীর") ||
+      cName.includes("হেদায়াত") ||
+      cName.includes("কাফিয়া") ||
+      cName.includes("শরহে") ||
+      cName.includes("দহম") ||
+      cName.includes("ইয়াযদাহুম") ||
+      cName.includes("জালালাইন") ||
+      cName.includes("মেশকাত") ||
+      cName.includes("দাওরা") ||
+      cName.includes("ইফতা") ||
+      cName.includes("কিতাব")
+    ) {
+      return "কিতাব";
+    }
+    return "সাধারণ";
+  };
+
+  // Fee category classification helper
+  const getStudentFeeCategory = (student: any): "লিল্লাহ_ফ্রি" | "মওকুফপ্রাপ্ত" | "পেইং" => {
+    const bType = String(student.boarding_type || "");
+    const discount = Number(student.fee_discount || 0);
+    const monthlyFee = Number(student.monthly_fee || 0);
+    const isFree =
+      bType === "লিল্লাহ" ||
+      student.is_free ||
+      student.free_student ||
+      (monthlyFee === 0 && discount > 0);
+
+    if (isFree) return "লিল্লাহ_ফ্রি";
+    if (discount > 0 || bType.includes("হাফ") || bType.includes("মওকুফ")) return "মওকুফপ্রাপ্ত";
+    return "পেইং";
+  };
+
   // Quick stats calculation
   const stats = useMemo(() => {
     const total = students.length;
     let residential = 0;
     let nonResidential = 0;
     let female = 0;
+    let hifzCount = 0;
+    let kitabCount = 0;
+    let nooraniCount = 0;
+    let nazeraCount = 0;
+    let freeCount = 0;
+    let discountedCount = 0;
 
     students.forEach((s) => {
       if (s.residential_status === "আবাসিক" || s.is_boarding) {
@@ -177,6 +253,16 @@ export default function StudentsListClient({
         nonResidential++;
       }
       if (s.gender === "FEMALE") female++;
+
+      const sys = getStudentSystem(s);
+      if (sys === "হিফজ") hifzCount++;
+      else if (sys === "কিতাব") kitabCount++;
+      else if (sys === "নূরানী") nooraniCount++;
+      else if (sys === "নাজেরা") nazeraCount++;
+
+      const feeCat = getStudentFeeCategory(s);
+      if (feeCat === "লিল্লাহ_ফ্রি") freeCount++;
+      else if (feeCat === "মওকুফপ্রাপ্ত") discountedCount++;
     });
 
     return {
@@ -184,7 +270,13 @@ export default function StudentsListClient({
       residential,
       nonResidential,
       female,
-      classesCount: consolidatedClasses.filter((c) => c.count > 0).length,
+      hifzCount,
+      kitabCount,
+      nooraniCount,
+      nazeraCount,
+      freeCount,
+      discountedCount,
+      classesCount: consolidatedClasses.length,
     };
   }, [students, consolidatedClasses]);
 
@@ -193,6 +285,8 @@ export default function StudentsListClient({
     let count = 0;
     if (searchQuery.trim()) count++;
     if (selectedClass !== "ALL") count++;
+    if (selectedSystem !== "ALL") count++;
+    if (selectedFeeCategory !== "ALL") count++;
     if (selectedSession !== "ALL") count++;
     if (selectedResidential !== "ALL") count++;
     if (selectedStatus !== "ALL") count++;
@@ -202,6 +296,8 @@ export default function StudentsListClient({
   }, [
     searchQuery,
     selectedClass,
+    selectedSystem,
+    selectedFeeCategory,
     selectedSession,
     selectedResidential,
     selectedStatus,
@@ -213,6 +309,8 @@ export default function StudentsListClient({
   const resetFilters = () => {
     setSearchQuery("");
     setSelectedClass("ALL");
+    setSelectedSystem("ALL");
+    setSelectedFeeCategory("ALL");
     setSelectedSession("ALL");
     setSelectedResidential("ALL");
     setSelectedStatus("ALL");
@@ -260,16 +358,37 @@ export default function StudentsListClient({
             ""
           ).trim();
           const cId = student.class_id || (student.classes && student.classes.id);
+          const matchedClassObj = (classes || []).find((c) => c.id === cId || c.name === cName);
+          const resolvedName = cName || matchedClassObj?.name || "";
 
           const matchesClass =
+            resolvedName === selectedClass ||
             cName === selectedClass ||
             cId === selectedClass ||
-            (selectedClass === "UNASSIGNED" && !cName);
+            (matchedClassObj && matchedClassObj.name === selectedClass) ||
+            (selectedClass === "UNASSIGNED" && !resolvedName && !cId);
 
           if (!matchesClass) return false;
         }
 
-        // 3. Academic Session Filter
+        // 3. System / Department Filter
+        if (selectedSystem !== "ALL") {
+          const sys = getStudentSystem(student);
+          if (selectedSystem === "HIFZ" && sys !== "হিফজ") return false;
+          if (selectedSystem === "KITAB" && sys !== "কিতাব") return false;
+          if (selectedSystem === "NOORANI" && sys !== "নূরানী") return false;
+          if (selectedSystem === "NAZERA" && sys !== "নাজেরা") return false;
+        }
+
+        // 4. Fee / Scholarship Category Filter
+        if (selectedFeeCategory !== "ALL") {
+          const feeCat = getStudentFeeCategory(student);
+          if (selectedFeeCategory === "FREE" && feeCat !== "লিল্লাহ_ফ্রি") return false;
+          if (selectedFeeCategory === "DISCOUNTED" && feeCat !== "মওকুফপ্রাপ্ত") return false;
+          if (selectedFeeCategory === "PAYING" && feeCat !== "পেইং") return false;
+        }
+
+        // 5. Academic Session Filter
         if (selectedSession !== "ALL") {
           const studentSessionId = student.session_id || student.academic_session_id;
           if (studentSessionId && studentSessionId !== selectedSession) {
@@ -277,7 +396,7 @@ export default function StudentsListClient({
           }
         }
 
-        // 4. Residential Status Filter
+        // 6. Residential Status Filter
         if (selectedResidential !== "ALL") {
           const resStatus = student.residential_status || (student.is_boarding ? "আবাসিক" : "অনাবাসিক");
           if (selectedResidential === "আবাসিক" && resStatus !== "আবাসিক") return false;
@@ -285,7 +404,7 @@ export default function StudentsListClient({
           if (selectedResidential === "ডে-কেয়ার" && resStatus !== "ডে-কেয়ার") return false;
         }
 
-        // 5. Student Status Filter
+        // 7. Student Status Filter
         if (selectedStatus !== "ALL") {
           const st = (student.student_status || "ACTIVE").toUpperCase();
           if (selectedStatus === "ACTIVE" && st !== "ACTIVE") return false;
@@ -293,13 +412,13 @@ export default function StudentsListClient({
           if (selectedStatus === "ALUMNI" && st !== "ALUMNI") return false;
         }
 
-        // 6. Gender Filter
+        // 8. Gender Filter
         if (selectedGender !== "ALL") {
           const g = (student.gender || "MALE").toUpperCase();
           if (g !== selectedGender.toUpperCase()) return false;
         }
 
-        // 7. Blood Group Filter
+        // 9. Blood Group Filter
         if (selectedBloodGroup !== "ALL") {
           if ((student.blood_group || "") !== selectedBloodGroup) return false;
         }
@@ -610,9 +729,9 @@ export default function StudentsListClient({
             {/* Filter Dropdowns Grid */}
             <div className="flex items-center flex-wrap gap-2">
               {/* 1. Class / Jamat Filter Dropdown */}
-              <div className="relative min-w-[150px] flex-1 sm:flex-initial">
+              <div className="relative min-w-[140px] flex-1 sm:flex-initial">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5 ml-1">
-                  জামাত / ক্লাস
+                  জামাত / শ্রেণি
                 </label>
                 <div className="relative">
                   <select
@@ -632,8 +751,29 @@ export default function StudentsListClient({
                 </div>
               </div>
 
-              {/* 2. Residential Status Filter Dropdown */}
-              <div className="relative min-w-[130px] flex-1 sm:flex-initial">
+              {/* 2. Department / System Filter Dropdown */}
+              <div className="relative min-w-[145px] flex-1 sm:flex-initial">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5 ml-1">
+                  বিভাগ / সিস্টেম
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedSystem}
+                    onChange={(e) => setSelectedSystem(e.target.value)}
+                    className="w-full appearance-none pl-3 pr-8 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-2xs cursor-pointer"
+                  >
+                    <option value="ALL">সকল বিভাগ/সিস্টেম</option>
+                    <option value="HIFZ">হিফজুল কুরআন বিভাগ ({convertToBanglaNumber(stats.hifzCount)})</option>
+                    <option value="KITAB">কিতাব বিভাগ ({convertToBanglaNumber(stats.kitabCount)})</option>
+                    <option value="NOORANI">নূরানী ও মক্তব ({convertToBanglaNumber(stats.nooraniCount)})</option>
+                    <option value="NAZERA">নাজেরা বিভাগ ({convertToBanglaNumber(stats.nazeraCount)})</option>
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* 3. Residential Status Filter Dropdown */}
+              <div className="relative min-w-[125px] flex-1 sm:flex-initial">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5 ml-1">
                   আবাসিক অবস্থা
                 </label>
@@ -644,16 +784,36 @@ export default function StudentsListClient({
                     className="w-full appearance-none pl-3 pr-8 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-2xs cursor-pointer"
                   >
                     <option value="ALL">সকল ধরন</option>
-                    <option value="আবাসিক">আবাসিক</option>
-                    <option value="অনাবাসিক">অনাবাসিক</option>
+                    <option value="আবাসিক">আবাসিক ({convertToBanglaNumber(stats.residential)})</option>
+                    <option value="অনাবাসিক">অনাবাসিক ({convertToBanglaNumber(stats.nonResidential)})</option>
                     <option value="ডে-কেয়ার">ডে-কেয়ার</option>
                   </select>
                   <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
               </div>
 
-              {/* 3. Academic Session Filter Dropdown */}
-              <div className="relative min-w-[150px] flex-1 sm:flex-initial">
+              {/* 4. Fee / Scholarship Category Dropdown */}
+              <div className="relative min-w-[135px] flex-1 sm:flex-initial">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5 ml-1">
+                  ফি / বৃত্তি ব্যবস্থা
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedFeeCategory}
+                    onChange={(e) => setSelectedFeeCategory(e.target.value)}
+                    className="w-full appearance-none pl-3 pr-8 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-2xs cursor-pointer"
+                  >
+                    <option value="ALL">সকল ফি ব্যবস্থা</option>
+                    <option value="FREE">লিল্লাহ বোর্ডিং / ফ্রি ({convertToBanglaNumber(stats.freeCount)})</option>
+                    <option value="DISCOUNTED">মওকুফ / ছাড়প্রাপ্ত ({convertToBanglaNumber(stats.discountedCount)})</option>
+                    <option value="PAYING">সাধারণ পেইং</option>
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* 5. Academic Session Filter Dropdown */}
+              <div className="relative min-w-[135px] flex-1 sm:flex-initial">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5 ml-1">
                   শিক্ষাবর্ষ / সেশন
                 </label>
@@ -674,8 +834,8 @@ export default function StudentsListClient({
                 </div>
               </div>
 
-              {/* 4. Sort By Dropdown */}
-              <div className="relative min-w-[140px] flex-1 sm:flex-initial">
+              {/* 6. Sort By Dropdown */}
+              <div className="relative min-w-[130px] flex-1 sm:flex-initial">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5 ml-1">
                   সাজানো (Sort)
                 </label>
@@ -813,81 +973,315 @@ export default function StudentsListClient({
             </div>
           )}
 
-          {/* Quick Filter Badges / Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
-            <span className="text-[11px] font-semibold text-slate-400 shrink-0 mr-1">
-              দ্রুত ফিল্টার:
+          {/* Jamat / Class Horizontal Filter Ribbon */}
+          <div className="pt-2 border-t border-slate-200/80">
+            <div className="flex items-center justify-between gap-2 mb-1.5 px-0.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                <BookOpen className="w-3 h-3 text-emerald-600" />
+                জামাত অনুযায়ী দ্রুত ফিল্টার:
+              </span>
+              <span className="text-[11px] font-medium text-slate-400">
+                মোট {convertToBanglaNumber(consolidatedClasses.length)}টি জামাত
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-none text-xs">
+              {/* All Classes Chip */}
+              <button
+                type="button"
+                onClick={() => setSelectedClass("ALL")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition flex items-center gap-1.5 cursor-pointer ${
+                  selectedClass === "ALL"
+                    ? "bg-emerald-700 text-white shadow-xs font-bold ring-2 ring-emerald-600/30"
+                    : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 hover:border-slate-300"
+                }`}
+              >
+                <span>সকল জামাত</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                    selectedClass === "ALL" ? "bg-emerald-800 text-emerald-100" : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {convertToBanglaNumber(students.length)}
+                </span>
+              </button>
+
+              {/* Class Chips */}
+              {consolidatedClasses.map((c) => {
+                const isSelected = selectedClass === c.name;
+                return (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => setSelectedClass(isSelected ? "ALL" : c.name)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition flex items-center gap-1.5 cursor-pointer ${
+                      isSelected
+                        ? "bg-emerald-700 text-white shadow-xs font-bold ring-2 ring-emerald-600/30"
+                        : "bg-white text-emerald-900 border border-emerald-200/80 hover:bg-emerald-50/80 hover:border-emerald-300"
+                    }`}
+                  >
+                    <span>{c.name}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                        isSelected ? "bg-emerald-800 text-emerald-100" : "bg-emerald-50 text-emerald-800"
+                      }`}
+                    >
+                      {convertToBanglaNumber(c.count)}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {/* Unassigned Class Chip */}
+              <button
+                type="button"
+                onClick={() => setSelectedClass(selectedClass === "UNASSIGNED" ? "ALL" : "UNASSIGNED")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition flex items-center gap-1.5 cursor-pointer ${
+                  selectedClass === "UNASSIGNED"
+                    ? "bg-rose-700 text-white shadow-xs font-bold"
+                    : "bg-white text-rose-800 border border-rose-200 hover:bg-rose-50"
+                }`}
+              >
+                <span>জামাতবিহীন</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Department / System & Residential Filter Ribbon */}
+          <div className="pt-1.5 border-t border-slate-200/80 flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 shrink-0 mr-1 flex items-center gap-1">
+              <SlidersHorizontal className="w-3 h-3 text-slate-400" />
+              বিভাগ ও ধরন:
             </span>
 
-            {/* All chip */}
+            {/* All systems */}
             <button
+              type="button"
               onClick={() => {
-                setSelectedClass("ALL");
+                setSelectedSystem("ALL");
                 setSelectedResidential("ALL");
+                setSelectedFeeCategory("ALL");
               }}
-              className={`px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 transition cursor-pointer ${
-                selectedClass === "ALL" && selectedResidential === "ALL"
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer ${
+                selectedSystem === "ALL" && selectedResidential === "ALL" && selectedFeeCategory === "ALL"
                   ? "bg-slate-900 text-white shadow-2xs"
                   : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
               }`}
             >
-              সকল ({convertToBanglaNumber(students.length)})
+              সকল ধরন
             </button>
 
-            {/* Class Chips */}
-            {consolidatedClasses
-              .filter((c) => c.count > 0)
-              .map((c) => (
-                <button
-                  key={c.name}
-                  onClick={() => setSelectedClass(c.name)}
-                  className={`px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 transition cursor-pointer flex items-center gap-1 ${
-                    selectedClass === c.name
-                      ? "bg-emerald-700 text-white shadow-2xs"
-                      : "bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-50"
-                  }`}
-                >
-                  <span>{c.name}</span>
-                  <span className="text-[10px] opacity-80">
-                    ({convertToBanglaNumber(c.count)})
-                  </span>
-                </button>
-              ))}
+            {/* Department Quick Chips */}
+            <button
+              type="button"
+              onClick={() => setSelectedSystem(selectedSystem === "HIFZ" ? "ALL" : "HIFZ")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer flex items-center gap-1 ${
+                selectedSystem === "HIFZ"
+                  ? "bg-teal-700 text-white shadow-2xs font-bold"
+                  : "bg-white text-teal-800 border border-teal-200 hover:bg-teal-50"
+              }`}
+            >
+              <span>📖 হিফজুল কুরআন</span>
+              <span className="text-[10px] opacity-90">({convertToBanglaNumber(stats.hifzCount)})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedSystem(selectedSystem === "KITAB" ? "ALL" : "KITAB")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer flex items-center gap-1 ${
+                selectedSystem === "KITAB"
+                  ? "bg-blue-700 text-white shadow-2xs font-bold"
+                  : "bg-white text-blue-800 border border-blue-200 hover:bg-blue-50"
+              }`}
+            >
+              <span>📚 কিতাব বিভাগ</span>
+              <span className="text-[10px] opacity-90">({convertToBanglaNumber(stats.kitabCount)})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedSystem(selectedSystem === "NOORANI" ? "ALL" : "NOORANI")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer flex items-center gap-1 ${
+                selectedSystem === "NOORANI"
+                  ? "bg-emerald-700 text-white shadow-2xs font-bold"
+                  : "bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-50"
+              }`}
+            >
+              <span>🌱 নূরানী ও মক্তব</span>
+              <span className="text-[10px] opacity-90">({convertToBanglaNumber(stats.nooraniCount)})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedSystem(selectedSystem === "NAZERA" ? "ALL" : "NAZERA")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer flex items-center gap-1 ${
+                selectedSystem === "NAZERA"
+                  ? "bg-cyan-700 text-white shadow-2xs font-bold"
+                  : "bg-white text-cyan-800 border border-cyan-200 hover:bg-cyan-50"
+              }`}
+            >
+              <span>✨ নাজেরা</span>
+              <span className="text-[10px] opacity-90">({convertToBanglaNumber(stats.nazeraCount)})</span>
+            </button>
 
             {/* Residential Quick Chips */}
             <button
-              onClick={() => setSelectedResidential("আবাসিক")}
-              className={`px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 transition cursor-pointer ${
+              type="button"
+              onClick={() => setSelectedResidential(selectedResidential === "আবাসিক" ? "ALL" : "আবাসিক")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer flex items-center gap-1 ${
                 selectedResidential === "আবাসিক"
-                  ? "bg-indigo-700 text-white shadow-2xs"
+                  ? "bg-indigo-700 text-white shadow-2xs font-bold"
                   : "bg-white text-indigo-800 border border-indigo-200 hover:bg-indigo-50"
               }`}
             >
-              আবাসিক ({convertToBanglaNumber(stats.residential)})
+              <span>🏠 আবাসিক</span>
+              <span className="text-[10px] opacity-90">({convertToBanglaNumber(stats.residential)})</span>
             </button>
 
             <button
-              onClick={() => setSelectedResidential("অনাবাসিক")}
-              className={`px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 transition cursor-pointer ${
+              type="button"
+              onClick={() => setSelectedResidential(selectedResidential === "অনাবাসিক" ? "ALL" : "অনাবাসিক")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer flex items-center gap-1 ${
                 selectedResidential === "অনাবাসিক"
-                  ? "bg-amber-700 text-white shadow-2xs"
+                  ? "bg-amber-700 text-white shadow-2xs font-bold"
                   : "bg-white text-amber-800 border border-amber-200 hover:bg-amber-50"
               }`}
             >
-              অনাবাসিক ({convertToBanglaNumber(stats.nonResidential)})
+              <span>🚶 অনাবাসিক</span>
+              <span className="text-[10px] opacity-90">({convertToBanglaNumber(stats.nonResidential)})</span>
             </button>
 
-            {/* Reset button if filtered */}
-            {activeFiltersCount > 0 && (
-              <button
-                onClick={resetFilters}
-                className="px-2.5 py-1 rounded-full text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 shrink-0 transition flex items-center gap-1 cursor-pointer"
-              >
-                <X className="w-3 h-3" />
-                রিসেট ({convertToBanglaNumber(activeFiltersCount)})
-              </button>
-            )}
+            {/* Fee Category Quick Chips */}
+            <button
+              type="button"
+              onClick={() => setSelectedFeeCategory(selectedFeeCategory === "FREE" ? "ALL" : "FREE")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer flex items-center gap-1 ${
+                selectedFeeCategory === "FREE"
+                  ? "bg-purple-700 text-white shadow-2xs font-bold"
+                  : "bg-white text-purple-800 border border-purple-200 hover:bg-purple-50"
+              }`}
+            >
+              <span>🎁 লিল্লাহ/ফ্রি</span>
+              <span className="text-[10px] opacity-90">({convertToBanglaNumber(stats.freeCount)})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedFeeCategory(selectedFeeCategory === "DISCOUNTED" ? "ALL" : "DISCOUNTED")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition cursor-pointer flex items-center gap-1 ${
+                selectedFeeCategory === "DISCOUNTED"
+                  ? "bg-violet-700 text-white shadow-2xs font-bold"
+                  : "bg-white text-violet-800 border border-violet-200 hover:bg-violet-50"
+              }`}
+            >
+              <span>🔖 মওকুফপ্রাপ্ত</span>
+              <span className="text-[10px] opacity-90">({convertToBanglaNumber(stats.discountedCount)})</span>
+            </button>
           </div>
+
+          {/* Active Filter Tags & Count Summary Bar */}
+          {activeFiltersCount > 0 && (
+            <div className="pt-2 border-t border-slate-200/80 flex items-center flex-wrap justify-between gap-2 bg-emerald-50/50 -mx-3.5 sm:-mx-4 -mb-3.5 sm:-mb-4 p-2.5 sm:px-4">
+              <div className="flex items-center flex-wrap gap-1.5 text-xs">
+                <span className="text-slate-600 font-medium">সক্রিয় ফিল্টার:</span>
+
+                {selectedClass !== "ALL" && (
+                  <span className="inline-flex items-center gap-1 bg-white border border-emerald-300 text-emerald-800 px-2 py-0.5 rounded-md font-semibold text-xs shadow-2xs">
+                    জামাত: {selectedClass === "UNASSIGNED" ? "অনির্ধারিত" : selectedClass}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedClass("ALL")}
+                      className="hover:text-rose-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {selectedSystem !== "ALL" && (
+                  <span className="inline-flex items-center gap-1 bg-white border border-blue-300 text-blue-800 px-2 py-0.5 rounded-md font-semibold text-xs shadow-2xs">
+                    বিভাগ:{" "}
+                    {selectedSystem === "HIFZ"
+                      ? "হিফজ"
+                      : selectedSystem === "KITAB"
+                      ? "কিতাব"
+                      : selectedSystem === "NOORANI"
+                      ? "নূরানী"
+                      : "নাজেরা"}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSystem("ALL")}
+                      className="hover:text-rose-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {selectedFeeCategory !== "ALL" && (
+                  <span className="inline-flex items-center gap-1 bg-white border border-purple-300 text-purple-800 px-2 py-0.5 rounded-md font-semibold text-xs shadow-2xs">
+                    ফি:{" "}
+                    {selectedFeeCategory === "FREE"
+                      ? "লিল্লাহ/ফ্রি"
+                      : selectedFeeCategory === "DISCOUNTED"
+                      ? "মওকুফপ্রাপ্ত"
+                      : "পেইং"}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFeeCategory("ALL")}
+                      className="hover:text-rose-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {selectedResidential !== "ALL" && (
+                  <span className="inline-flex items-center gap-1 bg-white border border-indigo-300 text-indigo-800 px-2 py-0.5 rounded-md font-semibold text-xs shadow-2xs">
+                    ধরন: {selectedResidential}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedResidential("ALL")}
+                      className="hover:text-rose-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+
+                {searchQuery && (
+                  <span className="inline-flex items-center gap-1 bg-white border border-slate-300 text-slate-800 px-2 py-0.5 rounded-md font-semibold text-xs shadow-2xs">
+                    অনুসন্ধান: &ldquo;{searchQuery}&rdquo;
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="hover:text-rose-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700">
+                  পাওয়া গেছে:{" "}
+                  <span className="text-emerald-700 font-mono text-sm">
+                    {convertToBanglaNumber(filteredStudents.length)}
+                  </span>{" "}
+                  জন
+                </span>
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="px-2.5 py-1 rounded-md text-xs font-bold text-rose-700 bg-white border border-rose-200 hover:bg-rose-50 transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  ফিল্টার মুছুন
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Bulk Action Bar (When rows are selected) */}

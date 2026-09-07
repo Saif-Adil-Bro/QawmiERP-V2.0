@@ -229,11 +229,11 @@ export default async function DashboardPage() {
           <p className="text-sm text-rose-500 mt-1">অনুপস্থিত: {todayAbsent}</p>
         </Link>
         
-        <Link href="/dashboard/finance" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
+        <Link href="/dashboard/accounting" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
           <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট আয়</h3>
           <p className="text-3xl font-bold text-emerald-600 mt-2">৳ {totalIncome.toLocaleString('en-IN')}</p>
         </Link>
-        <Link href="/dashboard/finance" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
+        <Link href="/dashboard/accounting/expenses" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
           <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট ব্যয়</h3>
           <p className="text-3xl font-bold text-rose-600 mt-2">৳ {totalExpense.toLocaleString('en-IN')}</p>
         </Link>
