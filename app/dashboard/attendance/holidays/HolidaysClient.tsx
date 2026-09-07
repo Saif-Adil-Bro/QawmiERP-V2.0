@@ -140,6 +140,7 @@ export default function HolidaysClient({
   const [seeding, setSeeding] = useState(false);
   const [syncingAttendance, setSyncingAttendance] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   const showFeedback = (type: "success" | "error", text: string) => {
     setFeedback({ type, text });
@@ -171,6 +172,7 @@ export default function HolidaysClient({
   // Open Create Modal
   const handleOpenCreate = () => {
     setEditingHoliday(null);
+    setModalError(null);
     const today = new Date().toISOString().split("T")[0];
     setFormData({
       title: "",
@@ -191,6 +193,7 @@ export default function HolidaysClient({
   // Open Edit Modal
   const handleOpenEdit = (h: AcademicHoliday) => {
     setEditingHoliday(h);
+    setModalError(null);
     setFormData({
       title: h.title,
       category: (h.category as any) || "general",
@@ -315,12 +318,18 @@ export default function HolidaysClient({
   // Handle Save (Create / Update)
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
+
     if (!formData.title.trim()) {
-      showFeedback("error", "ছুটির শিরোনাম প্রদান করুন।");
+      const msg = "ছুটির শিরোনাম প্রদান করুন।";
+      setModalError(msg);
+      showFeedback("error", msg);
       return;
     }
     if (formData.start_date > formData.end_date) {
-      showFeedback("error", "শেষ তারিখ শুরু তারিখের চেয়ে পূর্বে হতে পারে না।");
+      const msg = "শেষ তারিখ শুরু তারিখের চেয়ে পূর্বে হতে পারে না।";
+      setModalError(msg);
+      showFeedback("error", msg);
       return;
     }
 
@@ -329,24 +338,43 @@ export default function HolidaysClient({
       if (editingHoliday) {
         const res = await updateAcademicHoliday(editingHoliday.id, formData);
         if (res.error) {
+          setModalError(res.error);
           showFeedback("error", res.error);
-        } else if (res.holiday) {
-          setHolidays((prev) => prev.map((item) => (item.id === res.holiday!.id ? res.holiday! : item)));
+        } else {
+          const updatedHoliday: AcademicHoliday = res.holiday || {
+            ...editingHoliday,
+            ...formData,
+            total_days: Math.max(
+              1,
+              Math.ceil(
+                (new Date(formData.end_date).getTime() - new Date(formData.start_date).getTime()) /
+                  (1000 * 60 * 60 * 24)
+              ) + 1
+            ),
+          };
+          setHolidays((prev) =>
+            prev.map((item) => (item.id === editingHoliday.id ? updatedHoliday : item))
+          );
           showFeedback("success", "ছুটির তথ্য সফলভাবে হালনাগাদ করা হয়েছে!");
           setIsModalOpen(false);
+          setModalError(null);
         }
       } else {
         const res = await createAcademicHoliday(formData);
         if (res.error) {
+          setModalError(res.error);
           showFeedback("error", res.error);
         } else if (res.holiday) {
           setHolidays((prev) => [res.holiday!, ...prev]);
           showFeedback("success", "নতুন ছুটি সফলভাবে যুক্ত করা হয়েছে!");
           setIsModalOpen(false);
+          setModalError(null);
         }
       }
     } catch (err: any) {
-      showFeedback("error", err?.message || "একটি ত্রুটি হয়েছে।");
+      const msg = err?.message || "একটি অনাকাঙ্ক্ষিত ত্রুটি হয়েছে। অনুগ্রহ করে পুনরায় চেষ্টা করুন।";
+      setModalError(msg);
+      showFeedback("error", msg);
     } finally {
       setSubmitting(false);
     }
@@ -1360,6 +1388,14 @@ export default function HolidaysClient({
                   <strong className="font-semibold">স্বয়ংক্রিয় ছুটির হাজিরা:</strong> এই ছুটি সংরক্ষণ করার সাথে সাথে ছুটির সকল দিনের ছাত্র ও স্টাফদের হাজিরা ডাটাবেসে স্বয়ংক্রিয়ভাবে <strong>"ছুটি (Leave)"</strong> হিসেবে সেভ হয়ে থাকবে।
                 </div>
               </div>
+
+              {/* Modal Error Alert */}
+              {modalError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span className="font-medium">{modalError}</span>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
                 <button

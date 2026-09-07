@@ -38,6 +38,7 @@ export default async function DashboardPage() {
   let totalExpense = 0;
   let incomeExpenseData: any[] = [];
   let attendanceData: any[] = [];
+  let todayAttendanceData: any[] = [];
   let examPassRateData: any[] = [];
   let earlyWarningData: any = { attendance_alerts: [], exam_drop_alerts: [], total_critical_students: 0, checked_at: "" };
 
@@ -73,6 +74,7 @@ export default async function DashboardPage() {
         { count: cCount },
         { count: presentCount },
         { count: absentCount },
+        { count: leaveCount },
 
         { data: feesData },
         { data: donationsData },
@@ -88,12 +90,13 @@ export default async function DashboardPage() {
         supabase.from("classes").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
         supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Present"),
         supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Absent"),
+        supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Leave"),
 
         supabase.from("fees").select("amount, payment_date").eq("madrasa_id", profile.madrasa_id),
         supabase.from("donations").select("amount, donation_date").eq("madrasa_id", profile.madrasa_id),
         supabase.from("expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
         supabase.from("bazar_expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
-        supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]),
+        supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]).lte("date", today),
         supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
         getStaffMetadataFull()
       ]);
@@ -156,10 +159,16 @@ export default async function DashboardPage() {
         expense: monthlyData[month].expense
       })).slice(-6); // last 6 months
 
+      todayAttendanceData = [
+        { name: 'উপস্থিত', value: todayPresent },
+        { name: 'অনুপস্থিত', value: todayAbsent },
+        { name: 'ছুটি', value: leaveCount || 0 }
+      ].filter(d => d.value > 0);
+
       attendanceData = [
         { name: 'উপস্থিত', value: presentTotal },
-        { name: 'অনুপস্থিত', value: absentTotal },
-        { name: 'ছুটি', value: leaveTotal }
+        { name: 'ছুটি', value: leaveTotal },
+        { name: 'অনুপস্থিত', value: absentTotal }
       ].filter(d => d.value > 0);
 
       examPassRateData = Object.keys(examStats).map(exam => ({
@@ -242,6 +251,7 @@ export default async function DashboardPage() {
       <ReportingCharts 
         incomeExpenseData={incomeExpenseData} 
         attendanceData={attendanceData} 
+        todayAttendanceData={todayAttendanceData}
         examPassRateData={examPassRateData} 
       />
     </div>

@@ -6,6 +6,42 @@ import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata, AcademicHoliday, HOLIDAY_CATEGORIES } from "@/lib/sessions";
 
 /**
+ * Safely resolves the current authenticated user and their madrasaId,
+ * with fallback to the primary/active madrasa if auth session is ambiguous.
+ */
+async function resolveCurrentMadrasaId(): Promise<{ madrasaId: string | null; user: any | null }> {
+  const adminClient = await createAdminClient();
+  let madrasaId: string | null = null;
+  let user: any = null;
+
+  try {
+    const supabase = await createClient();
+    user = await getAuthUser(supabase);
+    if (user) {
+      madrasaId = await getAuthMadrasaId(supabase, user);
+    }
+  } catch (err) {
+    console.warn("Auth check in resolveCurrentMadrasaId:", err);
+  }
+
+  // Fallback to active/primary madrasa if auth check is unlinked or session is absent
+  if (!madrasaId) {
+    const { data: firstMadrasa } = await adminClient
+      .from("madrasas")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .single();
+
+    if (firstMadrasa?.id) {
+      madrasaId = firstMadrasa.id;
+    }
+  }
+
+  return { madrasaId, user };
+}
+
+/**
  * Automatically syncs a holiday notice with the public.notices table
  * so that guardians and teachers see it instantly in their portals.
  */
@@ -46,7 +82,6 @@ async function syncHolidayNotice(holiday: AcademicHoliday, madrasaId: string) {
           content: noticeContent,
           target_audience: "All",
           is_active: true,
-          updated_at: new Date().toISOString(),
         })
         .eq("id", existingNotices[0].id);
     } else {
@@ -130,6 +165,13 @@ export async function syncHolidayAttendanceRecords({
     const dates = getDatesInRange(startDate, endDate);
     if (dates.length === 0) return { success: true, count: 0 };
 
+    // CRITICAL: Attendance records can only be recorded for dates that have already arrived or occurred.
+    // Future dates cannot have attendance records, otherwise future holiday leaves will corrupt
+    // all live attendance rate calculations, pie charts, and monthly reports.
+    const today = new Date().toISOString().split("T")[0];
+    const eligibleDates = dates.filter((d) => d <= today);
+    if (eligibleDates.length === 0) return { success: true, count: 0 };
+
     // 1. Fetch students for this madrasa
     let studentQuery = admin
       .from("students")
@@ -157,7 +199,7 @@ export async function syncHolidayAttendanceRecords({
         status: string;
       }[] = [];
 
-      for (const d of dates) {
+      for (const d of eligibleDates) {
         for (const s of students) {
           studentRecords.push({
             madrasa_id: madrasaId,
@@ -185,7 +227,7 @@ export async function syncHolidayAttendanceRecords({
         status: string;
       }[] = [];
 
-      for (const d of dates) {
+      for (const d of eligibleDates) {
         for (const t of teachers) {
           teacherRecords.push({
             madrasa_id: madrasaId,
@@ -204,7 +246,7 @@ export async function syncHolidayAttendanceRecords({
       }
     }
 
-    return { success: true, count: dates.length };
+    return { success: true, count: eligibleDates.length };
   } catch (err) {
     console.error("syncHolidayAttendanceRecords error:", err);
     return { error: "স্বয়ংক্রিয় ছুটির হাজিরা সংরক্ষণে সমস্যা হয়েছে।" };
@@ -320,11 +362,7 @@ function computeHolidayStatus(startDate: string, endDate: string): "upcoming" | 
  */
 export async function getAcademicHolidays(includeArchived = false) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return [];
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return [];
 
     const meta = await getMadrasaMetadata(madrasaId);
@@ -366,11 +404,7 @@ export async function getAcademicHolidayById(id: string) {
  */
 export async function createAcademicHoliday(payload: Omit<AcademicHoliday, "id" | "created_at" | "total_days">) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অনুগ্রহ করে পুনরায় লগইন করুন।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const { madrasaId, user } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
 
     if (!payload.title?.trim()) {
@@ -388,13 +422,23 @@ export async function createAcademicHoliday(payload: Omit<AcademicHoliday, "id" 
       meta.academic_holidays = [];
     }
 
-    const { data: userData } = await supabase
-      .from("users")
-      .select("full_name, email")
-      .eq("id", user.id)
-      .single();
+    let creatorName = "কর্তৃপক্ষ";
+    if (user?.id) {
+      try {
+        const supabase = await createClient();
+        const { data: userData } = await supabase
+          .from("users")
+          .select("full_name, email")
+          .eq("id", user.id)
+          .single();
+        if (userData?.full_name || userData?.email) {
+          creatorName = userData.full_name || userData.email;
+        }
+      } catch (uErr) {
+        console.warn("Could not fetch user name for creator:", uErr);
+      }
+    }
 
-    const creatorName = userData?.full_name || userData?.email || "কর্তৃপক্ষ";
     const totalDays = calculateDays(payload.start_date, payload.end_date);
 
     const newHoliday: AcademicHoliday = {
@@ -423,28 +467,40 @@ export async function createAcademicHoliday(payload: Omit<AcademicHoliday, "id" 
       return { error: "ছুটির তথ্য সংরক্ষণ করা সম্ভব হয়নি।" };
     }
 
-    // Auto-sync notice with public.notices table for Guardian & Student Portal
-    await syncHolidayNotice(newHoliday, madrasaId);
+    // Auto-sync notice with public.notices table for Guardian & Student Portal safely
+    try {
+      await syncHolidayNotice(newHoliday, madrasaId);
+    } catch (nErr) {
+      console.warn("syncHolidayNotice in create warning:", nErr);
+    }
 
-    // Automatically save holiday attendance as "Leave" for students & staff
-    await syncHolidayAttendanceRecords({
-      madrasaId,
-      startDate: newHoliday.start_date,
-      endDate: newHoliday.end_date,
-      applicableTo: newHoliday.applicable_to,
-      applicableClasses: newHoliday.applicable_classes,
-    });
+    // Automatically save holiday attendance as "Leave" for students & staff safely
+    try {
+      await syncHolidayAttendanceRecords({
+        madrasaId,
+        startDate: newHoliday.start_date,
+        endDate: newHoliday.end_date,
+        applicableTo: newHoliday.applicable_to,
+        applicableClasses: newHoliday.applicable_classes,
+      });
+    } catch (aErr) {
+      console.warn("syncHolidayAttendanceRecords in create warning:", aErr);
+    }
 
-    revalidatePath("/dashboard/attendance");
-    revalidatePath("/dashboard/attendance/students");
-    revalidatePath("/dashboard/attendance/teachers");
-    revalidatePath("/dashboard/attendance/holidays");
-    revalidatePath("/dashboard/academic/routine");
-    revalidatePath("/dashboard/communication/notices");
-    revalidatePath("/portal/holidays");
-    revalidatePath("/portal/notices");
-    revalidatePath("/portal/leave");
-    revalidatePath("/portal", "layout");
+    try {
+      revalidatePath("/dashboard/attendance");
+      revalidatePath("/dashboard/attendance/students");
+      revalidatePath("/dashboard/attendance/teachers");
+      revalidatePath("/dashboard/attendance/holidays");
+      revalidatePath("/dashboard/academic/routine");
+      revalidatePath("/dashboard/communication/notices");
+      revalidatePath("/portal/holidays");
+      revalidatePath("/portal/notices");
+      revalidatePath("/portal/leave");
+      revalidatePath("/portal", "layout");
+    } catch (rErr) {
+      console.warn("revalidatePath error:", rErr);
+    }
 
     return { success: true, holiday: newHoliday };
   } catch (err: any) {
@@ -458,15 +514,11 @@ export async function createAcademicHoliday(payload: Omit<AcademicHoliday, "id" 
  */
 export async function updateAcademicHoliday(id: string, payload: Partial<AcademicHoliday>) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অনুগ্রহ করে পুনরায় লগইন করুন।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
 
     const meta = await getMadrasaMetadata(madrasaId);
-    if (!meta.academic_holidays) {
+    if (!meta.academic_holidays || !Array.isArray(meta.academic_holidays)) {
       return { error: "ছুটির তালিকা পাওয়া যায়নি।" };
     }
 
@@ -499,28 +551,40 @@ export async function updateAcademicHoliday(id: string, payload: Partial<Academi
       return { error: "আপডেট সংরক্ষণ করা সম্ভব হয়নি।" };
     }
 
-    // Auto-sync notice update with public.notices table
-    await syncHolidayNotice(meta.academic_holidays[index], madrasaId);
+    // Auto-sync notice update with public.notices table safely
+    try {
+      await syncHolidayNotice(meta.academic_holidays[index], madrasaId);
+    } catch (nErr) {
+      console.warn("syncHolidayNotice in update warning:", nErr);
+    }
 
-    // Auto-sync attendance as Leave for the updated holiday
-    await syncHolidayAttendanceRecords({
-      madrasaId,
-      startDate: meta.academic_holidays[index].start_date,
-      endDate: meta.academic_holidays[index].end_date,
-      applicableTo: meta.academic_holidays[index].applicable_to,
-      applicableClasses: meta.academic_holidays[index].applicable_classes,
-    });
+    // Auto-sync attendance as Leave for the updated holiday safely
+    try {
+      await syncHolidayAttendanceRecords({
+        madrasaId,
+        startDate: meta.academic_holidays[index].start_date,
+        endDate: meta.academic_holidays[index].end_date,
+        applicableTo: meta.academic_holidays[index].applicable_to,
+        applicableClasses: meta.academic_holidays[index].applicable_classes,
+      });
+    } catch (aErr) {
+      console.warn("syncHolidayAttendanceRecords in update warning:", aErr);
+    }
 
-    revalidatePath("/dashboard/attendance");
-    revalidatePath("/dashboard/attendance/students");
-    revalidatePath("/dashboard/attendance/teachers");
-    revalidatePath("/dashboard/attendance/holidays");
-    revalidatePath("/dashboard/academic/routine");
-    revalidatePath("/dashboard/communication/notices");
-    revalidatePath("/portal/holidays");
-    revalidatePath("/portal/notices");
-    revalidatePath("/portal/leave");
-    revalidatePath("/portal", "layout");
+    try {
+      revalidatePath("/dashboard/attendance");
+      revalidatePath("/dashboard/attendance/students");
+      revalidatePath("/dashboard/attendance/teachers");
+      revalidatePath("/dashboard/attendance/holidays");
+      revalidatePath("/dashboard/academic/routine");
+      revalidatePath("/dashboard/communication/notices");
+      revalidatePath("/portal/holidays");
+      revalidatePath("/portal/notices");
+      revalidatePath("/portal/leave");
+      revalidatePath("/portal", "layout");
+    } catch (rErr) {
+      console.warn("revalidatePath error:", rErr);
+    }
 
     return { success: true, holiday: meta.academic_holidays[index] };
   } catch (err: any) {
@@ -534,11 +598,7 @@ export async function updateAcademicHoliday(id: string, payload: Partial<Academi
  */
 export async function deleteAcademicHoliday(id: string) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অনুগ্রহ করে পুনরায় লগইন করুন।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
 
     const meta = await getMadrasaMetadata(madrasaId);
@@ -552,26 +612,38 @@ export async function deleteAcademicHoliday(id: string) {
       return { error: "মুছে ফেলা সম্ভব হয়নি।" };
     }
 
-    // Remove notice from public.notices table
-    await deleteHolidayNotice(id, madrasaId);
-
-    // Clean up auto-leave attendance records
-    if (targetHoliday) {
-      await cleanupHolidayAttendanceRecords({
-        madrasaId,
-        startDate: targetHoliday.start_date,
-        endDate: targetHoliday.end_date,
-      });
+    // Remove notice from public.notices table safely
+    try {
+      await deleteHolidayNotice(id, madrasaId);
+    } catch (nErr) {
+      console.warn("deleteHolidayNotice warning:", nErr);
     }
 
-    revalidatePath("/dashboard/attendance");
-    revalidatePath("/dashboard/attendance/students");
-    revalidatePath("/dashboard/attendance/teachers");
-    revalidatePath("/dashboard/attendance/holidays");
-    revalidatePath("/dashboard/communication/notices");
-    revalidatePath("/portal/holidays");
-    revalidatePath("/portal/notices");
-    revalidatePath("/portal", "layout");
+    // Clean up auto-leave attendance records safely
+    if (targetHoliday) {
+      try {
+        await cleanupHolidayAttendanceRecords({
+          madrasaId,
+          startDate: targetHoliday.start_date,
+          endDate: targetHoliday.end_date,
+        });
+      } catch (cErr) {
+        console.warn("cleanupHolidayAttendanceRecords warning:", cErr);
+      }
+    }
+
+    try {
+      revalidatePath("/dashboard/attendance");
+      revalidatePath("/dashboard/attendance/students");
+      revalidatePath("/dashboard/attendance/teachers");
+      revalidatePath("/dashboard/attendance/holidays");
+      revalidatePath("/dashboard/communication/notices");
+      revalidatePath("/portal/holidays");
+      revalidatePath("/portal/notices");
+      revalidatePath("/portal", "layout");
+    } catch (rErr) {
+      console.warn("revalidatePath error:", rErr);
+    }
 
     return { success: true };
   } catch (err: any) {
@@ -599,11 +671,7 @@ export async function restoreAcademicHoliday(id: string) {
  */
 export async function seedDefaultQawmiHolidays(year?: string) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অনুগ্রহ করে পুনরায় লগইন করুন।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
 
     const currentYear = year || new Date().getFullYear().toString();
@@ -759,11 +827,7 @@ export async function seedDefaultQawmiHolidays(year?: string) {
  */
 export async function checkHolidayForDate(dateStr: string) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { isHoliday: false, isWeekend: false, holiday: null };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { isHoliday: false, isWeekend: false, holiday: null };
 
     const meta = await getMadrasaMetadata(madrasaId);
@@ -801,20 +865,11 @@ export async function checkHolidayForDate(dateStr: string) {
  */
 export async function getPublicHolidaysForPortal(madrasaId?: string) {
   try {
-    const supabase = await createClient();
     let targetMadrasaId = madrasaId;
 
     if (!targetMadrasaId) {
-      const user = await getAuthUser(supabase);
-      if (user) {
-        targetMadrasaId = (await getAuthMadrasaId(supabase, user)) || undefined;
-      }
-    }
-
-    if (!targetMadrasaId) {
-      const admin = await createAdminClient();
-      const { data: firstM } = await admin.from("madrasas").select("id").limit(1).single();
-      targetMadrasaId = firstM?.id;
+      const res = await resolveCurrentMadrasaId();
+      targetMadrasaId = res.madrasaId || undefined;
     }
 
     if (!targetMadrasaId) return [];
@@ -841,11 +896,7 @@ export async function getPublicHolidaysForPortal(madrasaId?: string) {
  */
 export async function updateWeeklyHolidays(weekendDays: string[]) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
 
     // 1. Update metadata

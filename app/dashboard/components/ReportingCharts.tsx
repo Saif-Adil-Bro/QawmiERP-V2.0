@@ -1,20 +1,43 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell
 } from 'recharts';
+import { toBanglaNumber } from "@/lib/numberToBangla";
 
-const COLORS = ['#10b981', '#f43f5e', '#f59e0b', '#3b82f6'];
+const STATUS_COLORS: Record<string, string> = {
+  'উপস্থিত': '#10b981', // Emerald green
+  'অনুপস্থিত': '#f43f5e', // Rose red
+  'ছুটি': '#f59e0b',     // Amber orange
+  'বিলম্ব': '#0ea5e9',    // Sky blue
+};
 
 interface ReportingChartsProps {
   incomeExpenseData: any[];
   attendanceData: any[];
+  todayAttendanceData?: any[];
   examPassRateData: any[];
 }
 
-export default function ReportingCharts({ incomeExpenseData, attendanceData, examPassRateData }: ReportingChartsProps) {
+export default function ReportingCharts({
+  incomeExpenseData,
+  attendanceData,
+  todayAttendanceData = [],
+  examPassRateData
+}: ReportingChartsProps) {
+  const hasTodayData = todayAttendanceData && todayAttendanceData.length > 0;
+  const [attendanceView, setAttendanceView] = useState<'today' | '30days'>(
+    hasTodayData ? 'today' : '30days'
+  );
+
+  const activeAttendanceData = attendanceView === 'today' 
+    ? (hasTodayData ? todayAttendanceData : attendanceData)
+    : attendanceData;
+
+  const totalAttendanceCount = activeAttendanceData.reduce((acc, curr) => acc + (Number(curr.value) || 0), 0);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
       {/* Income vs Expense Chart */}
@@ -36,33 +59,97 @@ export default function ReportingCharts({ incomeExpenseData, attendanceData, exa
       </div>
 
       {/* Attendance Rate */}
-      <div className="bg-white p-6 rounded-xl border shadow-sm">
-        <h3 className="text-slate-700 font-semibold mb-6 text-lg">উপস্থিতির হার (Attendance Rate)</h3>
-        <div className="h-64 flex justify-center items-center">
-          {attendanceData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={attendanceData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {attendanceData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <RechartsTooltip formatter={(value: number) => [`${value} দিন`, '']} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-slate-400">পর্যাপ্ত ডেটা নেই</p>
-          )}
+      <div className="bg-white p-6 rounded-xl border shadow-sm flex flex-col justify-between">
+        <div>
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <div>
+              <h3 className="text-slate-800 font-semibold text-lg">উপস্থিতির হার (Attendance Rate)</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {attendanceView === 'today' 
+                  ? 'আজকের সার্বিক শিক্ষার্থীর হাজিরা অনুপাত' 
+                  : 'বিগত ৩০ দিনের সার্বিক শিক্ষার্থীর হাজিরা অনুপাত'}
+              </p>
+            </div>
+            
+            {/* Toggle between Today and 30 Days */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setAttendanceView('today')}
+                className={`px-3 py-1 rounded-md font-medium transition cursor-pointer ${
+                  attendanceView === 'today'
+                    ? 'bg-white text-emerald-700 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                আজকের দিন
+              </button>
+              <button
+                type="button"
+                onClick={() => setAttendanceView('30days')}
+                className={`px-3 py-1 rounded-md font-medium transition cursor-pointer ${
+                  attendanceView === '30days'
+                    ? 'bg-white text-emerald-700 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                বিগত ৩০ দিন
+              </button>
+            </div>
+          </div>
+
+          <div className="h-64 flex justify-center items-center relative">
+            {activeAttendanceData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={activeAttendanceData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={80}
+                    paddingAngle={4}
+                    dataKey="value"
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {activeAttendanceData.map((entry: any, index: number) => {
+                      const color = STATUS_COLORS[entry.name] || '#64748b';
+                      return <Cell key={`cell-${index}`} fill={color} />;
+                    })}
+                  </Pie>
+                  <RechartsTooltip
+                    formatter={(value: number, name: string) => [
+                      `${toBanglaNumber(value)} জন ${attendanceView === 'today' ? 'শিক্ষার্থী' : 'রেকর্ড'}`,
+                      name
+                    ]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-slate-400 text-sm">পর্যাপ্ত ডেটা নেই</p>
+            )}
+          </div>
         </div>
+
+        {/* Dynamic Summary Badges below the chart */}
+        {activeAttendanceData.length > 0 && (
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-center flex-wrap gap-4 text-xs">
+            {activeAttendanceData.map((item: any, idx: number) => {
+              const color = STATUS_COLORS[item.name] || '#64748b';
+              const percent = totalAttendanceCount > 0 
+                ? ((item.value / totalAttendanceCount) * 100).toFixed(0) 
+                : 0;
+              return (
+                <div key={idx} className="flex items-center gap-1.5 font-medium text-slate-700">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+                  <span>{item.name}:</span>
+                  <span className="font-bold">{toBanglaNumber(item.value)} জন</span>
+                  <span className="text-slate-400">({toBanglaNumber(percent)}%)</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Exam Pass Rate */}
@@ -82,7 +169,7 @@ export default function ReportingCharts({ incomeExpenseData, attendanceData, exa
             </ResponsiveContainer>
           ) : (
             <div className="flex h-full items-center justify-center">
-              <p className="text-slate-400">পর্যাপ্ত ডেটা নেই</p>
+              <p className="text-slate-400 text-sm">পর্যাপ্ত ডেটা নেই</p>
             </div>
           )}
         </div>
