@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import {
   Save,
   CheckCircle2,
@@ -26,7 +25,6 @@ export default function ExamMarksForm({
   madrasaId,
 }: any) {
   const router = useRouter();
-  const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
@@ -64,10 +62,10 @@ export default function ExamMarksForm({
   }, [students, existingMarks]);
 
   const handleFilterChange = (key: string, value: string) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set(key, value);
+    const params = new URLSearchParams(window.location.search);
+    params.set(key, value);
     startTransition(() => {
-      router.push(url.pathname + url.search);
+      router.push(`/teacher-portal/exams?${params.toString()}`);
     });
   };
 
@@ -140,46 +138,16 @@ export default function ExamMarksForm({
         if (!res.ok || apiData.error) {
           throw new Error(apiData.error || "সার্ভার রেসপন্স ব্যর্থ হয়েছে");
         }
-      } catch (apiErr) {
-        // Fallback: client upsert
-        const dbRecords = recordsToUpsert.map((r: any) => ({
-          madrasa_id: madrasaId,
-          student_id: r.student_id,
-          class_id: currentClassId || null,
-          exam_id: currentExamId,
-          subject_name: currentSubject,
-          marks_obtained: r.marks_obtained,
-          total_marks: r.total_marks,
-        }));
 
-        const { error } = await supabase
-          .from("exam_results")
-          .upsert(dbRecords, { onConflict: "student_id, exam_id, subject_name" });
-
-        if (error) {
-          for (const record of dbRecords) {
-            const { data: existing } = await supabase
-              .from("exam_results")
-              .select("id")
-              .eq("student_id", record.student_id)
-              .eq("exam_id", record.exam_id)
-              .eq("subject_name", record.subject_name)
-              .maybeSingle();
-
-            if (existing) {
-              await supabase.from("exam_results").update(record).eq("id", existing.id);
-            } else {
-              await supabase.from("exam_results").insert([record]);
-            }
-          }
-        }
+        setMessage("পরীক্ষার নম্বর ও গ্রেড সফলভাবে সংরক্ষিত হয়েছে!");
+        setTimeout(() => setMessage(""), 4000);
+        startTransition(() => {
+          router.refresh();
+        });
+      } catch (apiErr: any) {
+        console.error("Save marks error:", apiErr);
+        setMessage(apiErr?.message || "নম্বর সংরক্ষণ করতে সমস্যা হয়েছে।");
       }
-
-      setMessage("পরীক্ষার নম্বর ও গ্রেড সফলভাবে সংরক্ষিত হয়েছে!");
-      setTimeout(() => setMessage(""), 4000);
-      startTransition(() => {
-        router.refresh();
-      });
     } catch (err: any) {
       console.error(err);
       setMessage("নম্বর সংরক্ষণ করতে সমস্যা হয়েছে।");

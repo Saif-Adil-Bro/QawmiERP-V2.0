@@ -63,7 +63,7 @@ export async function middleware(request: NextRequest) {
                 ...options,
                 path: options?.path ?? "/",
                 sameSite: "lax",
-                secure: true,
+                secure: process.env.NODE_ENV === "production",
                 maxAge: options?.maxAge ?? 60 * 60 * 24 * 30, // 30 days persistent cookie
               });
             });
@@ -74,14 +74,6 @@ export async function middleware(request: NextRequest) {
 
     const { data, error } = await supabase.auth.getUser();
     if (error) {
-      // Only clear cookies if refresh token is explicitly missing/invalid
-      if (error.code === 'refresh_token_not_found') {
-        request.cookies.getAll().forEach(c => {
-          if (c.name.includes("sb-") || c.name.includes("auth-token")) {
-            supabaseResponse.cookies.set(c.name, "", { maxAge: 0, path: "/" });
-          }
-        });
-      }
       user = null;
     } else {
       user = data?.user || null;

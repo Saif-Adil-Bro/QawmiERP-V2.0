@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import {
   Save,
   CheckCircle2,
@@ -26,7 +25,6 @@ export default function HifzForm({
   madrasaId,
 }: any) {
   const router = useRouter();
-  const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -109,55 +107,42 @@ export default function HifzForm({
     setMessage("");
 
     try {
-      for (const s of students) {
-        const existing = existingLogs.find((l: any) => l.student_id === s.id);
+      const parsePara = (val: any) => {
+        if (!val) return null;
+        const num = parseInt(String(val).trim(), 10);
+        return isNaN(num) ? null : num;
+      };
+
+      const recordsToSave = students.map((s: any) => {
         const state = hifzState[s.id] || {};
+        const existing = existingLogs.find((l: any) => l.student_id === s.id);
 
-        const parsePara = (val: any) => {
-          if (!val) return null;
-          const num = parseInt(String(val).trim(), 10);
-          return isNaN(num) ? null : num;
-        };
-
-        const record = {
-          madrasa_id: madrasaId,
+        return {
           student_id: s.id,
           teacher_id: teacherId || null,
-          log_date: currentDate,
+          existing_id: existing?.id || null,
           sabak_para: parsePara(state.sabak_para),
           saboki_para: parsePara(state.saboki_para),
           amukhta_para: parsePara(state.amukhta_para),
           performance_rating: state.performance_rating || "মুমতাজ (Excellent)",
           notes: state.remarks || null,
         };
+      });
 
-        if (existing?.id) {
-          const { error: updateErr } = await supabase
-            .from("hifz_logs")
-            .update(record)
-            .eq("id", existing.id);
-          if (updateErr) throw updateErr;
-        } else {
-          const { data: found } = await supabase
-            .from("hifz_logs")
-            .select("id")
-            .eq("student_id", s.id)
-            .eq("log_date", currentDate)
-            .maybeSingle();
+      const res = await fetch("/api/teacher/save-hifz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          madrasa_id: madrasaId,
+          current_class_id: currentClassId,
+          current_date: currentDate,
+          records: recordsToSave,
+        }),
+      });
 
-          if (found?.id) {
-            const { error: updateErr } = await supabase
-              .from("hifz_logs")
-              .update(record)
-              .eq("id", found.id);
-            if (updateErr) throw updateErr;
-          } else {
-            const { error: insertErr } = await supabase
-              .from("hifz_logs")
-              .insert([record]);
-            if (insertErr) throw insertErr;
-          }
-        }
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "সংরক্ষণ ব্যর্থ হয়েছে");
       }
 
       setMessage("আজকের হিফজ সবক ও আমুখতা রেকর্ড সফলভাবে সংরক্ষিত হয়েছে!");

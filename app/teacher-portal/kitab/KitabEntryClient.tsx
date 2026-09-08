@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import {
   Save,
   CheckCircle2,
@@ -36,7 +35,6 @@ export default function KitabEntryClient({
   madrasaId,
 }: Props) {
   const router = useRouter();
-  const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [isChangingClass, startClassTransition] = useTransition();
@@ -156,7 +154,7 @@ export default function KitabEntryClient({
     setMessage("");
 
     try {
-      for (const s of students) {
+      const recordsToSave = students.map((s) => {
         const state = kitabState[s.id] || {};
         const existing = existingLogs.find((l) => l.student_id === s.id);
 
@@ -165,45 +163,32 @@ export default function KitabEntryClient({
         const pageFrom = parts[0]?.trim() || null;
         const pageTo = parts[1]?.trim() || null;
 
-        const record = {
-          madrasa_id: madrasaId,
+        return {
           student_id: s.id,
           teacher_id: teacherId || null,
-          log_date: currentDate,
+          existing_id: existing?.id || null,
           kitab_name: state.subject_name || subjectName || "মিশকাত শরীফ",
           page_from: pageFrom,
           page_to: pageTo,
           performance_rating: state.teacher_remarks || "Good",
           notes: state.chapter_name || chapterName || null,
         };
+      });
 
-        if (existing?.id) {
-          const { error: updateErr } = await supabase
-            .from("kitab_logs")
-            .update(record)
-            .eq("id", existing.id);
-          if (updateErr) throw updateErr;
-        } else {
-          const { data: found } = await supabase
-            .from("kitab_logs")
-            .select("id")
-            .eq("student_id", s.id)
-            .eq("log_date", currentDate)
-            .maybeSingle();
+      const res = await fetch("/api/teacher/save-kitab", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          madrasa_id: madrasaId,
+          current_class_id: currentClassId,
+          current_date: currentDate,
+          records: recordsToSave,
+        }),
+      });
 
-          if (found?.id) {
-            const { error: updateErr } = await supabase
-              .from("kitab_logs")
-              .update(record)
-              .eq("id", found.id);
-            if (updateErr) throw updateErr;
-          } else {
-            const { error: insertErr } = await supabase
-              .from("kitab_logs")
-              .insert([record]);
-            if (insertErr) throw insertErr;
-          }
-        }
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "সংরক্ষণ ব্যর্থ হয়েছে");
       }
 
       setMessage("আজকের কিতাব পাঠ ও দরস ডায়েরি সফলভাবে সংরক্ষিত হয়েছে!");

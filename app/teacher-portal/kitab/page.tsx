@@ -51,33 +51,48 @@ export default async function TeacherPortalKitab(props: {
   const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
   const scope = await getUserDataAccessScope();
 
-  let classesQuery = supabase
-    .from("classes")
-    .select("id, name")
-    .eq("madrasa_id", madrasaId)
-    .order("name", { ascending: true });
-
-  if (!scope.isUnrestricted && scope.userRole === "teacher") {
-    if (scope.allowedClassIds.length === 0) {
-      return (
-        <KitabEntryClient
-          classes={[]}
-          students={[]}
-          existingLogs={[]}
-          currentClassId=""
-          currentDate={params.date || new Date().toISOString().split("T")[0]}
-          teacherId={teacherId}
-          madrasaId={madrasaId}
-        />
-      );
-    }
-    classesQuery = classesQuery.in("id", scope.allowedClassIds);
+  let adminClient: any = null;
+  try {
+    adminClient = await createAdminClient();
+  } catch {
+    adminClient = supabase;
   }
 
-  const [{ data: classes }, meta] = await Promise.all([
-    classesQuery,
-    madrasaId ? getMadrasaMetadata(madrasaId) : null,
-  ]);
+  let classes: any[] = [];
+  try {
+    let classesQuery = (adminClient || supabase)
+      .from("classes")
+      .select("id, name")
+      .order("name", { ascending: true });
+
+    if (madrasaId) {
+      classesQuery = classesQuery.eq("madrasa_id", madrasaId);
+    }
+
+    if (!scope.isUnrestricted && scope.userRole === "teacher") {
+      if (scope.allowedClassIds.length === 0) {
+        return (
+          <KitabEntryClient
+            classes={[]}
+            students={[]}
+            existingLogs={[]}
+            currentClassId=""
+            currentDate={params.date || new Date().toISOString().split("T")[0]}
+            teacherId={teacherId}
+            madrasaId={madrasaId}
+          />
+        );
+      }
+      classesQuery = classesQuery.in("id", scope.allowedClassIds);
+    }
+
+    const { data: clsData } = await classesQuery;
+    classes = clsData || [];
+  } catch (clsErr) {
+    console.warn("Failed to fetch classes for kitab:", clsErr);
+  }
+
+  const meta = madrasaId ? await getMadrasaMetadata(madrasaId) : null;
 
   const currentClassId = params.class_id || classes?.[0]?.id || "";
   const currentDate = params.date || new Date().toISOString().split("T")[0];
@@ -88,10 +103,10 @@ export default async function TeacherPortalKitab(props: {
   if (currentClassId) {
     let rawStudents: any[] = [];
     try {
-      const admin = await createAdminClient();
+      const admin = adminClient || (await createAdminClient());
       const { data: sAdmin } = await admin
         .from("students")
-        .select("id, first_name, last_name, roll_number, photo_url, phone, parent_phone")
+        .select("id, first_name, last_name, roll_number, photo_url, parent_phone, class_id")
         .eq("class_id", currentClassId)
         .order("roll_number", { ascending: true });
       if (sAdmin) rawStudents = sAdmin;
@@ -102,7 +117,7 @@ export default async function TeacherPortalKitab(props: {
     if (rawStudents.length === 0) {
       const { data: s } = await supabase
         .from("students")
-        .select("id, first_name, last_name, roll_number, photo_url, phone, parent_phone")
+        .select("id, first_name, last_name, roll_number, photo_url, parent_phone, class_id")
         .eq("class_id", currentClassId)
         .order("roll_number", { ascending: true });
       rawStudents = s || [];
@@ -112,7 +127,7 @@ export default async function TeacherPortalKitab(props: {
       const profile = meta?.student_profiles?.[s.id] || {};
       const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === s.id);
       const resolvedPhoto = profile.photo_url || s.photo_url || admission?.photo_url || "";
-      const resolvedPhone = profile.parent_phone || s.parent_phone || admission?.guardian_phone || admission?.emergency_phone || s.phone || "";
+      const resolvedPhone = profile.parent_phone || s.parent_phone || admission?.guardian_phone || admission?.emergency_phone || "";
 
       return {
         ...s,
@@ -128,7 +143,8 @@ export default async function TeacherPortalKitab(props: {
     // Guard: Only query kitab_logs if there are students, preventing PostgREST in.() 400 error
     if (students.length > 0) {
       const studentIds = students.map((st: any) => st.id);
-      const { data: el } = await supabase
+      const clientForLogs = adminClient || supabase;
+      const { data: el } = await clientForLogs
         .from("kitab_logs")
         .select("*")
         .in("student_id", studentIds)

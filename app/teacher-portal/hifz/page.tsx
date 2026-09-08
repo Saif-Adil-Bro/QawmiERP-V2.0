@@ -78,7 +78,7 @@ export default async function TeacherHifzPage(props: { searchParams?: Promise<{ 
       const admin = await createAdminClient();
       const { data: sAdmin } = await admin
         .from("students")
-        .select("id, first_name, last_name, roll_number, photo_url, phone, parent_phone")
+        .select("id, first_name, last_name, roll_number, photo_url, parent_phone, class_id")
         .eq("class_id", classId)
         .order("roll_number", { ascending: true });
       if (sAdmin) rawStudents = sAdmin;
@@ -89,7 +89,7 @@ export default async function TeacherHifzPage(props: { searchParams?: Promise<{ 
     if (rawStudents.length === 0) {
       const { data: s } = await supabase
         .from("students")
-        .select("id, first_name, last_name, roll_number, photo_url, phone, parent_phone")
+        .select("id, first_name, last_name, roll_number, photo_url, parent_phone, class_id")
         .eq("class_id", classId)
         .order("roll_number", { ascending: true });
       rawStudents = s || [];
@@ -99,7 +99,7 @@ export default async function TeacherHifzPage(props: { searchParams?: Promise<{ 
       const profile = meta?.student_profiles?.[s.id] || {};
       const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === s.id);
       const resolvedPhoto = profile.photo_url || s.photo_url || admission?.photo_url || "";
-      const resolvedPhone = profile.parent_phone || s.parent_phone || admission?.guardian_phone || admission?.emergency_phone || s.phone || "";
+      const resolvedPhone = profile.parent_phone || s.parent_phone || admission?.guardian_phone || admission?.emergency_phone || "";
 
       return {
         ...s,

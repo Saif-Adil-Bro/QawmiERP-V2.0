@@ -1,8 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import { cache } from "react";
 
-export async function createClient() {
+export const createClient = cache(async () => {
   const cookieStore = await cookies();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
@@ -42,10 +43,10 @@ export async function createClient() {
       },
     }
   );
-}
+});
 
 // For Admin tasks like creating classes, subjects, users, bypassing RLS
-export async function createAdminClient() {
+export const createAdminClient = cache(async () => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim();
 
@@ -63,12 +64,13 @@ export async function createAdminClient() {
       autoRefreshToken: false,
     },
   });
-}
+});
 
 /**
  * Safely fetches the authenticated user without throwing on invalid or expired refresh tokens.
+ * Caches within the current request to avoid repeated duplicate auth network calls.
  */
-export async function getAuthUser(supabaseClient?: any) {
+export const getAuthUser = cache(async (supabaseClient?: any) => {
   try {
     const supabase = supabaseClient || (await createClient());
     
@@ -83,4 +85,4 @@ export async function getAuthUser(supabaseClient?: any) {
   } catch (err) {
     return null;
   }
-}
+});
