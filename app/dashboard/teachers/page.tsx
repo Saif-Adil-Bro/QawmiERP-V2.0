@@ -140,9 +140,9 @@ export default async function TeachersPage() {
                         <PermissionGuard permission="academic.manage" hideFallback>
                           <Link 
                             href={`/dashboard/teachers/${teacher.id}/subjects`}
-                            className="px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-600 rounded hover:bg-emerald-100 transition-colors"
+                            className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition-colors border border-emerald-200"
                           >
-                            Assign Subjects
+                            বিষয় বণ্টন
                           </Link>
                         </PermissionGuard>
                         <PermissionGuard permission="teacher.edit" hideFallback>

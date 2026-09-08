@@ -80,10 +80,10 @@ function MobileBottomNav({
 
   let items = [
     { href: "/dashboard", label: "হোম", icon: LayoutDashboard, exact: true, show: true },
-    { href: "/dashboard/students", label: "ছাত্র", icon: Users, show: hasPermission("student.view") },
-    { href: "/dashboard/attendance", label: "হাজিরা", icon: CheckSquare, show: hasPermission("attendance.view") },
-    { href: "/dashboard/classes", label: "জামাত", icon: BookOpen, show: hasPermission("academic.view") },
-    { href: "/dashboard/accounting", label: "হিসাব", icon: Wallet, show: (hasPermission("finance.view") || hasPermission("fee.view")) && !isParentOrStudent },
+    { href: "/dashboard/students", label: "ছাত্র", icon: Users, show: !summary || hasPermission("student.view") },
+    { href: "/dashboard/attendance", label: "হাজিরা", icon: CheckSquare, show: !summary || hasPermission("attendance.view") },
+    { href: "/dashboard/classes", label: "জামাত", icon: BookOpen, show: !summary || hasPermission("academic.view") },
+    { href: "/dashboard/accounting", label: "হিসাব", icon: Wallet, show: (!summary || hasPermission("finance.view") || hasPermission("fee.view")) && !isParentOrStudent },
   ];
 
   if (isParentOrStudent) {

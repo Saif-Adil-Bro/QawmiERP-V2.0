@@ -51,17 +51,44 @@ export function SessionProvider({
   const [sessions, setSessions] = useState<AcademicSession[]>(initialSessions);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(initialSelectedSessionId);
   const [isLoading, setIsLoading] = useState(initialSessions.length === 0);
-  // Defense-in-depth against the reference-identity bug fixed above: even
-  // if some future caller passes a fresh array on every render again, this
-  // ref ensures the initial client-side fetch only ever fires once per
-  // mount instead of looping.
   const hasFetchedRef = React.useRef(false);
+
+  // Instant recovery from client cache on mount
+  useEffect(() => {
+    if (typeof window !== "undefined" && initialSessions.length === 0) {
+      try {
+        const cached = localStorage.getItem("qawmi_cached_sessions");
+        const cachedSelectedId = localStorage.getItem("qawmi_selected_session_id");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setSessions(parsed);
+            if (cachedSelectedId && parsed.some((s: AcademicSession) => s.id === cachedSelectedId)) {
+              setSelectedSessionId(cachedSelectedId);
+            } else {
+              const curr = parsed.find((s: AcademicSession) => s.is_current) || parsed[0];
+              if (curr) setSelectedSessionId(curr.id);
+            }
+            setIsLoading(false);
+          }
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
+    }
+  }, [initialSessions]);
 
   const fetchSessions = useCallback(async () => {
     try {
-      setIsLoading(true);
       const data = await getAcademicSessions();
       setSessions(data);
+      if (typeof window !== "undefined" && data.length > 0) {
+        try {
+          localStorage.setItem("qawmi_cached_sessions", JSON.stringify(data));
+        } catch {
+          // Ignore storage errors
+        }
+      }
 
       // Determine selected session if not set or invalid
       if (data.length > 0) {

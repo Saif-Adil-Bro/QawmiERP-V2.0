@@ -163,6 +163,7 @@ export interface StaffAuditLogRecord {
 
 export interface StaffMember {
   id: string;
+  legacy_id?: string;
   madrasa_id: string;
   staff_id_code: string; // Unique, e.g. STF-260001
   personal: StaffPersonalInfo;

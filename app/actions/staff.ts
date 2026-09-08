@@ -67,6 +67,16 @@ async function syncAndGetStaffMembers(
   const staffByStaffCode = new Set<string>();
 
   existingStaff.forEach((s) => {
+    // Ensure ID is a valid UUID and normalize legacy stf_ IDs
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.id);
+    if (!isUuid) {
+      const oldId = s.id;
+      const newUuid = crypto.randomUUID();
+      s.legacy_id = oldId;
+      s.id = newUuid;
+      isModified = true;
+    }
+
     // Normalize category_id if missing or using old underscore format
     if (!s.employment?.category_id || s.employment.category_id === "cat_teaching") {
       if (!s.employment) (s as any).employment = {};
@@ -84,6 +94,7 @@ async function syncAndGetStaffMembers(
       isModified = true;
     }
     staffByTeacherId.set(s.id, s);
+    if (s.legacy_id) staffByTeacherId.set(s.legacy_id, s);
     if (s.staff_id_code) staffByStaffCode.add(s.staff_id_code);
   });
 
@@ -422,7 +433,7 @@ export async function createStaffMember(payload: {
 
     const prefix = meta.staff_id_prefix || "STF";
     const staffIdCode = formatStaffIdCode(prefix, currentYear, serial);
-    const newStaffId = `stf_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const newStaffId = crypto.randomUUID();
 
     let authUserId: string | null = null;
     let authRole: "teacher" | "admin" | "staff" | "none" = "none";

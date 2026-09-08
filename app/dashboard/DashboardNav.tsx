@@ -471,7 +471,8 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
   };
 
   const isItemAllowed = (item: { roles?: string[]; permission?: string }) => {
-    if (loading || !summary) return false;
+    if (loading && !summary) return true;
+    if (!summary) return true;
     if (summary.roles.includes("super_admin")) return true;
 
     // Parent and Student roles belong in Portal, not Admin Dashboard modules

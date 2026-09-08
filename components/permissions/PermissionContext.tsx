@@ -52,14 +52,42 @@ export function PermissionProvider({
   const [allRoles, setAllRoles] = useState<RoleDefinition[]>(initialRoles);
   const [loading, setLoading] = useState(!initialSummary);
 
+  // Instant recovery from client cache on mount
+  useEffect(() => {
+    if (typeof window !== "undefined" && !initialSummary) {
+      try {
+        const cachedSummary = localStorage.getItem("qawmi_perm_summary");
+        const cachedProfile = localStorage.getItem("qawmi_perm_profile");
+        if (cachedSummary && cachedProfile) {
+          const parsedSummary = JSON.parse(cachedSummary);
+          const parsedProfile = JSON.parse(cachedProfile);
+          if (parsedSummary && parsedProfile) {
+            setSummary(parsedSummary);
+            setProfile(parsedProfile);
+            setLoading(false);
+          }
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
+    }
+  }, [initialSummary]);
+
   const fetchPermissions = async () => {
     try {
-      setLoading(true);
       const res = await getCurrentUserPermissions();
       if (res.summary && res.profile) {
         setSummary(res.summary);
         setProfile(res.profile);
         setAllRoles(res.allRoles || DEFAULT_SYSTEM_ROLES);
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem("qawmi_perm_summary", JSON.stringify(res.summary));
+            localStorage.setItem("qawmi_perm_profile", JSON.stringify(res.profile));
+          } catch {
+            // Ignore quota errors
+          }
+        }
       }
     } catch (err) {
       console.error("Error loading permissions context:", err);
@@ -69,9 +97,7 @@ export function PermissionProvider({
   };
 
   useEffect(() => {
-    if (!initialSummary) {
-      fetchPermissions();
-    }
+    fetchPermissions();
   }, []);
 
   const hasPermission = (permissionId: string): boolean => {
