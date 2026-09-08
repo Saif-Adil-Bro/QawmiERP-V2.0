@@ -1,12 +1,18 @@
 @import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Hind+Siliguri:wght@300;400;500;600;700&family=Scheherazade+New:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400..700&family=Noto+Sans+Arabic:wght@100..900&display=swap');
 @import "tailwindcss";
 
+@theme {
+  --font-sans: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'Noto Sans Arabic', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-solaiman: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', sans-serif;
+}
+
 @font-face {
   font-family: 'SolaimanLipi';
   font-display: swap;
   font-style: normal;
   font-weight: 400;
-  src: url('/fonts/solaimanlipi.ttf') format('truetype');
+  src: local('SolaimanLipi'), local('Solaiman Lipi'),
+       url('/fonts/solaimanlipi.ttf') format('truetype');
 }
 
 @font-face {
@@ -14,7 +20,8 @@
   font-display: swap;
   font-style: normal;
   font-weight: 700;
-  src: url('/fonts/solaimanlipi_bold.ttf') format('truetype');
+  src: local('SolaimanLipi Bold'), local('SolaimanLipi-Bold'),
+       url('/fonts/solaimanlipi_bold.ttf') format('truetype');
 }
 
 @font-face {
@@ -22,7 +29,8 @@
   font-display: swap;
   font-style: normal;
   font-weight: 400;
-  src: url('/fonts/shorif_shishir.ttf') format('truetype');
+  src: local('ShorifShishir'), local('Shorif Shishir'),
+       url('/fonts/shorif_shishir.ttf') format('truetype');
 }
 
 @font-face {
@@ -30,7 +38,8 @@
   font-display: swap;
   font-style: normal;
   font-weight: 700;
-  src: url('/fonts/shorif_shishir.ttf') format('truetype');
+  src: local('ShorifShishir Bold'), local('ShorifShishir-Bold'),
+       url('/fonts/shorif_shishir.ttf') format('truetype');
 }
 
 @font-face {
@@ -38,7 +47,8 @@
   font-display: swap;
   font-style: normal;
   font-weight: 400;
-  src: url('/fonts/hind_siliguri.ttf') format('truetype'),
+  src: local('Hind Siliguri'), local('HindSiliguri'),
+       url('/fonts/hind_siliguri.ttf') format('truetype'),
        url('https://fonts.gstatic.com/s/hindsiliguri/v12/ijwOs5juQtsyLLR5jN4CXCxcAlZr.woff2') format('woff2');
 }
 
@@ -47,7 +57,8 @@
   font-display: swap;
   font-style: normal;
   font-weight: 400;
-  src: url('/fonts/amiri_regular.ttf') format('truetype'),
+  src: local('Amiri'),
+       url('/fonts/amiri_regular.ttf') format('truetype'),
        url('https://fonts.gstatic.com/s/amiri/v27/J7acnp3WhNm0-md3QA.woff2') format('woff2');
 }
 
@@ -56,13 +67,18 @@
   font-display: swap;
   font-style: normal;
   font-weight: 400;
-  src: url('/fonts/scheherazade_new.ttf') format('truetype'),
+  src: local('Scheherazade New'), local('ScheherazadeNew'),
+       url('/fonts/scheherazade_new.ttf') format('truetype'),
        url('https://fonts.gstatic.com/s/scheherazadenew/v13/1Ptxg8zYS_SKggPNqCYY9w0DGzflW72a.woff2') format('woff2');
 }
 
-/* Default App Font is SolaimanLipi with Arabic & Bangla fallbacks */
-body, input, textarea, select, button {
+/* Default App Font is SolaimanLipi with Arabic & Bangla fallbacks across entire app */
+html, body, input, textarea, select, button {
   font-family: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'Noto Sans Arabic', ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+.font-sans {
+  font-family: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'Noto Sans Arabic', ui-sans-serif, system-ui, -apple-system, sans-serif !important;
 }
 
 /* Custom Font Utilities for Documents & Official Cards & Exam Papers */

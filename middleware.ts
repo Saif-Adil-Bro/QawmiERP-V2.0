@@ -19,7 +19,8 @@ export async function middleware(request: NextRequest) {
   const isPublicRoute =
     request.nextUrl.pathname.startsWith('/admission') ||
     request.nextUrl.pathname.startsWith('/verify') ||
-    request.nextUrl.pathname.startsWith('/pay');
+    request.nextUrl.pathname.startsWith('/pay') ||
+    request.nextUrl.pathname.startsWith('/fonts');
 
   // Next.js marks client-side soft-navigations (Link clicks / prefetches
   // that fetch just the RSC payload, not a full document) with this header.
@@ -127,6 +128,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|fonts/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ttf|woff|woff2|otf|eot)$).*)',
   ],
 };
