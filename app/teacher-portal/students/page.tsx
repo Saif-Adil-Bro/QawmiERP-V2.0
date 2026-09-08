@@ -92,8 +92,11 @@ export default async function TeacherPortalStudents(props: {
     const resolvedAddress = profile.address || s.address || admission?.address || "";
     const resolvedClass = profile.class_name || (Array.isArray(s.classes) ? s.classes[0]?.name : s.classes?.name) || s.class_name || "";
 
+    const resolvedStudentId = profile.student_id || s.student_id || admission?.student_id || admission?.admission_no || s.student_code || "";
+
     return {
       ...s,
+      student_id: resolvedStudentId,
       first_name: profile.first_name || s.first_name || "",
       last_name: profile.last_name || s.last_name || "",
       roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (s.roll_number || ""),

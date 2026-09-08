@@ -14,6 +14,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { resolveStudentIdBn } from "@/lib/student-utils";
 
 interface Props {
   classes: any[];
@@ -365,7 +366,7 @@ export default function KitabEntryClient({
                             <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
                               <span>রোল: <strong className="text-slate-700">{toBanglaNumber(s.roll_number || "-")}</strong></span>
                               <span>•</span>
-                              <span className="font-mono">আইডি: {s.student_id || s.id?.slice(0, 6)}</span>
+                              <span className="font-mono">আইডি: {resolveStudentIdBn(s, students)}</span>
                               {s.phone && (
                                 <>
                                   <span>•</span>
@@ -445,7 +446,7 @@ export default function KitabEntryClient({
                       <div>
                         <strong className="text-sm text-slate-900 leading-tight block">{s.first_name} {s.last_name}</strong>
                         <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
-                          <span>আইডি: {s.student_id || s.id.slice(0, 6)}</span>
+                          <span>আইডি: {resolveStudentIdBn(s, students)}</span>
                           {s.phone && (
                             <>
                               <span>•</span>

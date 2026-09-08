@@ -3,16 +3,18 @@
  */
 
 /**
- * Generates an automatic 6-digit student ID starting with the last two digits of the Hijri year.
- * e.g., Hijri year 1448 -> 480001, 480002 etc.
- * 
- * @param student The student object
- * @param allStudents List of all students in the same madrasa, sorted by created_at ascending
+ * Resolves the student ID number prioritizing original/custom ID, admission number, or generated standard ID.
  */
-export function getStudentIdNumber(student: any, allStudents: any[]): string {
-  if (!student) return "480000";
+export function getStudentIdNumber(student: any, allStudents?: any[]): string {
+  if (!student) return "";
 
-  // Use student's custom created_at if exists, otherwise fallback to current date
+  // 1. If student has an explicit custom / original student ID or admission number
+  const explicitId = student.student_id || student.admission_no || student.student_code || student.custom_id || student.registration_no;
+  if (explicitId && typeof explicitId === "string" && explicitId.trim() !== "" && !explicitId.includes("-") && explicitId.length < 20) {
+    return explicitId.trim();
+  }
+
+  // 2. Use student's custom created_at if exists, otherwise fallback to current date
   const dateObj = student.created_at ? new Date(student.created_at) : new Date();
 
   // Calculate Hijri Year using Intl API (reliable and standard)
@@ -29,8 +31,14 @@ export function getStudentIdNumber(student: any, allStudents: any[]): string {
 
   const firstTwoDigits = String(hijriYear).slice(-2); // e.g., "48"
 
-  // If no students array is provided, or the current student is not found, fallback to sequential 1
+  // If no students array is provided, check if student has a roll number to construct a deterministic ID
   if (!allStudents || allStudents.length === 0) {
+    if (student.roll_number) {
+      const cleanRoll = String(student.roll_number).replace(/[^0-9]/g, '');
+      if (cleanRoll) {
+        return `${firstTwoDigits}${cleanRoll.padStart(4, '0')}`;
+      }
+    }
     return `${firstTwoDigits}0001`;
   }
 
@@ -57,10 +65,18 @@ export function getStudentIdNumber(student: any, allStudents: any[]): string {
 
   // Find index of current student in the sorted list of same-year students
   const index = sameYearStudents.findIndex(s => s.id === student.id);
-  const sequenceNum = index !== -1 ? index + 1 : sameYearStudents.length + 1;
+  const sequenceNum = index !== -1 ? index + 1 : (parseInt(student.roll_number, 10) || sameYearStudents.length + 1);
   const sequenceStr = String(sequenceNum).padStart(4, '0'); // Pad with leading zeros to make 4 digits
 
   return `${firstTwoDigits}${sequenceStr}`;
+}
+
+/**
+ * Returns formatted Bangla student ID
+ */
+export function resolveStudentIdBn(student: any, allStudents?: any[]): string {
+  const idStr = getStudentIdNumber(student, allStudents);
+  return convertToBanglaNumber(idStr);
 }
 
 /**
@@ -72,3 +88,4 @@ export function convertToBanglaNumber(num: string | number | null | undefined): 
   const banglaDigits = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
   return String(num).replace(/[0-9]/g, (digit) => banglaDigits[parseInt(digit, 10)]);
 }
+

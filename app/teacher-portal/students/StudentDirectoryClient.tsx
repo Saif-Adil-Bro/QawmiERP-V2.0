@@ -22,6 +22,7 @@ import {
   Building2,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { resolveStudentIdBn, getStudentIdNumber } from "@/lib/student-utils";
 
 interface Props {
   classes: any[];
@@ -66,7 +67,9 @@ export default function StudentDirectoryClient({
         phone.includes(q) ||
         address.toLowerCase().includes(q) ||
         String(s.roll_number || "").includes(q) ||
-        String(s.student_id || s.id?.slice(0, 6) || "").toLowerCase().includes(q)
+        String(s.student_id || "").toLowerCase().includes(q) ||
+        resolveStudentIdBn(s, students).includes(q) ||
+        getStudentIdNumber(s, students).toLowerCase().includes(q)
       );
     });
   }, [students, searchQuery]);
@@ -195,7 +198,7 @@ export default function StudentDirectoryClient({
                         {s.first_name} {s.last_name}
                       </h3>
                       <p className="text-xs text-slate-500 font-mono mt-0.5">
-                        রোল: <strong className="text-slate-800">{toBanglaNumber(s.roll_number || "-")}</strong> | আইডি: {s.student_id || s.id.slice(0, 6)}
+                        রোল: <strong className="text-slate-800">{toBanglaNumber(s.roll_number || "-")}</strong> | আইডি: {resolveStudentIdBn(s, students)}
                       </p>
                     </div>
                   </div>
@@ -399,7 +402,7 @@ export default function StudentDirectoryClient({
                       {selectedStudent.first_name} {selectedStudent.last_name}
                     </h3>
                     <div className="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/30 text-blue-200 border border-blue-400/40">
-                      আইডি: {selectedStudent.student_id || selectedStudent.id?.slice(0, 6)}
+                      আইডি: {resolveStudentIdBn(selectedStudent, students)}
                     </div>
                     <div className="text-xs text-blue-200/90 pt-1 space-y-0.5 font-medium">
                       <div>জামাত: <strong>{selectedStudent.classes?.name || selectedStudent.class_name || "হিফজ"}</strong></div>

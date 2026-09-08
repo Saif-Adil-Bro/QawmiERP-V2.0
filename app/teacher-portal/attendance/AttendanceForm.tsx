@@ -16,6 +16,7 @@ import {
   Phone,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { resolveStudentIdBn } from "@/lib/student-utils";
 
 interface AttendanceFormProps {
   classes?: any[];
@@ -418,7 +419,7 @@ export default function AttendanceForm({
                           <div>
                             <div className="font-bold text-slate-900 leading-tight">{s.first_name} {s.last_name}</div>
                             <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
-                              <span>আইডি: {s.student_id || s.roll_number || s.id.slice(0, 8)}</span>
+                              <span>আইডি: {resolveStudentIdBn(s, allStudents)}</span>
                               {s.parent_phone && (
                                 <a
                                   href={`tel:${s.parent_phone}`}
@@ -499,7 +500,7 @@ export default function AttendanceForm({
                       <div>
                         <strong className="text-sm text-slate-900 leading-tight block">{s.first_name} {s.last_name}</strong>
                         <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
-                          <span>আইডি: {s.student_id || s.roll_number || s.id.slice(0, 8)}</span>
+                          <span>আইডি: {resolveStudentIdBn(s, allStudents)}</span>
                           {s.parent_phone && (
                             <a
                               href={`tel:${s.parent_phone}`}
