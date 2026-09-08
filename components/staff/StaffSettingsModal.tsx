@@ -10,6 +10,7 @@ import {
   addStaffCategory,
   addStaffDepartment,
   addStaffDesignation,
+  deleteStaffCategory,
   deleteStaffDepartment,
   deleteStaffDesignation,
 } from "@/app/actions/staff";
@@ -117,6 +118,16 @@ export default function StaffSettingsModal({
   const handleDeleteDes = async (desId: string) => {
     if (!confirm("আপনি কি নিশ্চিত যে এই পদবীটি মুছে ফেলতে চান?")) return;
     const res = await deleteStaffDesignation(desId);
+    if (res.success) {
+      onRefresh();
+    } else {
+      alert(res.error);
+    }
+  };
+
+  const handleDeleteCat = async (catId: string) => {
+    if (!confirm("আপনি কি নিশ্চিত যে এই ক্যাটাগরিটি মুছে ফেলতে চান?")) return;
+    const res = await deleteStaffCategory(catId);
     if (res.success) {
       onRefresh();
     } else {
@@ -297,7 +308,11 @@ export default function StaffSettingsModal({
                       <span className="text-[10px] font-mono text-slate-400">{c.code}</span>
                     </div>
                     {c.code === "custom" && !c.is_system && (
-                      <button className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer">
+                      <button
+                        onClick={() => handleDeleteCat(c.id)}
+                        className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                        title="মুছে ফেলুন"
+                      >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     )}

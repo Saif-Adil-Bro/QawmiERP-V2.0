@@ -1576,10 +1576,21 @@ export async function addStaffDesignation(name: string, departmentId?: string, n
 
     const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
     const designations = meta.staff_designations || DEFAULT_STAFF_DESIGNATIONS;
+    const depts = meta.staff_departments || DEFAULT_STAFF_DEPARTMENTS;
+    const dept = depts.find((d) => d.id === departmentId);
+
+    let derivedCat = "cat-teaching";
+    if (dept) {
+      if (dept.id === "dept-academic" || dept.code === "academic") derivedCat = "cat-teaching";
+      else if (dept.id === "dept-admin" || dept.id === "dept-accounts" || dept.code === "admin" || dept.code === "accounts") derivedCat = "cat-admin";
+      else if (dept.id === "dept-library" || dept.id === "dept-hostel" || dept.id === "dept-maintenance" || dept.code === "library" || dept.code === "hostel" || dept.code === "maintenance") derivedCat = "cat-support";
+      else derivedCat = "cat-management";
+    }
+
     const newDes: StaffDesignation = {
       id: `des_${Date.now()}`,
       name,
-      category_id: "cat_custom",
+      category_id: derivedCat,
       department_id: departmentId,
     };
     meta.staff_designations = [...designations, newDes];
@@ -1629,6 +1640,24 @@ export async function addStaffCategory(name: string, code: any = "custom", nameE
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "ক্যাটাগরি যোগ করা যায়নি।" };
+  }
+}
+
+export async function deleteStaffCategory(catId: string) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অনুমতি নেই।" };
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
+
+    const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
+    const cats = meta.staff_categories || DEFAULT_STAFF_CATEGORIES;
+    meta.staff_categories = cats.filter((c) => c.id !== catId);
+    await saveMadrasaMetadata(madrasaId, meta);
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message || "ক্যাটাগরি মুছে ফেলা যায়নি।" };
   }
 }
 

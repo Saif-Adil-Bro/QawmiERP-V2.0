@@ -14,6 +14,7 @@ import {
   STAFF_STATUS_LABELS,
   EmploymentType,
   StaffStatus,
+  isCategory,
 } from "@/lib/staff-management";
 import { createStaffMember, updateStaffMember } from "@/app/actions/staff";
 import { X, UserPlus, Save, CheckCircle2, AlertCircle, Building2, Briefcase, Phone, Mail, DollarSign, Shield, BookOpen, Layers } from "lucide-react";
@@ -113,8 +114,14 @@ export default function StaffFormModal({
   const [accountPassword, setAccountPassword] = useState("");
   const [accountRole, setAccountRole] = useState<"teacher" | "admin" | "staff">("teacher");
 
-  // Filtered designations by selected category
-  const filteredDesignations = designations.filter((d) => !d.category_id || d.category_id === categoryId);
+  // Filtered designations by selected category & department
+  const filteredDesignations = designations.filter((d) => {
+    if (!d.category_id && !d.department_id) return true;
+    if (d.category_id && (d.category_id === categoryId || isCategory(d.category_id, isCategory(categoryId, "teaching") ? "teaching" : isCategory(categoryId, "admin") ? "admin" : isCategory(categoryId, "support") ? "support" : "management"))) return true;
+    if (d.department_id && d.department_id === departmentId) return true;
+    return false;
+  });
+  const activeDesignationOptions = filteredDesignations.length > 0 ? filteredDesignations : designations;
 
   // Net salary calculation
   const totalAllowances = Number(allowanceHousing) + Number(allowanceFood) + Number(allowanceTransport) + Number(allowanceMedical) + Number(allowanceOther);
@@ -746,7 +753,7 @@ export default function StaffFormModal({
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600"
                   />
                   <datalist id="designations-list">
-                    {filteredDesignations.map((d) => (
+                    {activeDesignationOptions.map((d) => (
                       <option key={d.id} value={d.name} />
                     ))}
                   </datalist>
