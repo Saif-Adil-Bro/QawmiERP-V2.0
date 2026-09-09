@@ -36,6 +36,7 @@ import {
   deleteUserAccount,
   MadrasaUser,
 } from "@/app/actions/users";
+import { syncAllStudentLoginsAction } from "@/app/actions/auth";
 import { getMadrasaRolesAndPermissions } from "@/app/actions/permissions";
 import {
   RoleDefinition,
@@ -135,6 +136,7 @@ export default function UserManagementClient({
 
   // Feedback states
   const [notification, setNotification] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [isSyncingStudents, setIsSyncingStudents] = useState(false);
   const [createdCredential, setCreatedCredential] = useState<{
     name: string;
     email: string;
@@ -397,6 +399,30 @@ export default function UserManagementClient({
     }
   };
 
+  // Bulk Sync All Student Logins
+  const handleSyncAllStudentLogins = async () => {
+    try {
+      setIsSyncingStudents(true);
+      const res = await syncAllStudentLoginsAction();
+      if (!res.success) {
+        showToast("error", res.error || "সিঙ্ক করতে সমস্যা হয়েছে।");
+        return;
+      }
+
+      showToast(
+        "success",
+        `আলহামদুলিল্লাহ! সর্বমোট ${res.total} জন শিক্ষার্থীর অভিভাবক লগইন সিঙ্ক সম্পন্ন হয়েছে (${res.created} নতুন তৈরি, ${res.existing} বিদ্যমান)। ডিফল্ট পাসওয়ার্ড: 123456`
+      );
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (e: any) {
+      showToast("error", e?.message || "সিঙ্ক এরর হয়েছে।");
+    } finally {
+      setIsSyncingStudents(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Toast Notification */}
@@ -458,6 +484,16 @@ export default function UserManagementClient({
           >
             <Users className="w-4 h-4" />
             <span>+ অভিভাবক একাউন্ট</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleSyncAllStudentLogins}
+            disabled={isSyncingStudents}
+            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 shadow-lg shadow-indigo-950/40 transition active:scale-95 cursor-pointer disabled:opacity-50"
+            title="সকল শিক্ষার্থীর আইডি (যেমন: 480001) ও ডিফল্ট পাসওয়ার্ড 123456 দিয়ে অভিভাবক লগইন একাউন্ট সক্রিয় করুন"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>{isSyncingStudents ? "সিঙ্ক হচ্ছে..." : "শিক্ষার্থী আইডি সিঙ্ক (123456)"}</span>
           </button>
           <button
             type="button"
@@ -766,18 +802,26 @@ export default function UserManagementClient({
 
                           {/* Login Email / ID */}
                           <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                                {u.email}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => copyCredentials(u)}
-                                title="লগইন আইডি কপি করুন"
-                                className="p-1 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded transition cursor-pointer"
-                              >
-                                {copiedId === u.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                              </button>
+                            <div className="flex flex-col gap-1">
+                              {u.email?.startsWith("student_") && (
+                                <span className="inline-flex items-center gap-1 font-mono font-bold text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 w-fit">
+                                  <Sparkles className="w-3 h-3 text-emerald-600" />
+                                  লগইন আইডি: {u.email.replace("student_", "").replace("@qawmi.app", "")}
+                                </span>
+                              )}
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                                  {u.email}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => copyCredentials(u)}
+                                  title="লগইন আইডি কপি করুন"
+                                  className="p-1 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded transition cursor-pointer"
+                                >
+                                  {copiedId === u.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
                             </div>
                           </td>
 
@@ -1268,14 +1312,24 @@ export default function UserManagementClient({
                   <label className="text-xs font-semibold text-slate-700">
                     নতুন পাসওয়ার্ড / পিন <span className="text-rose-500">*</span>
                   </label>
-                  <button
-                    type="button"
-                    onClick={generateRandomPin}
-                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Sparkles className="w-3 h-3" />
-                    <span>নতুন পিন জেনারেট করুন</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setPassword("123456")}
+                      className="text-[11px] font-bold text-amber-800 hover:text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 flex items-center gap-1 cursor-pointer"
+                      title="ডিফল্ট পাসওয়ার্ড 123456 সেট করুন"
+                    >
+                      <span>ডিফল্ট (123456)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={generateRandomPin}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>নতুন পিন</span>
+                    </button>
+                  </div>
                 </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />

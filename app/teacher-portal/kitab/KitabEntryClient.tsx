@@ -206,7 +206,7 @@ export default function KitabEntryClient({
   return (
     <div className="space-y-5">
       {/* Header Banner */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <div className="p-2 bg-indigo-50 text-indigo-700 rounded-xl">
@@ -218,6 +218,14 @@ export default function KitabEntryClient({
             কিতাব বিভাগের শিক্ষার্থীদের দৈনিক পঠিত কিতাব, বাব ও পৃষ্ঠা নম্বর আপডেট করুন।
           </p>
         </div>
+
+        <a
+          href="/teacher-portal/syllabus"
+          className="px-4 py-2 bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors self-start sm:self-auto shrink-0 shadow-2xs"
+        >
+          <BookOpen className="w-4 h-4 text-emerald-600" />
+          <span>সিলেবাস ও অগ্রগতি ট্র্যাকার</span>
+        </a>
       </div>
 
       {/* Class & Quick Fill Bar */}

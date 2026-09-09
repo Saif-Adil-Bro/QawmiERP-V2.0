@@ -22,6 +22,7 @@ export default function TeacherNav({ onItemClick }: TeacherNavProps) {
 
   const links = [
     { href: "/teacher-portal", label: "শিক্ষক ড্যাশবোর্ড", icon: LayoutDashboard, exact: true },
+    { href: "/teacher-portal/syllabus", label: "সিলেবাস ও পড়া ট্র্যাকার", icon: BookOpen },
     { href: "/teacher-portal/attendance", label: "দৈনিক হাজিরা গ্রহণ", icon: Calendar },
     { href: "/teacher-portal/assignments", label: "দৈনিক পড়া ও অ্যাসাইনমেন্ট", icon: BookOpen },
     { href: "/teacher-portal/hifz", label: "হিফজ সবক ও আমুখতা", icon: BookOpen },

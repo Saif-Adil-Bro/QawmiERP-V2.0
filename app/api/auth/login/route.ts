@@ -1,30 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
+import { findStudentByIdentifier, ensureStudentGuardianAuthUser } from "@/lib/student-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password } = await req.json();
+    const body = await req.json();
+    const rawIdentifier = (body.identifier || body.email || "").trim();
+    const password = (body.password || "").trim();
 
-    if (!email || !password) {
+    if (!rawIdentifier || !password) {
       return NextResponse.json(
-        { error: "ইমেইল ও পাসওয়ার্ড প্রদান করুন" },
+        { error: "শিক্ষার্থী আইডি / ইমেইল এবং পাসওয়ার্ড আবশ্যক।" },
         { status: 400 }
       );
     }
 
+    let targetEmail = rawIdentifier.toLowerCase();
+    let isStudentLogin = false;
+    let matchedStudent: any = null;
+    let studentIdCode = "";
+
+    // If identifier is not a standard external email (or matches student ID/roll/phone/qawmi format)
+    if (!rawIdentifier.includes("@") || rawIdentifier.endsWith("@qawmi.app")) {
+      const resolved = await findStudentByIdentifier(rawIdentifier);
+      if (resolved) {
+        isStudentLogin = true;
+        matchedStudent = resolved.student;
+        studentIdCode = resolved.canonicalStudentId;
+        targetEmail = resolved.portalEmail;
+
+        // Auto-provision if account doesn't exist yet
+        await ensureStudentGuardianAuthUser(
+          matchedStudent,
+          studentIdCode,
+          "123456"
+        );
+      } else if (!rawIdentifier.includes("@")) {
+        return NextResponse.json(
+          {
+            error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: 480001) অথবা ইমেইল প্রদান করুন।`,
+          },
+          { status: 404 }
+        );
+      }
+    }
+
     const supabase = await createClient();
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: targetEmail,
       password,
     });
 
     if (error) {
+      if (isStudentLogin) {
+        return NextResponse.json(
+          {
+            error: "পাসওয়ার্ড সঠিক নয়। ডিফল্ট পাসওয়ার্ড 123456 অথবা আপনার পরিবর্তিত পাসওয়ার্ড ব্যবহার করুন।",
+          },
+          { status: 401 }
+        );
+      }
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
 
     // Resolve user role
-    let userRole = data.user?.user_metadata?.role || "staff";
+    let userRole = data.user?.user_metadata?.role || (isStudentLogin ? "parent" : "staff");
     let roles: string[] = [];
 
     try {
@@ -44,7 +85,7 @@ export async function POST(req: NextRequest) {
         const { data: teacherRow } = await adminClient
           .from("teachers")
           .select("id")
-          .eq("email", email)
+          .eq("email", targetEmail)
           .maybeSingle();
         if (teacherRow) {
           userRole = "teacher";
@@ -81,11 +122,14 @@ export async function POST(req: NextRequest) {
       session: data.session,
       role: userRole,
       redirectUrl,
+      resolvedEmail: targetEmail,
+      studentIdCode: studentIdCode || data.user?.user_metadata?.student_id_code || null,
+      isDefaultPassword: Boolean(data.user?.user_metadata?.is_default_password ?? true),
     });
   } catch (err: any) {
     console.error("Login API error:", err);
     return NextResponse.json(
-      { error: err?.message || "সার্ভার এরর হয়েছে" },
+      { error: err?.message || "সার্ভার এরর হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।" },
       { status: 500 }
     );
   }

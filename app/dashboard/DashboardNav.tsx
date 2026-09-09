@@ -165,6 +165,16 @@ const navGroups: NavGroup[] = [
         keywords: ["routine", "schedule", "ক্লাস রুটিন", "সময়সূচি"],
       },
       {
+        name: "সিলেবাস ও অগ্রগতি গোয়েন্দা ট্র্যাকার",
+        href: "/dashboard/academic/syllabus",
+        icon: Sparkles,
+        permission: "academic.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "education_secretary", "teacher"],
+        badge: "ইন্টেলিজেন্স",
+        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        keywords: ["syllabus", "progress", "revision", "forecast", "সিলেবাস", "অগ্রগতি", "রিভিশন", "কর্মদিবস", "পড়া"],
+      },
+      {
         name: "কিতাব ও দারস ট্র্যাকিং",
         href: "/dashboard/kitab",
         icon: Library,
