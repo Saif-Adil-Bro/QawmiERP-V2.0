@@ -74,8 +74,11 @@ export default function SyllabusPrintReport({
               <span className="font-bold text-slate-900 text-sm">{syllabus.class_name}</span>
             </div>
             <div>
-              <span className="text-slate-500 block">কিতাব / বিষয়:</span>
-              <span className="font-bold text-slate-900 text-sm">{syllabus.subject_name}</span>
+              <span className="text-slate-500 block">কিতাব ও বিষয়:</span>
+              <span className="font-bold text-slate-900 text-sm">
+                {syllabus.book_name || syllabus.subject_name}
+                {syllabus.book_name && syllabus.book_name !== syllabus.subject_name ? ` (${syllabus.subject_name})` : ""}
+              </span>
             </div>
             <div>
               <span className="text-slate-500 block">দায়িত্বপ্রাপ্ত উস্তাদ:</span>
@@ -87,15 +90,30 @@ export default function SyllabusPrintReport({
             </div>
           </div>
 
+          {/* Smart Working Days & Holidays Breakdown */}
+          <div className="p-3.5 bg-emerald-50/70 border border-emerald-300 rounded-xl text-xs space-y-1">
+            <div className="font-bold text-emerald-950 flex items-center justify-between">
+              <span>📅 শিক্ষাবর্ষ সময়কাল ও ছুটির বিশ্লেষণ:</span>
+              <span className="font-mono text-emerald-800">
+                মোট {metrics.total_calendar_days || 0} দিন | জুমাবার: {metrics.fridays_count || 0} দিন | ছুটি: {metrics.holidays_count || 0} দিন
+              </span>
+            </div>
+            <p className="text-emerald-900">
+              নিট পাঠদান কর্মদিবস: <strong>{metrics.total_working_days} দিন</strong> (অতিবাহিত: {metrics.elapsed_working_days} দিন, হাতে বাকি: {metrics.remaining_working_days} দিন)।
+              {metrics.target_pages_label && ` • দৈনিক লক্ষ্য: ${metrics.target_pages_label}`}
+              {metrics.target_weekly_pages_label && ` • সাপ্তাহিক লক্ষ্য: ${metrics.target_weekly_pages_label}`}
+            </p>
+          </div>
+
           {/* Core Analytics Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="p-3 bg-white border border-slate-200 rounded-xl text-center">
-              <div className="text-xs text-slate-500">সিলেবাস সম্পন্ন</div>
+              <div className="text-xs text-slate-500">সিলেবাস অগ্রগতি</div>
               <div className="text-2xl font-black text-emerald-700 mt-0.5">
                 {metrics.actual_progress_percentage}%
               </div>
               <div className="text-[10px] text-slate-400">
-                {metrics.completed_topics} / {metrics.total_topics} টপিক
+                {metrics.total_pages ? `পৃষ্ঠা: ${metrics.completed_pages || 0}/${metrics.total_pages} (${metrics.completed_topics} টপিক)` : `${metrics.completed_topics} / ${metrics.total_topics} টপিক`}
               </div>
             </div>
 
@@ -108,11 +126,11 @@ export default function SyllabusPrintReport({
             </div>
 
             <div className="p-3 bg-white border border-slate-200 rounded-xl text-center">
-              <div className="text-xs text-slate-500">প্রয়োজনীয় গতি</div>
+              <div className="text-xs text-slate-500">দৈনিক পড়ার টার্গেট</div>
               <div className="text-2xl font-black text-amber-700 mt-0.5">
-                {metrics.required_pace_per_day}
+                {metrics.required_pages_per_day ? `${metrics.required_pages_per_day} পৃষ্ঠা` : `${metrics.required_pace_per_day} টপিক`}
               </div>
-              <div className="text-[10px] text-slate-400">Topic / কর্মদিবস</div>
+              <div className="text-[10px] text-slate-400">{metrics.target_weekly_pages_label || "প্রতি কর্মদিবসের লক্ষ্য"}</div>
             </div>
 
             <div className="p-3 bg-white border border-slate-200 rounded-xl text-center">

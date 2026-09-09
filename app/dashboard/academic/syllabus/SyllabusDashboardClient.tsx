@@ -28,6 +28,8 @@ import {
   Ban,
   CalendarDays,
   Target,
+  Book,
+  Calculator,
 } from "lucide-react";
 import {
   Syllabus,
@@ -35,6 +37,7 @@ import {
   SyllabusIntelligenceMetrics,
   SyllabusTopic,
   ClassType,
+  AcademicWorkingDayCalculator,
 } from "@/lib/syllabus";
 import SyllabusFormModal from "@/components/syllabus/SyllabusFormModal";
 import DailyClassEntryModal from "@/components/syllabus/DailyClassEntryModal";
@@ -108,6 +111,49 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
   const [selectedPrintSyllabus, setSelectedPrintSyllabus] = useState<Syllabus | null>(null);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Interactive Book Syllabus Planner State
+  const [calcBookName, setCalcBookName] = useState("নূরুল ঈযাহ (ফিকহ)");
+  const [calcStartDate, setCalcStartDate] = useState("2026-04-15");
+  const [calcEndDate, setCalcEndDate] = useState("2027-04-05");
+  const [calcTotalPages, setCalcTotalPages] = useState<number | string>(320);
+  const [calcStartPage, setCalcStartPage] = useState<number | string>(1);
+  const [calcEndPage, setCalcEndPage] = useState<number | string>(320);
+
+  const liveCalculatorResult = AcademicWorkingDayCalculator.calculateSmartSyllabusPlan({
+    start_date: calcStartDate,
+    end_date: calcEndDate,
+    total_pages: Number(calcTotalPages) || 0,
+    start_page: Number(calcStartPage) || 1,
+    end_page: Number(calcEndPage) || Number(calcTotalPages) || 0,
+    total_topics: 0,
+  });
+
+  const handleLaunchSyllabusWithPlan = () => {
+    setEditingSyllabus({
+      id: "",
+      madrasa_id: "",
+      class_id: data.classes[0]?.id || "",
+      class_name: data.classes[0]?.name || "",
+      subject_id: data.subjects[0]?.id || "",
+      subject_name: calcBookName,
+      book_name: calcBookName,
+      total_pages: Number(calcTotalPages) || 0,
+      start_page: Number(calcStartPage) || 1,
+      end_page: Number(calcEndPage) || Number(calcTotalPages) || 0,
+      current_page: Number(calcStartPage) || 1,
+      planned_daily_pages: liveCalculatorResult.dailyPages,
+      start_date: calcStartDate,
+      end_date: calcEndDate,
+      academic_year: "১৪৪৭-৪৮ হিজরি (২০২৬-২৭)",
+      revision_interval_days: 7,
+      status: "ACTIVE",
+      chapters: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    setIsFormOpen(true);
+  };
 
   // Refresh data
   const refreshData = async () => {
@@ -440,12 +486,19 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
                   className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between"
                 >
                   <div className="space-y-3">
-                    {/* Header: Subject & Class */}
+                    {/* Header: Subject & Class & Book */}
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md">
-                          {syl.class_name}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md">
+                            {syl.class_name}
+                          </span>
+                          {(syl.book_name || m.book_name) && (syl.book_name || m.book_name) !== syl.subject_name && (
+                            <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-md">
+                              📖 {syl.book_name || m.book_name}
+                            </span>
+                          )}
+                        </div>
                         <h3 className="text-base font-bold text-slate-900 mt-1">
                           {syl.subject_name}
                         </h3>
@@ -494,12 +547,26 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
                       </div>
                       <div className="flex items-center justify-between text-[11px] text-slate-400">
                         <span>সম্পন্ন: {m.completed_topics}/{m.total_topics} টপিক</span>
-                        <span>বাকি: {m.remaining_topics}টি</span>
+                        {m.total_pages ? (
+                          <span className="font-mono text-emerald-700 font-semibold">
+                            পৃষ্ঠা: {m.completed_pages || syl.current_page || 0}/{m.total_pages}
+                          </span>
+                        ) : (
+                          <span>বাকি: {m.remaining_topics}টি</span>
+                        )}
                       </div>
                     </div>
 
                     {/* Intelligence Metrics Strip */}
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 space-y-2 text-xs">
+                      {m.target_pages_label && (
+                        <div className="flex items-center justify-between text-emerald-800 font-semibold bg-emerald-50/70 px-2 py-1 rounded">
+                          <span>দৈনিক পড়ার লক্ষ্য:</span>
+                          <span className="font-bold font-mono">
+                            {m.target_pages_label}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between text-slate-700">
                         <span>হাতে বাকি কর্মদিবস:</span>
                         <span className="font-bold text-indigo-700 font-mono">
@@ -509,9 +576,17 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
                       <div className="flex items-center justify-between text-slate-700">
                         <span>প্রয়োজনীয় গতি:</span>
                         <span className="font-bold text-slate-900 font-mono">
-                          {m.required_pace_per_day} টপিক/দিন
+                          {m.required_pages_per_day ? `${m.required_pages_per_day} পৃষ্ঠা/দিন` : `${m.required_pace_per_day} টপিক/দিন`}
                         </span>
                       </div>
+                      {m.fridays_count !== undefined && (
+                        <div className="flex items-center justify-between text-slate-700">
+                          <span>ছুটি সমন্বয়:</span>
+                          <span className="font-mono text-slate-600 text-[11px]">
+                            {m.fridays_count}টি শুক্র + {m.holidays_count}টি ছুটি বাদ
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between text-slate-700">
                         <span>রিভিশন সম্পন্ন:</span>
                         <span className="font-bold text-purple-700 font-mono">
@@ -783,25 +858,179 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
       {/* ======================================================== */}
       {activeTab === "analytics" && (
         <div className="space-y-6">
+          {/* Interactive Smart Syllabus Book Calculator */}
+          <div className="bg-gradient-to-br from-emerald-50/90 to-teal-50/50 border border-emerald-200/90 rounded-2xl p-5 sm:p-6 shadow-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+                  <Calculator className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    কিতাব ও পৃষ্ঠা ভিত্তিক স্মার্ট সিলেবাস ক্যালকুলেটর (Smart Syllabus & Page Calculator)
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    কিতাবের মোট পৃষ্ঠা, শুরু-শেষ পৃষ্ঠা এবং সময়কাল দিলে জুমাবার ও ছুটি স্বয়ংক্রিয় বাদ দিয়ে দৈনিক ও সাপ্তাহিক টার্গেট হিসাব
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleLaunchSyllabusWithPlan}
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>এই হিসাব দিয়ে নতুন সিলেবাস তৈরি করুন</span>
+              </button>
+            </div>
+
+            {/* Inputs Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 bg-white p-4 rounded-xl border border-emerald-100 shadow-2xs">
+              <div className="col-span-2 sm:col-span-2">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">কিতাবের নাম / বিষয়</label>
+                <input
+                  type="text"
+                  value={calcBookName}
+                  onChange={(e) => setCalcBookName(e.target.value)}
+                  className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">মোট পৃষ্ঠা সংখ্যা</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={calcTotalPages}
+                  onChange={(e) => {
+                    setCalcTotalPages(e.target.value);
+                    if (!calcEndPage || Number(calcEndPage) < Number(e.target.value)) setCalcEndPage(e.target.value);
+                  }}
+                  className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">শুরুর পৃষ্ঠা</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={calcStartPage}
+                  onChange={(e) => setCalcStartPage(e.target.value)}
+                  className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">শেষ পৃষ্ঠা</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={calcEndPage}
+                  onChange={(e) => setCalcEndPage(e.target.value)}
+                  className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">সিলেবাসের সময়কাল</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="date"
+                    value={calcStartDate}
+                    onChange={(e) => setCalcStartDate(e.target.value)}
+                    className="w-full text-[10px] px-1 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                  />
+                  <span className="text-slate-400 text-xs">হতে</span>
+                  <input
+                    type="date"
+                    value={calcEndDate}
+                    onChange={(e) => setCalcEndDate(e.target.value)}
+                    className="w-full text-[10px] px-1 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Live Calculation Results */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-[11px] text-slate-500 block">ক্যালেন্ডার দিন:</span>
+                <span className="font-bold text-slate-900 text-sm font-mono">
+                  {liveCalculatorResult.workingDays.total_calendar_days} দিন
+                </span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">মোট নির্বাচিত সময়</span>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-amber-200 shadow-2xs">
+                <span className="text-[11px] text-amber-800 block">সাপ্তাহিক ও বার্ষিক ছুটি:</span>
+                <span className="font-bold text-amber-900 text-sm font-mono">
+                  {liveCalculatorResult.workingDays.fridays_count + liveCalculatorResult.workingDays.holidays_count} দিন বাদ
+                </span>
+                <span className="text-[10px] text-amber-700 block mt-0.5">
+                  ({liveCalculatorResult.workingDays.fridays_count} জুমাবার + {liveCalculatorResult.workingDays.holidays_count} ছুটি)
+                </span>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-indigo-200 shadow-2xs">
+                <span className="text-[11px] text-indigo-800 block">প্রকৃত পাঠদান কর্মদিবস:</span>
+                <span className="font-bold text-indigo-900 text-sm font-mono">
+                  {liveCalculatorResult.netTeachingDays} দিন
+                </span>
+                <span className="text-[10px] text-indigo-700 block mt-0.5">ছুটিহীন কার্যদিবস</span>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-emerald-300 shadow-2xs">
+                <span className="text-[11px] text-emerald-800 block">দৈনিক পড়ার টার্গেট:</span>
+                <span className="font-bold text-emerald-950 text-sm font-mono">
+                  {liveCalculatorResult.dailyPages} পৃষ্ঠা / দিন
+                </span>
+                <span className="text-[10px] text-emerald-700 block mt-0.5">প্রতি কর্মদিবসের লক্ষ্য</span>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-emerald-300 shadow-2xs">
+                <span className="text-[11px] text-emerald-800 block">সাপ্তাহিক পড়ার টার্গেট:</span>
+                <span className="font-bold text-emerald-950 text-sm font-mono">
+                  {liveCalculatorResult.weeklyPages} পৃষ্ঠা / সপ্তাহ
+                </span>
+                <span className="text-[10px] text-emerald-700 block mt-0.5">(৬ কর্মদিবস/সপ্তাহ)</span>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-700 bg-white/80 p-2.5 rounded-lg border border-emerald-100 flex items-center justify-between">
+              <div>
+                💡 <strong>সারসংক্ষেপ:</strong> {liveCalculatorResult.summaryBengali}
+              </div>
+              <button
+                onClick={handleLaunchSyllabusWithPlan}
+                className="text-emerald-700 font-bold hover:underline shrink-0 text-xs flex items-center gap-1"
+              >
+                <span>ফর্ম ওপেন করুন</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Existing Syllabuses Forecast Intelligence Table */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
             <h3 className="text-base font-bold text-slate-900 mb-1">
               কর্মদিবস ও গতি ভিত্তিক সমাপ্তি পূর্বাভাস (Forecast Intelligence)
             </h3>
             <p className="text-xs text-slate-500 mb-4">
-              শুক্রবার (সাপ্তাহিক ছুটি) ও একাডেমিক ছুটির দিনগুলোকে স্বয়ংক্রিয়ভাবে বাদ দিয়ে প্রকৃত শিক্ষণ দিবস গণনা
+              শুক্রবার (সাপ্তাহিক ছুটি) ও একাডেমিক ছুটির দিনগুলোকে স্বয়ংক্রিয়ভাবে বাদ দিয়ে প্রকৃত শিক্ষণ দিবস ও পৃষ্ঠাভিত্তিক গতি গণনা
             </p>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
-                    <th className="p-3">জামাত ও বিষয়</th>
-                    <th className="p-3">অগ্রগতি</th>
+                    <th className="p-3">জামাত, বিষয় ও কিতাব</th>
+                    <th className="p-3">অগ্রগতি (টপিক ও পৃষ্ঠা)</th>
                     <th className="p-3">হাতে বাকি কর্মদিবস</th>
-                    <th className="p-3">বর্তমান গতি</th>
-                    <th className="p-3">প্রয়োজনীয় গতি</th>
+                    <th className="p-3">ছুটি সমন্বয়</th>
+                    <th className="p-3">দৈনিক টার্গেট</th>
                     <th className="p-3">সম্ভাব্য সমাপ্তি</th>
-                    <th className="p-3">অবস্থা ও ক্যাচ-আপ টার্গেট</th>
+                    <th className="p-3">অবস্থা ও ক্যাচ-আপ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -813,7 +1042,14 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
                       <tr key={m.syllabus_id} className="hover:bg-slate-50/60">
                         <td className="p-3">
                           <div className="font-bold text-slate-900">{syl.subject_name}</div>
-                          <div className="text-[11px] text-slate-500">{syl.class_name} • {syl.teacher_name}</div>
+                          <div className="text-[11px] text-slate-500">
+                            {syl.class_name} • {syl.teacher_name}
+                            {(syl.book_name || m.book_name) && (
+                              <span className="text-indigo-600 font-semibold block">
+                                📖 {syl.book_name || m.book_name}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3">
                           <div className="flex items-center gap-2">
@@ -825,18 +1061,19 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
                               />
                             </div>
                           </div>
-                          <div className="text-[10px] text-slate-400">
+                          <div className="text-[10px] text-slate-500">
                             {m.completed_topics}/{m.total_topics} টপিক
+                            {m.total_pages ? ` • পৃষ্ঠা ${m.completed_pages || 0}/${m.total_pages}` : ""}
                           </div>
                         </td>
                         <td className="p-3 font-mono font-bold text-indigo-700 whitespace-nowrap">
                           {m.remaining_working_days} দিন
                         </td>
-                        <td className="p-3 font-mono text-slate-700 whitespace-nowrap">
-                          {m.current_pace_per_day} টপিক/দিন
+                        <td className="p-3 whitespace-nowrap text-slate-600 text-[11px]">
+                          {m.fridays_count}টি শুক্র + {m.holidays_count}টি ছুটি বাদ
                         </td>
-                        <td className="p-3 font-mono font-bold text-amber-700 whitespace-nowrap">
-                          {m.required_pace_per_day} টপিক/দিন
+                        <td className="p-3 font-mono font-bold text-emerald-700 whitespace-nowrap">
+                          {m.target_pages_label || `${m.required_pace_per_day} টপিক/দিন`}
                         </td>
                         <td className="p-3 whitespace-nowrap">
                           <div className="font-mono text-slate-800">{m.forecast_completion_date}</div>

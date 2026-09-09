@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   X,
   Plus,
@@ -13,8 +13,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Calculator,
+  Sparkles,
+  Book,
+  Hash,
+  ArrowRight,
 } from "lucide-react";
-import { Syllabus, SyllabusChapter, SyllabusTopic } from "@/lib/syllabus";
+import { AcademicWorkingDayCalculator, Syllabus, SyllabusChapter, SyllabusTopic } from "@/lib/syllabus";
 import { saveSyllabusAction } from "@/app/actions/syllabus";
 
 interface Props {
@@ -42,6 +47,12 @@ export default function SyllabusFormModal({
   const [classId, setClassId] = useState(syllabus?.class_id || (classes[0]?.id || ""));
   const [subjectId, setSubjectId] = useState(syllabus?.subject_id || (subjects[0]?.id || ""));
   const [subjectName, setSubjectName] = useState(syllabus?.subject_name || (subjects[0]?.name || ""));
+  const [bookName, setBookName] = useState(syllabus?.book_name || syllabus?.subject_name || "");
+  const [totalPages, setTotalPages] = useState<number | string>(syllabus?.total_pages || 320);
+  const [startPage, setStartPage] = useState<number | string>(syllabus?.start_page || 1);
+  const [endPage, setEndPage] = useState<number | string>(syllabus?.end_page || syllabus?.total_pages || 320);
+  const [currentPage, setCurrentPage] = useState<number | string>(syllabus?.current_page || syllabus?.start_page || 1);
+
   const [teacherId, setTeacherId] = useState(syllabus?.teacher_id || (teachers[0]?.id || ""));
   const [academicYear, setAcademicYear] = useState(syllabus?.academic_year || "১৪৪৭-৪৮ হিজরি (২০২৬-২৭)");
   const [startDate, setStartDate] = useState(syllabus?.start_date || "2026-04-15");
@@ -149,6 +160,63 @@ export default function SyllabusFormModal({
     setChapters(updated);
   };
 
+  // Smart Syllabus Plan Calculation based on Dates & Pages
+  const planCalculation = useMemo(() => {
+    return AcademicWorkingDayCalculator.calculateSmartSyllabusPlan({
+      start_date: startDate,
+      end_date: endDate,
+      total_pages: Number(totalPages) || 0,
+      start_page: Number(startPage) || 1,
+      end_page: Number(endPage) || Number(totalPages) || 0,
+      total_topics: chapters.reduce((acc, c) => acc + (c.topics?.length || 0), 0),
+    });
+  }, [startDate, endDate, totalPages, startPage, endPage, chapters]);
+
+  // Auto generate structured chapters and topics based on page range
+  const handleAutoGenerateChapters = () => {
+    const sPage = Number(startPage) || 1;
+    const ePage = Number(endPage) || Number(totalPages) || 100;
+    const pagesCount = Math.max(1, ePage - sPage + 1);
+
+    const chapterCount = pagesCount > 300 ? 8 : pagesCount > 150 ? 6 : 4;
+    const pagesPerChapter = Math.ceil(pagesCount / chapterCount);
+
+    const generatedChapters: SyllabusChapter[] = [];
+    for (let i = 0; i < chapterCount; i++) {
+      const chStart = sPage + i * pagesPerChapter;
+      const chEnd = Math.min(ePage, chStart + pagesPerChapter - 1);
+      if (chStart > ePage) break;
+
+      const topicsCount = 3;
+      const pagesPerTopic = Math.ceil((chEnd - chStart + 1) / topicsCount);
+      const generatedTopics: SyllabusTopic[] = [];
+
+      for (let j = 0; j < topicsCount; j++) {
+        const tStart = chStart + j * pagesPerTopic;
+        const tEnd = Math.min(chEnd, tStart + pagesPerTopic - 1);
+        if (tStart > chEnd) break;
+        generatedTopics.push({
+          id: `top_${Date.now()}_${i}_${j}`,
+          name: `পাঠ ${j + 1}: পৃষ্ঠা ${tStart} হতে ${tEnd}`,
+          estimated_periods: 3,
+          progress_percentage: 0,
+          status: "NOT_STARTED",
+          revision_count: 0,
+          revision_history: [],
+        });
+      }
+
+      generatedChapters.push({
+        id: `ch_${Date.now()}_${i}`,
+        name: `অধ্যায়/বাব ${i + 1} (পৃষ্ঠা ${chStart}–${chEnd})`,
+        order: i + 1,
+        topics: generatedTopics,
+      });
+    }
+
+    setChapters(generatedChapters);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -173,6 +241,13 @@ export default function SyllabusFormModal({
         class_name: selectedClass?.name || "অনির্ধারিত জামাত",
         subject_id: subjectId,
         subject_name: subjectName,
+        book_name: bookName || subjectName,
+        total_pages: Number(totalPages) || 0,
+        start_page: Number(startPage) || 1,
+        end_page: Number(endPage) || Number(totalPages) || 0,
+        current_page: Number(currentPage) || Number(startPage) || 1,
+        planned_daily_pages: planCalculation.dailyPages,
+        planned_daily_topics: planCalculation.dailyTopics,
         teacher_id: teacherId || undefined,
         teacher_name: teacherFullName || undefined,
         academic_year: academicYear,
@@ -335,6 +410,149 @@ export default function SyllabusFormModal({
                 <option value={14}>১৪ দিন পর পর (পাক্ষিক রিভিশন)</option>
                 <option value={30}>৩০ দিন পর পর (মাসিক রিভিশন)</option>
               </select>
+            </div>
+          </div>
+
+          {/* Book, Pages & Smart Plan Intelligence Section */}
+          <div className="bg-emerald-50/40 border border-emerald-200/80 rounded-xl p-4 sm:p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Book className="w-5 h-5 text-emerald-700" />
+                <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                  কিতাব/বইয়ের তথ্য ও পৃষ্ঠা ভিত্তিক স্মার্ট সিলেবাস পরিকল্পনা
+                </h3>
+              </div>
+              <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                অটোমেটিক ক্যালকুলেশন
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-600">
+              কিতাবের মোট পৃষ্ঠা, শুরু ও শেষ পৃষ্ঠা এবং সময়কাল প্রদান করলে সিস্টেম স্বয়ংক্রিয়ভাবে জুমাবার ও ছুটি বাদ দিয়ে প্রতিদিন ও প্রতি সপ্তাহে কত পৃষ্ঠা পড়াতে হবে তা হিসাব করবে।
+            </p>
+
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="col-span-2 sm:col-span-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">কিতাব / বইয়ের নাম</label>
+                <input
+                  type="text"
+                  placeholder="যেমন: মিজানুচ্ছরফ বা নূরুল ঈযাহ"
+                  value={bookName}
+                  onChange={(e) => setBookName(e.target.value)}
+                  className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">মোট পৃষ্ঠা সংখ্যা *</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="যেমন: ৩২০"
+                  value={totalPages}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setTotalPages(v);
+                    if (!endPage || Number(endPage) < Number(v)) setEndPage(v);
+                  }}
+                  className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">শুরুর পৃষ্ঠা *</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="যেমন: ১"
+                  value={startPage}
+                  onChange={(e) => setStartPage(e.target.value)}
+                  className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">শেষ পৃষ্ঠা *</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="যেমন: ৩২০"
+                  value={endPage}
+                  onChange={(e) => setEndPage(e.target.value)}
+                  className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">বর্তমান পৃষ্ঠা (ঐচ্ছিক)</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder="যেমন: ১"
+                  value={currentPage}
+                  onChange={(e) => setCurrentPage(e.target.value)}
+                  className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Smart Plan Calculation Banner */}
+            <div className="bg-white border border-emerald-300/80 rounded-xl p-3.5 shadow-2xs space-y-2.5">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-900 border-b border-emerald-100 pb-2">
+                <Calculator className="w-4 h-4 text-emerald-600" />
+                <span>অটোমেটেড সিলেবাস প্ল্যান ও কর্মদিবস সারসংক্ষেপ</span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="bg-slate-50 p-2 rounded-lg border border-slate-200">
+                  <span className="text-[11px] text-slate-500 block">ক্যালেন্ডার সময়:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {planCalculation.workingDays.total_calendar_days} দিন
+                  </span>
+                </div>
+
+                <div className="bg-amber-50/60 p-2 rounded-lg border border-amber-200">
+                  <span className="text-[11px] text-amber-800 block">ছুটি (জুমাবার + ছুটি):</span>
+                  <span className="font-bold text-amber-900 font-mono text-sm">
+                    {planCalculation.workingDays.fridays_count + planCalculation.workingDays.holidays_count} দিন
+                  </span>
+                  <span className="text-[10px] text-amber-700 block">
+                    ({planCalculation.workingDays.fridays_count}টি শুক্র + {planCalculation.workingDays.holidays_count}টি ছুটি)
+                  </span>
+                </div>
+
+                <div className="bg-indigo-50/60 p-2 rounded-lg border border-indigo-200">
+                  <span className="text-[11px] text-indigo-800 block">নিট পাঠদান কর্মদিবস:</span>
+                  <span className="font-bold text-indigo-900 font-mono text-sm">
+                    {planCalculation.netTeachingDays} দিন
+                  </span>
+                </div>
+
+                <div className="bg-emerald-50/60 p-2 rounded-lg border border-emerald-200">
+                  <span className="text-[11px] text-emerald-800 block">দৈনিক পড়ার টার্গেট:</span>
+                  <span className="font-bold text-emerald-900 font-mono text-sm">
+                    {planCalculation.dailyPages} পৃষ্ঠা / দিন
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs">
+                <div className="text-slate-700 font-medium text-[11px] sm:text-xs">
+                  💡 <span className="font-semibold">{planCalculation.summaryBengali}</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAutoGenerateChapters}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>পৃষ্ঠা অনুযায়ী অধ্যায় ও টপিক সাজান</span>
+                </button>
+              </div>
             </div>
           </div>
 

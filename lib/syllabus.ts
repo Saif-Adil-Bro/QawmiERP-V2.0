@@ -2,8 +2,6 @@
 // QawmiERP Advanced Syllabus, Daily Class & Progress Intelligence Engine
 // Deep integration with Daily Class, Revision, Attendance, Holidays & Remaining Working Days
 
-import { createAdminClient } from "@/lib/supabase/server";
-import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { AcademicHoliday } from "@/lib/holidays";
 
 export type TopicProgressStatus = "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED";
@@ -82,6 +80,13 @@ export interface Syllabus {
   class_name: string;
   subject_id: string;
   subject_name: string;
+  book_name?: string; // কিতাব / বইয়ের নাম
+  total_pages?: number; // বইয়ের মোট পৃষ্ঠা
+  start_page?: number; // পাঠ শুরুর পৃষ্ঠা (default 1)
+  end_page?: number; // পাঠ সমাপ্তির পৃষ্ঠা
+  current_page?: number; // বর্তমান পঠিত পৃষ্ঠা
+  planned_daily_pages?: number; // পরিকল্পিত দৈনিক পৃষ্ঠা
+  planned_daily_topics?: number; // পরিকল্পিত দৈনিক টপিক
   teacher_id?: string;
   teacher_name?: string;
   session_id?: string;
@@ -132,6 +137,7 @@ export interface DailyClassRecord {
 }
 
 export interface WorkingDayCalculationResult {
+  total_calendar_days: number;
   total_working_days: number;
   elapsed_working_days: number;
   remaining_working_days: number;
@@ -144,8 +150,22 @@ export interface WorkingDayCalculationResult {
 export interface SyllabusIntelligenceMetrics {
   syllabus_id: string;
   subject_name: string;
+  book_name?: string;
   class_name: string;
   teacher_name: string;
+  // Page-level metrics
+  total_pages: number;
+  start_page: number;
+  end_page: number;
+  current_page: number;
+  completed_pages: number;
+  remaining_pages: number;
+  pages_progress_percentage: number;
+  required_pages_per_day: number;
+  current_pages_per_day: number;
+  target_pages_label: string;
+  target_weekly_pages_label: string;
+  // Topic-level metrics
   total_topics: number;
   completed_topics: number;
   in_progress_topics: number;
@@ -153,6 +173,10 @@ export interface SyllabusIntelligenceMetrics {
   remaining_topics: number;
   actual_progress_percentage: number;
   expected_progress_percentage: number;
+  // Working days & calendar metrics
+  total_calendar_days: number;
+  fridays_count: number;
+  holidays_count: number;
   total_working_days: number;
   elapsed_working_days: number;
   remaining_working_days: number;
@@ -212,6 +236,7 @@ export class AcademicWorkingDayCalculator {
 
     if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
       return {
+        total_calendar_days: 0,
         total_working_days: 0,
         elapsed_working_days: 0,
         remaining_working_days: 0,
@@ -248,7 +273,7 @@ export class AcademicWorkingDayCalculator {
 
     const curr = new Date(start);
     let guard = 0;
-    while (curr <= end && guard < 400) {
+    while (curr <= end && guard < 500) {
       const dateStr = this.formatDate(curr);
       const isFriday = curr.getDay() === 5; // 5 = Friday
       const isHoliday = holidayDateSet.has(dateStr);
@@ -271,6 +296,7 @@ export class AcademicWorkingDayCalculator {
     const isTodayWorkingDay = allWorkingDates.includes(todayStr);
 
     return {
+      total_calendar_days: guard,
       total_working_days: totalWorkingDays,
       elapsed_working_days: elapsedWorkingDays,
       remaining_working_days: remainingWorkingDays,
@@ -278,6 +304,54 @@ export class AcademicWorkingDayCalculator {
       holidays_count: holidaysCount,
       fridays_count: fridaysCount,
       is_today_working_day: isTodayWorkingDay,
+    };
+  }
+
+  /**
+   * Smart Syllabus Plan Generator:
+   * Takes book details (pages, start/end date, holidays) and calculates:
+   * Net teaching days, Friday holidays, General holidays, and daily/weekly page targets.
+   */
+  static calculateSmartSyllabusPlan(params: {
+    start_date: string;
+    end_date: string;
+    total_pages?: number;
+    start_page?: number;
+    end_page?: number;
+    total_topics?: number;
+    holidays?: AcademicHoliday[];
+  }) {
+    const workingDays = this.calculateWorkingDays(
+      params.start_date,
+      params.end_date,
+      params.holidays || []
+    );
+
+    const startPage = params.start_page || 1;
+    const endPage = params.end_page || params.total_pages || 100;
+    const totalPages = Math.max(1, endPage - startPage + 1);
+    const netTeachingDays = Math.max(1, workingDays.total_working_days);
+
+    const dailyPages = Number((totalPages / netTeachingDays).toFixed(1));
+    const weeklyPages = Number((dailyPages * 6).toFixed(1));
+
+    const totalTopics = params.total_topics || 0;
+    const dailyTopics = totalTopics > 0 ? Number((totalTopics / netTeachingDays).toFixed(2)) : 0;
+    const weeklyTopics = Number((dailyTopics * 6).toFixed(1));
+
+    return {
+      workingDays,
+      totalPages,
+      startPage,
+      endPage,
+      netTeachingDays,
+      dailyPages,
+      weeklyPages,
+      dailyTopics,
+      weeklyTopics,
+      dailyPagesLabel: `প্রতিদিন গড়ে ${dailyPages} পৃষ্ঠা`,
+      weeklyPagesLabel: `প্রতি সপ্তাহে গড়ে ${weeklyPages} পৃষ্ঠা`,
+      summaryBengali: `মোট ${workingDays.total_calendar_days} দিনের মধ্যে ${workingDays.fridays_count}টি শুক্রবার ও ${workingDays.holidays_count}টি ছুটি বাদে নিট পাঠদান কর্মদিবস ${netTeachingDays} দিন। সম্পূর্ণ সিলেবাস শেষ করতে প্রতিদিন গড়ে ${dailyPages} পৃষ্ঠা পড়তে হবে।`,
     };
   }
 }
@@ -348,8 +422,17 @@ export class SyllabusProgressEngine {
       }
     }
 
-    const remainingTopics = totalTopics - completedTopics;
-    const actualProgressPercentage = totalTopics > 0 ? Math.round(totalProgressSum / totalTopics) : 0;
+    // 2.1 Page-level calculation
+    const startPage = syllabus.start_page || 1;
+    const endPage = syllabus.end_page || syllabus.total_pages || (totalTopics > 0 ? totalTopics * 10 : 100);
+    const totalPages = Math.max(1, endPage >= startPage ? endPage - startPage + 1 : (syllabus.total_pages || 100));
+    const currentPage = Math.max(startPage, Math.min(endPage, syllabus.current_page || startPage));
+    const completedPages = Math.max(0, Math.min(totalPages, currentPage - startPage + (currentPage > startPage ? 1 : 0)));
+    const remainingPages = Math.max(0, totalPages - completedPages);
+    const pagesProgressPercentage = totalPages > 0 ? Math.min(100, Math.round((completedPages / totalPages) * 100)) : 0;
+
+    const remainingTopics = totalTopics > 0 ? totalTopics - completedTopics : remainingPages;
+    let actualProgressPercentage = totalTopics > 0 ? Math.round(totalProgressSum / totalTopics) : pagesProgressPercentage;
 
     // Expected progress based on elapsed working days
     const expectedProgressPercentage =
@@ -358,7 +441,6 @@ export class SyllabusProgressEngine {
         : 0;
 
     // 3. Routine integration
-    // Find how many days per week this subject is scheduled in this class
     const matchingRoutines = routines.filter((r) => {
       const classMatches = r.class_id === syllabus.class_id;
       const subjectMatches =
@@ -373,7 +455,6 @@ export class SyllabusProgressEngine {
 
     const weeklyRoutinePeriods = matchingRoutines.length > 0 ? matchingRoutines.length : 4; // fallback 4 periods/wk
 
-    // Calculate remaining scheduled classes based on working dates list
     const dayMap: Record<number, string> = {
       0: "sunday",
       1: "monday",
@@ -398,7 +479,6 @@ export class SyllabusProgressEngine {
     }
 
     if (remainingScheduledClasses === 0) {
-      // Approximate from remaining working days & routine
       remainingScheduledClasses = Math.max(
         1,
         Math.round((workingDays.remaining_working_days * (weeklyRoutinePeriods / 6)))
@@ -416,12 +496,17 @@ export class SyllabusProgressEngine {
     const currentPacePerClass = Number((completedTopics / Math.max(1, elapsedDays * (weeklyRoutinePeriods / 6))).toFixed(2));
     const requiredPacePerClass = Number((remainingTopics / remClasses).toFixed(2));
 
+    const requiredPagesPerDay = remDays > 0 ? Number((remainingPages / remDays).toFixed(1)) : 0;
+    const currentPagesPerDay = elapsedDays > 0 ? Number((completedPages / elapsedDays).toFixed(1)) : 0;
+    const targetPagesLabel = remainingPages === 0 ? "কিতাব সমাপ্ত" : `প্রতিদিন গড়ে ${requiredPagesPerDay} পৃষ্ঠা`;
+    const targetWeeklyPagesLabel = remainingPages === 0 ? "কিতাব সমাপ্ত" : `প্রতি সপ্তাহে গড়ে ${Math.round(requiredPagesPerDay * 6)} পৃষ্ঠা`;
+
     // 5. Status determination
     let status: "COMPLETED" | "ON_TRACK" | "AT_RISK" | "BEHIND" = "ON_TRACK";
     let statusLabel = "নির্ধারিত সময় অনুযায়ী এগিয়ে আছেন";
     let statusDesc = "বর্তমান গতি বজায় রাখলে নির্ধারিত সময়ের পূর্বেই সিলেবাস সফলভাবে সম্পন্ন হবে।";
 
-    if (remainingTopics === 0) {
+    if (remainingTopics === 0 && remainingPages === 0) {
       status = "COMPLETED";
       statusLabel = "সিলেবাস সম্পন্ন";
       statusDesc = "মাশাআল্লাহ! নির্ধারিত সিলেবাস সফলভাবে শতভাগ সম্পন্ন হয়েছে।";
@@ -442,28 +527,33 @@ export class SyllabusProgressEngine {
     // 6. Human-friendly targets (Bengali numbers / text)
     const dailyTargetNum = Math.ceil(requiredPacePerDay);
     const todayTargetLabel =
-      remainingTopics === 0
+      remainingTopics === 0 && remainingPages === 0
         ? "সিলেবাস সম্পন্ন (রিভিশন করান)"
+        : totalPages > 0
+        ? `আজকের লক্ষ্য: ≈ ${requiredPagesPerDay} পৃষ্ঠা`
         : dailyTargetNum <= 1
         ? "আজকের লক্ষ্য: ১টি Topic"
         : `আজকের লক্ষ্য: ${dailyTargetNum - 1}–${dailyTargetNum}টি Topic`;
 
     const weeklyTargetNum = Math.ceil(requiredPacePerDay * (workingDays.total_working_days > 0 ? 5 : 6));
     const weeklyTargetLabel =
-      remainingTopics === 0
+      remainingTopics === 0 && remainingPages === 0
         ? "রিভিশন ও মূল্যায়ন"
+        : totalPages > 0
+        ? `এই সপ্তাহের লক্ষ্য: ≈ ${Math.round(requiredPagesPerDay * 6)} পৃষ্ঠা`
         : `এই সপ্তাহের লক্ষ্য: ≈ ${weeklyTargetNum}টি Topic`;
 
     // Catch up target over next 10 working days
     const catchUpDailyNum = Math.ceil((remainingTopics / Math.min(remDays, 10)) * 0.8);
     const catchUpTargetLabel =
       status === "BEHIND" || status === "AT_RISK"
-        ? `আগামী ১০ কর্মদিবসে প্রতিদিন গড়ে ${Math.max(1, catchUpDailyNum)}টি Topic সম্পন্ন করলে সময়মতো শেষ করা সম্ভব।`
+        ? `আগামী ১০ কর্মদিবসে প্রতিদিন গড়ে ${Math.max(1, catchUpDailyNum)}টি Topic বা ${Math.max(1, Math.round(requiredPagesPerDay * 1.3))} পৃষ্ঠা সম্পন্ন করলে সময়মতো শেষ করা সম্ভব।`
         : "বর্তমান পাঠদান গতি বজায় রাখুন।";
 
     // 7. Forecast completion date
-    const sustainablePace = currentPacePerDay > 0.1 ? currentPacePerDay : 0.5;
-    const daysNeeded = Math.ceil(remainingTopics / sustainablePace);
+    const sustainablePace = currentPacePerDay > 0.1 ? currentPacePerDay : (currentPagesPerDay > 0 ? currentPagesPerDay / 10 : 0.5);
+    const itemsToComplete = totalTopics > 0 ? remainingTopics : remainingPages;
+    const daysNeeded = Math.ceil(itemsToComplete / sustainablePace);
     let forecastDateStr = syllabus.end_date;
     let forecastVarianceDays = 0;
 
@@ -471,16 +561,15 @@ export class SyllabusProgressEngine {
       forecastDateStr = remainingWorkingDates[daysNeeded - 1] || syllabus.end_date;
       forecastVarianceDays = remainingWorkingDates.length - daysNeeded;
     } else {
-      // delayed beyond end_date
       const extraDaysNeeded = daysNeeded - remainingWorkingDates.length;
       const endObj = new Date(syllabus.end_date);
-      endObj.setDate(endObj.getDate() + extraDaysNeeded * 1.4); // approx calendar days
+      endObj.setDate(endObj.getDate() + extraDaysNeeded * 1.4);
       forecastDateStr = AcademicWorkingDayCalculator.formatDate(endObj);
       forecastVarianceDays = -extraDaysNeeded;
     }
 
     let forecastLabel = "";
-    if (remainingTopics === 0) {
+    if (remainingTopics === 0 && remainingPages === 0) {
       forecastLabel = "সিলেবাস ইতিমধ্যে সম্পন্ন হয়েছে";
     } else if (forecastVarianceDays >= 0) {
       forecastLabel = `সম্ভাব্য সমাপ্তি: ${forecastDateStr} (নির্ধারিত সময়ের পূর্বে/সময়মতো)`;
@@ -491,8 +580,22 @@ export class SyllabusProgressEngine {
     return {
       syllabus_id: syllabus.id,
       subject_name: syllabus.subject_name,
+      book_name: syllabus.book_name || syllabus.subject_name,
       class_name: syllabus.class_name,
       teacher_name: syllabus.teacher_name || "অনির্ধারিত",
+      // Page metrics
+      total_pages: totalPages,
+      start_page: startPage,
+      end_page: endPage,
+      current_page: currentPage,
+      completed_pages: completedPages,
+      remaining_pages: remainingPages,
+      pages_progress_percentage: pagesProgressPercentage,
+      required_pages_per_day: requiredPagesPerDay,
+      current_pages_per_day: currentPagesPerDay,
+      target_pages_label: targetPagesLabel,
+      target_weekly_pages_label: targetWeeklyPagesLabel,
+      // Topic metrics
       total_topics: totalTopics,
       completed_topics: completedTopics,
       in_progress_topics: inProgressTopics,
@@ -500,6 +603,10 @@ export class SyllabusProgressEngine {
       remaining_topics: remainingTopics,
       actual_progress_percentage: actualProgressPercentage,
       expected_progress_percentage: expectedProgressPercentage,
+      // Calendar & working days
+      total_calendar_days: workingDays.total_calendar_days,
+      fridays_count: workingDays.fridays_count,
+      holidays_count: workingDays.holidays_count,
       total_working_days: workingDays.total_working_days,
       elapsed_working_days: workingDays.elapsed_working_days,
       remaining_working_days: workingDays.remaining_working_days,
@@ -523,33 +630,6 @@ export class SyllabusProgressEngine {
       revision_due_topics: revisionDueTopics,
     };
   }
-}
-
-/**
- * -------------------------------------------------------------
- * 3. METADATA PERSISTENCE HELPERS
- * -------------------------------------------------------------
- */
-export async function getMadrasaSyllabuses(madrasaId: string): Promise<Syllabus[]> {
-  const meta = await getMadrasaMetadata(madrasaId);
-  return (meta as any)?.syllabuses || [];
-}
-
-export async function saveMadrasaSyllabuses(madrasaId: string, syllabuses: Syllabus[]): Promise<boolean> {
-  const meta = await getMadrasaMetadata(madrasaId);
-  (meta as any).syllabuses = syllabuses;
-  return await saveMadrasaMetadata(madrasaId, meta);
-}
-
-export async function getMadrasaDailyClasses(madrasaId: string): Promise<DailyClassRecord[]> {
-  const meta = await getMadrasaMetadata(madrasaId);
-  return (meta as any)?.daily_classes || [];
-}
-
-export async function saveMadrasaDailyClasses(madrasaId: string, records: DailyClassRecord[]): Promise<boolean> {
-  const meta = await getMadrasaMetadata(madrasaId);
-  (meta as any).daily_classes = records;
-  return await saveMadrasaMetadata(madrasaId, meta);
 }
 
 /**

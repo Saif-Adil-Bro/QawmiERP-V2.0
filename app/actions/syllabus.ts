@@ -8,10 +8,6 @@ import {
   Syllabus,
   DailyClassRecord,
   SyllabusProgressEngine,
-  getMadrasaSyllabuses,
-  saveMadrasaSyllabuses,
-  getMadrasaDailyClasses,
-  saveMadrasaDailyClasses,
   getDefaultSyllabuses,
   SyllabusTopic,
   ClassType,
@@ -19,6 +15,12 @@ import {
   StudentEvaluation,
   AcademicWorkingDayCalculator,
 } from "@/lib/syllabus";
+import {
+  getMadrasaSyllabuses,
+  saveMadrasaSyllabuses,
+  getMadrasaDailyClasses,
+  saveMadrasaDailyClasses,
+} from "@/lib/syllabus-server";
 
 /**
  * Resolves the authenticated user and target madrasa ID
@@ -221,6 +223,13 @@ export async function saveSyllabusAction(syllabusData: Partial<Syllabus>) {
         class_name: syllabusData.class_name || "",
         subject_id: syllabusData.subject_id || "",
         subject_name: syllabusData.subject_name || "",
+        book_name: syllabusData.book_name || syllabusData.subject_name || "",
+        total_pages: Number(syllabusData.total_pages) || 0,
+        start_page: Number(syllabusData.start_page) || 1,
+        end_page: Number(syllabusData.end_page) || Number(syllabusData.total_pages) || 0,
+        current_page: Number(syllabusData.current_page) || Number(syllabusData.start_page) || 1,
+        planned_daily_pages: Number(syllabusData.planned_daily_pages) || 0,
+        planned_daily_topics: Number(syllabusData.planned_daily_topics) || 0,
         teacher_id: syllabusData.teacher_id,
         teacher_name: syllabusData.teacher_name,
         session_id: syllabusData.session_id,
@@ -429,6 +438,14 @@ export async function recordDailyClassAction(payload: {
               student_evaluations: payload.student_evaluations,
             });
           }
+        }
+      }
+
+      // Update current_page if page_to is provided in lesson entry
+      if (payload.page_to) {
+        const pageToNum = parseInt(String(payload.page_to).replace(/[^0-9]/g, ""), 10);
+        if (!isNaN(pageToNum) && pageToNum > 0) {
+          targetSyllabus.current_page = Math.max(targetSyllabus.current_page || 0, pageToNum);
         }
       }
 
