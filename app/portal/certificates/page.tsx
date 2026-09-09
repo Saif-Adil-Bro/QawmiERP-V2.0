@@ -1,9 +1,8 @@
 import { getStudentCertificates } from "@/app/actions/certificates";
-import { getAuthUser, createClient } from "@/lib/supabase/server";
 import { Award, FileText, CheckCircle2, ShieldCheck, Download, Printer } from "lucide-react";
 import CertificatePortalClient from "./CertificatePortalClient";
-import { getUserDataAccessScope } from "@/lib/data-access-guards";
 import Link from "next/link";
+import { getPortalStudentData } from "@/lib/portal-data";
 
 export const dynamic = "force-dynamic";
 
@@ -15,43 +14,13 @@ export default async function StudentPortalCertificatesPage(props: {
   searchParams?: Promise<{ student_id?: string }>;
 }) {
   const params = props.searchParams ? (await props.searchParams) || {} : {};
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const portalData = await getPortalStudentData(params.student_id);
 
-  if (!user) return null;
+  if (!portalData || !portalData.user) return null;
 
-  const { data: userData } = await supabase
-    .from("users")
-    .select("madrasa_id")
-    .eq("id", user.id)
-    .single();
-  const madrasaId = userData?.madrasa_id;
+  const { students: allStudents, child: student } = portalData;
 
-  const scope = await getUserDataAccessScope();
-
-  let studentsQuery = supabase
-    .from("students")
-    .select("id, first_name, last_name, roll_number, class_name, classes(name)")
-    .order("roll_number", { ascending: true });
-
-  if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
-    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
-  } else if (madrasaId) {
-    studentsQuery = studentsQuery.eq("madrasa_id", madrasaId);
-  }
-
-  const { data: fetchedStudents } = await studentsQuery;
-  let allStudents = fetchedStudents || [];
-
-  if (allStudents.length === 0) {
-    const { data: fallbackStudents } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, classes(name)")
-      .limit(5);
-    allStudents = fallbackStudents || [];
-  }
-
-  if (allStudents.length === 0) {
+  if (allStudents.length === 0 || !student) {
     return (
       <div className="p-8 bg-white rounded-3xl border border-slate-200 text-center text-slate-500">
         কোনো সংযুক্ত শিক্ষার্থীর সনদপত্র তথ্য পাওয়া যায়নি।
@@ -59,8 +28,6 @@ export default async function StudentPortalCertificatesPage(props: {
     );
   }
 
-  const selectedStudentId = params.student_id || allStudents[0].id;
-  const student = allStudents.find((s) => s.id === selectedStudentId) || allStudents[0];
   const certificates = student ? await getStudentCertificates(student.id) : [];
 
   return (

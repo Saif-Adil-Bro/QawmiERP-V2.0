@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { getPortalStudentData } from "@/lib/portal-data";
 
 export const dynamic = "force-dynamic";
 
@@ -19,44 +20,13 @@ export default async function ParentPortalAttendance(props: {
   searchParams?: Promise<{ student_id?: string; month?: string }>;
 }) {
   const params = props.searchParams ? (await props.searchParams) || {} : {};
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const portalData = await getPortalStudentData(params.student_id);
 
-  if (!user) return null;
+  if (!portalData || !portalData.user) return null;
 
-  const { data: userData } = await supabase
-    .from("users")
-    .select("madrasa_id")
-    .eq("id", user.id)
-    .single();
-  const madrasaId = userData?.madrasa_id;
+  const { students, child, adminClient } = portalData;
 
-  const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
-  const scope = await getUserDataAccessScope();
-
-  let studentsQuery = supabase
-    .from("students")
-    .select("id, first_name, last_name, roll_number, class_name, classes(name)")
-    .order("roll_number", { ascending: true });
-
-  if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
-    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
-  } else if (madrasaId) {
-    studentsQuery = studentsQuery.eq("madrasa_id", madrasaId);
-  }
-
-  const { data: fetchedStudents } = await studentsQuery;
-  let students = fetchedStudents || [];
-
-  if (students.length === 0) {
-    const { data: fallbackStudents } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, classes(name)")
-      .limit(5);
-    students = fallbackStudents || [];
-  }
-
-  if (students.length === 0) {
+  if (students.length === 0 || !child) {
     return (
       <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
         কোন শিক্ষার্থী সংযুক্ত পাওয়া যায়নি।
@@ -64,21 +34,18 @@ export default async function ParentPortalAttendance(props: {
     );
   }
 
-  const selectedStudentId = params.student_id || students[0].id;
-  const child = students.find((s) => s.id === selectedStudentId) || students[0];
-
-  // Fetch attendance records
-  const { data: attendanceLogs } = await supabase
+  // Fetch attendance records safely scoped to child
+  const { data: attendanceLogs } = await adminClient
     .from("attendance")
     .select("*")
     .eq("student_id", child.id)
     .order("date", { ascending: false });
 
   const totalDays = attendanceLogs?.length || 0;
-  const presentDays = attendanceLogs?.filter((log) => log.status === "Present").length || 0;
-  const absentDays = attendanceLogs?.filter((log) => log.status === "Absent").length || 0;
-  const lateDays = attendanceLogs?.filter((log) => log.status === "Late").length || 0;
-  const leaveDays = attendanceLogs?.filter((log) => log.status === "Leave").length || 0;
+  const presentDays = attendanceLogs?.filter((log: any) => log.status === "Present").length || 0;
+  const absentDays = attendanceLogs?.filter((log: any) => log.status === "Absent").length || 0;
+  const lateDays = attendanceLogs?.filter((log: any) => log.status === "Late").length || 0;
+  const leaveDays = attendanceLogs?.filter((log: any) => log.status === "Leave").length || 0;
   const attendancePercentage = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
 
   return (
@@ -169,7 +136,7 @@ export default async function ParentPortalAttendance(props: {
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
               {attendanceLogs && attendanceLogs.length > 0 ? (
-                attendanceLogs.map((log) => (
+                attendanceLogs.map((log: any) => (
                   <tr key={log.id} className="hover:bg-slate-50/60 transition">
                     <td className="px-4 py-3 font-semibold text-slate-800">
                       {new Date(log.date).toLocaleDateString("bn-BD", {

@@ -41,7 +41,7 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
     .single();
 
   const userRole = userProfile?.role || authUser.user_metadata?.role || "staff";
-  const madrasaId = userProfile?.madrasa_id || "";
+  let madrasaId = userProfile?.madrasa_id || "";
 
   // Check custom permissions & security profiles
   const rolesAndPerms = await getMadrasaRolesAndPermissions();
@@ -241,6 +241,34 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
     // If no specific student could be matched by any pattern, associate available students in madrasa
     if (studentIdsSet.size === 0 && madrasaStudents.length > 0) {
       madrasaStudents.forEach((s) => studentIdsSet.add(s.id));
+    }
+
+    // Auto-heal madrasa_id and phone in users table if matched students belong to a madrasa
+    if (studentIdsSet.size > 0) {
+      const matched = madrasaStudents.find((s) => studentIdsSet.has(s.id));
+      if (matched) {
+        let needsUserUpdate = false;
+        const updatePayload: Record<string, any> = {};
+
+        if (matched.madrasa_id && matched.madrasa_id !== madrasaId) {
+          madrasaId = matched.madrasa_id;
+          updatePayload.madrasa_id = matched.madrasa_id;
+          needsUserUpdate = true;
+        }
+
+        if (matched.parent_phone && !userProfile?.phone) {
+          updatePayload.phone = matched.parent_phone;
+          needsUserUpdate = true;
+        }
+
+        if (needsUserUpdate) {
+          try {
+            await adminClient.from("users").update(updatePayload).eq("id", authUser.id);
+          } catch (updateErr) {
+            console.warn("Auto-sync user profile error in guards:", updateErr);
+          }
+        }
+      }
     }
 
     return {

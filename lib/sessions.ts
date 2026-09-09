@@ -197,3 +197,75 @@ export async function saveMadrasaMetadata(madrasaId: string, meta: MadrasaMetaWi
     return false;
   }
 }
+
+/**
+ * Pure data helper to enrich student object with metadata profile & admissions
+ */
+export function hydrateStudentWithMetadata(student: any, meta: any) {
+  if (!student) return student;
+  const profile = meta?.student_profiles?.[student.id] || {};
+  const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === student.id);
+
+  const residentialStatus = profile.residential_status !== undefined
+    ? profile.residential_status
+    : (admission?.residential_status || student.residential_status || "অনাবাসিক");
+
+  const isBoarding = profile.is_boarding !== undefined
+    ? Boolean(profile.is_boarding)
+    : (student.is_boarding !== undefined ? Boolean(student.is_boarding) : (residentialStatus === "আবাসিক"));
+
+  const boardingType = profile.boarding_type !== undefined
+    ? profile.boarding_type
+    : (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
+
+  const resolvedClassId = profile.class_id || student.class_id || "";
+  const resolvedClassName = profile.class_name || (Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) || student.class_name || "";
+
+  return {
+    ...student,
+    first_name: profile.first_name || student.first_name || "",
+    last_name: profile.last_name || student.last_name || "",
+    roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (student.roll_number || ""),
+    class_id: resolvedClassId,
+    class_name: resolvedClassName,
+    classes: student.classes || (resolvedClassName ? { id: resolvedClassId, name: resolvedClassName } : undefined),
+    father_name: profile.father_name || student.father_name || "",
+    parent_phone: profile.parent_phone || student.parent_phone || "",
+    address: profile.address || student.address || "",
+    photo_url: profile.photo_url || student.photo_url || admission?.photo_url || "",
+    residential_status: residentialStatus,
+    is_boarding: isBoarding,
+    boarding_type: boardingType,
+    mother_name: profile.mother_name || admission?.mother_name || student.mother_name || "",
+    guardian_name: profile.guardian_name || admission?.guardian_name || student.guardian_name || "",
+    guardian_relation: profile.guardian_relation || admission?.guardian_relation || student.guardian_relation || "",
+    emergency_contact: profile.emergency_contact || admission?.emergency_contact || student.emergency_contact || "",
+    nid_or_birth_cert: profile.nid_or_birth_cert || admission?.birth_certificate_no || student.nid_or_birth_cert || "",
+    previous_madrasa: profile.previous_madrasa || admission?.previous_institution || student.previous_madrasa || "",
+    room_no: profile.room_no !== undefined ? profile.room_no : (student.room_no || ""),
+    seat_no: profile.seat_no !== undefined ? profile.seat_no : (student.seat_no || ""),
+    student_status: profile.student_status || student.student_status || "ACTIVE",
+    admission_fee: profile.admission_fee !== undefined ? Number(profile.admission_fee) : 0,
+    monthly_fee: profile.monthly_fee !== undefined ? Number(profile.monthly_fee) : (student.monthly_fee || 0),
+    khoraki_fee: profile.khoraki_fee !== undefined ? Number(profile.khoraki_fee) : 0,
+    accommodation_fee: profile.accommodation_fee !== undefined ? Number(profile.accommodation_fee) : 0,
+    transport_fee: profile.transport_fee !== undefined ? Number(profile.transport_fee) : 0,
+    other_fee: profile.other_fee !== undefined ? Number(profile.other_fee) : 0,
+    fee_discount: profile.fee_discount !== undefined ? Number(profile.fee_discount) : 0,
+    fee_discount_reason: profile.fee_discount_reason || "",
+    total_monthly_fee: profile.total_monthly_fee !== undefined ? Number(profile.total_monthly_fee) : (
+      Number(profile.monthly_fee || student.monthly_fee || 0) +
+      Number(profile.khoraki_fee || 0) +
+      Number(profile.accommodation_fee || 0) +
+      Number(profile.transport_fee || 0) +
+      Number(profile.other_fee || 0) -
+      Number(profile.fee_discount || 0)
+    ),
+    father_occupation: profile.father_occupation || "",
+    medical_notes: profile.medical_notes !== undefined ? profile.medical_notes : (student.medical_notes || ""),
+    remarks: profile.remarks !== undefined ? profile.remarks : (student.remarks || ""),
+    blood_group: profile.blood_group || student.blood_group || admission?.blood_group || "",
+    date_of_birth: profile.date_of_birth || student.date_of_birth || admission?.date_of_birth || "",
+    gender: profile.gender || student.gender || admission?.gender || "MALE",
+  };
+}

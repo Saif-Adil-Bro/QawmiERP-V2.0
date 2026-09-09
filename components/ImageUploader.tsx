@@ -12,6 +12,8 @@ interface ImageUploaderProps {
   label?: string;
   subLabel?: string;
   defaultValue?: string;
+  value?: string;
+  onChange?: (url: string) => void;
   type?: "logo" | "signature" | "general";
   accept?: string;
   required?: boolean;
@@ -24,15 +26,18 @@ export default function ImageUploader({
   label = "ছবি আপলোড",
   subLabel = "PNG, JPG, JPEG বা WebP ফাইল নির্বাচন করুন",
   defaultValue = "",
+  value,
+  onChange,
   type = "general",
   accept = "image/png, image/jpeg, image/jpg, image/webp",
   required = false,
   aspectRatio = "portrait",
   placeholder = "https://iili.io/... অথবা https://i.ibb.co/..."
 }: ImageUploaderProps) {
+  const initialVal = value !== undefined ? value : defaultValue;
   const [method, setMethod] = useState<"file" | "url">("file");
-  const [url, setUrl] = useState<string>(defaultValue || "");
-  const [preview, setPreview] = useState<string | null>(defaultValue || null);
+  const [url, setUrl] = useState<string>(initialVal || "");
+  const [preview, setPreview] = useState<string | null>(initialVal || null);
   const [uploading, setUploading] = useState<boolean>(false);
   const [preferredProvider, setPreferredProvider] = useState<"auto" | "iili.io" | "imgbb">("auto");
   
@@ -46,20 +51,26 @@ export default function ImageUploader({
     return "ক্লাউড";
   };
 
-  const [provider, setProvider] = useState<string>(detectInitialProvider(defaultValue));
+  const [provider, setProvider] = useState<string>(detectInitialProvider(initialVal));
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync if defaultValue changes (e.g., student edit load)
+  // Sync if controlled value or defaultValue changes
   useEffect(() => {
-    if (defaultValue && defaultValue !== url) {
-      setUrl(defaultValue);
-      setPreview(defaultValue);
-      setProvider(detectInitialProvider(defaultValue));
+    const currentPropVal = value !== undefined ? value : defaultValue;
+    if (currentPropVal !== undefined && currentPropVal !== url) {
+      setUrl(currentPropVal);
+      setPreview(currentPropVal || null);
+      setProvider(detectInitialProvider(currentPropVal));
     }
-  }, [defaultValue]);
+  }, [value, defaultValue]);
+
+  const updateUrl = (newUrl: string) => {
+    setUrl(newUrl);
+    onChange?.(newUrl);
+  };
 
   const handleDrag = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -107,7 +118,7 @@ export default function ImageUploader({
     try {
       const res = await uploadImageAuto(file, type, preferredProvider);
       if (res.success && res.url) {
-        setUrl(res.url);
+        updateUrl(res.url);
         setPreview(res.url);
         setProvider(res.provider || "iili.io");
       } else {
@@ -121,7 +132,7 @@ export default function ImageUploader({
   };
 
   const clearImage = () => {
-    setUrl("");
+    updateUrl("");
     setPreview(null);
     setProvider("");
     setError("");
@@ -272,7 +283,7 @@ export default function ImageUploader({
               value={url}
               onChange={(e) => {
                 const val = e.target.value;
-                setUrl(val);
+                updateUrl(val);
                 setPreview(val.trim() ? val.trim() : null);
                 setProvider(detectInitialProvider(val));
               }}

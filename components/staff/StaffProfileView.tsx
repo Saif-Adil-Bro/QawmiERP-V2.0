@@ -57,6 +57,7 @@ import {
 import StaffFormModal from "./StaffFormModal";
 import StaffIdCardModal from "./StaffIdCardModal";
 import StaffCertificateGeneratorModal from "./StaffCertificateGeneratorModal";
+import ImageUploader from "@/components/ImageUploader";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
 interface StaffProfileViewProps {
@@ -1228,14 +1229,14 @@ export default function StaffProfileView({
               </div>
 
               <div>
-                <label className="font-semibold block mb-1">ফাইলের লিঙ্ক / URL</label>
-                <input
-                  type="text"
-                  required
+                <ImageUploader
+                  name="doc_file_url"
+                  label="ডকুমেন্ট / সনদ ফাইল"
+                  subLabel="গ্যালারি, স্ক্যান কপি বা ফাইল থেকে নির্বাচন করুন (সরাসরি iili.io / ImgBB ক্লাউডে আপলোড হবে)"
                   value={docUrl}
-                  onChange={(e) => setDocUrl(e.target.value)}
-                  placeholder="https://... অথবা ড্রাইভ লিঙ্ক"
-                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  onChange={(val) => setDocUrl(val)}
+                  aspectRatio="auto"
+                  placeholder="https://iili.io/... অথবা ডকুমেন্ট ড্রাইভ লিঙ্ক"
                 />
               </div>
 

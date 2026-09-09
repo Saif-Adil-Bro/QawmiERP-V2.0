@@ -29,6 +29,22 @@ export default async function DashboardPage() {
 
   // Fetch the user profile and madrasa info
   let profile, error;
+
+  // 1. First verify user profile and portal destination
+  const { data: userProfileData } = await supabase
+    .from("users")
+    .select("*, madrasas(name)")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  profile = userProfileData;
+
+  // Direct teachers, parents, and students to their designated portal
+  const targetUrl = getPortalRedirectUrl(profile?.role || user.user_metadata?.role);
+  if (targetUrl !== "/dashboard") {
+    redirect(targetUrl);
+  }
+
   let studentsCount = 0;
   let teachersCount = 0;
   let classesCount = 0;
@@ -43,27 +59,8 @@ export default async function DashboardPage() {
   let earlyWarningData: any = { attendance_alerts: [], exam_drop_alerts: [], total_critical_students: 0, checked_at: "" };
 
   try {
-    const [response, alerts] = await Promise.all([
-      withTimeout<any>(
-        supabase
-          .from("users")
-          .select("*, madrasas(name)")
-          .eq("id", user.id)
-          .single(),
-        8000,
-        "Fetch user profile"
-      ),
-      getEarlyWarningAlerts(),
-    ]);
-    profile = response.data;
-    error = response.error;
+    const alerts = await getEarlyWarningAlerts();
     earlyWarningData = alerts;
-
-    // Check if user is a teacher, parent or student and should be in their dedicated portal
-    const targetUrl = getPortalRedirectUrl(profile?.role || user.user_metadata?.role);
-    if (targetUrl !== "/dashboard") {
-      redirect(targetUrl);
-    }
 
     if (profile?.madrasa_id) {
       const today = new Date().toISOString().split('T')[0];

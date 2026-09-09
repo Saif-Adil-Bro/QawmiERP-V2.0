@@ -23,6 +23,7 @@ import {
   getStudentFeeProfile,
   getFeeMetadata,
 } from "@/app/actions/fee-management";
+import { getPortalStudentData } from "@/lib/portal-data";
 
 export const dynamic = "force-dynamic";
 
@@ -30,48 +31,13 @@ export default async function PortalOverview(props: {
   searchParams?: Promise<{ student_id?: string }>;
 }) {
   const params = props.searchParams ? (await props.searchParams) || {} : {};
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const portalData = await getPortalStudentData(params.student_id);
 
-  if (!user) return null;
+  if (!portalData || !portalData.user) return null;
 
-  // Get user's madrasa & profile
-  const { data: userData } = await supabase
-    .from("users")
-    .select("*")
-    .eq("id", user.id)
-    .single();
+  const { students, child, user, userData, madrasaId, adminClient, supabase } = portalData;
 
-  const madrasaId = userData?.madrasa_id;
-
-  // Get data access scope (filters by linked children for parents)
-  const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
-  const scope = await getUserDataAccessScope();
-
-  // Fetch students for this parent / user
-  let studentsQuery = supabase
-    .from("students")
-    .select("*, classes(name)")
-    .order("roll_number", { ascending: true });
-
-  if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
-    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
-  } else if (madrasaId) {
-    studentsQuery = studentsQuery.eq("madrasa_id", madrasaId);
-  }
-
-  const { data: fetchedStudents } = await studentsQuery;
-  let students = fetchedStudents || [];
-
-  if (students.length === 0) {
-    const { data: fallbackStudents } = await supabase
-      .from("students")
-      .select("*, classes(name)")
-      .limit(5);
-    students = fallbackStudents || [];
-  }
-
-  if (students.length === 0) {
+  if (students.length === 0 || !child) {
     return (
       <div className="flex flex-col items-center justify-center p-8 bg-white rounded-2xl shadow-xs border border-slate-200 text-center">
         <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mb-3">
@@ -85,12 +51,8 @@ export default async function PortalOverview(props: {
     );
   }
 
-  // Selected child
-  const selectedStudentId = params.student_id || students[0]?.id;
-  const child = students.find((s) => s.id === selectedStudentId) || students[0];
-
-  // Fetch student's attendance records
-  const { data: attendanceList } = await supabase
+  // Fetch student's attendance records safely scoped to verified child
+  const { data: attendanceList } = await adminClient
     .from("attendance")
     .select("*")
     .eq("student_id", child.id)
@@ -98,13 +60,13 @@ export default async function PortalOverview(props: {
 
   // Calculate attendance statistics
   const totalDays = attendanceList?.length || 0;
-  const presentDays = attendanceList?.filter((a) => a.status === "Present").length || 0;
-  const absentDays = attendanceList?.filter((a) => a.status === "Absent").length || 0;
-  const lateDays = attendanceList?.filter((a) => a.status === "Late" || a.status === "Leave").length || 0;
+  const presentDays = attendanceList?.filter((a: any) => a.status === "Present").length || 0;
+  const absentDays = attendanceList?.filter((a: any) => a.status === "Absent").length || 0;
+  const lateDays = attendanceList?.filter((a: any) => a.status === "Late" || a.status === "Leave").length || 0;
   const attendanceRate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
 
   // Fetch latest Hifz log
-  const { data: latestHifz } = await supabase
+  const { data: latestHifz } = await adminClient
     .from("hifz_logs")
     .select("*")
     .eq("student_id", child.id)
@@ -116,7 +78,7 @@ export default async function PortalOverview(props: {
   const [feeProfile, feeMeta, { data: feesList }] = await Promise.all([
     getStudentFeeProfile(child.id),
     madrasaId ? getFeeMetadata(madrasaId) : null,
-    supabase
+    adminClient
       .from("fees")
       .select("*")
       .eq("student_id", child.id)
@@ -137,7 +99,7 @@ export default async function PortalOverview(props: {
   // Combine payments with deduplication
   const combinedPayments: any[] = [...metadataPayments];
   if (feesList) {
-    feesList.forEach((sf) => {
+    feesList.forEach((sf: any) => {
       const extractedReceipt = extractReceiptNo(sf.notes);
       const sfReceiptNo = sf.receipt_number || extractedReceipt;
       const sfAmount = Number(sf.amount_paid) || Number(sf.amount) || 0;
@@ -536,7 +498,7 @@ export default async function PortalOverview(props: {
 
           <div className="p-4 sm:p-5 divide-y divide-slate-100">
             {attendanceList && attendanceList.length > 0 ? (
-              attendanceList.slice(0, 5).map((record) => (
+              attendanceList.slice(0, 5).map((record: any) => (
                 <div key={record.id} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div
@@ -616,7 +578,7 @@ export default async function PortalOverview(props: {
 
           <div className="p-4 sm:p-5 space-y-3">
             {notices && notices.length > 0 ? (
-              notices.map((n) => (
+              notices.map((n: any) => (
                 <div
                   key={n.id}
                   className="p-3.5 bg-slate-50 hover:bg-indigo-50/40 rounded-xl border border-slate-200 transition space-y-1"

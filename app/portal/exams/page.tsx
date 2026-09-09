@@ -15,6 +15,7 @@ import {
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { getMadrasaMetadata, MadrasaMetaWithSessions } from "@/lib/sessions";
+import { getPortalStudentData } from "@/lib/portal-data";
 
 export const dynamic = "force-dynamic";
 
@@ -22,44 +23,13 @@ export default async function ParentPortalExams(props: {
   searchParams?: Promise<{ student_id?: string; exam_id?: string }>;
 }) {
   const params = props.searchParams ? (await props.searchParams) || {} : {};
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const portalData = await getPortalStudentData(params.student_id);
 
-  if (!user) return null;
+  if (!portalData || !portalData.user) return null;
 
-  const { data: userData } = await supabase
-    .from("users")
-    .select("madrasa_id")
-    .eq("id", user.id)
-    .single();
-  const madrasaId = userData?.madrasa_id;
+  const { students, child, madrasaId, adminClient } = portalData;
 
-  const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
-  const scope = await getUserDataAccessScope();
-
-  let studentsQuery = supabase
-    .from("students")
-    .select("id, first_name, last_name, roll_number, class_name, classes(name)")
-    .order("roll_number", { ascending: true });
-
-  if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
-    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
-  } else if (madrasaId) {
-    studentsQuery = studentsQuery.eq("madrasa_id", madrasaId);
-  }
-
-  const { data: fetchedStudents } = await studentsQuery;
-  let students = fetchedStudents || [];
-
-  if (students.length === 0) {
-    const { data: fallbackStudents } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, classes(name)")
-      .limit(5);
-    students = fallbackStudents || [];
-  }
-
-  if (students.length === 0) {
+  if (students.length === 0 || !child) {
     return (
       <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
         কোন শিক্ষার্থী পাওয়া যায়নি।
@@ -67,12 +37,9 @@ export default async function ParentPortalExams(props: {
     );
   }
 
-  const selectedStudentId = params.student_id || students[0].id;
-  const child = students.find((s) => s.id === selectedStudentId) || students[0];
-
   // Fetch all exams for this madrasa and publication metadata
   const [{ data: exams }, madrasaMeta] = await Promise.all([
-    supabase
+    adminClient
       .from("exams")
       .select("id, title, year, start_date, status")
       .eq("madrasa_id", madrasaId)
@@ -83,7 +50,7 @@ export default async function ParentPortalExams(props: {
   const publishedExams = madrasaMeta?.published_exams || {};
 
   // Enrich exams with published status
-  const enrichedExams = (exams || []).map((e) => {
+  const enrichedExams = (exams || []).map((e: any) => {
     const publishInfo = publishedExams[e.id];
     const isPublished = Boolean(publishInfo?.is_published || e.status === "Published");
     return {
@@ -95,13 +62,13 @@ export default async function ParentPortalExams(props: {
   });
 
   const selectedExamId = params.exam_id || enrichedExams?.[0]?.id;
-  const currentExam = enrichedExams?.find((e) => e.id === selectedExamId);
+  const currentExam = enrichedExams?.find((e: any) => e.id === selectedExamId);
   const isCurrentExamPublished = Boolean(currentExam?.is_published);
 
-  // Fetch results for this student
+  // Fetch results for this student via adminClient
   let results: any[] = [];
   if (isCurrentExamPublished && selectedExamId) {
-    const { data } = await supabase
+    const { data } = await adminClient
       .from("exam_results")
       .select("*, exams(id, title, year, start_date, status)")
       .eq("student_id", child.id)
@@ -164,7 +131,7 @@ export default async function ParentPortalExams(props: {
       {/* Exam Selector Tabs with publication badge */}
       {enrichedExams && enrichedExams.length > 0 && (
         <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-          {enrichedExams.map((exam) => (
+          {enrichedExams.map((exam: any) => (
             <Link
               key={exam.id}
               href={`/portal/exams?student_id=${child.id}&exam_id=${exam.id}`}

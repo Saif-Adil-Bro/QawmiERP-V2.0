@@ -12,6 +12,7 @@ import ParentPortalFeesClient from "./ParentPortalFeesClient";
 import DirectPayClient from "@/app/pay/DirectPayClient";
 import Link from "next/link";
 import { AlertCircle } from "lucide-react";
+import { getPortalStudentData } from "@/lib/portal-data";
 
 export const dynamic = "force-dynamic";
 
@@ -53,39 +54,12 @@ export default async function ParentPortalFees(props: {
   }
 
   // Authenticated flow
-  const { data: userData } = await supabase
-    .from("users")
-    .select("madrasa_id")
-    .eq("id", user.id)
-    .single();
-  const madrasaId = userData?.madrasa_id;
+  const portalData = await getPortalStudentData(params.student_id);
+  if (!portalData || !portalData.user) return null;
 
-  const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
-  const scope = await getUserDataAccessScope();
+  const { students, child, madrasaId, adminClient } = portalData;
 
-  let studentsQuery = supabase
-    .from("students")
-    .select("id, first_name, last_name, roll_number, class_name, classes(name)")
-    .order("roll_number", { ascending: true });
-
-  if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
-    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
-  } else if (madrasaId) {
-    studentsQuery = studentsQuery.eq("madrasa_id", madrasaId);
-  }
-
-  const { data: fetchedStudents } = await studentsQuery;
-  let students = fetchedStudents || [];
-
-  if (students.length === 0) {
-    const { data: fallbackStudents } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, classes(name)")
-      .limit(5);
-    students = fallbackStudents || [];
-  }
-
-  if (students.length === 0) {
+  if (students.length === 0 || !child) {
     return (
       <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
         কোন শিক্ষার্থী সংযুক্ত পাওয়া যায়নি।
@@ -93,11 +67,8 @@ export default async function ParentPortalFees(props: {
     );
   }
 
-  const selectedStudentId = params.student_id || students[0].id;
-  const child = students.find((s) => s.id === selectedStudentId) || students[0];
-
-  // Get fees from SQL table
-  const { data: sqlFees } = await supabase
+  // Get fees from SQL table using adminClient to avoid RLS drop
+  const { data: sqlFees } = await adminClient
     .from("fees")
     .select("*")
     .eq("student_id", child.id)
@@ -125,7 +96,7 @@ export default async function ParentPortalFees(props: {
   // Combine payments with strict deduplication
   const combinedPayments = [...metadataPayments];
   if (sqlFees) {
-    sqlFees.forEach((sf) => {
+    sqlFees.forEach((sf: any) => {
       const extractedReceipt = extractReceiptNo(sf.notes);
       const sfReceiptNo = sf.receipt_number || extractedReceipt;
       const sfAmount = Number(sf.amount_paid) || Number(sf.amount) || 0;

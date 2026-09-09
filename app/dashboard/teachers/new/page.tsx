@@ -1,17 +1,19 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { createTeacher } from "@/app/actions/teachers";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import ImageUploader from "@/components/ImageUploader";
 
 const initialState: { error?: string; success?: boolean } = {};
 
 export default function NewTeacherPage() {
   const [state, formAction, isPending] = useActionState(createTeacher, initialState);
   const router = useRouter();
+  const [photoUrl, setPhotoUrl] = useState("");
 
   useEffect(() => {
     if (state?.success) {
@@ -38,6 +40,17 @@ export default function NewTeacherPage() {
               {state.error}
             </div>
           )}
+
+          <div>
+            <ImageUploader
+              name="photo_url"
+              label="প্রোফাইল ছবি"
+              subLabel="গ্যালারি বা ফাইল থেকে ছবি সিলেক্ট করুন (সরাসরি iili.io / ImgBB তে ক্লাউড আপলোড হবে)"
+              value={photoUrl}
+              onChange={setPhotoUrl}
+              aspectRatio="portrait"
+            />
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">

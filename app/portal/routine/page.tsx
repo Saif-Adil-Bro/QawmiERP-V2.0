@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server";
 import {
   CalendarDays,
   Clock,
@@ -10,7 +9,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-import { getUserDataAccessScope } from "@/lib/data-access-guards";
+import { getPortalStudentData } from "@/lib/portal-data";
 
 export const dynamic = "force-dynamic";
 
@@ -35,43 +34,13 @@ export default async function ParentPortalRoutine(props: {
   searchParams?: Promise<{ student_id?: string }>;
 }) {
   const params = props.searchParams ? (await props.searchParams) || {} : {};
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const portalData = await getPortalStudentData(params.student_id);
 
-  if (!user) return null;
+  if (!portalData || !portalData.user) return null;
 
-  const { data: userData } = await supabase
-    .from("users")
-    .select("madrasa_id")
-    .eq("id", user.id)
-    .single();
-  const madrasaId = userData?.madrasa_id;
+  const { students, child, madrasaId, adminClient } = portalData;
 
-  const scope = await getUserDataAccessScope();
-
-  let studentsQuery = supabase
-    .from("students")
-    .select("id, first_name, last_name, roll_number, class_id, class_name, classes(id, name)")
-    .order("roll_number", { ascending: true });
-
-  if (!scope.isUnrestricted && scope.allowedStudentIds.length > 0) {
-    studentsQuery = studentsQuery.in("id", scope.allowedStudentIds);
-  } else if (madrasaId) {
-    studentsQuery = studentsQuery.eq("madrasa_id", madrasaId);
-  }
-
-  const { data: fetchedStudents } = await studentsQuery;
-  let students = fetchedStudents || [];
-
-  if (students.length === 0) {
-    const { data: fallbackStudents } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, class_id, class_name, classes(id, name)")
-      .limit(5);
-    students = fallbackStudents || [];
-  }
-
-  if (students.length === 0) {
+  if (students.length === 0 || !child) {
     return (
       <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
         কোন শিক্ষার্থী সংযুক্ত পাওয়া যায়নি।
@@ -79,13 +48,11 @@ export default async function ParentPortalRoutine(props: {
     );
   }
 
-  const selectedStudentId = params.student_id || students[0].id;
-  const child: any = students.find((s: any) => s.id === selectedStudentId) || students[0];
   const classId = child?.class_id || (Array.isArray(child?.classes) ? child.classes[0]?.id : child?.classes?.id);
   const className = (Array.isArray(child?.classes) ? child.classes[0]?.name : child?.classes?.name) || child?.class_name || "হিফজ বিভাগ";
 
-  // Fetch routine periods for this student's class from `routines` table
-  let routineQuery = supabase
+  // Fetch routine periods for this student's class from `routines` table via adminClient
+  let routineQuery = adminClient
     .from("routines")
     .select("*, subjects(name), teachers(first_name, last_name)")
     .eq("madrasa_id", madrasaId);

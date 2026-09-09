@@ -21,6 +21,7 @@ export async function createTeacher(prevState: any, formData: FormData) {
   const designation = formData.get("designation") as string;
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
+  const photoUrl = formData.get("photo_url") as string;
 
   if (!firstName || !lastName) {
     return { error: "প্রথম এবং শেষ নাম আবশ্যক।" };
@@ -58,14 +59,17 @@ export async function createTeacher(prevState: any, formData: FormData) {
     }
   }
 
-  const { error } = await supabase.from("teachers").insert({
+  const insertData: any = {
     madrasa_id: finalMadrasaId,
     first_name: firstName,
     last_name: lastName,
     phone: phone,
     designation: designation,
     email: email,
-  });
+  };
+  if (photoUrl) insertData.photo_url = photoUrl;
+
+  const { error } = await supabase.from("teachers").insert(insertData);
 
   if (error) {
     console.error("Error creating teacher:", error);
@@ -102,20 +106,26 @@ export async function updateTeacher(prevState: any, formData: FormData) {
   const phone = formData.get("phone") as string;
   const designation = formData.get("designation") as string;
   const email = formData.get("email") as string;
+  const photoUrl = formData.get("photo_url") as string;
 
   if (!firstName || !lastName) {
     return { error: "প্রথম এবং শেষ নাম আবশ্যক।" };
   }
 
+  const updateData: any = {
+    first_name: firstName,
+    last_name: lastName,
+    phone: phone,
+    designation: designation,
+    email: email,
+  };
+  if (photoUrl !== null && photoUrl !== undefined) {
+    updateData.photo_url = photoUrl;
+  }
+
   const { error } = await supabase
     .from("teachers")
-    .update({
-      first_name: firstName,
-      last_name: lastName,
-      phone: phone,
-      designation: designation,
-      email: email,
-    })
+    .update(updateData)
     .eq("id", id);
 
   if (error) {

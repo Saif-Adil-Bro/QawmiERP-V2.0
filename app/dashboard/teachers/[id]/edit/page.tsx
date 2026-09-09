@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useParams } from "next/navigation";
+import ImageUploader from "@/components/ImageUploader";
 
 const initialState: { error?: string; success?: boolean } = {};
 
@@ -16,12 +17,16 @@ export default function EditTeacherPage() {
   const id = params?.id as string;
   const [teacher, setTeacher] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [photoUrl, setPhotoUrl] = useState("");
 
   useEffect(() => {
     async function fetchTeacher() {
       if (id) {
         const data = await getTeacher(id);
         setTeacher(data);
+        if (data?.photo_url) {
+          setPhotoUrl(data.photo_url);
+        }
         setLoading(false);
       }
     }
@@ -68,6 +73,18 @@ export default function EditTeacherPage() {
               {state.error}
             </div>
           )}
+
+          <div>
+            <ImageUploader
+              name="photo_url"
+              label="প্রোফাইল ছবি"
+              subLabel="গ্যালারি বা ফাইল থেকে ছবি সিলেক্ট করুন (সরাসরি iili.io / ImgBB তে ক্লাউড আপলোড হবে)"
+              value={photoUrl}
+              defaultValue={teacher.photo_url || ""}
+              onChange={setPhotoUrl}
+              aspectRatio="portrait"
+            />
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">

@@ -1,18 +1,26 @@
-const fs = require('fs');
-const { createClient } = require('@supabase/supabase-js');
-
-const envLocal = fs.readFileSync('.env.local', 'utf8');
-let url = '', key = '';
-for (const line of envLocal.split('\n')) {
-  if (line.startsWith('NEXT_PUBLIC_SUPABASE_URL=')) url = line.split('=')[1].replace(/"/g, '');
-  if (line.startsWith('SUPABASE_SERVICE_ROLE_KEY=')) key = line.split('=')[1].replace(/"/g, '');
+const fs = require("fs");
+if (fs.existsSync(".env.local")) {
+  const env = fs.readFileSync(".env.local", "utf8");
+  env.split("\n").forEach(line => {
+    const idx = line.indexOf("=");
+    if (idx > 0) {
+      const k = line.substring(0, idx).trim();
+      const v = line.substring(idx + 1).trim().replace(/^['"]|['"]$/g, "");
+      process.env[k] = v;
+    }
+  });
 }
+const { createClient } = require("@supabase/supabase-js");
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const client = createClient(url, key);
 
-const supabase = createClient(url, key);
-
-async function main() {
-  const { data, error } = await supabase.from('madrasas').select('*').limit(1);
-  console.log('Error:', error);
-  console.log('Data:', data);
+async function run() {
+  const { data: users, error: uErr } = await client.from("users").select("id, email, full_name, role, madrasa_id, phone");
+  console.log("=== USERS ===");
+  console.log(users);
+  const { data: students, error: sErr } = await client.from("students").select("id, first_name, last_name, madrasa_id, parent_phone, father_name, roll_number, student_id");
+  console.log("=== STUDENTS ===");
+  console.log(students);
 }
-main();
+run();
