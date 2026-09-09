@@ -12,6 +12,14 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
+  RefreshCw,
+  Sparkles,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  BookmarkCheck,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import {
   AssignmentItem,
@@ -21,6 +29,9 @@ import {
 } from "@/lib/assignmentTypes";
 import { saveAssignment } from "@/app/actions/assignments";
 import { getStudents } from "@/app/actions/students";
+import { getSyllabusesForClassAction } from "@/app/actions/syllabus";
+import { Syllabus, SyllabusTopic } from "@/lib/syllabus";
+import { toBanglaNumber } from "@/lib/numberToBangla";
 import AssignmentImageUploader from "./AssignmentImageUploader";
 
 interface AssignmentFormModalProps {
@@ -66,6 +77,22 @@ export default function AssignmentFormModal({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  // Syllabus Auto-Sync States
+  const [syncToSyllabus, setSyncToSyllabus] = useState(true);
+  const [classSyllabuses, setClassSyllabuses] = useState<Syllabus[]>([]);
+  const [loadingSyllabuses, setLoadingSyllabuses] = useState(false);
+  const [selectedSyllabusId, setSelectedSyllabusId] = useState<string>(
+    initialData?.syllabus_id || ""
+  );
+  const [selectedChapterId, setSelectedChapterId] = useState<string>("");
+  const [selectedTopicIds, setSelectedTopicIds] = useState<string[]>([]);
+  const [pageFrom, setPageFrom] = useState<string>(initialData?.page_from || "");
+  const [pageTo, setPageTo] = useState<string>(initialData?.page_to || "");
+  const [progressType, setProgressType] = useState<"NEW_LESSON" | "REVISION" | "ASSESSMENT">(
+    initialData?.type === "EXAM_REVISION" ? "REVISION" : "NEW_LESSON"
+  );
+  const [showTopicsPicker, setShowTopicsPicker] = useState(false);
+
   // Update form fields when initialData changes
   useEffect(() => {
     if (initialData) {
@@ -79,6 +106,10 @@ export default function AssignmentFormModal({
       setImageUrls(initialData.image_urls || []);
       setAssignedDate(initialData.assigned_date);
       setDueDate(initialData.due_date || initialData.assigned_date);
+      setSelectedSyllabusId(initialData.syllabus_id || "");
+      setPageFrom(initialData.page_from || "");
+      setPageTo(initialData.page_to || "");
+      setSyncToSyllabus(initialData.is_syllabus_synced !== false);
     } else {
       setTitle("");
       setType("TODAY_LESSON");
@@ -91,8 +122,69 @@ export default function AssignmentFormModal({
       const today = new Date().toISOString().split("T")[0];
       setAssignedDate(today);
       setDueDate(today);
+      setSelectedSyllabusId("");
+      setSelectedChapterId("");
+      setSelectedTopicIds([]);
+      setPageFrom("");
+      setPageTo("");
+      setSyncToSyllabus(true);
     }
   }, [initialData, defaultClassId, classes]);
+
+  // Fetch syllabuses for current class
+  useEffect(() => {
+    if (!classId) return;
+
+    let isMounted = true;
+    async function fetchSyllabuses() {
+      try {
+        setLoadingSyllabuses(true);
+        const res = await getSyllabusesForClassAction(classId);
+        if (isMounted && res.success && res.syllabuses) {
+          setClassSyllabuses(res.syllabuses);
+
+          if (initialData?.syllabus_id) {
+            setSelectedSyllabusId(initialData.syllabus_id);
+          } else if (res.syllabuses.length > 0) {
+            // Find syllabus matching subjectName or auto-select first
+            const matched = res.syllabuses.find(
+              (s) =>
+                (s.book_name && subjectName && s.book_name.trim().toLowerCase() === subjectName.trim().toLowerCase()) ||
+                (s.subject_name && subjectName && s.subject_name.trim().toLowerCase() === subjectName.trim().toLowerCase())
+            );
+            if (matched) {
+              setSelectedSyllabusId(matched.id);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Could not load syllabuses:", err);
+      } finally {
+        if (isMounted) setLoadingSyllabuses(false);
+      }
+    }
+
+    fetchSyllabuses();
+    return () => {
+      isMounted = false;
+    };
+  }, [classId]);
+
+  // Handler when user selects a syllabus
+  const handleSelectSyllabus = (sId: string) => {
+    setSelectedSyllabusId(sId);
+    const target = classSyllabuses.find((s) => s.id === sId);
+    if (target) {
+      setSubjectName(target.book_name || target.subject_name || "");
+      if (target.current_page && (!pageFrom || pageFrom === "0")) {
+        setPageFrom(String(target.current_page + 1));
+      }
+      setSelectedChapterId("");
+      setSelectedTopicIds([]);
+    }
+  };
+
+  const activeSyllabus = classSyllabuses.find((s) => s.id === selectedSyllabusId);
 
   // Load students for chosen class when targeting specific student
   useEffect(() => {
@@ -161,6 +253,14 @@ export default function AssignmentFormModal({
         assigned_date: assignedDate,
         due_date: dueDate || null,
         teacher_name: defaultTeacherName,
+        // Syllabus Auto-Sync Payload
+        sync_to_syllabus: syncToSyllabus,
+        syllabus_id: selectedSyllabusId || undefined,
+        chapter_id: selectedChapterId || undefined,
+        selected_topic_ids: selectedTopicIds,
+        page_from: pageFrom.trim() || undefined,
+        page_to: pageTo.trim() || undefined,
+        progress_type: progressType,
       });
 
       if (res && res.success) {
@@ -355,6 +455,241 @@ export default function AssignmentFormModal({
                 className="w-full p-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
               />
             </div>
+          </div>
+
+          {/* Syllabus Auto-Sync Card */}
+          <div className="rounded-2xl border border-emerald-200/90 bg-emerald-50/40 p-3.5 sm:p-4 space-y-3 shadow-xs">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <div className="p-2 bg-emerald-100 text-emerald-800 rounded-xl shrink-0 mt-0.5">
+                  <RefreshCw className={`w-4 h-4 ${syncToSyllabus ? "text-emerald-700" : "text-slate-400"}`} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs sm:text-sm font-bold text-slate-900">
+                      সিলেবাস প্রোগ্রেসে অটো-সিঙ্ক (Auto-Sync)
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px] border border-emerald-300">
+                      অটোমেটেড সিঙ্ক
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                    এই পাঠ সাবমিট করার সাথে সাথে সিলেবাসের পৃষ্ঠা ও অগ্রগতি স্বয়ংক্রিয়ভাবে আপডেট হবে
+                  </p>
+                </div>
+              </div>
+
+              {/* Toggle Switch */}
+              <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                <input
+                  type="checkbox"
+                  checked={syncToSyllabus}
+                  onChange={(e) => setSyncToSyllabus(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600 shadow-xs"></div>
+              </label>
+            </div>
+
+            {syncToSyllabus && (
+              <div className="pt-3 border-t border-emerald-100 space-y-3 animate-in fade-in">
+                {/* Syllabus selection */}
+                {loadingSyllabuses ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-500 py-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                    <span>সিলেবাস তালিকা লোড হচ্ছে...</span>
+                  </div>
+                ) : classSyllabuses.length > 0 ? (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        সংযুক্ত কিতাব / সিলেবাস নির্বাচন করুন
+                      </label>
+                      <select
+                        value={selectedSyllabusId}
+                        onChange={(e) => handleSelectSyllabus(e.target.value)}
+                        className="w-full p-2 bg-white border border-emerald-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                      >
+                        <option value="">-- কিতাব / সিলেবাস নির্বাচন করুন --</option>
+                        {classSyllabuses.map((s) => {
+                          const currP = s.current_page || 0;
+                          const totP = s.total_pages || 1;
+                          const pct = Math.min(100, Math.round((currP / totP) * 100));
+                          return (
+                            <option key={s.id} value={s.id}>
+                              📖 {s.book_name || s.subject_name} (বর্তমান পৃষ্ঠা: {toBanglaNumber(currP)} / {toBanglaNumber(totP)} • {toBanglaNumber(pct)}%)
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    {activeSyllabus && (
+                      <div className="p-3 bg-white/90 border border-emerald-200 rounded-xl text-xs space-y-2">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-600">
+                          <span>
+                            বর্তমান কিতাবের পৃষ্ঠা:{" "}
+                            <span className="text-emerald-700 font-extrabold">
+                              {toBanglaNumber(activeSyllabus.current_page || 0)}
+                            </span>{" "}
+                            / {toBanglaNumber(activeSyllabus.total_pages || 0)}
+                          </span>
+                          <span className="text-emerald-700 font-bold">
+                            মোট অগ্রগতি: {toBanglaNumber(Math.min(100, Math.round(((activeSyllabus.current_page || 0) / (activeSyllabus.total_pages || 1)) * 100)))}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                          <div
+                            className="bg-emerald-600 h-full rounded-full transition-all"
+                            style={{
+                              width: `${Math.min(100, Math.round(((activeSyllabus.current_page || 0) / (activeSyllabus.total_pages || 1)) * 100))}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">এই জামাতে এখনও ডিজিটাল সিলেবাস যুক্ত করা নেই।</p>
+                      <p className="text-[11px] text-amber-700 mt-0.5">
+                        তবে আপনি বিষয় ও পৃষ্ঠা নম্বর উল্লেখ করলে তা সরাসরি দৈনিক পাঠের রেকর্ডে ও কিতাব লগে সংরক্ষিত হয়ে থাকবে।
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Page range and Progress Type */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      পাঠ্য পৃষ্ঠা শুরু (From)
+                    </label>
+                    <input
+                      type="text"
+                      value={pageFrom}
+                      onChange={(e) => setPageFrom(e.target.value)}
+                      placeholder="যেমন: ১৫"
+                      className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      পাঠ্য পৃষ্ঠা শেষ (To)
+                    </label>
+                    <input
+                      type="text"
+                      value={pageTo}
+                      onChange={(e) => setPageTo(e.target.value)}
+                      placeholder="যেমন: ২০"
+                      className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      সিলেবাসে প্রভাব
+                    </label>
+                    <select
+                      value={progressType}
+                      onChange={(e) => setProgressType(e.target.value as any)}
+                      className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                    >
+                      <option value="NEW_LESSON">নতুন দরস (প্রোগ্রেস বাড়াবে)</option>
+                      <option value="REVISION">দোহরানো / রিভিশন (রিভিশন সংখ্যা)</option>
+                      <option value="ASSESSMENT">মূল্যায়ন / পরীক্ষা</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Topics from syllabus (collapsible) */}
+                {activeSyllabus && activeSyllabus.chapters && activeSyllabus.chapters.length > 0 && (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowTopicsPicker(!showTopicsPicker)}
+                      className="w-full py-2 px-3 bg-white border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 flex items-center justify-between hover:bg-emerald-50/50 transition cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <BookmarkCheck className="w-4 h-4 text-emerald-600" />
+                        <span>সিলেবাসের পাঠ্য বিষয় / টপিক নির্বাচন ({toBanglaNumber(selectedTopicIds.length)} টি নির্বাচিত)</span>
+                      </span>
+                      {showTopicsPicker ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+
+                    {showTopicsPicker && (
+                      <div className="mt-2 p-3 bg-white border border-slate-200 rounded-xl max-h-48 overflow-y-auto space-y-3 animate-in fade-in">
+                        {activeSyllabus.chapters.map((ch) => (
+                          <div key={ch.id} className="space-y-1.5">
+                            <div className="text-[11px] font-bold text-slate-700 border-b border-slate-100 pb-0.5">
+                              {ch.name}
+                            </div>
+                            <div className="space-y-1 pl-1">
+                              {(ch.topics || []).map((tp) => {
+                                const isChecked = selectedTopicIds.includes(tp.id);
+                                return (
+                                  <div
+                                    key={tp.id}
+                                    className="flex items-center justify-between p-1.5 hover:bg-slate-50 rounded-lg text-xs"
+                                  >
+                                    <label className="flex items-center gap-2 cursor-pointer flex-1 mr-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => {
+                                          if (isChecked) {
+                                            setSelectedTopicIds(selectedTopicIds.filter((id) => id !== tp.id));
+                                          } else {
+                                            setSelectedTopicIds([...selectedTopicIds, tp.id]);
+                                            setSelectedChapterId(ch.id);
+                                          }
+                                        }}
+                                        className="rounded text-emerald-600 focus:ring-emerald-500"
+                                      />
+                                      <span className="text-slate-800 font-medium">{tp.name}</span>
+                                    </label>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <span
+                                        className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
+                                          tp.status === "COMPLETED"
+                                            ? "bg-emerald-100 text-emerald-800"
+                                            : tp.status === "IN_PROGRESS"
+                                            ? "bg-blue-100 text-blue-800"
+                                            : "bg-slate-100 text-slate-600"
+                                        }`}
+                                      >
+                                        {tp.status === "COMPLETED"
+                                          ? "সম্পন্ন"
+                                          : tp.status === "IN_PROGRESS"
+                                          ? "চলমান"
+                                          : "বাকি"}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setTitle(tp.name);
+                                        }}
+                                        title="এই টপিকটিকে পড়ার শিরোনাম হিসেবে সেট করুন"
+                                        className="text-[10px] text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded transition cursor-pointer font-bold"
+                                      >
+                                        শিরোনামে নিন
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Dates */}

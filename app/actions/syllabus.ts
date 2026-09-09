@@ -51,13 +51,17 @@ export async function getSyllabusDashboardData(overrideTeacherId?: string) {
       { data: subjects },
       { data: teachers },
       { data: routines },
+      { data: madrasa },
     ] = await Promise.all([
       getMadrasaMetadata(madrasaId),
       admin.from("classes").select("id, name").order("name"),
       admin.from("subjects").select("id, name, code").order("name"),
       admin.from("teachers").select("id, first_name, last_name, phone"),
       admin.from("routines").select("*, classes(name), subjects(name), teachers(first_name, last_name)"),
+      admin.from("madrasas").select("id, name, address, phone").eq("id", madrasaId).maybeSingle(),
     ]);
+
+    const madrasaName = madrasa?.name || "কওমি মাদরাসা";
 
     const activeHolidays = (meta.academic_holidays || []).filter((h) => !h.is_archived);
 
@@ -184,11 +188,28 @@ export async function getSyllabusDashboardData(overrideTeacherId?: string) {
         routines: routines || [],
         holidays: activeHolidays,
         currentUser: user,
+        madrasaName: madrasaName,
+        madrasa: madrasa || null,
       },
     };
   } catch (err: any) {
     console.error("Error in getSyllabusDashboardData:", err);
     return { success: false, error: err.message || "Failed to load syllabus dashboard data" };
+  }
+}
+
+/**
+ * Fetches all syllabuses or filtered by class for auto-sync dropdowns
+ */
+export async function getSyllabusesForClassAction(classId?: string) {
+  try {
+    const { madrasaId } = await resolveContext();
+    const syllabuses = await getMadrasaSyllabuses(madrasaId);
+    const filtered = classId ? syllabuses.filter((s) => s.class_id === classId) : syllabuses;
+    return { success: true, syllabuses: filtered };
+  } catch (err: any) {
+    console.error("Error in getSyllabusesForClassAction:", err);
+    return { success: false, error: err.message || "Failed to fetch syllabuses", syllabuses: [] };
   }
 }
 

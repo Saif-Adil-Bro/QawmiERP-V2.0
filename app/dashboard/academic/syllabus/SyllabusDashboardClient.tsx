@@ -72,6 +72,8 @@ interface Props {
     routines: any[];
     holidays: any[];
     currentUser: any;
+    madrasaName?: string;
+    madrasa?: any;
   };
 }
 
@@ -1526,6 +1528,7 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
         }}
         metrics={selectedPrintMetrics}
         syllabus={selectedPrintSyllabus}
+        madrasaName={data.madrasaName || initialData.madrasaName || "কওমি মাদরাসা"}
       />
     </div>
   );

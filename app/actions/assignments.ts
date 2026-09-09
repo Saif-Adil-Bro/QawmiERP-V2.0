@@ -11,6 +11,8 @@ import {
   AssignmentTargetType,
   ASSIGNMENT_TYPE_MAP,
 } from "@/lib/assignmentTypes";
+import { getMadrasaSyllabuses } from "@/lib/syllabus-server";
+import { recordDailyClassAction } from "@/app/actions/syllabus";
 
 export type { AssignmentItem, AssignmentType, AssignmentTargetType };
 
@@ -248,6 +250,14 @@ export async function saveAssignment(data: {
   due_date?: string | null;
   teacher_name?: string;
   status?: "ACTIVE" | "COMPLETED" | "ARCHIVED";
+  // Syllabus Auto-Sync payload
+  sync_to_syllabus?: boolean;
+  syllabus_id?: string;
+  chapter_id?: string;
+  selected_topic_ids?: string[];
+  page_from?: string;
+  page_to?: string;
+  progress_type?: "NEW_LESSON" | "REVISION" | "ASSESSMENT";
 }) {
   try {
     const supabase = await createClient();
@@ -276,6 +286,66 @@ export async function saveAssignment(data: {
 
     const typeBangla = ASSIGNMENT_TYPE_MAP[data.type] || "অ্যাসাইনমেন্ট";
 
+    // Syllabus auto-sync processing
+    let syllabusSynced = false;
+    let syllabusBookName: string | null = null;
+    let targetSyllabusId: string | null = data.syllabus_id || null;
+
+    if (data.sync_to_syllabus) {
+      try {
+        const syllabuses = await getMadrasaSyllabuses(madrasaId);
+        let targetSyllabus = data.syllabus_id
+          ? syllabuses.find((s) => s.id === data.syllabus_id)
+          : syllabuses.find(
+              (s) =>
+                s.class_id === data.class_id &&
+                ((s.book_name && data.subject_name && s.book_name.trim().toLowerCase() === data.subject_name.trim().toLowerCase()) ||
+                  (s.subject_name && data.subject_name && s.subject_name.trim().toLowerCase() === data.subject_name.trim().toLowerCase()))
+            );
+
+        if (targetSyllabus) {
+          targetSyllabusId = targetSyllabus.id;
+          syllabusBookName = targetSyllabus.book_name || targetSyllabus.subject_name;
+
+          const classType =
+            data.progress_type ||
+            (data.type === "EXAM_REVISION"
+              ? "REVISION"
+              : data.type === "MEMORIZATION"
+              ? "NEW_LESSON"
+              : "NEW_LESSON");
+
+          const syncRes = await recordDailyClassAction({
+            syllabus_id: targetSyllabus.id,
+            date: data.assigned_date || new Date().toISOString().split("T")[0],
+            class_id: data.class_id,
+            class_name: data.class_name,
+            subject_id: targetSyllabus.subject_id || "",
+            subject_name: targetSyllabus.book_name || targetSyllabus.subject_name || data.subject_name || "",
+            teacher_id: user.id,
+            teacher_name: authorName,
+            class_type: classType,
+            chapter_id: data.chapter_id,
+            new_topic_ids: classType !== "REVISION" ? data.selected_topic_ids : [],
+            new_topic_progress: (data.selected_topic_ids || []).reduce((acc: any, id: string) => {
+              acc[id] = 100;
+              return acc;
+            }, {}),
+            revision_topic_ids: classType === "REVISION" ? data.selected_topic_ids : [],
+            page_from: data.page_from,
+            page_to: data.page_to,
+            notes: `[অ্যাসাইনমেন্ট হতে সিঙ্ক] ${data.title}${data.description ? `: ${data.description}` : ""}`,
+          });
+
+          if (syncRes && syncRes.success) {
+            syllabusSynced = true;
+          }
+        }
+      } catch (syncErr) {
+        console.warn("Auto-sync to syllabus warning:", syncErr);
+      }
+    }
+
     if (data.id) {
       // Update existing
       const index = meta.assignments.findIndex((a: AssignmentItem) => a.id === data.id);
@@ -299,6 +369,11 @@ export async function saveAssignment(data: {
         assigned_date: data.assigned_date,
         due_date: data.due_date || null,
         status: data.status || existing.status || "ACTIVE",
+        syllabus_id: targetSyllabusId || existing.syllabus_id,
+        syllabus_book_name: syllabusBookName || existing.syllabus_book_name,
+        is_syllabus_synced: syllabusSynced || existing.is_syllabus_synced,
+        page_from: data.page_from || existing.page_from,
+        page_to: data.page_to || existing.page_to,
         updated_at: new Date().toISOString(),
       };
     } else {
@@ -325,6 +400,11 @@ export async function saveAssignment(data: {
         created_by_role: authorRole,
         created_at: new Date().toISOString(),
         status: "ACTIVE",
+        syllabus_id: targetSyllabusId,
+        syllabus_book_name: syllabusBookName,
+        is_syllabus_synced: syllabusSynced,
+        page_from: data.page_from || null,
+        page_to: data.page_to || null,
       };
 
       meta.assignments.unshift(newAssignment);
@@ -357,8 +437,16 @@ export async function saveAssignment(data: {
     revalidatePath("/teacher-portal/assignments");
     revalidatePath("/portal/assignments");
     revalidatePath("/portal");
+    revalidatePath("/dashboard/academic/syllabus");
+    revalidatePath("/teacher-portal/syllabus");
 
-    return { success: true };
+    return {
+      success: true,
+      syllabus_synced: syllabusSynced,
+      message: syllabusSynced
+        ? "পড়া সফলভাবে পাঠানো হয়েছে এবং সিলেবাস প্রোগ্রেস সিঙ্ক হয়েছে!"
+        : "পড়া সফলভাবে সংরক্ষিত হয়েছে।",
+    };
   } catch (err: any) {
     console.error("saveAssignment error:", err);
     return { error: err.message || "অ্যাসাইনমেন্ট সংরক্ষণে সমস্যা হয়েছে।" };

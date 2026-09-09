@@ -31,6 +31,11 @@ export interface AssignmentItem {
   created_at: string;
   updated_at?: string;
   status: "ACTIVE" | "COMPLETED" | "ARCHIVED";
+  syllabus_id?: string | null;
+  syllabus_book_name?: string | null;
+  is_syllabus_synced?: boolean;
+  page_from?: string | null;
+  page_to?: string | null;
 }
 
 export const ASSIGNMENT_TYPE_MAP: Record<AssignmentType, string> = {

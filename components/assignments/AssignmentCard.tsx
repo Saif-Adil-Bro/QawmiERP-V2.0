@@ -15,6 +15,7 @@ import {
   MoreVertical,
   Maximize2,
   X,
+  RefreshCw,
 } from "lucide-react";
 import {
   AssignmentItem,
@@ -118,6 +119,16 @@ export default function AssignmentCard({
                 সম্পন্ন
               </span>
             )}
+
+            {assignment.is_syllabus_synced && (
+              <span
+                title={assignment.syllabus_book_name ? `সিলেবাস: ${assignment.syllabus_book_name}` : "সিলেবাস ট্র্যাকিংয়ে অটো-সিঙ্কড"}
+                className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200 flex items-center gap-1"
+              >
+                <RefreshCw className="w-2.5 h-2.5 text-teal-600" />
+                <span>সিলেবাসে সিঙ্কড</span>
+              </span>
+            )}
           </div>
 
           {canManage && (
@@ -165,6 +176,16 @@ export default function AssignmentCard({
             </div>
           ) : (
             <span className="text-[11px] text-slate-400 font-medium">(সকল ছাত্রের জন্য)</span>
+          )}
+
+          {(assignment.page_from || assignment.page_to) && (
+            <div className="flex items-center gap-1 font-semibold text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/60">
+              <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+              <span>
+                পৃষ্ঠা: {assignment.page_from ? toBanglaNumber(assignment.page_from) : ""}
+                {assignment.page_to ? ` হতে ${toBanglaNumber(assignment.page_to)}` : ""}
+              </span>
+            </div>
           )}
         </div>
 
