@@ -1,4 +1,5 @@
 import { getExpenses } from "@/app/actions/accounting";
+import { getBazarExpenses } from "@/app/actions/boarding";
 import { getFunds } from "@/app/actions/zakat";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { DEFAULT_FUNDS } from "@/lib/fund-utils";
@@ -9,8 +10,9 @@ export default async function ExpensesPage(props: {
 }) {
   const resolvedParams = props.searchParams ? (await props.searchParams) || {} : {};
   
-  const [expenses, loadedFunds, madrasaInfo] = await Promise.all([
+  const [expenses, bazarExpenses, loadedFunds, madrasaInfo] = await Promise.all([
     getExpenses({ month: resolvedParams?.month, year: resolvedParams?.year, fundId: resolvedParams?.fundId }),
+    getBazarExpenses().catch(() => []),
     getFunds().catch(() => DEFAULT_FUNDS),
     getMadrasaInfo().catch(() => undefined),
   ]);
@@ -20,6 +22,7 @@ export default async function ExpensesPage(props: {
   return (
     <ExpensesClient
       initialExpenses={expenses}
+      initialBazarExpenses={bazarExpenses}
       funds={funds}
       madrasaInfo={madrasaInfo}
     />

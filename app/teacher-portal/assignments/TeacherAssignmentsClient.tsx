@@ -25,15 +25,18 @@ import AssignmentFormModal from "@/components/assignments/AssignmentFormModal";
 interface TeacherAssignmentsClientProps {
   initialAssignments: AssignmentItem[];
   classes: any[];
+  teachers?: any[];
   teacherName: string;
 }
 
 export default function TeacherAssignmentsClient({
   initialAssignments,
   classes,
+  teachers = [],
   teacherName,
 }: TeacherAssignmentsClientProps) {
   const [assignments, setAssignments] = useState<AssignmentItem[]>(initialAssignments);
+  const [teachersList, setTeachersList] = useState<any[]>(teachers);
   const [selectedClass, setSelectedClass] = useState<string>("ALL");
   const [selectedType, setSelectedType] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
@@ -50,6 +53,9 @@ export default function TeacherAssignmentsClient({
       const res = await getAssignments();
       if (res && res.assignments) {
         setAssignments(res.assignments);
+      }
+      if (res && res.teachers) {
+        setTeachersList(res.teachers);
       }
     } catch {
       // ignore
@@ -220,6 +226,7 @@ export default function TeacherAssignmentsClient({
         }}
         onSaved={refreshData}
         classes={classes}
+        teachers={teachersList}
         initialData={editingItem}
         defaultTeacherName={teacherName}
       />

@@ -62,6 +62,7 @@ export async function getSyllabusDashboardData(overrideTeacherId?: string) {
     ]);
 
     const madrasaName = madrasa?.name || "কওমি মাদরাসা";
+    const madrasaAddress = madrasa?.address || "";
 
     const activeHolidays = (meta.academic_holidays || []).filter((h) => !h.is_archived);
 
@@ -189,6 +190,7 @@ export async function getSyllabusDashboardData(overrideTeacherId?: string) {
         holidays: activeHolidays,
         currentUser: user,
         madrasaName: madrasaName,
+        madrasaAddress: madrasaAddress,
         madrasa: madrasa || null,
       },
     };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { Printer, X, Edit3, Check } from "lucide-react";
 import { Syllabus, SyllabusIntelligenceMetrics } from "@/lib/syllabus";
 
@@ -10,6 +10,7 @@ interface Props {
   metrics: SyllabusIntelligenceMetrics | null;
   syllabus: Syllabus | null;
   madrasaName?: string;
+  madrasaAddress?: string;
 }
 
 export default function SyllabusPrintReport({
@@ -18,9 +19,13 @@ export default function SyllabusPrintReport({
   metrics,
   syllabus,
   madrasaName = "কওমি মাদরাসা",
+  madrasaAddress = "",
 }: Props) {
   const [displayMadrasaName, setDisplayMadrasaName] = useState(madrasaName);
+  const [displayMadrasaAddress, setDisplayMadrasaAddress] = useState(madrasaAddress);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [isEditingAddress, setIsEditingAddress] = useState(false);
+  const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (madrasaName) {
@@ -28,10 +33,76 @@ export default function SyllabusPrintReport({
     }
   }, [madrasaName]);
 
+  useEffect(() => {
+    if (madrasaAddress !== undefined) {
+      setDisplayMadrasaAddress(madrasaAddress);
+    }
+  }, [madrasaAddress]);
+
+  // Handle print isolation for browser shortcuts (e.g. Ctrl+P) or mobile print menus
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleBeforePrint = () => {
+      if (!document.getElementById("temp-print-frame") && printRef.current) {
+        const clone = printRef.current.cloneNode(true) as HTMLElement;
+        clone.id = "temp-print-frame";
+        clone.querySelectorAll(".print\\:hidden").forEach((el) => el.remove());
+        document.body.appendChild(clone);
+        document.body.classList.add("is-printing-now");
+      }
+    };
+
+    const handleAfterPrint = () => {
+      document.body.classList.remove("is-printing-now");
+      const temp = document.getElementById("temp-print-frame");
+      if (temp) temp.remove();
+    };
+
+    window.addEventListener("beforeprint", handleBeforePrint);
+    window.addEventListener("afterprint", handleAfterPrint);
+
+    return () => {
+      window.removeEventListener("beforeprint", handleBeforePrint);
+      window.removeEventListener("afterprint", handleAfterPrint);
+      document.body.classList.remove("is-printing-now");
+      const temp = document.getElementById("temp-print-frame");
+      if (temp) temp.remove();
+    };
+  }, [isOpen]);
+
   if (!isOpen || !metrics || !syllabus) return null;
 
   const handlePrint = () => {
-    window.print();
+    const printElem = printRef.current;
+    if (!printElem) {
+      window.print();
+      return;
+    }
+
+    const existing = document.getElementById("temp-print-frame");
+    if (existing) existing.remove();
+
+    const clone = printElem.cloneNode(true) as HTMLElement;
+    clone.id = "temp-print-frame";
+    clone.querySelectorAll(".print\\:hidden").forEach((el) => el.remove());
+
+    document.body.appendChild(clone);
+    document.body.classList.add("is-printing-now");
+
+    const cleanup = () => {
+      document.body.classList.remove("is-printing-now");
+      const temp = document.getElementById("temp-print-frame");
+      if (temp) temp.remove();
+      window.removeEventListener("afterprint", cleanup);
+    };
+
+    window.addEventListener("afterprint", cleanup);
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(cleanup, 1200);
+    }, 150);
   };
 
   return (
@@ -50,15 +121,17 @@ export default function SyllabusPrintReport({
             </div>
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={handlePrint}
-                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-all"
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
                 <span>প্রিন্ট / PDF</span>
               </button>
               <button
+                type="button"
                 onClick={onClose}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
                 title="বন্ধ করুন"
               >
                 <X className="w-5 h-5" />
@@ -67,7 +140,7 @@ export default function SyllabusPrintReport({
           </div>
 
           {/* Printable Sheet */}
-          <div className="p-3.5 sm:p-6 md:p-8 space-y-4 sm:space-y-6 text-slate-900 print:p-0 print:space-y-4">
+          <div ref={printRef} className="p-3.5 sm:p-6 md:p-8 space-y-4 sm:space-y-6 text-slate-900 bg-white print:p-0 print:space-y-4">
             
             {/* Madrasa Header */}
             <div className="text-center border-b-2 border-emerald-800 pb-3 sm:pb-4">
@@ -78,12 +151,14 @@ export default function SyllabusPrintReport({
                       type="text"
                       value={displayMadrasaName}
                       onChange={(e) => setDisplayMadrasaName(e.target.value)}
+                      placeholder="মাদরাসার নাম লিখুন..."
                       className="px-3 py-1 text-center font-black text-xl text-emerald-900 border border-emerald-400 rounded-lg w-full focus:ring-2 focus:ring-emerald-500"
                       autoFocus
                     />
                     <button
+                      type="button"
                       onClick={() => setIsEditingTitle(false)}
-                      className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+                      className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 cursor-pointer"
                     >
                       <Check className="w-4 h-4" />
                     </button>
@@ -94,8 +169,9 @@ export default function SyllabusPrintReport({
                       {displayMadrasaName}
                     </h1>
                     <button
+                      type="button"
                       onClick={() => setIsEditingTitle(true)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-emerald-700 print:hidden"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-emerald-700 print:hidden cursor-pointer"
                       title="মাদরাসার নাম সম্পাদনা করুন"
                     >
                       <Edit3 className="w-4 h-4" />
@@ -103,6 +179,57 @@ export default function SyllabusPrintReport({
                   </div>
                 )}
               </div>
+
+              {/* Madrasa Address (Shown under Madrasa Name) */}
+              <div className="flex items-center justify-center gap-1.5 mt-1">
+                {isEditingAddress ? (
+                  <div className="flex items-center gap-1.5 max-w-md w-full mx-auto print:hidden">
+                    <input
+                      type="text"
+                      value={displayMadrasaAddress}
+                      onChange={(e) => setDisplayMadrasaAddress(e.target.value)}
+                      placeholder="মাদরাসার পূর্ণাঙ্গ ঠিকানা লিখুন..."
+                      className="px-2.5 py-0.5 text-center text-xs sm:text-sm text-slate-700 border border-emerald-400 rounded-md w-full focus:ring-1 focus:ring-emerald-500"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingAddress(false)}
+                      className="p-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 cursor-pointer"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="group relative inline-flex items-center justify-center gap-1.5">
+                    {displayMadrasaAddress ? (
+                      <p className="text-xs sm:text-sm font-semibold text-slate-600">
+                        {displayMadrasaAddress}
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingAddress(true)}
+                        className="text-[11px] text-emerald-700 hover:underline flex items-center gap-1 opacity-75 hover:opacity-100 transition print:hidden cursor-pointer"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                        <span>+ মাদরাসার ঠিকানা লিখুন</span>
+                      </button>
+                    )}
+                    {displayMadrasaAddress && (
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingAddress(true)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-slate-400 hover:text-emerald-700 print:hidden cursor-pointer"
+                        title="মাদরাসার ঠিকানা সম্পাদনা করুন"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <p className="text-xs sm:text-sm font-semibold text-slate-600 mt-1">
                 একাডেমিক পাঠদান অগ্রগতি, রিভিশন ও কর্মদিবস গোয়েন্দা রিপোর্ট
               </p>

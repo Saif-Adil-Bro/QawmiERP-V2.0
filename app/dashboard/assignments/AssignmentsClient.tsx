@@ -25,16 +25,22 @@ import AssignmentFormModal from "@/components/assignments/AssignmentFormModal";
 interface AssignmentsClientProps {
   initialAssignments: AssignmentItem[];
   classes: any[];
+  teachers?: any[];
+  currentTeacherName?: string;
 }
 
 export default function AssignmentsClient({
   initialAssignments,
   classes,
+  teachers = [],
+  currentTeacherName,
 }: AssignmentsClientProps) {
   const [assignments, setAssignments] = useState<AssignmentItem[]>(initialAssignments);
+  const [teachersList, setTeachersList] = useState<any[]>(teachers);
   const [selectedClass, setSelectedClass] = useState<string>("ALL");
   const [selectedType, setSelectedType] = useState<string>("ALL");
   const [selectedTarget, setSelectedTarget] = useState<string>("ALL");
+  const [selectedTeacher, setSelectedTeacher] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [loading, setLoading] = useState(false);
@@ -50,6 +56,9 @@ export default function AssignmentsClient({
       if (res && res.assignments) {
         setAssignments(res.assignments);
       }
+      if (res && res.teachers) {
+        setTeachersList(res.teachers);
+      }
     } catch {
       // ignore
     } finally {
@@ -63,6 +72,7 @@ export default function AssignmentsClient({
       if (selectedClass !== "ALL" && item.class_id !== selectedClass) return false;
       if (selectedType !== "ALL" && item.type !== selectedType) return false;
       if (selectedTarget !== "ALL" && item.target_type !== selectedTarget) return false;
+      if (selectedTeacher !== "ALL" && item.teacher_name !== selectedTeacher) return false;
       if (filterDate && item.assigned_date !== filterDate) return false;
 
       if (searchQuery.trim()) {
@@ -80,7 +90,7 @@ export default function AssignmentsClient({
 
       return true;
     });
-  }, [assignments, selectedClass, selectedType, selectedTarget, filterDate, searchQuery]);
+  }, [assignments, selectedClass, selectedType, selectedTarget, selectedTeacher, filterDate, searchQuery]);
 
   // KPI counts
   const todayStr = new Date().toISOString().split("T")[0];
@@ -239,6 +249,27 @@ export default function AssignmentsClient({
               <option value="STUDENT">নির্দিষ্ট ছাত্র</option>
             </select>
           </div>
+
+          {/* Teacher Filter */}
+          {teachersList.length > 0 && (
+            <div>
+              <select
+                value={selectedTeacher}
+                onChange={(e) => setSelectedTeacher(e.target.value)}
+                className="w-full p-2 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none text-slate-800"
+              >
+                <option value="ALL">সকল উস্তাদ / শিক্ষক</option>
+                {teachersList.map((t) => {
+                  const fullName = `${t.first_name || ""} ${t.last_name || ""}`.trim();
+                  return (
+                    <option key={t.id || fullName} value={fullName}>
+                      {fullName}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -288,6 +319,8 @@ export default function AssignmentsClient({
         }}
         onSaved={refreshData}
         classes={classes}
+        teachers={teachersList}
+        defaultTeacherName={currentTeacherName}
         initialData={editingItem}
       />
     </div>

@@ -1528,7 +1528,8 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
         }}
         metrics={selectedPrintMetrics}
         syllabus={selectedPrintSyllabus}
-        madrasaName={data.madrasaName || initialData.madrasaName || "কওমি মাদরাসা"}
+        madrasaName={data.madrasaName || initialData.madrasaName || data.madrasa?.name || initialData.madrasa?.name || "কওমি মাদরাসা"}
+        madrasaAddress={(data as any).madrasaAddress || (initialData as any).madrasaAddress || data.madrasa?.address || initialData.madrasa?.address || ""}
       />
     </div>
   );

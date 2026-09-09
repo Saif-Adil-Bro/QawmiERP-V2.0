@@ -440,6 +440,8 @@ export default function TeacherSyllabusClient({ initialData }: Props) {
         onClose={() => setIsPrintOpen(false)}
         metrics={currentMetrics}
         syllabus={currentSyllabus}
+        madrasaName={(data as any)?.madrasaName || (initialData as any)?.madrasaName || (data as any)?.madrasa?.name || (initialData as any)?.madrasa?.name || "কওমি মাদরাসা"}
+        madrasaAddress={(data as any)?.madrasaAddress || (initialData as any)?.madrasaAddress || (data as any)?.madrasa?.address || (initialData as any)?.madrasa?.address || ""}
       />
     </div>
   );

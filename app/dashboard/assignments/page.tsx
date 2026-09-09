@@ -4,12 +4,14 @@ import AssignmentsClient from "./AssignmentsClient";
 export const dynamic = "force-dynamic";
 
 export default async function AssignmentsDashboard() {
-  const { assignments, classes } = await getAssignments();
+  const { assignments, classes, teachers, currentTeacherName } = await getAssignments();
 
   return (
     <AssignmentsClient
       initialAssignments={assignments}
       classes={classes}
+      teachers={teachers}
+      currentTeacherName={currentTeacherName}
     />
   );
 }

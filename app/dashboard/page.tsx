@@ -52,6 +52,8 @@ export default async function DashboardPage() {
   let todayAbsent = 0;
   let totalIncome = 0;
   let totalExpense = 0;
+  let expensesSum = 0;
+  let bazarSum = 0;
   let incomeExpenseData: any[] = [];
   let attendanceData: any[] = [];
   let todayAttendanceData: any[] = [];
@@ -112,8 +114,8 @@ export default async function DashboardPage() {
       const donationsSum = (donationsData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       totalIncome = feesSum + donationsSum;
 
-      const expensesSum = (expensesData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-      const bazarSum = (bazarData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+      expensesSum = (expensesData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+      bazarSum = (bazarData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       totalExpense = expensesSum + bazarSum;
 
       // Process Monthly Income/Expense
@@ -246,8 +248,21 @@ export default async function DashboardPage() {
           <p className="text-3xl font-bold text-emerald-600 mt-2">৳ {totalIncome.toLocaleString('en-IN')}</p>
         </Link>
         <Link href="/dashboard/accounting/expenses" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
-          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট ব্যয়</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট ব্যয়</h3>
+            {bazarSum > 0 && (
+              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                বোর্ডিং বাজার সহ
+              </span>
+            )}
+          </div>
           <p className="text-3xl font-bold text-rose-600 mt-2">৳ {totalExpense.toLocaleString('en-IN')}</p>
+          {bazarSum > 0 && (
+            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5">
+              <span>বোর্ডিং বাজার: ৳ {bazarSum.toLocaleString('en-IN')}</span>
+              {expensesSum > 0 && <span>• সাধারণ খরচ: ৳ {expensesSum.toLocaleString('en-IN')}</span>}
+            </p>
+          )}
         </Link>
       </div>
 

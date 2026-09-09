@@ -17,14 +17,26 @@ import { recordDailyClassAction } from "@/app/actions/syllabus";
 export type { AssignmentItem, AssignmentType, AssignmentTargetType };
 
 /**
- * Seed initial sample assignments if none exist
+ * Seed initial sample assignments if none exist (using real teacher names)
  */
-function getDefaultAssignmentsSeed(madrasaId: string, classes: any[]): AssignmentItem[] {
+function getDefaultAssignmentsSeed(
+  madrasaId: string,
+  classes: any[],
+  teachers: any[] = [],
+  defaultTeacherName: string = "উস্তাদ"
+): AssignmentItem[] {
   const today = new Date().toISOString().split("T")[0];
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
 
   const firstClass = classes[0] || { id: "c1", name: "হিফজুল কুরআন" };
   const secondClass = classes[1] || { id: "c2", name: "মিযান জামাত" };
+
+  const firstTeacher = teachers[0]
+    ? `${teachers[0].first_name || ""} ${teachers[0].last_name || ""}`.trim()
+    : defaultTeacherName;
+  const secondTeacher = teachers[1]
+    ? `${teachers[1].first_name || ""} ${teachers[1].last_name || ""}`.trim()
+    : firstTeacher;
 
   return [
     {
@@ -41,7 +53,7 @@ function getDefaultAssignmentsSeed(madrasaId: string, classes: any[]): Assignmen
       image_urls: ["https://iili.io/J7qKxPs.jpg"],
       assigned_date: today,
       due_date: today,
-      teacher_name: "হাফেজ মাওলানা ইব্রাহীম",
+      teacher_name: firstTeacher,
       created_by_role: "TEACHER",
       created_at: new Date(Date.now() - 3600000).toISOString(),
       status: "ACTIVE",
@@ -60,7 +72,7 @@ function getDefaultAssignmentsSeed(madrasaId: string, classes: any[]): Assignmen
       image_urls: [],
       assigned_date: today,
       due_date: tomorrow,
-      teacher_name: "মুফতি মাহমুদুল হাসান",
+      teacher_name: secondTeacher,
       created_by_role: "TEACHER",
       created_at: new Date(Date.now() - 7200000).toISOString(),
       status: "ACTIVE",
@@ -79,13 +91,21 @@ function getDefaultAssignmentsSeed(madrasaId: string, classes: any[]): Assignmen
       image_urls: [],
       assigned_date: today,
       due_date: today,
-      teacher_name: "মাওলানা আব্দুল্লাহ",
+      teacher_name: firstTeacher,
       created_by_role: "TEACHER",
       created_at: new Date(Date.now() - 10800000).toISOString(),
       status: "ACTIVE",
     },
   ];
 }
+
+const LEGACY_DUMMY_TEACHER_NAMES = [
+  "হাফেজ মাওলানা ইব্রাহীম",
+  "মুফতি মাহমুদুল হাসান",
+  "মাওলানা আব্দুল্লাহ",
+  "সম্মানিত উস্তাদ",
+  "সম্মানিত শিক্ষক",
+];
 
 /**
  * Fetch all assignments with flexible filters
@@ -101,25 +121,73 @@ export async function getAssignments(filters?: {
 }): Promise<{
   assignments: AssignmentItem[];
   classes: any[];
+  teachers: any[];
+  currentTeacherName: string;
 }> {
   try {
     const supabase = await createClient();
+    const admin = await createAdminClient();
     const user = await getAuthUser(supabase);
     const madrasaId = await getAuthMadrasaId(supabase, user);
 
     const classes = await getClasses();
 
     if (!madrasaId) {
-      return { assignments: [], classes: classes || [] };
+      return { assignments: [], classes: classes || [], teachers: [], currentTeacherName: "উস্তাদ" };
+    }
+
+    // Fetch real teachers registered in this madrasa
+    const { data: teachersData } = await admin
+      .from("teachers")
+      .select("id, first_name, last_name, designation, phone")
+      .eq("madrasa_id", madrasaId)
+      .order("first_name");
+    const teachers = teachersData || [];
+
+    // Fetch user info for current user
+    let currentTeacherName = "উস্তাদ";
+    if (user) {
+      const { data: userData } = await admin
+        .from("users")
+        .select("full_name, email, role")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (userData?.full_name && userData.full_name.trim() !== "" && userData.full_name !== "user") {
+        currentTeacherName = userData.full_name;
+      } else if (teachers.length > 0) {
+        currentTeacherName = `${teachers[0].first_name || ""} ${teachers[0].last_name || ""}`.trim();
+      }
     }
 
     const meta = await getMadrasaMetadata(madrasaId);
     let list: AssignmentItem[] = meta.assignments || [];
 
     if (!list || list.length === 0) {
-      list = getDefaultAssignmentsSeed(madrasaId, classes || []);
+      list = getDefaultAssignmentsSeed(madrasaId, classes || [], teachers, currentTeacherName);
       meta.assignments = list;
       await saveMadrasaMetadata(madrasaId, meta);
+    } else {
+      // Auto-heal any legacy dummy teacher names in metadata with real madrasa teachers
+      let hasHealed = false;
+      list = list.map((item, idx) => {
+        const tName = item.teacher_name ? item.teacher_name.trim() : "";
+        if (!tName || LEGACY_DUMMY_TEACHER_NAMES.includes(tName)) {
+          hasHealed = true;
+          const assignedTeacher = teachers.length > 0
+            ? `${teachers[idx % teachers.length].first_name || ""} ${teachers[idx % teachers.length].last_name || ""}`.trim()
+            : currentTeacherName;
+          return {
+            ...item,
+            teacher_name: assignedTeacher,
+          };
+        }
+        return item;
+      });
+
+      if (hasHealed) {
+        meta.assignments = list;
+        await saveMadrasaMetadata(madrasaId, meta);
+      }
     }
 
     // Filter by class_id
@@ -174,10 +242,12 @@ export async function getAssignments(filters?: {
     return {
       assignments: list,
       classes: classes || [],
+      teachers: teachers || [],
+      currentTeacherName: currentTeacherName || "উস্তাদ",
     };
   } catch (err) {
     console.error("getAssignments error:", err);
-    return { assignments: [], classes: [] };
+    return { assignments: [], classes: [], teachers: [], currentTeacherName: "উস্তাদ" };
   }
 }
 
@@ -282,7 +352,12 @@ export async function saveAssignment(data: {
     const authorRole = ["super_admin", "admin", "muhtamim"].includes(role)
       ? "ADMIN"
       : "TEACHER";
-    const authorName = data.teacher_name || userData?.full_name || "সম্মানিত উস্তাদ";
+    const authorName =
+      data.teacher_name && data.teacher_name.trim() !== ""
+        ? data.teacher_name.trim()
+        : userData?.full_name && userData.full_name !== "user"
+        ? userData.full_name
+        : "শিক্ষক";
 
     const typeBangla = ASSIGNMENT_TYPE_MAP[data.type] || "অ্যাসাইনমেন্ট";
 
@@ -368,6 +443,7 @@ export async function saveAssignment(data: {
         image_urls: data.image_urls || existing.image_urls || [],
         assigned_date: data.assigned_date,
         due_date: data.due_date || null,
+        teacher_name: authorName,
         status: data.status || existing.status || "ACTIVE",
         syllabus_id: targetSyllabusId || existing.syllabus_id,
         syllabus_book_name: syllabusBookName || existing.syllabus_book_name,

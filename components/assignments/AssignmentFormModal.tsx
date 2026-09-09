@@ -20,6 +20,7 @@ import {
   BookmarkCheck,
   CheckSquare,
   Square,
+  GraduationCap,
 } from "lucide-react";
 import {
   AssignmentItem,
@@ -39,6 +40,7 @@ interface AssignmentFormModalProps {
   onClose: () => void;
   onSaved: () => void;
   classes: any[];
+  teachers?: any[];
   initialData?: AssignmentItem | null;
   defaultClassId?: string;
   defaultTeacherName?: string;
@@ -49,6 +51,7 @@ export default function AssignmentFormModal({
   onClose,
   onSaved,
   classes,
+  teachers = [],
   initialData,
   defaultClassId,
   defaultTeacherName,
@@ -63,6 +66,10 @@ export default function AssignmentFormModal({
   );
   const [studentId, setStudentId] = useState(initialData?.student_id || "");
   const [subjectName, setSubjectName] = useState(initialData?.subject_name || "");
+  const [teacherName, setTeacherName] = useState<string>(
+    initialData?.teacher_name || defaultTeacherName || ""
+  );
+  const [isCustomTeacher, setIsCustomTeacher] = useState<boolean>(false);
   const [description, setDescription] = useState(initialData?.description || "");
   const [imageUrls, setImageUrls] = useState<string[]>(initialData?.image_urls || []);
   const [assignedDate, setAssignedDate] = useState(
@@ -110,6 +117,15 @@ export default function AssignmentFormModal({
       setPageFrom(initialData.page_from || "");
       setPageTo(initialData.page_to || "");
       setSyncToSyllabus(initialData.is_syllabus_synced !== false);
+
+      const tName = initialData.teacher_name || defaultTeacherName || "";
+      setTeacherName(tName);
+      const isKnown = teachers.some(
+        (t) =>
+          `${t.first_name || ""} ${t.last_name || ""}`.trim().toLowerCase() ===
+          tName.trim().toLowerCase()
+      );
+      setIsCustomTeacher(!isKnown && tName.trim() !== "" && teachers.length > 0);
     } else {
       setTitle("");
       setType("TODAY_LESSON");
@@ -128,8 +144,16 @@ export default function AssignmentFormModal({
       setPageFrom("");
       setPageTo("");
       setSyncToSyllabus(true);
+
+      const fallbackTeacher =
+        defaultTeacherName ||
+        (teachers[0]
+          ? `${teachers[0].first_name || ""} ${teachers[0].last_name || ""}`.trim()
+          : "");
+      setTeacherName(fallbackTeacher);
+      setIsCustomTeacher(false);
     }
-  }, [initialData, defaultClassId, classes]);
+  }, [initialData, defaultClassId, classes, defaultTeacherName, teachers]);
 
   // Fetch syllabuses for current class
   useEffect(() => {
@@ -252,7 +276,7 @@ export default function AssignmentFormModal({
         image_urls: imageUrls,
         assigned_date: assignedDate,
         due_date: dueDate || null,
-        teacher_name: defaultTeacherName,
+        teacher_name: teacherName.trim() || defaultTeacherName || "শিক্ষক",
         // Syllabus Auto-Sync Payload
         sync_to_syllabus: syncToSyllabus,
         syllabus_id: selectedSyllabusId || undefined,
@@ -455,6 +479,71 @@ export default function AssignmentFormModal({
                 className="w-full p-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
               />
             </div>
+          </div>
+
+          {/* Assigned Teacher / Ustad */}
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <GraduationCap className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>দায়িত্বপ্রাপ্ত শিক্ষক / উস্তাদ (Teacher) <span className="text-emerald-600">*</span></span>
+              </label>
+              {teachers.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isCustomTeacher;
+                    setIsCustomTeacher(next);
+                    if (!next && teachers[0]) {
+                      setTeacherName(`${teachers[0].first_name || ""} ${teachers[0].last_name || ""}`.trim());
+                    }
+                  }}
+                  className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
+                >
+                  {isCustomTeacher ? "তালিকা থেকে বাছুন" : "অন্য নাম লিখুন"}
+                </button>
+              )}
+            </div>
+
+            {!isCustomTeacher && teachers.length > 0 ? (
+              <select
+                value={teacherName}
+                onChange={(e) => {
+                  if (e.target.value === "__CUSTOM__") {
+                    setIsCustomTeacher(true);
+                    setTeacherName("");
+                  } else {
+                    setTeacherName(e.target.value);
+                  }
+                }}
+                required
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              >
+                <option value="">-- শিক্ষক নির্বাচন করুন --</option>
+                {teachers.map((t: any) => {
+                  const fullName = `${t.first_name || ""} ${t.last_name || ""}`.trim();
+                  const designation = t.designation ? ` (${t.designation})` : "";
+                  return (
+                    <option key={t.id || fullName} value={fullName}>
+                      {fullName}{designation}
+                    </option>
+                  );
+                })}
+                <option value="__CUSTOM__">-- অন্য বা নতুন উস্তাদের নাম লিখুন --</option>
+              </select>
+            ) : (
+              <input
+                type="text"
+                required
+                value={teacherName}
+                onChange={(e) => setTeacherName(e.target.value)}
+                placeholder="উস্তাদের নাম লিখুন (যেমন: মাওলানা আবু বকর)"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              />
+            )}
+            <p className="text-[11px] text-slate-500">
+              অ্যাসাইনমেন্টের রিপোর্ট কার্ড ও নোটিফিকেশনে এই শিক্ষকের নাম শো করবে
+            </p>
           </div>
 
           {/* Syllabus Auto-Sync Card */}

@@ -20,12 +20,17 @@ export default async function TeacherAssignmentsPage() {
     }
   }
 
-  const { assignments, classes } = await getAssignments();
+  const { assignments, classes, teachers, currentTeacherName } = await getAssignments();
+
+  if (teacherName === "সম্মানিত শিক্ষক" && currentTeacherName && currentTeacherName !== "উস্তাদ") {
+    teacherName = currentTeacherName;
+  }
 
   return (
     <TeacherAssignmentsClient
       initialAssignments={assignments}
       classes={classes}
+      teachers={teachers}
       teacherName={teacherName}
     />
   );
