@@ -128,7 +128,24 @@ export default function DailyClassEntryModal({
     (t) => t.progress > 0 || t.status === "COMPLETED"
   );
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+
+    setDate(existingRecord?.date || new Date().toISOString().split("T")[0]);
+    setClassId(existingRecord?.class_id || initialClassId || (classes[0]?.id || ""));
+    setSubjectId(existingRecord?.subject_id || initialSubjectId || (subjects[0]?.id || ""));
+    setTeacherId(existingRecord?.teacher_id || initialTeacherId || (teachers[0]?.id || ""));
+    setClassType(existingRecord?.class_type || "NEW_LESSON");
+    setCancellationReason(existingRecord?.cancellation_reason || "INSTITUTIONAL_PROGRAM");
+    setCancellationNotes(existingRecord?.cancellation_notes || "");
+    setNewTopicIds(existingRecord?.new_topic_ids || []);
+    setNewTopicProgress(existingRecord?.new_topic_progress || {});
+    setRevisionTopicIds(existingRecord?.revision_topic_ids || []);
+    setPageFrom(existingRecord?.page_from || "");
+    setPageTo(existingRecord?.page_to || "");
+    setNotes(existingRecord?.notes || "");
+    setError("");
+  }, [isOpen, existingRecord, initialClassId, initialSubjectId, initialTeacherId, classes, subjects, teachers]);
 
   const toggleNewTopic = (tId: string) => {
     if (newTopicIds.includes(tId)) {
@@ -218,6 +235,8 @@ export default function DailyClassEntryModal({
       setLoading(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">

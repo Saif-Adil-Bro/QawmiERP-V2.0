@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   X,
   Plus,
@@ -82,7 +82,48 @@ export default function SyllabusFormModal({
         ]
   );
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+
+    setClassId(syllabus?.class_id || (classes[0]?.id || ""));
+    setSubjectId(syllabus?.subject_id || (subjects[0]?.id || ""));
+    setSubjectName(syllabus?.subject_name || (subjects[0]?.name || ""));
+    setBookName(syllabus?.book_name || syllabus?.subject_name || "");
+    setTotalPages(syllabus?.total_pages ?? 320);
+    setStartPage(syllabus?.start_page ?? 1);
+    setEndPage(syllabus?.end_page ?? syllabus?.total_pages ?? 320);
+    setCurrentPage(syllabus?.current_page ?? syllabus?.start_page ?? 1);
+
+    setTeacherId(syllabus?.teacher_id || (teachers[0]?.id || ""));
+    setAcademicYear(syllabus?.academic_year || "১৪৪৭-৪৮ হিজরি (২০২৬-২৭)");
+    setStartDate(syllabus?.start_date || "2026-04-15");
+    setEndDate(syllabus?.end_date || "2027-04-05");
+    setRevisionInterval(syllabus?.revision_interval_days || 7);
+    setError("");
+
+    if (syllabus?.chapters && syllabus.chapters.length > 0) {
+      setChapters(JSON.parse(JSON.stringify(syllabus.chapters)));
+    } else {
+      setChapters([
+        {
+          id: `ch_${Date.now()}_1`,
+          name: "প্রথম অধ্যায় / বাব",
+          order: 1,
+          topics: [
+            {
+              id: `top_${Date.now()}_1`,
+              name: "প্রাথমিক আলোচনা ও সংজ্ঞা",
+              estimated_periods: 3,
+              progress_percentage: 0,
+              status: "NOT_STARTED",
+              revision_count: 0,
+              revision_history: [],
+            },
+          ],
+        },
+      ]);
+    }
+  }, [isOpen, syllabus, classes, subjects, teachers]);
 
   const handleClassChange = (cId: string) => {
     setClassId(cId);
@@ -270,6 +311,8 @@ export default function SyllabusFormModal({
       setLoading(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
