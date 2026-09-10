@@ -170,6 +170,46 @@ export default async function PortalOverview(props: {
 
   return (
     <div className="space-y-6">
+      {/* Multi-child Switcher Bar if parent has multiple children */}
+      {students.length > 1 && (
+        <div className="bg-white border border-emerald-200/80 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center font-bold">
+              <GraduationCap className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-800">
+                সন্তান নির্বাচন করুন ({toBanglaNumber(students.length)} জন নিবন্ধিত):
+              </p>
+              <p className="text-[11px] text-slate-500">
+                যেকোনো সন্তানের প্রোফাইলে ক্লিক করে তার ব্যক্তিগত ড্যাশবোর্ডে স্যুইচ করুন
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {students.map((st) => {
+              const isSelected = st.id === child.id;
+              return (
+                <Link
+                  key={st.id}
+                  href={`/portal?student_id=${st.id}`}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                    isSelected
+                      ? "bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-600/30"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
+                  }`}
+                >
+                  <span>{st.first_name} {st.last_name || ""}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md ${isSelected ? "bg-emerald-700/50 text-white" : "bg-white text-slate-600 border border-slate-200"}`}>
+                    রোল: {toBanglaNumber(st.roll_number || st.student_id || "-")}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Child Profile Hero Banner */}
       <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-3xl p-5 sm:p-7 shadow-xl border border-emerald-800/60 flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
         <div className="flex items-center gap-4 relative z-10">

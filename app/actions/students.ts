@@ -391,6 +391,7 @@ export async function createStudent(prevState: any, formData: FormData) {
       madrasa_id: finalMadrasaId,
       full_name: `${firstName}'s Parent`,
       email: parentEmail,
+      phone: parentPhone || null,
       role: 'parent'
     });
 
@@ -436,6 +437,22 @@ export async function createStudent(prevState: any, formData: FormData) {
     }
   } else {
     insertedStudent = resData;
+  }
+
+  // If a parent auth user was created, bind this student_id to their auth metadata
+  if (authUserId && insertedStudent?.id) {
+    try {
+      const adminClient = await createAdminClient();
+      await adminClient.auth.admin.updateUserById(authUserId, {
+        user_metadata: {
+          student_id: insertedStudent.id,
+          full_name: `${firstName}'s Parent`,
+          phone: parentPhone || undefined,
+        },
+      });
+    } catch (metaErr) {
+      console.warn("Could not bind student_id to parent auth metadata:", metaErr);
+    }
   }
 
   // Auto enroll student into current active academic session & save extended student profile

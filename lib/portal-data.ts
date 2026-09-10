@@ -147,9 +147,50 @@ export async function getPortalStudentData(
     }
   }
 
-  const child = requestedStudentId
-    ? rawStudents.find((s) => s.id === requestedStudentId) || rawStudents[0] || null
-    : rawStudents[0] || null;
+  // Intelligent selection of active child:
+  // 1. Explicit requested student via query parameter (?student_id=...)
+  let child = requestedStudentId
+    ? rawStudents.find((s) => s.id === requestedStudentId)
+    : null;
+
+  // 2. Direct user_metadata or userData student_id link
+  if (!child) {
+    const boundStudentId = user?.user_metadata?.student_id || userData?.student_id;
+    if (boundStudentId) {
+      child = rawStudents.find((s) => s.id === boundStudentId);
+    }
+  }
+
+  // 3. User's full_name matches student name (e.g. "আশরাফুল ইসলাম's Parent" -> "আশরাফুল ইসলাম")
+  if (!child) {
+    const parentFullName = (userData?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name || "").trim().toLowerCase();
+    if (parentFullName) {
+      child = rawStudents.find((s) => {
+        const fName = (s.first_name || "").trim().toLowerCase();
+        const lName = (s.last_name || "").trim().toLowerCase();
+        const fullName = `${fName} ${lName}`.trim();
+        return (fullName && parentFullName.includes(fullName)) || (fName && parentFullName.includes(fName));
+      });
+    }
+  }
+
+  // 4. Email prefix match (e.g. "ashraful" from "ashraful@test.com")
+  if (!child) {
+    const emailPrefix = (user?.email || "").split("@")[0].replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+    if (emailPrefix.length >= 3) {
+      child = rawStudents.find((s) => {
+        const fName = (s.first_name || "").toLowerCase();
+        const lName = (s.last_name || "").toLowerCase();
+        const fullName = `${fName} ${lName}`.toLowerCase();
+        return fName.includes(emailPrefix) || lName.includes(emailPrefix) || fullName.includes(emailPrefix);
+      });
+    }
+  }
+
+  // 5. Fallback to first student in list
+  if (!child && rawStudents.length > 0) {
+    child = rawStudents[0];
+  }
 
   return {
     students: rawStudents,

@@ -1,20 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
-import { findStudentByIdentifier, ensureStudentGuardianAuthUser } from "@/lib/student-auth";
+import {
+  findStudentByIdentifier,
+  ensureStudentGuardianAuthUser,
+  banglaToEnglishDigits,
+} from "@/lib/student-auth";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const rawIdentifier = (body.identifier || body.email || "").trim();
-    const password = (body.password || "").trim();
+    let rawPassword = (body.password || "").trim();
 
-    if (!rawIdentifier || !password) {
+    if (!rawIdentifier || !rawPassword) {
       return NextResponse.json(
         { error: "শিক্ষার্থী আইডি / ইমেইল এবং পাসওয়ার্ড আবশ্যক।" },
         { status: 400 }
       );
     }
+
+    // Support both English and Bangla numbers in password
+    const normalizedPassword = banglaToEnglishDigits(rawPassword);
 
     let targetEmail = rawIdentifier.toLowerCase();
     let isStudentLogin = false;
@@ -47,12 +54,51 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = await createClient();
-    const { data, error } = await supabase.auth.signInWithPassword({
+    let { data, error } = await supabase.auth.signInWithPassword({
       email: targetEmail,
-      password,
+      password: rawPassword,
     });
 
-    if (error) {
+    // If initial attempt failed and password had Bengali digits, try normalized password
+    if (error && normalizedPassword !== rawPassword) {
+      const retry = await supabase.auth.signInWithPassword({
+        email: targetEmail,
+        password: normalizedPassword,
+      });
+      if (!retry.error) {
+        data = retry.data;
+        error = null;
+      }
+    }
+
+    // If student login failed with default password (123456), ensure sync and retry
+    if (error && isStudentLogin && (rawPassword === "123456" || normalizedPassword === "123456")) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: authUsers } = await adminClient.auth.admin.listUsers();
+        const authUser = authUsers?.users?.find(
+          (u) => u.email?.toLowerCase() === targetEmail.toLowerCase()
+        );
+        if (authUser) {
+          await adminClient.auth.admin.updateUserById(authUser.id, {
+            password: "123456",
+            email_confirm: true,
+          });
+          const reSync = await supabase.auth.signInWithPassword({
+            email: targetEmail,
+            password: "123456",
+          });
+          if (!reSync.error) {
+            data = reSync.data;
+            error = null;
+          }
+        }
+      } catch (syncPassErr) {
+        console.warn("Password sync on login error:", syncPassErr);
+      }
+    }
+
+    if (error || !data || !data.user) {
       if (isStudentLogin) {
         return NextResponse.json(
           {
@@ -61,11 +107,11 @@ export async function POST(req: NextRequest) {
           { status: 401 }
         );
       }
-      return NextResponse.json({ error: error.message }, { status: 401 });
+      return NextResponse.json({ error: error?.message || "লগইন ব্যর্থ হয়েছে।" }, { status: 401 });
     }
 
     // Resolve user role
-    let userRole = data.user?.user_metadata?.role || (isStudentLogin ? "parent" : "staff");
+    let userRole = data.user.user_metadata?.role || (isStudentLogin ? "parent" : "staff");
     let roles: string[] = [];
 
     try {
