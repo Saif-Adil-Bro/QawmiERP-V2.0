@@ -32,17 +32,28 @@ interface EditStudentFormProps {
   student: any;
   classes: any[];
   allStudents: any[];
+  madrasaInfo?: any;
 }
 
 export default function EditStudentForm({
   student,
   classes,
   allStudents,
+  madrasaInfo,
 }: EditStudentFormProps) {
   const [state, formAction, isPending] = useActionState(
     updateStudent,
     initialState
   );
+
+  const madrasaPrefix = (
+    madrasaInfo?.prefix ||
+    madrasaInfo?.short_code ||
+    madrasaInfo?.metadata?.prefix ||
+    student?.madrasa_prefix ||
+    student?.prefix ||
+    ""
+  ).trim().toUpperCase();
   const router = useRouter();
 
   // Class & Roll tracking states
@@ -203,7 +214,7 @@ export default function EditStudentForm({
           <div className="text-right">
             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">আইডি নম্বর</p>
             <p className="text-base font-bold text-blue-700 font-mono">
-              {getStudentIdNumber(student, allStudents)}
+              {getStudentIdNumber(student, allStudents, madrasaPrefix)}
             </p>
           </div>
           <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">

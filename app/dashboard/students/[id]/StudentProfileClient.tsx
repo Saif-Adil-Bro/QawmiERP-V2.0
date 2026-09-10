@@ -22,7 +22,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { StudentEnrollment } from "@/lib/sessions";
-import { convertToBanglaNumber, getStudentIdNumber } from "@/lib/student-utils";
+import { convertToBanglaNumber, getStudentIdNumber, setActiveMadrasaPrefix } from "@/lib/student-utils";
 import { getStudentDigitalId, issueStudentIdCard } from "@/app/actions/id-card-management";
 import { getStudentCertificates } from "@/app/actions/certificates";
 import DigitalIdCardView from "@/app/components/DigitalIdCardView";
@@ -33,6 +33,7 @@ interface StudentProfileClientProps {
   currentEnrollment: StudentEnrollment | null;
   academicHistory: StudentEnrollment[];
   allStudents: any[];
+  madrasaInfo?: any;
 }
 
 export default function StudentProfileClient({
@@ -40,6 +41,7 @@ export default function StudentProfileClient({
   currentEnrollment,
   academicHistory,
   allStudents,
+  madrasaInfo,
 }: StudentProfileClientProps) {
   const [activeTab, setActiveTab] = useState<"history" | "personal" | "fees" | "idcard" | "certificates">("history");
   const [digitalIdData, setDigitalIdData] = useState<any>(null);
@@ -47,7 +49,20 @@ export default function StudentProfileClient({
   const [studentCertificates, setStudentCertificates] = useState<any[]>([]);
   const [loadingCertificates, setLoadingCertificates] = useState(false);
 
-  const studentIdNumber = getStudentIdNumber(student, allStudents);
+  const madrasaPrefix = (
+    madrasaInfo?.prefix ||
+    madrasaInfo?.short_code ||
+    madrasaInfo?.metadata?.prefix ||
+    student?.madrasa_prefix ||
+    student?.prefix ||
+    ""
+  ).trim().toUpperCase();
+
+  if (madrasaPrefix) {
+    setActiveMadrasaPrefix(madrasaPrefix);
+  }
+
+  const studentIdNumber = getStudentIdNumber(student, allStudents, madrasaPrefix);
 
   useEffect(() => {
     if (activeTab === "idcard" && !digitalIdData) {

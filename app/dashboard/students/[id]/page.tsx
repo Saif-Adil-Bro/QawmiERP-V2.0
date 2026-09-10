@@ -1,5 +1,6 @@
 import { getStudentById, getStudents } from "@/app/actions/students";
 import { getStudentAcademicHistory } from "@/app/actions/sessions";
+import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import StudentProfileClient from "./StudentProfileClient";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -14,9 +15,10 @@ export default async function StudentDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [historyData, allStudents] = await Promise.all([
+  const [historyData, allStudents, madrasaInfo] = await Promise.all([
     getStudentAcademicHistory(id),
     getStudents(),
+    getMadrasaInfo(),
   ]);
 
   if (!historyData.student) {
@@ -39,6 +41,7 @@ export default async function StudentDetailPage({
       currentEnrollment={historyData.currentEnrollment}
       academicHistory={historyData.history}
       allStudents={allStudents}
+      madrasaInfo={madrasaInfo}
     />
   );
 }

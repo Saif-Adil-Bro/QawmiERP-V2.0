@@ -15,6 +15,8 @@ import {
   formatCardNumber,
   normalizeStudentIdCode,
 } from "@/lib/id-card-management";
+import { getStudentIdNumber } from "@/lib/student-utils";
+import { extractMadrasaPrefix } from "@/lib/madrasa-prefix";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -47,6 +49,13 @@ export async function getIdCardsData(filters?: {
       .select("id, photo_url, first_name, last_name, roll_number, blood_group, parent_phone, classes(name)")
       .eq("madrasa_id", madrasaId);
     const studentMap = new Map((allMadrasaStudents || []).map((s: any) => [s.id, s]));
+
+    const madrasaPrefix = (
+      meta.prefix ||
+      meta.short_code ||
+      (meta.madrasas ? extractMadrasaPrefix(meta.madrasas) : "") ||
+      ""
+    ).trim().toUpperCase();
 
     cards = cards.map((card, idx) => {
       let updatedCard = { ...card };
@@ -102,11 +111,17 @@ export async function getIdCardsData(filters?: {
         }
       }
 
-      const stdCode = normalizeStudentIdCode(
-        updatedCard.snapshot?.student_id_code || updatedCard.student_number || updatedCard.card_number || updatedCard.snapshot?.roll_number,
-        idx + 1
+      const stdCode = getStudentIdNumber(
+        std || {
+          ...updatedCard.snapshot,
+          id: updatedCard.student_id,
+          created_at: updatedCard.created_at,
+          roll_number: updatedCard.snapshot?.roll_number,
+        },
+        allMadrasaStudents || [],
+        madrasaPrefix
       );
-      const stdCardNum = `QM-${stdCode}`;
+      const stdCardNum = stdCode;
       let updatedStatus = updatedCard.status;
       if (updatedCard.status === "ACTIVE" && updatedCard.expiry_date && updatedCard.expiry_date < todayStr) {
         isModified = true;
@@ -234,12 +249,15 @@ export async function issueStudentIdCard(payload: {
     counter += 1;
     meta.id_card_counter = counter;
 
-    const yearShort = targetSession?.academic_year?.split("-")?.[0]?.slice(-2) || new Date().getFullYear().toString().slice(-2);
-    const rawStudentIdCode = normalizeStudentIdCode(
-      student.student_id || student.id_number || (student.roll_number ? `480${String(student.roll_number).padStart(3, "0")}` : `${480000 + counter}`),
-      counter
-    );
-    const cardNumber = formatCardNumber(yearShort, counter, rawStudentIdCode);
+    const madrasaPrefix = (
+      meta.prefix ||
+      meta.short_code ||
+      (meta.madrasas ? extractMadrasaPrefix(meta.madrasas) : "") ||
+      ""
+    ).trim().toUpperCase();
+
+    const studentIdCode = getStudentIdNumber(student, undefined, madrasaPrefix);
+    const cardNumber = studentIdCode;
     const verificationId = generateVerificationToken();
 
     const today = payload.issue_date || new Date().toISOString().split("T")[0];
@@ -261,7 +279,7 @@ export async function issueStudentIdCard(payload: {
       student_id: student.id,
       session_id: targetSession?.id || "default_session",
       card_number: cardNumber,
-      student_number: rawStudentIdCode,
+      student_number: studentIdCode,
       issue_date: today,
       expiry_date: expiry,
       status: "ACTIVE",
@@ -271,7 +289,7 @@ export async function issueStudentIdCard(payload: {
       issued_by: user.email?.split("@")[0] || "Admin",
       snapshot: {
         student_name: `${student.first_name} ${student.last_name || ""}`.trim(),
-        student_id_code: rawStudentIdCode,
+        student_id_code: studentIdCode,
         roll_number: student.roll_number || "-",
         class_name: student.classes?.name || student.class_name || "অনির্ধারিত",
         session_name: targetSession?.name || "১৪৪৭-৪৮ হিজরি",
@@ -355,6 +373,13 @@ export async function bulkGenerateIdCards(payload: {
     const expiry = payload.expiry_date || new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split("T")[0];
     const yearShort = targetSession?.academic_year?.split("-")?.[0]?.slice(-2) || new Date().getFullYear().toString().slice(-2);
 
+    const madrasaPrefix = (
+      meta.prefix ||
+      meta.short_code ||
+      (meta.madrasas ? extractMadrasaPrefix(meta.madrasas) : "") ||
+      ""
+    ).trim().toUpperCase();
+
     let createdCount = 0;
     const createdCards: StudentIDCard[] = [];
 
@@ -364,8 +389,8 @@ export async function bulkGenerateIdCards(payload: {
       if (existing) continue; // Skip if already active
 
       counter += 1;
-      const rawStudentIdCode = student.student_id || student.id_number || (student.roll_number ? `480${String(student.roll_number).padStart(3, "0")}` : `${480000 + counter}`);
-      const cardNumber = formatCardNumber(yearShort, counter, rawStudentIdCode);
+      const studentIdCode = getStudentIdNumber(student, students, madrasaPrefix);
+      const cardNumber = studentIdCode;
       const verificationId = generateVerificationToken();
 
       const newCard: StudentIDCard = {
@@ -374,7 +399,7 @@ export async function bulkGenerateIdCards(payload: {
         student_id: student.id,
         session_id: targetSession?.id || "default_session",
         card_number: cardNumber,
-        student_number: rawStudentIdCode,
+        student_number: studentIdCode,
         issue_date: today,
         expiry_date: expiry,
         status: "ACTIVE",
@@ -384,7 +409,7 @@ export async function bulkGenerateIdCards(payload: {
         issued_by: user.email?.split("@")[0] || "Admin",
         snapshot: {
           student_name: `${student.first_name} ${student.last_name || ""}`.trim(),
-          student_id_code: rawStudentIdCode,
+          student_id_code: studentIdCode,
           roll_number: student.roll_number || "-",
           class_name: student.classes?.name || student.class_name || "অনির্ধারিত",
           session_name: targetSession?.name || "১৪৪৭-৪৮ হিজরি",

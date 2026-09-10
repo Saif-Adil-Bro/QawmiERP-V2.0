@@ -267,5 +267,7 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
     blood_group: profile.blood_group || student.blood_group || admission?.blood_group || "",
     date_of_birth: profile.date_of_birth || student.date_of_birth || admission?.date_of_birth || "",
     gender: profile.gender || student.gender || admission?.gender || "MALE",
+    madrasa_prefix: meta?.prefix || meta?.short_code || student.madrasa_prefix || "",
+    prefix: meta?.prefix || meta?.short_code || student.prefix || "",
   };
 }

@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { StudentIDCard, normalizeStudentIdCode, IDCardFieldVisibility } from "@/lib/id-card-management";
+import { getActiveMadrasaPrefix } from "@/lib/student-utils";
+import { extractMadrasaPrefix } from "@/lib/madrasa-prefix";
 import { IdCard, Phone } from "lucide-react";
 
 export type IDCardTemplateType =
@@ -308,9 +310,38 @@ export default function StudentIdCardTemplate({
 
   const snapshot = card.snapshot || {};
   const studentName = snapshot.student_name || "শিক্ষার্থীর নাম";
-  const rawStudentId = snapshot.student_id_code || card.student_number || card.card_number || "480001";
-  const cleanId = normalizeStudentIdCode(rawStudentId, 1);
-  const studentIdCode = `QM-${cleanId}`;
+
+  const madrasaPrefix = (
+    (madrasaInfo as any)?.prefix ||
+    (madrasaInfo as any)?.short_code ||
+    (madrasaInfo ? extractMadrasaPrefix(madrasaInfo) : "") ||
+    getActiveMadrasaPrefix() ||
+    ""
+  ).trim().toUpperCase();
+
+  let studentIdCode = "";
+  if (snapshot.student_id_code && typeof snapshot.student_id_code === "string" && snapshot.student_id_code.trim()) {
+    const raw = snapshot.student_id_code.trim().toUpperCase();
+    const cleanNumber = raw.replace(/^(QM-|CERT-|STU-|ID-)/i, "");
+    if (madrasaPrefix) {
+      studentIdCode = cleanNumber.startsWith(madrasaPrefix) ? cleanNumber : `${madrasaPrefix}${cleanNumber}`;
+    } else {
+      studentIdCode = cleanNumber;
+    }
+  } else if (card.card_number && typeof card.card_number === "string" && card.card_number.trim()) {
+    const raw = card.card_number.trim().toUpperCase();
+    const cleanNumber = raw.replace(/^(QM-|CERT-|STU-|ID-)/i, "");
+    if (madrasaPrefix) {
+      studentIdCode = cleanNumber.startsWith(madrasaPrefix) ? cleanNumber : `${madrasaPrefix}${cleanNumber}`;
+    } else {
+      studentIdCode = cleanNumber;
+    }
+  } else {
+    const rawStudentId = card.student_number || snapshot.roll_number || "480001";
+    const clean = normalizeStudentIdCode(rawStudentId, 1);
+    studentIdCode = madrasaPrefix ? `${madrasaPrefix}${clean}` : clean;
+  }
+
   const className = snapshot.class_name || "—";
   const rollNumber = snapshot.roll_number || "—";
   const sessionName = snapshot.session_name || "—";

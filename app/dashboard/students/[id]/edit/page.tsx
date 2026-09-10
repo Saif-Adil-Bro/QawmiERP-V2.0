@@ -1,4 +1,5 @@
 import { getStudentById, getClasses, getStudents } from "@/app/actions/students";
+import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import EditStudentForm from "./EditStudentForm";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -9,10 +10,11 @@ export default async function EditStudentPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [student, classes, allStudents] = await Promise.all([
+  const [student, classes, allStudents, madrasaInfo] = await Promise.all([
     getStudentById(id),
     getClasses(),
     getStudents(),
+    getMadrasaInfo(),
   ]);
 
   if (!student) {
@@ -50,6 +52,7 @@ export default async function EditStudentPage({
         student={student}
         classes={classes}
         allStudents={allStudents}
+        madrasaInfo={madrasaInfo}
       />
     </div>
   );

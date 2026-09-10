@@ -702,6 +702,9 @@ export async function getStudentAcademicHistory(
       student.date_of_birth = profile.date_of_birth || adm?.date_of_birth;
     }
 
+    student.madrasa_prefix = meta.prefix || meta.short_code || "";
+    student.prefix = meta.prefix || meta.short_code || "";
+
     const sessions = meta.sessions || getDefaultSessions(currentMadrasaId);
     const currentSession = sessions.find((s) => s.is_current) || sessions[0];
 

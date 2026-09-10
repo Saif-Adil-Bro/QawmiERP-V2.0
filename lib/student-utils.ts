@@ -2,11 +2,51 @@ import { extractMadrasaPrefix, formatStudentIdWithPrefix } from "./madrasa-prefi
 
 /**
  * Centralized utilities for student calculations and formatting.
+ * Single source of truth for student ID resolution across the entire system.
  */
+
+let cachedClientMadrasaPrefix: string = "";
+
+/**
+ * Register or update the active madrasa prefix globally in memory & localStorage.
+ */
+export function setActiveMadrasaPrefix(prefix: string | null | undefined) {
+  if (prefix && typeof prefix === "string") {
+    const clean = prefix.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (clean) {
+      cachedClientMadrasaPrefix = clean;
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("active_madrasa_prefix", clean);
+        } catch {}
+      }
+    }
+  }
+}
+
+/**
+ * Retrieve the current active madrasa prefix.
+ */
+export function getActiveMadrasaPrefix(): string {
+  if (cachedClientMadrasaPrefix) return cachedClientMadrasaPrefix;
+  if (typeof window !== "undefined") {
+    try {
+      const stored =
+        localStorage.getItem("active_madrasa_prefix") ||
+        localStorage.getItem("pad_madrasa_prefix") ||
+        localStorage.getItem("madrasa_prefix");
+      if (stored) {
+        cachedClientMadrasaPrefix = stored.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+        return cachedClientMadrasaPrefix;
+      }
+    } catch {}
+  }
+  return "";
+}
 
 /**
  * Resolves the student ID number prioritizing original/custom ID, admission number, or generated standard ID.
- * Supports mandatory madrasa prefix formatting (e.g. "AHH480001" without hyphen).
+ * Always formats with the unified Madrasa prefix (e.g. "AHA480001") without hyphen.
  */
 export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPrefix?: string): string {
   if (!student) return "";
@@ -17,12 +57,30 @@ export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPre
     student.prefix ||
     (student.madrasas ? extractMadrasaPrefix(student.madrasas) : "") ||
     (student.madrasa ? extractMadrasaPrefix(student.madrasa) : "") ||
+    getActiveMadrasaPrefix() ||
     ""
   ).trim().toUpperCase();
 
+  // Keep cache up to date if a prefix is found
+  if (prefix && typeof window !== "undefined") {
+    setActiveMadrasaPrefix(prefix);
+  }
+
   // 1. If student has an explicit custom / original student ID or admission number
-  const explicitId = student.student_id || student.admission_no || student.student_code || student.custom_id || student.registration_no;
-  if (explicitId && typeof explicitId === "string" && explicitId.trim() !== "" && !explicitId.includes("-") && explicitId.length < 20) {
+  const explicitId =
+    student.student_id ||
+    student.admission_no ||
+    student.student_code ||
+    student.custom_id ||
+    student.registration_no;
+
+  if (
+    explicitId &&
+    typeof explicitId === "string" &&
+    explicitId.trim() !== "" &&
+    !explicitId.includes("-") &&
+    explicitId.length < 20
+  ) {
     const cleanId = explicitId.trim().toUpperCase();
     if (prefix && !cleanId.startsWith(prefix)) {
       return `${prefix}${cleanId}`;

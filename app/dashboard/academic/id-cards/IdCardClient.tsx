@@ -36,7 +36,8 @@ import {
   Save,
   Image as ImageIcon,
 } from "lucide-react";
-import { convertToBanglaNumber, getStudentIdNumber } from "@/lib/student-utils";
+import { convertToBanglaNumber, getStudentIdNumber, getActiveMadrasaPrefix } from "@/lib/student-utils";
+import { extractMadrasaPrefix } from "@/lib/madrasa-prefix";
 import {
   StudentIDCard,
   IDCardStatus,
@@ -115,6 +116,14 @@ export default function IdCardClient({
   madrasaInfo,
 }: IdCardClientProps) {
   const cfg = initialData?.builderConfig;
+
+  const madrasaPrefix = (
+    (madrasaInfo as any)?.prefix ||
+    (madrasaInfo as any)?.short_code ||
+    (madrasaInfo ? extractMadrasaPrefix(madrasaInfo) : "") ||
+    getActiveMadrasaPrefix() ||
+    ""
+  ).trim().toUpperCase();
 
   const [activeTab, setActiveTab] = useState<"cards" | "generator" | "builder" | "audit">("cards");
   const [cards, setCards] = useState<StudentIDCard[]>(initialData.cards || []);
@@ -496,11 +505,8 @@ export default function IdCardClient({
   const selectedSampleUser =
     (users || []).find((u) => u.id === builderSampleStudentId) || users?.[0] || allStudents?.[0];
 
-  const sampleStudentCode = normalizeStudentIdCode(
-    selectedSampleUser?.student_id || selectedSampleUser?.id_number || (selectedSampleUser?.roll_number ? `480${String(selectedSampleUser.roll_number).padStart(3, "0")}` : "480001"),
-    1
-  );
-  const sampleCardNum = `QM-${sampleStudentCode}`;
+  const sampleStudentCode = getStudentIdNumber(selectedSampleUser, users || allStudents, madrasaPrefix);
+  const sampleCardNum = sampleStudentCode;
 
   const builderSampleCard: StudentIDCard = {
     id: selectedSampleUser?.id || "sample-001",
@@ -537,11 +543,8 @@ export default function IdCardClient({
 
   // Printable A4 Cards Generator List
   const allCardsList = (users || []).flatMap((user, idx) => {
-    const uCode = normalizeStudentIdCode(
-      user.student_id || user.id_number || (user.roll_number ? `480${String(user.roll_number).padStart(3, "0")}` : 480000 + idx + 1),
-      idx + 1
-    );
-    const uCardNum = `QM-${uCode}`;
+    const uCode = getStudentIdNumber(user, users || allStudents, madrasaPrefix);
+    const uCardNum = uCode;
 
     const cardObj: StudentIDCard = {
       id: user.id,
@@ -773,11 +776,18 @@ export default function IdCardClient({
                       const isLost = card.status === "LOST";
                       const isBlocked = card.status === "BLOCKED";
                       const isReissued = card.status === "REISSUED";
-                      const cleanStuId = normalizeStudentIdCode(
-                        card.snapshot?.student_id_code || card.student_number || card.card_number,
-                        1
+                      const matchingStudent = allStudents.find((s) => s.id === card.student_id);
+                      const displayCardNum = getStudentIdNumber(
+                        matchingStudent || {
+                          ...card.snapshot,
+                          id: card.student_id,
+                          created_at: card.created_at,
+                          roll_number: card.snapshot?.roll_number,
+                          student_id: card.snapshot?.student_id_code || card.student_number,
+                        },
+                        allStudents,
+                        madrasaPrefix
                       );
-                      const displayCardNum = `QM-${cleanStuId}`;
 
                       return (
                         <tr key={card.id} className="hover:bg-slate-50/80 transition">
@@ -800,7 +810,7 @@ export default function IdCardClient({
                               <div>
                                 <span>{card.snapshot.student_name}</span>
                                 <span className="block text-[11px] text-slate-400 font-mono font-normal">
-                                  আইডি: {cleanStuId}
+                                  আইডি: {displayCardNum}
                                 </span>
                               </div>
                             </div>
@@ -2099,7 +2109,7 @@ export default function IdCardClient({
             <div className="flex-1 overflow-y-auto min-h-[160px] max-h-[240px] pr-1 space-y-1.5 border border-slate-100 rounded-2xl p-1 bg-slate-50/50">
               {filteredStudentsForIssue.length > 0 ? (
                 filteredStudentsForIssue.map((s, idx) => {
-                  const sId = s.student_id || (s.roll_number ? `480${String(s.roll_number).padStart(3, "0")}` : `480${String(idx + 1).padStart(3, "0")}`);
+                  const sId = getStudentIdNumber(s, allStudents, madrasaPrefix);
                   const isSelected = selectedStudentForIssue === s.id;
                   const hasActiveCard = activeCardStudentIds.has(s.id);
                   const photoUrl = getDirectPhotoUrl(s.photo_url);
