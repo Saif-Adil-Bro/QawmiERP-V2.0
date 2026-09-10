@@ -79,42 +79,67 @@ export async function assignSubjectToClass(classId: string, subjectId: string) {
       insertPayload.madrasa_id = madrasaId;
     }
 
-    let { error } = await adminClient.from("class_subjects").insert(insertPayload);
+    let insertRes = await adminClient
+      .from("class_subjects")
+      .insert(insertPayload)
+      .select("*, subjects(*)")
+      .single();
 
     // If madrasa_id column doesn't exist on class_subjects, retry without it
-    if (error && (error.message?.includes("madrasa_id") || error.code === "42703")) {
-      const retryRes = await adminClient.from("class_subjects").insert({
-        class_id: classId,
-        subject_id: subjectId,
-      });
-      error = retryRes.error;
+    if (insertRes.error && (insertRes.error.message?.includes("madrasa_id") || insertRes.error.code === "42703")) {
+      insertRes = await adminClient
+        .from("class_subjects")
+        .insert({
+          class_id: classId,
+          subject_id: subjectId,
+        })
+        .select("*, subjects(*)")
+        .single();
     }
 
-    if (error) {
-      console.error("Error assigning subject to class:", error);
-      if (error.code === "23505") {
+    if (insertRes.error) {
+      console.error("Error assigning subject to class:", insertRes.error);
+      if (insertRes.error.code === "23505") {
         return { error: "এই বিষয়টি ইতিমধ্যেই এই জামাতে বরাদ্দ করা হয়েছে।" };
       }
-      return { error: error.message || "বিষয় বরাদ্দ করতে সমস্যা হয়েছে।" };
+      return { error: insertRes.error.message || "বিষয় বরাদ্দ করতে সমস্যা হয়েছে।" };
     }
 
     revalidatePath(`/dashboard/classes/${classId}/subjects`);
     revalidatePath("/dashboard/classes");
-    return { success: true };
+    return { success: true, item: insertRes.data };
   } catch (err: any) {
     console.error("Exception in assignSubjectToClass:", err);
     return { error: err.message || "সার্ভার এরর হয়েছে।" };
   }
 }
 
-export async function removeSubjectFromClass(classSubjectId: string, classId: string) {
+export async function removeSubjectFromClass(classSubjectId: string, classId: string, subjectId?: string) {
   try {
     const adminClient = await createAdminClient();
+    const isUuid = Boolean(classSubjectId) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(classSubjectId);
     
-    const { error } = await adminClient
-      .from("class_subjects")
-      .delete()
-      .eq("id", classSubjectId);
+    let error: any = null;
+
+    if (isUuid) {
+      const res = await adminClient
+        .from("class_subjects")
+        .delete()
+        .eq("id", classSubjectId);
+      error = res.error;
+    }
+
+    // Fallback: if not UUID or delete by ID had an error, delete by class_id + subject_id
+    if (!isUuid || (error && subjectId)) {
+      if (subjectId) {
+        const fallbackRes = await adminClient
+          .from("class_subjects")
+          .delete()
+          .eq("class_id", classId)
+          .eq("subject_id", subjectId);
+        error = fallbackRes.error;
+      }
+    }
 
     if (error) {
       console.error("Error removing class subject:", error);

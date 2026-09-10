@@ -6,10 +6,13 @@ import {
   GraduationCap,
   MapPin,
   Sparkles,
+  Coffee,
+  Sun,
 } from "lucide-react";
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { getPortalStudentData } from "@/lib/portal-data";
+import { parseRoutineItem, formatTimeString } from "@/lib/routine-helper";
 
 export const dynamic = "force-dynamic";
 
@@ -62,9 +65,9 @@ export default async function ParentPortalRoutine(props: {
   }
 
   const { data: rawRoutines } = await routineQuery.order("start_time", { ascending: true });
-  const routines = rawRoutines || [];
+  const routines = (rawRoutines || []).map(parseRoutineItem);
 
-  const daysOfWeek = ["শনিবার", "রবিবার", "সোমবার", "মঙ্গলবার", "বুধবার", "বৃহস্পতিবার"];
+  const daysOfWeek = ["শনিবার", "রবিবার", "সোমবার", "মঙ্গলবার", "বুধবার", "বৃহস্পতিবার", "শুক্রবার"];
 
   return (
     <div className="space-y-6">
@@ -129,25 +132,88 @@ export default async function ParentPortalRoutine(props: {
             return normalizedDay === day;
           });
 
+          const isOffDay = dayRoutines.some((r: any) => r.item_type === "OFFDAY");
+
           return (
             <div key={day} className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
               <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
                 <span className="font-bold text-sm">{day}</span>
                 <span className="text-[11px] text-amber-400 font-medium">
-                  {dayRoutines.length > 0 ? `${toBanglaNumber(dayRoutines.length)} টি পিরিয়ড` : "ছুটি / বিশেষ শিডিউল"}
+                  {isOffDay
+                    ? "সাপ্তাহিক ছুটি"
+                    : dayRoutines.length > 0
+                    ? `${toBanglaNumber(dayRoutines.length)} টি পিরিয়ড`
+                    : "অফ / ফ্রি ডে"}
                 </span>
               </div>
 
               <div className="p-4 space-y-2.5 flex-1">
                 {dayRoutines.length > 0 ? (
                   dayRoutines.map((r: any, idx: number) => {
-                    const subjectName =
-                      (Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name) ||
-                      r.subject_name ||
-                      "হিফজ / সাধারণ পাঠ";
-                    const teacherName = r.teachers
-                      ? `${Array.isArray(r.teachers) ? r.teachers[0]?.first_name : r.teachers.first_name} ${Array.isArray(r.teachers) ? r.teachers[0]?.last_name : r.teachers.last_name}`
-                      : null;
+                    const start = formatTimeString(r.start_time);
+                    const end = formatTimeString(r.end_time);
+
+                    if (r.item_type === "OFFDAY") {
+                      return (
+                        <div
+                          key={r.id || idx}
+                          className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-rose-900 flex items-center gap-2.5 text-xs"
+                        >
+                          <Sun className="w-4 h-4 text-rose-600 shrink-0" />
+                          <span className="font-bold">{r.display_title || "সাপ্তাহিক ছুটি"}</span>
+                        </div>
+                      );
+                    }
+
+                    if (r.item_type === "BREAK") {
+                      return (
+                        <div
+                          key={r.id || idx}
+                          className="p-3 bg-amber-50/80 rounded-xl border border-amber-200 text-amber-950 space-y-1 text-xs"
+                        >
+                          <div className="flex items-center justify-between font-bold">
+                            <span className="flex items-center gap-1.5">
+                              <Coffee className="w-3.5 h-3.5 text-amber-600" />
+                              <span>{r.display_title}</span>
+                            </span>
+                            <span className="font-mono text-[11px] text-amber-800 bg-amber-100 px-1.5 py-0.2 rounded">
+                              {start} - {end}
+                            </span>
+                          </div>
+                          {r.clean_room && (
+                            <div className="text-[11px] text-amber-800 flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-amber-600" />
+                              <span>স্থান: {r.clean_room}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    if (r.item_type === "CUSTOM") {
+                      return (
+                        <div
+                          key={r.id || idx}
+                          className="p-3 bg-purple-50/80 rounded-xl border border-purple-200 text-purple-950 space-y-1 text-xs"
+                        >
+                          <div className="flex items-center justify-between font-bold">
+                            <span className="flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                              <span>{r.display_title}</span>
+                            </span>
+                            <span className="font-mono text-[11px] text-purple-800 bg-purple-100 px-1.5 py-0.2 rounded">
+                              {start} - {end}
+                            </span>
+                          </div>
+                          {r.clean_room && (
+                            <div className="text-[11px] text-purple-800 flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-purple-600" />
+                              <span>স্থান: {r.clean_room}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
 
                     return (
                       <div
@@ -155,25 +221,25 @@ export default async function ParentPortalRoutine(props: {
                         className="p-3 bg-slate-50 rounded-xl border border-slate-100 hover:border-amber-300 transition space-y-1"
                       >
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-slate-800">{subjectName}</span>
+                          <span className="font-bold text-slate-800">{r.display_title}</span>
                           <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
                             <Clock className="w-3 h-3 text-slate-400" />
-                            <span>{r.start_time?.slice(0, 5) || "০৯:০০"} - {r.end_time?.slice(0, 5) || "১০:০০"}</span>
+                            <span>{start} - {end}</span>
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
-                          {teacherName ? (
+                          {r.display_subtitle ? (
                             <span className="flex items-center gap-1">
                               <User className="w-3 h-3" />
-                              <span>উস্তাদ: {teacherName}</span>
+                              <span>উস্তাদ: {r.display_subtitle}</span>
                             </span>
                           ) : (
-                            <span className="text-slate-400">বিষয় শিক্ষক</span>
+                            <span className="text-slate-400">উস্তাদ নির্ধারিত নয়</span>
                           )}
-                          {r.room_number && (
+                          {r.clean_room && (
                             <span className="flex items-center gap-1 text-slate-600 bg-white px-1.5 py-0.5 rounded border border-slate-200 text-[10px]">
                               <MapPin className="w-2.5 h-2.5 text-amber-600" />
-                              <span>কক্ষ: {r.room_number}</span>
+                              <span>কক্ষ: {r.clean_room}</span>
                             </span>
                           )}
                         </div>
@@ -181,8 +247,8 @@ export default async function ParentPortalRoutine(props: {
                     );
                   })
                 ) : (
-                  <div className="p-3 bg-slate-50/60 rounded-xl text-center text-xs text-slate-400 py-6">
-                    নিয়মিত দৈনিক কুরআন তিলাওয়াত ও সবক পাঠ
+                  <div className="py-8 text-center text-xs text-slate-400">
+                    কোন নির্ধারিত ক্লাস নেই
                   </div>
                 )}
               </div>

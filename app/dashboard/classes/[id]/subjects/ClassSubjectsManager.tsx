@@ -83,6 +83,20 @@ export default function ClassSubjectsManager({
         setAssigned((prev) => prev.filter((item) => item.id !== tempId));
         setToast({ type: "error", message: res.error });
       } else {
+        // Update temp item with actual DB id and data
+        if (res.item?.id) {
+          setAssigned((prev) =>
+            prev.map((item) =>
+              item.id === tempId
+                ? {
+                    ...item,
+                    id: res.item.id,
+                    subjects: res.item.subjects || subToAssign,
+                  }
+                : item
+            )
+          );
+        }
         setToast({
           type: "success",
           message: `"${subToAssign.name}" বিষয়টি সফলভাবে ${className} জামাতে বরাদ্দ করা হয়েছে!`,
@@ -110,7 +124,7 @@ export default function ClassSubjectsManager({
     setAssigned((prev) => prev.filter((item) => item.id !== assignedItem.id));
 
     try {
-      const res = await removeSubjectFromClass(assignedItem.id, classId);
+      const res = await removeSubjectFromClass(assignedItem.id, classId, assignedItem.subject_id);
       if (res.error) {
         // Rollback
         setAssigned(previousAssigned);
