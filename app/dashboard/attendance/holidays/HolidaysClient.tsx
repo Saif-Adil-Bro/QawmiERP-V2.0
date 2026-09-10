@@ -184,7 +184,7 @@ export default function HolidaysClient({
       applicable_to: "all",
       applicable_classes: [],
       description: "",
-      notice_number: `মাদ/ছুটি/${new Date().getFullYear()}/${(holidays.length + 1).toString().padStart(2, "0")}`,
+      notice_number: `মাদ/ছুটি/${toBanglaNumber(new Date().getFullYear())}/${toBanglaNumber(String(holidays.length + 1).padStart(2, "0"))}`,
       publish_to_portal: true,
     });
     setIsModalOpen(true);
@@ -1170,7 +1170,20 @@ export default function HolidaysClient({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">স্মারক নং / নোটিশ নম্বর</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">স্মারক নং / নোটিশ নম্বর</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const freshNotice = `মাদ/ছুটি/${toBanglaNumber(new Date().getFullYear())}/${toBanglaNumber(String(holidays.length + 1).padStart(2, "0"))}`;
+                        setFormData({ ...formData, notice_number: freshNotice });
+                      }}
+                      className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>অটো তৈরি</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={formData.notice_number}

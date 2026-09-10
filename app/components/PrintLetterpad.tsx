@@ -3,8 +3,10 @@
 import React, { useState, useEffect } from "react";
 import { 
   Settings, Check, Printer, FileText, Sliders, ChevronDown, 
-  MapPin, Phone, Calendar, GraduationCap, Heart, HelpCircle
+  MapPin, Phone, Calendar, GraduationCap, Heart, HelpCircle,
+  RefreshCw, Sparkles
 } from "lucide-react";
+import { toBanglaNumber } from "@/lib/numberToBangla";
 
 interface MadrasaInfo {
   id?: string;
@@ -19,6 +21,7 @@ interface MadrasaInfo {
   principal_signature_url?: string;
   signature_url?: string;
   slogan?: string;
+  prefix?: string;
 }
 
 interface PrintLetterpadProps {
@@ -27,6 +30,47 @@ interface PrintLetterpadProps {
   logoUrl?: string;
   title?: string;
   memoNumber?: string;
+}
+
+// Helper to extract custom madrasa prefix if stored
+function getMadrasaPrefix(madrasa: any): string {
+  if (!madrasa) return "";
+  if (typeof madrasa.prefix === "string" && madrasa.prefix.trim()) {
+    return madrasa.prefix.trim();
+  }
+  const reg = madrasa.registration_no || madrasa.reg_no;
+  if (typeof reg === "string" && reg.startsWith("{") && reg.includes("prefix")) {
+    try {
+      const parsed = JSON.parse(reg);
+      if (parsed.prefix) return String(parsed.prefix).trim();
+    } catch {}
+  }
+  return "";
+}
+
+// Smart automatic memo number generator
+export function generateAutoMemoNumber(docTitle?: string, customPrefix?: string): string {
+  const now = new Date();
+  const yearBn = toBanglaNumber(now.getFullYear());
+  const monthBn = toBanglaNumber(String(now.getMonth() + 1).padStart(2, "0"));
+  const serialBn = toBanglaNumber(String(Math.floor(100 + Math.random() * 900)));
+
+  let prefixTag = "মাপ্র"; // মাদরাসা প্রশাসন
+  if (customPrefix && customPrefix.trim()) {
+    prefixTag = `মাপ্র-${customPrefix.trim().toUpperCase()}`;
+  } else if (docTitle) {
+    if (docTitle.includes("হিসাব") || docTitle.includes("আয়-ব্যয়") || docTitle.includes("ফান্ড")) {
+      prefixTag = "মাপ্র/হিসাব";
+    } else if (docTitle.includes("ছুটি")) {
+      prefixTag = "মাদ/ছুটি";
+    } else if (docTitle.includes("পরীক্ষা") || docTitle.includes("মেধা")) {
+      prefixTag = "মাদ/পরীক্ষা";
+    } else if (docTitle.includes("হাজিরা")) {
+      prefixTag = "মাদ/হাজিরা";
+    }
+  }
+
+  return `${prefixTag}/${yearBn}/${monthBn}-${serialBn}`;
 }
 
 const quotes = [
@@ -85,6 +129,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
   const mRegNo = resolvedMadrasa?.registration_no || resolvedMadrasa?.reg_no || "১২৪৫/বি";
   const mEstYear = resolvedMadrasa?.established_year || "২০০২";
   const resolvedLogoUrl = logoUrl || (madrasaInfo as any)?.logoUrl || resolvedMadrasa?.logo_url || "";
+  const resolvedPrefix = getMadrasaPrefix(resolvedMadrasa);
 
   const [padEnabled, setPadEnabled] = useState(true);
   const [establishedYear, setEstablishedYear] = useState(mEstYear);
@@ -94,7 +139,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
   const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
-  const [memoNumber, setMemoNumber] = useState(propMemoNumber || "মাপ্র/২০২৬/");
+  const [memoNumber, setMemoNumber] = useState(propMemoNumber || generateAutoMemoNumber(title, resolvedPrefix));
   const [currentDate, setCurrentDate] = useState("");
 
   // Sync state if props change
@@ -136,7 +181,15 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
       if (savedOrientation === "portrait" || savedOrientation === "landscape") {
         setOrientation(savedOrientation);
       }
-      if (savedMemo !== null) setMemoNumber(savedMemo);
+      
+      // Auto generate if not saved or if it had the old static unfinished string
+      if (savedMemo !== null && savedMemo.trim() && savedMemo !== "মাপ্র/২০২৬/" && savedMemo !== "মাপ্র/2026/") {
+        setMemoNumber(savedMemo);
+      } else if (!propMemoNumber) {
+        const autoGen = generateAutoMemoNumber(title, resolvedPrefix);
+        setMemoNumber(autoGen);
+        localStorage.setItem("pad_print_memo", autoGen);
+      }
 
       // Generate current date in Bengali
       const today = new Date();
@@ -288,14 +341,33 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
 
             {/* Memo Number */}
             <div className="space-y-2">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">স্মারক নম্বর (Memo No.)</label>
-              <input 
-                type="text" 
-                value={memoNumber}
-                onChange={(e) => handleMemoChange(e.target.value)}
-                placeholder="উদা: মাদ/ছুটি/২০২৬/০১ বা মাপ্র/২০২৬/"
-                className="w-full bg-white px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition font-medium text-slate-800 font-mono"
-              />
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">স্মারক নম্বর (MEMO NO.)</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const freshMemo = generateAutoMemoNumber(title, resolvedPrefix);
+                    handleMemoChange(freshMemo);
+                  }}
+                  className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-200 flex items-center gap-1 transition cursor-pointer"
+                  title="নতুন স্মারক নম্বর অটো তৈরি / রিফ্রেশ করুন"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>অটো তৈরি</span>
+                </button>
+              </div>
+              <div className="relative">
+                <input 
+                  type="text" 
+                  value={memoNumber}
+                  onChange={(e) => handleMemoChange(e.target.value)}
+                  placeholder="উদা: মাপ্র/২০২৬/০৯-১০১ বা কাস্টম স্মারক নং"
+                  className="w-full bg-white px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition font-medium text-slate-800 font-mono"
+                />
+              </div>
+              <p className="text-[10px] text-slate-400 leading-tight">
+                স্মারক নং স্বয়ংক্রিয়ভাবে তৈরি হয়; প্রয়োজনে ক্লিক করে এডিট করতে পারেন।
+              </p>
             </div>
 
             {/* Theme Selector */}
