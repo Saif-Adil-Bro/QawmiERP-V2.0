@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Printer, Type, CheckCircle2, X, Download, Landmark, FileText, ArrowLeft } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency, numberToBanglaWords } from "@/lib/numberToBangla";
+import { parseExpenseItems, ParsedExpenseItem } from "@/lib/expense-parser";
 
 export interface ExpenseItem {
   id: string;
@@ -43,9 +44,9 @@ export default function ExpenseVoucher({
 }: ExpenseVoucherProps) {
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
 
-  const madrasaName = madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন";
-  const madrasaAddress = madrasaInfo?.address || "কাটিয়ারচর, কিশোরগঞ্জ।";
-  const madrasaPhone = madrasaInfo?.phone || "০১৬০০৯৮৯৫৫৫";
+  const madrasaName = madrasaInfo?.name || "আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা";
+  const madrasaAddress = madrasaInfo?.address || "কাতিয়ারচর, কিশোরগঞ্জ সদর, কিশোরগঞ্জ।";
+  const madrasaPhone = madrasaInfo?.phone || "০১৬০০-৯৮৯৫৫৫";
   const regNo = madrasaInfo?.registration_no || madrasaInfo?.reg_no || "";
 
   const amountNum = typeof expense.amount === "number" ? expense.amount : parseFloat(String(expense.amount || 0));
@@ -66,6 +67,9 @@ export default function ExpenseVoucher({
     expense.category === "Other" ? "বিবিধ / অন্যান্য খরচ" : (expense.category || "সাধারণ খরচ");
 
   const fundName = expense.fund_name || "সাধারণ ফান্ড (General Fund)";
+
+  // Parse multi-item breakdown from expense description
+  const parsedItems: ParsedExpenseItem[] = parseExpenseItems(expense.description, amountNum);
 
   const handlePrint = () => {
     const printElem = document.getElementById("expense-voucher-sheet");
@@ -164,56 +168,60 @@ export default function ExpenseVoucher({
       {/* Main Printable Voucher Container */}
       <div
         id="expense-voucher-sheet"
-        className="w-full bg-white border-2 border-slate-800 rounded-xl p-6 sm:p-8 text-slate-900 shadow-sm relative overflow-hidden"
+        className="voucher-printable-box w-full bg-white border-2 border-slate-800 rounded-xl p-6 sm:p-8 text-slate-900 shadow-sm relative overflow-hidden"
       >
         {/* Top Decorative Border */}
         <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-700 via-slate-800 to-emerald-700"></div>
 
-        {/* Header Section */}
-        <div className="border-b-2 border-slate-900 pb-4 mb-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            {/* Logo / Arabic Bismillah Badge */}
-            <div className="flex items-center gap-3">
+        {/* Header Section with anti-overlap spacing */}
+        <div className="voucher-header border-b-2 border-slate-900 pb-4 mb-4">
+          <div className="voucher-header-inner flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+            {/* Logo + Madrasa Details (Left) */}
+            <div className="voucher-logo-and-info flex items-center gap-3.5 flex-1 min-w-0">
               {madrasaInfo?.logo_url ? (
                 <img
                   src={madrasaInfo.logo_url}
                   alt={madrasaName}
-                  className="w-16 h-16 object-contain rounded-full border border-slate-200"
+                  className="w-16 h-16 object-contain rounded-full border border-slate-200 shrink-0"
                 />
               ) : (
-                <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white flex flex-col items-center justify-center p-1 text-center shadow-xs">
+                <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white flex flex-col items-center justify-center p-1 text-center shadow-xs shrink-0">
                   <Landmark className="w-6 h-6 text-emerald-400" />
                   <span className="text-[9px] font-bold text-slate-300 uppercase mt-0.5 tracking-tighter">Qawmi</span>
                 </div>
               )}
-              <div className="text-center sm:text-left">
-                <div className="text-xs text-slate-500 font-arabic tracking-wide mb-0.5">
+              <div className="voucher-madrasa-text text-left min-w-0 flex-1">
+                <div className="voucher-arabic-bismillah text-xs text-slate-500 font-arabic tracking-wide leading-normal mb-0.5">
                   بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ
                 </div>
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                <h1 className="voucher-madrasa-title text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-snug">
                   {madrasaName}
                 </h1>
-                <p className="text-xs text-slate-600 mt-0.5 font-medium">
+                <p className="voucher-madrasa-address text-xs text-slate-600 font-medium leading-relaxed mt-0.5">
                   {madrasaAddress} {madrasaPhone && `| মোবাইল: ${toBanglaNumber(madrasaPhone)}`}
                 </p>
                 {regNo && (
-                  <p className="text-[11px] text-slate-500">রেজিস্ট্রেশন নং: {toBanglaNumber(regNo)}</p>
+                  <p className="voucher-madrasa-reg text-[11px] text-slate-500 leading-normal">
+                    রেজিস্ট্রেশন নং: {toBanglaNumber(regNo)}
+                  </p>
                 )}
               </div>
             </div>
 
-            {/* Voucher Title Badge */}
-            <div className="text-center sm:text-right">
-              <div className="inline-block bg-slate-900 text-white px-4 py-1.5 rounded-lg border border-slate-800 shadow-xs">
-                <span className="text-sm font-black tracking-wider uppercase">ডেবিট ভাউচার (DEBIT VOUCHER)</span>
+            {/* Voucher Title Badge (Right) */}
+            <div className="voucher-title-badge-container text-left sm:text-right shrink-0 self-start sm:self-center">
+              <div className="inline-block bg-slate-900 text-white px-3.5 py-1.5 rounded-lg border border-slate-800 shadow-xs">
+                <span className="text-xs sm:text-sm font-black tracking-wider uppercase whitespace-nowrap">
+                  ডেবিট ভাউচার (DEBIT VOUCHER)
+                </span>
               </div>
-              <p className="text-[11px] text-slate-500 font-semibold mt-1">মাদরাসা ব্যয় ও খরচের রসিদ</p>
+              <p className="text-[11px] text-slate-600 font-semibold mt-1">মাদরাসা ব্যয় ও খরচের রসিদ</p>
             </div>
           </div>
         </div>
 
         {/* Voucher Meta Info Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs sm:text-sm mb-5">
+        <div className="voucher-meta-grid grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs sm:text-sm mb-5">
           <div className="space-y-1.5">
             <div className="flex items-center">
               <span className="w-28 text-slate-500 font-medium">ভাউচার নম্বর:</span>
@@ -245,39 +253,39 @@ export default function ExpenseVoucher({
           </div>
         </div>
 
-        {/* Expense Details Table */}
-        <div className="border border-slate-300 rounded-lg overflow-hidden mb-5">
-          <table className="w-full text-left text-xs sm:text-sm">
+        {/* Expense Details Smart Itemized Table */}
+        <div className="voucher-table-wrapper border border-slate-300 rounded-lg overflow-hidden mb-5">
+          <table className="voucher-items-table w-full text-left text-xs sm:text-sm">
             <thead className="bg-slate-100 text-slate-800 border-b border-slate-300 font-bold">
               <tr>
-                <th className="p-3 w-12 text-center border-r border-slate-300">নং</th>
-                <th className="p-3 border-r border-slate-300">খরচের বিবরণ / হিসাবের বিস্তারিত খাত</th>
+                <th className="p-3 w-14 text-center border-r border-slate-300">নং</th>
+                <th className="p-3 border-r border-slate-300">খরচের বিবরণ / পণ্যের নাম</th>
                 <th className="p-3 w-36 text-right">পরিমাণ (টাকা)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              <tr className="min-h-[90px]">
-                <td className="p-3 text-center align-top border-r border-slate-300 font-bold text-slate-500">
-                  ০১
-                </td>
-                <td className="p-3 align-top border-r border-slate-300">
-                  <div className="font-bold text-slate-900 mb-1">
-                    {categoryLabel}
-                  </div>
-                  <div className="text-slate-700 whitespace-pre-line leading-relaxed text-xs sm:text-sm">
-                    {expense.description || "মাদরাসার প্রাতিষ্ঠানিক প্রয়োজনে ব্যয় নির্বাহ করা হয়েছে।"}
-                  </div>
-                </td>
-                <td className="p-3 text-right align-top font-bold text-slate-900 text-sm sm:text-base font-mono">
-                  ৳ {banglaAmount}
-                </td>
-              </tr>
+              {parsedItems.map((item) => (
+                <tr key={item.id} className="hover:bg-slate-50/50">
+                  <td className="p-3 text-center align-top border-r border-slate-300 font-bold text-slate-700 font-mono">
+                    {item.serialBn}
+                  </td>
+                  <td className="p-3 align-top border-r border-slate-300 text-slate-800">
+                    <div className="font-semibold text-slate-900 text-xs sm:text-sm">
+                      {item.name}
+                    </div>
+                  </td>
+                  <td className="p-3 text-right align-top font-bold text-slate-900 text-xs sm:text-sm font-mono whitespace-nowrap">
+                    {item.amountFormatted ? `৳ ${item.amountFormatted}` : (parsedItems.length === 1 ? `৳ ${banglaAmount}` : "-")}
+                  </td>
+                </tr>
+              ))}
+
               {/* Total Row */}
               <tr className="bg-slate-50 font-bold border-t-2 border-slate-900">
-                <td colSpan={2} className="p-3 text-right border-r border-slate-300 text-slate-800">
+                <td colSpan={2} className="p-3 text-right border-r border-slate-300 text-slate-800 font-bold text-xs sm:text-sm">
                   সর্বমোট খরচের পরিমাণ:
                 </td>
-                <td className="p-3 text-right text-emerald-800 text-base font-mono font-black">
+                <td className="p-3 text-right text-emerald-800 text-sm sm:text-base font-mono font-black whitespace-nowrap">
                   ৳ {banglaAmount}
                 </td>
               </tr>
@@ -286,15 +294,15 @@ export default function ExpenseVoucher({
         </div>
 
         {/* Amount in Words */}
-        <div className="p-3 bg-emerald-50/50 rounded-lg border border-emerald-200 text-xs sm:text-sm flex flex-wrap items-center gap-2 mb-8">
+        <div className="voucher-words-box p-3 bg-emerald-50/50 rounded-lg border border-emerald-200 text-xs sm:text-sm flex flex-wrap items-center gap-2 mb-8">
           <span className="font-bold text-emerald-900">কথায়:</span>
           <span className="font-semibold text-slate-800 italic">
-            {inWords} মাত্র।
+            {inWords}
           </span>
         </div>
 
         {/* 4 Signatures Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center pt-8 border-t border-slate-200 mt-6">
+        <div className="voucher-signatures-grid grid grid-cols-2 sm:grid-cols-4 gap-4 text-center pt-8 border-t border-slate-200 mt-6">
           <div className="space-y-1">
             <div className="h-9 flex items-end justify-center">
               <div className="w-24 border-b border-dashed border-slate-400"></div>
@@ -337,13 +345,13 @@ export default function ExpenseVoucher({
         </div>
 
         {/* Footnote */}
-        <div className="mt-8 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
+        <div className="voucher-footer mt-8 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
           <span>* এটি মাদরাসা হিসাব সফটওয়্যারের মাধ্যমে স্বয়ংক্রিয়ভাবে প্রস্তুতকৃত অফিশিয়াল ডেবিট ভাউচার।</span>
           <span>প্রিন্ট সময়: {new Date().toLocaleTimeString("bn-BD")}</span>
         </div>
       </div>
 
-      {/* Embedded Clean Print CSS */}
+      {/* Embedded Clean Print CSS with Anti-Overlap Enforcements */}
       <style jsx global>{`
         @media print {
           @page {
@@ -367,6 +375,8 @@ export default function ExpenseVoucher({
             box-shadow: none !important;
             border: none !important;
             z-index: 99999999 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
 
           #temp-print-frame #expense-voucher-sheet,
@@ -375,10 +385,121 @@ export default function ExpenseVoucher({
             width: 100% !important;
             max-width: 100% !important;
             margin: 0 !important;
-            padding: 18px !important;
+            padding: 20px !important;
             box-shadow: none !important;
+            border: 2px solid #0f172a !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          /* Header Layout - Guarantee side-by-side with no overlap */
+          .voucher-header {
+            border-bottom: 2px solid #0f172a !important;
+            padding-bottom: 12px !important;
+            margin-bottom: 14px !important;
+          }
+
+          .voucher-header-inner {
+            display: flex !important;
+            flex-direction: row !important;
+            justify-content: space-between !important;
+            align-items: flex-start !important;
+            gap: 16px !important;
+          }
+
+          .voucher-logo-and-info {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            gap: 14px !important;
+            flex: 1 !important;
+            text-align: left !important;
+          }
+
+          .voucher-madrasa-text {
+            text-align: left !important;
+          }
+
+          .voucher-arabic-bismillah {
+            font-size: 11px !important;
+            line-height: 1.3 !important;
+            margin-bottom: 2px !important;
+            color: #475569 !important;
+            display: block !important;
+          }
+
+          .voucher-madrasa-title {
+            font-size: 20px !important;
+            font-weight: 900 !important;
+            line-height: 1.25 !important;
+            color: #0f172a !important;
+            margin: 0 0 3px 0 !important;
+          }
+
+          .voucher-madrasa-address {
+            font-size: 11px !important;
+            line-height: 1.35 !important;
+            color: #475569 !important;
+            margin: 0 !important;
+          }
+
+          .voucher-madrasa-reg {
+            font-size: 10px !important;
+            line-height: 1.3 !important;
+            color: #64748b !important;
+            margin-top: 1px !important;
+          }
+
+          .voucher-title-badge-container {
+            text-align: right !important;
+            flex-shrink: 0 !important;
+          }
+
+          /* Meta Grid */
+          .voucher-meta-grid {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr !important;
+            gap: 10px !important;
+            background-color: #f8fafc !important;
+            border: 1px solid #e2e8f0 !important;
+            padding: 10px 14px !important;
+            margin-bottom: 14px !important;
+          }
+
+          /* Table Styles */
+          .voucher-table-wrapper {
+            border: 1px solid #cbd5e1 !important;
+            margin-bottom: 14px !important;
+          }
+
+          .voucher-items-table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+          }
+
+          .voucher-items-table th {
+            background-color: #f1f5f9 !important;
+            color: #0f172a !important;
+            font-weight: 700 !important;
+            padding: 8px 10px !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+          }
+
+          .voucher-items-table td {
+            padding: 8px 10px !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+          }
+
+          /* Signatures Row */
+          .voucher-signatures-grid {
+            display: grid !important;
+            grid-template-columns: repeat(4, 1fr) !important;
+            gap: 12px !important;
+            padding-top: 24px !important;
+            margin-top: 16px !important;
+            border-top: 1px solid #e2e8f0 !important;
           }
         }
       `}</style>

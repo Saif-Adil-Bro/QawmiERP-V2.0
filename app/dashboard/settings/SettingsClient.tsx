@@ -3,18 +3,24 @@
 import { useState, useRef, DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { updateMadrasaDetails } from "@/app/actions/tenant";
+import { 
+  updateMadrasaDetails, 
+  getSuggestedMadrasaPrefixAction, 
+  checkPrefixAvailabilityAction 
+} from "@/app/actions/tenant";
 import { uploadImageAuto } from "@/lib/uploadHelper";
 import { 
   Building2, MapPin, Phone, Mail, Upload, Loader2, CheckCircle, 
   AlertTriangle, Globe, FileImage, PenTool, Hash, Calendar, 
   Sparkles, HelpCircle, ExternalLink, X, ShieldCheck,
-  Copy, Check, Info, Database
+  Copy, Check, Info, Database, Fingerprint
 } from "lucide-react";
 
 interface Madrasa {
   id: string;
   name: string;
+  prefix?: string;
+  short_code?: string;
   address?: string;
   contact_phone?: string;
   contact_email?: string;
@@ -49,6 +55,10 @@ export default function SettingsClient({
 
   // Form Fields
   const [name, setName] = useState(madrasa.name || "");
+  const initialPrefix = madrasa.prefix || madrasa.short_code || madrasa.metadata?.prefix || madrasa.metadata?.short_code || "AHH";
+  const [prefix, setPrefix] = useState(initialPrefix);
+  const [prefixStatus, setPrefixStatus] = useState<{ available?: boolean; message?: string; suggested?: string } | null>(null);
+  const [isSuggestingPrefix, setIsSuggestingPrefix] = useState(false);
   const [establishedYear, setEstablishedYear] = useState(madrasa.established_year || "");
   const [principalName, setPrincipalName] = useState(madrasa.principal_name || "");
   const [registrationNo, setRegistrationNo] = useState(madrasa.registration_no || madrasa.reg_no || "");
@@ -94,6 +104,37 @@ export default function SettingsClient({
       navigator.clipboard.writeText(text);
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 2000);
+    }
+  };
+
+  const handlePrefixChange = async (val: string) => {
+    const clean = val.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+    setPrefix(clean);
+    if (clean.length >= 2) {
+      try {
+        const res = await checkPrefixAvailabilityAction(clean, madrasa.id);
+        setPrefixStatus(res);
+      } catch {
+        setPrefixStatus(null);
+      }
+    } else {
+      setPrefixStatus(null);
+    }
+  };
+
+  const handleAutoSuggestPrefix = async () => {
+    setIsSuggestingPrefix(true);
+    try {
+      const res = await getSuggestedMadrasaPrefixAction(name, madrasa.id);
+      if (res?.prefix) {
+        setPrefix(res.prefix);
+        const avail = await checkPrefixAvailabilityAction(res.prefix, madrasa.id);
+        setPrefixStatus(avail);
+      }
+    } catch (e) {
+      console.warn("Suggest prefix err:", e);
+    } finally {
+      setIsSuggestingPrefix(false);
     }
   };
 
@@ -299,6 +340,7 @@ export default function SettingsClient({
 
       const formData = new FormData();
       formData.append("name", name);
+      formData.append("prefix", prefix);
       formData.append("establishedYear", establishedYear);
       formData.append("principalName", principalName);
       formData.append("registrationNo", registrationNo);
@@ -628,6 +670,71 @@ export default function SettingsClient({
                       placeholder="উদা: জামিয়া ইসলামিয়া দারুল উলুম"
                     />
                   </div>
+                </div>
+
+                {/* Madrasa Prefix Configuration Card */}
+                <div className="bg-gradient-to-r from-emerald-50/70 via-teal-50/50 to-slate-50 p-4 rounded-xl border border-emerald-200/80 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Fingerprint className="w-4 h-4 text-emerald-700" />
+                      <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                        মাদ্রাসা প্রিফিক্স কোড (Unique Prefix) <span className="text-red-500">*</span>
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isSuggestingPrefix || !name}
+                      onClick={handleAutoSuggestPrefix}
+                      className="text-xs font-medium text-emerald-800 hover:text-emerald-900 bg-white hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                      {isSuggestingPrefix ? "সাজেস্ট হচ্ছে..." : "স্বয়ংক্রিয় সাজেস্ট"}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative w-36">
+                      <input
+                        type="text"
+                        required
+                        maxLength={4}
+                        value={prefix}
+                        onChange={(e) => handlePrefixChange(e.target.value)}
+                        className="w-full text-center font-mono text-base font-bold tracking-wider uppercase px-3 py-2 bg-white border-2 border-emerald-300 rounded-xl text-emerald-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none shadow-sm"
+                        placeholder="AHH"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-white/80 px-3 py-2 rounded-xl border border-slate-200 shadow-sm">
+                      <span className="text-slate-500">আইডি ফরম্যাট প্রিভিউ:</span>
+                      <span className="font-mono font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                        {prefix || "AHH"}480001
+                      </span>
+                    </div>
+                  </div>
+
+                  {prefixStatus && (
+                    <div className={`text-xs font-medium flex items-center gap-1.5 ${prefixStatus.available ? "text-emerald-700" : "text-amber-700"}`}>
+                      {prefixStatus.available ? (
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      )}
+                      <span>{prefixStatus.message}</span>
+                      {prefixStatus.suggested && (
+                        <button
+                          type="button"
+                          onClick={() => handlePrefixChange(prefixStatus.suggested!)}
+                          className="ml-2 underline font-bold"
+                        >
+                          ব্যবহার করুন ({prefixStatus.suggested})
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    এই ৩ সংখ্যার/অক্ষরের প্রিফিক্স কোডটি আপনার মাদ্রাসার শিক্ষার্থী আইডি ও লগইনের জন্য ব্যবহৃত হবে (যেমন: <strong>{prefix || "AHH"}480001</strong>)। হাইফেন ছাড়াই সরাসরি প্রিফিক্স ও ৬-সংখ্যার কোড দিয়ে স্টুডেন্ট ও অভিভাবকরা লগইন করবেন। এটি সকল মাদ্রাসার মধ্যে স্বতন্ত্র ও ইউনিক রাখা আবশ্যক।
+                  </p>
                 </div>
 
                 {/* Grid: Established Year & Registration No */}

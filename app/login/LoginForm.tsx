@@ -77,7 +77,7 @@ export default function LoginForm() {
       <div className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-100/90 text-xs text-emerald-900 leading-relaxed flex items-start gap-2.5">
         <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
         <div>
-          <span className="font-semibold text-emerald-950">অভিভাবক লগইন:</span> শিক্ষার্থীর আইডি (যেমন: <span className="font-mono font-bold bg-white px-1 py-0.5 rounded border border-emerald-200 text-emerald-700">480001</span>) এবং ডিফল্ট পাসওয়ার্ড <span className="font-mono font-bold bg-white px-1 py-0.5 rounded border border-emerald-200 text-emerald-700">123456</span> দিয়ে সরাসরি লগইন করতে পারবেন। পরবর্তীতে নিজের ইচ্ছামতো পাসওয়ার্ড পরিবর্তন করা যাবে।
+          <span className="font-semibold text-emerald-950">অভিভাবক লগইন:</span> শিক্ষার্থীর প্রিফিক্সসহ আইডি (যেমন: <span className="font-mono font-bold bg-white px-1 py-0.5 rounded border border-emerald-200 text-emerald-700">AHH480001</span> বা <span className="font-mono font-bold bg-white px-1 py-0.5 rounded border border-emerald-200 text-emerald-700">480001</span>) এবং ডিফল্ট পাসওয়ার্ড <span className="font-mono font-bold bg-white px-1 py-0.5 rounded border border-emerald-200 text-emerald-700">123456</span> দিয়ে লগইন করুন।
         </div>
       </div>
 
@@ -92,7 +92,7 @@ export default function LoginForm() {
             required
             autoComplete="username"
             className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-800 text-sm transition-all"
-            placeholder="যেমন: 480001 বা admin@madrasa.com"
+            placeholder="যেমন: AHH480001 বা 480001"
           />
           <User className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
         </div>

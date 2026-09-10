@@ -3,6 +3,11 @@
 import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { revalidatePath } from "next/cache";
+import {
+  generateSuggestedPrefix,
+  findUniquePrefix,
+} from "@/lib/madrasa-prefix";
+import { getAllMadrasasWithPrefixes } from "@/lib/madrasa-prefix-server";
 
 export async function registerMadrasa(formData: FormData) {
   const madrasaName = formData.get("madrasaName") as string;
@@ -10,12 +15,29 @@ export async function registerMadrasa(formData: FormData) {
   const adminName = formData.get("adminName") as string;
   const adminEmail = formData.get("adminEmail") as string;
   const adminPassword = formData.get("adminPassword") as string;
+  const rawPrefix = (formData.get("prefix") as string)?.trim().toUpperCase() || "";
 
   if (!madrasaName || !contactEmail || !adminName || !adminEmail || !adminPassword) {
-    return { error: "All fields are required" };
+    return { error: "সকল প্রয়োজনীয় তথ্য পূরণ করুন।" };
   }
 
   const supabase = await createAdminClient();
+
+  // Determine & validate unique prefix
+  const allMadrasas = await getAllMadrasasWithPrefixes();
+  const existingPrefixes = allMadrasas.map((m) => m.prefix.toUpperCase());
+
+  let finalPrefix = rawPrefix.replace(/[^A-Z0-9]/g, "").slice(0, 4);
+  if (!finalPrefix) {
+    finalPrefix = generateSuggestedPrefix(madrasaName, existingPrefixes);
+  } else if (existingPrefixes.includes(finalPrefix)) {
+    finalPrefix = findUniquePrefix(finalPrefix, existingPrefixes);
+  }
+
+  const initialMetadata = {
+    prefix: finalPrefix,
+    short_code: finalPrefix,
+  };
 
   // 1. Create the Madrasa record (Tenant)
   const { data: madrasaData, error: madrasaError } = await supabase
@@ -24,12 +46,13 @@ export async function registerMadrasa(formData: FormData) {
       name: madrasaName,
       contact_email: contactEmail,
       subscription_plan: "free",
+      registration_no: JSON.stringify(initialMetadata),
     })
     .select("id")
     .single();
 
   if (madrasaError || !madrasaData) {
-    return { error: madrasaError?.message || "Failed to create madrasa" };
+    return { error: madrasaError?.message || "মাদরাসা তৈরিতে সমস্যা হয়েছে।" };
   }
 
   const madrasaId = madrasaData.id;
@@ -44,7 +67,7 @@ export async function registerMadrasa(formData: FormData) {
   if (authError || !authData.user) {
     // Rollback madrasa creation on fail
     await supabase.from("madrasas").delete().eq("id", madrasaId);
-    return { error: authError?.message || "Failed to create auth user" };
+    return { error: authError?.message || "ব্যবহারকারী তৈরিতে সমস্যা হয়েছে।" };
   }
 
   const authUserId = authData.user.id;
@@ -55,7 +78,7 @@ export async function registerMadrasa(formData: FormData) {
     .insert({
       id: authUserId,
       madrasa_id: madrasaId,
-      role: "super_admin", // Given they are the creator, they could be super_admin or admin
+      role: "super_admin",
       full_name: adminName,
       email: adminEmail,
     });
@@ -64,10 +87,14 @@ export async function registerMadrasa(formData: FormData) {
     // Rollback if failed
     await supabase.auth.admin.deleteUser(authUserId);
     await supabase.from("madrasas").delete().eq("id", madrasaId);
-    return { error: userError.message || "Failed to create user profile" };
+    return { error: userError.message || "প্রোফাইল তৈরিতে সমস্যা হয়েছে।" };
   }
 
-  return { success: true, message: "Madrasa registered successfully!" };
+  return {
+    success: true,
+    message: `মাদরাসা সফলভাবে রেজিস্টার হয়েছে! ইউনিক প্রিফিক্স কোড: ${finalPrefix}`,
+    prefix: finalPrefix,
+  };
 }
 
 
@@ -125,8 +152,12 @@ export async function getMadrasaDetails() {
   const { data: logoData } = adminClient.storage.from('logos').getPublicUrl(`madrasa_logo_${data.id}.png`);
   const { data: sigData } = adminClient.storage.from('signatures').getPublicUrl(`madrasa_signature_${data.id}.png`);
 
+  const prefix = meta.prefix || meta.short_code || generateSuggestedPrefix(data.name || "");
+
   return {
     ...data,
+    prefix,
+    short_code: prefix,
     registration_no: meta.reg_no || (typeof data.registration_no === "string" && !data.registration_no.startsWith("{") ? data.registration_no : ""),
     reg_no: meta.reg_no || "",
     established_year: meta.established_year || "",
@@ -200,6 +231,7 @@ export async function updateMadrasaDetails(formData: FormData) {
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
     
     const name = (formData.get("name") as string)?.trim();
+    const prefixRaw = (formData.get("prefix") as string)?.trim().toUpperCase() || "";
     const address = (formData.get("address") as string)?.trim() || "";
     const phone = (formData.get("phone") as string)?.trim() || "";
     const email = (formData.get("email") as string)?.trim() || "";
@@ -476,8 +508,28 @@ export async function updateMadrasaDetails(formData: FormData) {
       }
     }
 
+    // Validate and clean prefix
+    let cleanPrefix = prefixRaw.replace(/[^A-Z0-9]/g, "").slice(0, 4);
+    if (!cleanPrefix) {
+      cleanPrefix = existingMeta.prefix || existingMeta.short_code || generateSuggestedPrefix(name);
+    }
+
+    // Check if prefix is already in use by another madrasa
+    const allMadrasas = await getAllMadrasasWithPrefixes();
+    const duplicate = allMadrasas.find(
+      (m) => m.id !== madrasaId && m.prefix.toUpperCase() === cleanPrefix.toUpperCase()
+    );
+
+    if (duplicate) {
+      return {
+        error: `এই প্রিফিক্স কোডটি (${cleanPrefix}) ইতোমধ্যে "${duplicate.name}" মাদ্রাসায় ব্যবহৃত হয়েছে। অনুগ্রহ করে অন্য প্রিফিক্স বেছে নিন বা স্বয়ংক্রিয় সাজেস্ট বাটনে ক্লিক করুন।`,
+      };
+    }
+
     const metadataPayload = {
       ...existingMeta,
+      prefix: cleanPrefix,
+      short_code: cleanPrefix,
       reg_no: registrationNo,
       established_year: establishedYear,
       principal_name: principalName,
@@ -526,9 +578,57 @@ export async function updateMadrasaDetails(formData: FormData) {
     
     return { 
       success: true, 
-      message: "মাদরাসার তথ্য, মুহতামিমের বিবরণ ও স্বাক্ষর সফলভাবে সংরক্ষিত হয়েছে।" 
+      message: "মাদরাসার তথ্য, মুহতামিমের বিবরণ ও স্বাক্ষর সফলভাবে সংরক্ষিত হয়েছে।",
+      prefix: cleanPrefix,
     };
   } catch (error: any) {
     return { error: error?.message || "একটি অজানা সমস্যা হয়েছে" };
   }
 }
+
+/**
+ * Server action to calculate a suggested unique 3-letter prefix for a madrasa name.
+ */
+export async function getSuggestedMadrasaPrefixAction(
+  madrasaName: string,
+  currentMadrasaId?: string
+): Promise<{ prefix: string }> {
+  const allMadrasas = await getAllMadrasasWithPrefixes();
+  const otherPrefixes = allMadrasas
+    .filter((m) => !currentMadrasaId || m.id !== currentMadrasaId)
+    .map((m) => m.prefix.toUpperCase());
+
+  const prefix = generateSuggestedPrefix(madrasaName, otherPrefixes);
+  return { prefix };
+}
+
+/**
+ * Server action to check if a prefix is available or taken.
+ */
+export async function checkPrefixAvailabilityAction(
+  prefix: string,
+  currentMadrasaId?: string
+): Promise<{ available: boolean; message?: string; suggested?: string }> {
+  const cleanPrefix = (prefix || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+  if (!cleanPrefix || cleanPrefix.length < 2) {
+    return { available: false, message: "প্রিফিক্স ন্যূনতম ২-৪ অক্ষরের হতে হবে।" };
+  }
+
+  const allMadrasas = await getAllMadrasasWithPrefixes();
+  const duplicate = allMadrasas.find(
+    (m) => (!currentMadrasaId || m.id !== currentMadrasaId) && m.prefix.toUpperCase() === cleanPrefix
+  );
+
+  if (duplicate) {
+    const existingPrefixes = allMadrasas.map((m) => m.prefix.toUpperCase());
+    const suggested = findUniquePrefix(cleanPrefix, existingPrefixes);
+    return {
+      available: false,
+      message: `এই প্রিফিক্সটি "${duplicate.name}" মাদ্রাসায় ব্যবহৃত হয়েছে।`,
+      suggested,
+    };
+  }
+
+  return { available: true, message: `প্রিফিক্স "${cleanPrefix}" ব্যবহারযোগ্য!` };
+}
+

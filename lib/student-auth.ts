@@ -1,5 +1,11 @@
 import { createAdminClient } from "@/lib/supabase/server";
 import { getMadrasaMetadata } from "@/lib/sessions";
+import {
+  parseStudentIdentifier,
+  formatStudentIdWithPrefix,
+  extractMadrasaPrefix,
+} from "@/lib/madrasa-prefix";
+import { getAllMadrasasWithPrefixes } from "@/lib/madrasa-prefix-server";
 
 /**
  * Converts Bengali digits (০-৯) to English ASCII digits (0-9).
@@ -14,10 +20,9 @@ export function banglaToEnglishDigits(str: string | number | null | undefined): 
 }
 
 /**
- * Resolves a 6-digit canonical student ID code (e.g., 480001).
- * Matches roll numbers (e.g., 1 -> 480001, 12 -> 480012) or custom student IDs.
+ * Resolves the numeric 6-digit portion of student ID (e.g., 480001).
  */
-export function resolveCanonicalStudentCode(student: any, fallbackIndex = 1): string {
+export function resolveCanonicalStudentNumericCode(student: any, fallbackIndex = 1): string {
   if (!student) return `480${String(fallbackIndex).padStart(3, "0")}`;
 
   // 1. Explicit numeric student_id or admission_no or registration_no
@@ -46,20 +51,38 @@ export function resolveCanonicalStudentCode(student: any, fallbackIndex = 1): st
   return `480${String(idx).padStart(3, "0")}`;
 }
 
+/**
+ * Resolves a full canonical student ID with Madrasa Prefix (e.g., AHH480001).
+ * Directly attaches prefix without any hyphens.
+ */
+export function resolveCanonicalStudentCode(
+  student: any,
+  fallbackIndex = 1,
+  madrasaPrefix?: string
+): string {
+  const numCode = resolveCanonicalStudentNumericCode(student, fallbackIndex);
+  const prefix = madrasaPrefix || (student?.madrasas ? extractMadrasaPrefix(student.madrasas) : "");
+  return formatStudentIdWithPrefix(prefix, numCode);
+}
+
 export interface ResolvedStudentTarget {
   student: any;
-  canonicalStudentId: string;
-  portalEmail: string;
+  canonicalStudentId: string; // e.g. "AHH480001"
+  numericStudentId: string;   // e.g. "480001"
+  portalEmail: string;        // e.g. "student_480001@qawmi.app" or "student_ahh480001@qawmi.app"
   madrasaId: string;
+  madrasaPrefix: string;
+  madrasaName: string;
 }
 
 /**
- * Searches for a student by any identifier:
+ * Searches for a student by any identifier with multi-tenant prefix support:
+ * - Prefixed ID without hyphen (e.g., "AHH480001", "MSM480001", "ahh480001", "AHH৪৮০০০১")
  * - 6-digit student ID (e.g., "480001", "480015", "৪৮০০০১")
- * - Prefixed ID (e.g., "QM-480001", "STU-480001", "ID-480001")
+ * - Prefixed ID with hyphen (e.g., "AHH-480001", "QM-480001", "STU-480001")
  * - Roll number (e.g., "1", "01", "১", "12", "১২")
  * - Parent phone number (e.g., "01600989555", "+8801600989555")
- * - Student internal email (e.g., "student_480001@qawmi.app")
+ * - Student internal email (e.g., "student_480001@qawmi.app", "student_ahh480001@qawmi.app")
  */
 export async function findStudentByIdentifier(identifier: string): Promise<ResolvedStudentTarget | null> {
   if (!identifier) return null;
@@ -71,50 +94,100 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
   const portalEmailMatch = enStr.match(/^student_([0-9a-zA-Z_-]+)@qawmi\.app$/i);
   const targetCodeFromEmail = portalEmailMatch ? portalEmailMatch[1] : null;
 
-  // Clean candidate code by stripping known prefixes
-  const cleanId = enStr.replace(/^(QM-|STU-|ID-|CERT-)/i, "").trim();
-  const digitsOnly = cleanId.replace(/\D/g, "");
-
   const adminClient = await createAdminClient();
 
-  // Load all students for accurate matching
-  const { data: allStudents, error } = await adminClient
+  // Load all madrasas with their prefixes
+  const madrasasWithPrefixes = await getAllMadrasasWithPrefixes();
+  const madrasaMap = new Map<string, { id: string; name: string; prefix: string }>();
+  const prefixToMadrasaMap = new Map<string, { id: string; name: string; prefix: string }>();
+
+  madrasasWithPrefixes.forEach((m) => {
+    madrasaMap.set(m.id, m);
+    if (m.prefix) {
+      prefixToMadrasaMap.set(m.prefix.toUpperCase(), m);
+    }
+  });
+
+  // Parse input to see if user entered an explicit prefix (e.g. AHH480001)
+  const parsed = parseStudentIdentifier(targetCodeFromEmail || enStr);
+  const explicitPrefix = parsed.prefix;
+  const digitsOnly = parsed.numericCode.replace(/\D/g, "");
+
+  // If explicit prefix matches a specific madrasa
+  let targetMadrasaId: string | null = null;
+  let targetMadrasaInfo: { id: string; name: string; prefix: string } | null = null;
+
+  if (explicitPrefix && prefixToMadrasaMap.has(explicitPrefix)) {
+    targetMadrasaInfo = prefixToMadrasaMap.get(explicitPrefix)!;
+    targetMadrasaId = targetMadrasaInfo.id;
+  }
+
+  // Query students (filtered by madrasa if target identified, or all)
+  let studentQuery = adminClient
     .from("students")
     .select("*, classes(id, name)")
     .order("roll_number", { ascending: true });
 
-  if (error || !allStudents || allStudents.length === 0) {
+  if (targetMadrasaId) {
+    studentQuery = studentQuery.eq("madrasa_id", targetMadrasaId);
+  }
+
+  const { data: matchedStudents, error } = await studentQuery;
+
+  if (error || !matchedStudents || matchedStudents.length === 0) {
+    // If user specified an explicit madrasa prefix, do not fall back to other madrasas
+    if (targetMadrasaId) {
+      return null;
+    }
     return null;
   }
 
+  return searchStudentsList(matchedStudents, parsed, raw, enStr, targetCodeFromEmail, madrasaMap);
+}
+
+/**
+ * Helper to match student in a candidate list
+ */
+function searchStudentsList(
+  students: any[],
+  parsed: { prefix: string | null; numericCode: string },
+  raw: string,
+  enStr: string,
+  targetCodeFromEmail: string | null,
+  madrasaMap: Map<string, { id: string; name: string; prefix: string }>
+): ResolvedStudentTarget | null {
+  const digitsOnly = parsed.numericCode.replace(/\D/g, "");
+
   // Strategy 1: Match by portal email target code (e.g., student_480001@qawmi.app -> 480001)
   if (targetCodeFromEmail) {
-    for (let idx = 0; idx < allStudents.length; idx++) {
-      const s = allStudents[idx];
-      const code = resolveCanonicalStudentCode(s, idx + 1);
-      if (code.toLowerCase() === targetCodeFromEmail.toLowerCase()) {
-        return {
-          student: s,
-          canonicalStudentId: code,
-          portalEmail: `student_${code}@qawmi.app`,
-          madrasaId: s.madrasa_id || "",
-        };
+    for (let idx = 0; idx < students.length; idx++) {
+      const s = students[idx];
+      const mInfo = madrasaMap.get(s.madrasa_id) || { id: s.madrasa_id, name: "", prefix: "AHH" };
+      const numCode = resolveCanonicalStudentNumericCode(s, idx + 1);
+      const fullId = formatStudentIdWithPrefix(mInfo.prefix, numCode);
+      if (
+        numCode.toLowerCase() === targetCodeFromEmail.toLowerCase() ||
+        fullId.toLowerCase() === targetCodeFromEmail.toLowerCase()
+      ) {
+        return createResolvedTarget(s, numCode, mInfo);
       }
     }
   }
 
-  // Strategy 2: Direct match by 6-digit student ID (e.g., 480001)
+  // Strategy 2: Direct match by 6-digit student ID or prefixed code (e.g. 480001, AHH480001)
   if (digitsOnly.length >= 4) {
-    for (let idx = 0; idx < allStudents.length; idx++) {
-      const s = allStudents[idx];
-      const code = resolveCanonicalStudentCode(s, idx + 1);
-      if (code === digitsOnly || (code.endsWith(digitsOnly) && digitsOnly.length >= 4)) {
-        return {
-          student: s,
-          canonicalStudentId: code,
-          portalEmail: `student_${code}@qawmi.app`,
-          madrasaId: s.madrasa_id || "",
-        };
+    for (let idx = 0; idx < students.length; idx++) {
+      const s = students[idx];
+      const mInfo = madrasaMap.get(s.madrasa_id) || { id: s.madrasa_id, name: "", prefix: "AHH" };
+      const numCode = resolveCanonicalStudentNumericCode(s, idx + 1);
+      const fullId = formatStudentIdWithPrefix(mInfo.prefix, numCode);
+
+      if (
+        numCode === digitsOnly ||
+        fullId.toUpperCase() === enStr.toUpperCase() ||
+        (numCode.endsWith(digitsOnly) && digitsOnly.length >= 4)
+      ) {
+        return createResolvedTarget(s, numCode, mInfo);
       }
     }
   }
@@ -122,18 +195,14 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
   // Strategy 3: Match by roll number (e.g. Roll 1 -> 480001)
   if (digitsOnly.length >= 1 && digitsOnly.length <= 3) {
     const targetRoll = parseInt(digitsOnly, 10);
-    for (let idx = 0; idx < allStudents.length; idx++) {
-      const s = allStudents[idx];
+    for (let idx = 0; idx < students.length; idx++) {
+      const s = students[idx];
       const sRollStr = banglaToEnglishDigits(s.roll_number || "").replace(/\D/g, "");
       const sRollNum = parseInt(sRollStr, 10);
       if (sRollNum === targetRoll) {
-        const code = resolveCanonicalStudentCode(s, idx + 1);
-        return {
-          student: s,
-          canonicalStudentId: code,
-          portalEmail: `student_${code}@qawmi.app`,
-          madrasaId: s.madrasa_id || "",
-        };
+        const mInfo = madrasaMap.get(s.madrasa_id) || { id: s.madrasa_id, name: "", prefix: "AHH" };
+        const numCode = resolveCanonicalStudentNumericCode(s, idx + 1);
+        return createResolvedTarget(s, numCode, mInfo);
       }
     }
   }
@@ -141,49 +210,35 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
   // Strategy 4: Match by parent phone number (last 10 digits)
   if (digitsOnly.length >= 6) {
     const last10 = digitsOnly.slice(-10);
-    for (let idx = 0; idx < allStudents.length; idx++) {
-      const s = allStudents[idx];
+    for (let idx = 0; idx < students.length; idx++) {
+      const s = students[idx];
       const phoneClean = (s.parent_phone || "").replace(/\D/g, "");
       if (phoneClean.endsWith(last10) || last10.endsWith(phoneClean)) {
-        const code = resolveCanonicalStudentCode(s, idx + 1);
-        return {
-          student: s,
-          canonicalStudentId: code,
-          portalEmail: `student_${code}@qawmi.app`,
-          madrasaId: s.madrasa_id || "",
-        };
+        const mInfo = madrasaMap.get(s.madrasa_id) || { id: s.madrasa_id, name: "", prefix: "AHH" };
+        const numCode = resolveCanonicalStudentNumericCode(s, idx + 1);
+        return createResolvedTarget(s, numCode, mInfo);
       }
     }
-  }
-
-  // Strategy 5: Check madrasa metadata profiles
-  try {
-    const madrasaId = allStudents[0]?.madrasa_id;
-    if (madrasaId) {
-      const meta = await getMadrasaMetadata(madrasaId);
-      if (meta?.student_profiles) {
-        for (const [sId, prof] of Object.entries(meta.student_profiles as Record<string, any>)) {
-          const profCode = prof?.student_id || prof?.student_id_code;
-          if (profCode && (profCode === digitsOnly || profCode === raw)) {
-            const studentObj = allStudents.find((s) => s.id === sId);
-            if (studentObj) {
-              const code = profCode;
-              return {
-                student: studentObj,
-                canonicalStudentId: code,
-                portalEmail: `student_${code}@qawmi.app`,
-                madrasaId,
-              };
-            }
-          }
-        }
-      }
-    }
-  } catch (metaErr) {
-    console.warn("Metadata check error:", metaErr);
   }
 
   return null;
+}
+
+function createResolvedTarget(
+  student: any,
+  numCode: string,
+  madrasaInfo: { id: string; name: string; prefix: string }
+): ResolvedStudentTarget {
+  const fullId = formatStudentIdWithPrefix(madrasaInfo.prefix, numCode);
+  return {
+    student,
+    canonicalStudentId: fullId,
+    numericStudentId: numCode,
+    portalEmail: `student_${numCode}@qawmi.app`,
+    madrasaId: student.madrasa_id || madrasaInfo.id || "",
+    madrasaPrefix: madrasaInfo.prefix,
+    madrasaName: madrasaInfo.name,
+  };
 }
 
 /**

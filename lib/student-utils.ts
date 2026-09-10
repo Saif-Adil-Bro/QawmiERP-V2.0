@@ -4,14 +4,21 @@
 
 /**
  * Resolves the student ID number prioritizing original/custom ID, admission number, or generated standard ID.
+ * Supports optional madrasa prefix formatting (e.g. "AHH480001" without hyphen).
  */
-export function getStudentIdNumber(student: any, allStudents?: any[]): string {
+export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPrefix?: string): string {
   if (!student) return "";
+
+  const prefix = (madrasaPrefix || student.madrasa_prefix || student.prefix || "").trim().toUpperCase();
 
   // 1. If student has an explicit custom / original student ID or admission number
   const explicitId = student.student_id || student.admission_no || student.student_code || student.custom_id || student.registration_no;
   if (explicitId && typeof explicitId === "string" && explicitId.trim() !== "" && !explicitId.includes("-") && explicitId.length < 20) {
-    return explicitId.trim();
+    const cleanId = explicitId.trim();
+    if (prefix && !cleanId.toUpperCase().startsWith(prefix)) {
+      return `${prefix}${cleanId}`;
+    }
+    return cleanId;
   }
 
   // 2. Use student's custom created_at if exists, otherwise fallback to current date
@@ -36,10 +43,12 @@ export function getStudentIdNumber(student: any, allStudents?: any[]): string {
     if (student.roll_number) {
       const cleanRoll = String(student.roll_number).replace(/[^0-9]/g, '');
       if (cleanRoll) {
-        return `${firstTwoDigits}${cleanRoll.padStart(4, '0')}`;
+        const code = `${firstTwoDigits}${cleanRoll.padStart(4, '0')}`;
+        return prefix ? `${prefix}${code}` : code;
       }
     }
-    return `${firstTwoDigits}0001`;
+    const code = `${firstTwoDigits}0001`;
+    return prefix ? `${prefix}${code}` : code;
   }
 
   // Group and sort students of the same Hijri year
@@ -67,15 +76,16 @@ export function getStudentIdNumber(student: any, allStudents?: any[]): string {
   const index = sameYearStudents.findIndex(s => s.id === student.id);
   const sequenceNum = index !== -1 ? index + 1 : (parseInt(student.roll_number, 10) || sameYearStudents.length + 1);
   const sequenceStr = String(sequenceNum).padStart(4, '0'); // Pad with leading zeros to make 4 digits
+  const code = `${firstTwoDigits}${sequenceStr}`;
 
-  return `${firstTwoDigits}${sequenceStr}`;
+  return prefix ? `${prefix}${code}` : code;
 }
 
 /**
  * Returns formatted Bangla student ID
  */
-export function resolveStudentIdBn(student: any, allStudents?: any[]): string {
-  const idStr = getStudentIdNumber(student, allStudents);
+export function resolveStudentIdBn(student: any, allStudents?: any[], madrasaPrefix?: string): string {
+  const idStr = getStudentIdNumber(student, allStudents, madrasaPrefix);
   return convertToBanglaNumber(idStr);
 }
 
