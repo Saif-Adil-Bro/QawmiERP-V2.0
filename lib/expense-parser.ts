@@ -83,7 +83,17 @@ export function parseExpenseItems(
     ];
   }
 
-  const rawLines = cleanText.split("\n").map((l) => l.trim()).filter(Boolean);
+  // Split lines or items separated by newlines, semicolons, or commas with numbering/prices
+  let rawLines: string[] = [];
+  if (cleanText.includes("\n")) {
+    rawLines = cleanText.split("\n").map((l) => l.trim()).filter(Boolean);
+  } else if (cleanText.includes(";") || (cleanText.includes(",") && /[০-৯0-9]/.test(cleanText))) {
+    // If single line contains semicolons or commas separating items
+    const delimiters = cleanText.includes(";") ? ";" : ",";
+    rawLines = cleanText.split(delimiters).map((l) => l.trim()).filter(Boolean);
+  } else {
+    rawLines = [cleanText];
+  }
   if (rawLines.length === 0) {
     return [
       {

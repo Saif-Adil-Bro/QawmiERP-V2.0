@@ -1,21 +1,30 @@
+import { extractMadrasaPrefix, formatStudentIdWithPrefix } from "./madrasa-prefix";
+
 /**
  * Centralized utilities for student calculations and formatting.
  */
 
 /**
  * Resolves the student ID number prioritizing original/custom ID, admission number, or generated standard ID.
- * Supports optional madrasa prefix formatting (e.g. "AHH480001" without hyphen).
+ * Supports mandatory madrasa prefix formatting (e.g. "AHH480001" without hyphen).
  */
 export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPrefix?: string): string {
   if (!student) return "";
 
-  const prefix = (madrasaPrefix || student.madrasa_prefix || student.prefix || "").trim().toUpperCase();
+  const prefix = (
+    madrasaPrefix ||
+    student.madrasa_prefix ||
+    student.prefix ||
+    (student.madrasas ? extractMadrasaPrefix(student.madrasas) : "") ||
+    (student.madrasa ? extractMadrasaPrefix(student.madrasa) : "") ||
+    "AHH"
+  ).trim().toUpperCase();
 
   // 1. If student has an explicit custom / original student ID or admission number
   const explicitId = student.student_id || student.admission_no || student.student_code || student.custom_id || student.registration_no;
   if (explicitId && typeof explicitId === "string" && explicitId.trim() !== "" && !explicitId.includes("-") && explicitId.length < 20) {
-    const cleanId = explicitId.trim();
-    if (prefix && !cleanId.toUpperCase().startsWith(prefix)) {
+    const cleanId = explicitId.trim().toUpperCase();
+    if (prefix && !cleanId.startsWith(prefix)) {
       return `${prefix}${cleanId}`;
     }
     return cleanId;
@@ -44,11 +53,11 @@ export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPre
       const cleanRoll = String(student.roll_number).replace(/[^0-9]/g, '');
       if (cleanRoll) {
         const code = `${firstTwoDigits}${cleanRoll.padStart(4, '0')}`;
-        return prefix ? `${prefix}${code}` : code;
+        return formatStudentIdWithPrefix(prefix, code);
       }
     }
     const code = `${firstTwoDigits}0001`;
-    return prefix ? `${prefix}${code}` : code;
+    return formatStudentIdWithPrefix(prefix, code);
   }
 
   // Group and sort students of the same Hijri year
@@ -78,7 +87,7 @@ export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPre
   const sequenceStr = String(sequenceNum).padStart(4, '0'); // Pad with leading zeros to make 4 digits
   const code = `${firstTwoDigits}${sequenceStr}`;
 
-  return prefix ? `${prefix}${code}` : code;
+  return formatStudentIdWithPrefix(prefix, code);
 }
 
 /**

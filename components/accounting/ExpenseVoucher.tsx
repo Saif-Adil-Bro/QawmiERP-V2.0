@@ -175,9 +175,9 @@ export default function ExpenseVoucher({
 
         {/* Header Section with anti-overlap spacing */}
         <div className="voucher-header border-b-2 border-slate-900 pb-4 mb-4">
-          <div className="voucher-header-inner flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+          <div className="voucher-header-inner flex flex-row items-center justify-between gap-4">
             {/* Logo + Madrasa Details (Left) */}
-            <div className="voucher-logo-and-info flex items-center gap-3.5 flex-1 min-w-0">
+            <div className="voucher-logo-and-info flex items-center gap-3.5 flex-1 min-w-0 pr-2">
               {madrasaInfo?.logo_url ? (
                 <img
                   src={madrasaInfo.logo_url}
@@ -190,11 +190,11 @@ export default function ExpenseVoucher({
                   <span className="text-[9px] font-bold text-slate-300 uppercase mt-0.5 tracking-tighter">Qawmi</span>
                 </div>
               )}
-              <div className="voucher-madrasa-text text-left min-w-0 flex-1">
+              <div className="voucher-madrasa-text text-left min-w-0 flex-1 overflow-hidden">
                 <div className="voucher-arabic-bismillah text-xs text-slate-500 font-arabic tracking-wide leading-normal mb-0.5">
                   بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ
                 </div>
-                <h1 className="voucher-madrasa-title text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-snug">
+                <h1 className="voucher-madrasa-title text-lg sm:text-2xl font-black text-slate-900 tracking-tight leading-snug break-words">
                   {madrasaName}
                 </h1>
                 <p className="voucher-madrasa-address text-xs text-slate-600 font-medium leading-relaxed mt-0.5">
@@ -209,13 +209,13 @@ export default function ExpenseVoucher({
             </div>
 
             {/* Voucher Title Badge (Right) */}
-            <div className="voucher-title-badge-container text-left sm:text-right shrink-0 self-start sm:self-center">
+            <div className="voucher-title-badge-container text-right shrink-0">
               <div className="inline-block bg-slate-900 text-white px-3.5 py-1.5 rounded-lg border border-slate-800 shadow-xs">
                 <span className="text-xs sm:text-sm font-black tracking-wider uppercase whitespace-nowrap">
                   ডেবিট ভাউচার (DEBIT VOUCHER)
                 </span>
               </div>
-              <p className="text-[11px] text-slate-600 font-semibold mt-1">মাদরাসা ব্যয় ও খরচের রসিদ</p>
+              <p className="text-[11px] text-slate-600 font-semibold mt-1 whitespace-nowrap">মাদরাসা ব্যয় ও খরচের রসিদ</p>
             </div>
           </div>
         </div>

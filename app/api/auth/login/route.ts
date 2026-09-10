@@ -27,6 +27,8 @@ export async function POST(req: NextRequest) {
     let isStudentLogin = false;
     let matchedStudent: any = null;
     let studentIdCode = "";
+    let canonicalEmail = "";
+    let legacyEmail = "";
 
     // If identifier is not a standard external email (or matches student ID/roll/phone/qawmi format)
     if (!rawIdentifier.includes("@") || rawIdentifier.endsWith("@qawmi.app")) {
@@ -35,18 +37,20 @@ export async function POST(req: NextRequest) {
         isStudentLogin = true;
         matchedStudent = resolved.student;
         studentIdCode = resolved.canonicalStudentId;
-        targetEmail = resolved.portalEmail;
+        canonicalEmail = resolved.portalEmail;
+        legacyEmail = resolved.legacyPortalEmail;
 
-        // Auto-provision if account doesn't exist yet
-        await ensureStudentGuardianAuthUser(
+        // Auto-provision if account doesn't exist yet, or sync credentials
+        const authRes = await ensureStudentGuardianAuthUser(
           matchedStudent,
           studentIdCode,
           "123456"
         );
+        targetEmail = authRes.email || canonicalEmail;
       } else if (!rawIdentifier.includes("@")) {
         return NextResponse.json(
           {
-            error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: 480001) অথবা ইমেইল প্রদান করুন।`,
+            error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: AHH480001 বা 480001) অথবা ইমেইল প্রদান করুন।`,
           },
           { status: 404 }
         );
@@ -71,13 +75,35 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If student login failed with default password (123456), ensure sync and retry
+    // If student login failed, try canonical or legacy email alternatives
+    if (error && isStudentLogin) {
+      const altEmails = [canonicalEmail, legacyEmail].filter(
+        (e) => e && e.toLowerCase() !== targetEmail.toLowerCase()
+      );
+      for (const alt of altEmails) {
+        const altAttempt = await supabase.auth.signInWithPassword({
+          email: alt,
+          password: rawPassword,
+        });
+        if (!altAttempt.error && altAttempt.data.user) {
+          data = altAttempt.data;
+          error = null;
+          targetEmail = alt;
+          break;
+        }
+      }
+    }
+
+    // If student login failed with default password (123456), force password sync on auth user and retry
     if (error && isStudentLogin && (rawPassword === "123456" || normalizedPassword === "123456")) {
       try {
         const adminClient = await createAdminClient();
-        const { data: authUsers } = await adminClient.auth.admin.listUsers();
+        const { data: authUsers } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
         const authUser = authUsers?.users?.find(
-          (u) => u.email?.toLowerCase() === targetEmail.toLowerCase()
+          (u) =>
+            u.email?.toLowerCase() === targetEmail.toLowerCase() ||
+            u.email?.toLowerCase() === canonicalEmail.toLowerCase() ||
+            u.email?.toLowerCase() === legacyEmail.toLowerCase()
         );
         if (authUser) {
           await adminClient.auth.admin.updateUserById(authUser.id, {
@@ -85,12 +111,13 @@ export async function POST(req: NextRequest) {
             email_confirm: true,
           });
           const reSync = await supabase.auth.signInWithPassword({
-            email: targetEmail,
+            email: authUser.email || targetEmail,
             password: "123456",
           });
-          if (!reSync.error) {
+          if (!reSync.error && reSync.data.user) {
             data = reSync.data;
             error = null;
+            targetEmail = authUser.email || targetEmail;
           }
         }
       } catch (syncPassErr) {

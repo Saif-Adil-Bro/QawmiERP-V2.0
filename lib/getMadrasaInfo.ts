@@ -1,9 +1,12 @@
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
+import { extractMadrasaPrefix, generateSuggestedPrefix } from "@/lib/madrasa-prefix";
 
 export async function getMadrasaInfo() {
   let madrasaInfo = { 
     id: "",
     name: "মাদ্রাসাতুল মুসলিমীন", 
+    prefix: "AHH",
+    short_code: "AHH",
     address: "ঠিকানা হালনাগাদ করুন", 
     phone: "", 
     email: "",
@@ -17,6 +20,7 @@ export async function getMadrasaInfo() {
     eiin_code: "",
     slogan: "",
     website: "",
+    metadata: {} as Record<string, any>,
   };
 
   try {
@@ -73,9 +77,20 @@ export async function getMadrasaInfo() {
           }
         }
 
+        const resolvedPrefix =
+          meta.prefix ||
+          meta.short_code ||
+          (fullMadrasa as any).prefix ||
+          (fullMadrasa as any).short_code ||
+          extractMadrasaPrefix(fullMadrasa) ||
+          generateSuggestedPrefix(fullMadrasa.name || "") ||
+          "AHH";
+
         madrasaInfo = {
           id: fullMadrasa.id || targetMadrasaId,
           name: fullMadrasa.name || madrasaInfo.name,
+          prefix: resolvedPrefix,
+          short_code: resolvedPrefix,
           address: fullMadrasa.address || madrasaInfo.address,
           phone: fullMadrasa.contact_phone || madrasaInfo.phone,
           email: fullMadrasa.contact_email || madrasaInfo.email,
@@ -99,6 +114,7 @@ export async function getMadrasaInfo() {
           eiin_code: meta.eiin_code || "",
           slogan: meta.slogan || "",
           website: meta.website || "",
+          metadata: meta,
         };
       }
     }

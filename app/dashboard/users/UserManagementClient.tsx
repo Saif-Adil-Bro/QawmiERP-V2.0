@@ -47,6 +47,7 @@ import {
   DEFAULT_SYSTEM_ROLES,
 } from "@/lib/permissions";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { getStudentIdNumber, convertToBanglaNumber } from "@/lib/student-utils";
 import RoleManagementView from "@/components/permissions/RoleManagementView";
 import UserSecurityModal from "@/components/permissions/UserSecurityModal";
 import ApprovalsCenterView from "@/components/permissions/ApprovalsCenterView";
@@ -62,6 +63,7 @@ interface Props {
   initialAuditLogs?: SecurityAuditLog[];
   initialApprovalRequests?: ApprovalRequest[];
   initialSecurityProfiles?: Record<string, Partial<UserSecurityProfile>>;
+  madrasaInfo?: any;
 }
 
 const roleBadgeMeta: Record<string, { label: string; bg: string; text: string; icon: any }> = {
@@ -98,7 +100,10 @@ export default function UserManagementClient({
   initialAuditLogs = [],
   initialApprovalRequests = [],
   initialSecurityProfiles = {},
+  madrasaInfo,
 }: Props) {
+  const madrasaPrefix = (madrasaInfo?.prefix || madrasaInfo?.short_code || "AHH").trim().toUpperCase();
+
   // Navigation Section Tabs
   const [sectionTab, setSectionTab] = useState<"accounts" | "roles" | "approvals" | "audit">("accounts");
 
@@ -242,22 +247,17 @@ export default function UserManagementClient({
     setSelectedStudentId(sId);
     const student = students.find((s) => s.id === sId);
     if (student) {
+      const studentCode = getStudentIdNumber(student, students, madrasaPrefix);
       if (asParent) {
         setFullName(student.father_name || `${student.first_name}-এর অভিভাবক`);
         setPhone(student.parent_phone || student.phone || "");
         setRole("parent");
-        const cleanPhone = (student.parent_phone || student.phone || "").replace(/[^0-9]/g, "");
-        if (cleanPhone.length >= 6) {
-          setEmail(`parent_${cleanPhone}@qawmi.app`);
-        } else {
-          setEmail(`parent_roll${student.roll_number || student.student_id || student.id.slice(0, 4)}@qawmi.app`);
-        }
+        setEmail(`student_${studentCode.toLowerCase()}@qawmi.app`);
       } else {
         setFullName(`${student.first_name || ""} ${student.last_name || ""}`.trim());
         setPhone(student.phone || student.parent_phone || "");
         setRole("student");
-        const cleanRoll = student.roll_number || student.student_id || student.id.slice(0, 4);
-        setEmail(`student_${cleanRoll}@qawmi.app`);
+        setEmail(`student_${studentCode.toLowerCase()}@qawmi.app`);
       }
       generateRandomPin();
     }
@@ -385,11 +385,21 @@ export default function UserManagementClient({
         ? window.location.origin +
           (user.role === "teacher" ? "/teacher-portal" : user.role === "parent" || user.role === "student" ? "/portal" : "/dashboard")
         : "";
+
+    let displayLoginId = user.email;
+    if (user.email?.startsWith("student_")) {
+      const rawCode = user.email.replace("student_", "").replace("@qawmi.app", "").toUpperCase();
+      displayLoginId = (!rawCode.startsWith(madrasaPrefix) && /^\d+$/.test(rawCode))
+        ? `${madrasaPrefix}${rawCode}`
+        : rawCode;
+    }
+
     const text = `মাদরাসা পোর্টাল লগইন তথ্য:
 নাম: ${user.full_name}
 রোল: ${roleBadgeMeta[user.role]?.label || user.role}
-লগইন আইডি/ইমেইল: ${user.email}
-পাসওয়ার্ড/পিন: ${pin || "******"}
+লগইন আইডি: ${displayLoginId}
+ইমেইল: ${user.email}
+পাসওয়ার্ড/পিন: ${pin || "123456"}
 পোর্টাল লিংক: ${portalUrl}`;
 
     if (navigator?.clipboard) {
@@ -803,12 +813,18 @@ export default function UserManagementClient({
                           {/* Login Email / ID */}
                           <td className="px-4 py-3">
                             <div className="flex flex-col gap-1">
-                              {u.email?.startsWith("student_") && (
-                                <span className="inline-flex items-center gap-1 font-mono font-bold text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 w-fit">
-                                  <Sparkles className="w-3 h-3 text-emerald-600" />
-                                  লগইন আইডি: {u.email.replace("student_", "").replace("@qawmi.app", "")}
-                                </span>
-                              )}
+                              {u.email?.startsWith("student_") && (() => {
+                                const rawSuffix = u.email.replace("student_", "").replace("@qawmi.app", "").toUpperCase();
+                                const displayId = (madrasaPrefix && !rawSuffix.startsWith(madrasaPrefix) && /^\d+$/.test(rawSuffix))
+                                  ? `${madrasaPrefix}${rawSuffix}`
+                                  : rawSuffix;
+                                return (
+                                  <span className="inline-flex items-center gap-1 font-mono font-bold text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 w-fit">
+                                    <Sparkles className="w-3 h-3 text-emerald-600" />
+                                    লগইন আইডি: {displayId}
+                                  </span>
+                                );
+                              })()}
                               <div className="flex items-center gap-2">
                                 <span className="font-mono text-xs text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                                   {u.email}
