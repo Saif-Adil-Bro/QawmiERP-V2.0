@@ -17,7 +17,7 @@ export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPre
     student.prefix ||
     (student.madrasas ? extractMadrasaPrefix(student.madrasas) : "") ||
     (student.madrasa ? extractMadrasaPrefix(student.madrasa) : "") ||
-    "AHH"
+    ""
   ).trim().toUpperCase();
 
   // 1. If student has an explicit custom / original student ID or admission number
@@ -91,11 +91,10 @@ export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPre
 }
 
 /**
- * Returns formatted Bangla student ID
+ * Returns formatted student ID in English alphanumeric format (e.g., AHA480001) as required globally
  */
 export function resolveStudentIdBn(student: any, allStudents?: any[], madrasaPrefix?: string): string {
-  const idStr = getStudentIdNumber(student, allStudents, madrasaPrefix);
-  return convertToBanglaNumber(idStr);
+  return getStudentIdNumber(student, allStudents, madrasaPrefix);
 }
 
 /**

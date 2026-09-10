@@ -48,7 +48,6 @@ export default function StudentProfileClient({
   const [loadingCertificates, setLoadingCertificates] = useState(false);
 
   const studentIdNumber = getStudentIdNumber(student, allStudents);
-  const studentIdBn = convertToBanglaNumber(studentIdNumber);
 
   useEffect(() => {
     if (activeTab === "idcard" && !digitalIdData) {
@@ -124,8 +123,8 @@ export default function StudentProfileClient({
               <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
                 {student.first_name} {student.last_name}
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                আইডি: {studentIdBn}
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-blue-50 text-blue-700 border border-blue-200">
+                আইডি: {studentIdNumber}
               </span>
               <span
                 className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${

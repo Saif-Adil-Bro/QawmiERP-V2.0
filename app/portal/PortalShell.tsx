@@ -115,8 +115,8 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
             <div className="overflow-hidden min-w-0 flex-1">
               <p className="text-xs font-bold text-white truncate">{userData?.full_name || "অভিভাবক"}</p>
               {studentIdCode ? (
-                <p className="text-[11px] text-emerald-400 font-semibold truncate">
-                  আইডি: {toBanglaNumber(studentIdCode)} ({studentIdCode})
+                <p className="text-[11px] text-emerald-400 font-semibold font-mono truncate">
+                  আইডি: {studentIdCode}
                 </p>
               ) : (
                 <p className="text-[11px] text-slate-400 font-mono truncate">{user?.email}</p>
@@ -193,8 +193,8 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
                 <div className="overflow-hidden min-w-0 flex-1">
                   <p className="text-xs font-bold text-white truncate">{userData?.full_name || "অভিভাবক"}</p>
                   {studentIdCode ? (
-                    <p className="text-[11px] text-emerald-400 font-semibold truncate">
-                      আইডি: {toBanglaNumber(studentIdCode)}
+                    <p className="text-[11px] text-emerald-400 font-semibold font-mono truncate">
+                      আইডি: {studentIdCode}
                     </p>
                   ) : (
                     <p className="text-[10px] text-slate-400 font-mono truncate">{user?.email}</p>

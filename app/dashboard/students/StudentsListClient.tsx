@@ -50,12 +50,16 @@ interface SessionItem {
 interface MadrasaInfo {
   id?: string;
   name: string;
+  prefix?: string;
+  short_code?: string;
   address?: string;
   phone?: string;
   email?: string;
   logo_url?: string;
   established_year?: string;
   reg_no?: string;
+  registration_no?: string;
+  metadata?: any;
 }
 
 interface StudentsListClientProps {
@@ -76,6 +80,14 @@ export default function StudentsListClient({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  // Resolved madrasa prefix
+  const madrasaPrefix = (
+    madrasaInfo?.prefix ||
+    (madrasaInfo as any)?.short_code ||
+    (madrasaInfo as any)?.metadata?.prefix ||
+    ""
+  ).trim().toUpperCase();
 
   // Local state for students list (to support instant optimistic deletion)
   const [students, setStudents] = useState<any[]>(initialStudents || []);
@@ -335,8 +347,7 @@ export default function StudentsListClient({
               student.class_name ||
               ""
           ).toLowerCase();
-          const studentId = getStudentIdNumber(student, students).toLowerCase();
-          const studentIdBn = convertToBanglaNumber(studentId).toLowerCase();
+          const studentId = getStudentIdNumber(student, students, madrasaPrefix).toLowerCase();
 
           const matches =
             fullName.includes(q) ||
@@ -344,8 +355,7 @@ export default function StudentsListClient({
             phone.includes(q) ||
             father.includes(q) ||
             className.includes(q) ||
-            studentId.includes(q) ||
-            studentIdBn.includes(q);
+            studentId.includes(q);
 
           if (!matches) return false;
         }
@@ -442,8 +452,8 @@ export default function StudentsListClient({
           return nameA.localeCompare(nameB, "bn");
         }
         if (sortBy === "id_asc" || sortBy === "id_desc") {
-          const idA = getStudentIdNumber(a, students);
-          const idB = getStudentIdNumber(b, students);
+          const idA = getStudentIdNumber(a, students, madrasaPrefix);
+          const idB = getStudentIdNumber(b, students, madrasaPrefix);
           return sortBy === "id_asc" ? idA.localeCompare(idB) : idB.localeCompare(idA);
         }
         if (sortBy === "date_desc") {
@@ -548,7 +558,7 @@ export default function StudentsListClient({
     ];
 
     const rows = listToExport.map((s, idx) => {
-      const idNum = getStudentIdNumber(s, students);
+      const idNum = getStudentIdNumber(s, students, madrasaPrefix);
       const cName =
         (Array.isArray(s.classes) ? s.classes[0]?.name : s.classes?.name) ||
         s.class_name ||
@@ -1364,8 +1374,7 @@ export default function StudentsListClient({
               <tbody className="divide-y divide-slate-100 text-slate-700 text-xs sm:text-sm">
                 {filteredStudents.length > 0 ? (
                   filteredStudents.map((student) => {
-                    const studentId = getStudentIdNumber(student, students);
-                    const studentIdBn = convertToBanglaNumber(studentId);
+                    const studentId = getStudentIdNumber(student, students, madrasaPrefix);
                     const className =
                       (Array.isArray(student.classes)
                         ? student.classes[0]?.name
@@ -1396,9 +1405,9 @@ export default function StudentsListClient({
                           </button>
                         </td>
 
-                        {/* ID Number */}
+                        {/* ID Number - English format */}
                         <td className="px-4 py-3.5 font-mono font-bold text-emerald-700 whitespace-nowrap">
-                          {studentIdBn}
+                          {studentId}
                         </td>
 
                         {/* Roll Number */}
@@ -1565,8 +1574,7 @@ export default function StudentsListClient({
           <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 bg-slate-50/50">
             {filteredStudents.length > 0 ? (
               filteredStudents.map((student) => {
-                const studentId = getStudentIdNumber(student, students);
-                const studentIdBn = convertToBanglaNumber(studentId);
+                const studentId = getStudentIdNumber(student, students, madrasaPrefix);
                 const className =
                   (Array.isArray(student.classes)
                     ? student.classes[0]?.name
@@ -1623,7 +1631,7 @@ export default function StudentsListClient({
                           </Link>
                           <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5">
                             <span className="font-mono font-semibold text-emerald-700">
-                              {studentIdBn}
+                              {studentId}
                             </span>
                             <span>•</span>
                             <span>
@@ -1842,7 +1850,7 @@ export default function StudentsListClient({
                       ? filteredStudents.filter((s) => selectedStudentIds.has(s.id))
                       : filteredStudents
                     ).map((st, idx) => {
-                      const idNum = getStudentIdNumber(st, students);
+                      const idNum = getStudentIdNumber(st, students, madrasaPrefix);
                       const className =
                         (Array.isArray(st.classes)
                           ? st.classes[0]?.name
@@ -1854,8 +1862,8 @@ export default function StudentsListClient({
                           <td className="border border-slate-300 p-2 text-center font-mono">
                             {convertToBanglaNumber(idx + 1)}
                           </td>
-                          <td className="border border-slate-300 p-2 text-center font-mono font-bold">
-                            {convertToBanglaNumber(idNum)}
+                          <td className="border border-slate-300 p-2 text-center font-mono font-bold text-slate-900">
+                            {idNum}
                           </td>
                           <td className="border border-slate-300 p-2 text-center font-bold">
                             {st.roll_number ? convertToBanglaNumber(st.roll_number) : "-"}
