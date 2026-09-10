@@ -1,6 +1,8 @@
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getUserDataAccessScope, DataAccessScope } from "@/lib/data-access-guards";
 import { getMadrasaMetadata, hydrateStudentWithMetadata } from "@/lib/sessions";
+import { getStudentIdNumber, getActiveMadrasaPrefix } from "@/lib/student-utils";
+import { extractMadrasaPrefix } from "@/lib/madrasa-prefix";
 
 export interface PortalStudentData {
   students: any[];
@@ -8,6 +10,7 @@ export interface PortalStudentData {
   user: any;
   userData: any;
   madrasaId: string;
+  madrasaPrefix: string;
   scope: DataAccessScope;
   adminClient: any;
   supabase: any;
@@ -147,6 +150,41 @@ export async function getPortalStudentData(
     }
   }
 
+  // Resolve unified Madrasa Prefix for Student ID formatting
+  let madrasaPrefix = "";
+  if (effectiveMadrasaId) {
+    try {
+      const meta = await getMadrasaMetadata(effectiveMadrasaId);
+      madrasaPrefix = (
+        meta?.prefix ||
+        meta?.short_code ||
+        (meta?.madrasas ? extractMadrasaPrefix(meta.madrasas) : "") ||
+        (userData?.madrasas ? extractMadrasaPrefix(userData.madrasas) : "") ||
+        getActiveMadrasaPrefix() ||
+        ""
+      ).trim().toUpperCase();
+    } catch {
+      madrasaPrefix = (
+        (userData?.madrasas ? extractMadrasaPrefix(userData.madrasas) : "") ||
+        getActiveMadrasaPrefix() ||
+        ""
+      ).trim().toUpperCase();
+    }
+  }
+
+  // Format and enrich each student with unified student_id and photo_url fallback
+  rawStudents = rawStudents.map((st) => {
+    const formattedId = getStudentIdNumber(st, rawStudents, madrasaPrefix);
+    const photoUrl = st.photo_url || st.photo || st.avatar_url || "";
+    return {
+      ...st,
+      photo_url: photoUrl,
+      student_id: formattedId || st.student_id || "",
+      student_id_formatted: formattedId || st.student_id || "",
+      madrasa_prefix: madrasaPrefix || st.madrasa_prefix || "",
+    };
+  });
+
   // Intelligent selection of active child:
   // 1. Explicit requested student via query parameter (?student_id=...)
   let child = requestedStudentId
@@ -198,6 +236,7 @@ export async function getPortalStudentData(
     user,
     userData,
     madrasaId: effectiveMadrasaId,
+    madrasaPrefix,
     scope,
     adminClient,
     supabase,

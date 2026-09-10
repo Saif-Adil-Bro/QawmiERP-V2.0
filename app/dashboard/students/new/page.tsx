@@ -51,7 +51,7 @@ export default function NewStudentPage() {
 
   // Fee structure state for interactive real-time calculation
   const [admissionFee, setAdmissionFee] = useState<number>(0);
-  const [monthlyFee, setMonthlyFee] = useState<number>(1000);
+  const [monthlyFee, setMonthlyFee] = useState<number>(0);
   const [khorakiFee, setKhorakiFee] = useState<number>(0);
   const [accommodationFee, setAccommodationFee] = useState<number>(0);
   const [transportFee, setTransportFee] = useState<number>(0);
@@ -155,17 +155,9 @@ export default function NewStudentPage() {
       if (boardingType === "অনাবাসিক") {
         setBoardingType("সাধারণ পেইং");
       }
-      if (khorakiFee === 0 && !feeDiscountReason.includes("লিল্লাহ")) setKhorakiFee(2000);
-      if (accommodationFee === 0 && !feeDiscountReason.includes("লিল্লাহ")) setAccommodationFee(500);
-    } else if (val === "অনাবাসিক") {
+    } else if (val === "অনাবাসিক" || val === "ডে-কেয়ার") {
       setIsBoarding(false);
       setBoardingType("অনাবাসিক");
-      setKhorakiFee(0);
-      setAccommodationFee(0);
-    } else if (val === "ডে-কেয়ার") {
-      setIsBoarding(false);
-      setBoardingType("অনাবাসিক");
-      setAccommodationFee(0);
     }
   };
 

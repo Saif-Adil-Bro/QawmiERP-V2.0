@@ -149,11 +149,14 @@ export default function LeaveClient({ students, userProfile, initialApplications
                   onChange={(e) => setSelectedStudentId(e.target.value)}
                   className="w-full p-2.5 border border-slate-300 rounded-xl text-xs sm:text-sm bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none"
                 >
-                  {students.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.first_name} {s.last_name} (রোল: {s.roll_number || s.student_id || "-"})
-                    </option>
-                  ))}
+                  {students.map((s) => {
+                    const stuId = s.student_id || s.student_id_formatted;
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.first_name} {s.last_name} {stuId ? `(আইডি: ${stuId} • রোল: ${s.roll_number || "-"})` : `(রোল: ${s.roll_number || "-"})`}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             )}

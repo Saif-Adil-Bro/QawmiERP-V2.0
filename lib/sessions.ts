@@ -225,6 +225,7 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
     ...student,
     first_name: profile.first_name || student.first_name || "",
     last_name: profile.last_name || student.last_name || "",
+    student_id: profile.student_id || student.student_id || student.id_number || "",
     roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (student.roll_number || ""),
     class_id: resolvedClassId,
     class_name: resolvedClassName,

@@ -76,13 +76,41 @@ export default function EditStudentForm({
   );
 
   // Fee structure states
-  const [admissionFee, setAdmissionFee] = useState<number>(Number(student.admission_fee) || 0);
-  const [monthlyFee, setMonthlyFee] = useState<number>(Number(student.monthly_fee) || 1000);
-  const [khorakiFee, setKhorakiFee] = useState<number>(Number(student.khoraki_fee) || 0);
-  const [accommodationFee, setAccommodationFee] = useState<number>(Number(student.accommodation_fee) || 0);
-  const [transportFee, setTransportFee] = useState<number>(Number(student.transport_fee) || 0);
-  const [otherFee, setOtherFee] = useState<number>(Number(student.other_fee) || 0);
-  const [feeDiscount, setFeeDiscount] = useState<number>(Number(student.fee_discount) || 0);
+  const [admissionFee, setAdmissionFee] = useState<number>(
+    student.admission_fee !== undefined && student.admission_fee !== null && !isNaN(Number(student.admission_fee))
+      ? Number(student.admission_fee)
+      : 0
+  );
+  const [monthlyFee, setMonthlyFee] = useState<number>(
+    student.monthly_fee !== undefined && student.monthly_fee !== null && !isNaN(Number(student.monthly_fee))
+      ? Number(student.monthly_fee)
+      : 0
+  );
+  const [khorakiFee, setKhorakiFee] = useState<number>(
+    student.khoraki_fee !== undefined && student.khoraki_fee !== null && !isNaN(Number(student.khoraki_fee))
+      ? Number(student.khoraki_fee)
+      : 0
+  );
+  const [accommodationFee, setAccommodationFee] = useState<number>(
+    student.accommodation_fee !== undefined && student.accommodation_fee !== null && !isNaN(Number(student.accommodation_fee))
+      ? Number(student.accommodation_fee)
+      : 0
+  );
+  const [transportFee, setTransportFee] = useState<number>(
+    student.transport_fee !== undefined && student.transport_fee !== null && !isNaN(Number(student.transport_fee))
+      ? Number(student.transport_fee)
+      : 0
+  );
+  const [otherFee, setOtherFee] = useState<number>(
+    student.other_fee !== undefined && student.other_fee !== null && !isNaN(Number(student.other_fee))
+      ? Number(student.other_fee)
+      : 0
+  );
+  const [feeDiscount, setFeeDiscount] = useState<number>(
+    student.fee_discount !== undefined && student.fee_discount !== null && !isNaN(Number(student.fee_discount))
+      ? Number(student.fee_discount)
+      : 0
+  );
   const [feeDiscountReason, setFeeDiscountReason] = useState<string>(student.fee_discount_reason || "");
 
   useEffect(() => {
@@ -174,24 +202,14 @@ export default function EditStudentForm({
       if (boardingType === "অনাবাসিক") {
         setBoardingType("সাধারণ পেইং");
       }
-      if (khorakiFee === 0 && !feeDiscountReason.includes("লিল্লাহ")) setKhorakiFee(2000);
-      if (accommodationFee === 0 && !feeDiscountReason.includes("লিল্লাহ")) setAccommodationFee(500);
     } else if (newVal === "অনাবাসিক") {
       setIsBoarding(false);
       setBoardingType("অনাবাসিক");
-      setKhorakiFee(0);
-      setAccommodationFee(0);
     }
   };
 
   const handleBoardingTypeChange = (val: string) => {
     setBoardingType(val);
-    if (val === "লিল্লাহ বোর্ডিং") {
-      setKhorakiFee(0);
-      setFeeDiscountReason("লিল্লাহ বোর্ডিং (বিনামূল্যে খাবার)");
-    } else if (val === "হাফ-ফ্রি") {
-      setFeeDiscountReason("হাফ-ফ্রি বোর্ডিং (৫০% ছাড়)");
-    }
   };
 
   // Live Monthly Total Calculation

@@ -169,13 +169,18 @@ export default function ParentAssignmentsClient({
                     key={st.id}
                     type="button"
                     onClick={() => setActiveStudentId(st.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
                       activeStudentId === st.id
                         ? "bg-white text-emerald-900 shadow-sm"
                         : "bg-black/20 text-white hover:bg-black/30"
                     }`}
                   >
-                    {st.first_name} {st.last_name}
+                    <span>{st.first_name} {st.last_name}</span>
+                    {(st.student_id || st.student_id_formatted) && (
+                      <span className="text-[10px] font-mono opacity-80">
+                        ({st.student_id || st.student_id_formatted})
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -200,8 +205,13 @@ export default function ParentAssignmentsClient({
               )}
             </div>
             <div>
-              <div className="font-bold text-slate-900 text-sm">
-                {currentStudent.first_name} {currentStudent.last_name}
+              <div className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <span>{currentStudent.first_name} {currentStudent.last_name}</span>
+                {(currentStudent.student_id || currentStudent.student_id_formatted) && (
+                  <span className="font-mono bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded text-xs border border-emerald-200 font-bold">
+                    আইডি: {currentStudent.student_id || currentStudent.student_id_formatted}
+                  </span>
+                )}
               </div>
               <div className="text-slate-500 text-xs">
                 জামাত:{" "}

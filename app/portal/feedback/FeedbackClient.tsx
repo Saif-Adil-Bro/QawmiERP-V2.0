@@ -479,11 +479,14 @@ export default function FeedbackClient({
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-2 focus:ring-emerald-500 font-medium text-slate-800"
                   >
                     <option value="">সাধারণ মাদরাসা সংক্রান্ত (নির্দিষ্ট ছাত্র নেই)</option>
-                    {students.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.first_name} {s.last_name} (রোল: {s.roll_number || "১"} - {s.class_name || s.classes?.name || "জামাত"})
-                      </option>
-                    ))}
+                    {students.map((s) => {
+                      const stuId = s.student_id || s.student_id_formatted;
+                      return (
+                        <option key={s.id} value={s.id}>
+                          {s.first_name} {s.last_name} {stuId ? `(আইডি: ${stuId} • রোল: ${s.roll_number || "১"})` : `(রোল: ${s.roll_number || "১"})`} - {s.class_name || s.classes?.name || "জামাত"}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               )}

@@ -32,7 +32,9 @@ interface Props {
     last_name: string;
     roll_number?: string;
     student_id?: string;
+    student_id_formatted?: string;
     class_name?: string;
+    [key: string]: any;
   };
   students: any[];
   totalPaid: number;
@@ -61,21 +63,38 @@ export default function ParentPortalFeesClient({
       {/* Top Header Banner */}
       <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2.5 bg-emerald-50 text-emerald-700 rounded-2xl">
-              <CreditCard className="w-5 h-5" />
-            </div>
+          <div className="flex items-center gap-3">
+            {child.photo_url ? (
+              <img
+                src={child.photo_url}
+                alt=""
+                className="w-12 h-12 rounded-2xl object-cover border border-emerald-200 shrink-0 shadow-2xs"
+              />
+            ) : (
+              <div className="p-2.5 bg-emerald-50 text-emerald-700 rounded-2xl shrink-0">
+                <CreditCard className="w-5 h-5" />
+              </div>
+            )}
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
                 ফি ও অনলাইন পেমেন্ট পোর্টাল
               </h1>
-              <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                শিক্ষার্থী:{" "}
-                <strong className="text-slate-800">
-                  {child.first_name} {child.last_name}
-                </strong>{" "}
-                (রোল: {toBanglaNumber(child.roll_number || child.student_id || "-")})
-                {child.class_name && ` • জামাত: ${child.class_name}`}
+              <p className="text-xs sm:text-sm text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span>
+                  শিক্ষার্থী:{" "}
+                  <strong className="text-slate-800">
+                    {child.first_name} {child.last_name}
+                  </strong>
+                </span>
+                {(child.student_id || child.student_id_formatted) && (
+                  <span className="font-mono bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded text-xs border border-emerald-200 font-bold">
+                    আইডি: {child.student_id || child.student_id_formatted}
+                  </span>
+                )}
+                {child.roll_number && (
+                  <span>(রোল: {toBanglaNumber(child.roll_number)})</span>
+                )}
+                {child.class_name && <span>• জামাত: {child.class_name}</span>}
               </p>
             </div>
           </div>
@@ -86,18 +105,23 @@ export default function ParentPortalFeesClient({
           {students.length > 1 && (
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-2xl text-xs font-semibold">
               <span className="text-slate-500">সন্তান:</span>
-              <div className="flex gap-1">
+              <div className="flex flex-wrap gap-1">
                 {students.map((s) => (
                   <Link
                     key={s.id}
                     href={`/portal/fees?student_id=${s.id}`}
-                    className={`px-2 py-1 rounded-xl transition ${
+                    className={`px-2.5 py-1 rounded-xl transition flex items-center gap-1 ${
                       s.id === child.id
                         ? "bg-emerald-600 text-white font-bold"
                         : "text-slate-700 hover:bg-slate-200"
                     }`}
                   >
-                    {s.first_name}
+                    <span>{s.first_name}</span>
+                    {(s.student_id || s.student_id_formatted) && (
+                      <span className="text-[10px] font-mono opacity-80">
+                        ({s.student_id || s.student_id_formatted})
+                      </span>
+                    )}
                   </Link>
                 ))}
               </div>

@@ -109,8 +109,16 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
           )}
 
           <div className="flex items-center gap-3 p-2.5 bg-slate-800/50 rounded-xl border border-slate-700/50">
-            <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-              {(userData?.full_name || "প")[0]}
+            <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs overflow-hidden">
+              {userData?.photo_url || user?.user_metadata?.avatar_url ? (
+                <img
+                  src={userData?.photo_url || user?.user_metadata?.avatar_url}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                (userData?.full_name || "প")[0]
+              )}
             </div>
             <div className="overflow-hidden min-w-0 flex-1">
               <p className="text-xs font-bold text-white truncate">{userData?.full_name || "অভিভাবক"}</p>
@@ -256,8 +264,16 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
             >
               <KeyRound className="w-4 h-4" />
             </button>
-            <div className="w-7 h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-xs">
-              {(userData?.full_name || "প")[0]}
+            <div className="w-7 h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-xs overflow-hidden">
+              {userData?.photo_url || user?.user_metadata?.avatar_url ? (
+                <img
+                  src={userData?.photo_url || user?.user_metadata?.avatar_url}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                (userData?.full_name || "প")[0]
+              )}
             </div>
           </div>
         </header>

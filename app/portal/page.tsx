@@ -35,7 +35,7 @@ export default async function PortalOverview(props: {
 
   if (!portalData || !portalData.user) return null;
 
-  const { students, child, user, userData, madrasaId, adminClient, supabase } = portalData;
+  const { students, child, user, userData, madrasaId, madrasaPrefix, adminClient, supabase } = portalData;
 
   if (students.length === 0 || !child) {
     return (
@@ -189,20 +189,39 @@ export default async function PortalOverview(props: {
           <div className="flex flex-wrap items-center gap-2">
             {students.map((st) => {
               const isSelected = st.id === child.id;
+              const stuId = st.student_id || st.student_id_formatted || "";
               return (
                 <Link
                   key={st.id}
                   href={`/portal?student_id=${st.id}`}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
                     isSelected
                       ? "bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-600/30"
                       : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
                   }`}
                 >
+                  {st.photo_url ? (
+                    <img
+                      src={st.photo_url}
+                      alt=""
+                      className="w-5 h-5 rounded-full object-cover border border-white/40 shrink-0"
+                    />
+                  ) : (
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${isSelected ? "bg-emerald-700 text-white" : "bg-slate-300 text-slate-700"}`}>
+                      {(st.first_name || "শ")[0]}
+                    </span>
+                  )}
                   <span>{st.first_name} {st.last_name || ""}</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md ${isSelected ? "bg-emerald-700/50 text-white" : "bg-white text-slate-600 border border-slate-200"}`}>
-                    রোল: {toBanglaNumber(st.roll_number || st.student_id || "-")}
-                  </span>
+                  {stuId && (
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${isSelected ? "bg-emerald-700/60 text-emerald-100" : "bg-white text-emerald-700 border border-slate-200 font-semibold"}`}>
+                      আইডি: {stuId}
+                    </span>
+                  )}
+                  {st.roll_number && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${isSelected ? "bg-emerald-700/50 text-white" : "bg-white text-slate-600 border border-slate-200"}`}>
+                      রোল: {toBanglaNumber(st.roll_number)}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -213,8 +232,16 @@ export default async function PortalOverview(props: {
       {/* Child Profile Hero Banner */}
       <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-3xl p-5 sm:p-7 shadow-xl border border-emerald-800/60 flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
         <div className="flex items-center gap-4 relative z-10">
-          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/20 flex items-center justify-center text-white font-bold text-2xl sm:text-3xl shadow-inner shrink-0">
-            {(child.first_name || "শ")[0]}
+          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/20 flex items-center justify-center text-white font-bold text-2xl sm:text-3xl shadow-inner shrink-0 overflow-hidden relative">
+            {child.photo_url ? (
+              <img
+                src={child.photo_url}
+                alt={`${child.first_name} ${child.last_name || ""}`}
+                className="w-full h-full object-cover rounded-2xl"
+              />
+            ) : (
+              <span>{(child.first_name || "শ")[0]}</span>
+            )}
           </div>
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-200 border border-emerald-400/30 text-[11px] font-bold mb-1.5">
@@ -224,8 +251,14 @@ export default async function PortalOverview(props: {
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
               {child.first_name} {child.last_name}
             </h1>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-emerald-100/90 mt-1">
-              <span><strong>রোল নম্বর:</strong> {toBanglaNumber(child.roll_number || child.student_id || "১")}</span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-emerald-100/90 mt-1.5">
+              {(child.student_id || child.student_id_formatted) && (
+                <span className="inline-flex items-center gap-1 font-mono bg-white/15 px-2.5 py-0.5 rounded-md text-emerald-200 border border-white/20 font-bold">
+                  <span>আইডি নম্বর:</span>
+                  <span className="text-white">{child.student_id || child.student_id_formatted}</span>
+                </span>
+              )}
+              <span><strong>রোল নম্বর:</strong> {toBanglaNumber(child.roll_number || "১")}</span>
               <span>•</span>
               <span><strong>জামাত / শ্রেণি:</strong> {child.classes?.name || child.class_name || "হিফজুল কুরআন"}</span>
               {child.father_name && (

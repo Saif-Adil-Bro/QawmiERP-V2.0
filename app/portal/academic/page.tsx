@@ -52,16 +52,30 @@ export default async function ParentPortalAcademic(props: {
     <div className="space-y-6">
       {/* Header Banner */}
       <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-teal-50 text-teal-700 rounded-xl">
+        <div className="flex items-center gap-3.5">
+          {child.photo_url ? (
+            <img
+              src={child.photo_url}
+              alt=""
+              className="w-12 h-12 rounded-xl object-cover border border-teal-200 shrink-0 shadow-2xs"
+            />
+          ) : (
+            <div className="p-2.5 bg-teal-50 text-teal-700 rounded-xl shrink-0">
               <BookOpen className="w-5 h-5" />
             </div>
+          )}
+          <div>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900">হিফজ ও কিতাব পাঠ অগ্রগতি</h1>
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>শিক্ষার্থী: <strong className="text-slate-800">{child.first_name} {child.last_name}</strong></span>
+              {(child.student_id || child.student_id_formatted) && (
+                <span className="font-mono bg-teal-50 text-teal-700 px-2 py-0.5 rounded text-xs border border-teal-200 font-bold">
+                  আইডি: {child.student_id || child.student_id_formatted}
+                </span>
+              )}
+              <span>(রোল: {toBanglaNumber(child.roll_number || "-")})</span>
+            </p>
           </div>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            শিক্ষার্থী: <strong className="text-slate-800">{child.first_name} {child.last_name}</strong> (রোল: {toBanglaNumber(child.roll_number || "-")})
-          </p>
         </div>
 
         {students.length > 1 && (
@@ -70,13 +84,18 @@ export default async function ParentPortalAcademic(props: {
               <Link
                 key={s.id}
                 href={`/portal/academic?student_id=${s.id}&tab=${activeTab}`}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
                   s.id === child.id
                     ? "bg-teal-700 text-white shadow-xs"
                     : "bg-slate-100 hover:bg-slate-200 text-slate-700"
                 }`}
               >
-                {s.first_name} {s.last_name}
+                <span>{s.first_name} {s.last_name}</span>
+                {(s.student_id || s.student_id_formatted) && (
+                  <span className="text-[10px] font-mono opacity-85">
+                    ({s.student_id || s.student_id_formatted})
+                  </span>
+                )}
               </Link>
             ))}
           </div>
