@@ -146,9 +146,26 @@ export function parseRoutineItem(r: any): ParsedRoutineItem {
 
 export function formatTimeString(timeStr?: string): string {
   if (!timeStr) return "";
-  const parts = timeStr.split(":");
-  if (parts.length >= 2) {
-    return `${parts[0]}:${parts[1]}`;
+  const trimmed = String(timeStr).trim();
+  if (!trimmed) return "";
+
+  // If already formatted with AM/PM, return directly
+  if (/\b(AM|PM|am|pm)\b/i.test(trimmed)) {
+    return trimmed;
   }
-  return timeStr;
+
+  const parts = trimmed.split(":");
+  if (parts.length >= 2) {
+    let hours = parseInt(parts[0], 10);
+    const minutes = parts[1].slice(0, 2).padStart(2, "0");
+    if (isNaN(hours)) return trimmed;
+
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12;
+    if (hours === 0) hours = 12;
+    const hoursStr = String(hours).padStart(2, "0");
+
+    return `${hoursStr}:${minutes} ${ampm}`;
+  }
+  return trimmed;
 }
