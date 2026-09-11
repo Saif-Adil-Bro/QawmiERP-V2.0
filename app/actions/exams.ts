@@ -3,7 +3,7 @@
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
-import { getMadrasaMetadata, saveMadrasaMetadata, MadrasaMetaWithSessions } from "@/lib/sessions";
+import { getMadrasaMetadata, saveMadrasaMetadata, MadrasaMetaWithSessions, hydrateStudentWithMetadata } from "@/lib/sessions";
 
 function computeExamStatus(
   startDate?: string | null,
@@ -291,10 +291,15 @@ export async function createExam(prevState: any, formData: FormData) {
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
-  const title = formData.get("title") as string;
-  const year = formData.get("year") as string;
+  let title = (formData.get("title") as string)?.trim();
+  const custom_title = (formData.get("custom_title") as string)?.trim();
+  const year = (formData.get("year") as string)?.trim();
   const start_date = formData.get("start_date") as string;
   const end_date = formData.get("end_date") as string;
+
+  if (title === "অন্যান্য" || title === "অন্যান্য (Custom)" || title === "custom") {
+    title = custom_title || "অন্যান্য পরীক্ষা";
+  }
 
   if (!title || !year) {
     return { error: "পরীক্ষার নাম এবং বছর আবশ্যক।" };
@@ -438,13 +443,59 @@ export async function getStudentsByClass(classId: string) {
 
   const { data, error } = await supabase
     .from("students")
-    .select("id, first_name, last_name, roll_number, class_id")
+    .select("*")
     .eq("madrasa_id", finalMadrasaId)
     .eq("class_id", classId)
     .order("roll_number", { ascending: true });
 
-  if (error) return [];
-  return data;
+  let rawStudents = data || [];
+  if (error || rawStudents.length === 0) {
+    try {
+      const adminClient = await createAdminClient();
+      const { data: adminData } = await adminClient
+        .from("students")
+        .select("*")
+        .eq("madrasa_id", finalMadrasaId)
+        .eq("class_id", classId)
+        .order("roll_number", { ascending: true });
+      if (adminData && adminData.length > 0) {
+        rawStudents = adminData;
+      }
+    } catch (e) {
+      console.warn("Could not query admin client in getStudentsByClass:", e);
+    }
+  }
+
+  try {
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    return rawStudents.map((std: any) => {
+      const hydrated: any = hydrateStudentWithMetadata(std, meta);
+      const profile: any = meta?.student_profiles?.[std.id];
+      const guardianPhone = 
+        profile?.parent_phone || 
+        profile?.guardian_phone || 
+        profile?.emergency_contact || 
+        hydrated?.parent_phone || 
+        hydrated?.guardian_phone || 
+        hydrated?.emergency_contact || 
+        std.parent_phone || 
+        std.guardian_phone || 
+        std.emergency_contact || 
+        hydrated?.phone || 
+        std.phone || 
+        "";
+      const photoUrl = profile?.photo_url || hydrated?.photo_url || std.photo_url || "";
+      return {
+        ...hydrated,
+        parent_phone: guardianPhone,
+        guardian_phone: guardianPhone,
+        phone: guardianPhone,
+        photo_url: photoUrl
+      };
+    });
+  } catch (e) {
+    return rawStudents;
+  }
 }
 
 export async function getExamResults(examId: string, classId: string, subjectName: string) {
@@ -578,6 +629,21 @@ function calculateGrade(percentage: number) {
   if (percentage >= 45) return "মাকবুল (C)";
   if (percentage >= 33) return "উত্তীর্ণ (D)";
   return "রাসিব (Fail)";
+}
+
+export async function getAllExamSubjects(examId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("exam_subjects")
+    .select("*")
+    .eq("exam_id", examId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching all exam subjects:", error);
+    return [];
+  }
+  return data || [];
 }
 
 export async function getExamSubjects(examId: string, classId: string) {

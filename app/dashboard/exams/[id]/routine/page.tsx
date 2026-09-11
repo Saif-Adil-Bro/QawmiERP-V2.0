@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { getExamById } from "@/app/actions/exams";
+import { getExamById, getAllExamSubjects } from "@/app/actions/exams";
 import { getClasses } from "@/app/actions/students";
 import { getSubjects } from "@/app/actions/subjects";
 import { getExamRoutines } from "@/app/actions/exam-routines";
@@ -17,12 +17,13 @@ export default async function ExamRoutinePage({
   const resolvedParams = await params;
   const examId = resolvedParams.id;
   
-  const [exam, classes, subjects, routines, madrasa] = await Promise.all([
+  const [exam, classes, subjects, routines, madrasa, examSubjects] = await Promise.all([
     getExamById(examId),
     getClasses(),
     getSubjects(),
     getExamRoutines(examId),
-    getMadrasaInfo()
+    getMadrasaInfo(),
+    getAllExamSubjects(examId)
   ]);
 
   if (!exam) {
@@ -55,6 +56,7 @@ export default async function ExamRoutinePage({
         routines={routines} 
         exam={exam}
         madrasa={madrasa}
+        examSubjects={examSubjects}
       />
     </div>
   );

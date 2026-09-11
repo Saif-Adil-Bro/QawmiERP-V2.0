@@ -38,22 +38,14 @@ import {
   PaperFrameWrapper, 
   MadrasaPaperHeader 
 } from "@/components/exams/IslamicPaperDecorations";
-
-// Helper function to detect Arabic script in text
-function isArabicText(text: string): boolean {
-  if (!text) return false;
-  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
-}
-
-function toBengaliNumerals(num: number): string {
-  const digits = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
-  return num.toString().split("").map(d => digits[parseInt(d)] || d).join("");
-}
-
-function toArabicNumerals(num: number): string {
-  const digits = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
-  return num.toString().split("").map(d => digits[parseInt(d)] || d).join("");
-}
+import { 
+  toArabicNumerals, 
+  toBengaliNumerals, 
+  hasBengaliText, 
+  hasArabicText, 
+  isPureArabicText, 
+  getTextDirection 
+} from "@/lib/utils";
 
 export default function PaperGeneratorClient({
   examId,
@@ -745,16 +737,23 @@ export default function PaperGeneratorClient({
   const getQuestionDir = (text: string): "rtl" | "ltr" => {
     if (textDirectionMode === "rtl") return "rtl";
     if (textDirectionMode === "ltr") return "ltr";
-    return isArabicText(text) ? "rtl" : "ltr";
+    return isPureArabicText(text) ? "rtl" : "ltr";
   };
 
   const formatQuestionNumber = (idx: number, isRTL: boolean): string => {
     const num = idx + 1;
-    if (arabicNumbering === "arabic" || (isRTL && arabicNumbering === "auto")) {
+    if (arabicNumbering === "arabic") {
       return `${toArabicNumerals(num)}.`;
     }
     if (arabicNumbering === "english") {
       return `${num}.`;
+    }
+    if (arabicNumbering === "bengali") {
+      return `${toBengaliNumerals(num)}.`;
+    }
+    // Auto mode: If question is pure Arabic (isRTL=true), use Arabic numeral; otherwise Bengali numeral
+    if (isRTL) {
+      return `${toArabicNumerals(num)}.`;
     }
     return `${toBengaliNumerals(num)}.`;
   };
@@ -2163,7 +2162,7 @@ export default function PaperGeneratorClient({
                                 }
 
                                 const isSectionRTL = textDirectionMode === "rtl" || (
-                                  textDirectionMode === "auto" && section.questions.some(q => isArabicText(q.question_text))
+                                  textDirectionMode === "auto" && section.questions.length > 0 && section.questions.every(q => isPureArabicText(q.question_text))
                                 );
 
                                 return (
@@ -2182,7 +2181,7 @@ export default function PaperGeneratorClient({
                                     {/* Questions rendered in 1 or 2 columns */}
                                     <div 
                                       className={`${columnClasses} ${dividerClasses} mt-2.5`}
-                                      dir={isSectionRTL ? "rtl" : "auto"}
+                                      dir={isSectionRTL ? "rtl" : "ltr"}
                                     >
                                       {section.questions.map((q, qIndex) => {
                                         const isRTL = getQuestionDir(q.question_text) === "rtl";
@@ -2306,7 +2305,7 @@ export default function PaperGeneratorClient({
                 }
 
                 const isSectionRTL = textDirectionMode === "rtl" || (
-                  textDirectionMode === "auto" && section.questions.some(q => isArabicText(q.question_text))
+                  textDirectionMode === "auto" && section.questions.length > 0 && section.questions.every(q => isPureArabicText(q.question_text))
                 );
 
                 return (
@@ -2326,7 +2325,7 @@ export default function PaperGeneratorClient({
                     {/* Section Questions in 1 or 2 Columns */}
                     <div 
                       className={`${columnClasses} ${dividerClasses} mt-2`}
-                      dir={isSectionRTL ? "rtl" : "auto"}
+                      dir={isSectionRTL ? "rtl" : "ltr"}
                     >
                       {section.questions.map((q, qIndex) => {
                         const isRTL = getQuestionDir(q.question_text) === "rtl";

@@ -40,14 +40,16 @@ export default function ExamRoutineClient({
   subjects,
   routines,
   exam,
-  madrasa
+  madrasa,
+  examSubjects = []
 }: { 
   examId: string, 
   classes: any[],
   subjects: any[],
   routines: any[],
   exam: any,
-  madrasa: any
+  madrasa: any,
+  examSubjects?: any[]
 }) {
   const [classIdFilter, setClassIdFilter] = useState("");
   
@@ -70,11 +72,21 @@ export default function ExamRoutineClient({
   const [noticePublishSuccess, setNoticePublishSuccess] = useState(false);
   const [noticeErrorMessage, setNoticeErrorMessage] = useState("");
 
+  // Subjects filtered for the currently selected class from Exam Setup
+  const classSetupSubjects = newClassId
+    ? examSubjects.filter((es: any) => es.class_id === newClassId)
+    : [];
+
   const filteredRoutines = classIdFilter 
     ? routines.filter(r => r.class_id === classIdFilter) 
     : routines;
 
   const currentDayName = getBanglaDay(newDate);
+
+  const handleClassChange = (selectedId: string) => {
+    setNewClassId(selectedId);
+    setNewSubjectId(""); // Reset subject selection when class changes
+  };
 
   const handleAdd = async () => {
     if (!newClassId || !newSubjectId || !newDate || !newStartTime || !newEndTime) {
@@ -83,10 +95,16 @@ export default function ExamRoutineClient({
     }
     setSaving(true);
     try {
+      // Find matching subject ID from global subjects if newSubjectId is subject name
+      const matchingGlobalSub = subjects.find(s => 
+        s.id === newSubjectId || s.name?.trim().toLowerCase() === newSubjectId.trim().toLowerCase()
+      );
+
       const result = await saveExamRoutine({
         exam_id: examId,
         class_id: newClassId,
-        subject_id: newSubjectId,
+        subject_id: matchingGlobalSub?.id || newSubjectId,
+        subject_name: matchingGlobalSub?.name || newSubjectId,
         exam_date: newDate,
         start_time: newStartTime,
         end_time: newEndTime,
@@ -100,7 +118,7 @@ export default function ExamRoutineClient({
       }
     } catch (err) {
       console.error("saveExamRoutine failed:", err);
-      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
       setSaving(false);
     }
@@ -196,7 +214,7 @@ export default function ExamRoutineClient({
             <label className="block text-xs font-semibold text-slate-700 mb-1">জামাত (Class) *</label>
             <select
               value={newClassId}
-              onChange={(e) => setNewClassId(e.target.value)}
+              onChange={(e) => handleClassChange(e.target.value)}
               className="w-full p-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
             >
               <option value="">জামাত নির্বাচন করুন</option>
@@ -206,18 +224,47 @@ export default function ExamRoutineClient({
             </select>
           </div>
 
-          {/* Subject selector */}
+          {/* Subject selector - Filtered by Exam Setup for this class */}
           <div className="lg:col-span-1">
-            <label className="block text-xs font-semibold text-slate-700 mb-1">বিষয় (Subject) *</label>
+            <div className="flex justify-between items-center mb-1">
+              <label className="block text-xs font-semibold text-slate-700">বিষয় (Subject) *</label>
+              {newClassId && classSetupSubjects.length > 0 && (
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                  {classSetupSubjects.length}টি সেটআপ
+                </span>
+              )}
+            </div>
             <select
               value={newSubjectId}
               onChange={(e) => setNewSubjectId(e.target.value)}
-              className="w-full p-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+              disabled={!newClassId}
+              className="w-full p-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-100 disabled:opacity-60"
             >
-              <option value="">বিষয় নির্বাচন করুন</option>
-              {subjects.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
+              {!newClassId ? (
+                <option value="">আগে জামাত নির্বাচন করুন</option>
+              ) : classSetupSubjects.length > 0 ? (
+                <>
+                  <option value="">সেটআপকৃত বিষয় নির্বাচন করুন...</option>
+                  {classSetupSubjects.map((es: any) => {
+                    const matchingSub = subjects.find(s => 
+                      s.name?.trim().toLowerCase() === es.subject_name?.trim().toLowerCase()
+                    );
+                    const val = matchingSub?.id || es.subject_name;
+                    return (
+                      <option key={es.id || es.subject_name} value={val}>
+                        {es.subject_name} ({es.exam_type || 'লিখিত'} - {es.total_marks || 100} নম্বর)
+                      </option>
+                    );
+                  })}
+                </>
+              ) : (
+                <>
+                  <option value="">-- পরীক্ষা সেটআপ থেকে কোনো বিষয় পাওয়া যায়নি --</option>
+                  {subjects.map(s => (
+                    <option key={s.id} value={s.id}>{s.name} (সাধারণ তালিকা)</option>
+                  ))}
+                </>
+              )}
             </select>
           </div>
 
@@ -273,6 +320,21 @@ export default function ExamRoutineClient({
             />
           </div>
         </div>
+
+        {newClassId && classSetupSubjects.length === 0 && (
+          <div className="mb-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-amber-800">
+            <div className="flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>এই জামাতের জন্য পরীক্ষা সেটআপে কোনো বিষয় কনফিগার করা হয়নি। আপনি সাধারণ তালিকা থেকে নির্বাচন করতে পারেন অথবা সরাসরি সেটআপ করতে পারেন।</span>
+            </div>
+            <Link 
+              href={`/dashboard/exams/${examId}/setup`}
+              className="text-amber-900 font-bold underline hover:text-amber-700 shrink-0"
+            >
+              বিষয় সেটআপে যান →
+            </Link>
+          </div>
+        )}
 
         {/* Add Button Row */}
         <div className="flex justify-between items-center pt-2 border-t border-slate-100 mt-3">

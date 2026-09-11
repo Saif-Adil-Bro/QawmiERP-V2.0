@@ -4,7 +4,10 @@ import React from "react";
 import { 
   toArabicNumerals, 
   toBengaliNumerals, 
-  isArabicText 
+  hasBengaliText,
+  hasArabicText,
+  isPureArabicText,
+  getTextDirection
 } from "@/lib/utils";
 import { Scroll, Scale, Columns, Layers } from "lucide-react";
 
@@ -120,7 +123,7 @@ export function getSubQuestionLabel(idx: number, isArabic: boolean): string {
 export default function SpecializedQuestionView({
   question,
   index,
-  isRTL = false,
+  isRTL,
   formatNumber,
   isPrint = false,
   hideMarks = false,
@@ -131,39 +134,47 @@ export default function SpecializedQuestionView({
     : (question.options || {});
 
   const qType = question.question_type;
-  const isTextArabic = isArabicText(question.question_text) || isArabicText(options.irab_text || "");
-  const autoRTL = isRTL || isTextArabic;
+  
+  // A question prompt is strictly Arabic only if it contains Arabic characters AND NO Bengali characters
+  const isQuestionPureArabic = isPureArabicText(question.question_text);
+  const promptDir: "rtl" | "ltr" = isRTL !== undefined 
+    ? (isRTL ? "rtl" : (isQuestionPureArabic ? "rtl" : "ltr"))
+    : (isQuestionPureArabic ? "rtl" : "ltr");
+  const isArabicMode = promptDir === "rtl";
 
-  const fontClass = fontFamilyClass || (autoRTL ? "font-amiri" : "font-solaiman");
-
-  const renderSubQuestions = (subList: Array<string | SubQuestionItem>, isArabicMode: boolean) => {
+  const renderSubQuestions = (subList: Array<string | SubQuestionItem>, parentIsArabic: boolean) => {
     if (!subList || subList.length === 0) return null;
 
     return (
       <div 
-        className={`mt-2.5 space-y-2 ${isArabicMode ? "pr-2 sm:pr-4" : "pl-2 sm:pl-4"}`}
-        dir={isArabicMode ? "rtl" : "ltr"}
+        className={`mt-2.5 space-y-2 ${parentIsArabic ? "pr-2 sm:pr-4" : "pl-2 sm:pl-4"}`}
+        dir={parentIsArabic ? "rtl" : "ltr"}
       >
         {subList.map((item, sIdx) => {
           let text = typeof item === "string" ? item : item.text;
           const subMarks = typeof item === "object" ? item.marks : undefined;
-          const defaultLabel = getSubQuestionLabel(sIdx, isArabicMode);
+          
+          // Check if the individual sub-question itself is pure Arabic
+          const isSubPureArabic = isPureArabicText(text);
+          const subDir = isSubPureArabic ? "rtl" : "ltr";
+          const defaultLabel = getSubQuestionLabel(sIdx, isSubPureArabic);
           
           // Check if text already starts with a label like (ক), (খ), (أ), (ب), ক., أ., etc.
-          const hasPrefix = isArabicMode
+          const hasPrefix = isSubPureArabic
             ? /^\s*(\([أ-ي0-9٠-٩]+\)|[أ-ي0-9٠-٩]+[\.\-\:])/i.test(text)
             : /^\s*(\([ক-ঞ0-9০-৯]+\)|[ক-ঞ0-9০-৯]+[\.\-\:])/i.test(text);
 
           return (
             <div 
               key={sIdx} 
+              dir={subDir}
               className={`flex items-start justify-between gap-2 py-0.5 text-slate-900 ${
-                isArabicMode ? "text-base sm:text-lg leading-[2.1]" : "text-sm sm:text-base leading-relaxed"
+                isSubPureArabic ? "text-base sm:text-lg leading-[2.1]" : "text-sm sm:text-base leading-relaxed"
               }`}
             >
               <div className="flex-1 flex items-start gap-1.5">
                 {!hasPrefix && (
-                  <span className={`font-bold shrink-0 text-slate-950 ${isArabicMode ? "text-lg ml-1" : "mr-1"}`}>
+                  <span className={`font-bold shrink-0 text-slate-950 ${isSubPureArabic ? "text-lg ml-1" : "mr-1"}`}>
                     {defaultLabel}
                   </span>
                 )}
@@ -171,7 +182,7 @@ export default function SpecializedQuestionView({
               </div>
               {subMarks !== undefined && subMarks > 0 && !hideMarks && (
                 <span className="shrink-0 font-bold text-xs sm:text-sm px-1.5 py-0.2 bg-slate-100 print:bg-transparent rounded border border-slate-300 print:border-black">
-                  [{isArabicMode ? toArabicNumerals(subMarks) : toBengaliNumerals(subMarks)}]
+                  [{isSubPureArabic ? toArabicNumerals(subMarks) : toBengaliNumerals(subMarks)}]
                 </span>
               )}
             </div>
@@ -183,26 +194,28 @@ export default function SpecializedQuestionView({
 
   return (
     <div 
-      className={`specialized-question-container ${autoRTL ? "text-right" : "text-left"} ${fontFamilyClass ? fontFamilyClass : ""}`}
-      dir={autoRTL ? "rtl" : "ltr"}
+      className={`specialized-question-container ${isArabicMode ? "text-right" : "text-left"} ${fontFamilyClass ? fontFamilyClass : ""}`}
+      dir={promptDir}
     >
       {/* 1. Main Question Prompt Header */}
       <div 
         className="flex justify-between items-start gap-3"
-        dir={autoRTL ? "rtl" : "ltr"}
+        dir={promptDir}
       >
         <div className="flex-1">
           <p
             className={`font-semibold text-slate-950 ${
-              autoRTL
-                ? "text-lg sm:text-xl leading-[2.2] tracking-wide"
-                : "text-base sm:text-lg leading-relaxed"
+              isArabicMode
+                ? "text-lg sm:text-xl leading-[2.2] tracking-wide text-right"
+                : "text-base sm:text-lg leading-relaxed text-left"
             }`}
-            dir={autoRTL ? "rtl" : "ltr"}
+            dir={promptDir}
           >
             {typeof index === "number" && (
-              <span className={`font-bold text-slate-950 inline-block ${autoRTL ? "ml-2" : "mr-2"}`}>
-                {formatNumber ? formatNumber(index, autoRTL) : (autoRTL ? `${toArabicNumerals(index + 1)}.` : `${index + 1}.`)}
+              <span className={`font-bold text-slate-950 inline-block ${isArabicMode ? "ml-2" : "mr-2"}`}>
+                {formatNumber 
+                  ? formatNumber(index, isArabicMode) 
+                  : (isArabicMode ? `${toArabicNumerals(index + 1)}.` : `${toBengaliNumerals(index + 1)}.`)}
               </span>
             )}
             <span>{question.question_text}</span>
@@ -214,7 +227,7 @@ export default function SpecializedQuestionView({
             <span
               className="font-bold text-slate-900 text-xs sm:text-sm px-2 py-0.5 bg-slate-100 print:bg-transparent rounded border border-slate-300 print:border-black"
             >
-              [{autoRTL ? toArabicNumerals(question.marks) : toBengaliNumerals(question.marks)}]
+              [{isArabicMode ? toArabicNumerals(question.marks) : toBengaliNumerals(question.marks)}]
             </span>
           </div>
         )}
@@ -222,7 +235,7 @@ export default function SpecializedQuestionView({
 
       {/* General / Multi-part Sub-Questions (ক, খ... বা أ، ب...) outside of Masala if present */}
       {options.sub_questions && options.sub_questions.length > 0 && qType !== "Masala" && qType !== "مسألة فقهية" && (
-        renderSubQuestions(options.sub_questions, autoRTL)
+        renderSubQuestions(options.sub_questions, isArabicMode)
       )}
 
       {/* 2. Specialized Content based on Type */}
@@ -230,13 +243,13 @@ export default function SpecializedQuestionView({
       {/* --- A. إعراب العبارة (Irab & Harkat) --- */}
       {(qType === "Irab" || qType === "إعراب العبارة" || options.irab_text) && options.irab_text && (
         <div
-          dir={autoRTL ? "rtl" : "ltr"}
+          dir={isPureArabicText(options.irab_text) ? "rtl" : "ltr"}
           className="my-2.5 py-2 px-3 bg-slate-50/50 print:bg-transparent border-r-4 border-slate-700 print:border-black rounded-r"
         >
           <div className="flex items-center justify-between pb-1 mb-1.5 border-b border-slate-200 print:border-black">
             <span className={`text-xs font-bold text-slate-800 print:text-black flex items-center gap-1`}>
               <Scroll className="w-3.5 h-3.5 print:hidden" />
-              <span>{autoRTL ? "العبارة المطلوب ضبطها وإعرابها:" : "ইবারতে হরকত ও চিহ্নিত অংশের তারকীব:"}</span>
+              <span>{isArabicMode ? "العبارة المطلوب ضبطها وإعرابها:" : "ইবারতে হরকত ও চিহ্নিত অংশের তারকীব:"}</span>
             </span>
           </div>
           <div
@@ -246,8 +259,11 @@ export default function SpecializedQuestionView({
             {options.irab_text}
           </div>
           {options.target_words && (
-            <div className={`mt-2 pt-1.5 border-t border-dashed border-slate-300 print:border-black text-xs text-slate-900 print:text-black flex items-center gap-2 ${autoRTL ? "text-sm text-right" : ""}`}>
-              <span className="font-bold">{autoRTL ? "الكلمات المحددة للإعراب:" : "চিহ্নিত শব্দসমূহ:"}</span>
+            <div 
+              dir={isPureArabicText(options.target_words) ? "rtl" : "ltr"}
+              className={`mt-2 pt-1.5 border-t border-dashed border-slate-300 print:border-black text-xs text-slate-900 print:text-black flex items-center gap-2 ${isPureArabicText(options.target_words) ? "text-sm text-right" : "text-left"}`}
+            >
+              <span className="font-bold">{isPureArabicText(options.target_words) ? "الكلمات المحددة للإعراب:" : "চিহ্নিত শব্দসমূহ:"}</span>
               <span className="font-bold text-base px-2 py-0.5 underline decoration-slate-400">
                 {options.target_words}
               </span>
@@ -261,7 +277,7 @@ export default function SpecializedQuestionView({
         <div className="my-2.5 print:my-1.5">
           <div className="flex flex-wrap items-center gap-2 text-sm sm:text-base py-1">
             <span className="font-bold text-slate-900 print:text-black text-xs sm:text-sm">
-              {autoRTL ? "الكلمات:" : "শব্দসমূহ:"}
+              {isArabicMode ? "الكلمات:" : "শব্দসমূহ:"}
             </span>
             {(options.tahqeeq_words || ["يَنْصُرُونَ", "اِسْتَغْفَرَ", "تُسَبِّحُونَ"]).map((word: string, wIdx: number) => (
               <span
@@ -270,7 +286,7 @@ export default function SpecializedQuestionView({
                 className="inline-flex items-center gap-1 font-bold text-base sm:text-lg px-2.5 py-0.5 bg-slate-100/80 print:bg-transparent rounded border border-slate-300 print:border-black"
               >
                 <span className="text-xs text-slate-500 print:text-black font-normal">
-                  ({autoRTL ? toArabicNumerals(wIdx + 1) : toBengaliNumerals(wIdx + 1)})
+                  ({isArabicMode ? toArabicNumerals(wIdx + 1) : toBengaliNumerals(wIdx + 1)})
                 </span>
                 <span>{word}</span>
               </span>
@@ -282,16 +298,16 @@ export default function SpecializedQuestionView({
       {/* --- C. شعر وتوضيح (Poetry & Verses) --- */}
       {(qType === "Sher" || qType === "شعر وتوضيح" || (options.verses && options.verses.length > 0)) && (
         <div
-          dir={autoRTL ? "rtl" : "ltr"}
+          dir={isArabicMode ? "rtl" : "ltr"}
           className="my-2.5 py-1.5 px-3 bg-slate-50/40 print:bg-transparent border-y border-dashed border-slate-300 print:border-black"
         >
           {options.poet_name && (
-            <div className={`mb-1 italic text-slate-700 print:text-black ${autoRTL ? "text-right text-sm" : "text-left text-xs"}`}>
-              {autoRTL ? `الشاعر: ${options.poet_name}` : `কবি: ${options.poet_name}`}
+            <div className={`mb-1 italic text-slate-700 print:text-black ${isPureArabicText(options.poet_name) ? "text-right text-sm" : "text-left text-xs"}`}>
+              {isPureArabicText(options.poet_name) ? `الشاعر: ${options.poet_name}` : `কবি: ${options.poet_name}`}
             </div>
           )}
           <div className="space-y-2">
-            {(options.verses || [{ first: "إذا غامَرْتَ في شَرَفٍ مَرُومِ", second: "فَلا تَقْنَعْ بما دونَ النّجومِ" }]).map((verse: any, vIdx: number) => (
+            {(options.verses || [{ first: "إذا غামَرْتَ في شَرَفٍ مَرُومِ", second: "فَلا تَقْنَعْ بما دونَ النّجومِ" }]).map((verse: any, vIdx: number) => (
               <div
                 key={vIdx}
                 dir="rtl"
@@ -309,18 +325,19 @@ export default function SpecializedQuestionView({
       {/* --- D. مسألة فقهية (Fiqh Mas'ala & Scenario) --- */}
       {(qType === "Masala" || qType === "مسألة فقهية" || options.scenario) && options.scenario && (
         <div
-          className="my-2.5 py-2 px-3 bg-slate-50/50 print:bg-transparent border-l-4 border-slate-700 print:border-black rounded-l"
+          dir={isPureArabicText(options.scenario) ? "rtl" : "ltr"}
+          className={`my-2.5 py-2 px-3 bg-slate-50/50 print:bg-transparent ${isPureArabicText(options.scenario) ? "border-r-4 rounded-r text-right" : "border-l-4 rounded-l text-left"} border-slate-700 print:border-black`}
         >
           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 print:text-black mb-1">
             <Scale className="w-3.5 h-3.5 print:hidden" />
-            <span className={autoRTL ? "text-sm" : ""}>
-              {autoRTL ? "صورة المسألة الواقعية:" : "সুরতহাল (প্রেক্ষাপট):"}
+            <span className={isPureArabicText(options.scenario) ? "text-sm" : ""}>
+              {isPureArabicText(options.scenario) ? "صورة المسألة الواقعية:" : "সুরতহাল (প্রেক্ষাপট):"}
             </span>
           </div>
           <p
-            dir={autoRTL ? "rtl" : "ltr"}
+            dir={isPureArabicText(options.scenario) ? "rtl" : "ltr"}
             className={`text-sm sm:text-base leading-relaxed text-slate-900 print:text-black italic ${
-              autoRTL ? "text-lg leading-loose text-right" : ""
+              isPureArabicText(options.scenario) ? "text-lg leading-loose text-right" : "text-left"
             }`}
           >
             &ldquo;{options.scenario}&rdquo;
@@ -328,10 +345,10 @@ export default function SpecializedQuestionView({
 
           {options.sub_questions && options.sub_questions.length > 0 && (
             <div className="mt-2 space-y-1">
-              <span className={`text-xs font-bold text-slate-800 print:text-black block ${autoRTL ? "text-sm text-right" : ""}`}>
-                {autoRTL ? "الأسئلة والمسائل المطلوبة:" : "জিজ্ঞাসিত প্রশ্নাবলি:"}
+              <span className={`text-xs font-bold text-slate-800 print:text-black block ${isPureArabicText(options.scenario) ? "text-sm text-right" : "text-left"}`}>
+                {isPureArabicText(options.scenario) ? "الأسئلة والمسائل المطلوبة:" : "জিজ্ঞাসিত প্রশ্নাবলি:"}
               </span>
-              {renderSubQuestions(options.sub_questions, autoRTL)}
+              {renderSubQuestions(options.sub_questions, isPureArabicText(options.scenario))}
             </div>
           )}
         </div>
@@ -340,62 +357,65 @@ export default function SpecializedQuestionView({
       {/* --- E. বহুনির্বাচনী অপশন (MCQ Options) --- */}
       {qType === "MCQ" && (options.mcq_options || Array.isArray(question.options)) && (
         <div
-          dir={autoRTL ? "rtl" : "ltr"}
+          dir={isArabicMode ? "rtl" : "ltr"}
           className={`grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 ${
-            autoRTL ? "pr-4 sm:pr-6 text-base leading-loose" : "pl-4 sm:pl-6 text-xs sm:text-sm"
+            isArabicMode ? "pr-4 sm:pr-6 text-base leading-loose" : "pl-4 sm:pl-6 text-xs sm:text-sm"
           }`}
         >
-          {(options.mcq_options || question.options || []).map((opt: string, i: number) => (
-            <div key={i} className="flex items-center gap-1.5 text-slate-900 print:text-black">
-              <span className="font-bold text-slate-950 print:text-black">
-                {getSubQuestionLabel(i, autoRTL)}
-              </span>
-              <span>{opt}</span>
-            </div>
-          ))}
+          {(options.mcq_options || question.options || []).map((opt: string, i: number) => {
+            const isOptPureArabic = isPureArabicText(opt);
+            return (
+              <div key={i} className="flex items-center gap-1.5 text-slate-900 print:text-black">
+                <span className="font-bold text-slate-950 print:text-black">
+                  {getSubQuestionLabel(i, isOptPureArabic || isArabicMode)}
+                </span>
+                <span>{opt}</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* 3. অথবা / বিকল্প প্রশ্ন (Or / أو) — Strictly separated by language */}
       {options.has_or && options.or_text && (
         <div className="mt-4 pt-2 border-t border-dashed border-slate-300 print:border-black">
-          {/* Centered Decorative 'Or' Badge: Strict Pure Arabic '— أو —' vs Pure Bengali '— অথবা —' */}
+          {/* Centered Decorative 'Or' Badge: Strict Pure Arabic '— أو —' vs Bengali '— অথবা —' */}
           <div className="flex items-center justify-center my-2">
             <div className="h-[1px] bg-slate-300 print:bg-black flex-1 max-w-[80px]" />
             <span
               className={`mx-3 px-3 py-0.5 rounded-full bg-slate-100 print:bg-transparent border border-slate-300 print:border-black font-extrabold text-slate-900 print:text-black tracking-wider ${
-                autoRTL || isArabicText(options.or_text) ? "text-sm sm:text-base" : "text-xs sm:text-sm"
+                isPureArabicText(options.or_text) ? "text-sm sm:text-base" : "text-xs sm:text-sm"
               }`}
-              dir={autoRTL || isArabicText(options.or_text) ? "rtl" : "ltr"}
+              dir={isPureArabicText(options.or_text) ? "rtl" : "ltr"}
             >
-              {autoRTL || isArabicText(options.or_text) ? "— أو —" : "— অথবা —"}
+              {isPureArabicText(options.or_text) ? "— أو —" : "— অথবা —"}
             </span>
             <div className="h-[1px] bg-slate-300 print:bg-black flex-1 max-w-[80px]" />
           </div>
 
           {/* Alternative Question Body */}
-          <div className={`p-2 rounded-lg ${(autoRTL || isArabicText(options.or_text)) ? "text-right" : "text-left"}`}>
+          <div className={`p-2 rounded-lg ${isPureArabicText(options.or_text) ? "text-right" : "text-left"}`}>
             <p
               className={`font-semibold text-slate-950 print:text-black ${
-                (autoRTL || isArabicText(options.or_text))
+                isPureArabicText(options.or_text)
                   ? "text-lg sm:text-xl leading-[2.2]"
                   : "text-base sm:text-lg leading-relaxed"
               }`}
-              dir={(autoRTL || isArabicText(options.or_text)) ? "rtl" : "ltr"}
+              dir={isPureArabicText(options.or_text) ? "rtl" : "ltr"}
             >
               {options.or_text}
             </p>
 
             {/* If Or has its own sub-questions */}
             {options.or_sub_questions && options.or_sub_questions.length > 0 && (
-              renderSubQuestions(options.or_sub_questions, autoRTL || isArabicText(options.or_text))
+              renderSubQuestions(options.or_sub_questions, isPureArabicText(options.or_text))
             )}
 
             {/* If Or has its own Irab Text */}
             {options.or_irab_text && (
               <div
                 dir="rtl"
-                className="my-2 p-3 rounded-lg bg-amber-50/40 border border-amber-300 print:bg-transparent print:border-black text-lg sm:text-xl leading-[2.4] text-right font-medium"
+                className="my-2 p-3 rounded-lg bg-slate-50/50 border-r-4 border-slate-700 print:bg-transparent print:border-black text-lg sm:text-xl leading-[2.4] text-right font-medium"
               >
                 {options.or_irab_text}
               </div>
@@ -405,15 +425,16 @@ export default function SpecializedQuestionView({
             {options.or_verses && options.or_verses.length > 0 && (
               <div
                 dir="rtl"
-                className="my-2 p-3 rounded-lg bg-purple-50/30 border border-purple-200 print:bg-transparent print:border-black space-y-1.5"
+                className="my-2 p-3 rounded-lg bg-slate-50/40 border-y border-dashed border-slate-300 print:bg-transparent print:border-black space-y-1.5"
               >
                 {options.or_verses.map((verse, ovIdx) => (
                   <div
                     key={ovIdx}
-                    className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-center text-lg leading-loose"
+                    className="flex flex-wrap items-center justify-center gap-4 py-1 text-center text-lg leading-loose"
                   >
-                    <div>{verse.first}</div>
-                    <div>{verse.second}</div>
+                    <span>{verse.first}</span>
+                    <span className="text-sm text-slate-400 select-none px-2">⁂</span>
+                    <span>{verse.second}</span>
                   </div>
                 ))}
               </div>
@@ -422,9 +443,9 @@ export default function SpecializedQuestionView({
             {/* If Or has its own scenario */}
             {options.or_scenario && (
               <div 
-                dir={(autoRTL || isArabicText(options.or_scenario)) ? "rtl" : "ltr"}
-                className={`my-2 p-2.5 rounded bg-emerald-50/40 border border-emerald-200 print:bg-transparent print:border-black text-xs sm:text-sm italic ${
-                  (autoRTL || isArabicText(options.or_scenario)) ? "text-base" : ""
+                dir={isPureArabicText(options.or_scenario) ? "rtl" : "ltr"}
+                className={`my-2 p-2.5 rounded bg-slate-50/40 border-l-4 border-slate-700 print:bg-transparent print:border-black text-xs sm:text-sm italic ${
+                  isPureArabicText(options.or_scenario) ? "text-base text-right" : "text-left"
                 }`}
               >
                 &ldquo;{options.or_scenario}&rdquo;

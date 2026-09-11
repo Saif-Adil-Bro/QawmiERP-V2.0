@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 
@@ -31,7 +31,8 @@ export async function getExamRoutines(examId: string, classId?: string) {
 export async function saveExamRoutine(data: {
   exam_id: string;
   class_id: string;
-  subject_id: string;
+  subject_id?: string;
+  subject_name?: string;
   exam_date: string;
   start_time: string;
   end_time: string;
@@ -43,10 +44,48 @@ export async function saveExamRoutine(data: {
   if (!user) return { error: "Unauthorized" };
   const madrasaId = await getAuthMadrasaId(supabase, user);
 
+  let finalSubjectId = data.subject_id;
+  const isUUID = !!finalSubjectId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(finalSubjectId);
+
+  if (!isUUID) {
+    const searchName = (data.subject_name || finalSubjectId || "").trim();
+    if (!searchName) {
+      return { error: "বিষয় নির্বাচন আবশ্যক" };
+    }
+
+    // Try finding in subjects table by name
+    const { data: existingSub } = await supabase
+      .from("subjects")
+      .select("id")
+      .eq("madrasa_id", madrasaId)
+      .ilike("name", searchName)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingSub?.id) {
+      finalSubjectId = existingSub.id;
+    } else {
+      // Auto create subject in madrasa subjects table
+      const adminClient = await createAdminClient();
+      const { data: newSub } = await adminClient
+        .from("subjects")
+        .insert({
+          madrasa_id: madrasaId,
+          name: searchName,
+        })
+        .select("id")
+        .single();
+
+      if (newSub?.id) {
+        finalSubjectId = newSub.id;
+      }
+    }
+  }
+
   const { error } = await supabase.from("exam_routines").insert({
     exam_id: data.exam_id,
     class_id: data.class_id,
-    subject_id: data.subject_id,
+    subject_id: finalSubjectId,
     exam_date: data.exam_date,
     start_time: data.start_time,
     end_time: data.end_time,

@@ -49,6 +49,7 @@ export default function AdmitCardClient({
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
+  const [photoMode, setPhotoMode] = useState<"no_photo" | "with_photo">("no_photo");
   const [profileAndLogo, setProfileAndLogo] = useState<any>(null);
 
   useEffect(() => {
@@ -129,35 +130,70 @@ export default function AdmitCardClient({
         )}
 
         <div className="w-full md:w-auto flex flex-wrap items-center gap-3 ml-auto">
-          <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 shadow-xs">
-            <Type className="w-4 h-4 text-slate-500 shrink-0" />
-            <select 
-              value={banglaFont} 
-              onChange={(e) => setBanglaFont(e.target.value)}
-              className="text-xs font-medium text-slate-700 bg-transparent focus:outline-none"
-            >
-              <option value="font-solaiman">বাংলা: সোলাইমান লিপি</option>
-              <option value="font-shorif">বাংলা: শরীফ শিশির</option>
-              <option value="font-hindsiliguri">বাংলা: হিন্দ শিলিগুড়ি</option>
-            </select>
+          {/* Photo Option: With Photo vs Without Photo */}
+          <div className="flex flex-col">
+            <span className="text-[10px] font-bold text-slate-500 uppercase mb-1">প্রবেশপত্রের ধরণ</span>
+            <div className="flex items-center bg-white border border-slate-300 rounded-lg p-0.5 shadow-xs">
+              <button
+                type="button"
+                onClick={() => setPhotoMode("no_photo")}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+                  photoMode === "no_photo"
+                    ? "bg-slate-900 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                ছবি ছাড়া
+              </button>
+              <button
+                type="button"
+                onClick={() => setPhotoMode("with_photo")}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+                  photoMode === "with_photo"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>ছবিসহ</span>
+              </button>
+            </div>
           </div>
 
-          <button 
-            onClick={loadStudents}
-            disabled={loading || !classId}
-            className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition text-sm font-semibold shadow-xs"
-          >
-            {loading ? "তৈরি হচ্ছে..." : "প্রবেশপত্র লোড করুন"}
-          </button>
-          
-          <button 
-            onClick={handlePrint}
-            disabled={filteredStudents.length === 0}
-            className="flex items-center space-x-2 px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold text-sm disabled:opacity-50 shadow-xs"
-          >
-            <Printer className="w-4 h-4" />
-            <span>প্রিন্ট / PDF ডাউনলোড</span>
-          </button>
+          <div className="flex flex-col">
+            <span className="text-[10px] font-bold text-slate-500 uppercase mb-1">ফন্ট স্টাইল</span>
+            <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 shadow-xs">
+              <Type className="w-4 h-4 text-slate-500 shrink-0" />
+              <select 
+                value={banglaFont} 
+                onChange={(e) => setBanglaFont(e.target.value)}
+                className="text-xs font-medium text-slate-700 bg-transparent focus:outline-none"
+              >
+                <option value="font-solaiman">বাংলা: সোলাইমান লিপি</option>
+                <option value="font-shorif">বাংলা: শরীফ শিশির</option>
+                <option value="font-hindsiliguri">বাংলা: হিন্দ শিলিগুড়ি</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-end gap-2 pt-4">
+            <button 
+              onClick={loadStudents}
+              disabled={loading || !classId}
+              className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition text-sm font-semibold shadow-xs cursor-pointer"
+            >
+              {loading ? "তৈরি হচ্ছে..." : "প্রবেশপত্র লোড করুন"}
+            </button>
+            
+            <button 
+              onClick={handlePrint}
+              disabled={filteredStudents.length === 0}
+              className="flex items-center space-x-2 px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold text-sm disabled:opacity-50 shadow-xs cursor-pointer"
+            >
+              <Printer className="w-4 h-4" />
+              <span>প্রিন্ট / PDF</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -170,11 +206,13 @@ export default function AdmitCardClient({
       {/* Screen Preview */}
       {students.length > 0 && (
         <div className="print:hidden space-y-4">
-          <div className="flex justify-between items-center bg-blue-50 border border-blue-200 p-3 rounded-lg text-blue-900 text-sm font-medium">
-            <span>মোট {filteredStudents.length} জন শিক্ষার্থীর প্রবেশপত্র প্রস্তুত রয়েছে (প্রতি পাতায় ২টি করে প্রবেশপত্র প্রিন্ট হবে)।</span>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 bg-blue-50 border border-blue-200 p-3 rounded-lg text-blue-900 text-sm font-medium">
+            <div className="flex items-center gap-2">
+              <span>মোট <strong>{filteredStudents.length}</strong> জন শিক্ষার্থীর প্রবেশপত্র প্রস্তুত ({photoMode === "with_photo" ? "ছবিসহ" : "ছবি ছাড়া"})।</span>
+            </div>
             <button 
               onClick={handlePrint}
-              className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700 transition text-xs font-semibold shadow-xs"
+              className="flex items-center gap-1.5 bg-blue-600 text-white px-3.5 py-1.5 rounded-md hover:bg-blue-700 transition text-xs font-semibold shadow-xs cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               প্রিন্ট ভিউ
@@ -182,38 +220,47 @@ export default function AdmitCardClient({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {filteredStudents.map((student) => (
-              <div key={student.id} className="border-2 border-slate-800 p-5 rounded-xl bg-white shadow-xs">
-                <div className="text-center border-b pb-2 mb-3">
-                  <h3 className="font-bold text-slate-900 text-base">{madrasaName}</h3>
-                  <p className="text-xs text-slate-500">{madrasaAddress}</p>
-                  <span className="inline-block bg-slate-900 text-white px-3 py-0.5 rounded-full text-xs font-bold mt-1">
-                    প্রবেশপত্র (Admit Card)
-                  </span>
-                  <p className="text-xs font-semibold text-slate-700 mt-0.5">{examTitle} - {toBanglaNumber(examYear)}</p>
-                </div>
-                
-                <div className="flex gap-4 items-center">
-                  <div className="w-20 h-24 border border-slate-300 rounded bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
-                    {student.photo_url ? (
-                      <img 
-                        src={getDirectPhotoUrl(student.photo_url)} 
-                        alt="Photo" 
-                        className="w-full h-full object-cover" 
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <User className="w-8 h-8 text-slate-300" />
+            {filteredStudents.map((student) => {
+              const guardianPhone = student.parent_phone || student.guardian_phone || student.emergency_contact || student.phone || '';
+              return (
+                <div key={student.id} className="border-2 border-slate-800 p-5 rounded-xl bg-white shadow-xs">
+                  <div className="text-center border-b pb-2 mb-3">
+                    <h3 className="font-bold text-slate-900 text-base">{madrasaName}</h3>
+                    <p className="text-xs text-slate-500">{madrasaAddress}</p>
+                    <span className="inline-block bg-slate-900 text-white px-3 py-0.5 rounded-full text-xs font-bold mt-1">
+                      প্রবেশপত্র (Admit Card)
+                    </span>
+                    <p className="text-xs font-semibold text-slate-700 mt-0.5">{examTitle} - {toBanglaNumber(examYear)}</p>
+                  </div>
+                  
+                  <div className={`flex gap-4 items-center ${photoMode === 'no_photo' ? 'w-full' : ''}`}>
+                    {photoMode === "with_photo" && (
+                      <div className="w-20 h-24 border border-slate-300 rounded bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+                        {student.photo_url ? (
+                          <img 
+                            src={getDirectPhotoUrl(student.photo_url)} 
+                            alt="Photo" 
+                            className="w-full h-full object-cover" 
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center">
+                            <User className="w-8 h-8 text-slate-300" />
+                            <span className="text-[9px] font-medium text-slate-400 mt-0.5">ছবি</span>
+                          </div>
+                        )}
+                      </div>
                     )}
-                  </div>
-                  <div className="space-y-1 text-xs flex-1">
-                    <p><span className="text-slate-500 font-medium">নাম:</span> <span className="font-bold text-slate-900 text-sm">{student.first_name} {student.last_name}</span></p>
-                    <p><span className="text-slate-500 font-medium">ক্লাস:</span> <span className="font-semibold text-slate-800">{selectedClassName}</span></p>
-                    <p><span className="text-slate-500 font-medium">রোল:</span> <span className="font-bold text-blue-700">{toBanglaNumber(student.roll_number || '১')}</span></p>
+                    <div className="space-y-1.5 text-xs flex-1">
+                      <p><span className="text-slate-500 font-medium">নাম:</span> <span className="font-bold text-slate-900 text-sm">{student.first_name} {student.last_name}</span></p>
+                      <p><span className="text-slate-500 font-medium">ক্লাস:</span> <span className="font-semibold text-slate-800">{selectedClassName}</span></p>
+                      <p><span className="text-slate-500 font-medium">রোল:</span> <span className="font-bold text-blue-700">{toBanglaNumber(student.roll_number || '১')}</span></p>
+                      <p><span className="text-slate-500 font-medium">মোবাইল / অভিভাবক:</span> <span className="font-semibold text-slate-800">{guardianPhone ? toBanglaNumber(guardianPhone) : 'প্রযোজ্য নয়'}</span></p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -222,114 +269,121 @@ export default function AdmitCardClient({
       <div className={`hidden print:block print:w-full ${banglaFont}`}>
         {studentPages.map((pageStudents, pageIdx) => (
           <div key={pageIdx} className="a4-admit-card-sheet bg-white">
-            {pageStudents.map((student, cardIdx) => (
-              <div 
-                key={student.id} 
-                className="border-2 border-slate-900 rounded-xl p-6 bg-white flex flex-col justify-between"
-                style={{ minHeight: '125mm', maxHeight: '132mm', boxSizing: 'border-box' }}
-              >
-                {/* Header */}
-                <div className="text-center border-b-2 border-slate-900 pb-3 mb-3 relative">
-                  <div className="flex items-center justify-center gap-3">
-                    {logoUrl ? (
-                      <img 
-                        src={logoUrl} 
-                        alt="Logo" 
-                        className="w-12 h-12 object-contain rounded-full border border-slate-300 p-0.5" 
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 bg-emerald-50 rounded-full border border-emerald-700 flex items-center justify-center">
-                        <GraduationCap className="w-6 h-6 text-emerald-800" />
-                      </div>
-                    )}
-                    <div>
-                      <h2 className="text-xl font-black text-slate-950 leading-tight">{madrasaName}</h2>
-                      <p className="text-[11px] text-slate-600 font-medium">{madrasaAddress}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-2 inline-block bg-slate-900 text-white px-5 py-0.5 rounded-full font-black tracking-wider uppercase text-xs">
-                    প্রবেশপত্র (Admit Card)
-                  </div>
-                  
-                  <p className="text-slate-900 font-bold text-xs mt-1">{examTitle} - {toBanglaNumber(examYear)}</p>
-                </div>
-
-                {/* Body Details */}
-                <div className="flex gap-6 items-center flex-1 my-2">
-                  {/* Photo Frame */}
-                  <div className="w-24 h-28 border-2 border-slate-400 rounded-md flex items-center justify-center bg-slate-50 relative shrink-0 overflow-hidden">
-                    {student.photo_url ? (
-                      <img 
-                        src={getDirectPhotoUrl(student.photo_url)} 
-                        alt="Photo" 
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center">
-                        <User className="w-10 h-10 text-slate-300" />
-                        <span className="text-[8px] font-bold text-slate-400 mt-1">ছবি</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Student Attributes */}
-                  <div className="flex-1 space-y-2 text-xs">
-                    <div className="flex border-b border-dashed border-slate-300 pb-1">
-                      <span className="font-bold text-slate-600 w-28">ছাত্রের নাম:</span>
-                      <span className="font-black text-slate-950 text-sm">{student.first_name} {student.last_name}</span>
-                    </div>
-                    <div className="flex border-b border-dashed border-slate-300 pb-1">
-                      <span className="font-bold text-slate-600 w-28">শ্রেণি / জামাত:</span>
-                      <span className="font-black text-slate-900">{selectedClassName}</span>
-                    </div>
-                    <div className="flex border-b border-dashed border-slate-300 pb-1">
-                      <span className="font-bold text-slate-600 w-28">রোল নম্বর:</span>
-                      <span className="font-black text-blue-900">{toBanglaNumber(student.roll_number || '১')}</span>
-                    </div>
-                    <div className="flex border-b border-dashed border-slate-300 pb-1">
-                      <span className="font-bold text-slate-600 w-28">মোবাইল / অভিভাবক:</span>
-                      <span className="font-bold text-slate-800">{toBanglaNumber(student.parent_phone || student.phone || 'N/A')}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Signatures */}
-                <div className="flex justify-between items-end pt-3 border-t border-slate-200 mt-auto">
-                  <div className="w-36 text-center">
-                    <div className="border-t-2 border-slate-900 pt-1 text-[10px] font-bold text-slate-900">
-                      শ্রেণী শিক্ষকের স্বাক্ষর
-                    </div>
-                  </div>
-
-                  <div className="w-36 text-center">
-                    <div className="border-t-2 border-slate-900 pt-1 text-[10px] font-bold text-slate-900">
-                      পরীক্ষা নিয়ন্ত্রক
-                    </div>
-                  </div>
-
-                  <div className="w-36 text-center">
-                    {principalSignUrl ? (
-                      <div className="h-7 flex items-center justify-center mb-0.5">
+            {pageStudents.map((student) => {
+              const guardianPhone = student.parent_phone || student.guardian_phone || student.emergency_contact || student.phone || '';
+              return (
+                <div 
+                  key={student.id} 
+                  className="border-2 border-slate-900 rounded-xl p-6 bg-white flex flex-col justify-between"
+                  style={{ minHeight: '125mm', maxHeight: '132mm', boxSizing: 'border-box' }}
+                >
+                  {/* Header */}
+                  <div className="text-center border-b-2 border-slate-900 pb-3 mb-3 relative">
+                    <div className="flex items-center justify-center gap-3">
+                      {logoUrl ? (
                         <img 
-                          src={principalSignUrl} 
-                          alt="Principal Signature" 
-                          className="max-h-full max-w-[90px] object-contain"
+                          src={logoUrl} 
+                          alt="Logo" 
+                          className="w-12 h-12 object-contain rounded-full border border-slate-300 p-0.5" 
                           referrerPolicy="no-referrer"
                         />
+                      ) : (
+                        <div className="w-10 h-10 bg-emerald-50 rounded-full border border-emerald-700 flex items-center justify-center">
+                          <GraduationCap className="w-6 h-6 text-emerald-800" />
+                        </div>
+                      )}
+                      <div>
+                        <h2 className="text-xl font-black text-slate-950 leading-tight">{madrasaName}</h2>
+                        <p className="text-[11px] text-slate-600 font-medium">{madrasaAddress}</p>
                       </div>
-                    ) : (
-                      <div className="h-5"></div>
+                    </div>
+                    
+                    <div className="mt-2 inline-block bg-slate-900 text-white px-5 py-0.5 rounded-full font-black tracking-wider uppercase text-xs">
+                      প্রবেশপত্র (Admit Card)
+                    </div>
+                    
+                    <p className="text-slate-900 font-bold text-xs mt-1">{examTitle} - {toBanglaNumber(examYear)}</p>
+                  </div>
+
+                  {/* Body Details */}
+                  <div className="flex gap-6 items-center flex-1 my-2">
+                    {/* Photo Frame - Only if photoMode === 'with_photo' */}
+                    {photoMode === "with_photo" && (
+                      <div className="w-24 h-28 border-2 border-slate-400 rounded-md flex items-center justify-center bg-slate-50 relative shrink-0 overflow-hidden">
+                        {student.photo_url ? (
+                          <img 
+                            src={getDirectPhotoUrl(student.photo_url)} 
+                            alt="Photo" 
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center">
+                            <User className="w-10 h-10 text-slate-300" />
+                            <span className="text-[8px] font-bold text-slate-400 mt-1">ছবি সংযুক্ত করুন</span>
+                          </div>
+                        )}
+                      </div>
                     )}
-                    <div className="border-t-2 border-slate-900 pt-1 text-[10px] font-bold text-slate-900">
-                      {principalName}
+
+                    {/* Student Attributes */}
+                    <div className="flex-1 space-y-2 text-xs">
+                      <div className="flex border-b border-dashed border-slate-300 pb-1">
+                        <span className="font-bold text-slate-600 w-28 shrink-0">ছাত্রের নাম:</span>
+                        <span className="font-black text-slate-950 text-sm">{student.first_name} {student.last_name}</span>
+                      </div>
+                      <div className="flex border-b border-dashed border-slate-300 pb-1">
+                        <span className="font-bold text-slate-600 w-28 shrink-0">শ্রেণি / জামাত:</span>
+                        <span className="font-black text-slate-900">{selectedClassName}</span>
+                      </div>
+                      <div className="flex border-b border-dashed border-slate-300 pb-1">
+                        <span className="font-bold text-slate-600 w-28 shrink-0">রোল নম্বর:</span>
+                        <span className="font-black text-blue-900">{toBanglaNumber(student.roll_number || '১')}</span>
+                      </div>
+                      <div className="flex border-b border-dashed border-slate-300 pb-1">
+                        <span className="font-bold text-slate-600 w-28 shrink-0">মোবাইল / অভিভাবক:</span>
+                        <span className="font-bold text-slate-800 font-mono">
+                          {guardianPhone ? toBanglaNumber(guardianPhone) : 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Signatures */}
+                  <div className="flex justify-between items-end pt-3 border-t border-slate-200 mt-auto">
+                    <div className="w-36 text-center">
+                      <div className="border-t-2 border-slate-900 pt-1 text-[10px] font-bold text-slate-900">
+                        শ্রেণী শিক্ষকের স্বাক্ষর
+                      </div>
+                    </div>
+
+                    <div className="w-36 text-center">
+                      <div className="border-t-2 border-slate-900 pt-1 text-[10px] font-bold text-slate-900">
+                        পরীক্ষা নিয়ন্ত্রক
+                      </div>
+                    </div>
+
+                    <div className="w-36 text-center">
+                      {principalSignUrl ? (
+                        <div className="h-7 flex items-center justify-center mb-0.5">
+                          <img 
+                            src={principalSignUrl} 
+                            alt="Principal Signature" 
+                            className="max-h-full max-w-[90px] object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-5"></div>
+                      )}
+                      <div className="border-t-2 border-slate-900 pt-1 text-[10px] font-bold text-slate-900">
+                        {principalName}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ))}
       </div>

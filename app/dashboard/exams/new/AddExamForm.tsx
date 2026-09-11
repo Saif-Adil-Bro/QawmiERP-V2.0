@@ -69,6 +69,8 @@ export default function AddExamForm() {
   
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [selectedTitle, setSelectedTitle] = useState("");
+  const [customTitle, setCustomTitle] = useState("");
 
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 3 }, (_, i) => currentYear - 1 + i);
@@ -78,6 +80,8 @@ export default function AddExamForm() {
       formRef.current?.reset();
       setStartDate("");
       setEndDate("");
+      setSelectedTitle("");
+      setCustomTitle("");
     }
   }, [state]);
 
@@ -106,6 +110,8 @@ export default function AddExamForm() {
             id="title"
             name="title"
             required
+            value={selectedTitle}
+            onChange={(e) => setSelectedTitle(e.target.value)}
             className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white"
           >
             <option value="">নির্বাচন করুন</option>
@@ -115,6 +121,28 @@ export default function AddExamForm() {
             <option value="মাসিক পরীক্ষা (Monthly Test)">মাসিক পরীক্ষা (Monthly Test)</option>
             <option value="অন্যান্য">অন্যান্য (Custom)</option>
           </select>
+
+          {selectedTitle === "অন্যান্য" && (
+            <div className="mt-3 p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg space-y-1.5 animate-in fade-in duration-150">
+              <label htmlFor="custom_title" className="text-xs font-bold text-indigo-900 flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                <span>কাস্টম পরীক্ষার নাম লিখুন <span className="text-red-500">*</span></span>
+              </label>
+              <input
+                type="text"
+                id="custom_title"
+                name="custom_title"
+                value={customTitle}
+                onChange={(e) => setCustomTitle(e.target.value)}
+                required={selectedTitle === "অন্যান্য"}
+                placeholder="যেমন: ১ম সাময়িক পরীক্ষা / বিশেষ মূল্যায়ন / সাপ্তাহিক পরীক্ষা"
+                className="w-full px-3 py-2 text-sm border border-indigo-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600 transition bg-white font-medium text-slate-900"
+              />
+              <p className="text-[11px] text-indigo-700">
+                এখানে আপনার ইচ্ছানুযায়ী যেকোনো পরীক্ষার নাম লিখতে পারেন, যা সকল রিপোর্ট ও প্রবেশপত্রে প্রদর্শিত হবে।
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2 md:col-span-2">

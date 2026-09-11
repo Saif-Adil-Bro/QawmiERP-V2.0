@@ -55,11 +55,44 @@ export function parsePhoneContact(phoneStr?: string | null): {
 }
 
 /**
+ * Detects if a string contains Bengali characters ([\u0980-\u09FF])
+ */
+export function hasBengaliText(text: string = ""): boolean {
+  if (!text) return false;
+  return /[\u0980-\u09FF]/.test(text);
+}
+
+/**
  * Detects if a string contains Arabic characters
  */
-export function isArabicText(text: string = ""): boolean {
+export function hasArabicText(text: string = ""): boolean {
   if (!text) return false;
   return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
+}
+
+/**
+ * Checks if a string is PURE Arabic (contains Arabic characters and NO Bengali characters).
+ * If a text is mixed (contains both Arabic and Bengali), it returns false (treated as Bengali/LTR).
+ */
+export function isPureArabicText(text: string = ""): boolean {
+  if (!text) return false;
+  return hasArabicText(text) && !hasBengaliText(text);
+}
+
+/**
+ * Backward-compatible alias for hasArabicText
+ */
+export function isArabicText(text: string = ""): boolean {
+  return hasArabicText(text);
+}
+
+/**
+ * Determines text direction based on whether text is pure Arabic or contains Bengali / mixed
+ */
+export function getTextDirection(text: string = "", mode: "auto" | "rtl" | "ltr" = "auto"): "rtl" | "ltr" {
+  if (mode === "rtl") return "rtl";
+  if (mode === "ltr") return "ltr";
+  return isPureArabicText(text) ? "rtl" : "ltr";
 }
 
 /**
