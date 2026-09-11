@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getExamSubjects, saveExamSubjects, updateExamDetails } from "@/app/actions/exams";
+import { getExamSubjects, saveExamSubjects, updateExamDetails, getExamEvaluationSettings, saveExamEvaluationSettings } from "@/app/actions/exams";
 import { getClassSubjects } from "@/app/actions/class_subjects";
-import { Plus, Trash2, Save, Calendar, Sparkles, CheckCircle2 } from "lucide-react";
+import { Plus, Trash2, Save, Calendar, Sparkles, CheckCircle2, AlertCircle, ShieldCheck, CheckSquare, Square } from "lucide-react";
 
 function getDynamicStatusInfo(startDate: string, endDate: string) {
   if (!startDate) {
@@ -67,12 +67,23 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
   const [subjects, setSubjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [failPolicy, setFailPolicy] = useState("compulsory_subject_fail");
 
   // Exam Date State
   const [startDate, setStartDate] = useState(exam?.start_date?.split('T')[0] || "");
   const [endDate, setEndDate] = useState(exam?.end_date?.split('T')[0] || exam?.effective_end_date?.split('T')[0] || "");
   const [savingDate, setSavingDate] = useState(false);
   const [dateSuccess, setDateSuccess] = useState(false);
+
+  useEffect(() => {
+    async function loadGlobalSettings() {
+      const settings = await getExamEvaluationSettings(examId);
+      if (settings?.fail_policy) {
+        setFailPolicy(settings.fail_policy);
+      }
+    }
+    loadGlobalSettings();
+  }, [examId]);
 
   useEffect(() => {
     if (classId) {
@@ -115,21 +126,22 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
             subject_name: cs.subjects?.name || "",
             total_marks: 100,
             pass_marks: 33,
+            is_compulsory: true,
             exam_type: "Written"
           }));
           setSubjects(autoSubjects);
         } else {
-          setSubjects([{ subject_name: "", total_marks: 100, pass_marks: 33, exam_type: "Written" }]);
+          setSubjects([{ subject_name: "", total_marks: 100, pass_marks: 33, is_compulsory: true, exam_type: "Written" }]);
         }
       } catch (err) {
-        setSubjects([{ subject_name: "", total_marks: 100, pass_marks: 33, exam_type: "Written" }]);
+        setSubjects([{ subject_name: "", total_marks: 100, pass_marks: 33, is_compulsory: true, exam_type: "Written" }]);
       }
     }
     setLoading(false);
   };
 
   const handleAddSubject = () => {
-    setSubjects([...subjects, { subject_name: "", total_marks: 100, pass_marks: 33, exam_type: "Written" }]);
+    setSubjects([...subjects, { subject_name: "", total_marks: 100, pass_marks: 33, is_compulsory: true, exam_type: "Written" }]);
   };
 
   const handleRemoveSubject = (index: number) => {
@@ -138,7 +150,7 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
     setSubjects(newSubjects);
   };
 
-  const handleChange = (index: number, field: string, value: string | number) => {
+  const handleChange = (index: number, field: string, value: any) => {
     const newSubjects = [...subjects];
     newSubjects[index][field] = value;
     setSubjects(newSubjects);
@@ -153,7 +165,7 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
     
     setSaving(true);
     try {
-      const res = await saveExamSubjects(examId, classId, subjects);
+      const res = await saveExamSubjects(examId, classId, subjects, failPolicy);
       if (res?.error) {
         alert("Error: " + res.error);
       } else {
@@ -170,10 +182,10 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
   return (
     <div className="space-y-8">
       {/* Exam Date & Automatic Status Card */}
-      <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+      <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
           <div>
-            <h3 className="font-semibold text-slate-800 text-base">পরীক্ষার তারিখ ও স্বয়ংক্রিয় অবস্থা</h3>
+            <h3 className="font-bold text-slate-800 text-base">পরীক্ষার তারিখ ও স্বয়ংক্রিয় অবস্থা</h3>
             <p className="text-xs text-slate-500">শুরুর তারিখ ও শেষের তারিখ পরিবর্তন করলে অবস্থা নিজে থেকেই আপডেট হবে</p>
           </div>
 
@@ -198,7 +210,7 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-3 py-2 text-sm border rounded-md focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+              className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none bg-white"
             />
           </div>
 
@@ -212,36 +224,109 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
               value={endDate}
               min={startDate || undefined}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full px-3 py-2 text-sm border rounded-md focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+              className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none bg-white"
             />
           </div>
         </div>
 
         <div className="flex items-center justify-between pt-2">
           <p className="text-xs text-slate-500 flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+            <Sparkles className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
             <span>{statusInfo.description}</span>
           </p>
 
           <button
             onClick={handleSaveDates}
             disabled={savingDate}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-1.5 rounded-md text-xs font-medium transition shadow-xs disabled:opacity-50"
+            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
           >
             {savingDate ? "সেভ হচ্ছে..." : dateSuccess ? "আপডেট সম্পন্ন!" : "তারিখ আপডেট করুন"}
-            {dateSuccess && <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />}
+            {dateSuccess && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
           </button>
         </div>
       </div>
 
+      {/* Global Evaluation & Fail Policy Card */}
+      <div className="p-5 bg-emerald-50/60 border border-emerald-200/80 rounded-xl space-y-3">
+        <div className="flex items-start gap-3">
+          <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="font-bold text-slate-900 text-sm">ফলাফল ও ফেল নির্ধারণ নীতি (Evaluation & Fail Rule)</h3>
+            <p className="text-xs text-slate-600 mt-0.5">
+              কোনো ছাত্র কোনো বিষয়ে পরীক্ষা না দিলে বা নম্বর না পেলে স্বয়ংক্রিয়ভাবে ০ গণনা করা হবে এবং মোট নম্বরে ওই বিষয় যুক্ত থাকবে।
+            </p>
+
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className={`flex items-start p-3 rounded-lg border text-xs cursor-pointer transition ${
+                failPolicy === "compulsory_subject_fail" 
+                  ? "bg-white border-emerald-600 ring-2 ring-emerald-500/20 shadow-xs" 
+                  : "bg-white/70 border-slate-200 hover:bg-white"
+              }`}>
+                <input
+                  type="radio"
+                  name="failPolicy"
+                  value="compulsory_subject_fail"
+                  checked={failPolicy === "compulsory_subject_fail"}
+                  onChange={(e) => setFailPolicy(e.target.value)}
+                  className="mt-0.5 mr-2 text-emerald-600 focus:ring-emerald-500"
+                />
+                <div>
+                  <span className="font-bold text-slate-900 block">আবশ্যক বিষয়ে ফেল = মোট ফেল</span>
+                  <span className="text-slate-500 text-[11px] block mt-0.5">আবশ্যক কোনো বিষয়ে পাস নম্বরের কম পেলে সামগ্রিক ফল রাসিব (Fail) হবে।</span>
+                </div>
+              </label>
+
+              <label className={`flex items-start p-3 rounded-lg border text-xs cursor-pointer transition ${
+                failPolicy === "any_subject_fail" 
+                  ? "bg-white border-emerald-600 ring-2 ring-emerald-500/20 shadow-xs" 
+                  : "bg-white/70 border-slate-200 hover:bg-white"
+              }`}>
+                <input
+                  type="radio"
+                  name="failPolicy"
+                  value="any_subject_fail"
+                  checked={failPolicy === "any_subject_fail"}
+                  onChange={(e) => setFailPolicy(e.target.value)}
+                  className="mt-0.5 mr-2 text-emerald-600 focus:ring-emerald-500"
+                />
+                <div>
+                  <span className="font-bold text-slate-900 block">যেকোনো বিষয়ে ফেল = মোট ফেল</span>
+                  <span className="text-slate-500 text-[11px] block mt-0.5">যেকোনো একটি বিষয়ে পাস নম্বরের নিচে পেলে সামগ্রিক ফল রাসিব হবে।</span>
+                </div>
+              </label>
+
+              <label className={`flex items-start p-3 rounded-lg border text-xs cursor-pointer transition ${
+                failPolicy === "percentage_only" 
+                  ? "bg-white border-emerald-600 ring-2 ring-emerald-500/20 shadow-xs" 
+                  : "bg-white/70 border-slate-200 hover:bg-white"
+              }`}>
+                <input
+                  type="radio"
+                  name="failPolicy"
+                  value="percentage_only"
+                  checked={failPolicy === "percentage_only"}
+                  onChange={(e) => setFailPolicy(e.target.value)}
+                  className="mt-0.5 mr-2 text-emerald-600 focus:ring-emerald-500"
+                />
+                <div>
+                  <span className="font-bold text-slate-900 block">শুধুমাত্র শতকরা হার ভিত্তিক</span>
+                  <span className="text-slate-500 text-[11px] block mt-0.5">বিষয়ের ওপর নির্ভর না করে মোট প্রাপ্ত নম্বরের শতকরা হারে গ্রেড আসবে।</span>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Class Selector for Subject Setup */}
       <div className="max-w-md">
-        <label className="block text-sm font-medium text-slate-700 mb-1">ক্লাস নির্বাচন করুন (বিষয় সেটআপের জন্য)</label>
+        <label className="block text-sm font-bold text-slate-800 mb-1.5">ক্লাস / জামাত নির্বাচন করুন (বিষয় সেটআপের জন্য)</label>
         <select
           value={classId}
           onChange={(e) => setClassId(e.target.value)}
-          className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 transition bg-white"
+          className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition bg-white text-sm font-medium text-slate-800"
         >
-          <option value="">নির্বাচন করুন...</option>
+          <option value="">ক্লাস নির্বাচন করুন...</option>
           {classes.map(c => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
@@ -251,73 +336,97 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
       {classId && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-            <h3 className="text-lg font-medium text-slate-800">বিষয়ের তালিকা ও মান বণ্টন</h3>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">বিষয়ের তালিকা ও মান বণ্টন</h3>
+              <p className="text-xs text-slate-500 mt-0.5">প্রতিটি বিষয়ের মোট নম্বর, পাস নম্বর ও আবশ্যক কিনা তা নির্ধারণ করুন</p>
+            </div>
             <button
               onClick={handleAddSubject}
-              className="flex items-center space-x-1 text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-md transition border border-indigo-200"
+              className="flex items-center space-x-1 text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-3.5 py-2 rounded-lg transition border border-emerald-200 cursor-pointer shadow-xs"
             >
               <Plus className="w-4 h-4" />
-              <span>নতুন বিষয়</span>
+              <span>নতুন বিষয় যোগ করুন</span>
             </button>
           </div>
 
           {loading ? (
             <div className="py-8 text-center text-slate-500">লোড হচ্ছে...</div>
           ) : (
-            <div className="border rounded-lg overflow-x-auto">
-              <table className="w-full text-left text-sm whitespace-nowrap min-w-[600px]">
-                <thead className="bg-slate-50 text-slate-700 border-b">
+            <div className="border border-slate-200 rounded-xl overflow-x-auto shadow-xs bg-white">
+              <table className="w-full text-left text-sm whitespace-nowrap min-w-[700px]">
+                <thead className="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold text-xs uppercase tracking-wider">
                   <tr>
-                    <th className="px-4 py-3 font-medium">বিষয়ের নাম</th>
-                    <th className="px-4 py-3 font-medium w-24">মোট নম্বর</th>
-                    <th className="px-4 py-3 font-medium w-24">পাস নম্বর</th>
-                    <th className="px-4 py-3 font-medium w-36">পরীক্ষার ধরন</th>
-                    <th className="px-4 py-3 font-medium w-16 text-center">মুছুন</th>
+                    <th className="px-4 py-3">বিষয়ের নাম</th>
+                    <th className="px-4 py-3 w-28">মোট নম্বর</th>
+                    <th className="px-4 py-3 w-28">পাস নম্বর</th>
+                    <th className="px-4 py-3 w-36 text-center">আবশ্যক বিষয়?</th>
+                    <th className="px-4 py-3 w-40">পরীক্ষার ধরন</th>
+                    <th className="px-4 py-3 w-16 text-center">মুছুন</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y divide-slate-200">
                   {subjects.map((sub, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/50">
-                      <td className="px-4 py-2">
+                    <tr key={idx} className="hover:bg-slate-50/60 transition">
+                      <td className="px-4 py-2.5">
                         <input
                           type="text"
                           value={sub.subject_name}
                           onChange={(e) => handleChange(idx, 'subject_name', e.target.value)}
-                          placeholder="যেমন: কুরআন মাজীদ"
-                          className="w-full px-3 py-1.5 border rounded focus:ring-2 focus:ring-indigo-500 outline-none"
+                          placeholder="যেমন: কুরআন (হিফজ)"
+                          className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none font-medium"
                         />
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-4 py-2.5">
                         <input
                           type="number"
                           value={sub.total_marks}
-                          onChange={(e) => handleChange(idx, 'total_marks', parseInt(e.target.value))}
-                          className="w-full px-3 py-1.5 border rounded focus:ring-2 focus:ring-indigo-500 outline-none"
+                          onChange={(e) => handleChange(idx, 'total_marks', parseInt(e.target.value) || 0)}
+                          className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none text-center font-bold"
                         />
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-4 py-2.5">
                         <input
                           type="number"
                           value={sub.pass_marks}
-                          onChange={(e) => handleChange(idx, 'pass_marks', parseInt(e.target.value))}
-                          className="w-full px-3 py-1.5 border rounded focus:ring-2 focus:ring-indigo-500 outline-none"
+                          onChange={(e) => handleChange(idx, 'pass_marks', parseInt(e.target.value) || 0)}
+                          className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none text-center font-bold"
                         />
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-4 py-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleChange(idx, 'is_compulsory', !sub.is_compulsory)}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer border ${
+                            sub.is_compulsory !== false
+                              ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                              : "bg-slate-100 text-slate-600 border-slate-300"
+                          }`}
+                        >
+                          {sub.is_compulsory !== false ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                              <span>আবশ্যক</span>
+                            </>
+                          ) : (
+                            <span>ঐচ্ছিক</span>
+                          )}
+                        </button>
+                      </td>
+                      <td className="px-4 py-2.5">
                         <select
                           value={sub.exam_type}
                           onChange={(e) => handleChange(idx, 'exam_type', e.target.value)}
-                          className="w-full px-3 py-1.5 border rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                          className="w-full px-3 py-1.5 text-xs font-semibold border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none bg-white"
                         >
                           <option value="Written">লিখিত (Written)</option>
                           <option value="Oral">মৌখিক (Oral)</option>
                           <option value="Practical">প্রাক্টিক্যাল (Practical)</option>
                         </select>
                       </td>
-                      <td className="px-4 py-2 text-center">
+                      <td className="px-4 py-2.5 text-center">
                         <button
                           onClick={() => handleRemoveSubject(idx)}
-                          className="text-red-500 hover:bg-red-50 p-1.5 rounded-md transition"
+                          className="text-red-500 hover:bg-red-50 p-1.5 rounded-md transition cursor-pointer"
                           title="মুছুন"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -327,8 +436,8 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
                   ))}
                   {subjects.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                        কোনো বিষয় যোগ করা হয়নি।
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500 text-sm">
+                        কোনো বিষয় যোগ করা হয়নি। উপরে &apos;নতুন বিষয় যোগ করুন&apos; বাটনে চাপ দিন।
                       </td>
                     </tr>
                   )}
@@ -341,10 +450,10 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
             <button
               onClick={handleSave}
               disabled={saving || subjects.length === 0}
-              className="flex items-center space-x-2 bg-indigo-600 text-white px-6 py-2 rounded-md hover:bg-indigo-700 transition disabled:opacity-50 font-medium shadow-sm"
+              className="flex items-center space-x-2 bg-emerald-700 text-white px-6 py-2.5 rounded-lg hover:bg-emerald-800 transition disabled:opacity-50 font-bold shadow-sm cursor-pointer text-sm"
             >
               <Save className="w-4 h-4" />
-              <span>{saving ? "সেভ হচ্ছে..." : "সেভ করুন"}</span>
+              <span>{saving ? "সেভ হচ্ছে..." : "বিষয় ও নিয়মাবলী সেভ করুন"}</span>
             </button>
           </div>
         </div>

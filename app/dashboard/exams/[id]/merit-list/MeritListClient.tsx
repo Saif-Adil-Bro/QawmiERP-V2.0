@@ -202,7 +202,9 @@ export default function MeritListClient({
                   else if (isSecond) positionStyle = "text-slate-600 font-extrabold";
                   else if (isThird) positionStyle = "text-amber-800 font-extrabold";
 
-                  const gpaVal = student.percentage >= 80 ? '৫.০০' :
+                  const isFailed = student.is_failed || student.grade?.includes('রাসিব');
+                  const gpaVal = isFailed ? '০.০০' :
+                    student.percentage >= 80 ? '৫.০০' :
                     student.percentage >= 70 ? '৪.০০' :
                     student.percentage >= 60 ? '৩.৫০' :
                     student.percentage >= 50 ? '৩.০০' :
@@ -242,6 +244,7 @@ export default function MeritListClient({
                       </td>
                       <td className="px-2 py-1.5 print:px-1.5 print:py-1 text-center border border-slate-300 print:border-slate-500">
                         <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] print:text-[10px] print:p-0 print:border-none print:text-black ${
+                          isFailed ? 'bg-red-100 text-red-800' :
                           student.percentage >= 80 ? 'bg-emerald-100 text-emerald-800' :
                           student.percentage >= 60 ? 'bg-blue-100 text-blue-800' :
                           student.percentage >= 45 ? 'bg-amber-100 text-amber-800' :

@@ -576,38 +576,144 @@ export async function getStudentReportCard(examId: string, classId?: string) {
   
   if (studentsError || !students.length) return [];
 
-  const { data: results, error: resultsError } = await supabase
-    .from("exam_results")
-    .select("*")
-    .eq("exam_id", examId)
-    .in("student_id", students.map(s => s.id));
+  const [{ data: results, error: resultsError }, { data: validSubjects }, madrasaMeta] = await Promise.all([
+    supabase
+      .from("exam_results")
+      .select("*")
+      .eq("exam_id", examId)
+      .in("student_id", students.map(s => s.id)),
+    supabase
+      .from("exam_subjects")
+      .select("*")
+      .eq("exam_id", examId),
+    getMadrasaMetadata(finalMadrasaId)
+  ]);
     
   if (resultsError) return [];
 
-  // Get valid subjects for this exam from setup
-  const { data: validSubjects } = await supabase
-    .from("exam_subjects")
-    .select("subject_name, class_id")
-    .eq("exam_id", examId);
+  // Evaluation rules and per-subject compulsory settings
+  const examRules = madrasaMeta?.exam_evaluation_rules?.[examId] || {};
+  const failPolicy = examRules?.fail_policy || "compulsory_subject_fail"; // "compulsory_subject_fail" | "any_subject_fail" | "percentage_only"
+  const compulsoryMeta = madrasaMeta?.exam_compulsory_subjects?.[examId] || {};
 
-  // Group results by student
-  const studentResults = students.map(student => {
-    // If exam_subjects are configured for this class, filter by them; otherwise include all marks recorded for this student
-    const classValidSubjects = validSubjects?.filter(vs => vs.class_id === student.class_id) || [];
-    const validSubjectNames = classValidSubjects.map(vs => vs.subject_name);
-    
-    const studentMarks = results.filter(r => {
-      if (r.student_id !== student.id) return false;
-      if (validSubjectNames.length > 0) {
-        return validSubjectNames.includes(r.subject_name);
+  // Group students by class to resolve complete subject lists
+  const classSubjectMap = new Map<string, { subject_name: string; total_marks: number; pass_marks: number; is_compulsory: boolean; exam_type: string }[]>();
+
+  // 1. Populate from exam_subjects setup
+  (validSubjects || []).forEach((vs: any) => {
+    if (!classSubjectMap.has(vs.class_id)) {
+      classSubjectMap.set(vs.class_id, []);
+    }
+    const isComp = compulsoryMeta[`${vs.class_id}:${vs.subject_name}`] !== undefined 
+      ? Boolean(compulsoryMeta[`${vs.class_id}:${vs.subject_name}`])
+      : (vs.is_compulsory !== undefined ? Boolean(vs.is_compulsory) : true); // default compulsory
+
+    classSubjectMap.get(vs.class_id)!.push({
+      subject_name: vs.subject_name,
+      total_marks: Number(vs.total_marks) || 100,
+      pass_marks: Number(vs.pass_marks) || 33,
+      is_compulsory: isComp,
+      exam_type: vs.exam_type || "Written"
+    });
+  });
+
+  // 2. Fallback: if a class has no exam_subjects setup, discover all distinct subjects from entered results
+  students.forEach(student => {
+    if (!classSubjectMap.has(student.class_id) || classSubjectMap.get(student.class_id)!.length === 0) {
+      const studentClassResults = (results || []).filter(r => {
+        const studentRecord = students.find(s => s.id === r.student_id);
+        return studentRecord?.class_id === student.class_id;
+      });
+      const uniqueSubjects = new Map<string, { total_marks: number }>();
+      studentClassResults.forEach(r => {
+        if (r.subject_name) {
+          uniqueSubjects.set(r.subject_name, {
+            total_marks: Number(r.total_marks) || 100
+          });
+        }
+      });
+      const fallbackList: any[] = [];
+      uniqueSubjects.forEach((val, subName) => {
+        const isComp = compulsoryMeta[`${student.class_id}:${subName}`] !== undefined 
+          ? Boolean(compulsoryMeta[`${student.class_id}:${subName}`])
+          : true;
+        fallbackList.push({
+          subject_name: subName,
+          total_marks: val.total_marks,
+          pass_marks: 33,
+          is_compulsory: isComp,
+          exam_type: "Written"
+        });
+      });
+      if (fallbackList.length > 0) {
+        classSubjectMap.set(student.class_id, fallbackList);
       }
-      return true;
+    }
+  });
+
+  // Group results by student ensuring EVERY class subject is present (0-default if unassigned/absent)
+  const studentResults = students.map(student => {
+    const classSubjects = classSubjectMap.get(student.class_id) || [];
+    
+    // Construct complete subject-wise marks
+    const studentMarks = classSubjects.map(subDef => {
+      const existingResult = (results || []).find(r => r.student_id === student.id && r.subject_name === subDef.subject_name);
+      
+      const marksObtained = existingResult && existingResult.marks_obtained !== null && existingResult.marks_obtained !== undefined
+        ? Number(existingResult.marks_obtained)
+        : 0; // Default to 0 as required if no marks entered or absent
+      
+      const totalMarks = Number(existingResult?.total_marks || subDef.total_marks || 100);
+      const passMarks = Number(subDef.pass_marks || 33);
+      const isFailed = marksObtained < passMarks;
+
+      return {
+        id: existingResult?.id || `fallback_${student.id}_${subDef.subject_name}`,
+        exam_id: examId,
+        student_id: student.id,
+        subject_name: subDef.subject_name,
+        marks_obtained: marksObtained,
+        total_marks: totalMarks,
+        pass_marks: passMarks,
+        is_compulsory: subDef.is_compulsory,
+        is_failed: isFailed,
+        has_entered_marks: existingResult !== undefined && existingResult.marks_obtained !== null,
+        exam_type: subDef.exam_type
+      };
     });
     
     const totalObtained = studentMarks.reduce((sum, r) => sum + Number(r.marks_obtained || 0), 0);
     const totalMax = studentMarks.reduce((sum, r) => sum + Number(r.total_marks || 100), 0);
     const percentage = totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
     
+    // Determine Pass/Fail based on failPolicy and compulsory subjects
+    const failedCompulsorySubjects = studentMarks.filter(m => m.is_compulsory && m.is_failed);
+    const failedAllSubjects = studentMarks.filter(m => m.is_failed);
+
+    let isOverallFailed = false;
+    let failReason = "";
+
+    if (studentMarks.length > 0) {
+      if (failPolicy === "any_subject_fail" && failedAllSubjects.length > 0) {
+        isOverallFailed = true;
+        failReason = `${failedAllSubjects.length}টি বিষয়ে অকৃতকার্য`;
+      } else if (failPolicy === "percentage_only") {
+        isOverallFailed = percentage < 33;
+        failReason = isOverallFailed ? "নম্বর শতকরা ৩৩% এর কম" : "";
+      } else {
+        // Default "compulsory_subject_fail"
+        if (failedCompulsorySubjects.length > 0) {
+          isOverallFailed = true;
+          failReason = `আবশ্যক বিষয়ে অকৃতকার্য (${failedCompulsorySubjects.map(s => s.subject_name).join(", ")})`;
+        } else if (percentage < 33) {
+          isOverallFailed = true;
+          failReason = "নম্বর শতকরা ৩৩% এর কম";
+        }
+      }
+    }
+
+    const calculatedGrade = isOverallFailed ? "রাসিব (Fail)" : calculateGrade(percentage);
+
     return {
       ...student,
       class_name: Array.isArray(student.classes) ? student.classes[0]?.name : (student.classes as any)?.name,
@@ -615,7 +721,11 @@ export async function getStudentReportCard(examId: string, classId?: string) {
       totalObtained,
       totalMax,
       percentage: percentage.toFixed(2),
-      grade: calculateGrade(percentage)
+      grade: calculatedGrade,
+      is_failed: isOverallFailed,
+      fail_reason: failReason,
+      failed_compulsory_count: failedCompulsorySubjects.length,
+      failed_total_count: failedAllSubjects.length
     };
   });
 
@@ -648,27 +758,86 @@ export async function getAllExamSubjects(examId: string) {
 
 export async function getExamSubjects(examId: string, classId: string) {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("exam_subjects")
-    .select("*")
-    .eq("exam_id", examId)
-    .eq("class_id", classId)
-    .order("created_at", { ascending: true });
+  const user = await getAuthUser(supabase);
+  const finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
+  const [{ data, error }, madrasaMeta] = await Promise.all([
+    supabase
+      .from("exam_subjects")
+      .select("*")
+      .eq("exam_id", examId)
+      .eq("class_id", classId)
+      .order("created_at", { ascending: true }),
+    finalMadrasaId ? getMadrasaMetadata(finalMadrasaId) : Promise.resolve({} as MadrasaMetaWithSessions)
+  ]);
 
   if (error) {
     console.error("Error fetching exam subjects:", error);
     return [];
   }
-  return data;
+
+  const compulsoryMeta = madrasaMeta?.exam_compulsory_subjects?.[examId] || {};
+
+  return (data || []).map((sub: any) => {
+    const isComp = compulsoryMeta[`${classId}:${sub.subject_name}`] !== undefined
+      ? Boolean(compulsoryMeta[`${classId}:${sub.subject_name}`])
+      : (sub.is_compulsory !== undefined ? Boolean(sub.is_compulsory) : true);
+
+    return {
+      ...sub,
+      is_compulsory: isComp
+    };
+  });
 }
 
-export async function saveExamSubjects(examId: string, classId: string, subjectsData: any[]) {
+export async function getExamEvaluationSettings(examId: string) {
+  const supabase = await createClient();
+  const user = await getAuthUser(supabase);
+  if (!user) return { fail_policy: "compulsory_subject_fail" };
+  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+  if (!finalMadrasaId) return { fail_policy: "compulsory_subject_fail" };
+
+  const madrasaMeta = await getMadrasaMetadata(finalMadrasaId);
+  return madrasaMeta?.exam_evaluation_rules?.[examId] || { fail_policy: "compulsory_subject_fail" };
+}
+
+export async function saveExamEvaluationSettings(examId: string, settings: { fail_policy: string }) {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
+  const madrasaMeta = await getMadrasaMetadata(finalMadrasaId);
+  const examRules = madrasaMeta.exam_evaluation_rules || {};
+  examRules[examId] = {
+    ...(examRules[examId] || {}),
+    ...settings,
+    updated_at: new Date().toISOString()
+  };
+
+  const updatedMeta: MadrasaMetaWithSessions = {
+    ...madrasaMeta,
+    exam_evaluation_rules: examRules
+  };
+
+  const saveRes = await saveMadrasaMetadata(finalMadrasaId, updatedMeta);
+  if (!saveRes) {
+    return { error: "Failed to save evaluation settings" };
+  }
+
+  revalidatePath(`/dashboard/exams/${examId}`);
+  return { success: true };
+}
+
+export async function saveExamSubjects(examId: string, classId: string, subjectsData: any[], failPolicy?: string) {
+  const supabase = await createClient();
+  const user = await getAuthUser(supabase);
+  if (!user) return { error: "Unauthorized" };
+  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+  if (!finalMadrasaId) return { error: "Madrasa not found" };
+
+  // Delete existing records for this class & exam
   await supabase
     .from("exam_subjects")
     .delete()
@@ -680,9 +849,9 @@ export async function saveExamSubjects(examId: string, classId: string, subjects
     exam_id: examId,
     class_id: classId,
     subject_name: record.subject_name,
-    total_marks: record.total_marks,
-    pass_marks: record.pass_marks,
-    exam_type: record.exam_type
+    total_marks: Number(record.total_marks) || 100,
+    pass_marks: Number(record.pass_marks) || 33,
+    exam_type: record.exam_type || "Written"
   }));
 
   if (recordsToInsert.length > 0) {
@@ -696,5 +865,36 @@ export async function saveExamSubjects(examId: string, classId: string, subjects
     }
   }
 
+  // Persist compulsory flags & fail policy in metadata
+  const madrasaMeta = await getMadrasaMetadata(finalMadrasaId);
+  const compulsoryMeta = madrasaMeta.exam_compulsory_subjects || {};
+  const currentExamCompulsory = compulsoryMeta[examId] || {};
+
+  subjectsData.forEach(sub => {
+    currentExamCompulsory[`${classId}:${sub.subject_name}`] = sub.is_compulsory !== false;
+  });
+  compulsoryMeta[examId] = currentExamCompulsory;
+
+  const examRules = madrasaMeta.exam_evaluation_rules || {};
+  if (failPolicy) {
+    examRules[examId] = {
+      ...(examRules[examId] || {}),
+      fail_policy: failPolicy,
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  const updatedMeta: MadrasaMetaWithSessions = {
+    ...madrasaMeta,
+    exam_compulsory_subjects: compulsoryMeta,
+    exam_evaluation_rules: examRules
+  };
+
+  await saveMadrasaMetadata(finalMadrasaId, updatedMeta);
+
+  revalidatePath(`/dashboard/exams/${examId}/setup`);
+  revalidatePath(`/dashboard/exams/${examId}/results`);
+  revalidatePath(`/dashboard/exams/${examId}/merit-list`);
+  revalidatePath(`/dashboard/exams/${examId}/report-cards`);
   return { success: true };
 }

@@ -365,7 +365,9 @@ export default function ReportCardsClient({
                       </div>
                       <div>
                         <span className="text-slate-500 block">প্রাপ্ত বিভাগ:</span>
-                        <span className="font-bold text-emerald-700 text-sm">{student.grade}</span>
+                        <span className={`font-bold text-sm ${student.is_failed || student.grade.includes('রাসিব') ? 'text-red-700' : 'text-emerald-700'}`}>
+                          {student.grade}
+                        </span>
                       </div>
                       <div>
                         <span className="text-slate-500 block">প্রাপ্ত নম্বর:</span>
@@ -377,13 +379,31 @@ export default function ReportCardsClient({
                       </div>
                     </div>
 
+                    {student.fail_reason && (
+                      <div className="mb-3 px-2.5 py-1.5 bg-red-50 border border-red-200 rounded-lg text-[11px] text-red-700 font-semibold flex items-center justify-between">
+                        <span>কারণ: {student.fail_reason}</span>
+                      </div>
+                    )}
+
                     <div className="space-y-1">
                       <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">বিষয়ভিত্তিক নম্বর:</p>
                       {student.marks && student.marks.length > 0 ? (
                         student.marks.map((m: any, i: number) => (
-                          <div key={i} className="flex justify-between text-xs py-0.5 border-b border-slate-100 last:border-none">
-                            <span className="text-slate-700 font-medium truncate max-w-[150px]" title={m.subject_name}>{m.subject_name}</span>
-                            <span className="font-bold text-slate-900">{toBanglaNumber(m.marks_obtained)} / {toBanglaNumber(m.total_marks)}</span>
+                          <div key={i} className="flex justify-between text-xs py-1 border-b border-slate-100 last:border-none">
+                            <div className="flex items-center gap-1.5 truncate max-w-[170px]">
+                              <span className="text-slate-700 font-medium truncate" title={m.subject_name}>{m.subject_name}</span>
+                              {m.is_compulsory && (
+                                <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded">আবশ্যক</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className={`font-bold ${m.is_failed ? 'text-red-600' : 'text-slate-900'}`}>
+                                {toBanglaNumber(m.marks_obtained)} / {toBanglaNumber(m.total_marks)}
+                              </span>
+                              {m.is_failed && (
+                                <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1 rounded">ফেল</span>
+                              )}
+                            </div>
                           </div>
                         ))
                       ) : (

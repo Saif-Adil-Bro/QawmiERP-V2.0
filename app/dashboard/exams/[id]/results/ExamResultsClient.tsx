@@ -182,7 +182,9 @@ export default function ExamResultsClient({
               </thead>
               <tbody className="divide-y divide-slate-300 text-slate-800">
                 {results.map((student, index) => {
-                  const gpaVal = student.percentage >= 80 ? '৫.০০' :
+                  const isFailed = student.is_failed || student.grade?.includes('রাসিব');
+                  const gpaVal = isFailed ? '০.০০' :
+                    student.percentage >= 80 ? '৫.০০' :
                     student.percentage >= 70 ? '৪.০০' :
                     student.percentage >= 60 ? '৩.৫০' :
                     student.percentage >= 50 ? '৩.০০' :
@@ -208,9 +210,15 @@ export default function ExamResultsClient({
                       {subjectList.map(sub => {
                         const markObj = student.marks?.find((m: any) => m.subject_name === sub);
                         const markVal = markObj ? markObj.marks_obtained : null;
+                        const isSubFailed = markObj?.is_failed;
                         return (
-                          <td key={sub} className="px-1.5 py-1.5 print:px-1 print:py-1 text-center font-medium border border-slate-300 print:border-slate-500">
-                            {markVal !== null && markVal !== undefined ? toBanglaNumber(markVal) : '-'}
+                          <td 
+                            key={sub} 
+                            className={`px-1.5 py-1.5 print:px-1 print:py-1 text-center font-medium border border-slate-300 print:border-slate-500 ${
+                              isSubFailed ? 'text-red-700 bg-red-50/50 font-bold' : ''
+                            }`}
+                          >
+                            {markVal !== null && markVal !== undefined ? toBanglaNumber(markVal) : '০'}
                           </td>
                         );
                       })}
@@ -222,6 +230,7 @@ export default function ExamResultsClient({
                       </td>
                       <td className="px-1.5 py-1.5 print:px-1 print:py-1 text-center font-bold border border-slate-300 print:border-slate-500">
                         <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] print:text-[10px] print:p-0 print:border-none print:text-black ${
+                          isFailed ? 'bg-red-100 text-red-800' :
                           student.percentage >= 80 ? 'bg-emerald-100 text-emerald-800' :
                           student.percentage >= 60 ? 'bg-blue-100 text-blue-800' :
                           student.percentage >= 45 ? 'bg-amber-100 text-amber-800' :
