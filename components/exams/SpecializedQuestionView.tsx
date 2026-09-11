@@ -231,10 +231,10 @@ export default function SpecializedQuestionView({
       {(qType === "Irab" || qType === "إعراب العبارة" || options.irab_text) && options.irab_text && (
         <div
           dir={autoRTL ? "rtl" : "ltr"}
-          className="my-3 p-3.5 sm:p-4 rounded-lg bg-amber-50/50 border border-amber-300/80 print:bg-transparent print:border-black print:p-3 print:my-2 shadow-xs"
+          className="my-2.5 py-2 px-3 bg-slate-50/50 print:bg-transparent border-r-4 border-slate-700 print:border-black rounded-r"
         >
-          <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-amber-200 print:border-black print:pb-1">
-            <span className={`text-xs font-bold ${autoRTL ? "text-amber-950 text-sm" : "text-amber-900"} print:text-black flex items-center gap-1`}>
+          <div className="flex items-center justify-between pb-1 mb-1.5 border-b border-slate-200 print:border-black">
+            <span className={`text-xs font-bold text-slate-800 print:text-black flex items-center gap-1`}>
               <Scroll className="w-3.5 h-3.5 print:hidden" />
               <span>{autoRTL ? "العبارة المطلوب ضبطها وإعرابها:" : "ইবারতে হরকত ও চিহ্নিত অংশের তারকীব:"}</span>
             </span>
@@ -246,9 +246,9 @@ export default function SpecializedQuestionView({
             {options.irab_text}
           </div>
           {options.target_words && (
-            <div className={`mt-2.5 pt-2 border-t border-dashed border-amber-300 print:border-black text-xs text-amber-900 print:text-black flex items-center gap-2 ${autoRTL ? "text-sm" : ""}`}>
+            <div className={`mt-2 pt-1.5 border-t border-dashed border-slate-300 print:border-black text-xs text-slate-900 print:text-black flex items-center gap-2 ${autoRTL ? "text-sm text-right" : ""}`}>
               <span className="font-bold">{autoRTL ? "الكلمات المحددة للإعراب:" : "চিহ্নিত শব্দসমূহ:"}</span>
-              <span className="font-bold text-base bg-white print:bg-transparent px-2 py-0.5 rounded border border-amber-200 print:border-black">
+              <span className="font-bold text-base px-2 py-0.5 underline decoration-slate-400">
                 {options.target_words}
               </span>
             </div>
@@ -256,66 +256,26 @@ export default function SpecializedQuestionView({
         </div>
       )}
 
-      {/* --- B. تحقيق الكلمات (Tahqeeq & Sarf Table) --- */}
+      {/* --- B. تحقيق الكلمات (Tahqeeq & Sarf) --- */}
       {(qType === "Tahqeeq" || qType === "تحقيق الكلمات" || (options.tahqeeq_words && options.tahqeeq_words.length > 0)) && (
-        <div className="my-3 print:my-2 overflow-x-auto">
-          <table
-            dir={autoRTL ? "rtl" : "ltr"}
-            className="w-full border-collapse border border-slate-300 print:border-black text-center text-xs sm:text-sm bg-white print:bg-transparent"
-          >
-            <thead>
-              <tr className={`bg-slate-100 print:bg-gray-100 text-slate-950 font-bold border-b border-slate-300 print:border-black ${autoRTL ? "text-sm sm:text-base" : ""}`}>
-                <th className="border border-slate-300 print:border-black px-2 py-1.5 w-12">
-                  {autoRTL ? "الرقم" : "নং"}
-                </th>
-                <th className="border border-slate-300 print:border-black px-2 py-1.5 w-24">
-                  {autoRTL ? "الكلمة" : "শব্দ"}
-                </th>
-                <th className="border border-slate-300 print:border-black px-2 py-1.5 w-28">
-                  {autoRTL ? "الصيغة" : "সীগাহ"}
-                </th>
-                <th className="border border-slate-300 print:border-black px-2 py-1.5 w-28">
-                  {autoRTL ? "البحث" : "বাহাছ"}
-                </th>
-                <th className="border border-slate-300 print:border-black px-2 py-1.5 w-24">
-                  {autoRTL ? "الباب" : "বাব"}
-                </th>
-                <th className="border border-slate-300 print:border-black px-2 py-1.5 w-28">
-                  {autoRTL ? "المصدر" : "মাছদার"}
-                </th>
-                <th className="border border-slate-300 print:border-black px-2 py-1.5 w-24">
-                  {autoRTL ? "المادة" : "মাদ্দা"}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {(options.tahqeeq_words || ["يَنْصُرُونَ", "اِسْتَغْفَرَ"]).map((word, wIdx) => (
-                <tr key={wIdx} className="border-b border-slate-300 print:border-black">
-                  <td className="border border-slate-300 print:border-black px-2 py-2 text-slate-700 font-bold">
-                    {autoRTL ? toArabicNumerals(wIdx + 1) : toBengaliNumerals(wIdx + 1)}
-                  </td>
-                  <td className="border border-slate-300 print:border-black px-2 py-2 font-bold text-base sm:text-lg bg-slate-50/50 print:bg-transparent">
-                    {word}
-                  </td>
-                  <td className="border border-slate-300 print:border-black px-2 py-2 text-slate-300 print:text-transparent">
-                    ..................
-                  </td>
-                  <td className="border border-slate-300 print:border-black px-2 py-2 text-slate-300 print:text-transparent">
-                    ..................
-                  </td>
-                  <td className="border border-slate-300 print:border-black px-2 py-2 text-slate-300 print:text-transparent">
-                    ..................
-                  </td>
-                  <td className="border border-slate-300 print:border-black px-2 py-2 text-slate-300 print:text-transparent">
-                    ..................
-                  </td>
-                  <td className="border border-slate-300 print:border-black px-2 py-2 text-slate-300 print:text-transparent">
-                    ..................
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="my-2.5 print:my-1.5">
+          <div className="flex flex-wrap items-center gap-2 text-sm sm:text-base py-1">
+            <span className="font-bold text-slate-900 print:text-black text-xs sm:text-sm">
+              {autoRTL ? "الكلمات:" : "শব্দসমূহ:"}
+            </span>
+            {(options.tahqeeq_words || ["يَنْصُرُونَ", "اِسْتَغْفَرَ", "تُسَبِّحُونَ"]).map((word: string, wIdx: number) => (
+              <span
+                key={wIdx}
+                dir="rtl"
+                className="inline-flex items-center gap-1 font-bold text-base sm:text-lg px-2.5 py-0.5 bg-slate-100/80 print:bg-transparent rounded border border-slate-300 print:border-black"
+              >
+                <span className="text-xs text-slate-500 print:text-black font-normal">
+                  ({autoRTL ? toArabicNumerals(wIdx + 1) : toBengaliNumerals(wIdx + 1)})
+                </span>
+                <span>{word}</span>
+              </span>
+            ))}
+          </div>
         </div>
       )}
 
@@ -323,26 +283,23 @@ export default function SpecializedQuestionView({
       {(qType === "Sher" || qType === "شعر وتوضيح" || (options.verses && options.verses.length > 0)) && (
         <div
           dir={autoRTL ? "rtl" : "ltr"}
-          className="my-3 p-3.5 rounded-lg bg-purple-50/40 border border-purple-200 print:bg-transparent print:border-black print:p-2 print:my-2"
+          className="my-2.5 py-1.5 px-3 bg-slate-50/40 print:bg-transparent border-y border-dashed border-slate-300 print:border-black"
         >
           {options.poet_name && (
-            <div className={`mb-1 italic text-purple-800 print:text-black ${autoRTL ? "text-right text-sm" : "text-left text-xs"}`}>
+            <div className={`mb-1 italic text-slate-700 print:text-black ${autoRTL ? "text-right text-sm" : "text-left text-xs"}`}>
               {autoRTL ? `الشاعر: ${options.poet_name}` : `কবি: ${options.poet_name}`}
             </div>
           )}
-          <div className="space-y-2.5">
-            {(options.verses || [{ first: "إذا غامَرْتَ في شَرَفٍ مَرُومِ", second: "فَلا تَقْنَعْ بما دونَ النّجومِ" }]).map((verse, vIdx) => (
+          <div className="space-y-2">
+            {(options.verses || [{ first: "إذا غامَرْتَ في شَرَفٍ مَرُومِ", second: "فَلا تَقْنَعْ بما دونَ النّجومِ" }]).map((verse: any, vIdx: number) => (
               <div
                 key={vIdx}
                 dir="rtl"
-                className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6 py-1.5 px-3 border-y border-dashed border-purple-200 print:border-black text-center text-lg sm:text-xl leading-loose font-medium"
+                className="flex flex-wrap items-center justify-center gap-4 sm:gap-8 py-1 text-center text-lg sm:text-xl leading-loose font-medium"
               >
-                <div className="sm:border-l sm:border-purple-200 print:sm:border-black sm:pl-3">
-                  {verse.first}
-                </div>
-                <div className="sm:pr-3">
-                  {verse.second}
-                </div>
+                <span className="text-right">{verse.first}</span>
+                <span className="text-sm text-slate-400 print:text-black select-none px-2">⁂</span>
+                <span className="text-left">{verse.second}</span>
               </div>
             ))}
           </div>
@@ -352,9 +309,9 @@ export default function SpecializedQuestionView({
       {/* --- D. مسألة فقهية (Fiqh Mas'ala & Scenario) --- */}
       {(qType === "Masala" || qType === "مسألة فقهية" || options.scenario) && options.scenario && (
         <div
-          className="my-3 p-3.5 rounded-lg bg-emerald-50/50 border border-emerald-200 print:bg-transparent print:border-black print:p-2.5 print:my-2"
+          className="my-2.5 py-2 px-3 bg-slate-50/50 print:bg-transparent border-l-4 border-slate-700 print:border-black rounded-l"
         >
-          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-950 print:text-black mb-1.5">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 print:text-black mb-1">
             <Scale className="w-3.5 h-3.5 print:hidden" />
             <span className={autoRTL ? "text-sm" : ""}>
               {autoRTL ? "صورة المسألة الواقعية:" : "সুরতহাল (প্রেক্ষাপট):"}
@@ -362,7 +319,7 @@ export default function SpecializedQuestionView({
           </div>
           <p
             dir={autoRTL ? "rtl" : "ltr"}
-            className={`text-sm sm:text-base leading-relaxed text-slate-800 print:text-black italic bg-white print:bg-transparent p-2.5 rounded border border-emerald-100 print:border-black ${
+            className={`text-sm sm:text-base leading-relaxed text-slate-900 print:text-black italic ${
               autoRTL ? "text-lg leading-loose text-right" : ""
             }`}
           >
@@ -370,8 +327,8 @@ export default function SpecializedQuestionView({
           </p>
 
           {options.sub_questions && options.sub_questions.length > 0 && (
-            <div className="mt-2.5 space-y-1">
-              <span className={`text-xs font-bold text-emerald-950 print:text-black block ${autoRTL ? "text-sm text-right" : ""}`}>
+            <div className="mt-2 space-y-1">
+              <span className={`text-xs font-bold text-slate-800 print:text-black block ${autoRTL ? "text-sm text-right" : ""}`}>
                 {autoRTL ? "الأسئلة والمسائل المطلوبة:" : "জিজ্ঞাসিত প্রশ্নাবলি:"}
               </span>
               {renderSubQuestions(options.sub_questions, autoRTL)}

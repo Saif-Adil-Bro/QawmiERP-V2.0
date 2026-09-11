@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
+import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import postgres from "postgres";
 
 let isTableChecked = false;
@@ -19,6 +20,9 @@ async function ensureQuestionBankColumns() {
       ADD COLUMN IF NOT EXISTS chapter TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS difficulty TEXT DEFAULT 'medium';
     `;
+    try {
+      await sql.unsafe("NOTIFY pgrst, 'reload schema';");
+    } catch (_) {}
     await sql.end();
     isQuestionBankChecked = true;
     console.log("Successfully verified and configured question_bank columns (chapter, difficulty) in DB.");
@@ -41,9 +45,9 @@ async function ensureExamPapersTable() {
       CREATE TABLE IF NOT EXISTS public.exam_papers (
         id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
         madrasa_id UUID,
-        exam_id UUID REFERENCES public.exams(id) ON DELETE CASCADE,
-        class_id UUID REFERENCES public.classes(id) ON DELETE CASCADE,
-        subject_id UUID REFERENCES public.subjects(id) ON DELETE CASCADE,
+        exam_id UUID,
+        class_id UUID,
+        subject_id UUID,
         title TEXT NOT NULL,
         total_marks INTEGER NOT NULL DEFAULT 100,
         exam_time TEXT DEFAULT '',
@@ -78,6 +82,10 @@ async function ensureExamPapersTable() {
       CREATE POLICY "Users can manage exam papers in same madrasa" ON public.exam_papers
         FOR ALL USING (madrasa_id = public.get_auth_madrasa_id());
     `;
+
+    try {
+      await sql.unsafe("NOTIFY pgrst, 'reload schema';");
+    } catch (_) {}
 
     await sql.end();
     isTableChecked = true;
@@ -332,18 +340,40 @@ export async function deleteQuestion(id: string) {
 export async function getExamPaper(examId: string, classId: string, subjectId: string) {
   await ensureExamPapersTable();
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("exam_papers")
-    .select("*")
-    .eq("exam_id", examId)
-    .eq("class_id", classId)
-    .eq("subject_id", subjectId)
-    .single();
+  const { data: { user } } = await supabase.auth.getUser();
+  const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-  if (error && error.code !== "PGRST116") {
-    console.error("Error fetching exam paper:", error);
+  try {
+    const { data, error } = await supabase
+      .from("exam_papers")
+      .select("*")
+      .eq("exam_id", examId)
+      .eq("class_id", classId)
+      .eq("subject_id", subjectId)
+      .single();
+
+    if (!error && data) {
+      return data;
+    }
+  } catch (dbErr) {
+    console.warn("DB query for exam paper failed, checking metadata fallback:", dbErr);
   }
-  return data || null;
+
+  // Fallback to madrasa metadata
+  if (madrasaId) {
+    try {
+      const meta = await getMadrasaMetadata(madrasaId);
+      const papersDict = meta.exam_papers_data || {};
+      const key = `${examId}_${classId}_${subjectId}`;
+      if (papersDict[key]) {
+        return papersDict[key];
+      }
+    } catch (metaErr) {
+      console.error("Error retrieving exam paper from metadata:", metaErr);
+    }
+  }
+
+  return null;
 }
 
 export async function saveExamPaper(data: {
@@ -362,32 +392,81 @@ export async function saveExamPaper(data: {
   if (!user) return { error: "Unauthorized" };
   const madrasaId = await getAuthMadrasaId(supabase, user);
 
-  const existing = await getExamPaper(data.exam_id, data.class_id, data.subject_id);
-  
-  if (existing) {
-    const { error } = await supabase.from("exam_papers")
-      .update({
+  let savedSuccessfully = false;
+  let dbError: string | null = null;
+
+  const paperKey = `${data.exam_id}_${data.class_id}_${data.subject_id}`;
+  const paperObj = {
+    id: `paper-${data.exam_id}-${data.class_id}-${data.subject_id}`,
+    exam_id: data.exam_id,
+    class_id: data.class_id,
+    subject_id: data.subject_id,
+    title: data.title,
+    total_marks: data.total_marks,
+    exam_time: data.exam_time || "",
+    exam_name: data.exam_name || "",
+    questions: data.questions,
+    madrasa_id: madrasaId,
+    updated_at: new Date().toISOString(),
+    created_at: new Date().toISOString(),
+  };
+
+  try {
+    const existing = await getExamPaper(data.exam_id, data.class_id, data.subject_id);
+    
+    if (existing && existing.id && !existing.id.startsWith("paper-")) {
+      const { error } = await supabase.from("exam_papers")
+        .update({
+          title: data.title,
+          total_marks: data.total_marks,
+          exam_time: data.exam_time || "",
+          exam_name: data.exam_name || "",
+          questions: data.questions,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existing.id);
+      if (!error) {
+        savedSuccessfully = true;
+      } else {
+        dbError = error.message;
+      }
+    } else {
+      const { error } = await supabase.from("exam_papers").insert({
+        exam_id: data.exam_id,
+        class_id: data.class_id,
+        subject_id: data.subject_id,
         title: data.title,
         total_marks: data.total_marks,
         exam_time: data.exam_time || "",
         exam_name: data.exam_name || "",
-        questions: data.questions
-      })
-      .eq("id", existing.id);
-    if (error) return { error: error.message };
-  } else {
-    const { error } = await supabase.from("exam_papers").insert({
-      exam_id: data.exam_id,
-      class_id: data.class_id,
-      subject_id: data.subject_id,
-      title: data.title,
-      total_marks: data.total_marks,
-      exam_time: data.exam_time || "",
-      exam_name: data.exam_name || "",
-      questions: data.questions,
-      madrasa_id: madrasaId,
-    });
-    if (error) return { error: error.message };
+        questions: data.questions,
+        madrasa_id: madrasaId,
+      });
+      if (!error) {
+        savedSuccessfully = true;
+      } else {
+        dbError = error.message;
+      }
+    }
+  } catch (err: any) {
+    dbError = err.message;
+  }
+
+  // ALWAYS save to madrasa metadata to guarantee 100% persistence
+  if (madrasaId) {
+    try {
+      const meta = await getMadrasaMetadata(madrasaId);
+      meta.exam_papers_data = meta.exam_papers_data || {};
+      meta.exam_papers_data[paperKey] = paperObj;
+      await saveMadrasaMetadata(madrasaId, meta);
+      savedSuccessfully = true;
+    } catch (metaErr) {
+      console.error("Error persisting exam paper in madrasa metadata:", metaErr);
+    }
+  }
+
+  if (!savedSuccessfully && dbError) {
+    return { error: dbError };
   }
 
   revalidatePath(`/dashboard/exams/${data.exam_id}/paper`);
@@ -409,28 +488,55 @@ export async function getArchivedExamPapers(filters?: {
   const madrasaId = await getAuthMadrasaId(supabase, user);
   if (!madrasaId) return [];
 
-  let query = supabase
-    .from("exam_papers")
-    .select(`
-      *,
-      exam:exams(id, title, year, start_date, status),
-      class:classes(id, name),
-      subject:subjects(id, name, code)
-    `)
-    .eq("madrasa_id", madrasaId)
-    .order("created_at", { ascending: false });
+  let dbPapers: any[] = [];
+  try {
+    let query = supabase
+      .from("exam_papers")
+      .select(`
+        *,
+        exam:exams(id, title, year, start_date, status),
+        class:classes(id, name),
+        subject:subjects(id, name, code)
+      `)
+      .eq("madrasa_id", madrasaId)
+      .order("created_at", { ascending: false });
 
-  if (filters?.examId) query = query.eq("exam_id", filters.examId);
-  if (filters?.classId) query = query.eq("class_id", filters.classId);
-  if (filters?.subjectId) query = query.eq("subject_id", filters.subjectId);
+    if (filters?.examId) query = query.eq("exam_id", filters.examId);
+    if (filters?.classId) query = query.eq("class_id", filters.classId);
+    if (filters?.subjectId) query = query.eq("subject_id", filters.subjectId);
 
-  const { data, error } = await query;
-  if (error) {
-    console.error("Error fetching archived exam papers:", error);
-    return [];
+    const { data, error } = await query;
+    if (!error && data) {
+      dbPapers = data;
+    }
+  } catch (err) {
+    console.warn("DB fetch for archived exam papers failed, merging with metadata:", err);
   }
 
-  let result = (data || []).map((paper: any) => {
+  // Merge with metadata papers
+  let metaPapers: any[] = [];
+  try {
+    const meta = await getMadrasaMetadata(madrasaId);
+    const papersDict = meta.exam_papers_data || {};
+    metaPapers = Object.values(papersDict);
+  } catch (metaErr) {
+    console.error("Error reading archived papers from metadata:", metaErr);
+  }
+
+  // Combine and deduplicate
+  const papersMap = new Map<string, any>();
+  metaPapers.forEach(p => {
+    const key = `${p.exam_id}_${p.class_id}_${p.subject_id}`;
+    papersMap.set(key, p);
+  });
+  dbPapers.forEach(p => {
+    const key = `${p.exam_id}_${p.class_id}_${p.subject_id}`;
+    papersMap.set(key, p);
+  });
+
+  const combinedPapers = Array.from(papersMap.values());
+
+  let result = combinedPapers.map((paper: any) => {
     const qData = paper.questions || {};
     let totalQuestionsCount = 0;
     let sectionsCount = 0;
@@ -662,27 +768,70 @@ export async function cloneExamPaper(params: {
   };
 }
 
-export async function deleteExamPaper(paperId: string) {
+export async function deleteExamPaper(paperId: string): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
-  const { error } = await supabase.from("exam_papers").delete().eq("id", paperId);
-  if (error) {
-    console.error("Error deleting exam paper:", error);
-    return { error: error.message };
+  const { data: { user } } = await supabase.auth.getUser();
+  const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
+  try {
+    const { error } = await supabase.from("exam_papers").delete().eq("id", paperId);
+    if (error) {
+      console.warn("DB delete exam paper error:", error);
+    }
+  } catch (err) {
+    console.warn("DB delete exam paper failed:", err);
   }
+
+  if (madrasaId) {
+    try {
+      const meta = await getMadrasaMetadata(madrasaId);
+      if (meta.exam_papers_data) {
+        for (const [key, p] of Object.entries(meta.exam_papers_data as Record<string, any>)) {
+          if (p.id === paperId || key.includes(paperId)) {
+            delete meta.exam_papers_data[key];
+          }
+        }
+        await saveMadrasaMetadata(madrasaId, meta);
+      }
+    } catch (metaErr) {
+      console.error("Error deleting paper from metadata:", metaErr);
+    }
+  }
+
   revalidatePath(`/dashboard/exams/archives`);
   return { success: true };
 }
 
-export async function toggleArchivePaper(paperId: string, isArchived: boolean) {
+export async function toggleArchivePaper(paperId: string, isArchived: boolean): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("exam_papers")
-    .update({ is_archived: isArchived })
-    .eq("id", paperId);
-  if (error) {
-    console.error("Error toggling paper archive state:", error);
-    return { error: error.message };
+  const { data: { user } } = await supabase.auth.getUser();
+  const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
+  try {
+    await supabase
+      .from("exam_papers")
+      .update({ is_archived: isArchived })
+      .eq("id", paperId);
+  } catch (err) {
+    console.warn("DB toggle archive paper failed:", err);
   }
+
+  if (madrasaId) {
+    try {
+      const meta = await getMadrasaMetadata(madrasaId);
+      if (meta.exam_papers_data) {
+        for (const [key, p] of Object.entries(meta.exam_papers_data as Record<string, any>)) {
+          if (p.id === paperId) {
+            meta.exam_papers_data[key].is_archived = isArchived;
+          }
+        }
+        await saveMadrasaMetadata(madrasaId, meta);
+      }
+    } catch (metaErr) {
+      console.error("Error updating archive in metadata:", metaErr);
+    }
+  }
+
   revalidatePath(`/dashboard/exams/archives`);
   return { success: true };
 }

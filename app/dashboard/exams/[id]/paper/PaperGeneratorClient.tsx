@@ -109,8 +109,8 @@ export default function PaperGeneratorClient({
   // =========================================================================
   // Paper Design & Print Layout Settings
   // =========================================================================
-  const [columnLayout, setColumnLayout] = useState<ColumnLayout>("2_column");
-  const [columnDivider, setColumnDivider] = useState<ColumnDivider>("solid");
+  const [columnLayout, setColumnLayout] = useState<ColumnLayout>("1_column");
+  const [columnDivider, setColumnDivider] = useState<ColumnDivider>("none");
   const [calligraphyStyle, setCalligraphyStyle] = useState<CalligraphyStyle>("ornate_frame");
   const [showLogo, setShowLogo] = useState<boolean>(true);
   const [logoUrl, setLogoUrl] = useState<string>(madrasa?.logo_url || "");
@@ -845,24 +845,35 @@ export default function PaperGeneratorClient({
             color: #000000 !important;
             margin: 0 !important;
             padding: 0 !important;
+            width: 100% !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          body * {
-            visibility: hidden !important;
-          }
-          #exam-paper-print-view, #exam-paper-print-view * {
-            visibility: visible !important;
+          .print\:hidden {
+            display: none !important;
           }
           #exam-paper-print-view {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
             display: block !important;
+            position: static !important;
+            width: 100% !important;
+            max-width: 100% !important;
             background: white !important;
             padding: 0 !important;
-            margin: 0 !important;
+            margin: 0 auto !important;
+            box-shadow: none !important;
+          }
+          .qawmi-question-item {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            -webkit-column-break-inside: avoid !important;
+            display: block !important;
+            width: 100% !important;
+            margin-bottom: ${compactSpacing ? "0.6rem" : "0.95rem"} !important;
+          }
+          .qawmi-section-header {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            -webkit-column-break-inside: avoid !important;
           }
         }
       `}</style>

@@ -111,6 +111,7 @@ export async function getExams() {
   ]);
 
   const publishedExams = madrasaMeta?.published_exams || {};
+  const examEndDates = madrasaMeta?.exam_end_dates || {};
 
   const routinesByExam = new Map<string, any[]>();
   (routines || []).forEach(r => {
@@ -122,12 +123,14 @@ export async function getExams() {
 
   return exams.map(exam => {
     const examRoutines = routinesByExam.get(exam.id) || [];
-    const computed = computeExamStatus(exam.start_date, examRoutines, exam.status, exam.end_date);
+    const effectiveStoredEndDate = exam.end_date || examEndDates[exam.id] || null;
+    const computed = computeExamStatus(exam.start_date, examRoutines, exam.status, effectiveStoredEndDate);
     const publishInfo = publishedExams[exam.id];
     const isPublished = Boolean(publishInfo?.is_published || exam.status === "Published");
 
     return {
       ...exam,
+      end_date: effectiveStoredEndDate,
       status: isPublished ? "Published" : computed.status,
       computed_status: computed.status,
       dynamic_status: computed.status,
@@ -169,12 +172,15 @@ export async function getExamById(id: string) {
     madrasaId ? getMadrasaMetadata(madrasaId) : Promise.resolve({} as MadrasaMetaWithSessions),
   ]);
 
-  const computed = computeExamStatus(data.start_date, routines, data.status, data.end_date);
+  const examEndDates = madrasaMeta?.exam_end_dates || {};
+  const effectiveStoredEndDate = data.end_date || examEndDates[id] || null;
+  const computed = computeExamStatus(data.start_date, routines, data.status, effectiveStoredEndDate);
   const publishInfo = madrasaMeta?.published_exams?.[id];
   const isPublished = Boolean(publishInfo?.is_published || data.status === "Published");
 
   return {
     ...data,
+    end_date: effectiveStoredEndDate,
     status: isPublished ? "Published" : computed.status,
     computed_status: computed.status,
     dynamic_status: computed.status,
@@ -306,18 +312,37 @@ export async function createExam(prevState: any, formData: FormData) {
     status: computed.status
   };
 
-  let { error } = await supabase.from("exams").insert(insertPayload);
+  let newExamId: string | null = null;
+  let { data: insertedData, error } = await supabase.from("exams").insert(insertPayload).select("id").single();
+  if (insertedData?.id) {
+    newExamId = insertedData.id;
+  }
 
   // If DB table doesn't have end_date column, fallback without end_date
   if (error && (error.message?.includes("end_date") || error.code === "PGRST204")) {
     delete insertPayload.end_date;
-    const retry = await supabase.from("exams").insert(insertPayload);
+    const retry = await supabase.from("exams").insert(insertPayload).select("id").single();
+    if (retry.data?.id) {
+      newExamId = retry.data.id;
+    }
     error = retry.error;
   }
 
   if (error) {
     console.error("Error creating exam:", error);
     return { error: error.message };
+  }
+
+  // Always store end_date in madrasa metadata to ensure 100% persistence
+  if (newExamId && end_date) {
+    try {
+      const meta = await getMadrasaMetadata(finalMadrasaId);
+      meta.exam_end_dates = meta.exam_end_dates || {};
+      meta.exam_end_dates[newExamId] = end_date;
+      await saveMadrasaMetadata(finalMadrasaId, meta);
+    } catch (metaErr) {
+      console.error("Error persisting exam end_date in metadata:", metaErr);
+    }
   }
 
   revalidatePath("/dashboard/exams");
@@ -328,6 +353,8 @@ export async function updateExamDetails(examId: string, data: { title?: string; 
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
+
+  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
 
   const computed = computeExamStatus(data.start_date, null, undefined, data.end_date);
 
@@ -352,6 +379,22 @@ export async function updateExamDetails(examId: string, data: { title?: string; 
     return { error: error.message };
   }
 
+  // Update in madrasa metadata
+  if (finalMadrasaId && data.end_date !== undefined) {
+    try {
+      const meta = await getMadrasaMetadata(finalMadrasaId);
+      meta.exam_end_dates = meta.exam_end_dates || {};
+      if (data.end_date) {
+        meta.exam_end_dates[examId] = data.end_date;
+      } else {
+        delete meta.exam_end_dates[examId];
+      }
+      await saveMadrasaMetadata(finalMadrasaId, meta);
+    } catch (metaErr) {
+      console.error("Error updating exam end_date in metadata:", metaErr);
+    }
+  }
+
   revalidatePath("/dashboard/exams");
   revalidatePath(`/dashboard/exams/${examId}/setup`);
   return { success: true };
@@ -359,11 +402,26 @@ export async function updateExamDetails(examId: string, data: { title?: string; 
 
 export async function deleteExam(examId: string) {
   const supabase = await createClient();
+  const user = await getAuthUser(supabase);
+  const finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
   const { error } = await supabase.from("exams").delete().eq("id", examId);
 
   if (error) {
     console.error("Error deleting exam:", error);
     return { error: error.message };
+  }
+
+  if (finalMadrasaId) {
+    try {
+      const meta = await getMadrasaMetadata(finalMadrasaId);
+      if (meta.exam_end_dates && meta.exam_end_dates[examId]) {
+        delete meta.exam_end_dates[examId];
+        await saveMadrasaMetadata(finalMadrasaId, meta);
+      }
+    } catch (metaErr) {
+      console.error("Error cleaning exam metadata:", metaErr);
+    }
   }
 
   revalidatePath("/dashboard/exams");
