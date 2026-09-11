@@ -30,6 +30,7 @@ interface PrintLetterpadProps {
   logoUrl?: string;
   title?: string;
   memoNumber?: string;
+  defaultOrientation?: "portrait" | "landscape";
 }
 
 // Helper to extract custom madrasa prefix if stored
@@ -120,7 +121,7 @@ const fontOptions = [
   { id: "font-shahrazad", name: "শেহরেযাদ আরবি (Scheherazade New)" }
 ];
 
-export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, memoNumber: propMemoNumber }: PrintLetterpadProps) {
+export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, memoNumber: propMemoNumber, defaultOrientation }: PrintLetterpadProps) {
   // Normalize madrasa info whether nested in .madrasa or directly on object
   const resolvedMadrasa = (madrasaInfo as any)?.madrasa || madrasaInfo || {};
   const mName = resolvedMadrasa?.name || "আল-মাদরাসাতুল ইসলামিয়া";
@@ -137,7 +138,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
   const [selectedQuoteIndex, setSelectedQuoteIndex] = useState(0);
   const [selectedThemeId, setSelectedThemeId] = useState("green");
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
-  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">(defaultOrientation || "portrait");
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
   const [memoNumber, setMemoNumber] = useState(propMemoNumber || generateAutoMemoNumber(title, resolvedPrefix));
   const [currentDate, setCurrentDate] = useState("");
@@ -180,6 +181,8 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
       if (savedFont !== null) setSelectedFont(savedFont);
       if (savedOrientation === "portrait" || savedOrientation === "landscape") {
         setOrientation(savedOrientation);
+      } else if (defaultOrientation) {
+        setOrientation(defaultOrientation);
       }
       
       // Auto generate if not saved or if it had the old static unfinished string
@@ -258,12 +261,17 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
           @media print {
             @page {
               size: A4 ${orientation};
-              margin: 8mm;
+              margin: 6mm 8mm;
+            }
+            body {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
             .print-pad-container {
               width: 100% !important;
               max-width: 100% !important;
               margin: 0 auto !important;
+              padding: 0 !important;
               box-sizing: border-box !important;
             }
           }
@@ -421,10 +429,21 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
         
         {/* Dynamic Watermark in center (only shown if padEnabled) */}
         {padEnabled && (
-          <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none select-none overflow-hidden">
-            <div className={`w-[4in] h-[4in] rounded-full border-8 ${currentTheme.border} flex items-center justify-center`}>
-              <span className="text-[140px] font-black tracking-widest">{monogramLetter}</span>
-            </div>
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden z-0">
+            {resolvedLogoUrl ? (
+              <div className="w-[3.5in] h-[3.5in] max-w-[45vw] max-h-[45vh] flex items-center justify-center opacity-[0.05] print:opacity-[0.06]">
+                <img 
+                  src={resolvedLogoUrl} 
+                  alt="Madrasa Logo Watermark" 
+                  className="w-full h-full object-contain filter grayscale"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            ) : (
+              <div className={`w-[3.5in] h-[3.5in] rounded-full border-8 ${currentTheme.border} flex items-center justify-center opacity-[0.035] print:opacity-[0.045]`}>
+                <span className="text-[140px] font-black tracking-widest">{monogramLetter}</span>
+              </div>
+            )}
           </div>
         )}
 
