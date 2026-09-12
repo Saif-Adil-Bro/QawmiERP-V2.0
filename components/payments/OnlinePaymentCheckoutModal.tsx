@@ -20,6 +20,8 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
+import { numberToBanglaWords } from "@/lib/utils";
+import { printElementIsolated } from "@/lib/printUtils";
 import type { IslamiBankConfig } from "@/lib/payment-gateway";
 
 interface FeeInvoiceItem {
@@ -824,7 +826,7 @@ export default function OnlinePaymentCheckoutModal({
                 <button
                   type="button"
                   onClick={handleCopyReceipt}
-                  className="w-full sm:flex-1 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  className="w-full sm:flex-1 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                 >
                   {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{isCopied ? "কপি হয়েছে" : "রসিদ কপি করুন"}</span>
@@ -833,13 +835,170 @@ export default function OnlinePaymentCheckoutModal({
                 <button
                   type="button"
                   onClick={() => {
-                    window.print();
+                    printElementIsolated(
+                      "online-fee-payment-receipt-sheet",
+                      `ফি_রসিদ_${completedReceipt.receipt_no || "অনলাইন_পেমেন্ট"}`
+                    );
                   }}
-                  className="w-full sm:flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                  className="w-full sm:flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-sm"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>রসিদ প্রিন্ট করুন</span>
+                  <span>রসিদ প্রিন্ট / PDF</span>
                 </button>
+              </div>
+
+              {/* Hidden Dedicated Isolated Print Container */}
+              <div className="hidden">
+                <div
+                  id="online-fee-payment-receipt-sheet"
+                  className="p-8 bg-white text-slate-900 font-sans max-w-3xl mx-auto border-2 border-emerald-800/80 rounded-2xl"
+                  style={{ width: "100%", minHeight: "140mm" }}
+                >
+                  {/* Receipt Header */}
+                  <div className="text-center border-b-2 border-emerald-800 pb-4 mb-4">
+                    <div className="text-xs font-serif font-bold text-emerald-950">
+                      بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ
+                    </div>
+                    <h2 className="text-2xl font-black text-emerald-950 mt-1">
+                      আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা ও এতিমখানা
+                    </h2>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      মিরপুর শাখা, ঢাকা-১২১৬ • মোবা: ০১৬০০-৯৮৯৫৫৫
+                    </p>
+                    <div className="mt-2.5 inline-block px-4 py-1 bg-emerald-800 text-white font-bold text-xs rounded-full uppercase tracking-wider">
+                      অনলাইন ফি পরিশোধের অফিসিয়াল মানি রিসিট (ডিজিটাল কপি)
+                    </div>
+                  </div>
+
+                  {/* Metadata Row */}
+                  <div className="grid grid-cols-2 gap-4 text-xs pb-3 border-b border-slate-200">
+                    <div>
+                      <p className="text-slate-600">
+                        রসিদ নম্বর (Receipt No):{" "}
+                        <strong className="font-mono text-emerald-900 font-bold text-sm">
+                          {completedReceipt.receipt_no || "MR-Auto"}
+                        </strong>
+                      </p>
+                      <p className="text-slate-600 mt-1">
+                        ট্রানজেকশন আইডি:{" "}
+                        <strong className="font-mono text-slate-800">
+                          {completedReceipt.transaction_id || activeTxnId}
+                        </strong>
+                      </p>
+                      <p className="text-slate-600 mt-1">
+                        পেমেন্ট চ্যানেল:{" "}
+                        <strong className="text-slate-900">
+                          {completedReceipt.payment_channel || selectedChannel} (Online Gateway)
+                        </strong>
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-slate-600">
+                        পরিশোধের তারিখ:{" "}
+                        <strong className="text-slate-800">
+                          {toBanglaNumber(completedReceipt.payment_date || new Date().toISOString().split("T")[0])}
+                        </strong>
+                      </p>
+                      <p className="text-slate-600 mt-1">
+                        শিক্ষার্থীর নাম:{" "}
+                        <strong className="text-emerald-950 font-bold text-sm">
+                          {studentName}
+                        </strong>
+                      </p>
+                      <p className="text-slate-600 mt-1">
+                        জামাত: <strong>{className || "সাধারণ"}</strong>
+                        {studentRoll && <span> • রোল: <strong>{toBanglaNumber(studentRoll)}</strong></span>}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Particulars Breakdown Table */}
+                  <div className="my-4">
+                    <table className="w-full text-xs border border-slate-300">
+                      <thead>
+                        <tr className="bg-emerald-50 text-emerald-950 border-b border-slate-300">
+                          <th className="p-2 text-left w-12 border-r border-slate-300">ক্র.নং</th>
+                          <th className="p-2 text-left border-r border-slate-300">ফি বিবরণ / খাত</th>
+                          <th className="p-2 text-left border-r border-slate-300">মাস / সেশন</th>
+                          <th className="p-2 text-right w-28">টাকার পরিমাণ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {unpaidFees.filter(f => selectedFeeIds.includes(f.id)).length > 0 ? (
+                          unpaidFees
+                            .filter(f => selectedFeeIds.includes(f.id))
+                            .map((f, idx) => (
+                              <tr key={f.id} className="border-b border-slate-200">
+                                <td className="p-2 border-r border-slate-200 text-center font-mono">
+                                  {toBanglaNumber(idx + 1)}
+                                </td>
+                                <td className="p-2 border-r border-slate-200 font-medium">
+                                  {f.fee_type_name}
+                                </td>
+                                <td className="p-2 border-r border-slate-200 text-slate-600">
+                                  {f.billing_period || "-"}
+                                </td>
+                                <td className="p-2 text-right font-mono font-bold">
+                                  ৳ {formatBanglaCurrency(f.due_amount)}
+                                </td>
+                              </tr>
+                            ))
+                        ) : (
+                          <tr className="border-b border-slate-200">
+                            <td className="p-2 border-r border-slate-200 text-center font-mono">১</td>
+                            <td className="p-2 border-r border-slate-200 font-medium">শিক্ষার্থী ফি পরিশোধ</td>
+                            <td className="p-2 border-r border-slate-200 text-slate-600">চলতি সেশন</td>
+                            <td className="p-2 text-right font-mono font-bold">
+                              ৳ {formatBanglaCurrency(completedReceipt.amount || payAmount)}
+                            </td>
+                          </tr>
+                        )}
+                        <tr className="bg-slate-50 font-bold border-t-2 border-slate-300">
+                          <td colSpan={3} className="p-2.5 text-right border-r border-slate-300">
+                            সর্বমোট পরিশোধিত টাকা (Total Paid):
+                          </td>
+                          <td className="p-2.5 text-right text-emerald-900 font-black text-sm">
+                            ৳ {formatBanglaCurrency(completedReceipt.amount || payAmount)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Amount in words */}
+                  <div className="p-2.5 bg-emerald-50/60 border border-emerald-200 rounded-lg text-xs mb-6 text-slate-800">
+                    <span className="font-bold text-emerald-950">কথায় (In Words): </span>
+                    <span className="italic">
+                      {numberToBanglaWords(Number(completedReceipt.amount || payAmount))}
+                    </span>
+                  </div>
+
+                  {/* Status & Verification Stamp */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-dashed border-slate-300 mb-8">
+                    <div className="flex items-center gap-1.5 text-emerald-800 font-bold">
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>অনলাইন গেটওয়ের মাধ্যমে স্বয়ংক্রিয়ভাবে যাচাইকৃত ও অনুমোদিত</span>
+                    </div>
+                    <div>ইস্যু তারিখ: {new Date().toLocaleDateString("en-GB")}</div>
+                  </div>
+
+                  {/* Signatures */}
+                  <div className="grid grid-cols-2 gap-12 text-center text-xs text-slate-700 pt-6">
+                    <div>
+                      <div className="border-t border-slate-400 pt-1 font-semibold">
+                        আদায়কারী / অনলাইন গেটওয়ে সিস্টেম
+                      </div>
+                      <span className="text-[10px] text-slate-400">কম্পিউটার জেনারেটেড ডিজিটাল রসিদ</span>
+                    </div>
+                    <div>
+                      <div className="border-t border-slate-400 pt-1 font-semibold">
+                        হিসাবরক্ষক / মুহতামিম
+                      </div>
+                      <span className="text-[10px] text-slate-400">আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <button
