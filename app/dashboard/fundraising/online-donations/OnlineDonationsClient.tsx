@@ -876,7 +876,7 @@ export default function OnlineDonationsClient({
                       গেটওয়ের প্রধান ক্রেডেনশিয়ালস (Store ID, Password) ও লাইভ/টেস্ট মোড মূল <strong>পেমেন্ট গেটওয়ে</strong> সেটিংস থেকে সিঙ্ক হয়।
                     </span>
                     <a
-                      href="/dashboard/settings/payment-gateway"
+                      href="/dashboard/accounting/gateway"
                       target="_blank"
                       className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
                     >
