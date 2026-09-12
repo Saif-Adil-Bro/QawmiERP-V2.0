@@ -871,10 +871,18 @@ export default function OnlineDonationsClient({
                       <option value="AamarPay">AamarPay</option>
                     </select>
                   </div>
-                  <div className="flex items-end pb-1">
+                  <div className="flex flex-col justify-end pb-1 space-y-1">
                     <span className="text-[11px] text-slate-500">
-                      গেটওয়ের প্রধান ক্রেডেনশিয়ালস ও সেন্ডবক্স মোড ড্যাশবোর্ডের মূল <strong>অনলাইন পেমেন্ট গেটওয়ে</strong> সেটিংস থেকে সিঙ্ক হয়।
+                      গেটওয়ের প্রধান ক্রেডেনশিয়ালস (Store ID, Password) ও লাইভ/টেস্ট মোড মূল <strong>পেমেন্ট গেটওয়ে</strong> সেটিংস থেকে সিঙ্ক হয়।
                     </span>
+                    <a
+                      href="/dashboard/settings/payment-gateway"
+                      target="_blank"
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 hover:text-emerald-950 underline underline-offset-2"
+                    >
+                      <span>গেটওয়ে ক্রেডেনশিয়ালস কনফিগারেশন পেজ খুলুন</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
                   </div>
                 </div>
               </div>
