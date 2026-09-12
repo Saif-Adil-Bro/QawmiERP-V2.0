@@ -1,10 +1,17 @@
 import { Suspense } from "react";
 import PublicDonateClient from "./PublicDonateClient";
+import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getPaymentGatewayConfig } from "@/app/actions/payment-gateway";
 import { Loader2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default function PublicDonatePage() {
+export default async function PublicDonatePage() {
+  const [madrasaInfo, paymentGatewayConfig] = await Promise.all([
+    getMadrasaInfo(),
+    getPaymentGatewayConfig(),
+  ]);
+
   return (
     <Suspense
       fallback={
@@ -13,7 +20,10 @@ export default function PublicDonatePage() {
         </div>
       }
     >
-      <PublicDonateClient />
+      <PublicDonateClient
+        madrasaInfo={madrasaInfo}
+        paymentGatewayConfig={paymentGatewayConfig}
+      />
     </Suspense>
   );
 }

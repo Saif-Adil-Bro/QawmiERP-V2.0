@@ -29,6 +29,7 @@ import {
 import { Donor, DonorPayment } from "@/lib/fundraising-types";
 import { saveDonor, deleteDonor, recordDonorPayment } from "@/app/actions/fundraising";
 import { numberToBanglaWords } from "@/lib/utils";
+import { printElementIsolated } from "@/lib/printUtils";
 
 function toBanglaNumber(val: number | string | undefined | null): string {
   if (val === undefined || val === null || val === "") return "০";
@@ -42,9 +43,11 @@ function toBanglaNumber(val: number | string | undefined | null): string {
 export default function DonorsClient({
   initialDonors,
   initialPayments,
+  madrasaInfo,
 }: {
   initialDonors: Donor[];
   initialPayments: DonorPayment[];
+  madrasaInfo?: any;
 }) {
   const router = useRouter();
   const [donors, setDonors] = useState<Donor[]>(initialDonors);
@@ -665,7 +668,7 @@ export default function DonorsClient({
               <p className="text-xs text-slate-500">মাদ্রাসার পক্ষ থেকে আজীবন দাতাদের সম্মাননা ও স্বীকৃতিপত্র</p>
             </div>
             <button
-              onClick={() => window.print()}
+              onClick={() => printElementIsolated("donor-certificate-sheet", `${selectedDonorForCert.name} - আজীবন সদস্য সনদ`)}
               className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs"
             >
               <Printer className="w-4 h-4" />
@@ -673,16 +676,26 @@ export default function DonorsClient({
             </button>
           </div>
 
-          <div className="bg-white p-10 rounded-2xl border-4 border-amber-500/40 shadow-lg print:border-4 print:border-amber-600 print:p-8 space-y-6 text-center relative overflow-hidden">
+          <div id="donor-certificate-sheet" className="bg-white p-10 rounded-2xl border-4 border-amber-500/40 shadow-lg print:border-4 print:border-amber-600 print:p-8 space-y-6 text-center relative overflow-hidden">
             <div className="absolute inset-0 bg-radial from-amber-50/50 to-transparent pointer-events-none" />
             
             <div className="relative z-10 space-y-2">
               <div className="text-sm font-serif font-bold text-slate-700">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
-              <Award className="w-14 h-14 text-amber-600 mx-auto" />
-              <h2 className="text-2xl font-black text-slate-900 tracking-wide font-serif">
+              {madrasaInfo?.logo_url ? (
+                <img src={madrasaInfo.logo_url} alt="Logo" className="w-16 h-16 object-contain mx-auto" />
+              ) : (
+                <Award className="w-14 h-14 text-amber-600 mx-auto" />
+              )}
+              <h1 className="text-2xl font-black text-emerald-950 font-serif">
+                {madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}
+              </h1>
+              {madrasaInfo?.address && (
+                <p className="text-xs text-slate-500">{madrasaInfo.address}</p>
+              )}
+              <h2 className="text-xl font-black text-slate-900 tracking-wide font-serif pt-2">
                 আজীবন সদস্য সম্মাননা সনদপত্র
               </h2>
-              <p className="text-xs text-slate-500 font-semibold tracking-widest uppercase">
+              <p className="text-[11px] text-slate-500 font-semibold tracking-widest uppercase">
                 LIFE MEMBERSHIP RECOGNITION CERTIFICATE
               </p>
             </div>
@@ -708,7 +721,7 @@ export default function DonorsClient({
 
             <div className="relative z-10 pt-12 grid grid-cols-2 gap-12 text-xs">
               <div className="border-t border-slate-400 pt-1 font-bold text-slate-800">
-                মুহতারাম মুহতামিম
+                {madrasaInfo?.principal_name ? `মুহতারাম মুহতামিম (${madrasaInfo.principal_name})` : "মুহতারাম মুহতামিম"}
               </div>
               <div className="border-t border-slate-400 pt-1 font-bold text-slate-800">
                 মুহতারাম সভাপতি / শুরা প্রধান
@@ -968,14 +981,16 @@ export default function DonorsClient({
             </div>
 
             {/* Printable Area - Dual Copy Voucher */}
-            <div className="space-y-6 print:space-y-4 text-slate-900">
+            <div id="dual-money-receipt-sheet" className="space-y-6 print:space-y-4 text-slate-900 bg-white p-2">
               {/* Copy 1: Donor Copy */}
               <div className="border-2 border-emerald-800 rounded-xl p-4 bg-white space-y-3 relative">
                 <div className="flex justify-between items-start border-b border-emerald-700 pb-2">
                   <div>
                     <div className="text-[11px] font-serif font-bold text-slate-600">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
-                    <h4 className="font-bold text-base text-emerald-950">মাদ্রাসাতুল হিকমাহ আল ইসলামিয়া</h4>
-                    <p className="text-[10px] text-slate-500">স্থায়ী আজীবন সদস্য ও মাসিক অনুদান আদায় রসিদ</p>
+                    <h4 className="font-bold text-base text-emerald-950">{madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}</h4>
+                    <p className="text-[10px] text-slate-500">
+                      {madrasaInfo?.address ? `${madrasaInfo.address} • ` : ""}স্থায়ী আজীবন সদস্য ও মাসিক অনুদান আদায় রসিদ
+                    </p>
                   </div>
                   <div className="text-right">
                     <span className="inline-block px-2 py-0.5 bg-emerald-800 text-white text-[10px] font-bold rounded">
@@ -1049,7 +1064,7 @@ export default function DonorsClient({
               <div className="border-2 border-slate-700 rounded-xl p-4 bg-slate-50/30 space-y-3 relative">
                 <div className="flex justify-between items-start border-b border-slate-300 pb-2">
                   <div>
-                    <h4 className="font-bold text-sm text-slate-900">মাদ্রাসাতুল হিকমাহ আল ইসলামিয়া</h4>
+                    <h4 className="font-bold text-sm text-slate-900">{madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}</h4>
                     <p className="text-[10px] text-slate-500">হিসাব শাখা - অফিস রসিদ কপি</p>
                   </div>
                   <div className="text-right">
@@ -1092,7 +1107,7 @@ export default function DonorsClient({
                 বন্ধ করুন
               </button>
               <button
-                onClick={() => window.print()}
+                onClick={() => printElementIsolated("dual-money-receipt-sheet", `মানি রিসিট - ${receiptToPrint.payment.receipt_no}`)}
                 className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-xs"
               >
                 <Printer className="w-3.5 h-3.5" />
@@ -1120,11 +1135,12 @@ export default function DonorsClient({
             </div>
 
             {/* Printable Sheet */}
-            <div className="space-y-4 text-slate-900">
+            <div id="donor-register-sheet" className="space-y-4 text-slate-900 bg-white p-4">
               <div className="text-center border-b pb-3">
                 <div className="text-xs font-serif font-bold text-slate-600">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
-                <h2 className="text-xl font-black text-slate-900">মাদ্রাসাতুল হিকমাহ আল ইসলামিয়া</h2>
-                <h3 className="text-sm font-bold text-emerald-800">আজীবন সদস্য ও মাসিক নিয়মিত দাতা খতিয়ান রেজিস্টার</h3>
+                <h2 className="text-xl font-black text-slate-900">{madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}</h2>
+                {madrasaInfo?.address && <p className="text-xs text-slate-500">{madrasaInfo.address}</p>}
+                <h3 className="text-sm font-bold text-emerald-800 mt-1">আজীবন সদস্য ও মাসিক নিয়মিত দাতা খতিয়ান রেজিস্টার</h3>
                 <p className="text-[11px] text-slate-500">প্রিন্ট তারিখ: {toBanglaNumber(new Date().toISOString().split("T")[0])}</p>
               </div>
 
@@ -1184,7 +1200,7 @@ export default function DonorsClient({
                 বন্ধ করুন
               </button>
               <button
-                onClick={() => window.print()}
+                onClick={() => printElementIsolated("donor-register-sheet", "সম্মানিত দাতা রেজিস্টার")}
                 className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-xs"
               >
                 <Printer className="w-3.5 h-3.5" />

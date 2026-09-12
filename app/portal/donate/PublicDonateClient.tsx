@@ -13,9 +13,15 @@ import {
   CheckCircle2,
   Printer,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  Send,
+  Lock,
+  Landmark,
+  Wallet
 } from "lucide-react";
 import { submitOnlineDonation } from "@/app/actions/fundraising";
+import { printElementIsolated } from "@/lib/printUtils";
+import { numberToBanglaWords } from "@/lib/utils";
 
 function toBanglaNumber(val: number | string | undefined | null): string {
   if (val === undefined || val === null || val === "") return "০";
@@ -26,13 +32,19 @@ function toBanglaNumber(val: number | string | undefined | null): string {
   return val.toString().replace(/[0-9]/g, (w) => banglaDigits[w] || w);
 }
 
-export default function PublicDonateClient() {
+export default function PublicDonateClient({
+  madrasaInfo,
+  paymentGatewayConfig,
+}: {
+  madrasaInfo?: any;
+  paymentGatewayConfig?: any;
+}) {
   const [formData, setFormData] = useState({
     donor_name: "",
     phone: "",
     email: "",
     amount: 1000,
-    fund_category: "লিল্লাহ বোডিং ও এতিমখানা",
+    fund_category: "লিল্লাহ বোর্ডিং ও এতিমখানা",
     payment_method: "bKash" as "bKash" | "Nagad" | "Rocket" | "Bank" | "Other",
     trx_id: "",
     message: "",
@@ -76,6 +88,49 @@ export default function PublicDonateClient() {
     }
   };
 
+  // Dynamic Gateway and Madrasa Accounts
+  const bkashNumber =
+    paymentGatewayConfig?.bkash?.merchant_number ||
+    paymentGatewayConfig?.bkash_number ||
+    madrasaInfo?.bkash_number ||
+    madrasaInfo?.phone ||
+    "01700000000";
+
+  const nagadNumber =
+    paymentGatewayConfig?.nagad?.merchant_number ||
+    paymentGatewayConfig?.nagad_number ||
+    madrasaInfo?.nagad_number ||
+    "01800000000";
+
+  const rocketNumber =
+    paymentGatewayConfig?.rocket?.merchant_number ||
+    paymentGatewayConfig?.rocket_number ||
+    madrasaInfo?.rocket_number ||
+    "01900000000";
+
+  const bankInfo = {
+    bankName:
+      paymentGatewayConfig?.islami_bank?.branch_name ||
+      madrasaInfo?.bank_name ||
+      "ইসলামী ব্যাংক বাংলাদেশ পিএলসি",
+    accName:
+      paymentGatewayConfig?.islami_bank?.account_title ||
+      madrasaInfo?.bank_account_name ||
+      madrasaInfo?.name ||
+      "মারকাযুল উলুম ইসলামিয়া কওমি মাদ্রাসা",
+    accNo:
+      paymentGatewayConfig?.islami_bank?.account_no ||
+      madrasaInfo?.bank_account_no ||
+      "20501234567890",
+    routing:
+      paymentGatewayConfig?.islami_bank?.routing_no ||
+      madrasaInfo?.bank_routing_no ||
+      "125272654",
+  };
+
+  const madrasaTitle = madrasaInfo?.name || "মারকাযুল উলুম ইসলামিয়া কওমি মাদ্রাসা";
+  const madrasaAddress = madrasaInfo?.address || "ঢাকা, বাংলাদেশ";
+
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -85,10 +140,23 @@ export default function PublicDonateClient() {
             <Heart className="w-3.5 h-3.5 fill-emerald-600 text-emerald-600" />
             <span>সাদকাহ জারিয়া ও দ্বীনি খেদমত</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 font-serif">
-            মারকাযুল উলুম ইসলামিয়া কওমি মাদ্রাসা
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-600 max-w-lg mx-auto">
+
+          <div className="flex items-center justify-center gap-3">
+            {madrasaInfo?.logo_url && (
+              <img
+                src={madrasaInfo.logo_url}
+                alt={madrasaTitle}
+                className="w-12 h-12 object-contain"
+              />
+            )}
+            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 font-serif">
+              {madrasaTitle}
+            </h1>
+          </div>
+
+          <p className="text-xs text-slate-500 font-medium">{madrasaAddress}</p>
+
+          <p className="text-xs sm:text-sm text-slate-600 max-w-lg mx-auto pt-1">
             লিল্লাহ বোর্ডিং এর এতিম-অসহায় তালেবে ইলমদের খোরাকি, হিফজুল কুরআন ও মাদ্রাসার সার্বিক উন্নয়নে আপনার পবিত্র দান/সাদকাহ প্রদান করুন।
           </p>
         </div>
@@ -106,14 +174,19 @@ export default function PublicDonateClient() {
               </p>
             </div>
 
-            {/* Official Digital Money Receipt */}
-            <div className="border border-emerald-200 rounded-2xl p-6 bg-emerald-50/30 space-y-4 text-xs">
-              <div className="text-center border-b border-emerald-200 pb-3">
-                <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest block mb-1">
-                  OFFICIAL DIGITAL DONATION RECEIPT
-                </span>
-                <h3 className="font-bold text-slate-900 text-base">ডিজিটাল মানি রিসিট</h3>
-                <p className="font-mono text-emerald-800 text-xs font-bold mt-0.5">
+            {/* Official Digital Money Receipt Printable Sheet */}
+            <div
+              id="public-donation-receipt-sheet"
+              className="border-2 border-emerald-700/60 rounded-2xl p-6 bg-white space-y-4 text-xs text-slate-900 shadow-sm"
+            >
+              <div className="text-center border-b border-emerald-300 pb-3">
+                <div className="text-xs font-serif font-bold text-slate-700">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
+                <h3 className="font-bold text-base text-emerald-950 mt-1">{madrasaTitle}</h3>
+                {madrasaAddress && <p className="text-[10px] text-slate-500">{madrasaAddress}</p>}
+                <div className="mt-2 inline-block px-3 py-0.5 bg-emerald-800 text-white font-bold text-[10px] rounded-full uppercase tracking-wider">
+                  অফিসিয়াল ডিজিটাল অনুদান রসিদ
+                </div>
+                <p className="font-mono text-emerald-800 text-xs font-bold mt-1">
                   রসিদ নং: {submittedReceipt.receipt_no}
                 </p>
               </div>
@@ -147,14 +220,24 @@ export default function PublicDonateClient() {
                 </div>
                 <div className="flex justify-between pt-3 border-t border-emerald-200 font-bold text-emerald-900 text-base">
                   <span>মোট অনুদান:</span>
-                  <span>৳ {toBanglaNumber(submittedReceipt.amount)}</span>
+                  <span>৳ {toBanglaNumber(submittedReceipt.amount)} ({numberToBanglaWords(submittedReceipt.amount)})</span>
                 </div>
+              </div>
+
+              <div className="pt-6 grid grid-cols-2 gap-8 text-center text-[10px] text-slate-600 border-t border-slate-200 mt-4">
+                <div>হিসাব ও অনুদান শাখা</div>
+                <div className="font-bold">মুহতামিম / অর্থ সম্পাদক</div>
               </div>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 print:hidden">
               <button
-                onClick={() => window.print()}
+                onClick={() =>
+                  printElementIsolated(
+                    "public-donation-receipt-sheet",
+                    `ডিজিটাল মানি রিসিট - ${submittedReceipt.receipt_no}`
+                  )
+                }
                 className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-slate-900 text-white font-bold rounded-xl text-xs hover:bg-slate-800 transition-colors shadow-xs"
               >
                 <Printer className="w-4 h-4" />
@@ -184,13 +267,14 @@ export default function PublicDonateClient() {
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-pink-700">বিকাশ (মার্চেন্ট / পার্সোনাল)</span>
                     <button
-                      onClick={() => handleCopy("01700000000", "bkash")}
+                      type="button"
+                      onClick={() => handleCopy(bkashNumber, "bkash")}
                       className="text-pink-600 hover:text-pink-800"
                     >
-                      {copiedAccount === "bkash" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedAccount === "bkash" ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
                   </div>
-                  <p className="font-mono font-bold text-slate-800 text-sm">01700-000000</p>
+                  <p className="font-mono font-bold text-slate-800 text-sm">{bkashNumber}</p>
                   <p className="text-[10px] text-slate-500">Send Money / Make Payment</p>
                 </div>
 
@@ -199,30 +283,49 @@ export default function PublicDonateClient() {
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-orange-700">নগদ (পার্সোনাল)</span>
                     <button
-                      onClick={() => handleCopy("01800000000", "nagad")}
+                      type="button"
+                      onClick={() => handleCopy(nagadNumber, "nagad")}
                       className="text-orange-600 hover:text-orange-800"
                     >
-                      {copiedAccount === "nagad" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedAccount === "nagad" ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
                   </div>
-                  <p className="font-mono font-bold text-slate-800 text-sm">01800-000000</p>
+                  <p className="font-mono font-bold text-slate-800 text-sm">{nagadNumber}</p>
                   <p className="text-[10px] text-slate-500">Send Money</p>
                 </div>
+
+                {/* Rocket (if available) */}
+                {rocketNumber && (
+                  <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-100 space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-purple-700">রকেট (Rocket)</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(rocketNumber, "rocket")}
+                        className="text-purple-600 hover:text-purple-800"
+                      >
+                        {copiedAccount === "rocket" ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    <p className="font-mono font-bold text-slate-800 text-sm">{rocketNumber}</p>
+                  </div>
+                )}
 
                 {/* Bank */}
                 <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 space-y-1">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-blue-800">ব্যাংক একাউন্ট</span>
                     <button
-                      onClick={() => handleCopy("2050123456789", "bank")}
+                      type="button"
+                      onClick={() => handleCopy(bankInfo.accNo, "bank")}
                       className="text-blue-600 hover:text-blue-800"
                     >
-                      {copiedAccount === "bank" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedAccount === "bank" ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
                   </div>
-                  <p className="font-bold text-slate-800">ইসলামী ব্যাংক বাংলাদেশ লিঃ</p>
-                  <p className="font-mono text-xs font-semibold text-slate-700">A/C: 2050123456789</p>
-                  <p className="text-[10px] text-slate-500">মারকাযুল উলুম ইসলামিয়া মাদ্রাসা</p>
+                  <p className="font-bold text-slate-800">{bankInfo.bankName}</p>
+                  <p className="font-mono text-xs font-semibold text-slate-700">A/C: {bankInfo.accNo}</p>
+                  <p className="text-[10px] text-slate-500">{bankInfo.accName}</p>
                 </div>
               </div>
 
@@ -232,7 +335,7 @@ export default function PublicDonateClient() {
                   <span>নিরাপদ ও স্বচ্ছ হিসাব</span>
                 </div>
                 <p className="text-emerald-100 text-[11px] leading-relaxed">
-                  আপনার পাঠানো প্রতিটি অনুদানের টাকা সরাসরি মাদ্রাসার কেন্দ্রীয় সার্ভারে নিবন্ধিত হয় এবং ডিজিটাল রসিদ ইস্যু করা হয়।
+                  আপনার পাঠানো প্রতিটি অনুদানের টাকা সরাসরি মাদ্রাসার কেন্দ্রীয় সার্ভারে নিবন্ধিত হয় এবং স্বয়ংক্রিয় ডিজিটাল রসিদ ইস্যু করা হয়।
                 </p>
               </div>
             </div>
@@ -292,6 +395,7 @@ export default function PublicDonateClient() {
                     <input
                       type="number"
                       required
+                      min={10}
                       value={formData.amount}
                       onChange={(e) => setFormData(prev => ({ ...prev, amount: Number(e.target.value) }))}
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold"
@@ -304,7 +408,7 @@ export default function PublicDonateClient() {
                       onChange={(e) => setFormData(prev => ({ ...prev, fund_category: e.target.value }))}
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white"
                     >
-                      <option value="লিল্লাহ বোডিং ও এতিমখানা">লিল্লাহ বোডিং ও এতিমখানা</option>
+                      <option value="লিল্লাহ বোর্ডিং ও এতিমখানা">লিল্লাহ বোর্ডিং ও এতিমখানা</option>
                       <option value="সাধারণ অনুদান">সাধারণ অনুদান</option>
                       <option value="মসজিদ ও ভবন নির্মাণ ফান্ড">মসজিদ ও ভবন নির্মাণ ফান্ড</option>
                       <option value="যাকাত ও ফিতরা তহবিল">যাকাত ও ফিতরা তহবিল</option>
@@ -353,10 +457,10 @@ export default function PublicDonateClient() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-all shadow-md flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>{loading ? "সাবমিট হচ্ছে..." : "অনুদানের তথ্য সাবমিট ও রসিদ পান"}</span>
+                  <span>{loading ? "সাবমিট হচ্ছে..." : "অনুদানের তথ্য সাবমিট ও রসিদ গ্রহণ করুন"}</span>
                 </button>
               </form>
             </div>
@@ -366,3 +470,4 @@ export default function PublicDonateClient() {
     </div>
   );
 }
+

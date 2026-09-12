@@ -1,12 +1,16 @@
 import { Suspense } from "react";
 import { getLifeMemberDonors } from "@/app/actions/fundraising";
+import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import DonorsClient from "./DonorsClient";
 import { Loader2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function DonorsManagementPage() {
-  const { donors, payments } = await getLifeMemberDonors();
+  const [{ donors, payments }, madrasaInfo] = await Promise.all([
+    getLifeMemberDonors(),
+    getMadrasaInfo(),
+  ]);
 
   return (
     <Suspense
@@ -16,7 +20,7 @@ export default async function DonorsManagementPage() {
         </div>
       }
     >
-      <DonorsClient initialDonors={donors} initialPayments={payments} />
+      <DonorsClient initialDonors={donors} initialPayments={payments} madrasaInfo={madrasaInfo} />
     </Suspense>
   );
 }

@@ -20,6 +20,7 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/admission') ||
     request.nextUrl.pathname.startsWith('/verify') ||
     request.nextUrl.pathname.startsWith('/pay') ||
+    request.nextUrl.pathname.startsWith('/portal') ||
     request.nextUrl.pathname.startsWith('/fonts');
 
   // Next.js marks client-side soft-navigations (Link clicks / prefetches

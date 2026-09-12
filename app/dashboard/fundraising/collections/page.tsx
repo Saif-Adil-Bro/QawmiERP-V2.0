@@ -1,14 +1,16 @@
 import { Suspense } from "react";
 import { getLeatherCollections, getCollectionBoxes } from "@/app/actions/fundraising";
+import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import CollectionsClient from "./CollectionsClient";
 import { Loader2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function CollectionsManagementPage() {
-  const [leatherBatches, boxesData] = await Promise.all([
+  const [leatherBatches, boxesData, madrasaInfo] = await Promise.all([
     getLeatherCollections(),
     getCollectionBoxes(),
+    getMadrasaInfo(),
   ]);
 
   return (
@@ -19,7 +21,11 @@ export default async function CollectionsManagementPage() {
         </div>
       }
     >
-      <CollectionsClient initialLeathers={leatherBatches} initialBoxes={boxesData.boxes} />
+      <CollectionsClient
+        initialLeathers={leatherBatches}
+        initialBoxes={boxesData.boxes}
+        madrasaInfo={madrasaInfo}
+      />
     </Suspense>
   );
 }

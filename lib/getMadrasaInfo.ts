@@ -24,19 +24,22 @@ export async function getMadrasaInfo() {
   };
 
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
     const adminClient = await createAdminClient();
-
     let targetMadrasaId: string | null = null;
 
-    if (user?.id) {
-      const { data: userDetails } = await adminClient
-        .from("users")
-        .select("madrasa_id")
-        .eq("id", user.id)
-        .single();
-      targetMadrasaId = userDetails?.madrasa_id || null;
+    try {
+      const supabase = await createClient();
+      const user = await getAuthUser(supabase);
+      if (user?.id) {
+        const { data: userDetails } = await adminClient
+          .from("users")
+          .select("madrasa_id")
+          .eq("id", user.id)
+          .single();
+        targetMadrasaId = userDetails?.madrasa_id || null;
+      }
+    } catch {
+      // Fallback for public requests outside user context
     }
 
     if (!targetMadrasaId) {
@@ -56,12 +59,21 @@ export async function getMadrasaInfo() {
         .eq("id", targetMadrasaId)
         .single();
 
-      const { data: logoData } = supabase.storage
-        .from("logos")
-        .getPublicUrl(`madrasa_logo_${targetMadrasaId}.png`);
-      const { data: sigData } = supabase.storage
-        .from("signatures")
-        .getPublicUrl(`madrasa_signature_${targetMadrasaId}.png`);
+      let logoUrl = "";
+      let sigUrl = "";
+      try {
+        const supabase = await createClient();
+        const { data: logoData } = supabase.storage
+          .from("logos")
+          .getPublicUrl(`madrasa_logo_${targetMadrasaId}.png`);
+        const { data: sigData } = supabase.storage
+          .from("signatures")
+          .getPublicUrl(`madrasa_signature_${targetMadrasaId}.png`);
+        logoUrl = logoData?.publicUrl || "";
+        sigUrl = sigData?.publicUrl || "";
+      } catch {
+        // storage public url fallback
+      }
 
       if (!error && fullMadrasa) {
         let meta: Record<string, any> = {};
@@ -94,7 +106,7 @@ export async function getMadrasaInfo() {
           address: fullMadrasa.address || madrasaInfo.address,
           phone: fullMadrasa.contact_phone || madrasaInfo.phone,
           email: fullMadrasa.contact_email || madrasaInfo.email,
-          logo_url: meta.logo_url || logoData?.publicUrl || "",
+          logo_url: meta.logo_url || logoUrl || "",
           registration_no:
             meta.reg_no ||
             (typeof fullMadrasa.registration_no === "string" &&
@@ -109,8 +121,8 @@ export async function getMadrasaInfo() {
             (fullMadrasa as any).principal_name ||
             (fullMadrasa as any).mohtamim_name ||
             "",
-          principal_signature_url: meta.signature_url || sigData?.publicUrl || "",
-          signature_url: meta.signature_url || sigData?.publicUrl || "",
+          principal_signature_url: meta.signature_url || sigUrl || "",
+          signature_url: meta.signature_url || sigUrl || "",
           eiin_code: meta.eiin_code || "",
           slogan: meta.slogan || "",
           website: meta.website || "",
