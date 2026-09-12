@@ -219,8 +219,43 @@ export interface DonationBoxCollectionLog {
 }
 
 // -------------------------------------------------------------
-// Online Donations
+// Online Donations & Settings
 // -------------------------------------------------------------
+export interface OnlineDonationSettings {
+  bkash_number: string;
+  bkash_type: "Merchant" | "Personal" | "Agent";
+  nagad_number: string;
+  nagad_type: "Personal" | "Merchant";
+  rocket_number: string;
+  rocket_type: "Personal" | "Merchant";
+  bank_name: string;
+  bank_branch: string;
+  bank_account_name: string;
+  bank_account_no: string;
+  bank_routing_no: string;
+  gateway_enabled: boolean;
+  gateway_provider?: string;
+  instructions?: string;
+  updated_at?: string;
+}
+
+export const DEFAULT_ONLINE_DONATION_SETTINGS: OnlineDonationSettings = {
+  bkash_number: "01600-989555",
+  bkash_type: "Merchant",
+  nagad_number: "01800-000000",
+  nagad_type: "Personal",
+  rocket_number: "01900-000000",
+  rocket_type: "Personal",
+  bank_name: "ইসলামী ব্যাংক বাংলাদেশ পিএলসি",
+  bank_branch: "মিরপুর শাখা, ঢাকা",
+  bank_account_name: "আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা",
+  bank_account_no: "20501234567890",
+  bank_routing_no: "125272654",
+  gateway_enabled: true,
+  gateway_provider: "SSLCOMMERZ",
+  instructions: "সরাসরি মার্চেন্ট বা পার্সোনাল নম্বরে সেন্ড মানি/পেমেন্ট করে ট্রানজেকশন আইডি (TrxID) দিয়ে সাবমিট করুন। অথবা গেটওয়ের মাধ্যমে সরাসরি পরিশোধ করুন।",
+};
+
 export interface OnlineDonation {
   id: string;
   madrasa_id: string;
@@ -233,12 +268,14 @@ export interface OnlineDonation {
   address?: string;
   fund_category: string;
   amount: number;
-  payment_method: "bKash" | "Nagad" | "Rocket" | "Bank" | "Other";
+  payment_method: "bKash" | "Nagad" | "Rocket" | "Bank" | "Online Gateway" | "Other";
   trx_id: string;
   donation_date: string;
   date?: string;
   receipt_no: string;
   status: "VERIFIED" | "PENDING" | "REJECTED";
+  is_gateway?: boolean;
+  gateway_provider?: string;
   message?: string;
   notes?: string;
   is_anonymous?: boolean;

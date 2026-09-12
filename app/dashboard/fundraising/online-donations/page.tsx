@@ -1,12 +1,19 @@
 import { Suspense } from "react";
-import { getOnlineDonations } from "@/app/actions/fundraising";
+import { getOnlineDonations, getOnlineDonationSettings } from "@/app/actions/fundraising";
+import { getPaymentGatewayConfig } from "@/app/actions/payment-gateway";
+import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import OnlineDonationsClient from "./OnlineDonationsClient";
 import { Loader2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function OnlineDonationsPage() {
-  const donations = await getOnlineDonations();
+  const [donations, donationSettings, paymentGatewayConfig, madrasaInfo] = await Promise.all([
+    getOnlineDonations(),
+    getOnlineDonationSettings(),
+    getPaymentGatewayConfig(),
+    getMadrasaInfo(),
+  ]);
 
   return (
     <Suspense
@@ -16,7 +23,12 @@ export default async function OnlineDonationsPage() {
         </div>
       }
     >
-      <OnlineDonationsClient initialDonations={donations} />
+      <OnlineDonationsClient
+        initialDonations={donations}
+        initialSettings={donationSettings}
+        paymentGatewayConfig={paymentGatewayConfig}
+        madrasaInfo={madrasaInfo}
+      />
     </Suspense>
   );
 }

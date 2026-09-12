@@ -2,14 +2,16 @@ import { Suspense } from "react";
 import PublicDonateClient from "./PublicDonateClient";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getPaymentGatewayConfig } from "@/app/actions/payment-gateway";
+import { getOnlineDonationSettings } from "@/app/actions/fundraising";
 import { Loader2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function PublicDonatePage() {
-  const [madrasaInfo, paymentGatewayConfig] = await Promise.all([
+  const [madrasaInfo, paymentGatewayConfig, donationSettings] = await Promise.all([
     getMadrasaInfo(),
     getPaymentGatewayConfig(),
+    getOnlineDonationSettings(),
   ]);
 
   return (
@@ -23,6 +25,7 @@ export default async function PublicDonatePage() {
       <PublicDonateClient
         madrasaInfo={madrasaInfo}
         paymentGatewayConfig={paymentGatewayConfig}
+        donationSettings={donationSettings}
       />
     </Suspense>
   );

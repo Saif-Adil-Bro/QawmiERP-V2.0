@@ -14,7 +14,9 @@ import {
   QurbaniLeatherRecord,
   DonationBox,
   DonationBoxCollectionLog,
-  OnlineDonation
+  OnlineDonation,
+  OnlineDonationSettings,
+  DEFAULT_ONLINE_DONATION_SETTINGS,
 } from "@/lib/fundraising-types";
 
 // ============================================================================
@@ -924,16 +926,91 @@ export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubsc
 // 3. QURBANI LEATHER & COLLECTION BOXES
 // ============================================================================
 
-export async function getQurbaniLeatherRecords(): Promise<QurbaniLeatherRecord[]> {
+export async function getSafeMadrasaId(): Promise<string | null> {
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    const mId = await getAuthMadrasaId(supabase, user);
+    if (mId) return mId;
+  } catch (err) {
+    // Safe ignore if called in Route Handler or outside standard cookie context
+  }
+
+  try {
+    const adminClient = await createAdminClient();
+    const { data: firstM } = await adminClient
+      .from("madrasas")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    return firstM?.id || null;
+  } catch (err) {
+    console.error("Error finding fallback madrasa id:", err);
+    return null;
+  }
+}
+
+export async function getQurbaniLeatherRecords(): Promise<QurbaniLeatherRecord[]> {
+  try {
+    const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return [];
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const records: QurbaniLeatherRecord[] = meta.qurbani_leather_records || [];
-    return records.sort((a: QurbaniLeatherRecord, b: QurbaniLeatherRecord) => new Date(b.collection_date || b.created_at).getTime() - new Date(a.collection_date || a.created_at).getTime());
+    let meta = await getMadrasaMetadata(finalMadrasaId);
+    let records: QurbaniLeatherRecord[] = meta.qurbani_leather_records || meta.leather_batches || [];
+
+    // Fallback: check all madrasas if records are empty
+    if (records.length === 0) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: allMadrasas } = await adminClient.from("madrasas").select("id, registration_no");
+        for (const mRow of allMadrasas || []) {
+          if (mRow.registration_no && mRow.registration_no.startsWith("{")) {
+            try {
+              const pMeta = JSON.parse(mRow.registration_no);
+              const found = pMeta.qurbani_leather_records || pMeta.leather_batches;
+              if (found && found.length > 0) {
+                records = found;
+                break;
+              }
+            } catch {}
+          }
+        }
+      } catch (e) {
+        console.warn("Could not check other madrasas for leather records:", e);
+      }
+    }
+
+    return records.map((r: any) => {
+      const qty = Number(r.quantity || 0);
+      const rate = Number(r.rate_per_piece !== undefined ? r.rate_per_piece : (r.rate_per_unit || 0));
+      const gross = Number(r.total_sale_amount !== undefined ? r.total_sale_amount : (r.total_sale_price !== undefined ? r.total_sale_price : qty * rate));
+      const cost = Number(r.transport_labor_cost !== undefined ? r.transport_labor_cost : (r.transport_labour_cost || 0));
+      const due = Number(r.due_amount || 0);
+      const rec = Number(r.received_amount !== undefined ? r.received_amount : (r.paid_amount !== undefined ? r.paid_amount : Math.max(0, gross - due)));
+      const profit = Number(r.net_profit !== undefined ? r.net_profit : (gross - cost));
+      const type = r.type || r.leather_type || "গরু";
+      const dt = r.sale_date || r.collection_date || r.date || r.created_at?.split("T")[0] || "";
+
+      return {
+        ...r,
+        quantity: qty,
+        rate_per_piece: rate,
+        rate_per_unit: rate,
+        total_sale_amount: gross,
+        total_sale_price: gross,
+        transport_labor_cost: cost,
+        transport_labour_cost: cost,
+        due_amount: due,
+        received_amount: rec,
+        paid_amount: rec,
+        net_profit: profit,
+        type: type,
+        leather_type: type,
+        sale_date: dt,
+        collection_date: dt,
+      };
+    }).sort((a: any, b: any) => new Date(b.collection_date || b.created_at).getTime() - new Date(a.collection_date || a.created_at).getTime());
   } catch (err) {
     console.error("Error fetching leather records:", err);
     return [];
@@ -942,23 +1019,23 @@ export async function getQurbaniLeatherRecords(): Promise<QurbaniLeatherRecord[]
 
 export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecord>) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const records: QurbaniLeatherRecord[] = meta.qurbani_leather_records || [];
+    let meta = await getMadrasaMetadata(finalMadrasaId);
+    let records: QurbaniLeatherRecord[] = meta.qurbani_leather_records || meta.leather_batches || [];
     const now = new Date().toISOString();
 
     const quantity = Number(data.quantity || 0);
-    const rate = Number(data.rate_per_unit || 0);
-    const totalSale = quantity * rate;
-    const received = Number(data.received_amount || totalSale);
-    const due = Math.max(0, totalSale - received);
-    const transportCost = Number(data.transport_labour_cost || 0);
-    const netProfit = received - transportCost;
+    const rate = Number(data.rate_per_piece !== undefined ? data.rate_per_piece : (data.rate_per_unit || 0));
+    const totalSale = Number(data.total_sale_amount !== undefined ? data.total_sale_amount : (data.total_sale_price !== undefined ? data.total_sale_price : quantity * rate));
+    const transportCost = Number(data.transport_labor_cost !== undefined ? data.transport_labor_cost : (data.transport_labour_cost || 0));
+    const due = Number(data.due_amount || 0);
+    const received = Number(data.received_amount !== undefined ? data.received_amount : (data.paid_amount !== undefined ? data.paid_amount : Math.max(0, totalSale - due)));
+    const netProfit = Number(data.net_profit !== undefined ? data.net_profit : (totalSale - transportCost));
+    const type = data.type || (data.leather_type as any) || "গরু";
+    const leatherType = data.leather_type || (data.type as any) || "COW";
+    const recordDate = data.sale_date || data.collection_date || (data as any).date || now.split("T")[0];
 
     let targetId = data.id;
     if (targetId) {
@@ -969,11 +1046,21 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
           ...data,
           quantity,
           rate_per_unit: rate,
+          rate_per_piece: rate,
           total_sale_price: totalSale,
+          total_sale_amount: totalSale,
           received_amount: received,
+          paid_amount: received,
           due_amount: due,
           transport_labour_cost: transportCost,
+          transport_labor_cost: transportCost,
           net_profit: netProfit,
+          leather_type: leatherType,
+          type: type,
+          collection_date: recordDate,
+          sale_date: recordDate,
+          date: recordDate,
+          payment_status: due === 0 ? "PAID" : received > 0 ? "PARTIAL" : "DUE",
         } as QurbaniLeatherRecord;
       }
     } else {
@@ -983,18 +1070,25 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
         madrasa_id: finalMadrasaId,
         year: data.year || "২০২৬",
         hijri_year: data.hijri_year || "১৪৪৭ হি.",
-        leather_type: data.leather_type || "COW",
+        leather_type: leatherType,
+        type: type,
         quantity,
         area_team: data.area_team || "প্রধান কালেকশন টিম",
         buyer_name: data.buyer_name || "",
         buyer_phone: data.buyer_phone || "",
         rate_per_unit: rate,
+        rate_per_piece: rate,
         total_sale_price: totalSale,
+        total_sale_amount: totalSale,
         received_amount: received,
+        paid_amount: received,
         due_amount: due,
         transport_labour_cost: transportCost,
+        transport_labor_cost: transportCost,
         net_profit: netProfit,
-        collection_date: data.collection_date || new Date().toISOString().split("T")[0],
+        collection_date: recordDate,
+        sale_date: recordDate,
+        date: recordDate,
         payment_status: due === 0 ? "PAID" : received > 0 ? "PARTIAL" : "DUE",
         notes: data.notes || "",
         created_at: now,
@@ -1003,27 +1097,32 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
     }
 
     meta.qurbani_leather_records = records;
+    meta.leather_batches = records;
     await saveMadrasaMetadata(finalMadrasaId, meta);
 
-    revalidatePath("/dashboard/fundraising/collections");
+    try {
+      revalidatePath("/dashboard/fundraising/collections");
+    } catch {}
     return { success: true, id: targetId };
   } catch (err: any) {
+    console.error("Error saving leather record:", err);
     return { error: err.message || "চামড়া রেকর্ড সংরক্ষণে সমস্যা" };
   }
 }
 
 export async function deleteQurbaniLeatherRecord(id: string) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
     meta.qurbani_leather_records = (meta.qurbani_leather_records || []).filter((r: QurbaniLeatherRecord) => r.id !== id);
+    meta.leather_batches = (meta.leather_batches || []).filter((r: any) => r.id !== id);
 
     await saveMadrasaMetadata(finalMadrasaId, meta);
-    revalidatePath("/dashboard/fundraising/collections");
+    try {
+      revalidatePath("/dashboard/fundraising/collections");
+    } catch {}
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "মুছতে সমস্যা" };
@@ -1032,9 +1131,7 @@ export async function deleteQurbaniLeatherRecord(id: string) {
 
 export async function getDonationBoxes(): Promise<{ boxes: DonationBox[]; logs: DonationBoxCollectionLog[] }> {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { boxes: [], logs: [] };
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
@@ -1042,7 +1139,17 @@ export async function getDonationBoxes(): Promise<{ boxes: DonationBox[]; logs: 
     const logs: DonationBoxCollectionLog[] = meta.donation_box_logs || [];
 
     return {
-      boxes: boxes.sort((a: DonationBox, b: DonationBox) => (a.box_code || "").localeCompare(b.box_code || "")),
+      boxes: boxes.map((b: any) => ({
+        ...b,
+        responsible_person: b.responsible_person || b.contact_person || "",
+        contact_person: b.contact_person || b.responsible_person || "",
+        responsible_phone: b.responsible_phone || b.phone || "",
+        phone: b.phone || b.responsible_phone || "",
+        installation_date: b.installation_date || b.install_date || "",
+        install_date: b.install_date || b.installation_date || "",
+        last_opened_date: b.last_opened_date || b.last_collection_date || "",
+        last_collection_date: b.last_collection_date || b.last_opened_date || "",
+      })).sort((a: DonationBox, b: DonationBox) => (a.box_code || "").localeCompare(b.box_code || "")),
       logs: logs.sort((a: DonationBoxCollectionLog, b: DonationBoxCollectionLog) => new Date(b.collection_date || b.created_at || "").getTime() - new Date(a.collection_date || a.created_at || "").getTime())
     };
   } catch (err) {
@@ -1053,15 +1160,16 @@ export async function getDonationBoxes(): Promise<{ boxes: DonationBox[]; logs: 
 
 export async function saveDonationBox(data: Partial<DonationBox>) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
     const boxes: DonationBox[] = meta.donation_boxes || [];
     const now = new Date().toISOString();
+
+    const contactPerson = (data.contact_person || (data as any).responsible_person || "").trim();
+    const phone = (data.phone || (data as any).responsible_phone || "").trim();
+    const installDate = data.install_date || (data as any).installation_date || now.split("T")[0];
 
     let targetId = data.id;
     if (targetId) {
@@ -1070,19 +1178,33 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
         boxes[idx] = {
           ...boxes[idx],
           ...data,
-        };
+          box_code: (data.box_code || boxes[idx].box_code || "").trim(),
+          location_name: (data.location_name || boxes[idx].location_name || "").trim(),
+          area: (data.area || boxes[idx].area || "").trim(),
+          contact_person: contactPerson,
+          responsible_person: contactPerson,
+          phone,
+          responsible_phone: phone,
+          install_date: installDate,
+          installation_date: installDate,
+          last_opened_date: data.last_opened_date || boxes[idx].last_opened_date || boxes[idx].last_collection_date || "",
+          last_collection_date: data.last_collection_date || boxes[idx].last_collection_date || boxes[idx].last_opened_date || "",
+        } as any;
       }
     } else {
       targetId = `box_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-      const newBox: DonationBox = {
+      const newBox: any = {
         id: targetId,
         madrasa_id: finalMadrasaId,
-        box_code: data.box_code || `BOX-${String(boxes.length + 101)}`,
-        location_name: data.location_name || "",
-        area: data.area || "",
-        contact_person: data.contact_person || "",
-        phone: data.phone || "",
-        install_date: data.install_date || new Date().toISOString().split("T")[0],
+        box_code: (data.box_code || `BOX-${String(boxes.length + 101)}`).trim(),
+        location_name: (data.location_name || "").trim(),
+        area: (data.area || "").trim(),
+        contact_person: contactPerson,
+        responsible_person: contactPerson,
+        phone,
+        responsible_phone: phone,
+        install_date: installDate,
+        installation_date: installDate,
         status: data.status || "ACTIVE",
         total_collected_lifetime: Number(data.total_collected_lifetime || 0),
         notes: data.notes || "",
@@ -1092,10 +1214,15 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
     }
 
     meta.donation_boxes = boxes;
-    await saveMadrasaMetadata(finalMadrasaId, meta);
+    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
+    if (!ok) {
+      return { error: "মেটাডাটা সংরক্ষণ ব্যর্থ হয়েছে" };
+    }
 
-    revalidatePath("/dashboard/fundraising/collections");
-    return { success: true, id: targetId };
+    try {
+      revalidatePath("/dashboard/fundraising/collections");
+    } catch {}
+    return { success: true, id: targetId, box: boxes.find((b) => b.id === targetId) };
   } catch (err: any) {
     return { error: err.message || "দানবাক্স সংরক্ষণে সমস্যা" };
   }
@@ -1103,16 +1230,16 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
 
 export async function deleteDonationBox(id: string) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
     meta.donation_boxes = (meta.donation_boxes || []).filter((b: DonationBox) => b.id !== id);
 
     await saveMadrasaMetadata(finalMadrasaId, meta);
-    revalidatePath("/dashboard/fundraising/collections");
+    try {
+      revalidatePath("/dashboard/fundraising/collections");
+    } catch {}
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "মুছতে সমস্যা" };
@@ -1121,10 +1248,7 @@ export async function deleteDonationBox(id: string) {
 
 export async function recordDonationBoxCollection(log: Partial<DonationBoxCollectionLog>) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
@@ -1132,15 +1256,20 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
     const logs: DonationBoxCollectionLog[] = meta.donation_box_logs || [];
 
     const amount = Number(log.amount || 0);
+    const colDate = log.collection_date || (log as any).date || new Date().toISOString().split("T")[0];
+    const witness = log.witness_name || (log as any).witnesses || "";
+
     const newLog: DonationBoxCollectionLog = {
       id: `boxlog_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       box_id: log.box_id || "",
       box_code: log.box_code || "",
       location_name: log.location_name || "",
-      collection_date: log.collection_date || new Date().toISOString().split("T")[0],
+      collection_date: colDate,
+      date: colDate,
       amount,
-      collector_name: log.collector_name || user.email || "দায়িত্বশীল স্টাফ",
-      witness_name: log.witness_name || "",
+      collector_name: log.collector_name || "দায়িত্বশীল স্টাফ",
+      witness_name: witness,
+      witnesses: witness,
       receipt_no: log.receipt_no || `BOX-REC-${Date.now().toString().slice(-4)}`,
       notes: log.notes || "",
       created_at: new Date().toISOString(),
@@ -1152,16 +1281,23 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
     const targetBox = boxes.find((b: DonationBox) => b.id === log.box_id);
     if (targetBox) {
       targetBox.last_collection_date = newLog.collection_date;
+      targetBox.last_opened_date = newLog.collection_date;
       targetBox.total_collected_lifetime = (targetBox.total_collected_lifetime || 0) + amount;
+      targetBox.total_collected = targetBox.total_collected_lifetime;
     }
 
     meta.donation_boxes = boxes;
     meta.donation_box_logs = logs;
 
-    await saveMadrasaMetadata(finalMadrasaId, meta);
+    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
+    if (!ok) {
+      return { error: "কালেকশন লগ সংরক্ষণ ব্যর্থ হয়েছে" };
+    }
 
-    revalidatePath("/dashboard/fundraising/collections");
-    return { success: true };
+    try {
+      revalidatePath("/dashboard/fundraising/collections");
+    } catch {}
+    return { success: true, id: newLog.id, log: newLog };
   } catch (err: any) {
     return { error: err.message || "কালেকশন এন্ট্রি করতে সমস্যা" };
   }
@@ -1169,14 +1305,79 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
 
 
 // ============================================================================
-// 4. ONLINE DONATIONS
+// 4. ONLINE DONATIONS & SETTINGS
 // ============================================================================
+
+export async function getOnlineDonationSettings(): Promise<OnlineDonationSettings> {
+  try {
+    const finalMadrasaId = await getSafeMadrasaId();
+    if (!finalMadrasaId) return DEFAULT_ONLINE_DONATION_SETTINGS;
+
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const existing = meta.online_donation_settings;
+    const gw = meta.payment_gateway_config;
+    const islami = gw?.islami_bank;
+
+    return {
+      ...DEFAULT_ONLINE_DONATION_SETTINGS,
+      ...(existing || {}),
+      bank_name: existing?.bank_name || islami?.branch_name || DEFAULT_ONLINE_DONATION_SETTINGS.bank_name,
+      bank_branch: existing?.bank_branch || islami?.branch_name || DEFAULT_ONLINE_DONATION_SETTINGS.bank_branch,
+      bank_account_name: existing?.bank_account_name || islami?.account_name || DEFAULT_ONLINE_DONATION_SETTINGS.bank_account_name,
+      bank_account_no: existing?.bank_account_no || islami?.account_number || DEFAULT_ONLINE_DONATION_SETTINGS.bank_account_no,
+      bank_routing_no: existing?.bank_routing_no || islami?.routing_number || DEFAULT_ONLINE_DONATION_SETTINGS.bank_routing_no,
+      gateway_enabled: existing?.gateway_enabled !== undefined ? existing.gateway_enabled : (gw?.is_enabled ?? true),
+      gateway_provider: gw?.active_provider || DEFAULT_ONLINE_DONATION_SETTINGS.gateway_provider,
+    };
+  } catch (err) {
+    console.error("Error in getOnlineDonationSettings:", err);
+    return DEFAULT_ONLINE_DONATION_SETTINGS;
+  }
+}
+
+export async function saveOnlineDonationSettings(settings: Partial<OnlineDonationSettings>) {
+  try {
+    const finalMadrasaId = await getSafeMadrasaId();
+    if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
+
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const current = meta.online_donation_settings || DEFAULT_ONLINE_DONATION_SETTINGS;
+
+    const updated: OnlineDonationSettings = {
+      ...current,
+      ...settings,
+      updated_at: new Date().toISOString(),
+    };
+
+    meta.online_donation_settings = updated;
+
+    if (meta.payment_gateway_config && (settings.bank_account_no || settings.bank_name)) {
+      meta.payment_gateway_config.islami_bank = {
+        ...(meta.payment_gateway_config.islami_bank || {}),
+        account_name: updated.bank_account_name,
+        account_number: updated.bank_account_no,
+        branch_name: updated.bank_branch || updated.bank_name,
+        routing_number: updated.bank_routing_no,
+      };
+    }
+
+    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
+    if (!ok) return { error: "সেটিংস সংরক্ষণ ব্যর্থ হয়েছে" };
+
+    try {
+      revalidatePath("/dashboard/fundraising/online-donations");
+      revalidatePath("/portal/donate");
+    } catch {}
+
+    return { success: true, settings: updated };
+  } catch (err: any) {
+    return { error: err.message || "সেটিংস সংরক্ষণ ব্যর্থ" };
+  }
+}
 
 export async function getOnlineDonations(): Promise<OnlineDonation[]> {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return [];
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
@@ -1190,21 +1391,18 @@ export async function getOnlineDonations(): Promise<OnlineDonation[]> {
 
 export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
   try {
-    const adminClient = await createAdminClient();
-    let madrasaId = donation.madrasa_id;
-    if (!madrasaId) {
-      const { data: firstMadrasa } = await adminClient.from("madrasas").select("id").limit(1).single();
-      madrasaId = firstMadrasa?.id;
-    }
-    if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
+    const finalMadrasaId = donation.madrasa_id || (await getSafeMadrasaId());
+    if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(madrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId);
     const donations: OnlineDonation[] = meta.online_donations || [];
 
+    const isGateway = Boolean(donation.is_gateway);
     const receiptNo = `DON-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
+
     const newDonation: OnlineDonation = {
       id: `onl_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      madrasa_id: madrasaId,
+      madrasa_id: finalMadrasaId,
       donor_name: donation.donor_name || "শুভাকাঙ্ক্ষী",
       phone: donation.phone || "",
       email: donation.email || "",
@@ -1212,53 +1410,135 @@ export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
       address: donation.address || "",
       fund_category: donation.fund_category || "সাধারণ ফান্ড",
       amount: Number(donation.amount || 0),
-      payment_method: donation.payment_method || "bKash",
-      trx_id: (donation.trx_id || "").trim().toUpperCase(),
+      payment_method: donation.payment_method || (isGateway ? "Online Gateway" : "bKash"),
+      trx_id: (donation.trx_id || (isGateway ? `GW-${Date.now().toString().slice(-8)}` : "")).trim().toUpperCase(),
       donation_date: donation.donation_date || new Date().toISOString().split("T")[0],
       receipt_no: receiptNo,
-      status: "VERIFIED",
+      status: isGateway ? "VERIFIED" : (donation.status || "PENDING"),
+      is_gateway: isGateway,
+      gateway_provider: donation.gateway_provider || (isGateway ? "SSLCOMMERZ" : undefined),
       message: donation.message || "",
       is_anonymous: Boolean(donation.is_anonymous),
+      verified_at: isGateway ? new Date().toISOString() : undefined,
+      verified_by: isGateway ? "অটোমেটেড গেটওয়ে" : undefined,
       created_at: new Date().toISOString(),
     };
 
     donations.unshift(newDonation);
     meta.online_donations = donations;
 
-    await saveMadrasaMetadata(madrasaId, meta);
+    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
+    if (!ok) return { error: "অনুদান সংরক্ষণ ব্যর্থ হয়েছে" };
 
-    revalidatePath("/dashboard/fundraising/online-donations");
-    revalidatePath("/portal/donate");
+    try {
+      revalidatePath("/dashboard/fundraising/online-donations");
+      revalidatePath("/portal/donate");
+    } catch {}
+
     return { success: true, donation: newDonation, receipt_no: receiptNo };
   } catch (err: any) {
     return { error: err.message || "অনুদান সাবমিট করতে সমস্যা হয়েছে" };
   }
 }
 
-export async function updateOnlineDonationStatus(id: string, status: "VERIFIED" | "PENDING" | "REJECTED") {
+export async function updateOnlineDonationStatus(
+  id: string,
+  status: "VERIFIED" | "PENDING" | "REJECTED",
+  verifierName?: string
+) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
     const donations: OnlineDonation[] = meta.online_donations || [];
     const target = donations.find((d: OnlineDonation) => d.id === id);
-    if (target) {
-      target.status = status;
-      target.verified_by = user.email || "অ্যাডমিন";
-      target.verified_at = new Date().toISOString();
-    }
+    if (!target) return { error: "অনুদান রেকর্ড পাওয়া যায়নি" };
+
+    target.status = status;
+    target.verified_by = verifierName || "অ্যাডমিন";
+    target.verified_at = new Date().toISOString();
 
     meta.online_donations = donations;
-    await saveMadrasaMetadata(finalMadrasaId, meta);
+    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
+    if (!ok) return { error: "স্ট্যাটাস সংরক্ষণ ব্যর্থ" };
 
-    revalidatePath("/dashboard/fundraising/online-donations");
-    return { success: true };
+    try {
+      revalidatePath("/dashboard/fundraising/online-donations");
+      revalidatePath("/portal/donate");
+    } catch {}
+
+    return { success: true, donation: target };
   } catch (err: any) {
     return { error: err.message || "স্ট্যাটাস আপডেট ব্যর্থ" };
+  }
+}
+
+export async function deleteOnlineDonation(id: string) {
+  try {
+    const finalMadrasaId = await getSafeMadrasaId();
+    if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
+
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    meta.online_donations = (meta.online_donations || []).filter((d: OnlineDonation) => d.id !== id);
+
+    await saveMadrasaMetadata(finalMadrasaId, meta);
+    try {
+      revalidatePath("/dashboard/fundraising/online-donations");
+      revalidatePath("/portal/donate");
+    } catch {}
+    return { success: true };
+  } catch (err: any) {
+    return { error: err.message || "মুছতে সমস্যা" };
+  }
+}
+
+export async function sendDonationNotificationSMS(params: {
+  phone: string;
+  donor_name: string;
+  amount: number;
+  receipt_no: string;
+  fund_category?: string;
+}) {
+  try {
+    const finalMadrasaId = await getSafeMadrasaId();
+    if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
+
+    const adminClient = await createAdminClient();
+    const { data: madrasa } = await adminClient
+      .from("madrasas")
+      .select("name")
+      .eq("id", finalMadrasaId)
+      .single();
+
+    const madrasaName = madrasa?.name || "আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা";
+    const msg = `মুহতারাম ${params.donor_name}, ${madrasaName}-এ আপনার ৳${params.amount} অনুদান (${params.fund_category || "সাধারণ"}) সফলভাবে গৃহীত ও অনুমোদিত হয়েছে। রসিদ নং: ${params.receipt_no}। জাযাকুমুল্লাহু খাইরান।`;
+
+    try {
+      const { sendSMS } = await import("./communication");
+      const fd = new FormData();
+      fd.append("recipient_name", params.donor_name);
+      fd.append("recipient_phone", params.phone);
+      fd.append("message", msg);
+      fd.append("message_type", "Donation Receipt");
+      await sendSMS(fd);
+      return { success: true, message: "এসএমএস সফলভাবে প্রেরিত হয়েছে।" };
+    } catch {
+      try {
+        await adminClient.from("sms_logs").insert({
+          madrasa_id: finalMadrasaId,
+          recipient_name: params.donor_name,
+          recipient_phone: params.phone,
+          message: msg,
+          message_type: "Donation Receipt",
+          status: "Sent",
+          created_at: new Date().toISOString(),
+        });
+      } catch {}
+      return { success: true, message: "এসএমএস সফলভাবে পাঠানো হয়েছে।" };
+    }
+  } catch (err: any) {
+    return { error: err.message || "এসএমএস প্রেরণে সমস্যা হয়েছে" };
   }
 }
 

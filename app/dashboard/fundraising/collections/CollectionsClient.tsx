@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Boxes,
@@ -61,6 +61,18 @@ export default function CollectionsClient({
   const [leathers, setLeathers] = useState<QurbaniLeatherBatch[]>(initialLeathers);
   const [boxes, setBoxes] = useState<CollectionBox[]>(initialBoxes);
   const [activeTab, setActiveTab] = useState<"leather" | "boxes">("leather");
+
+  useEffect(() => {
+    if (initialBoxes && initialBoxes.length > 0) {
+      setBoxes(initialBoxes);
+    }
+  }, [initialBoxes]);
+
+  useEffect(() => {
+    if (initialLeathers && initialLeathers.length > 0) {
+      setLeathers(initialLeathers);
+    }
+  }, [initialLeathers]);
 
   // Search
   const [search, setSearch] = useState("");
@@ -151,30 +163,88 @@ export default function CollectionsClient({
     }
     setLoading(true);
     try {
-      const res = await saveLeatherCollection(editingLeather);
-      if (res.error) {
-        alert(res.error);
-        setLoading(false);
-        return;
+      const payload: Partial<QurbaniLeatherBatch> = {
+        ...editingLeather,
+        quantity: Number(editingLeather.quantity || 0),
+        rate_per_piece: Number(editingLeather.rate_per_piece || 0),
+        rate_per_unit: Number(editingLeather.rate_per_piece || 0),
+        total_sale_amount: Number(editingLeather.total_sale_amount || (Number(editingLeather.quantity || 0) * Number(editingLeather.rate_per_piece || 0))),
+        total_sale_price: Number(editingLeather.total_sale_amount || (Number(editingLeather.quantity || 0) * Number(editingLeather.rate_per_piece || 0))),
+        transport_labor_cost: Number(editingLeather.transport_labor_cost || 0),
+        transport_labour_cost: Number(editingLeather.transport_labor_cost || 0),
+        net_profit: Number(editingLeather.net_profit || 0),
+        due_amount: Number(editingLeather.due_amount || 0),
+        type: editingLeather.type || "গরু",
+        leather_type: editingLeather.type || "গরু",
+        year: editingLeather.year || "২০২৬",
+        buyer_name: editingLeather.buyer_name || "",
+        sale_date: editingLeather.sale_date || new Date().toISOString().split("T")[0],
+        collection_date: editingLeather.sale_date || new Date().toISOString().split("T")[0],
+      };
+
+      let res = await saveLeatherCollection(payload);
+      if (res && res.error) {
+        const apiRes = await fetch("/api/fundraising/collections/leather", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const apiData = await apiRes.json();
+        if (!apiRes.ok || apiData.error) {
+          alert(apiData.error || res.error || "চামড়ার তথ্য সংরক্ষণে সমস্যা হয়েছে");
+          setLoading(false);
+          return;
+        }
+        res = apiData;
       }
       setLeatherModalOpen(false);
       router.refresh();
 
+      const savedId = res?.id || editingLeather.id || `lth_${Date.now()}`;
+      const savedItem = {
+        ...payload,
+        id: savedId,
+        created_at: editingLeather.created_at || new Date().toISOString(),
+      } as QurbaniLeatherBatch;
+
       if (editingLeather.id) {
         setLeathers((prev) =>
-          prev.map((l) => (l.id === editingLeather.id ? ({ ...l, ...editingLeather } as QurbaniLeatherBatch) : l))
+          prev.map((l) => (l.id === editingLeather.id ? savedItem : l))
         );
-      } else if (res.id) {
-        const newItem = {
-          ...editingLeather,
-          id: res.id,
-          created_at: new Date().toISOString(),
-        } as QurbaniLeatherBatch;
-        setLeathers((prev) => [newItem, ...prev]);
-        setPrintLeatherMemo(newItem); // Instant invoice print option
+      } else {
+        setLeathers((prev) => [savedItem, ...prev]);
+        setPrintLeatherMemo(savedItem); // Instant invoice print option
       }
-    } catch (err) {
-      alert("চামড়ার তথ্য সংরক্ষণে সমস্যা হয়েছে");
+    } catch (err: any) {
+      try {
+        const payload = {
+          ...editingLeather,
+          rate_per_unit: editingLeather?.rate_per_piece,
+          total_sale_price: editingLeather?.total_sale_amount,
+          transport_labour_cost: editingLeather?.transport_labor_cost,
+          leather_type: editingLeather?.type,
+        };
+        const apiRes = await fetch("/api/fundraising/collections/leather", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const apiData = await apiRes.json();
+        if (apiRes.ok && !apiData.error) {
+          setLeatherModalOpen(false);
+          router.refresh();
+          const savedId = apiData.id || editingLeather?.id || `lth_${Date.now()}`;
+          const savedItem = { ...payload, id: savedId, created_at: new Date().toISOString() } as QurbaniLeatherBatch;
+          if (editingLeather?.id) {
+            setLeathers((prev) => prev.map((l) => (l.id === editingLeather.id ? savedItem : l)));
+          } else {
+            setLeathers((prev) => [savedItem, ...prev]);
+            setPrintLeatherMemo(savedItem);
+          }
+          return;
+        }
+      } catch {}
+      alert("চামড়ার তথ্য সংরক্ষণে সমস্যা হয়েছে: " + (err?.message || ""));
     } finally {
       setLoading(false);
     }
@@ -183,10 +253,23 @@ export default function CollectionsClient({
   const handleDeleteLeather = async (id: string) => {
     if (!confirm("আপনি কি নিশ্চিতভাবে এই চামড়া চালানের রেকর্ড মুছে ফেলতে চান?")) return;
     try {
-      await deleteLeatherCollection(id);
+      const res = await deleteLeatherCollection(id);
+      if (res && res.error) {
+        await fetch(`/api/fundraising/collections/leather?id=${id}`, {
+          method: "DELETE",
+        });
+      }
       setLeathers((prev) => prev.filter((l) => l.id !== id));
       router.refresh();
     } catch (err) {
+      try {
+        await fetch(`/api/fundraising/collections/leather?id=${id}`, {
+          method: "DELETE",
+        });
+        setLeathers((prev) => prev.filter((l) => l.id !== id));
+        router.refresh();
+        return;
+      } catch {}
       alert("মুছতে সমস্যা হয়েছে");
     }
   };
@@ -221,33 +304,108 @@ export default function CollectionsClient({
     }
     setLoading(true);
     try {
-      const res = await saveCollectionBox(editingBox);
-      if (res.error) {
-        alert(res.error);
-        setLoading(false);
-        return;
+      const payload: Partial<CollectionBox> = {
+        ...editingBox,
+        box_code: (editingBox.box_code || "").trim(),
+        location_name: (editingBox.location_name || "").trim(),
+        area: (editingBox.area || "বাজার এলাকা").trim(),
+        responsible_person: (editingBox.responsible_person || "").trim(),
+        contact_person: (editingBox.responsible_person || "").trim(),
+        responsible_phone: (editingBox.responsible_phone || "").trim(),
+        phone: (editingBox.responsible_phone || "").trim(),
+        installation_date: editingBox.installation_date || new Date().toISOString().split("T")[0],
+        install_date: editingBox.installation_date || new Date().toISOString().split("T")[0],
+        status: editingBox.status || "ACTIVE",
+        total_collected_lifetime: Number(editingBox.total_collected_lifetime || 0),
+      };
+
+      let res: any = await saveCollectionBox(payload);
+
+      if (res && res.error) {
+        const apiRes = await fetch("/api/fundraising/collections/boxes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ box: payload }),
+        });
+        const apiData = await apiRes.json();
+        if (!apiRes.ok || apiData.error) {
+          alert(apiData.error || res.error || "দানবাক্স সংরক্ষণে সমস্যা হয়েছে");
+          setLoading(false);
+          return;
+        }
+        res = apiData;
       }
-      setBoxModalOpen(false);
-      router.refresh();
+
+      const finalId = res?.id || editingBox.id || `box_${Date.now()}`;
+      const savedBox: CollectionBox = {
+        ...payload,
+        id: finalId,
+        box_code: payload.box_code || "BOX-001",
+        location_name: payload.location_name || "",
+        area: payload.area || "বাজার এলাকা",
+        responsible_person: payload.responsible_person || "",
+        contact_person: payload.responsible_person || "",
+        responsible_phone: payload.responsible_phone || "",
+        phone: payload.responsible_phone || "",
+        installation_date: payload.installation_date || new Date().toISOString().split("T")[0],
+        install_date: payload.installation_date || new Date().toISOString().split("T")[0],
+        status: payload.status || "ACTIVE",
+        total_collected_lifetime: payload.total_collected_lifetime || 0,
+        collection_logs: editingBox.collection_logs || [],
+        created_at: editingBox.created_at || new Date().toISOString(),
+      } as CollectionBox;
 
       if (editingBox.id) {
-        setBoxes((prev) =>
-          prev.map((b) => (b.id === editingBox.id ? ({ ...b, ...editingBox } as CollectionBox) : b))
-        );
-      } else if (res.id) {
-        setBoxes((prev) => [
-          {
-            ...editingBox,
-            id: res.id,
+        setBoxes((prev) => prev.map((b) => (b.id === editingBox.id ? savedBox : b)));
+      } else {
+        setBoxes((prev) => [savedBox, ...prev]);
+      }
+
+      setBoxModalOpen(false);
+      setEditingBox(null);
+      router.refresh();
+    } catch (err: any) {
+      try {
+        const payload: Partial<CollectionBox> = {
+          ...editingBox,
+          box_code: (editingBox?.box_code || "").trim(),
+          location_name: (editingBox?.location_name || "").trim(),
+          area: (editingBox?.area || "বাজার এলাকা").trim(),
+          responsible_person: (editingBox?.responsible_person || "").trim(),
+          contact_person: (editingBox?.responsible_person || "").trim(),
+          responsible_phone: (editingBox?.responsible_phone || "").trim(),
+          phone: (editingBox?.responsible_phone || "").trim(),
+          installation_date: editingBox?.installation_date || new Date().toISOString().split("T")[0],
+          install_date: editingBox?.installation_date || new Date().toISOString().split("T")[0],
+          status: editingBox?.status || "ACTIVE",
+        };
+        const apiRes = await fetch("/api/fundraising/collections/boxes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ box: payload }),
+        });
+        const apiData = await apiRes.json();
+        if (apiRes.ok && !apiData.error) {
+          const finalId = apiData?.id || editingBox?.id || `box_${Date.now()}`;
+          const savedBox: CollectionBox = {
+            ...payload,
+            id: finalId,
             total_collected_lifetime: 0,
             collection_logs: [],
             created_at: new Date().toISOString(),
-          } as CollectionBox,
-          ...prev,
-        ]);
-      }
-    } catch (err) {
-      alert("দানবাক্স সংরক্ষণে সমস্যা হয়েছে");
+          } as CollectionBox;
+          if (editingBox?.id) {
+            setBoxes((prev) => prev.map((b) => (b.id === editingBox.id ? savedBox : b)));
+          } else {
+            setBoxes((prev) => [savedBox, ...prev]);
+          }
+          setBoxModalOpen(false);
+          setEditingBox(null);
+          router.refresh();
+          return;
+        }
+      } catch {}
+      alert("দানবাক্স সংরক্ষণে সমস্যা হয়েছে: " + (err?.message || ""));
     } finally {
       setLoading(false);
     }
@@ -256,10 +414,23 @@ export default function CollectionsClient({
   const handleDeleteBox = async (id: string) => {
     if (!confirm("আপনি কি নিশ্চিতভাবে এই দানবাক্স রেকর্ড মুছে ফেলতে চান?")) return;
     try {
-      await deleteCollectionBox(id);
+      const res = await deleteCollectionBox(id);
+      if (res && res.error) {
+        await fetch(`/api/fundraising/collections/boxes?id=${id}`, {
+          method: "DELETE",
+        });
+      }
       setBoxes((prev) => prev.filter((b) => b.id !== id));
       router.refresh();
     } catch (err) {
+      try {
+        await fetch(`/api/fundraising/collections/boxes?id=${id}`, {
+          method: "DELETE",
+        });
+        setBoxes((prev) => prev.filter((b) => b.id !== id));
+        router.refresh();
+        return;
+      } catch {}
       alert("মুছতে সমস্যা হয়েছে");
     }
   };
@@ -282,26 +453,39 @@ export default function CollectionsClient({
     if (!selectedBoxForOpen) return;
     setLoading(true);
     try {
-      const res = await recordBoxOpening({
+      const logPayload = {
         box_id: selectedBoxForOpen.id,
         amount: Number(logFormData.amount),
         date: logFormData.date,
+        collection_date: logFormData.date,
         witnesses: logFormData.witnesses,
+        witness_name: logFormData.witnesses,
         receipt_no: logFormData.receipt_no,
         notes: logFormData.notes,
-      });
+      };
 
-      if (res.error) {
-        alert(res.error);
-        setLoading(false);
-        return;
+      let res = await recordBoxOpening(logPayload);
+
+      if (res && res.error) {
+        const apiRes = await fetch("/api/fundraising/collections/boxes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "record_collection", log: logPayload }),
+        });
+        const apiData = await apiRes.json();
+        if (!apiRes.ok || apiData.error) {
+          alert(apiData.error || res.error || "কালেকশন এন্ট্রি করতে সমস্যা হয়েছে");
+          setLoading(false);
+          return;
+        }
+        res = apiData;
       }
 
       setOpenLogModal(false);
       router.refresh();
 
       const newLog: BoxCollectionLog = {
-        id: `log_${Date.now()}`,
+        id: res?.id || `log_${Date.now()}`,
         box_id: selectedBoxForOpen.id,
         amount: Number(logFormData.amount),
         date: logFormData.date,
@@ -325,8 +509,53 @@ export default function CollectionsClient({
 
       // Trigger box memo print
       setPrintBoxLogMemo({ box: selectedBoxForOpen, log: newLog });
-    } catch (err) {
-      alert("বক্স কালেকশন সংরক্ষণে সমস্যা হয়েছে");
+    } catch (err: any) {
+      try {
+        const logPayload = {
+          box_id: selectedBoxForOpen.id,
+          amount: Number(logFormData.amount),
+          date: logFormData.date,
+          collection_date: logFormData.date,
+          witnesses: logFormData.witnesses,
+          witness_name: logFormData.witnesses,
+          receipt_no: logFormData.receipt_no,
+          notes: logFormData.notes,
+        };
+        const apiRes = await fetch("/api/fundraising/collections/boxes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "record_collection", log: logPayload }),
+        });
+        const apiData = await apiRes.json();
+        if (apiRes.ok && !apiData.error) {
+          setOpenLogModal(false);
+          router.refresh();
+          const newLog: BoxCollectionLog = {
+            id: apiData.id || `log_${Date.now()}`,
+            box_id: selectedBoxForOpen.id,
+            amount: Number(logFormData.amount),
+            date: logFormData.date,
+            witnesses: logFormData.witnesses,
+            receipt_no: logFormData.receipt_no,
+            notes: logFormData.notes,
+          };
+          setBoxes((prev) =>
+            prev.map((b) =>
+              b.id === selectedBoxForOpen.id
+                ? {
+                    ...b,
+                    last_opened_date: newLog.date,
+                    total_collected_lifetime: (b.total_collected_lifetime || 0) + newLog.amount,
+                    collection_logs: [newLog, ...(b.collection_logs || [])],
+                  }
+                : b
+            )
+          );
+          setPrintBoxLogMemo({ box: selectedBoxForOpen, log: newLog });
+          return;
+        }
+      } catch {}
+      alert("বক্স কালেকশন সংরক্ষণে সমস্যা হয়েছে: " + (err?.message || ""));
     } finally {
       setLoading(false);
     }
