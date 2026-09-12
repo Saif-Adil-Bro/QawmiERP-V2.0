@@ -1375,13 +1375,53 @@ export async function saveOnlineDonationSettings(settings: Partial<OnlineDonatio
   }
 }
 
+function generateNextOnlineDonationReceiptNo(donations: OnlineDonation[], year: number = new Date().getFullYear()): string {
+  let maxSerial = 0;
+  for (const d of donations) {
+    if (d.receipt_no) {
+      const match = d.receipt_no.match(/DON-(\d{4})-(\d+)/);
+      if (match) {
+        const itemYear = parseInt(match[1], 10);
+        const itemSerial = parseInt(match[2], 10);
+        if (itemYear === year && !isNaN(itemSerial) && itemSerial < 100000) {
+          if (itemSerial > maxSerial) {
+            maxSerial = itemSerial;
+          }
+        }
+      }
+    }
+  }
+  const nextSerial = maxSerial + 1;
+  return `DON-${year}-${String(nextSerial).padStart(4, "0")}`;
+}
+
 export async function getOnlineDonations(): Promise<OnlineDonation[]> {
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return [];
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
-    const donations: OnlineDonation[] = meta.online_donations || [];
+    let donations: OnlineDonation[] = meta.online_donations || [];
+
+    // Normalize any legacy timestamp-based receipt numbers to clean sequential format
+    let hasMigration = false;
+    donations = donations.map((d: OnlineDonation, idx: number) => {
+      if (d.receipt_no && (/DON-\d{4}-\d{5,}/.test(d.receipt_no) || d.receipt_no.length > 15)) {
+        hasMigration = true;
+        const year = d.created_at ? new Date(d.created_at).getFullYear() : 2026;
+        return {
+          ...d,
+          receipt_no: `DON-${year}-${String(donations.length - idx).padStart(4, "0")}`,
+        };
+      }
+      return d;
+    });
+
+    if (hasMigration) {
+      meta.online_donations = donations;
+      await saveMadrasaMetadata(finalMadrasaId, meta);
+    }
+
     return donations.sort((a: OnlineDonation, b: OnlineDonation) => new Date(b.donation_date || b.created_at).getTime() - new Date(a.donation_date || a.created_at).getTime());
   } catch (err) {
     console.error("Error fetching online donations:", err);
@@ -1398,7 +1438,8 @@ export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
     const donations: OnlineDonation[] = meta.online_donations || [];
 
     const isGateway = Boolean(donation.is_gateway);
-    const receiptNo = `DON-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`;
+    const currentYear = new Date().getFullYear();
+    const receiptNo = generateNextOnlineDonationReceiptNo(donations, currentYear);
 
     const newDonation: OnlineDonation = {
       id: `onl_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -1514,16 +1555,38 @@ export async function sendDonationNotificationSMS(params: {
     const madrasaName = madrasa?.name || "আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা";
     const msg = `মুহতারাম ${params.donor_name}, ${madrasaName}-এ আপনার ৳${params.amount} অনুদান (${params.fund_category || "সাধারণ"}) সফলভাবে গৃহীত ও অনুমোদিত হয়েছে। রসিদ নং: ${params.receipt_no}। জাযাকুমুল্লাহু খাইরান।`;
 
-    try {
-      const { sendSMS } = await import("./communication");
-      const fd = new FormData();
-      fd.append("recipient_name", params.donor_name);
-      fd.append("recipient_phone", params.phone);
-      fd.append("message", msg);
-      fd.append("message_type", "Donation Receipt");
-      await sendSMS(fd);
-      return { success: true, message: "এসএমএস সফলভাবে প্রেরিত হয়েছে।" };
-    } catch {
+    const { getSMSGatewayConfig, dispatchSMSGatewayRequest } = await import("./communication");
+    const gatewayConfig = await getSMSGatewayConfig();
+
+    if (gatewayConfig.isEnabled && gatewayConfig.apiKey) {
+      const dispatchRes = await dispatchSMSGatewayRequest(gatewayConfig, params.phone, msg);
+      
+      const isSuccess = dispatchRes.success;
+      try {
+        await adminClient.from("sms_logs").insert({
+          madrasa_id: finalMadrasaId,
+          recipient_name: params.donor_name,
+          recipient_phone: params.phone,
+          message: msg,
+          message_type: "Donation Receipt",
+          status: isSuccess ? "Sent" : "Failed",
+          created_at: new Date().toISOString(),
+        });
+      } catch {}
+
+      if (isSuccess) {
+        return {
+          success: true,
+          message: `এসএমএস গেটওয়ের (${gatewayConfig.provider.toUpperCase()}) মাধ্যমে দাতার মোবাইলে (${params.phone}) সফলভাবে পাঠানো হয়েছে।`,
+        };
+      } else {
+        const errorDetail = dispatchRes.error || dispatchRes.rawResponse || "গেটওয়ে এপিআই ত্রুটি";
+        return {
+          error: `এসএমএস পাঠানো ব্যর্থ হয়েছে (${gatewayConfig.provider.toUpperCase()}): ${errorDetail}। অনুগ্রহ করে এসএমএস ব্যালেন্স ও সেটিংস চেক করুন।`,
+        };
+      }
+    } else {
+      // Gateway is not configured or disabled
       try {
         await adminClient.from("sms_logs").insert({
           madrasa_id: finalMadrasaId,
@@ -1535,7 +1598,11 @@ export async function sendDonationNotificationSMS(params: {
           created_at: new Date().toISOString(),
         });
       } catch {}
-      return { success: true, message: "এসএমএস সফলভাবে পাঠানো হয়েছে।" };
+
+      return {
+        success: true,
+        message: "এসএমএস রেকর্ড সংরক্ষণ করা হয়েছে। সরাসরি লাইভ মোবাইলে এসএমএস পাঠাতে যোগাযোগ ➔ এসএমএস গেটওয়ে সেটিংস থেকে আপনার API Key ও Sender ID সেট করুন।",
+      };
     }
   } catch (err: any) {
     return { error: err.message || "এসএমএস প্রেরণে সমস্যা হয়েছে" };

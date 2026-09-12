@@ -323,7 +323,7 @@ export async function saveSMSGatewayConfig(config: Partial<SMSGatewayConfig>) {
 /**
  * Execute HTTP call to SMS Provider API
  */
-async function dispatchSMSGatewayRequest(
+export async function dispatchSMSGatewayRequest(
   config: SMSGatewayConfig,
   recipientPhone: string,
   messageText: string
