@@ -35,7 +35,7 @@ interface StaffPayrollViewProps {
 export default function StaffPayrollView({
   salaryRecords,
   staffList,
-  madrasaName = "দারুল উলুম কওমিয়া মাদ্রাসা",
+  madrasaName = "মাদরাসা",
   onRefresh,
 }: StaffPayrollViewProps) {
   const currentMonth = String(new Date().getMonth() + 1).padStart(2, "0");

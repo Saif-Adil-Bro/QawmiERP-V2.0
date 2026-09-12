@@ -156,7 +156,7 @@ export default function BazarVoucherPrint({
               )}
               <div className="min-w-0 flex-1">
                 <h2 className="text-base sm:text-lg font-black text-slate-950 leading-tight truncate">
-                  {madrasaInfo?.name || "আল জামিয়া ইসলামিয়া মাদরাসা ও এতিমখানা"}
+                  {madrasaInfo?.name || "মাদরাসা"}
                 </h2>
                 {madrasaInfo?.address && (
                   <p className="text-[11px] sm:text-xs text-slate-700 leading-normal line-clamp-1 mt-0.5">

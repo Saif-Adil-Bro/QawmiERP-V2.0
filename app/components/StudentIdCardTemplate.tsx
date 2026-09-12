@@ -352,10 +352,10 @@ export default function StudentIdCardTemplate({
   const photoUrl = formatDirectPhotoUrl(rawPhoto);
   const isStatusActive = card.status === "ACTIVE";
 
-  const madrasaName = madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন";
-  const madrasaAddress = madrasaInfo?.address || "কাটিয়ারচর, কিশোরগঞ্জ";
-  const madrasaPhone = madrasaInfo?.phone || "01600989555";
-  const madrasaWebsite = madrasaInfo?.website || "www.qawmierp.app";
+  const madrasaName = madrasaInfo?.name || "মাদরাসা";
+  const madrasaAddress = madrasaInfo?.address || "";
+  const madrasaPhone = madrasaInfo?.phone || "";
+  const madrasaWebsite = madrasaInfo?.website || "";
   const mohtamimName = madrasaInfo?.principal_name?.trim() || "";
   const displayExpiryDate = customExpiryDate || card.expiry_date || "31-08-2027";
 

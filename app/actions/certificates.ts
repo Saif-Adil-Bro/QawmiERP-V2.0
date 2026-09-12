@@ -180,7 +180,7 @@ export async function issueStudentCertificate(payload: {
     const operatorName = authUser?.email?.split("@")[0] || "Admin Staff";
 
     const supabase = await createClient();
-    const madrasaInfo = await getMadrasaInfo();
+    const madrasaInfo = await getMadrasaInfo(madrasaId);
 
     // Fetch Student Record
     const { data: student, error: stErr } = await supabase
@@ -232,8 +232,8 @@ export async function issueStudentCertificate(payload: {
       leaving_date: payload.last_attendance_date || new Date().toISOString().split("T")[0],
       date_of_birth: student.date_of_birth || "—",
       address: student.address || "—",
-      madrasa_name: madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন",
-      madrasa_address: madrasaInfo?.address || "ঢাকা, বাংলাদেশ",
+      madrasa_name: madrasaInfo?.name || "মাদরাসা",
+      madrasa_address: madrasaInfo?.address || "",
       madrasa_phone: madrasaInfo?.phone || "—",
       principal_name: madrasaInfo?.principal_name || "",
       photo_url: student.photo_url || undefined,

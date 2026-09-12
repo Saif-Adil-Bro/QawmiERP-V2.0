@@ -19,9 +19,9 @@ interface StaffCertificateGeneratorModalProps {
 export default function StaffCertificateGeneratorModal({
   staff,
   madrasaInfo,
-  madrasaName: fallbackMadrasaName = "মাদ্রাসাতুল মুসলিমীন",
-  madrasaPhone: fallbackMadrasaPhone = "০১৮১২৩৪৫৬৭৮",
-  madrasaAddress: fallbackMadrasaAddress = "মাদ্রাসা রোড, সদর, বাংলাদেশ",
+  madrasaName: fallbackMadrasaName = "মাদরাসা",
+  madrasaPhone: fallbackMadrasaPhone = "",
+  madrasaAddress: fallbackMadrasaAddress = "",
   onClose,
 }: StaffCertificateGeneratorModalProps) {
   const [selectedType, setSelectedType] = useState<CertificateLetterType>("APPOINTMENT");

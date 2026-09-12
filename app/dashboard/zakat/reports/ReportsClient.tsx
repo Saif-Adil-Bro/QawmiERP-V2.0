@@ -76,7 +76,7 @@ export default function ReportsClient({
 
       {/* Printable Report Header */}
       <div className="hidden print:block text-center border-b border-slate-300 pb-4 mb-6">
-        <h2 className="text-xl font-bold text-slate-900">{madrasaInfo?.name || "আল জামিয়া ইসলামিয়া মাদরাসা"}</h2>
+        <h2 className="text-xl font-bold text-slate-900">{madrasaInfo?.name || "মাদরাসা"}</h2>
         <p className="text-xs text-slate-600">{madrasaInfo?.address}</p>
         <h3 className="text-base font-bold text-slate-800 mt-2 underline">যাকাত ও ফান্ড কালেকশন রিপোর্ট</h3>
         <p className="text-xs text-slate-500 mt-0.5">

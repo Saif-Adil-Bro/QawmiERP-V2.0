@@ -293,8 +293,8 @@ export function renderDynamicTemplate(
     : student?.monthly_fee || 1200;
   
   const dueFormatted = toBengaliNumber(rawDue);
-  const madrasaName = options?.madrasaName || "মাদ্রাসাতুল মুসলিমীন";
-  const madrasaPhone = options?.madrasaPhone || "০১৮১২৩৪৫৬৭৮";
+  const madrasaName = options?.madrasaName || "মাদরাসা";
+  const madrasaPhone = options?.madrasaPhone || "";
 
   // Month range calculations
   const fromMonth = options?.fromMonth || dateCtx.month;

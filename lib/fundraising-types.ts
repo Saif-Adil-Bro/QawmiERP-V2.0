@@ -17,17 +17,37 @@ export interface MahfilSpeaker {
 
 export interface MahfilReceiptBook {
   id: string;
+  // --- ১. রশিদ সংক্রান্ত ফিল্ড (Receipt Details) ---
   book_no: string;
+  category: string;
   page_from: number;
   page_to: number;
   total_pages: number;
-  category: string;
+  rate_per_page?: number;
+  expected_amount?: number;
+  receipt_type?: string;
+
+  // --- ২. বিতরণ সংক্রান্ত ফিল্ড (Distribution Details) ---
+  is_distributed?: boolean;
   issued_to_name: string;
-  issued_to_type: "উস্তাদ" | "ছাত্র" | "কমিটি সদস্য" | "মুহিব্বিন/স্বেচ্ছাসেবক";
+  issued_to_type: "উস্তাদ" | "ছাত্র" | "কমিটি সদস্য" | "মুহিব্বিন/স্বেচ্ছাসেবক" | "প্রতিনিধি";
   issued_to_phone?: string;
+  issued_to_jamath?: string;
+  issued_to_area?: string;
   issued_date: string;
+  distributed_pages?: number;
+  issued_by?: string;
+
+  // --- ৩. জমা সংক্রান্ত ফিল্ড (Deposit Details) ---
+  is_deposited?: boolean;
   return_date?: string;
+  used_pages?: number;
+  returned_pages?: number;
   total_collected: number;
+  payment_method?: string;
+  deposit_voucher_no?: string;
+  received_by?: string;
+  due_amount?: number;
   status: "ISSUED" | "PARTIALLY_RETURNED" | "RETURNED" | "OVERDUE";
   notes?: string;
 }

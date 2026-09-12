@@ -91,7 +91,7 @@ export default function StaffDashboardView({
                 মানবসম্পদ ও স্টাফ ম্যানেজমেন্ট সিস্টেম
               </div>
               <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
-                {madrasaInfo.name || "দারুল উলুম কওমিয়া মাদ্রাসা"}
+                {madrasaInfo.name || "মাদরাসা"}
               </h2>
               <p className="text-xs text-emerald-100/80 font-medium">
                 {madrasaInfo.address || "মাদ্রাসা ক্যাম্পাস"} {madrasaInfo.phone ? `• মোবাইল: ${toBanglaNumber(madrasaInfo.phone)}` : ""}

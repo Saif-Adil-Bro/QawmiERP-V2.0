@@ -979,7 +979,7 @@ export default function CollectionsClient({
             <div id="leather-sale-memo-sheet" className="space-y-4 text-slate-900 border-2 border-emerald-900/40 rounded-xl p-5 bg-white">
               <div className="text-center border-b border-emerald-800 pb-3">
                 <div className="text-xs font-serif font-bold text-slate-600">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
-                <h2 className="text-lg font-black text-emerald-950">{madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}</h2>
+                <h2 className="text-lg font-black text-emerald-950">{madrasaInfo?.name || "মাদরাসা"}</h2>
                 {madrasaInfo?.address && <p className="text-[10px] text-slate-500">{madrasaInfo.address}</p>}
                 <h3 className="text-xs font-bold text-slate-700 mt-1">কুরবানির চামড়া সংগ্রহ ও বিক্রয় মেমো - {printLeatherMemo.year}</h3>
                 <p className="text-[10px] text-slate-500">চালান তারিখ: {toBanglaNumber(printLeatherMemo.sale_date || new Date().toISOString().split("T")[0])}</p>
@@ -1075,7 +1075,7 @@ export default function CollectionsClient({
             <div id="donation-box-memo-sheet" className="space-y-3 text-slate-900 border-2 border-slate-700 rounded-xl p-5 bg-white">
               <div className="text-center border-b border-slate-300 pb-2">
                 <div className="text-xs font-serif font-bold text-slate-600">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
-                <h2 className="text-base font-black text-slate-950">{madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}</h2>
+                <h2 className="text-base font-black text-slate-950">{madrasaInfo?.name || "মাদরাসা"}</h2>
                 {madrasaInfo?.address && <p className="text-[10px] text-slate-500">{madrasaInfo.address}</p>}
                 <h3 className="text-xs font-bold text-emerald-800 mt-1">দানবাক্স উন্মোচন ও টাকা গণনার জমা ভাউচার</h3>
                 <p className="text-[10px] font-mono text-slate-500">ভাউচার নং: {printBoxLogMemo.log.receipt_no}</p>
@@ -1160,7 +1160,7 @@ export default function CollectionsClient({
             <div id="collections-audit-report-sheet" className="space-y-6 text-slate-900 bg-white p-4">
               <div className="text-center border-b pb-3">
                 <div className="text-xs font-serif font-bold text-slate-600">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
-                <h2 className="text-xl font-black text-slate-900">{madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}</h2>
+                <h2 className="text-xl font-black text-slate-900">{madrasaInfo?.name || "মাদরাসা"}</h2>
                 {madrasaInfo?.address && <p className="text-xs text-slate-500">{madrasaInfo.address}</p>}
                 <h3 className="text-sm font-bold text-emerald-800 mt-1">কুরবানির চামড়া ও এলাকাভিত্তিক দানবাক্স বার্ষিক কালেকশন অডিট রিপোর্ট</h3>
                 <p className="text-[11px] text-slate-500">প্রিন্ট তারিখ: {toBanglaNumber(new Date().toISOString().split("T")[0])}</p>

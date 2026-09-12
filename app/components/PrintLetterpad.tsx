@@ -124,11 +124,11 @@ const fontOptions = [
 export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, memoNumber: propMemoNumber, defaultOrientation }: PrintLetterpadProps) {
   // Normalize madrasa info whether nested in .madrasa or directly on object
   const resolvedMadrasa = (madrasaInfo as any)?.madrasa || madrasaInfo || {};
-  const mName = resolvedMadrasa?.name || "আল-মাদরাসাতুল ইসলামিয়া";
-  const mAddress = resolvedMadrasa?.address || "ঢাকা, বাংলাদেশ";
-  const mPhone = resolvedMadrasa?.phone || resolvedMadrasa?.contact_phone || "০১XXXXXXXXX";
-  const mRegNo = resolvedMadrasa?.registration_no || resolvedMadrasa?.reg_no || "১২৪৫/বি";
-  const mEstYear = resolvedMadrasa?.established_year || "২০০২";
+  const mName = resolvedMadrasa?.name || "মাদরাসা";
+  const mAddress = resolvedMadrasa?.address || "";
+  const mPhone = resolvedMadrasa?.phone || resolvedMadrasa?.contact_phone || "";
+  const mRegNo = resolvedMadrasa?.registration_no || resolvedMadrasa?.reg_no || "";
+  const mEstYear = resolvedMadrasa?.established_year || "";
   const resolvedLogoUrl = logoUrl || (madrasaInfo as any)?.logoUrl || resolvedMadrasa?.logo_url || "";
   const resolvedPrefix = getMadrasaPrefix(resolvedMadrasa);
 
@@ -145,10 +145,10 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
 
   // Sync state if props change
   useEffect(() => {
-    if (mEstYear && mEstYear !== "২০০২") {
+    if (mEstYear) {
       setEstablishedYear(mEstYear);
     }
-    if (mRegNo && mRegNo !== "১২৪৫/বি") {
+    if (mRegNo) {
       setRegistrationNumber(mRegNo);
     }
     if (propMemoNumber) {

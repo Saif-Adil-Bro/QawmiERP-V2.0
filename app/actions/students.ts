@@ -193,7 +193,7 @@ export async function getAuthMadrasaId(supabase?: any, user?: any): Promise<stri
       const { data: newMadrasa } = await adminClient
         .from("madrasas")
         .insert({
-          name: "মাদ্রাসাতুল মুসলিমীন",
+          name: "কওমি মাদরাসা",
           subscription_plan: "free",
         })
         .select("id")

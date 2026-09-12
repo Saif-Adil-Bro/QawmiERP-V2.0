@@ -22,8 +22,8 @@ export default async function SMSPage() {
   const gatewayConfig = await getSMSGatewayConfig();
 
   // 5. Fetch Madrasa Details
-  let madrasaName = "মাদ্রাসাতুল মুসলিমীন";
-  let madrasaPhone = "০১৮১২৩৪৫৬৭৮";
+  let madrasaName = "মাদরাসা";
+  let madrasaPhone = "";
   try {
     const madrasa = await getMadrasaDetails();
     if (madrasa?.name) madrasaName = madrasa.name;

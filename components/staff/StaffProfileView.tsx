@@ -76,7 +76,7 @@ export default function StaffProfileView({
   departments = [],
   designations = [],
   madrasaInfo,
-  madrasaName = "দারুল উলুম কওমিয়া মাদ্রাসা",
+  madrasaName = "মাদরাসা",
   onRefresh,
 }: StaffProfileViewProps) {
   const [activeTab, setActiveTab] = useState<

@@ -227,8 +227,8 @@ export default function SMSClient({
   // Dynamic preview text for current single student
   const livePreviewText = useMemo(() => {
     return renderDynamicTemplate(messageContent, activeStudent, {
-      madrasaName: madrasaInfo.name || "মাদ্রাসাতুল মুসলিমীন",
-      madrasaPhone: madrasaInfo.phone || "০১৮১২৩৪৫৬৭৮",
+      madrasaName: madrasaInfo.name || "মাদরাসা",
+      madrasaPhone: madrasaInfo.phone || "",
       dueAmount: customDueAmount || undefined,
       fromMonth,
       toMonth,
@@ -238,8 +238,8 @@ export default function SMSClient({
   // Dynamic preview text for modal builder
   const modalPreviewText = useMemo(() => {
     return renderDynamicTemplate(modalTemplateContent, activeStudent || students[0] || null, {
-      madrasaName: madrasaInfo.name || "মাদ্রাসাতুল মুসলিমীন",
-      madrasaPhone: madrasaInfo.phone || "০১৮১২৩৪৫৬৭৮",
+      madrasaName: madrasaInfo.name || "মাদরাসা",
+      madrasaPhone: madrasaInfo.phone || "",
       fromMonth,
       toMonth,
     });
@@ -471,8 +471,8 @@ export default function SMSClient({
     }
 
     const resolvedMessage = renderDynamicTemplate(messageContent, activeStudent, {
-      madrasaName: madrasaInfo.name || "মাদ্রাসাতুল মুসলিমীন",
-      madrasaPhone: madrasaInfo.phone || "০১৮১২৩৪৫৬৭৮",
+      madrasaName: madrasaInfo.name || "মাদরাসা",
+      madrasaPhone: madrasaInfo.phone || "",
       dueAmount: customDueAmount || undefined,
       fromMonth,
       toMonth,
@@ -552,8 +552,8 @@ export default function SMSClient({
 
     const messagesToSend = bulkRecipients.map((st) => {
       const personalizedMsg = renderDynamicTemplate(messageContent, st, {
-        madrasaName: madrasaInfo.name || "মাদ্রাসাতুল মুসলিমীন",
-        madrasaPhone: madrasaInfo.phone || "০১৮১২৩৪৫৬৭৮",
+        madrasaName: madrasaInfo.name || "মাদরাসা",
+        madrasaPhone: madrasaInfo.phone || "",
         dueAmount: st.due_amount || (st.monthly_fee ? Number(st.monthly_fee) * calculatedMonthsCount : customDueAmount),
         fromMonth,
         toMonth,
@@ -1252,7 +1252,7 @@ export default function SMSClient({
                   {/* SMS Header */}
                   <div className="bg-white p-2 rounded-lg border border-slate-200/80 text-center shadow-2xs">
                     <div className="text-[11px] font-bold text-slate-800">
-                      {madrasaInfo.name || "মাদ্রাসাতুল মুসলিমীন"}
+                      {madrasaInfo.name || "মাদরাসা"}
                     </div>
                     <div className="text-[9px] text-slate-500">
                       প্রাপক: {activeStudent ? `${activeStudent.first_name || ""} ${activeStudent.last_name || ""}` : "মোঃ আব্দুল্লাহ"} ({activeStudent?.parent_phone || recipientPhone || "০১৭১২৩৪৫৬৭৮"})
@@ -1397,7 +1397,7 @@ export default function SMSClient({
                       লাইভ স্যাম্পল আউটপুট:
                     </span>
                     {renderDynamicTemplate(tpl.message_template, activeStudent || initialStudents[0], {
-                      madrasaName: madrasaInfo.name || "মাদ্রাসাতুল মুসলিমীন",
+                      madrasaName: madrasaInfo.name || "মাদরাসা",
                       fromMonth,
                       toMonth,
                     })}

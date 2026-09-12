@@ -36,7 +36,7 @@ export default function StaffReportsView({
   categories,
   departments,
   madrasaInfo,
-  madrasaName: fallbackMadrasaName = "মাদ্রাসাতুল মুসলিমীন",
+  madrasaName: fallbackMadrasaName = "মাদরাসা",
 }: StaffReportsViewProps) {
   const [reportType, setReportType] = useState<"directory" | "salary" | "category" | "leave">("directory");
 

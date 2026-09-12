@@ -64,8 +64,17 @@ export default function PaperGeneratorClient({
 }) {
   const [classId, setClassId] = useState("");
   const [subjectId, setSubjectId] = useState("");
-  const [customMadrasaName, setCustomMadrasaName] = useState(madrasa?.name || "মাদ্রাসাতুল মুসলিমীন");
+  const [customMadrasaName, setCustomMadrasaName] = useState(madrasa?.name || "মাদরাসা");
   const [paperTitle, setPaperTitle] = useState("বার্ষিক পরীক্ষা - ২০২৬");
+
+  useEffect(() => {
+    if (madrasa?.name) {
+      setCustomMadrasaName(madrasa.name);
+    }
+    if (madrasa?.logo_url) {
+      setLogoUrl(madrasa.logo_url);
+    }
+  }, [madrasa]);
   const [examName, setExamName] = useState(exam?.title || "");
   const [examTime, setExamTime] = useState("২ ঘণ্টা ৩০ মিনিট");
   const [totalMarks, setTotalMarks] = useState(100);

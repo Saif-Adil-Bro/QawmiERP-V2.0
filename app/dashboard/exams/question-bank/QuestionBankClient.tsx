@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { saveQuestion, deleteQuestion, updateQuestion } from "@/app/actions/questions";
 import { Plus, Trash2, Loader2, Save, Printer, FileText, Type, X, Globe, Building2, BookOpen, Clock, Award, Check, Pencil, CheckSquare, RotateCcw, ArrowUp, ArrowDown, CheckCircle2, Sparkles, Scroll, Scale, HelpCircle, Columns, Layers, FileSpreadsheet, Tag, Gauge, ListChecks } from "lucide-react";
 import SpecializedQuestionView, { getQuestionTypeBadge, getDifficultyBadge } from "@/components/exams/SpecializedQuestionView";
@@ -48,8 +48,17 @@ export default function QuestionBankClient({
 
   // Paper preview modal state & Header customization
   const [showPaperModal, setShowPaperModal] = useState(false);
-  const [customMadrasaName, setCustomMadrasaName] = useState(madrasa?.name || "মাদ্রাসাতুল মুসলিমীন");
+  const [customMadrasaName, setCustomMadrasaName] = useState(madrasa?.name || "মাদরাসা");
   const [customMadrasaAddress, setCustomMadrasaAddress] = useState(madrasa?.address || "");
+
+  useEffect(() => {
+    if (madrasa?.name) {
+      setCustomMadrasaName(madrasa.name);
+    }
+    if (madrasa?.address) {
+      setCustomMadrasaAddress(madrasa.address);
+    }
+  }, [madrasa]);
   const [paperTitle, setPaperTitle] = useState("বার্ষিক পরীক্ষা - ২০২৬");
   const [paperClassName, setPaperClassName] = useState("");
   const [paperSubjectName, setPaperSubjectName] = useState("");

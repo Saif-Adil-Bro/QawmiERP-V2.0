@@ -194,18 +194,18 @@ export default function IdCardClient({
 
   // ID Card Builder & Customizer State
   const [editableMadrasaInfo, setEditableMadrasaInfo] = useState({
-    name: cfg?.editableMadrasaInfo?.name || madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন",
-    name_arabic: cfg?.editableMadrasaInfo?.name_arabic || "الجامعة الإسلامية دار العلوم",
-    address: cfg?.editableMadrasaInfo?.address || madrasaInfo?.address || "কাটিয়ারচর, কিশোরগঞ্জ",
-    phone: cfg?.editableMadrasaInfo?.phone || madrasaInfo?.phone || "01600989555",
-    website: cfg?.editableMadrasaInfo?.website || madrasaInfo?.website || "www.qawmierp.app",
+    name: cfg?.editableMadrasaInfo?.name || madrasaInfo?.name || "মাদরাসা",
+    name_arabic: cfg?.editableMadrasaInfo?.name_arabic || "",
+    address: cfg?.editableMadrasaInfo?.address || madrasaInfo?.address || "",
+    phone: cfg?.editableMadrasaInfo?.phone || madrasaInfo?.phone || "",
+    website: cfg?.editableMadrasaInfo?.website || madrasaInfo?.website || "",
     logo_url: cfg?.editableMadrasaInfo?.logo_url || madrasaInfo?.logo_url || "",
     principal_name: cfg?.editableMadrasaInfo?.principal_name !== undefined ? cfg.editableMadrasaInfo.principal_name : (madrasaInfo?.principal_name || ""),
     signature_url: cfg?.editableMadrasaInfo?.signature_url || madrasaInfo?.signature_url || madrasaInfo?.principal_signature_url || "",
   });
 
   useEffect(() => {
-    if (madrasaInfo && !cfg?.editableMadrasaInfo) {
+    if (madrasaInfo) {
       setEditableMadrasaInfo((prev) => ({
         ...prev,
         name: madrasaInfo.name || prev.name,
@@ -217,7 +217,7 @@ export default function IdCardClient({
         signature_url: madrasaInfo.signature_url || madrasaInfo.principal_signature_url || prev.signature_url,
       }));
     }
-  }, [madrasaInfo, cfg]);
+  }, [madrasaInfo]);
 
   const [signatureTitle, setSignatureTitle] = useState(cfg?.signatureTitle || "মুহতামিম / অধ্যক্ষ");
   const [qrLabel, setQrLabel] = useState(cfg?.qrLabel || "যাচাই করুন");
@@ -288,11 +288,11 @@ export default function IdCardClient({
     setCardSide("both");
     setFieldVisibility(DEFAULT_FIELD_VISIBILITY);
     setEditableMadrasaInfo({
-      name: madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন",
-      name_arabic: "الجامعة الإسلامية دار العلوم",
-      address: madrasaInfo?.address || "কাটিয়ারচর, কিশোরগঞ্জ",
-      phone: madrasaInfo?.phone || "01600989555",
-      website: madrasaInfo?.website || "www.qawmierp.app",
+      name: madrasaInfo?.name || "মাদরাসা",
+      name_arabic: "",
+      address: madrasaInfo?.address || "",
+      phone: madrasaInfo?.phone || "",
+      website: madrasaInfo?.website || "",
       logo_url: madrasaInfo?.logo_url || "",
       principal_name: madrasaInfo?.principal_name || "",
       signature_url: madrasaInfo?.signature_url || madrasaInfo?.principal_signature_url || "",

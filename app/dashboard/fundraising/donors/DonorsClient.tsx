@@ -24,12 +24,41 @@ import {
   Building,
   CreditCard,
   Receipt,
+  AlertTriangle,
   X
 } from "lucide-react";
 import { Donor, DonorPayment } from "@/lib/fundraising-types";
 import { saveDonor, deleteDonor, recordDonorPayment } from "@/app/actions/fundraising";
 import { numberToBanglaWords } from "@/lib/utils";
 import { printElementIsolated } from "@/lib/printUtils";
+
+export const BENGALI_MONTHS = [
+  { value: "01", name: "জানুয়ারি", en: "Jan" },
+  { value: "02", name: "ফেব্রুয়ারি", en: "Feb" },
+  { value: "03", name: "মার্চ", en: "Mar" },
+  { value: "04", name: "এপ্রিল", en: "Apr" },
+  { value: "05", name: "মে", en: "May" },
+  { value: "06", name: "জুন", en: "Jun" },
+  { value: "07", name: "জুলাই", en: "Jul" },
+  { value: "08", name: "আগস্ট", en: "Aug" },
+  { value: "09", name: "সেপ্টেম্বর", en: "Sep" },
+  { value: "10", name: "অক্টোবর", en: "Oct" },
+  { value: "11", name: "নভেম্বর", en: "Nov" },
+  { value: "12", name: "ডিসেম্বর", en: "Dec" },
+];
+
+export function formatMonthBangla(monthStr: string | undefined | null): string {
+  if (!monthStr) return "";
+  const parts = monthStr.split("-");
+  if (parts.length === 2) {
+    const year = parts[0];
+    const month = parts[1];
+    const mObj = BENGALI_MONTHS.find((m) => m.value === month);
+    const monthName = mObj ? mObj.name : month;
+    return `${monthName} ${toBanglaNumber(year)}`;
+  }
+  return monthStr;
+}
 
 function toBanglaNumber(val: number | string | undefined | null): string {
   if (val === undefined || val === null || val === "") return "০";
@@ -38,6 +67,24 @@ function toBanglaNumber(val: number | string | undefined | null): string {
     "5": "৫", "6": "৬", "7": "৭", "8": "৮", "9": "৯",
   };
   return val.toString().replace(/[0-9]/g, (w) => banglaDigits[w] || w);
+}
+
+// Calculate next sequential receipt number (e.g. MR-0001, MR-0002)
+function getNextReceiptSerial(currentPayments: DonorPayment[]): string {
+  let maxSerial = 0;
+  for (const p of currentPayments) {
+    if (p.receipt_no) {
+      const match = p.receipt_no.match(/(\d+)/g);
+      if (match && match.length > 0) {
+        const num = parseInt(match[match.length - 1], 10);
+        if (!isNaN(num) && num < 5000 && num > maxSerial) {
+          maxSerial = num;
+        }
+      }
+    }
+  }
+  const nextNum = maxSerial > 0 ? maxSerial + 1 : Math.max(1, currentPayments.length + 1);
+  return `MR-${String(nextNum).padStart(4, "0")}`;
 }
 
 export default function DonorsClient({
@@ -71,13 +118,51 @@ export default function DonorsClient({
   const [paymentFormData, setPaymentFormData] = useState({
     amount: 1000,
     month: selectedMonth,
+    selectedYear: selectedMonth.split("-")[0] || new Date().getFullYear().toString(),
+    selectedMonthNum: selectedMonth.split("-")[1] || String(new Date().getMonth() + 1).padStart(2, "0"),
     payment_method: "Cash",
     trx_id: "",
     fund_category: "সাধারণ ফান্ড",
-    receipt_no: `DN-${Date.now().toString().slice(-5)}`,
+    receipt_no: "MR-0001",
     collector_name: "",
     notes: "",
+    confirmDuplicate: false,
   });
+
+  // Calculate dynamic total donated per donor from payments records
+  const getDonorTotalDonated = (donor: Donor) => {
+    const donorPayments = payments.filter((p) => p.donor_id === donor.id);
+    const sum = donorPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+    return sum > 0 ? sum : (donor.total_donated || 0);
+  };
+
+  // Find next unpaid month for a donor to prevent accidental duplicates
+  const getSuggestedMonthForDonor = (donorId: string, preferredMonth: string) => {
+    const donorPayments = payments.filter((p) => p.donor_id === donorId);
+    const paidMonths = new Set(donorPayments.map((p) => p.month));
+    if (!paidMonths.has(preferredMonth)) {
+      return preferredMonth;
+    }
+    const [yStr, mStr] = preferredMonth.split("-");
+    const y = parseInt(yStr, 10) || new Date().getFullYear();
+    const startM = parseInt(mStr, 10) || 1;
+    // Check later months in current year
+    for (let m = startM + 1; m <= 12; m++) {
+      const cand = `${y}-${String(m).padStart(2, "0")}`;
+      if (!paidMonths.has(cand)) return cand;
+    }
+    // Check next year
+    for (let m = 1; m <= 12; m++) {
+      const cand = `${y + 1}-${String(m).padStart(2, "0")}`;
+      if (!paidMonths.has(cand)) return cand;
+    }
+    // Check earlier months in current year
+    for (let m = 1; m < startM; m++) {
+      const cand = `${y}-${String(m).padStart(2, "0")}`;
+      if (!paidMonths.has(cand)) return cand;
+    }
+    return preferredMonth;
+  };
 
   // Receipt Preview Modal
   const [receiptToPrint, setReceiptToPrint] = useState<{ donor: Donor; payment: DonorPayment } | null>(null);
@@ -190,15 +275,22 @@ export default function DonorsClient({
   // Record Payment
   const handleOpenPaymentModal = (donor: Donor) => {
     setSelectedDonorForPayment(donor);
+    const suggestedMonth = getSuggestedMonthForDonor(donor.id, selectedMonth);
+    const [sYear, sMonth] = suggestedMonth.split("-");
+    const nextReceiptNo = getNextReceiptSerial(payments);
+
     setPaymentFormData({
       amount: donor.committed_amount || donor.pledge_amount || 1000,
-      month: selectedMonth,
+      month: suggestedMonth,
+      selectedYear: sYear || new Date().getFullYear().toString(),
+      selectedMonthNum: sMonth || String(new Date().getMonth() + 1).padStart(2, "0"),
       payment_method: "Cash",
       trx_id: "",
       fund_category: donor.preferred_fund || "সাধারণ ফান্ড",
-      receipt_no: `MR-${Date.now().toString().slice(-5)}`,
+      receipt_no: nextReceiptNo,
       collector_name: "",
       notes: "",
+      confirmDuplicate: false,
     });
     setPaymentModalOpen(true);
   };
@@ -206,6 +298,18 @@ export default function DonorsClient({
   const handleSavePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDonorForPayment) return;
+
+    // Check if selected month already has a payment for this donor
+    const existingPaid = payments.find(
+      (p) => p.donor_id === selectedDonorForPayment.id && p.month === paymentFormData.month
+    );
+    if (existingPaid && !paymentFormData.confirmDuplicate) {
+      alert(
+        `সতর্কতা: এই দাতার ${formatMonthBangla(paymentFormData.month)} মাসের চাঁদা ইতিমধ্যে জমা হয়েছে (রসিদ নং: ${existingPaid.receipt_no})! অনুগ্রহ করে অন্য মাস নির্বাচন করুন অথবা অতিরিক্ত অনুদান হিসেবে জমার সম্মতি দিন।`
+      );
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await recordDonorPayment({
@@ -253,7 +357,7 @@ export default function DonorsClient({
       setDonors((prev) =>
         prev.map((d) =>
           d.id === selectedDonorForPayment.id
-            ? { ...d, total_donated: (d.total_donated || 0) + Number(paymentFormData.amount) }
+            ? { ...d, total_donated: getDonorTotalDonated(d) + Number(paymentFormData.amount) }
             : d
         )
       );
@@ -475,7 +579,7 @@ export default function DonorsClient({
                             ৳ {toBanglaNumber(donor.committed_amount || donor.pledge_amount || 0)}
                           </td>
                           <td className="py-3 px-4 font-bold text-emerald-700">
-                            ৳ {toBanglaNumber(donor.total_donated || 0)}
+                            ৳ {toBanglaNumber(getDonorTotalDonated(donor))}
                           </td>
                           <td className="py-3 px-4 text-slate-600">{donor.preferred_fund}</td>
                           <td className="py-3 px-4 text-right">
@@ -687,7 +791,7 @@ export default function DonorsClient({
                 <Award className="w-14 h-14 text-amber-600 mx-auto" />
               )}
               <h1 className="text-2xl font-black text-emerald-950 font-serif">
-                {madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}
+                {madrasaInfo?.name || "মাদরাসা"}
               </h1>
               {madrasaInfo?.address && (
                 <p className="text-xs text-slate-500">{madrasaInfo.address}</p>
@@ -876,14 +980,143 @@ export default function DonorsClient({
       {/* MODAL: COLLECT PAYMENT */}
       {/* ========================================================================= */}
       {paymentModalOpen && selectedDonorForPayment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100">
-            <h2 className="text-base font-bold text-slate-900 mb-1">মাসিক চাঁদা / অনুদান গ্রহণ</h2>
-            <p className="text-xs text-slate-500 mb-4 pb-2 border-b border-slate-100">
-              দাতা: <span className="font-bold text-slate-800">{selectedDonorForPayment.name}</span> ({selectedDonorForPayment.member_no})
-            </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-100 my-6">
+            <div className="flex items-center justify-between border-b pb-2 mb-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">মাসিক চাঁদা / অনুদান গ্রহণ</h2>
+                <p className="text-xs text-slate-500">
+                  দাতা: <span className="font-bold text-slate-800">{selectedDonorForPayment.name}</span> ({selectedDonorForPayment.member_no})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaymentModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-            <form onSubmit={handleSavePayment} className="space-y-3 text-xs">
+            <form onSubmit={handleSavePayment} className="space-y-3.5 text-xs">
+              {/* Month & Year Selection Box */}
+              <div className="space-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-800">
+                    কোন মাসের চাঁদা (ম্যানুয়ালি মাস ও সাল নির্বাচন) <span className="text-red-500">*</span>
+                  </label>
+                  <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100/70 px-2.5 py-0.5 rounded border border-emerald-200">
+                    {formatMonthBangla(paymentFormData.month)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="block text-[10px] text-slate-500 font-medium mb-0.5">সাল (Year):</span>
+                    <select
+                      value={paymentFormData.selectedYear}
+                      onChange={(e) => {
+                        const y = e.target.value;
+                        const m = `${y}-${paymentFormData.selectedMonthNum}`;
+                        setPaymentFormData((prev) => ({
+                          ...prev,
+                          selectedYear: y,
+                          month: m,
+                          confirmDuplicate: false,
+                        }));
+                      }}
+                      className="w-full px-2.5 py-2 border border-slate-200 rounded-lg bg-white font-bold text-xs"
+                    >
+                      {[2024, 2025, 2026, 2027, 2028].map((yr) => (
+                        <option key={yr} value={yr}>
+                          {yr} ({toBanglaNumber(yr)})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-500 font-medium mb-0.5">মাস (Month):</span>
+                    <select
+                      value={paymentFormData.selectedMonthNum}
+                      onChange={(e) => {
+                        const mn = e.target.value;
+                        const m = `${paymentFormData.selectedYear}-${mn}`;
+                        setPaymentFormData((prev) => ({
+                          ...prev,
+                          selectedMonthNum: mn,
+                          month: m,
+                          confirmDuplicate: false,
+                        }));
+                      }}
+                      className="w-full px-2.5 py-2 border border-slate-200 rounded-lg bg-white font-bold text-xs"
+                    >
+                      {BENGALI_MONTHS.map((bm) => {
+                        const checkMonth = `${paymentFormData.selectedYear}-${bm.value}`;
+                        const isMonthPaid = payments.some(
+                          (p) => p.donor_id === selectedDonorForPayment.id && p.month === checkMonth
+                        );
+                        return (
+                          <option key={bm.value} value={bm.value}>
+                            {bm.name} ({bm.en}) {isMonthPaid ? "— পরিশোধিত ✓" : "— বকেয়া"}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Warning if already paid for the selected month */}
+                {(() => {
+                  const existingPaid = payments.find(
+                    (p) => p.donor_id === selectedDonorForPayment.id && p.month === paymentFormData.month
+                  );
+                  if (!existingPaid) return null;
+
+                  const suggested = getSuggestedMonthForDonor(selectedDonorForPayment.id, paymentFormData.month);
+
+                  return (
+                    <div className="mt-2 bg-amber-50 border border-amber-300 rounded-xl p-2.5 text-amber-900 space-y-1.5">
+                      <div className="flex items-center gap-1.5 font-bold text-xs text-amber-900">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>সতর্কতা: এই দাতার {formatMonthBangla(paymentFormData.month)} মাসের চাঁদা ইতিমধ্যে জমা হয়েছে!</span>
+                      </div>
+                      <p className="text-[11px] text-amber-800">
+                        পূর্ববর্তী জমার বিবরণ: রসিদ নং <strong>{existingPaid.receipt_no}</strong>, পরিমাণ: <strong>৳ {toBanglaNumber(existingPaid.amount)}</strong>, তারিখ: <strong>{toBanglaNumber(existingPaid.payment_date || existingPaid.date)}</strong>
+                      </p>
+                      <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
+                        {suggested && suggested !== paymentFormData.month && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const [ny, nm] = suggested.split("-");
+                              setPaymentFormData((prev) => ({
+                                ...prev,
+                                month: suggested,
+                                selectedYear: ny,
+                                selectedMonthNum: nm,
+                                confirmDuplicate: false,
+                              }));
+                            }}
+                            className="text-[11px] text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded font-bold transition-colors"
+                          >
+                            পরবর্তী বকেয়া মাস ({formatMonthBangla(suggested)}) নির্বাচন করুন
+                          </button>
+                        )}
+                        <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-bold text-amber-900 ml-auto">
+                          <input
+                            type="checkbox"
+                            checked={paymentFormData.confirmDuplicate}
+                            onChange={(e) => setPaymentFormData((prev) => ({ ...prev, confirmDuplicate: e.target.checked }))}
+                            className="rounded text-emerald-600"
+                          />
+                          <span>অতিরিক্ত অনুদান হিসেবে জমা করুন</span>
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">টাকার পরিমাণ <span className="text-red-500">*</span></label>
@@ -896,14 +1129,14 @@ export default function DonorsClient({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">কোন মাসের চাঁদা</label>
+                  <label className="block font-bold text-slate-700 mb-1">রসিদ নম্বর (ধারাবাহিক ক্রমিক)</label>
                   <input
-                    type="month"
-                    required
-                    value={paymentFormData.month}
-                    onChange={(e) => setPaymentFormData(prev => ({ ...prev, month: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                    type="text"
+                    value={paymentFormData.receipt_no}
+                    onChange={(e) => setPaymentFormData(prev => ({ ...prev, receipt_no: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono font-bold bg-slate-50 focus:bg-white text-slate-900"
                   />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">যেমন: MR-0001, MR-0002...</span>
                 </div>
               </div>
 
@@ -922,12 +1155,12 @@ export default function DonorsClient({
                   </select>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">রসিদ নম্বর</label>
+                  <label className="block font-bold text-slate-700 mb-1">ফান্ড / খাত</label>
                   <input
                     type="text"
-                    value={paymentFormData.receipt_no}
-                    onChange={(e) => setPaymentFormData(prev => ({ ...prev, receipt_no: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono"
+                    value={paymentFormData.fund_category}
+                    onChange={(e) => setPaymentFormData(prev => ({ ...prev, fund_category: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
                   />
                 </div>
               </div>
@@ -954,9 +1187,9 @@ export default function DonorsClient({
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs"
                 >
-                  জমা গ্রহণ ও রসিদ তৈরি
+                  {loading ? "সংরক্ষণ হচ্ছে..." : "জমা গ্রহণ ও রসিদ তৈরি"}
                 </button>
               </div>
             </form>
@@ -973,7 +1206,7 @@ export default function DonorsClient({
             <div className="flex items-center justify-between border-b pb-2 print:hidden">
               <div className="flex items-center gap-2">
                 <Receipt className="w-5 h-5 text-emerald-600" />
-                <h3 className="font-bold text-slate-900 text-sm">অফিসিয়াল ডিজিটাল মানি রিসিট</h3>
+                <h3 className="font-bold text-slate-900 text-sm">অফিসিয়াল ডিজিটাল মানি রিসিট (দাতার কপি ও অফিস কপি)</h3>
               </div>
               <button onClick={() => setReceiptToPrint(null)} className="text-slate-400 hover:text-slate-600 font-bold">
                 <X className="w-5 h-5" />
@@ -987,16 +1220,16 @@ export default function DonorsClient({
                 <div className="flex justify-between items-start border-b border-emerald-700 pb-2">
                   <div>
                     <div className="text-[11px] font-serif font-bold text-slate-600">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
-                    <h4 className="font-bold text-base text-emerald-950">{madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}</h4>
+                    <h4 className="font-bold text-base text-emerald-950">{madrasaInfo?.name || "মাদরাসা"}</h4>
                     <p className="text-[10px] text-slate-500">
                       {madrasaInfo?.address ? `${madrasaInfo.address} • ` : ""}স্থায়ী আজীবন সদস্য ও মাসিক অনুদান আদায় রসিদ
                     </p>
                   </div>
                   <div className="text-right">
-                    <span className="inline-block px-2 py-0.5 bg-emerald-800 text-white text-[10px] font-bold rounded">
+                    <span className="inline-block px-2.5 py-0.5 bg-emerald-800 text-white text-[10px] font-bold rounded">
                       দাতার কপি (Donor Copy)
                     </span>
-                    <p className="text-[10px] font-mono font-bold text-slate-700 mt-1">
+                    <p className="text-[10px] font-mono font-bold text-emerald-900 mt-1">
                       রসিদ নং: {receiptToPrint.payment.receipt_no}
                     </p>
                     <p className="text-[10px] text-slate-500">
@@ -1020,7 +1253,19 @@ export default function DonorsClient({
                   </div>
                   <div>
                     <span className="text-slate-500">বাবদ (মাস): </span>
-                    <span className="font-bold">{receiptToPrint.payment.month}</span>
+                    <span className="font-bold text-slate-900">{formatMonthBangla(receiptToPrint.payment.month)}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">পিতা ও ঠিকানা: </span>
+                    <span className="text-slate-700 truncate block">
+                      {receiptToPrint.donor.father_name ? `পিং: ${receiptToPrint.donor.father_name}, ` : ""}{receiptToPrint.donor.address || "---"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">সদস্যপদ ধরন: </span>
+                    <span className="font-semibold">
+                      {(receiptToPrint.donor.membership_type || receiptToPrint.donor.member_type) === "LIFE_MEMBER" ? "আজীবন সদস্য" : "মাসিক নিয়মিত দাতা"}
+                    </span>
                   </div>
                   <div>
                     <span className="text-slate-500">ফান্ড / খাত: </span>
@@ -1048,53 +1293,102 @@ export default function DonorsClient({
                 </div>
 
                 <div className="pt-6 grid grid-cols-2 gap-8 text-center text-[10px] text-slate-600">
-                  <div className="border-t border-slate-400 pt-1">আদায়কারী: {receiptToPrint.payment.collector_name || "হিসাব বিভাগ"}</div>
+                  <div className="border-t border-slate-400 pt-1">
+                    আদায়কারী: {receiptToPrint.payment.collector_name || receiptToPrint.payment.collected_by || "হিসাব বিভাগ"}
+                  </div>
                   <div className="border-t border-slate-400 pt-1 font-bold">মুহতামিম / অর্থ সম্পাদক</div>
                 </div>
               </div>
 
               {/* Scissors Divider */}
               <div className="border-t-2 border-dashed border-slate-300 relative my-2">
-                <span className="absolute left-1/2 -translate-x-1/2 -top-2.5 bg-white px-2 text-[10px] text-slate-400 font-mono">
-                  ✂ ক্যাশ মেমো / অফিস কপি
+                <span className="absolute left-1/2 -translate-x-1/2 -top-2.5 bg-white px-3 text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                  ✂ কাটার দাগ — ক্যাশ মেমো / অফিস কপি
                 </span>
               </div>
 
-              {/* Copy 2: Office Copy */}
-              <div className="border-2 border-slate-700 rounded-xl p-4 bg-slate-50/30 space-y-3 relative">
+              {/* Copy 2: Office Copy (সম্পূর্ণ ও বিস্তারিত ডাটা সহ) */}
+              <div className="border-2 border-slate-700 rounded-xl p-4 bg-slate-50/40 space-y-3 relative">
                 <div className="flex justify-between items-start border-b border-slate-300 pb-2">
                   <div>
-                    <h4 className="font-bold text-sm text-slate-900">{madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}</h4>
-                    <p className="text-[10px] text-slate-500">হিসাব শাখা - অফিস রসিদ কপি</p>
+                    <div className="text-[11px] font-serif font-bold text-slate-600">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
+                    <h4 className="font-bold text-base text-slate-900">{madrasaInfo?.name || "মাদরাসা"}</h4>
+                    <p className="text-[10px] text-slate-500">
+                      {madrasaInfo?.address ? `${madrasaInfo.address} • ` : ""}হিসাব শাখা - অফিস রেকর্ড ও ভাউচার কপি
+                    </p>
                   </div>
                   <div className="text-right">
-                    <span className="inline-block px-2 py-0.5 bg-slate-800 text-white text-[10px] font-bold rounded">
+                    <span className="inline-block px-2.5 py-0.5 bg-slate-800 text-white text-[10px] font-bold rounded">
                       অফিস কপি (Office Copy)
                     </span>
-                    <p className="text-[10px] font-mono font-bold text-slate-700 mt-0.5">
+                    <p className="text-[10px] font-mono font-bold text-slate-800 mt-1">
                       রসিদ নং: {receiptToPrint.payment.receipt_no}
+                    </p>
+                    <p className="text-[10px] text-slate-600">
+                      তারিখ: {toBanglaNumber(receiptToPrint.payment.payment_date || receiptToPrint.payment.date || new Date().toISOString().split("T")[0])}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex justify-between items-center text-xs">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-slate-800">
                   <div>
-                    <span className="text-slate-500">দাতা: </span>
-                    <span className="font-bold">{receiptToPrint.donor.name} ({receiptToPrint.donor.member_no})</span>
+                    <span className="text-slate-500">দাতার নাম: </span>
+                    <span className="font-bold text-slate-900">{receiptToPrint.donor.name}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500">মাস: </span>
-                    <span className="font-bold">{receiptToPrint.payment.month}</span>
+                    <span className="text-slate-500">সদস্য নম্বর: </span>
+                    <span className="font-mono font-bold text-emerald-800">{receiptToPrint.donor.member_no}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500">পরিমাণ: </span>
-                    <span className="font-black text-emerald-800 text-sm">৳ {toBanglaNumber(receiptToPrint.payment.amount)}</span>
+                    <span className="text-slate-500">মোবাইল নম্বর: </span>
+                    <span className="font-mono font-semibold">{receiptToPrint.donor.phone}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">বাবদ (মাস): </span>
+                    <span className="font-bold text-slate-900">{formatMonthBangla(receiptToPrint.payment.month)}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">পিতা ও ঠিকানা: </span>
+                    <span className="text-slate-700 truncate block">
+                      {receiptToPrint.donor.father_name ? `পিং: ${receiptToPrint.donor.father_name}, ` : ""}{receiptToPrint.donor.address || "---"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">সদস্যপদ ধরন: </span>
+                    <span className="font-semibold">
+                      {(receiptToPrint.donor.membership_type || receiptToPrint.donor.member_type) === "LIFE_MEMBER" ? "আজীবন সদস্য" : "মাসিক নিয়মিত দাতা"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">ফান্ড / খাত: </span>
+                    <span className="font-semibold">{receiptToPrint.payment.fund_name || receiptToPrint.payment.fund_category || "সাধারণ তহবিল"}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">পেমেন্ট মাধ্যম: </span>
+                    <span>{receiptToPrint.payment.payment_method} {receiptToPrint.payment.trx_id ? `(Trx: ${receiptToPrint.payment.trx_id})` : ""}</span>
                   </div>
                 </div>
 
-                <div className="pt-4 grid grid-cols-2 gap-8 text-center text-[9px] text-slate-500">
-                  <div className="border-t border-slate-300 pt-0.5">আদায়কারী স্বাক্ষর</div>
-                  <div className="border-t border-slate-300 pt-0.5">ক্যাশিয়ার / মুহতামিম</div>
+                <div className="bg-slate-100 border border-slate-300 p-2.5 rounded-lg flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] text-slate-600 block">কথায়:</span>
+                    <span className="font-bold text-slate-900 text-xs">
+                      {numberToBanglaWords(receiptToPrint.payment.amount)}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-500 block">মোট প্রাপ্তি:</span>
+                    <span className="font-black text-slate-900 text-base">
+                      ৳ {toBanglaNumber(receiptToPrint.payment.amount)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-6 grid grid-cols-2 gap-8 text-center text-[10px] text-slate-600">
+                  <div className="border-t border-slate-400 pt-1">
+                    আদায়কারী স্বাক্ষর ({receiptToPrint.payment.collector_name || receiptToPrint.payment.collected_by || "হিসাব শাখা"})
+                  </div>
+                  <div className="border-t border-slate-400 pt-1 font-bold">ক্যাশিয়ার / মুহতামিম (অনুমোদন স্বাক্ষর)</div>
                 </div>
               </div>
             </div>
@@ -1138,7 +1432,7 @@ export default function DonorsClient({
             <div id="donor-register-sheet" className="space-y-4 text-slate-900 bg-white p-4">
               <div className="text-center border-b pb-3">
                 <div className="text-xs font-serif font-bold text-slate-600">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
-                <h2 className="text-xl font-black text-slate-900">{madrasaInfo?.name || "মাদ্রাসাতুল মুসলিমীন"}</h2>
+                <h2 className="text-xl font-black text-slate-900">{madrasaInfo?.name || "মাদরাসা"}</h2>
                 {madrasaInfo?.address && <p className="text-xs text-slate-500">{madrasaInfo.address}</p>}
                 <h3 className="text-sm font-bold text-emerald-800 mt-1">আজীবন সদস্য ও মাসিক নিয়মিত দাতা খতিয়ান রেজিস্টার</h3>
                 <p className="text-[11px] text-slate-500">প্রিন্ট তারিখ: {toBanglaNumber(new Date().toISOString().split("T")[0])}</p>
@@ -1178,7 +1472,7 @@ export default function DonorsClient({
                            mType === "YEARLY" ? "বার্ষিক" : "শুভাকাঙ্ক্ষী"}
                         </td>
                         <td className="py-2 px-2 border font-bold">৳ {toBanglaNumber(d.committed_amount || d.pledge_amount || 0)}</td>
-                        <td className="py-2 px-2 border font-bold text-emerald-800">৳ {toBanglaNumber(d.total_donated || 0)}</td>
+                        <td className="py-2 px-2 border font-bold text-emerald-800">৳ {toBanglaNumber(getDonorTotalDonated(d))}</td>
                         <td className="py-2 px-2 border text-[10px]">{d.preferred_fund}</td>
                       </tr>
                     );

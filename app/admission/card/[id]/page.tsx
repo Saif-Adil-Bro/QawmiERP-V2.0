@@ -20,7 +20,7 @@ export default async function AdmitCardPrintPage({
     notFound();
   }
 
-  const madrasa = await getMadrasaInfo();
+  const madrasa = await getMadrasaInfo(admission.madrasa_id);
   const isConfirmed = admission.status === "CONFIRMED";
 
   if (isConfirmed) {
@@ -30,8 +30,8 @@ export default async function AdmitCardPrintPage({
           {/* Madrasa Header */}
           <div className="space-y-1 border-b pb-4">
             <p className="text-xs font-serif text-slate-500">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
-            <h1 className="text-xl sm:text-2xl font-black text-emerald-900">{madrasa.name || "মাদ্রাসাতুল মুসলিমীন"}</h1>
-            <p className="text-xs text-slate-500">{madrasa.address || "ঠিকানা হালনাগাদ করুন"}</p>
+            <h1 className="text-xl sm:text-2xl font-black text-emerald-900">{madrasa.name || "মাদরাসা"}</h1>
+            {madrasa.address && <p className="text-xs text-slate-500">{madrasa.address}</p>}
           </div>
 
           {/* Success Badge */}
@@ -115,10 +115,10 @@ export default async function AdmitCardPrintPage({
           <div className="text-center space-y-1 border-b-2 border-emerald-900/30 pb-4">
             <p className="text-xs font-serif text-slate-500 print:text-black">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-emerald-900 print:text-black tracking-tight">
-              {madrasa.name || "মাদ্রাসাতুল মুসলিমীন"}
+              {madrasa.name || "মাদরাসা"}
             </h1>
             <p className="text-xs text-slate-600 print:text-black">
-              {madrasa.address || "ঠিকানা হালনাগাদ করুন"} {madrasa.phone && `• ফোন: ${madrasa.phone}`}
+              {madrasa.address || ""} {madrasa.phone && `• ফোন: ${madrasa.phone}`}
             </p>
             <div className="pt-2">
               <span className="inline-block bg-emerald-900 text-white print:bg-black print:text-white px-5 py-1 rounded-full text-xs sm:text-sm font-bold tracking-wider uppercase shadow-xs">

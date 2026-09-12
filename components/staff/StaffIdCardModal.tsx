@@ -53,9 +53,9 @@ interface StaffIdCardModalProps {
 export default function StaffIdCardModal({
   staff,
   madrasaInfo,
-  madrasaName: fallbackMadrasaName = "মাদ্রাসাতুল মুসলিমীন",
-  madrasaPhone: fallbackMadrasaPhone = "০১৮১২৩৪৫৬৭৮",
-  madrasaAddress: fallbackMadrasaAddress = "মাদ্রাসা রোড, সদর, বাংলাদেশ",
+  madrasaName: fallbackMadrasaName = "মাদরাসা",
+  madrasaPhone: fallbackMadrasaPhone = "",
+  madrasaAddress: fallbackMadrasaAddress = "",
   onClose,
 }: StaffIdCardModalProps) {
   const [qrDataUrl, setQrDataUrl] = useState<string>("");

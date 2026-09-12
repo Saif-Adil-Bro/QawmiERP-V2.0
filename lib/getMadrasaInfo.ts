@@ -1,13 +1,13 @@
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { extractMadrasaPrefix, generateSuggestedPrefix } from "@/lib/madrasa-prefix";
 
-export async function getMadrasaInfo() {
+export async function getMadrasaInfo(specificMadrasaId?: string) {
   let madrasaInfo = { 
     id: "",
-    name: "মাদ্রাসাতুল মুসলিমীন", 
-    prefix: "AHH",
-    short_code: "AHH",
-    address: "ঠিকানা হালনাগাদ করুন", 
+    name: "মাদরাসা", 
+    prefix: "",
+    short_code: "",
+    address: "", 
     phone: "", 
     email: "",
     logo_url: "",
@@ -25,21 +25,23 @@ export async function getMadrasaInfo() {
 
   try {
     const adminClient = await createAdminClient();
-    let targetMadrasaId: string | null = null;
+    let targetMadrasaId: string | null = specificMadrasaId || null;
 
-    try {
-      const supabase = await createClient();
-      const user = await getAuthUser(supabase);
-      if (user?.id) {
-        const { data: userDetails } = await adminClient
-          .from("users")
-          .select("madrasa_id")
-          .eq("id", user.id)
-          .single();
-        targetMadrasaId = userDetails?.madrasa_id || null;
+    if (!targetMadrasaId) {
+      try {
+        const supabase = await createClient();
+        const user = await getAuthUser(supabase);
+        if (user?.id) {
+          const { data: userDetails } = await adminClient
+            .from("users")
+            .select("madrasa_id")
+            .eq("id", user.id)
+            .single();
+          targetMadrasaId = userDetails?.madrasa_id || null;
+        }
+      } catch {
+        // Fallback for public requests outside user context
       }
-    } catch {
-      // Fallback for public requests outside user context
     }
 
     if (!targetMadrasaId) {
@@ -96,16 +98,16 @@ export async function getMadrasaInfo() {
           (fullMadrasa as any).short_code ||
           extractMadrasaPrefix(fullMadrasa) ||
           generateSuggestedPrefix(fullMadrasa.name || "") ||
-          "AHH";
+          "";
 
         madrasaInfo = {
           id: fullMadrasa.id || targetMadrasaId,
-          name: fullMadrasa.name || madrasaInfo.name,
+          name: fullMadrasa.name || madrasaInfo.name || "মাদরাসা",
           prefix: resolvedPrefix,
           short_code: resolvedPrefix,
-          address: fullMadrasa.address || madrasaInfo.address,
-          phone: fullMadrasa.contact_phone || madrasaInfo.phone,
-          email: fullMadrasa.contact_email || madrasaInfo.email,
+          address: fullMadrasa.address || "",
+          phone: fullMadrasa.contact_phone || (fullMadrasa as any).phone || "",
+          email: fullMadrasa.contact_email || (fullMadrasa as any).email || "",
           logo_url: meta.logo_url || logoUrl || "",
           registration_no:
             meta.reg_no ||

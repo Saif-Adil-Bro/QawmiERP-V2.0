@@ -388,8 +388,8 @@ export async function getAnnualAuditStatement(
     hijriYear,
     startDate,
     endDate,
-    madrasaName: madrasa?.name || "মাদ্রাসাতুল মুসলিমীন",
-    madrasaAddress: madrasa?.address || "মাদরাসা কমপ্লেক্স",
+    madrasaName: madrasa?.name || "মাদরাসা",
+    madrasaAddress: madrasa?.address || "",
     registrationNo: madrasa?.registration_no?.substring(0, 15),
     principalName: realPrincipal,
     signatories: {

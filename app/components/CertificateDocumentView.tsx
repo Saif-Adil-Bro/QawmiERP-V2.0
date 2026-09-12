@@ -242,11 +242,11 @@ export default function CertificateDocumentView({
             </p>
 
             <h1 className={`text-2xl sm:text-4xl font-black tracking-tight ${activeTheme.text}`}>
-              {snapshot.madrasa_name}
+              {madrasaInfo?.name || snapshot.madrasa_name || "মাদরাসা"}
             </h1>
 
             <p className="text-xs sm:text-sm text-slate-600 font-medium">
-              {snapshot.madrasa_address} • ফোন: {snapshot.madrasa_phone || madrasaInfo?.phone || "—"}
+              {madrasaInfo?.address || snapshot.madrasa_address || ""} {(snapshot.madrasa_phone || madrasaInfo?.phone) && `• ফোন: ${madrasaInfo?.phone || snapshot.madrasa_phone}`}
             </p>
 
             {/* Certificate Title Badge */}

@@ -44,9 +44,9 @@ export default function ExpenseVoucher({
 }: ExpenseVoucherProps) {
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
 
-  const madrasaName = madrasaInfo?.name || "আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা";
-  const madrasaAddress = madrasaInfo?.address || "কাতিয়ারচর, কিশোরগঞ্জ সদর, কিশোরগঞ্জ।";
-  const madrasaPhone = madrasaInfo?.phone || "০১৬০০-৯৮৯৫৫৫";
+  const madrasaName = madrasaInfo?.name || "মাদরাসা";
+  const madrasaAddress = madrasaInfo?.address || "";
+  const madrasaPhone = madrasaInfo?.phone || "";
   const regNo = madrasaInfo?.registration_no || madrasaInfo?.reg_no || "";
 
   const amountNum = typeof expense.amount === "number" ? expense.amount : parseFloat(String(expense.amount || 0));

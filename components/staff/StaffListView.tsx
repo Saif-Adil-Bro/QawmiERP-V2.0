@@ -55,7 +55,7 @@ export default function StaffListView({
   departments,
   designations,
   madrasaInfo,
-  madrasaName = "দারুল উলুম কওমিয়া মাদ্রাসা",
+  madrasaName = "মাদরাসা",
   onSelectStaff,
   onAddStaff,
   onEditStaff,

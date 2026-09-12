@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { getMonthlyBoardingReport } from "@/app/actions/boarding";
+import { getMadrasaDetails } from "@/app/actions/tenant";
 import { format } from "date-fns";
 import {
   ArrowLeft,
@@ -27,6 +28,7 @@ export default function MonthlyReportsPage() {
   const [year, setYear] = useState<string>(format(currentDate, "yyyy"));
   const [month, setMonth] = useState<string>(format(currentDate, "MM"));
   const [report, setReport] = useState<any>(null);
+  const [madrasaInfo, setMadrasaInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -72,6 +74,12 @@ export default function MonthlyReportsPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    getMadrasaDetails().then((info) => {
+      if (info) setMadrasaInfo(info);
+    }).catch(console.error);
+  }, []);
 
   useEffect(() => {
     loadReport();
@@ -310,7 +318,10 @@ export default function MonthlyReportsPage() {
 
       {/* Printable Heading Block (Visible ONLY in print mode) */}
       <div className="hidden print:block text-center border-b-2 border-slate-800 pb-4 mb-6">
-        <h1 className="text-2xl font-extrabold text-slate-900">মাদ্রাসাতুল মুসলিমীন</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900">{madrasaInfo?.name || "মাদরাসা"}</h1>
+        {madrasaInfo?.address && (
+          <p className="text-xs text-slate-600 mt-0.5">{madrasaInfo.address}</p>
+        )}
         <h2 className="text-lg font-bold text-slate-700 mt-1">বোর্ডিং ও মিল হিসাব রিপোর্ট (মাসিক বিল রেজিস্টার)</h2>
         <p className="text-slate-600 text-sm mt-0.5">
           মাস: {getSelectedMonthLabel()} - {getSelectedYearLabel()} | মিল রেট: {effectiveMealRate} ৳
