@@ -21,6 +21,7 @@ import { FundItem, FundTransactionRecord, DonationItem } from "@/lib/fund-utils"
 import { toBanglaNumber, formatBanglaCurrency, numberToBanglaWords } from "@/lib/numberToBangla";
 import { getFundLedgerData, getDonationById } from "@/app/actions/zakat";
 import DonationReceipt from "./DonationReceipt";
+import { printElementIsolated } from "@/lib/printUtils";
 
 interface FundLedgerModalProps {
   fund: FundItem | null;
@@ -109,27 +110,7 @@ export default function FundLedgerModal({
   };
 
   const handlePrintStatement = () => {
-    const printElem = document.getElementById("fund-statement-print-area");
-    if (!printElem) {
-      window.print();
-      return;
-    }
-    const existing = document.getElementById("temp-statement-print-frame");
-    if (existing) existing.remove();
-
-    const clone = printElem.cloneNode(true) as HTMLElement;
-    clone.id = "temp-statement-print-frame";
-    document.body.appendChild(clone);
-    document.body.classList.add("is-printing-now");
-
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove("is-printing-now");
-        const temp = document.getElementById("temp-statement-print-frame");
-        if (temp) temp.remove();
-      }, 600);
-    }, 150);
+    printElementIsolated("fund-statement-print-area", `${fund?.name || "ফান্ড"} - খতিয়ান ও হিসাব বিবরণী`);
   };
 
   if (!isOpen || !fund) return null;

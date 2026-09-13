@@ -102,20 +102,21 @@ export async function getMadrasaInfo(specificMadrasaId?: string) {
 
         madrasaInfo = {
           id: fullMadrasa.id || targetMadrasaId,
-          name: fullMadrasa.name || madrasaInfo.name || "মাদরাসা",
+          name: meta.name || fullMadrasa.name || madrasaInfo.name || "মাদরাসা",
           prefix: resolvedPrefix,
           short_code: resolvedPrefix,
-          address: fullMadrasa.address || "",
-          phone: fullMadrasa.contact_phone || (fullMadrasa as any).phone || "",
-          email: fullMadrasa.contact_email || (fullMadrasa as any).email || "",
+          address: meta.address || fullMadrasa.address || "",
+          phone: meta.phone || meta.contact_phone || fullMadrasa.phone || fullMadrasa.contact_phone || (fullMadrasa as any).phone || "",
+          email: meta.email || meta.contact_email || fullMadrasa.email || fullMadrasa.contact_email || (fullMadrasa as any).email || "",
           logo_url: meta.logo_url || logoUrl || "",
           registration_no:
             meta.reg_no ||
+            meta.registration_no ||
             (typeof fullMadrasa.registration_no === "string" &&
             !fullMadrasa.registration_no.startsWith("{")
               ? fullMadrasa.registration_no
               : ""),
-          reg_no: meta.reg_no || "",
+          reg_no: meta.reg_no || meta.registration_no || "",
           established_year: meta.established_year || "",
           principal_name:
             meta.principal_name ||

@@ -10,6 +10,11 @@ export interface FundItem {
   category: "General" | "Lillah" | "Zakat" | "Fitra" | "Development" | "Education" | "Other";
   description?: string;
   target_amount?: number;
+  current_balance?: number;
+  total_collected?: number;
+  total_expense?: number;
+  donations_count?: number;
+  unique_donors_count?: number;
   color?: string;
   is_default?: boolean;
   is_active?: boolean;
@@ -215,7 +220,9 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
       (f) =>
         f.name === trimmed ||
         f.code?.toLowerCase() === trimmed.toLowerCase() ||
-        f.id === trimmed
+        f.id === trimmed ||
+        f.name.toLowerCase() === trimmed.toLowerCase() ||
+        (trimmed.startsWith(f.name) && trimmed.length > 3)
     );
     if (found) return found.name;
   }
@@ -281,12 +288,38 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     lower === "gen" ||
     lower === "fund-general" ||
     trimmed.includes("সাধারণ") ||
-    lower.includes("general fund")
+    lower.includes("general fund") ||
+    lower.includes("general")
   ) {
     return "সাধারণ ফান্ড (General Fund)";
   }
 
   return trimmed;
+}
+
+// Robust helper to check if a donation or transaction belongs to a given fund
+export function isTransactionInFund(
+  fund: FundItem,
+  itemFundId?: string | null,
+  itemFundName?: string | null,
+  allFunds?: FundItem[]
+): boolean {
+  if (!fund) return false;
+  const fId = (fund.id || "").toLowerCase();
+  const fName = (fund.name || "").toLowerCase();
+  const fCode = (fund.code || "").toLowerCase();
+
+  const candidateId = (itemFundId || "").toLowerCase();
+  const candidateName = (itemFundName || "").toLowerCase();
+
+  if (fId && candidateId && fId === candidateId) return true;
+  if (fName && candidateName && fName === candidateName) return true;
+  if (fCode && candidateName && (candidateName === fCode || candidateName.includes(fCode))) return true;
+
+  const canonA = normalizeFundName(fund.name, allFunds).toLowerCase();
+  const canonB = normalizeFundName(itemFundName || itemFundId, allFunds).toLowerCase();
+
+  return canonA === canonB;
 }
 
 

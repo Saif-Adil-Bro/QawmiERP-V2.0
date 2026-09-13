@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Printer, Scissors, FileText, CheckCircle2, ShieldCheck, X } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency, numberToBanglaWords } from "@/lib/numberToBangla";
 import { BazarExpenseItem } from "@/app/actions/boarding";
+import { printElementIsolated } from "@/lib/printUtils";
 
 export interface MadrasaInfoType {
   name?: string;
@@ -105,28 +106,7 @@ export default function BazarVoucherPrint({
   const parsedItems = parseBazarLines(expense.items_details);
 
   const handlePrint = () => {
-    const printElem = document.querySelector(".bazar-voucher-printable-area");
-    if (!printElem) {
-      window.print();
-      return;
-    }
-
-    const existing = document.getElementById("temp-print-frame");
-    if (existing) existing.remove();
-
-    const clone = printElem.cloneNode(true) as HTMLElement;
-    clone.id = "temp-print-frame";
-    document.body.appendChild(clone);
-    document.body.classList.add("is-printing-now");
-
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove("is-printing-now");
-        const temp = document.getElementById("temp-print-frame");
-        if (temp) temp.remove();
-      }, 500);
-    }, 150);
+    printElementIsolated("bazar-voucher-sheet", "বোর্ডিং বাজার খরচ ভাউচার");
   };
 
   const renderSingleVoucher = (copyType: "office" | "boarding", copyLabel: string) => {
@@ -379,7 +359,7 @@ export default function BazarVoucherPrint({
       )}
 
       {/* Printable Area */}
-      <div className="bazar-voucher-printable-area bg-white p-2 sm:p-4 rounded-xl border border-slate-200 print:border-none print:p-0">
+      <div id="bazar-voucher-sheet" className="bazar-voucher-printable-area bg-white p-2 sm:p-4 rounded-xl border border-slate-200 print:border-none print:p-0">
         {printLayout === "dual" ? (
           <div className="space-y-4 print:space-y-3">
             {/* Copy 1: Office Copy */}

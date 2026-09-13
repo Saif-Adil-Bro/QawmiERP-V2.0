@@ -19,8 +19,8 @@ import {
   OnlineDonationSettings,
   DEFAULT_ONLINE_DONATION_SETTINGS,
 } from "@/lib/fundraising-types";
-import { DEFAULT_FUNDS } from "@/lib/fund-utils";
-import { getFunds } from "@/app/actions/zakat";
+import { DEFAULT_FUNDS, normalizeFundName } from "@/lib/fund-utils";
+import { getFunds, getNextMahfilVoucherNo } from "@/app/actions/zakat";
 import {
   createRealGatewaySession,
   validateGatewayCredentials,
@@ -810,7 +810,7 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
 
     if (payload.settlement_type === "SURPLUS_DEPOSIT") {
       // 1. Surplus: Deposit into target Fund -> Create Income / Donation record in Accounting
-      accountingVoucherNo = `MHF-SURPLUS-${Date.now().toString().slice(-4)}`;
+      accountingVoucherNo = await getNextMahfilVoucherNo(activeMadrasaId, "SURPLUS");
       const donationNotes = `[মাহফিল উদ্বৃত্ত তহবিল জমা] মাহফিল: ${targetMahfil.title} (${targetMahfil.year}) থেকে ${payload.fund_name}-এ উদ্বৃত্ত জমা।${payload.payment_method ? ` [Method: ${payload.payment_method}]` : ""} ${payload.notes || ""}`.trim();
       
       const { data: donRec, error: donErr } = await adminClient.from("donations").insert({
@@ -868,7 +868,7 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
       targetMahfil.transactions = [...(targetMahfil.transactions || []), mahfilTxn];
     } else {
       // 2. Deficit: Cover from another Fund -> Create Expense Voucher in Madrasa Accounting
-      accountingVoucherNo = `EXP-MHF-DEF-${Date.now().toString().slice(-4)}`;
+      accountingVoucherNo = await getNextMahfilVoucherNo(activeMadrasaId, "DEFICIT");
       const cleanDesc = `মাহফিল: ${targetMahfil.title} (${targetMahfil.year}) এর ঘাটতি পূরণ বাবদ ${payload.fund_name} থেকে প্রদান। ${payload.notes || ""}`.trim();
       const wrappedDesc = `[FUND: ${payload.fund_id} | ${payload.fund_name}]\n${cleanDesc}`;
 

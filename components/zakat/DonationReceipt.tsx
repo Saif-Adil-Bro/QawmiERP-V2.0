@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
-import { Printer, Scissors, Type, HeartHandshake } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Printer, Scissors, Type, HeartHandshake, Building, Phone, MapPin, Award } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency, numberToBanglaWords } from "@/lib/numberToBangla";
 import { DonationItem, getPaymentMethodName } from "@/lib/fund-utils";
+import { getActiveMadrasaHeaderInfo } from "@/app/actions/zakat";
+import { printElementIsolated } from "@/lib/printUtils";
 
 interface MadrasaInfo {
   name?: string;
@@ -12,6 +14,10 @@ interface MadrasaInfo {
   email?: string;
   logo_url?: string;
   registration_no?: string;
+  reg_no?: string;
+  signature_url?: string;
+  principal_name?: string;
+  slogan?: string;
 }
 
 interface DonationReceiptProps {
@@ -22,11 +28,40 @@ interface DonationReceiptProps {
 
 export default function DonationReceipt({
   donation,
-  madrasaInfo,
+  madrasaInfo: initialMadrasaInfo,
   showControls = true,
 }: DonationReceiptProps) {
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
   const [printLayout, setPrintLayout] = useState<"dual" | "donor" | "office">("dual");
+  const [liveMadrasaInfo, setLiveMadrasaInfo] = useState<MadrasaInfo | null>(initialMadrasaInfo || null);
+
+  useEffect(() => {
+    if (initialMadrasaInfo && initialMadrasaInfo.name && initialMadrasaInfo.name !== "মাদরাসা") {
+      setLiveMadrasaInfo(initialMadrasaInfo);
+      return;
+    }
+
+    let isMounted = true;
+    async function loadDynamicBranding() {
+      try {
+        const info = await getActiveMadrasaHeaderInfo();
+        if (isMounted && info) {
+          setLiveMadrasaInfo((prev) => ({
+            ...prev,
+            ...info,
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to load live madrasa branding:", err);
+      }
+    }
+    loadDynamicBranding();
+    return () => {
+      isMounted = false;
+    };
+  }, [initialMadrasaInfo]);
+
+  const madrasaInfo = liveMadrasaInfo || initialMadrasaInfo;
 
   const isMahfil =
     Boolean(donation.is_mahfil_settlement) ||
@@ -57,29 +92,14 @@ export default function DonationReceipt({
   const paymentMethodBangla = getPaymentMethodName(donation.payment_method);
   const fundName = donation.fund_name || donation.donation_type || "সাধারণ ফান্ড";
 
+  const madrasaDisplayName = madrasaInfo?.name || "মাদরাসা";
+  const madrasaDisplayAddress = madrasaInfo?.address || "";
+  const madrasaDisplayPhone = madrasaInfo?.phone || "";
+  const madrasaDisplayReg = madrasaInfo?.registration_no || madrasaInfo?.reg_no || "";
+  const madrasaLogoUrl = madrasaInfo?.logo_url || "";
+
   const handlePrint = () => {
-    const printElem = document.getElementById("donation-receipt-sheet");
-    if (!printElem) {
-      window.print();
-      return;
-    }
-
-    const existing = document.getElementById("temp-print-frame");
-    if (existing) existing.remove();
-
-    const clone = printElem.cloneNode(true) as HTMLElement;
-    clone.id = "temp-print-frame";
-    document.body.appendChild(clone);
-    document.body.classList.add("is-printing-now");
-
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove("is-printing-now");
-        const temp = document.getElementById("temp-print-frame");
-        if (temp) temp.remove();
-      }, 600);
-    }, 150);
+    printElementIsolated("donation-receipt-sheet", isMahfil ? "মাহফিল তহবিল সমন্বয় মেমো" : "দান ও অনুদান রসিদ");
   };
 
   const renderSingleReceipt = (copyType: "donor" | "office", copyLabel: string) => {
@@ -99,35 +119,50 @@ export default function DonationReceipt({
       >
         {/* Top Header Row */}
         <div>
+          {/* Islamic Bismillah */}
+          <div className="text-center pb-1 text-[11px] font-amiri text-slate-600 select-none">
+            بِسْمِ اللّٰهِ الرَّحْمٰنِ الرَّحِيْمِ
+          </div>
+
           <div className="flex items-start justify-between border-b border-slate-200 pb-3 gap-2">
             {/* Madrasa Logo + Info */}
             <div className="flex items-center gap-3 flex-1 min-w-0">
-              {madrasaInfo?.logo_url ? (
+              {madrasaLogoUrl ? (
                 <img 
-                  src={madrasaInfo.logo_url} 
+                  src={madrasaLogoUrl} 
                   alt="Madrasa Logo" 
-                  className="w-13 h-13 sm:w-14 sm:h-14 object-contain rounded-md shrink-0" 
+                  className="w-14 h-14 object-contain rounded-md shrink-0 border border-slate-200 bg-white p-0.5" 
                   onError={(e) => { e.currentTarget.style.display = "none"; }} 
                 />
               ) : (
-                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-lg shrink-0 border border-emerald-300 print:border-slate-400">
-                  ম
+                <div className="w-13 h-13 rounded-xl bg-emerald-700 text-white flex items-center justify-center font-bold text-xl shrink-0 shadow-xs">
+                  <Building className="w-7 h-7 text-emerald-100" />
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-tight truncate">
-                  {madrasaInfo?.name || "মাদরাসা"}
+                <h2 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
+                  {madrasaDisplayName}
                 </h2>
-                {madrasaInfo?.address && (
-                  <p className="text-[11px] sm:text-xs text-slate-600 leading-normal line-clamp-1 mt-0.5">
-                    {madrasaInfo.address}
+                {madrasaDisplayAddress ? (
+                  <p className="text-[11px] sm:text-xs text-slate-600 leading-normal line-clamp-1 mt-0.5 flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-slate-400 shrink-0 inline" />
+                    <span>{madrasaDisplayAddress}</span>
                   </p>
-                )}
-                {madrasaInfo?.phone && (
-                  <p className="text-[10px] sm:text-[11px] text-slate-500 font-mono">
-                    মোবাইল: {toBanglaNumber(madrasaInfo.phone)}
-                  </p>
-                )}
+                ) : null}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] sm:text-[11px] text-slate-500 mt-0.5">
+                  {madrasaDisplayPhone && (
+                    <span className="font-mono flex items-center gap-1">
+                      <Phone className="w-2.5 h-2.5 text-slate-400 inline" />
+                      <span>মোবাইল: {toBanglaNumber(madrasaDisplayPhone)}</span>
+                    </span>
+                  )}
+                  {madrasaDisplayReg && (
+                    <span className="text-slate-500 flex items-center gap-1">
+                      <Award className="w-2.5 h-2.5 text-slate-400 inline" />
+                      <span>রেজি/কোড: {toBanglaNumber(madrasaDisplayReg)}</span>
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 

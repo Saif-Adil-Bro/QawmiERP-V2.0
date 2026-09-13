@@ -4,18 +4,137 @@ import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
-import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName } from "@/lib/fund-utils";
+import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName, isTransactionInFund } from "@/lib/fund-utils";
+import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 
 // In-memory fallback cache for custom funds if database table is not yet created
 const customFundsStore: Map<string, FundItem[]> = new Map();
 
-// Helper to get all funds (Defaults + Relational Table zakat_funds + Custom funds)
+// Generate sequential receipt number (ZR-YYYY-XXXX)
+export async function getNextDonationReceiptNo(madrasaId: string, prefix = "ZR"): Promise<string> {
+  try {
+    const adminClient = await createAdminClient();
+    const currentYear = new Date().getFullYear();
+    const { data: donations } = await adminClient
+      .from("donations")
+      .select("receipt_no")
+      .eq("madrasa_id", madrasaId);
+
+    let maxSeq = 0;
+    const yearPrefixPattern = new RegExp(`^${prefix}-(\\d{4})-(\\d+)$`, "i");
+    const simplePrefixPattern = new RegExp(`^${prefix}(\\d+)$`, "i");
+
+    (donations || []).forEach((d: any) => {
+      const rec = (d.receipt_no || "").trim();
+      const matchYear = rec.match(yearPrefixPattern);
+      if (matchYear && matchYear[1] === String(currentYear)) {
+        const seq = parseInt(matchYear[2], 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      } else {
+        const matchSimple = rec.match(simplePrefixPattern);
+        if (matchSimple) {
+          const seq = parseInt(matchSimple[1], 10);
+          if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+        }
+      }
+    });
+
+    const nextSeq = maxSeq + 1;
+    return `${prefix}-${currentYear}-${String(nextSeq).padStart(4, "0")}`;
+  } catch {
+    const currentYear = new Date().getFullYear();
+    return `${prefix}-${currentYear}-0001`;
+  }
+}
+
+// Generate sequential Mahfil voucher number
+export async function getNextMahfilVoucherNo(madrasaId: string, type: "SURPLUS" | "DEFICIT"): Promise<string> {
+  try {
+    const adminClient = await createAdminClient();
+    const currentYear = new Date().getFullYear();
+    const prefix = type === "SURPLUS" ? "MHF-SURP" : "MHF-DEF";
+    
+    let maxSeq = 0;
+    if (type === "SURPLUS") {
+      const { data: donations } = await adminClient
+        .from("donations")
+        .select("receipt_no")
+        .eq("madrasa_id", madrasaId);
+
+      const pattern = new RegExp(`^${prefix}-(\\d{4})-(\\d+)$`, "i");
+      (donations || []).forEach((d: any) => {
+        const rec = (d.receipt_no || "").trim();
+        const match = rec.match(pattern);
+        if (match && match[1] === String(currentYear)) {
+          const seq = parseInt(match[2], 10);
+          if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+        }
+      });
+    } else {
+      const { data: expenses } = await adminClient
+        .from("expenses")
+        .select("voucher_no")
+        .eq("madrasa_id", madrasaId);
+
+      const pattern = new RegExp(`^${prefix}-(\\d{4})-(\\d+)$`, "i");
+      (expenses || []).forEach((e: any) => {
+        const rec = (e.voucher_no || "").trim();
+        const match = rec.match(pattern);
+        if (match && match[1] === String(currentYear)) {
+          const seq = parseInt(match[2], 10);
+          if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+        }
+      });
+    }
+
+    const nextSeq = maxSeq + 1;
+    return `${prefix}-${currentYear}-${String(nextSeq).padStart(4, "0")}`;
+  } catch {
+    const currentYear = new Date().getFullYear();
+    const prefix = type === "SURPLUS" ? "MHF-SURP" : "MHF-DEF";
+    return `${prefix}-${currentYear}-0001`;
+  }
+}
+
+// Active Madrasa Header Info for Money Receipts and Invoices
+export async function getActiveMadrasaHeaderInfo() {
+  try {
+    const info = await getMadrasaInfo();
+    return {
+      name: info.name || "মাদরাসা",
+      address: info.address || "",
+      phone: info.phone || "",
+      email: info.email || "",
+      logo_url: info.logo_url || "",
+      registration_no: info.registration_no || info.reg_no || "",
+      signature_url: info.signature_url || "",
+      principal_name: info.principal_name || "",
+      slogan: info.slogan || "",
+    };
+  } catch {
+    return {
+      name: "মাদরাসা",
+      address: "",
+      phone: "",
+      email: "",
+      logo_url: "",
+      registration_no: "",
+      signature_url: "",
+      principal_name: "",
+      slogan: "",
+    };
+  }
+}
+
+// Helper to get all funds (Defaults + Relational Table zakat_funds + Custom funds) with real-time financial balances
 export async function getFunds(): Promise<FundItem[]> {
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+
+    let baseFunds: FundItem[] = [];
 
     // 1. Try relational table zakat_funds
     try {
@@ -43,7 +162,7 @@ export async function getFunds(): Promise<FundItem[]> {
           is_active: f.is_active !== false,
           created_at: f.created_at,
         }));
-        return [
+        baseFunds = [
           ...DEFAULT_FUNDS.filter((df) => !existingCodes.has(df.code) && !existingCodes.has(df.id) && !existingNames.has(df.name.toLowerCase())),
           ...formatted,
         ];
@@ -51,37 +170,93 @@ export async function getFunds(): Promise<FundItem[]> {
     } catch {}
 
     // 2. Check madrasa metadata for custom funds (Fallback)
-    try {
-      const { data: madrasaData } = await adminClient
-        .from("madrasas")
-        .select("registration_no")
-        .eq("id", finalMadrasaId)
-        .single();
+    if (baseFunds.length === 0) {
+      try {
+        const { data: madrasaData } = await adminClient
+          .from("madrasas")
+          .select("registration_no")
+          .eq("id", finalMadrasaId)
+          .single();
 
-      if (madrasaData?.registration_no && madrasaData.registration_no.startsWith("{")) {
-        const meta = JSON.parse(madrasaData.registration_no);
-        if (meta.custom_funds && Array.isArray(meta.custom_funds)) {
-          const customList: FundItem[] = meta.custom_funds;
-          const existingIds = new Set(customList.map((f) => f.id));
-          const existingCodes = new Set(customList.map((f) => f.code));
-          const existingNames = new Set(customList.map((f) => f.name?.toLowerCase()));
-          return [
-            ...DEFAULT_FUNDS.filter((f) => !existingIds.has(f.id) && !existingCodes.has(f.code) && !existingNames.has(f.name.toLowerCase())),
-            ...customList,
-          ];
+        if (madrasaData?.registration_no && madrasaData.registration_no.startsWith("{")) {
+          const meta = JSON.parse(madrasaData.registration_no);
+          if (meta.custom_funds && Array.isArray(meta.custom_funds)) {
+            const customList: FundItem[] = meta.custom_funds;
+            const existingIds = new Set(customList.map((f) => f.id));
+            const existingCodes = new Set(customList.map((f) => f.code));
+            const existingNames = new Set(customList.map((f) => f.name?.toLowerCase()));
+            baseFunds = [
+              ...DEFAULT_FUNDS.filter((f) => !existingIds.has(f.id) && !existingCodes.has(f.code) && !existingNames.has(f.name.toLowerCase())),
+              ...customList,
+            ];
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
     // 3. Fallback to in-memory custom funds merged with defaults
-    const madrasaCustom = customFundsStore.get(finalMadrasaId) || [];
-    const customIds = new Set(madrasaCustom.map(f => f.id));
-    const customCodes = new Set(madrasaCustom.map(f => f.code));
-    const customNames = new Set(madrasaCustom.map(f => f.name?.toLowerCase()));
-    return [
-      ...DEFAULT_FUNDS.filter(f => !customIds.has(f.id) && !customCodes.has(f.code) && !customNames.has(f.name.toLowerCase())),
-      ...madrasaCustom,
-    ];
+    if (baseFunds.length === 0) {
+      const madrasaCustom = customFundsStore.get(finalMadrasaId) || [];
+      const customIds = new Set(madrasaCustom.map(f => f.id));
+      const customCodes = new Set(madrasaCustom.map(f => f.code));
+      const customNames = new Set(madrasaCustom.map(f => f.name?.toLowerCase()));
+      baseFunds = [
+        ...DEFAULT_FUNDS.filter(f => !customIds.has(f.id) && !customCodes.has(f.code) && !customNames.has(f.name.toLowerCase())),
+        ...madrasaCustom,
+      ];
+    }
+
+    // Fetch dynamic live collections & expenses to calculate real-time balances for all funds
+    const [donationsRes, expensesRes] = await Promise.all([
+      adminClient.from("donations").select("amount, donation_type, donor_id").eq("madrasa_id", finalMadrasaId),
+      adminClient.from("expenses").select("amount, description, category").eq("madrasa_id", finalMadrasaId),
+    ]);
+
+    const allDonations = donationsRes.data || [];
+    const allExpenses = expensesRes.data || [];
+
+    const fundStats = new Map<string, { collected: number; expense: number; count: number; donors: Set<string> }>();
+    baseFunds.forEach((f) => {
+      fundStats.set(f.name, { collected: 0, expense: 0, count: 0, donors: new Set<string>() });
+    });
+
+    allDonations.forEach((d: any) => {
+      const amt = Number(d.amount || 0);
+      const matched = baseFunds.find((f) => isTransactionInFund(f, undefined, d.donation_type, baseFunds));
+      if (matched) {
+        const stat = fundStats.get(matched.name);
+        if (stat) {
+          stat.collected += amt;
+          stat.count += 1;
+          if (d.donor_id) stat.donors.add(d.donor_id);
+        }
+      }
+    });
+
+    allExpenses.forEach((e: any) => {
+      const amt = Number(e.amount || 0);
+      const parsed = parseExpenseFund(e.description);
+      const targetFundName = parsed.fundName || parsed.fundId || e.category;
+      const matched = baseFunds.find((f) => isTransactionInFund(f, parsed.fundId, targetFundName, baseFunds));
+      if (matched) {
+        const stat = fundStats.get(matched.name);
+        if (stat) {
+          stat.expense += amt;
+        }
+      }
+    });
+
+    return baseFunds.map((f) => {
+      const st = fundStats.get(f.name) || { collected: 0, expense: 0, count: 0, donors: new Set<string>() };
+      return {
+        ...f,
+        total_collected: st.collected,
+        total_expense: st.expense,
+        current_balance: Math.max(0, st.collected - st.expense),
+        donations_count: st.count,
+        unique_donors_count: st.donors.size,
+      };
+    });
   } catch (err) {
     console.error("Error in getFunds:", err);
     return DEFAULT_FUNDS;
@@ -819,13 +994,14 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
         f.id === fundIdentifier ||
         f.name === fundIdentifier ||
         f.code?.toLowerCase() === fundIdentifier.toLowerCase() ||
-        f.name.toLowerCase().includes(fundIdentifier.toLowerCase())
+        f.name.toLowerCase().includes(fundIdentifier.toLowerCase()) ||
+        isTransactionInFund(f, fundIdentifier, fundIdentifier, funds)
     ) || funds[0];
 
     const targetCanonicalName = targetFund ? targetFund.name : "সাধারণ ফান্ড (General Fund)";
     const targetFundId = targetFund ? targetFund.id : "fund-general";
 
-    // 1. Fetch Inflow Donations for this fund
+    // 1. Fetch Inflow Donations for this madrasa
     const { data: dbDonations } = await adminClient
       .from("donations")
       .select(`
@@ -841,7 +1017,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
       .eq("madrasa_id", finalMadrasaId)
       .order("donation_date", { ascending: false });
 
-    // 2. Fetch Expenses for this fund
+    // 2. Fetch Expenses for this madrasa
     const { data: dbExpenses } = await adminClient
       .from("expenses")
       .select("*")
@@ -854,11 +1030,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
 
     // Process Donations
     (dbDonations || []).forEach((d: any) => {
-      const canonical = normalizeFundName(d.donation_type, funds);
-      if (
-        canonical === targetCanonicalName ||
-        (d.donation_type && d.donation_type.toLowerCase().includes(targetFund.code?.toLowerCase() || "_____"))
-      ) {
+      if (isTransactionInFund(targetFund, d.fund_id, d.donation_type, funds)) {
         const amt = Number(d.amount || 0);
         totalInflow += amt;
 
@@ -891,15 +1063,10 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
     // Process Expenses
     (dbExpenses || []).forEach((e: any) => {
       const parsed = parseExpenseFund(e.description);
-      const expFundId = e.fund_id || parsed.fundId || "fund-general";
-      const expFundName = e.fund_name || parsed.fundName || "সাধারণ ফান্ড (General Fund)";
-      const expCanonical = normalizeFundName(expFundName, funds);
+      const expFundId = e.fund_id || parsed.fundId;
+      const expFundName = e.fund_name || parsed.fundName || e.category;
 
-      if (
-        expFundId === targetFundId ||
-        expCanonical === targetCanonicalName ||
-        (expFundName && expFundName.toLowerCase().includes(targetFund.code?.toLowerCase() || "_____"))
-      ) {
+      if (isTransactionInFund(targetFund, expFundId, expFundName, funds)) {
         const amt = Number(e.amount || 0);
         totalOutflow += amt;
 
@@ -1034,8 +1201,8 @@ export async function addDonation(prevState: any, formData: FormData) {
       return { error: "অনুগ্রহ করে সঠিক অনুদানের পরিমাণ লিখুন" };
     }
 
-    // Auto generate receipt number if not provided
-    const receipt_no = receipt_no_input || `ZR${Date.now().toString().slice(-6)}`;
+    // Auto generate sequential receipt number if not provided
+    const receipt_no = receipt_no_input || (await getNextDonationReceiptNo(finalMadrasaId, "ZR"));
 
     // Store payment method and walk-in donor details in notes tag if not saved to directory
     let formattedNotes = userNotes;
@@ -1125,8 +1292,8 @@ export async function getZakatReportStats() {
     funds.forEach(f => {
       fundTotals[f.name] = {
         name: f.name,
-        total: 0,
-        count: 0,
+        total: f.total_collected || 0,
+        count: f.donations_count || 0,
         category: f.category,
         color: f.color || "emerald",
       };
@@ -1154,8 +1321,6 @@ export async function getZakatReportStats() {
           color: "teal",
         };
       }
-      fundTotals[fType].total += amt;
-      fundTotals[fType].count += 1;
 
       // Group by donor type
       const dtype = d.donor_id ? donorTypeMap.get(d.donor_id) : "OneTime";

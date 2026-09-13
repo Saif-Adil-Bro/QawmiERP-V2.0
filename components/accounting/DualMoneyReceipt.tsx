@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Printer, Type, Scissors, Copy, CheckCircle2, Download, ArrowLeft, Eye } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency, translateMonthToBangla, numberToBanglaWords } from "@/lib/numberToBangla";
+import { printElementIsolated } from "@/lib/printUtils";
 
 interface StudentInfo {
   first_name?: string;
@@ -97,28 +98,7 @@ export default function DualMoneyReceipt({
   const inWords = numberToBanglaWords(amountVal);
 
   const handlePrint = () => {
-    const printElem = document.getElementById("dual-money-receipt-sheet");
-    if (!printElem) {
-      window.print();
-      return;
-    }
-
-    const existing = document.getElementById("temp-print-frame");
-    if (existing) existing.remove();
-
-    const clone = printElem.cloneNode(true) as HTMLElement;
-    clone.id = "temp-print-frame";
-    document.body.appendChild(clone);
-    document.body.classList.add("is-printing-now");
-
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove("is-printing-now");
-        const temp = document.getElementById("temp-print-frame");
-        if (temp) temp.remove();
-      }, 600);
-    }, 150);
+    printElementIsolated("dual-money-receipt-sheet", "শিক্ষার্থী বেতন ও ফি আদায় রসিদ");
   };
 
   // Render a Single Receipt Card

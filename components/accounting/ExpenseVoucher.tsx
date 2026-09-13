@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Printer, Type, CheckCircle2, X, Download, Landmark, FileText, ArrowLeft } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency, numberToBanglaWords } from "@/lib/numberToBangla";
 import { parseExpenseItems, ParsedExpenseItem } from "@/lib/expense-parser";
+import { printElementIsolated } from "@/lib/printUtils";
 
 export interface ExpenseItem {
   id: string;
@@ -72,28 +73,7 @@ export default function ExpenseVoucher({
   const parsedItems: ParsedExpenseItem[] = parseExpenseItems(expense.description, amountNum);
 
   const handlePrint = () => {
-    const printElem = document.getElementById("expense-voucher-sheet");
-    if (!printElem) {
-      window.print();
-      return;
-    }
-
-    const existing = document.getElementById("temp-print-frame");
-    if (existing) existing.remove();
-
-    const clone = printElem.cloneNode(true) as HTMLElement;
-    clone.id = "temp-print-frame";
-    document.body.appendChild(clone);
-    document.body.classList.add("is-printing-now");
-
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove("is-printing-now");
-        const temp = document.getElementById("temp-print-frame");
-        if (temp) temp.remove();
-      }, 600);
-    }, 150);
+    printElementIsolated("expense-voucher-sheet", "মাদরাসা ডেবিট ভাউচার");
   };
 
   return (
