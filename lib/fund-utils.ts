@@ -47,6 +47,8 @@ export interface DonationItem {
   transaction_id?: string;
   notes?: string;
   created_at?: string;
+  is_mahfil_settlement?: boolean;
+  mahfil_title?: string;
   donors?: {
     id?: string;
     name: string;
@@ -54,6 +56,21 @@ export interface DonationItem {
     address?: string;
     donor_type?: string;
   } | null;
+}
+
+export interface FundTransactionRecord {
+  id: string;
+  type: "INCOME" | "EXPENSE" | "MAHFIL_SURPLUS" | "MAHFIL_DEFICIT";
+  fund_id?: string;
+  fund_name: string;
+  amount: number;
+  date: string;
+  source_or_recipient: string;
+  voucher_no: string;
+  payment_method?: string;
+  notes?: string;
+  category?: string;
+  is_mahfil_settlement?: boolean;
 }
 
 // Built-in Standard Default Funds

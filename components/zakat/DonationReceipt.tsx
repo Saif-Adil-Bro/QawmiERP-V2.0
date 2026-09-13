@@ -28,10 +28,20 @@ export default function DonationReceipt({
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
   const [printLayout, setPrintLayout] = useState<"dual" | "donor" | "office">("dual");
 
-  const donorName = donation.donors?.name || "সম্মানিত সাধারণ দাতা";
+  const isMahfil =
+    Boolean(donation.is_mahfil_settlement) ||
+    Boolean(donation.receipt_no?.startsWith("MHF-")) ||
+    Boolean(donation.notes?.includes("মাহফিল"));
+
+  const donorName = isMahfil
+    ? donation.mahfil_title || donation.donors?.name || "বার্ষিক ইসলামি মহাসম্মেলন (মাহফিল উদ্বৃত্ত তহবিল)"
+    : donation.donors?.name || "সম্মানিত সাধারণ দাতা";
+
   const donorPhone = donation.donors?.phone ? toBanglaNumber(donation.donors.phone) : "-";
-  const donorAddress = donation.donors?.address || "-";
-  const donorType = donation.donors?.donor_type 
+  const donorAddress = donation.donors?.address || (isMahfil ? "মাহফিল আয়োজক কমিটি" : "-");
+  const donorType = isMahfil
+    ? "মাহফিল উদ্বৃত্ত তহবিল"
+    : donation.donors?.donor_type 
     ? (donation.donors.donor_type === "Monthly" ? "মাসিক দাতা" : donation.donors.donor_type === "Annual" ? "বার্ষিক দাতা" : "এককালীন দাতা")
     : "এককালীন দাতা";
 
@@ -74,6 +84,11 @@ export default function DonationReceipt({
 
   const renderSingleReceipt = (copyType: "donor" | "office", copyLabel: string) => {
     const isDonor = copyType === "donor";
+    const displayCopyLabel = isMahfil
+      ? isDonor
+        ? "মাহফিল কমিটি কপি"
+        : "মাদরাসা অফিস কপি"
+      : copyLabel;
 
     return (
       <div 
@@ -123,11 +138,11 @@ export default function DonationReceipt({
                   ? "bg-emerald-50 text-emerald-800 border-emerald-300 print:border-slate-400" 
                   : "bg-purple-50 text-purple-800 border-purple-300 print:border-slate-400"
               }`}>
-                {copyLabel}
+                {displayCopyLabel}
               </div>
               <div className="mt-1">
                 <span className="inline-block bg-slate-900 text-white text-xs sm:text-sm font-bold px-2.5 py-0.5 rounded shadow-2xs">
-                  দান ও অনুদান রসিদ
+                  {isMahfil ? "মাহফিল তহবিল হস্তান্তর ও জমার মেমো" : "দান ও অনুদান রসিদ"}
                 </span>
               </div>
             </div>
@@ -136,7 +151,7 @@ export default function DonationReceipt({
           {/* Meta Info Bar: Receipt No & Date */}
           <div className="grid grid-cols-2 bg-slate-100/90 border-b border-slate-200 px-3 py-1.5 text-xs text-slate-700 font-medium">
             <div>
-              রসিদ নং: <span className="font-mono font-bold text-slate-900">{receiptNumber}</span>
+              {isMahfil ? "ভাউচার / মেমো নং:" : "রসিদ নং:"} <span className="font-mono font-bold text-slate-900">{receiptNumber}</span>
             </div>
             <div className="text-right">
               তারিখ: <span className="font-medium text-slate-900">{banglaDate} ({formattedDate})</span>
@@ -149,13 +164,13 @@ export default function DonationReceipt({
               <tbody>
                 <tr className="border-b border-slate-200">
                   <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 w-1/4 border-r border-slate-200 text-xs">
-                    দাতার নাম:
+                    {isMahfil ? "উৎস (মাহফিল):" : "দাতার নাম:"}
                   </td>
                   <td className="px-3 py-1.5 font-bold text-slate-900 text-sm">
                     {donorName}
                   </td>
                   <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 w-1/5 border-l border-r border-slate-200 text-xs">
-                    দাতার ধরন:
+                    {isMahfil ? "লেনদেনের প্রকৃতি:" : "দাতার ধরন:"}
                   </td>
                   <td className="px-3 py-1.5 font-medium text-slate-900 text-xs">
                     <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200 font-semibold">
@@ -166,10 +181,10 @@ export default function DonationReceipt({
 
                 <tr className="border-b border-slate-200">
                   <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 border-r border-slate-200 text-xs">
-                    মোবাইল / ঠিকানা:
+                    {isMahfil ? "হস্তান্তর কমিটি:" : "মোবাইল / ঠিকানা:"}
                   </td>
                   <td className="px-3 py-1.5 text-slate-800 text-xs">
-                    {donorPhone} {donorAddress !== "-" ? `• ${donorAddress}` : ""}
+                    {isMahfil ? "মাহফিল বাস্তবায়ন ও অর্থ কমিটি" : `${donorPhone} ${donorAddress !== "-" ? `• ${donorAddress}` : ""}`}
                   </td>
                   <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 border-l border-r border-slate-200 text-xs">
                     জমার ফান্ড:
@@ -187,10 +202,10 @@ export default function DonationReceipt({
                     {paymentMethodBangla}
                   </td>
                   <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 border-l border-r border-slate-200 text-xs">
-                    বিবরণ / নোট:
+                    বিবরণ / রেজোলিউশন:
                   </td>
                   <td className="px-3 py-1.5 text-slate-600 text-xs">
-                    {donation.notes || "-"}
+                    {donation.notes || (isMahfil ? "বার্ষিক মাহফিল সমাপনী উদ্বৃত্ত তহবিল মাদরাসা ফান্ডে হস্তান্তর ও জমা।" : "-")}
                   </td>
                 </tr>
               </tbody>
@@ -213,7 +228,9 @@ export default function DonationReceipt({
 
           {/* Dua / Islamic Blessing */}
           <div className="mt-2 text-center text-[11px] text-emerald-800 font-medium bg-emerald-50/50 py-1 rounded border border-emerald-100">
-            جَزَاكُمُ اللّٰهُ خَيْرًا — আল্লাহ তা'আলা আপনার দানকে কবুল করুন এবং দুনিয়া ও আখিরাতে উত্তম প্রতিদান দান করুন। আমীন।
+            {isMahfil
+              ? "اللّٰهُمَّ تَقَبَّلْ مِنَّا — আল্লাহ তা'আলা এই মোবারক মাহফিল ও সংশ্লিষ্ট দ্বীনি খেদমতসমূহকে কবুল করুন। আমীন।"
+              : "جَزَاكُمُ اللّٰهُ خَيْرًا — আল্লাহ তা'আলা আপনার দানকে কবুল করুন এবং দুনিয়া ও আখিরাতে উত্তম প্রতিদান দান করুন। আমীন।"}
           </div>
         </div>
 
@@ -221,20 +238,24 @@ export default function DonationReceipt({
         <div className="mt-6 pt-3 flex justify-between items-end text-xs text-slate-600 border-t border-dashed border-slate-200">
           <div className="text-center w-36">
             <div className="border-t border-slate-400 pt-1 font-medium">
-              দাতার স্বাক্ষর
+              {isMahfil ? "হস্তান্তরকারীর স্বাক্ষর" : "দাতার স্বাক্ষর"}
             </div>
-            <p className="text-[10px] text-slate-400">সম্মানিত দাতা</p>
+            <p className="text-[10px] text-slate-400">{isMahfil ? "মাহফিল সম্পাদক / কোষাধ্যক্ষ" : "সম্মানিত দাতা"}</p>
           </div>
 
           <div className="text-center text-[10px] text-slate-400 hidden sm:block">
-            {isDonor ? "যেকোনো প্রয়োজনে রসিদটি সংরক্ষণ করুন" : "মাদরাসা অফিসের নথিভূক্তির জন্য সংরক্ষিত"}
+            {isMahfil
+              ? "অফিসিয়াল নিরীক্ষা ও আর্থিক নথিভুক্তির জন্য সংরক্ষিত"
+              : isDonor
+              ? "যেকোনো প্রয়োজনে রসিদটি সংরক্ষণ করুন"
+              : "মাদরাসা অফিসের নথিভূক্তির জন্য সংরক্ষিত"}
           </div>
 
           <div className="text-center w-36">
             <div className="border-t border-slate-400 pt-1 font-medium text-slate-900">
-              আদায়কারীর স্বাক্ষর
+              {isMahfil ? "গ্রহণকারীর স্বাক্ষর" : "আদায়কারীর স্বাক্ষর"}
             </div>
-            <p className="text-[10px] text-slate-400">হিসাবরক্ষক / মুহতামিম</p>
+            <p className="text-[10px] text-slate-400">{isMahfil ? "মুহতামিম / প্রধান ক্যাশিয়ার" : "হিসাবরক্ষক / মুহতামিম"}</p>
           </div>
         </div>
       </div>

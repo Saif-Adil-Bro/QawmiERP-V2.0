@@ -755,16 +755,30 @@ export default function CollectionClient({
 
                       {/* Donor & Fund */}
                       <td className="py-3 px-4">
-                        <div className="font-bold text-slate-900 text-sm">
-                          {donation.donors?.name || "সাধারণ দাতা"}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 text-sm">
+                            {donation.is_mahfil_settlement
+                              ? donation.mahfil_title || donation.donors?.name || "বার্ষিক মাহফিল উদ্বৃত্ত তহবিল"
+                              : donation.donors?.name || "সাধারণ দাতা"}
+                          </span>
+                          {donation.is_mahfil_settlement && (
+                            <span className="text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md border border-amber-300 flex items-center gap-1">
+                              <span>✨ মাহফিল উদ্বৃত্ত</span>
+                            </span>
+                          )}
                         </div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           <span className="text-[11px] font-medium text-emerald-800 bg-emerald-50 px-2 py-0.2 rounded border border-emerald-200">
                             {donation.fund_name || donation.donation_type}
                           </span>
                           {donation.payment_method && donation.payment_method !== "Cash" && (
                             <span className="text-[10px] text-slate-500 font-medium">
                               • {donation.payment_method}
+                            </span>
+                          )}
+                          {donation.notes && (
+                            <span className="text-[10px] text-slate-500 truncate max-w-[200px]" title={donation.notes}>
+                              • {donation.notes}
                             </span>
                           )}
                         </div>
@@ -783,11 +797,15 @@ export default function CollectionClient({
                           <button
                             type="button"
                             onClick={() => setActiveReceiptDonation(donation)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-900 text-white hover:bg-slate-800 rounded-lg text-xs font-bold transition cursor-pointer"
-                            title="A4 মানি রসিদ প্রিন্ট করুন"
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                              donation.is_mahfil_settlement
+                                ? "bg-amber-700 hover:bg-amber-800 text-white shadow-2xs"
+                                : "bg-slate-900 text-white hover:bg-slate-800"
+                            }`}
+                            title={donation.is_mahfil_settlement ? "মাহফিল হস্তান্তর মেমো/ভাউচার প্রিন্ট করুন" : "A4 মানি রসিদ প্রিন্ট করুন"}
                           >
-                            <Printer className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>রসিদ</span>
+                            <Printer className={`w-3.5 h-3.5 ${donation.is_mahfil_settlement ? "text-amber-200" : "text-emerald-400"}`} />
+                            <span>{donation.is_mahfil_settlement ? "মেমো ভাউচার" : "রসিদ"}</span>
                           </button>
 
                           <button

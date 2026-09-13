@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
-import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, normalizeFundName } from "@/lib/fund-utils";
+import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName } from "@/lib/fund-utils";
 
 // In-memory fallback cache for custom funds if database table is not yet created
 const customFundsStore: Map<string, FundItem[]> = new Map();
@@ -671,6 +671,30 @@ export async function getDonations(filters?: {
 
       const serialReceipt = d.receipt_no || `ZR${String(index + 1).padStart(4, "0")}`;
 
+      // Mahfil settlement detection and synthetic donor information
+      let isMahfilSettlement = false;
+      let mahfilTitle = "";
+      let donorObj = d.donors;
+
+      if (
+        serialReceipt.startsWith("MHF-") ||
+        (d.notes && d.notes.includes("[মাহফিল উদ্বৃত্ত")) ||
+        (d.notes && d.notes.toLowerCase().includes("মাহফিল"))
+      ) {
+        isMahfilSettlement = true;
+        const mMatch = (d.notes || "").match(/মাহফিল:\s*([^(|.]+)/);
+        mahfilTitle = mMatch ? mMatch[1].trim() : "বার্ষিক ইসলামি মহাসম্মেলন";
+        if (!donorObj) {
+          donorObj = {
+            id: "mahfil-source",
+            name: `${mahfilTitle} (মাহফিল উদ্বৃত্ত তহবিল)`,
+            phone: "-",
+            address: "মাহফিল আয়োজক কমিটি",
+            donor_type: "OneTime",
+          };
+        }
+      }
+
       return {
         id: d.id,
         madrasa_id: d.madrasa_id,
@@ -684,7 +708,9 @@ export async function getDonations(filters?: {
         payment_method: paymentMethod,
         notes: cleanNotes,
         created_at: d.created_at,
-        donors: d.donors,
+        is_mahfil_settlement: isMahfilSettlement,
+        mahfil_title: mahfilTitle,
+        donors: donorObj,
       };
     });
   } catch (err) {
@@ -727,6 +753,30 @@ export async function getDonationById(id: string): Promise<DonationItem | null> 
       }
     }
 
+    const serialReceipt = data.receipt_no || `ZR${data.id.substring(0, 6).toUpperCase()}`;
+    let isMahfilSettlement = false;
+    let mahfilTitle = "";
+    let donorObj = data.donors;
+
+    if (
+      serialReceipt.startsWith("MHF-") ||
+      (data.notes && data.notes.includes("[মাহফিল উদ্বৃত্ত")) ||
+      (data.notes && data.notes.toLowerCase().includes("মাহফিল"))
+    ) {
+      isMahfilSettlement = true;
+      const mMatch = (data.notes || "").match(/মাহফিল:\s*([^(|.]+)/);
+      mahfilTitle = mMatch ? mMatch[1].trim() : "বার্ষিক ইসলামি মহাসম্মেলন";
+      if (!donorObj) {
+        donorObj = {
+          id: "mahfil-source",
+          name: `${mahfilTitle} (মাহফিল উদ্বৃত্ত তহবিল)`,
+          phone: "-",
+          address: "মাহফিল আয়োজক কমিটি",
+          donor_type: "OneTime",
+        };
+      }
+    }
+
     return {
       id: data.id,
       madrasa_id: data.madrasa_id,
@@ -735,15 +785,168 @@ export async function getDonationById(id: string): Promise<DonationItem | null> 
       donation_type: fundName,
       fund_name: fundName,
       donation_date: data.donation_date,
-      receipt_no: data.receipt_no || `ZR${data.id.substring(0, 6).toUpperCase()}`,
+      receipt_no: serialReceipt,
       payment_method: paymentMethod,
       notes: cleanNotes,
       created_at: data.created_at,
-      donors: data.donors,
+      is_mahfil_settlement: isMahfilSettlement,
+      mahfil_title: mahfilTitle,
+      donors: donorObj,
     };
   } catch (err) {
     console.error("Error in getDonationById:", err);
     return null;
+  }
+}
+
+// Get Full Financial Ledger & Statement for a specific Fund
+export async function getFundLedgerData(fundIdentifier: string): Promise<{
+  fund: FundItem | null;
+  transactions: FundTransactionRecord[];
+  totalInflow: number;
+  totalOutflow: number;
+  currentBalance: number;
+}> {
+  try {
+    const adminClient = await createAdminClient();
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+
+    const funds = await getFunds();
+    const targetFund = funds.find(
+      (f) =>
+        f.id === fundIdentifier ||
+        f.name === fundIdentifier ||
+        f.code?.toLowerCase() === fundIdentifier.toLowerCase() ||
+        f.name.toLowerCase().includes(fundIdentifier.toLowerCase())
+    ) || funds[0];
+
+    const targetCanonicalName = targetFund ? targetFund.name : "সাধারণ ফান্ড (General Fund)";
+    const targetFundId = targetFund ? targetFund.id : "fund-general";
+
+    // 1. Fetch Inflow Donations for this fund
+    const { data: dbDonations } = await adminClient
+      .from("donations")
+      .select(`
+        *,
+        donors (
+          id,
+          name,
+          phone,
+          address,
+          donor_type
+        )
+      `)
+      .eq("madrasa_id", finalMadrasaId)
+      .order("donation_date", { ascending: false });
+
+    // 2. Fetch Expenses for this fund
+    const { data: dbExpenses } = await adminClient
+      .from("expenses")
+      .select("*")
+      .eq("madrasa_id", finalMadrasaId)
+      .order("expense_date", { ascending: false });
+
+    const transactions: FundTransactionRecord[] = [];
+    let totalInflow = 0;
+    let totalOutflow = 0;
+
+    // Process Donations
+    (dbDonations || []).forEach((d: any) => {
+      const canonical = normalizeFundName(d.donation_type, funds);
+      if (
+        canonical === targetCanonicalName ||
+        (d.donation_type && d.donation_type.toLowerCase().includes(targetFund.code?.toLowerCase() || "_____"))
+      ) {
+        const amt = Number(d.amount || 0);
+        totalInflow += amt;
+
+        let isMahfil = false;
+        let sourceName = d.donors?.name || "সাধারণ দাতা";
+        if (d.receipt_no?.startsWith("MHF-") || (d.notes && d.notes.includes("মাহফিল"))) {
+          isMahfil = true;
+          const mMatch = (d.notes || "").match(/মাহফিল:\s*([^(|.]+)/);
+          const mTitle = mMatch ? mMatch[1].trim() : "বার্ষিক ইসলামি মহাসম্মেলন";
+          sourceName = `${mTitle} (মাহফিল উদ্বৃত্ত তহবিল)`;
+        }
+
+        transactions.push({
+          id: d.id,
+          type: isMahfil ? "MAHFIL_SURPLUS" : "INCOME",
+          fund_id: targetFundId,
+          fund_name: targetCanonicalName,
+          amount: amt,
+          date: d.donation_date,
+          source_or_recipient: sourceName,
+          voucher_no: d.receipt_no || `ZR-${d.id.substring(0, 6)}`,
+          payment_method: d.notes?.includes("[Method:") ? d.notes.match(/\[Method:\s*([^\]]+)\]/)?.[1] : "Cash",
+          notes: d.notes || "",
+          category: isMahfil ? "মাহফিল উদ্বৃত্ত জমা" : "সাধারণ অনুদান প্রাপ্তি",
+          is_mahfil_settlement: isMahfil,
+        });
+      }
+    });
+
+    // Process Expenses
+    (dbExpenses || []).forEach((e: any) => {
+      const parsed = parseExpenseFund(e.description);
+      const expFundId = e.fund_id || parsed.fundId || "fund-general";
+      const expFundName = e.fund_name || parsed.fundName || "সাধারণ ফান্ড (General Fund)";
+      const expCanonical = normalizeFundName(expFundName, funds);
+
+      if (
+        expFundId === targetFundId ||
+        expCanonical === targetCanonicalName ||
+        (expFundName && expFundName.toLowerCase().includes(targetFund.code?.toLowerCase() || "_____"))
+      ) {
+        const amt = Number(e.amount || 0);
+        totalOutflow += amt;
+
+        let isMahfilDeficit = false;
+        let recipientName = e.category || "মাদরাসা সাধারণ খরচ";
+        if (e.voucher_no?.startsWith("EXP-MHF") || (e.description && e.description.includes("মাহফিল"))) {
+          isMahfilDeficit = true;
+          recipientName = "মাহফিল পরিচালনা কমিটি (ঘাটতি সমন্বয়)";
+        }
+
+        transactions.push({
+          id: e.id,
+          type: isMahfilDeficit ? "MAHFIL_DEFICIT" : "EXPENSE",
+          fund_id: targetFundId,
+          fund_name: targetCanonicalName,
+          amount: amt,
+          date: e.expense_date,
+          source_or_recipient: recipientName,
+          voucher_no: e.voucher_no || `EXP-${e.id.substring(0, 6)}`,
+          notes: parsed.cleanDesc || e.description || "",
+          category: e.category || "সাধারণ খরচ",
+          is_mahfil_settlement: isMahfilDeficit,
+        });
+      }
+    });
+
+    // Sort all transactions by date descending
+    transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const currentBalance = totalInflow - totalOutflow;
+
+    return {
+      fund: targetFund,
+      transactions,
+      totalInflow,
+      totalOutflow,
+      currentBalance,
+    };
+  } catch (err) {
+    console.error("Error in getFundLedgerData:", err);
+    return {
+      fund: null,
+      transactions: [],
+      totalInflow: 0,
+      totalOutflow: 0,
+      currentBalance: 0,
+    };
   }
 }
 

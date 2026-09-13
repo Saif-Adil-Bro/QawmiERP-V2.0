@@ -44,6 +44,8 @@ import {
   MahfilTransaction,
   MahfilSettlement
 } from "@/lib/fundraising-types";
+import DonationReceipt from "@/components/zakat/DonationReceipt";
+import { DonationItem } from "@/lib/fund-utils";
 import {
   saveMahfilSpeaker,
   deleteMahfilSpeaker,
@@ -135,6 +137,27 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   }, []);
 
   const [loading, setLoading] = useState(false);
+  const [voucherDonation, setVoucherDonation] = useState<DonationItem | null>(null);
+
+  const handleOpenVoucherMemo = (st: MahfilSettlement) => {
+    setVoucherDonation({
+      id: st.id,
+      amount: st.amount,
+      donation_type: st.fund_name,
+      fund_name: st.fund_name,
+      donation_date: st.settlement_date,
+      receipt_no: st.accounting_voucher_no,
+      payment_method: st.payment_method || "Cash",
+      notes: st.notes || `বার্ষিক মাহফিল উদ্বৃত্ত তহবিল (${mahfil.title}) থেকে সাধারণ ফান্ডে হস্তান্তর`,
+      is_mahfil_settlement: true,
+      mahfil_title: mahfil.title,
+      donors: {
+        name: `বার্ষিক মাহফিল পরিচালনা কমিটি (${mahfil.title})`,
+        phone: "-",
+        address: "মাদরাসা প্রাঙ্গণ",
+      },
+    });
+  };
 
   // -------------------------------------------------------------
   // Dynamic Calculations (পরিপূর্ণ ডায়নামিক ক্যালকুলেশন)
@@ -907,8 +930,18 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
 
         <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
           {mahfil.settlement ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
               <button
+                type="button"
+                onClick={() => mahfil.settlement && handleOpenVoucherMemo(mahfil.settlement)}
+                className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                title="হস্তান্তর মেমো ও হিসাব ভাউচার প্রিন্ট করুন"
+              >
+                <Printer className="w-3.5 h-3.5 text-amber-200" />
+                <span>মেমো ভাউচার</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => handleOpenSettlementModal(netBalance >= 0 ? "SURPLUS_DEPOSIT" : "DEFICIT_COVER")}
                 className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs"
               >
@@ -916,6 +949,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                 <span>নতুন সমন্বয়</span>
               </button>
               <button
+                type="button"
                 onClick={() => mahfil.settlement && handleDeleteSettlementItem(mahfil.settlement.id)}
                 disabled={loading}
                 className="px-3 py-1.5 bg-white hover:bg-red-50 text-red-600 border border-red-200 font-bold rounded-xl text-xs flex items-center gap-1 transition-colors"
@@ -2880,6 +2914,24 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Voucher Memo Receipt Popup */}
+      {voucherDonation && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/80 backdrop-blur-xs p-3 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-4 max-h-[92vh] overflow-y-auto relative">
+            <button
+              onClick={() => setVoucherDonation(null)}
+              className="absolute top-4 right-4 p-1.5 bg-slate-100 hover:bg-slate-200 rounded-full transition z-10 cursor-pointer"
+            >
+              ✕
+            </button>
+            <DonationReceipt
+              donation={voucherDonation}
+              showControls={true}
+            />
           </div>
         </div>
       )}

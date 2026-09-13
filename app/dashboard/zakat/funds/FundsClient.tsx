@@ -14,12 +14,14 @@ import {
   Building,
   Heart,
   TrendingUp,
-  Award
+  Award,
+  FileText
 } from "lucide-react";
 import { deleteFund } from "@/app/actions/zakat";
 import { FundItem, getFundCategoryBadge } from "@/lib/fund-utils";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
 import FundManagerModal from "@/components/zakat/FundManagerModal";
+import FundLedgerModal from "@/components/zakat/FundLedgerModal";
 import Link from "next/link";
 
 interface EnrichedFund extends FundItem {
@@ -35,6 +37,15 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
   const [selectedFund, setSelectedFund] = useState<FundItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Fund Statement / Ledger state
+  const [ledgerFund, setLedgerFund] = useState<FundItem | null>(null);
+  const [isLedgerOpen, setIsLedgerOpen] = useState(false);
+
+  const openLedger = (fund: FundItem) => {
+    setLedgerFund(fund);
+    setIsLedgerOpen(true);
+  };
 
   const filteredFunds = funds.filter(fund => {
     const matchesSearch = fund.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -270,14 +281,24 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
                 )}
               </div>
 
-              {/* Action Button */}
-              <div className="mt-4 pt-3 border-t border-slate-100">
+              {/* Action Buttons */}
+              <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openLedger(fund)}
+                  className="w-full sm:w-1/2 flex items-center justify-center gap-1.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer active:scale-98"
+                  title="ফান্ডের আয়-ব্যয় ও মাহফিল সমন্বয় খতিয়ান দেখুন"
+                >
+                  <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>খতিয়ান ও স্টেটমেন্ট</span>
+                </button>
+
                 <Link
                   href={`/dashboard/zakat/collection?fund=${encodeURIComponent(fund.name)}`}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-800 rounded-xl text-xs font-bold transition border border-slate-200 cursor-pointer"
+                  className="w-full sm:w-1/2 flex items-center justify-center gap-1.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition border border-slate-200 cursor-pointer text-center"
                 >
                   <PlusCircle className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>এই ফান্ডে অনুদান সংগ্রহ করুন</span>
+                  <span>অনুদান সংগ্রহ</span>
                 </Link>
               </div>
             </div>
@@ -293,7 +314,7 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
             </p>
             <button
               onClick={openCreateModal}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
             >
               <PlusCircle className="w-4 h-4 text-emerald-400" />
               <span>+ নতুন ফান্ড তৈরি করুন</span>
@@ -302,7 +323,7 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
         )}
       </div>
 
-      {/* Fund Modal */}
+      {/* Fund Create/Edit Modal */}
       <FundManagerModal
         fund={selectedFund}
         isOpen={isModalOpen}
@@ -310,6 +331,13 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
         onSuccess={() => {
           window.location.reload();
         }}
+      />
+
+      {/* Fund Ledger & Financial Statement Modal */}
+      <FundLedgerModal
+        fund={ledgerFund}
+        isOpen={isLedgerOpen}
+        onClose={() => setIsLedgerOpen(false)}
       />
     </div>
   );
