@@ -1576,6 +1576,10 @@ export async function getQurbaniLeatherRecords(): Promise<QurbaniLeatherRecord[]
               const found = pMeta.qurbani_leather_records || pMeta.leather_batches;
               if (found && found.length > 0) {
                 records = found;
+                // Sync to current madrasa
+                meta.qurbani_leather_records = found;
+                meta.leather_batches = found;
+                await saveMadrasaMetadata(finalMadrasaId, meta);
                 break;
               }
             } catch {}
@@ -1614,6 +1618,8 @@ export async function getQurbaniLeatherRecords(): Promise<QurbaniLeatherRecord[]
         leather_type: type,
         sale_date: dt,
         collection_date: dt,
+        buyer_name: r.buyer_name || "",
+        year: r.year || "২০২৬",
       };
     }).sort((a: any, b: any) => new Date(b.collection_date || b.created_at).getTime() - new Date(a.collection_date || a.created_at).getTime());
   } catch (err) {
@@ -1649,6 +1655,8 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
         records[idx] = {
           ...records[idx],
           ...data,
+          id: targetId,
+          madrasa_id: finalMadrasaId,
           quantity,
           rate_per_unit: rate,
           rate_per_piece: rate,
@@ -1665,8 +1673,42 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
           collection_date: recordDate,
           sale_date: recordDate,
           date: recordDate,
+          year: data.year || records[idx].year || "২০২৬",
+          buyer_name: (data.buyer_name !== undefined ? data.buyer_name : (records[idx].buyer_name || "")).trim(),
+          buyer_phone: (data.buyer_phone !== undefined ? data.buyer_phone : (records[idx].buyer_phone || "")).trim(),
           payment_status: due === 0 ? "PAID" : received > 0 ? "PARTIAL" : "DUE",
         } as QurbaniLeatherRecord;
+      } else {
+        // Upsert if ID was generated on client or existed in another state
+        const newRec: QurbaniLeatherRecord = {
+          id: targetId,
+          madrasa_id: finalMadrasaId,
+          year: data.year || "২০২৬",
+          hijri_year: data.hijri_year || "১৪৪৭ হি.",
+          leather_type: leatherType,
+          type: type,
+          quantity,
+          area_team: data.area_team || "প্রধান কালেকশন টিম",
+          buyer_name: (data.buyer_name || "").trim(),
+          buyer_phone: (data.buyer_phone || "").trim(),
+          rate_per_unit: rate,
+          rate_per_piece: rate,
+          total_sale_price: totalSale,
+          total_sale_amount: totalSale,
+          received_amount: received,
+          paid_amount: received,
+          due_amount: due,
+          transport_labour_cost: transportCost,
+          transport_labor_cost: transportCost,
+          net_profit: netProfit,
+          collection_date: recordDate,
+          sale_date: recordDate,
+          date: recordDate,
+          payment_status: due === 0 ? "PAID" : received > 0 ? "PARTIAL" : "DUE",
+          notes: data.notes || "",
+          created_at: now,
+        };
+        records.unshift(newRec);
       }
     } else {
       targetId = `lth_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
@@ -1679,8 +1721,8 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
         type: type,
         quantity,
         area_team: data.area_team || "প্রধান কালেকশন টিম",
-        buyer_name: data.buyer_name || "",
-        buyer_phone: data.buyer_phone || "",
+        buyer_name: (data.buyer_name || "").trim(),
+        buyer_phone: (data.buyer_phone || "").trim(),
         rate_per_unit: rate,
         rate_per_piece: rate,
         total_sale_price: totalSale,
@@ -1708,7 +1750,7 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
     try {
       revalidatePath("/dashboard/fundraising/collections");
     } catch {}
-    return { success: true, id: targetId };
+    return { success: true, id: targetId, record: records.find((r) => r.id === targetId) };
   } catch (err: any) {
     console.error("Error saving leather record:", err);
     return { error: err.message || "চামড়া রেকর্ড সংরক্ষণে সমস্যা" };
@@ -1740,8 +1782,33 @@ export async function getDonationBoxes(): Promise<{ boxes: DonationBox[]; logs: 
     if (!finalMadrasaId) return { boxes: [], logs: [] };
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
-    const boxes: DonationBox[] = meta.donation_boxes || [];
-    const logs: DonationBoxCollectionLog[] = meta.donation_box_logs || [];
+    let boxes: DonationBox[] = meta.donation_boxes || [];
+    let logs: DonationBoxCollectionLog[] = meta.donation_box_logs || [];
+
+    // Fallback: check other madrasas if current is empty
+    if (boxes.length === 0) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: allMadrasas } = await adminClient.from("madrasas").select("id, registration_no");
+        for (const mRow of allMadrasas || []) {
+          if (mRow.registration_no && mRow.registration_no.startsWith("{")) {
+            try {
+              const pMeta = JSON.parse(mRow.registration_no);
+              if (pMeta.donation_boxes && pMeta.donation_boxes.length > 0) {
+                boxes = pMeta.donation_boxes;
+                logs = pMeta.donation_box_logs || [];
+                meta.donation_boxes = boxes;
+                meta.donation_box_logs = logs;
+                await saveMadrasaMetadata(finalMadrasaId, meta);
+                break;
+              }
+            } catch {}
+          }
+        }
+      } catch (e) {
+        console.warn("Could not check other madrasas for donation boxes:", e);
+      }
+    }
 
     return {
       boxes: boxes.map((b: any) => ({
@@ -1763,6 +1830,46 @@ export async function getDonationBoxes(): Promise<{ boxes: DonationBox[]; logs: 
   }
 }
 
+export async function getNextBoxVoucherNo(madrasaId?: string): Promise<string> {
+  try {
+    const finalMadrasaId = madrasaId || (await getSafeMadrasaId());
+    let maxSeq = 0;
+
+    if (finalMadrasaId) {
+      const meta = await getMadrasaMetadata(finalMadrasaId);
+      const logs = meta.donation_box_logs || [];
+      logs.forEach((l: any) => {
+        const rec = (l.receipt_no || "").trim();
+        const match = rec.match(/(?:BOX[-_]?(?:REC)?[-_]?)?(\d+)/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxSeq) maxSeq = num;
+        }
+      });
+    }
+
+    const adminClient = await createAdminClient();
+    const { data: donList } = await adminClient
+      .from("donations")
+      .select("receipt_no");
+    (donList || []).forEach((d: any) => {
+      const rec = (d.receipt_no || "").trim();
+      if (rec.toUpperCase().includes("BOX")) {
+        const match = rec.match(/(?:BOX[-_]?(?:REC)?[-_]?)?(\d+)/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxSeq) maxSeq = num;
+        }
+      }
+    });
+
+    const nextSeq = maxSeq + 1;
+    return `BOX-REC-${String(nextSeq).padStart(3, "0")}`;
+  } catch {
+    return "BOX-REC-001";
+  }
+}
+
 export async function saveDonationBox(data: Partial<DonationBox>) {
   try {
     const finalMadrasaId = await getSafeMadrasaId();
@@ -1776,6 +1883,20 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
     const phone = (data.phone || (data as any).responsible_phone || "").trim();
     const installDate = data.install_date || (data as any).installation_date || now.split("T")[0];
 
+    // Compute next sequential box code if not provided
+    let boxCode = (data.box_code || "").trim();
+    if (!boxCode) {
+      let maxNum = 0;
+      boxes.forEach((b) => {
+        const match = (b.box_code || "").match(/(?:BOX[-_\s]*)?(\d+)/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      });
+      boxCode = `BOX-${String(maxNum + 1).padStart(3, "0")}`;
+    }
+
     let targetId = data.id;
     if (targetId) {
       const idx = boxes.findIndex((b: DonationBox) => b.id === targetId);
@@ -1783,7 +1904,7 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
         boxes[idx] = {
           ...boxes[idx],
           ...data,
-          box_code: (data.box_code || boxes[idx].box_code || "").trim(),
+          box_code: boxCode,
           location_name: (data.location_name || boxes[idx].location_name || "").trim(),
           area: (data.area || boxes[idx].area || "").trim(),
           contact_person: contactPerson,
@@ -1795,13 +1916,32 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
           last_opened_date: data.last_opened_date || boxes[idx].last_opened_date || boxes[idx].last_collection_date || "",
           last_collection_date: data.last_collection_date || boxes[idx].last_collection_date || boxes[idx].last_opened_date || "",
         } as any;
+      } else {
+        const newBox: any = {
+          id: targetId,
+          madrasa_id: finalMadrasaId,
+          box_code: boxCode,
+          location_name: (data.location_name || "").trim(),
+          area: (data.area || "").trim(),
+          contact_person: contactPerson,
+          responsible_person: contactPerson,
+          phone,
+          responsible_phone: phone,
+          install_date: installDate,
+          installation_date: installDate,
+          status: data.status || "ACTIVE",
+          total_collected_lifetime: Number(data.total_collected_lifetime || 0),
+          notes: data.notes || "",
+          created_at: now,
+        };
+        boxes.unshift(newBox);
       }
     } else {
       targetId = `box_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
       const newBox: any = {
         id: targetId,
         madrasa_id: finalMadrasaId,
-        box_code: (data.box_code || `BOX-${String(boxes.length + 101)}`).trim(),
+        box_code: boxCode,
         location_name: (data.location_name || "").trim(),
         area: (data.area || "").trim(),
         contact_person: contactPerson,
@@ -1862,20 +2002,30 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
 
     const amount = Number(log.amount || 0);
     const colDate = log.collection_date || (log as any).date || new Date().toISOString().split("T")[0];
-    const witness = log.witness_name || (log as any).witnesses || "";
+    const witness = (log.witness_name || (log as any).witnesses || "মুহতামিম ও ক্যাশিয়ার").trim();
+
+    const targetBox = boxes.find((b: DonationBox) => b.id === log.box_id);
+    const boxCode = log.box_code || targetBox?.box_code || "BOX";
+    const locName = log.location_name || targetBox?.location_name || "";
+
+    // Generate sequential receipt no if not passed or if placeholder
+    let receiptNo = (log.receipt_no || "").trim();
+    if (!receiptNo || receiptNo.includes("undefined")) {
+      receiptNo = await getNextBoxVoucherNo(finalMadrasaId);
+    }
 
     const newLog: DonationBoxCollectionLog = {
       id: `boxlog_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       box_id: log.box_id || "",
-      box_code: log.box_code || "",
-      location_name: log.location_name || "",
+      box_code: boxCode,
+      location_name: locName,
       collection_date: colDate,
       date: colDate,
       amount,
       collector_name: log.collector_name || "দায়িত্বশীল স্টাফ",
       witness_name: witness,
       witnesses: witness,
-      receipt_no: log.receipt_no || `BOX-REC-${Date.now().toString().slice(-4)}`,
+      receipt_no: receiptNo,
       notes: log.notes || "",
       created_at: new Date().toISOString(),
     };
@@ -1883,7 +2033,6 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
     logs.unshift(newLog);
 
     // Update box stats
-    const targetBox = boxes.find((b: DonationBox) => b.id === log.box_id);
     if (targetBox) {
       targetBox.last_collection_date = newLog.collection_date;
       targetBox.last_opened_date = newLog.collection_date;
@@ -1899,8 +2048,27 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
       return { error: "কালেকশন লগ সংরক্ষণ ব্যর্থ হয়েছে" };
     }
 
+    // Sync to donations table
+    try {
+      const adminClient = await createAdminClient();
+      await adminClient.from("donations").insert({
+        madrasa_id: finalMadrasaId,
+        donor_name: `দানবাক্স: ${boxCode} (${locName})`,
+        amount: amount,
+        donation_type: "সাধারণ ফান্ড (General Fund)",
+        receipt_no: receiptNo,
+        payment_method: "CASH",
+        notes: `[দানবাক্স কালেকশন] স্থান: ${locName}, দায়িত্বশীল: ${targetBox?.responsible_person || targetBox?.contact_person || ""}, স্বাক্ষী: ${witness}`,
+        date: colDate,
+      });
+    } catch (dErr) {
+      console.warn("Could not insert donation entry for box collection:", dErr);
+    }
+
     try {
       revalidatePath("/dashboard/fundraising/collections");
+      revalidatePath("/dashboard/zakat");
+      revalidatePath("/dashboard/fundraising");
     } catch {}
     return { success: true, id: newLog.id, log: newLog };
   } catch (err: any) {
