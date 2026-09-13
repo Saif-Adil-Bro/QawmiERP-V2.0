@@ -43,13 +43,29 @@ export interface MahfilReceiptBook {
   return_date?: string;
   used_pages?: number;
   returned_pages?: number;
+  remaining_pages?: number; // স্টকে অবশিষ্ট পাতা সংখ্যা
+  current_page_from?: number; // বর্তমান অব্যবহৃত পাতার শুরুর ক্রম
   total_collected: number;
   payment_method?: string;
   deposit_voucher_no?: string;
   received_by?: string;
   due_amount?: number;
-  status: "ISSUED" | "PARTIALLY_RETURNED" | "RETURNED" | "OVERDUE";
+  status: "ISSUED" | "PARTIALLY_RETURNED" | "RETURNED" | "OVERDUE" | "IN_STOCK" | "COMPLETED";
   notes?: string;
+  deposit_history?: {
+    id: string;
+    date: string;
+    collector_name: string;
+    collector_type?: string;
+    collector_phone?: string;
+    used_pages: number;
+    returned_pages_to_stock: number;
+    amount: number;
+    payment_method?: string;
+    deposit_voucher_no?: string;
+    received_by?: string;
+    notes?: string;
+  }[];
 }
 
 export interface MahfilTransaction {

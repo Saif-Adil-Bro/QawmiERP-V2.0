@@ -185,25 +185,42 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   const totalReceiptPages = books.reduce((acc, b) => acc + (b.total_pages || 0), 0);
   const totalExpectedTarget = books.reduce((acc, b) => acc + (Number(b.expected_amount) || ((b.total_pages || 0) * (Number(b.rate_per_page) || 0))), 0);
 
-  // ২. বিতরণ (Distribution) ক্যালকুলেশন
-  const distributedBooks = books.filter(b => b.is_distributed || (b.issued_to_name && b.issued_to_name.trim().length > 0));
+  // ২. স্টকে থাকা বই ও পাতা ক্যালকুলেশন (সম্পূর্ণ নতুন বই + আংশিক জমা হয়ে স্টকে ফেরত বই)
+  const inStockBooks = books.filter(b => {
+    const used = Number(b.used_pages || 0);
+    const total = Number(b.total_pages || 50);
+    const rem = b.remaining_pages !== undefined ? Number(b.remaining_pages) : Math.max(0, total - used);
+    if (rem <= 0) return false;
+    if (b.status === "RETURNED" || b.status === "COMPLETED") return false;
+    return !b.is_distributed || b.status === "IN_STOCK";
+  });
+  const inStockBooksCount = inStockBooks.length;
+  const inStockPagesCount = inStockBooks.reduce((acc, b) => {
+    const used = Number(b.used_pages || 0);
+    const total = Number(b.total_pages || 50);
+    const rem = b.remaining_pages !== undefined ? Number(b.remaining_pages) : Math.max(0, total - used);
+    return acc + rem;
+  }, 0);
+  const inStockPartiallyReturnedBooks = inStockBooks.filter(b => (Number(b.used_pages || 0) > 0));
+  const inStockPartiallyReturnedCount = inStockPartiallyReturnedBooks.length;
+
+  // ৩. বর্তমানে মাঠে বিতরণকৃত বই (বর্তমানে চলমান বিতরণ)
+  const distributedBooks = books.filter(b => b.is_distributed && b.status === "ISSUED");
   const distributedBooksCount = distributedBooks.length;
   const distributedPagesTotal = distributedBooks.reduce((acc, b) => acc + (b.distributed_pages || b.total_pages || 0), 0);
-  const inStockBooksCount = Math.max(0, totalBooksCount - distributedBooksCount);
-  const inStockPagesCount = Math.max(0, totalReceiptPages - distributedPagesTotal);
   const distributionPercentage = totalBooksCount > 0 ? Math.round((distributedBooksCount / totalBooksCount) * 100) : 0;
 
-  // ৩. জমা (Deposit / Collection) ক্যালকুলেশন
-  const depositedBooks = books.filter(b => (b.total_collected || 0) > 0 || b.status === "RETURNED" || b.status === "PARTIALLY_RETURNED");
+  // ৪. জমা (Deposit / Collection) ক্যালকুলেশন
+  const depositedBooks = books.filter(b => (b.total_collected || 0) > 0 || b.status === "RETURNED" || b.status === "PARTIALLY_RETURNED" || (b.status === "IN_STOCK" && (b.used_pages || 0) > 0));
   const totalCollectedAmount = books.reduce((acc, b) => acc + (Number(b.total_collected) || 0), 0);
   const totalUsedPages = books.reduce((acc, b) => acc + (Number(b.used_pages) || 0), 0);
   const totalReturnedPages = books.reduce((acc, b) => acc + (Number(b.returned_pages) || 0), 0);
-  const fullyReturnedBooksCount = books.filter(b => b.status === "RETURNED").length;
+  const fullyReturnedBooksCount = books.filter(b => b.status === "RETURNED" || b.status === "COMPLETED").length;
   const partiallyReturnedBooksCount = books.filter(b => b.status === "PARTIALLY_RETURNED").length;
   const pendingCollectionBooksCount = books.filter(b => b.status === "ISSUED" || b.status === "OVERDUE").length;
   const averageCollectionPerUsedSlip = totalUsedPages > 0 ? Math.round(totalCollectedAmount / totalUsedPages) : 0;
 
-  // ৪. সার্বিক ফিনান্সিয়াল ক্যালকুলেশন
+  // ৫. সার্বিক ফিনান্সিয়াল ক্যালকুলেশন
   const receiptIncome = totalCollectedAmount;
   const directIncome = (mahfil.transactions || []).filter(t => t.type === "INCOME").reduce((acc, t) => acc + (t.amount || 0), 0);
   const totalIncome = receiptIncome + directIncome;
@@ -224,7 +241,18 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       (b.issued_to_area && b.issued_to_area.toLowerCase().includes(receiptSearch.toLowerCase()));
 
     const matchesCategory = receiptCategoryFilter === "ALL" || b.category === receiptCategoryFilter;
-    const matchesStatus = receiptStatusFilter === "ALL" || b.status === receiptStatusFilter;
+    let matchesStatus = true;
+    if (receiptStatusFilter !== "ALL") {
+      if (receiptStatusFilter === "IN_STOCK") {
+        matchesStatus = !b.is_distributed || b.status === "IN_STOCK";
+      } else if (receiptStatusFilter === "ISSUED") {
+        matchesStatus = Boolean(b.is_distributed && b.status === "ISSUED");
+      } else if (receiptStatusFilter === "RETURNED") {
+        matchesStatus = b.status === "RETURNED" || b.status === "COMPLETED";
+      } else {
+        matchesStatus = b.status === receiptStatusFilter;
+      }
+    }
 
     return matchesSearch && matchesCategory && matchesStatus;
   });
@@ -323,48 +351,164 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   const handleOpenBookModal = (mode: BookModalMode, bk?: MahfilReceiptBook) => {
     setBookModalMode(mode);
     if (bk) {
-      setEditingBook({
-        ...bk,
-        total_pages: bk.total_pages || (Math.max(1, (bk.page_to || 50) - (bk.page_from || 1) + 1)),
-        distributed_pages: bk.distributed_pages || bk.total_pages || 50,
-        rate_per_page: bk.rate_per_page || 0,
-        expected_amount: bk.expected_amount || 0,
-        used_pages: bk.used_pages || 0,
-        returned_pages: bk.returned_pages || 0,
-        total_collected: bk.total_collected || 0,
-      });
+      const total = bk.total_pages || (Math.max(1, (bk.page_to || 50) - (bk.page_from || 1) + 1));
+      const used = Number(bk.used_pages || 0);
+      const rem = bk.remaining_pages !== undefined ? Number(bk.remaining_pages) : Math.max(0, total - used);
+      const startPage = bk.current_page_from || (bk.page_from + used);
+
+      if (mode === "distribute") {
+        setEditingBook({
+          ...bk,
+          page_from: startPage,
+          page_to: bk.page_to,
+          total_pages: total,
+          remaining_pages: rem,
+          distributed_pages: rem > 0 ? rem : total,
+          is_distributed: true,
+          status: "ISSUED",
+          issued_to_name: "",
+          issued_to_type: "উস্তাদ",
+          issued_to_phone: "",
+          issued_to_jamath: "",
+          issued_to_area: "",
+          issued_date: new Date().toISOString().split("T")[0],
+        });
+      } else if (mode === "deposit") {
+        const currentDist = Number(bk.distributed_pages || rem || total);
+        setEditingBook({
+          ...bk,
+          total_pages: total,
+          distributed_pages: currentDist,
+          used_pages: 0,
+          returned_pages: currentDist,
+          total_collected: 0,
+          is_deposited: true,
+          return_date: new Date().toISOString().split("T")[0],
+          status: "IN_STOCK",
+        });
+      } else {
+        setEditingBook({
+          ...bk,
+          total_pages: total,
+          distributed_pages: bk.distributed_pages || total,
+          rate_per_page: bk.rate_per_page || 0,
+          expected_amount: bk.expected_amount || 0,
+          used_pages: bk.used_pages || 0,
+          returned_pages: bk.returned_pages || 0,
+          remaining_pages: rem,
+          current_page_from: startPage,
+          total_collected: bk.total_collected || 0,
+        });
+      }
     } else {
-      const nextNum = books.length + 1;
-      setEditingBook({
-        book_no: `বই #${nextNum}`,
-        page_from: 1,
-        page_to: 50,
-        total_pages: 50,
-        category: "সাধারণ অনুদান",
-        receipt_type: "সাধারণ রসিদ বই",
-        rate_per_page: 100,
-        expected_amount: 5000,
-        is_distributed: mode === "distribute",
-        issued_to_name: "",
-        issued_to_type: "উস্তাদ",
-        issued_to_phone: "",
-        issued_to_jamath: "",
-        issued_to_area: "",
-        issued_date: new Date().toISOString().split("T")[0],
-        distributed_pages: 50,
-        issued_by: "",
-        is_deposited: mode === "deposit",
-        return_date: mode === "deposit" ? new Date().toISOString().split("T")[0] : "",
-        used_pages: 0,
-        returned_pages: 50,
-        total_collected: 0,
-        payment_method: "Cash",
-        deposit_voucher_no: "",
-        received_by: "",
-        due_amount: 0,
-        status: mode === "deposit" ? "RETURNED" : (mode === "distribute" ? "ISSUED" : "ISSUED"),
-        notes: "",
-      });
+      if (mode === "distribute") {
+        // Find first in-stock book with remaining pages
+        const firstInStock = books.find(b => {
+          const u = Number(b.used_pages || 0);
+          const t = Number(b.total_pages || 50);
+          const r = b.remaining_pages !== undefined ? Number(b.remaining_pages) : Math.max(0, t - u);
+          return r > 0 && b.status !== "RETURNED" && (!b.is_distributed || b.status === "IN_STOCK");
+        });
+
+        if (firstInStock) {
+          const total = firstInStock.total_pages || 50;
+          const used = Number(firstInStock.used_pages || 0);
+          const rem = firstInStock.remaining_pages !== undefined ? Number(firstInStock.remaining_pages) : Math.max(0, total - used);
+          const startPage = firstInStock.current_page_from || (firstInStock.page_from + used);
+          setEditingBook({
+            ...firstInStock,
+            page_from: startPage,
+            page_to: firstInStock.page_to,
+            total_pages: total,
+            remaining_pages: rem,
+            distributed_pages: rem > 0 ? rem : total,
+            is_distributed: true,
+            status: "ISSUED",
+            issued_to_name: "",
+            issued_to_type: "উস্তাদ",
+            issued_to_phone: "",
+            issued_to_jamath: "",
+            issued_to_area: "",
+            issued_date: new Date().toISOString().split("T")[0],
+          });
+        } else {
+          setEditingBook({
+            book_no: "",
+            page_from: 1,
+            page_to: 50,
+            total_pages: 50,
+            distributed_pages: 50,
+            is_distributed: true,
+            status: "ISSUED",
+            issued_to_name: "",
+            issued_to_type: "উস্তাদ",
+            issued_date: new Date().toISOString().split("T")[0],
+          });
+        }
+      } else if (mode === "deposit") {
+        // Find first currently issued book
+        const firstIssued = books.find(b => b.is_distributed && b.status === "ISSUED");
+        if (firstIssued) {
+          const total = firstIssued.total_pages || 50;
+          const dist = Number(firstIssued.distributed_pages || total);
+          setEditingBook({
+            ...firstIssued,
+            total_pages: total,
+            distributed_pages: dist,
+            used_pages: 0,
+            returned_pages: dist,
+            total_collected: 0,
+            is_deposited: true,
+            return_date: new Date().toISOString().split("T")[0],
+            status: "IN_STOCK",
+          });
+        } else {
+          setEditingBook({
+            book_no: "",
+            used_pages: 0,
+            returned_pages: 0,
+            total_collected: 0,
+            is_deposited: true,
+            return_date: new Date().toISOString().split("T")[0],
+            status: "IN_STOCK",
+          });
+        }
+      } else {
+        const nextNum = books.length + 1;
+        setEditingBook({
+          book_no: `বই #${nextNum}`,
+          page_from: 1,
+          page_to: 50,
+          total_pages: 50,
+          category: "সাধারণ অনুদান",
+          receipt_type: "সাধারণ রসিদ বই",
+          rate_per_page: 100,
+          expected_amount: 5000,
+          is_distributed: false,
+          remaining_pages: 50,
+          current_page_from: 1,
+          issued_to_name: "",
+          issued_to_type: "উস্তাদ",
+          issued_to_phone: "",
+          issued_to_jamath: "",
+          issued_to_area: "",
+          issued_date: "",
+          distributed_pages: 50,
+          issued_by: "",
+          is_deposited: false,
+          return_date: "",
+          used_pages: 0,
+          returned_pages: 50,
+          total_collected: 0,
+          payment_method: "Cash",
+          deposit_voucher_no: "",
+          received_by: "",
+          due_amount: 0,
+          status: "IN_STOCK",
+          deposit_history: [],
+          notes: "",
+        });
+      }
     }
     setBookModalOpen(true);
   };
@@ -382,59 +526,117 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
 
     setLoading(true);
 
-    // Dynamic calculations before saving
-    const pageFrom = Number(editingBook.page_from || 1);
-    const pageTo = Number(editingBook.page_to || 50);
+    const existingBook = books.find(b => (editingBook.id && b.id === editingBook.id) || (editingBook.book_no && b.book_no.trim() === editingBook.book_no.trim()));
+    const pageFrom = Number(existingBook?.page_from || editingBook.page_from || 1);
+    const pageTo = Number(existingBook?.page_to || editingBook.page_to || 50);
     const totalPages = Math.max(1, pageTo - pageFrom + 1);
-    const ratePerPage = Number(editingBook.rate_per_page || 0);
+    const ratePerPage = Number(editingBook.rate_per_page || existingBook?.rate_per_page || 0);
     const expectedAmount = Number(editingBook.expected_amount || (ratePerPage > 0 ? totalPages * ratePerPage : 0));
-    const distributedPages = Number(editingBook.distributed_pages || totalPages);
-    const usedPages = Number(editingBook.used_pages || 0);
-    const returnedPages = Math.max(0, distributedPages - usedPages);
-    const totalCollected = Number(editingBook.total_collected || 0);
 
-    const hasDistributedInfo = Boolean(editingBook.issued_to_name && editingBook.issued_to_name.trim().length > 0);
-    const isDistributed = editingBook.is_distributed ?? hasDistributedInfo;
-    const isDeposited = editingBook.is_deposited ?? (totalCollected > 0 || editingBook.status === "RETURNED" || editingBook.status === "PARTIALLY_RETURNED");
+    let finalIsDistributed = false;
+    let finalStatus: "IN_STOCK" | "ISSUED" | "RETURNED" | "PARTIALLY_RETURNED" | "OVERDUE" = "IN_STOCK";
+    let finalUsedPages = Number(existingBook?.used_pages || 0);
+    let finalReturnedPages = Number(existingBook?.returned_pages || 0);
+    let finalTotalCollected = Number(existingBook?.total_collected || 0);
+    let finalRemainingPages = existingBook?.remaining_pages !== undefined ? Number(existingBook.remaining_pages) : totalPages;
+    let finalCurrentPageFrom = existingBook?.current_page_from || pageFrom;
+    let finalDistributedPages = Number(editingBook.distributed_pages || finalRemainingPages || totalPages);
+    let depositHistory = Array.isArray(existingBook?.deposit_history) ? [...existingBook.deposit_history] : [];
 
-    let status = editingBook.status || "ISSUED";
-    if (totalCollected > 0 && usedPages >= distributedPages && returnedPages === 0) {
-      status = "RETURNED";
-    } else if (totalCollected > 0 || usedPages > 0) {
-      status = "PARTIALLY_RETURNED";
-    } else if (isDistributed) {
-      status = "ISSUED";
+    if (bookModalMode === "distribute") {
+      finalIsDistributed = true;
+      finalStatus = "ISSUED";
+      finalDistributedPages = Number(editingBook.distributed_pages || finalRemainingPages || totalPages);
+    } else if (bookModalMode === "deposit") {
+      const thisSessionUsed = Number(editingBook.used_pages || 0);
+      const thisSessionAmount = Number(editingBook.total_collected || 0);
+      const thisSessionReturned = Number(editingBook.returned_pages !== undefined ? editingBook.returned_pages : Math.max(0, finalDistributedPages - thisSessionUsed));
+
+      finalUsedPages = Number(existingBook?.used_pages || 0) + thisSessionUsed;
+      finalTotalCollected = Number(existingBook?.total_collected || 0) + thisSessionAmount;
+      finalRemainingPages = Math.max(0, totalPages - finalUsedPages);
+      finalCurrentPageFrom = Math.min(pageTo, pageFrom + finalUsedPages);
+      finalReturnedPages = thisSessionReturned;
+
+      // Log into deposit history
+      const depositRecord = {
+        id: `dep_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        date: editingBook.return_date || new Date().toISOString().split("T")[0],
+        collector_name: editingBook.issued_to_name || existingBook?.issued_to_name || "সংগ্রাহক",
+        collector_type: editingBook.issued_to_type || existingBook?.issued_to_type || "উস্তাদ",
+        collector_phone: editingBook.issued_to_phone || existingBook?.issued_to_phone || "",
+        used_pages: thisSessionUsed,
+        returned_pages_to_stock: thisSessionReturned,
+        amount: thisSessionAmount,
+        payment_method: editingBook.payment_method || "Cash",
+        deposit_voucher_no: editingBook.deposit_voucher_no || "",
+        received_by: editingBook.received_by || "",
+        notes: editingBook.notes || "",
+      };
+      depositHistory.push(depositRecord);
+
+      if (editingBook.status === "IN_STOCK" || (finalRemainingPages > 0 && editingBook.status !== "PARTIALLY_RETURNED" && editingBook.status !== "RETURNED")) {
+        finalStatus = "IN_STOCK";
+        finalIsDistributed = false;
+      } else if (editingBook.status === "RETURNED" || finalRemainingPages === 0) {
+        finalStatus = "RETURNED";
+        finalIsDistributed = false;
+        finalRemainingPages = 0;
+      } else if (editingBook.status === "PARTIALLY_RETURNED") {
+        finalStatus = "PARTIALLY_RETURNED";
+        finalIsDistributed = true;
+      } else {
+        finalStatus = (editingBook.status || "IN_STOCK") as any;
+        finalIsDistributed = finalStatus === "ISSUED";
+      }
+    } else {
+      // create_book or full_edit
+      finalUsedPages = Number(editingBook.used_pages || 0);
+      finalTotalCollected = Number(editingBook.total_collected || 0);
+      finalRemainingPages = Math.max(0, totalPages - finalUsedPages);
+      finalCurrentPageFrom = Math.min(pageTo, pageFrom + finalUsedPages);
+      finalIsDistributed = Boolean(editingBook.is_distributed ?? (editingBook.issued_to_name && editingBook.issued_to_name.trim().length > 0));
+      if (editingBook.status) {
+        finalStatus = editingBook.status as any;
+        if (finalStatus === "IN_STOCK" || finalStatus === "RETURNED") finalIsDistributed = false;
+      } else {
+        finalStatus = finalIsDistributed ? "ISSUED" : (finalRemainingPages === 0 && finalUsedPages > 0 ? "RETURNED" : "IN_STOCK");
+      }
     }
 
     const payload: Partial<MahfilReceiptBook> = {
       ...editingBook,
-      book_no: (editingBook.book_no || `বই #${books.length + 1}`).trim(),
-      category: editingBook.category || "সাধারণ অনুদান",
+      id: editingBook.id || existingBook?.id || `bk_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      book_no: (editingBook.book_no || existingBook?.book_no || `বই #${books.length + 1}`).trim(),
+      category: editingBook.category || existingBook?.category || "সাধারণ অনুদান",
       page_from: pageFrom,
       page_to: pageTo,
       total_pages: totalPages,
       rate_per_page: ratePerPage,
       expected_amount: expectedAmount,
-      receipt_type: editingBook.receipt_type || "সাধারণ রসিদ বই",
-      is_distributed: isDistributed,
-      issued_to_name: (editingBook.issued_to_name || "").trim(),
-      issued_to_type: editingBook.issued_to_type || "উস্তাদ",
-      issued_to_phone: editingBook.issued_to_phone || "",
-      issued_to_jamath: editingBook.issued_to_jamath || "",
-      issued_to_area: editingBook.issued_to_area || "",
-      issued_date: editingBook.issued_date || new Date().toISOString().split("T")[0],
-      distributed_pages: distributedPages,
-      issued_by: editingBook.issued_by || "",
-      is_deposited: isDeposited,
-      return_date: editingBook.return_date || (isDeposited ? new Date().toISOString().split("T")[0] : ""),
-      used_pages: usedPages,
-      returned_pages: returnedPages,
-      total_collected: totalCollected,
+      receipt_type: editingBook.receipt_type || existingBook?.receipt_type || "সাধারণ রসিদ বই",
+      is_distributed: finalIsDistributed,
+      issued_to_name: finalIsDistributed ? (editingBook.issued_to_name || "").trim() : (existingBook?.issued_to_name || ""),
+      issued_to_type: editingBook.issued_to_type || existingBook?.issued_to_type || "উস্তাদ",
+      issued_to_phone: editingBook.issued_to_phone || existingBook?.issued_to_phone || "",
+      issued_to_jamath: editingBook.issued_to_jamath || existingBook?.issued_to_jamath || "",
+      issued_to_area: editingBook.issued_to_area || existingBook?.issued_to_area || "",
+      issued_date: editingBook.issued_date || (finalIsDistributed ? new Date().toISOString().split("T")[0] : (existingBook?.issued_date || "")),
+      distributed_pages: finalDistributedPages,
+      issued_by: editingBook.issued_by || existingBook?.issued_by || "",
+      is_deposited: finalTotalCollected > 0 || bookModalMode === "deposit" || existingBook?.is_deposited,
+      return_date: editingBook.return_date || (bookModalMode === "deposit" ? new Date().toISOString().split("T")[0] : (existingBook?.return_date || "")),
+      used_pages: finalUsedPages,
+      returned_pages: finalReturnedPages,
+      remaining_pages: finalRemainingPages,
+      current_page_from: finalCurrentPageFrom,
+      total_collected: finalTotalCollected,
       payment_method: editingBook.payment_method || "Cash",
       deposit_voucher_no: editingBook.deposit_voucher_no || "",
       received_by: editingBook.received_by || "",
       due_amount: Number(editingBook.due_amount || 0),
-      status: status as any,
+      status: finalStatus,
+      deposit_history: depositHistory,
       notes: editingBook.notes || "",
     };
 
@@ -1213,19 +1415,36 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                           )}
                         </td>
                         <td className="py-3 px-4">
-                          {bk.issued_to_name ? (
+                          {bk.status === "IN_STOCK" || (!bk.is_distributed && !bk.issued_to_name) ? (
+                            (bk.used_pages || 0) > 0 ? (
+                              <div className="space-y-0.5">
+                                <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold rounded text-[10px] inline-flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                  স্টকে মজুদ (আংশিক ফেরত)
+                                </span>
+                                <span className="text-[10px] text-slate-600 font-bold block">
+                                  অবশিষ্ট: {toBanglaNumber(bk.remaining_pages !== undefined ? bk.remaining_pages : (bk.total_pages - (bk.used_pages || 0)))} পাতা (পৃষ্ঠা {toBanglaNumber(bk.current_page_from || (bk.page_from + (bk.used_pages || 0)))} হতে {toBanglaNumber(bk.page_to)})
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 font-bold rounded text-[10px] inline-flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                স্টকে মজুদ (নতুন {toBanglaNumber(bk.total_pages)} পাতা)
+                              </span>
+                            )
+                          ) : bk.status === "RETURNED" || bk.status === "COMPLETED" ? (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded text-[10px] inline-flex items-center gap-1">
+                              পূর্ণাঙ্গ জমা সম্পন্ন ({toBanglaNumber(bk.total_pages)} পাতা)
+                            </span>
+                          ) : (
                             <div className="space-y-0.5">
                               <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px] inline-block">
                                 বিতরণকৃত: {bk.issued_to_name}
                               </span>
                               <span className="text-[10px] text-slate-500 block">
-                                বিতরণকৃত পাতা: {toBanglaNumber(bk.distributed_pages || bk.total_pages)}
+                                বিতরণকৃত পাতা: {toBanglaNumber(bk.distributed_pages || bk.remaining_pages || bk.total_pages)}
                               </span>
                             </div>
-                          ) : (
-                            <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 font-bold rounded text-[10px]">
-                              স্টকে মজুদ (অবিতরণকৃত)
-                            </span>
                           )}
                         </td>
                         <td className="py-3 px-4 font-bold text-emerald-700 text-sm">
@@ -1233,14 +1452,26 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {!bk.issued_to_name && (
+                            {/* If in stock, allow distribution */}
+                            {(bk.status === "IN_STOCK" || (!bk.is_distributed && !bk.issued_to_name)) && (
                               <button
                                 onClick={() => handleOpenBookModal("distribute", bk)}
                                 className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-[10px] flex items-center gap-1"
-                                title="বিতরণ করুন"
+                                title="বইটি বিতরণ করুন"
                               >
                                 <Send className="w-3 h-3" />
                                 <span>বিতরণ</span>
+                              </button>
+                            )}
+                            {/* If distributed or active, allow deposit */}
+                            {(bk.is_distributed || bk.issued_to_name) && bk.status !== "RETURNED" && bk.status !== "COMPLETED" && (
+                              <button
+                                onClick={() => handleOpenBookModal("deposit", bk)}
+                                className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded text-[10px] flex items-center gap-1"
+                                title="টাকা ও বই জমা নিন"
+                              >
+                                <ArrowDownToLine className="w-3 h-3" />
+                                <span>জমা</span>
                               </button>
                             )}
                             <button

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getStaffMetadataFull } from "@/app/actions/staff";
+import { getMadrasaMetadata } from "@/lib/sessions";
 import ReportingCharts from "./components/ReportingCharts";
 import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
@@ -82,7 +83,8 @@ export default async function DashboardPage() {
         { data: bazarData },
         { data: attendanceAllData },
         { data: examResultsData },
-        staffFullData
+        staffFullData,
+        madrasaMeta
 
       ] = await Promise.all([
         supabase.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
@@ -99,7 +101,8 @@ export default async function DashboardPage() {
         supabase.from("bazar_expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
         supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]).lte("date", today),
         supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
-        getStaffMetadataFull()
+        getStaffMetadataFull(),
+        getMadrasaMetadata(profile.madrasa_id)
       ]);
 
       studentsCount = sCount || 0;
@@ -122,7 +125,8 @@ export default async function DashboardPage() {
       const monthlyData: Record<string, { income: number; expense: number }> = {};
       const addMonthly = (dateStr: string, amount: number, type: 'income' | 'expense') => {
         if (!dateStr) return;
-        const month = dateStr.substring(0, 7); // YYYY-MM
+        const cleanDate = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr.trim();
+        const month = cleanDate.substring(0, 7); // YYYY-MM
         if (!monthlyData[month]) monthlyData[month] = { income: 0, expense: 0 };
         monthlyData[month][type] += Number(amount);
       };
@@ -131,6 +135,105 @@ export default async function DashboardPage() {
       (donationsData || []).forEach((d: any) => addMonthly(d.donation_date, d.amount, 'income'));
       (expensesData || []).forEach((e: any) => addMonthly(e.expense_date, e.amount, 'expense'));
       (bazarData || []).forEach((b: any) => addMonthly(b.expense_date, b.amount, 'expense'));
+
+      // Include all Madrasa Metadata Live Collections in Dashboard
+      const meta = madrasaMeta || {};
+
+      // 1. Fee management payments from metadata (not yet tracked in fees table)
+      const trackedFeeIds = new Set((feesData || []).map((f: any) => f.id));
+      (meta.payments || []).forEach((p: any) => {
+        if (p.status === "COMPLETED" && !trackedFeeIds.has(p.id) && !trackedFeeIds.has(p.db_fee_id)) {
+          const amt = Number(p.total_amount_received || 0);
+          const dt = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+          if (amt > 0) {
+            totalIncome += amt;
+            addMonthly(dt, amt, 'income');
+          }
+        }
+      });
+
+      // 2. Mahfil Receipt Books & Direct Transactions
+      const mahfils = meta.mahfils || [];
+      mahfils.forEach((m: any) => {
+        (m.receipt_books || []).forEach((bk: any) => {
+          if (Array.isArray(bk.deposit_history) && bk.deposit_history.length > 0) {
+            bk.deposit_history.forEach((dep: any) => {
+              const amt = Number(dep.amount || 0);
+              if (amt > 0) {
+                totalIncome += amt;
+                addMonthly(dep.date, amt, 'income');
+              }
+            });
+          } else if (Number(bk.total_collected || 0) > 0) {
+            const amt = Number(bk.total_collected || 0);
+            const dt = bk.return_date || bk.issued_date || m.start_date || "";
+            totalIncome += amt;
+            addMonthly(dt, amt, 'income');
+          }
+        });
+
+        (m.transactions || []).forEach((t: any) => {
+          const amt = Number(t.amount || 0);
+          const dt = t.date || m.start_date || "";
+          if (amt > 0) {
+            if (t.type === "INCOME") {
+              totalIncome += amt;
+              addMonthly(dt, amt, 'income');
+            } else if (t.type === "EXPENSE") {
+              totalExpense += amt;
+              addMonthly(dt, amt, 'expense');
+            }
+          }
+        });
+      });
+
+      // 3. Regular Donor / Life Member Payments
+      (meta.donor_subscription_payments || []).forEach((p: any) => {
+        const amt = Number(p.amount || 0);
+        const dt = p.payment_date || p.date || (p.created_at ? p.created_at.split("T")[0] : "");
+        if (amt > 0) {
+          totalIncome += amt;
+          addMonthly(dt, amt, 'income');
+        }
+      });
+
+      // 4. Donation Box Collections
+      (meta.donation_box_logs || []).forEach((l: any) => {
+        const amt = Number(l.amount || 0);
+        const dt = l.collection_date || l.date || (l.created_at ? l.created_at.split("T")[0] : "");
+        if (amt > 0) {
+          totalIncome += amt;
+          addMonthly(dt, amt, 'income');
+        }
+      });
+
+      // 5. Online Donations
+      (meta.online_donations || []).forEach((d: any) => {
+        if (d.status === "COMPLETED" || d.status === "VERIFIED" || d.status === "SUCCESS") {
+          const amt = Number(d.amount || 0);
+          const dt = d.payment_date || (d.created_at ? d.created_at.split("T")[0] : "");
+          if (amt > 0) {
+            totalIncome += amt;
+            addMonthly(dt, amt, 'income');
+          }
+        }
+      });
+
+      // 6. Qurbani Leather Records
+      const leatherRecords = meta.qurbani_leather_records || meta.leather_batches || [];
+      leatherRecords.forEach((r: any) => {
+        const inc = Number(r.received_amount || r.total_sale_price || r.total_sale_amount || 0);
+        const exp = Number(r.transport_labour_cost || r.transport_labor_cost || 0);
+        const dt = r.collection_date || r.sale_date || r.date || (r.created_at ? r.created_at.split("T")[0] : "");
+        if (inc > 0) {
+          totalIncome += inc;
+          addMonthly(dt, inc, 'income');
+        }
+        if (exp > 0) {
+          totalExpense += exp;
+          addMonthly(dt, exp, 'expense');
+        }
+      });
 
       // Process Attendance Rate
       let presentTotal = 0;

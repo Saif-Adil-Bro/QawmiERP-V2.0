@@ -164,8 +164,12 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
 
   // Month and year filtering
   if (filters?.month && filters?.year) {
-    const startDate = `${filters.year}-${filters.month.padStart(2, '0')}-01`;
-    const endDate = new Date(parseInt(filters.year), parseInt(filters.month), 0).toISOString().split('T')[0];
+    const parsedYear = parseInt(filters.year);
+    const parsedMonth = parseInt(filters.month);
+    const padMonth = String(parsedMonth).padStart(2, '0');
+    const startDate = `${parsedYear}-${padMonth}-01`;
+    const lastDay = new Date(Date.UTC(parsedYear, parsedMonth, 0)).getUTCDate();
+    const endDate = `${parsedYear}-${padMonth}-${String(lastDay).padStart(2, '0')}`;
     query = query.gte("expense_date", startDate).lte("expense_date", endDate);
   }
 
@@ -390,9 +394,12 @@ import { getFunds } from "./zakat";
 import { DEFAULT_FUNDS } from "@/lib/fund-utils";
 
 export async function getAccountingReport(month: string, year: string, fundId?: string) {
-  const padMonth = month.padStart(2, '0');
-  const startDate = `${year}-${padMonth}-01`;
-  const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
+  const parsedYear = parseInt(year);
+  const parsedMonth = parseInt(month);
+  const padMonth = String(parsedMonth).padStart(2, '0');
+  const startDate = `${parsedYear}-${padMonth}-01`;
+  const lastDay = new Date(Date.UTC(parsedYear, parsedMonth, 0)).getUTCDate();
+  const endDate = `${parsedYear}-${padMonth}-${String(lastDay).padStart(2, '0')}`;
   
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
@@ -400,6 +407,13 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { totalIncome: 0, totalExpense: 0, netBalance: 0, fundStats: [] };
+
+  // Helper date checker
+  function isWithinRange(dateStr?: string): boolean {
+    if (!dateStr) return false;
+    const cleanDate = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr.trim();
+    return cleanDate >= startDate && cleanDate <= endDate;
+  }
 
   // 1. Fetch Registered Funds (default + custom)
   let registeredFunds = DEFAULT_FUNDS;
@@ -426,7 +440,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // Filter donations by target month and year
   const monthlyDonations = (donationsData || []).filter((d: any) => {
     const dateStr = d.donation_date || (d.created_at ? d.created_at.split("T")[0] : "");
-    return dateStr >= startDate && dateStr <= endDate;
+    return isWithinRange(dateStr);
   });
 
   // 3. Fetch Student Fees (from fees table)
@@ -437,26 +451,26 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
 
   const monthlyFees = (feesData || []).filter((f: any) => {
     const dateStr = f.payment_date || (f.created_at ? f.created_at.split("T")[0] : "");
-    return dateStr >= startDate && dateStr <= endDate;
+    return isWithinRange(dateStr);
   });
 
-  // 4. Fetch Fee Management Payments (from madrasa metadata)
+  // 4. Fetch Metadata (Fee Payments, Mahfils, Donors, Boxes, Leather, Online)
+  let meta: any = {};
   let metaPayments: any[] = [];
   try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    meta = await getMadrasaMetadata(finalMadrasaId);
     const trackedFeeIds = new Set(monthlyFees.map((f: any) => f.id));
     metaPayments = (meta.payments || []).filter((p: any) => {
       const dateStr = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
       return (
-        dateStr >= startDate &&
-        dateStr <= endDate &&
+        isWithinRange(dateStr) &&
         p.status === "COMPLETED" &&
         !trackedFeeIds.has(p.id) &&
         !trackedFeeIds.has(p.db_fee_id)
       );
     });
   } catch (e) {
-    console.warn("Could not fetch metadata fee payments:", e);
+    console.warn("Could not fetch madrasa metadata for report:", e);
   }
 
   // 5. Fetch General Expenses
@@ -467,7 +481,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
 
   const monthlyExpenses = (expensesData || []).filter((e: any) => {
     const dateStr = e.expense_date || (e.created_at ? e.created_at.split("T")[0] : "");
-    return dateStr >= startDate && dateStr <= endDate;
+    return isWithinRange(dateStr);
   });
 
   // 6. Fetch Bazar Expenses
@@ -478,7 +492,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
 
   const monthlyBazar = (bazarData || []).filter((b: any) => {
     const dateStr = b.expense_date || (b.created_at ? b.created_at.split("T")[0] : "");
-    return dateStr >= startDate && dateStr <= endDate;
+    return isWithinRange(dateStr);
   });
 
   // Setup Fund Map with Registered Funds
@@ -492,6 +506,24 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       expense: 0,
     });
   });
+
+  // Helper to safely add income to fundMap
+  function addIncomeToFund(fId: string, fName: string, amt: number) {
+    if (amt <= 0) return;
+    if (!fundMap.has(fId)) {
+      fundMap.set(fId, { fund_id: fId, fund_name: fName, income: 0, expense: 0 });
+    }
+    fundMap.get(fId)!.income += amt;
+  }
+
+  // Helper to safely add expense to fundMap
+  function addExpenseToFund(fId: string, fName: string, amt: number) {
+    if (amt <= 0) return;
+    if (!fundMap.has(fId)) {
+      fundMap.set(fId, { fund_id: fId, fund_name: fName, income: 0, expense: 0 });
+    }
+    fundMap.get(fId)!.expense += amt;
+  }
 
   // Helper to map a donation type or label to a Fund ID & Name
   function resolveDonationFund(typeStr?: string, notesStr?: string): { id: string; name: string } {
@@ -540,55 +572,115 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // A. Add Donations income to Fund Map
   monthlyDonations.forEach((don: any) => {
     const amt = Number(don.amount || 0);
-    if (amt <= 0) return;
     const { id: fId, name: fName } = resolveDonationFund(don.donation_type, don.notes);
-    
-    if (!fundMap.has(fId)) {
-      fundMap.set(fId, { fund_id: fId, fund_name: fName, income: 0, expense: 0 });
-    }
-    fundMap.get(fId)!.income += amt;
+    addIncomeToFund(fId, fName, amt);
   });
 
   // B. Add Fees income to General Fund (or designated fund)
   monthlyFees.forEach((fee: any) => {
     const amt = Number(fee.amount || 0);
-    if (amt <= 0) return;
-    const fId = "fund-general";
-    if (!fundMap.has(fId)) {
-      fundMap.set(fId, { fund_id: fId, fund_name: "সাধারণ ফান্ড (General Fund)", income: 0, expense: 0 });
-    }
-    fundMap.get(fId)!.income += amt;
+    addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
   });
 
   // C. Add Meta Fee Payments to General Fund
   metaPayments.forEach((p: any) => {
     const amt = Number(p.total_amount_received || 0);
-    if (amt <= 0) return;
-    const fId = "fund-general";
-    if (!fundMap.has(fId)) {
-      fundMap.set(fId, { fund_id: fId, fund_name: "সাধারণ ফান্ড (General Fund)", income: 0, expense: 0 });
-    }
-    fundMap.get(fId)!.income += amt;
+    addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
   });
 
-  // D. Add Expenses to Fund Map
+  // D. Add Mahfil Receipt Book Collections & Transactions from Metadata
+  const mahfils = meta.mahfils || [];
+  mahfils.forEach((m: any) => {
+    // 1. Receipt books (collected amounts from deposits)
+    const books = m.receipt_books || [];
+    books.forEach((bk: any) => {
+      const fundInfo = resolveDonationFund(bk.category, bk.receipt_type || "মাহফিল রসিদ বই আদায়");
+      if (Array.isArray(bk.deposit_history) && bk.deposit_history.length > 0) {
+        bk.deposit_history.forEach((dep: any) => {
+          if (isWithinRange(dep.date)) {
+            addIncomeToFund(fundInfo.id, fundInfo.name, Number(dep.amount || 0));
+          }
+        });
+      } else if (Number(bk.total_collected || 0) > 0) {
+        const d = bk.return_date || bk.issued_date || m.start_date || "";
+        if (isWithinRange(d)) {
+          addIncomeToFund(fundInfo.id, fundInfo.name, Number(bk.total_collected || 0));
+        }
+      }
+    });
+
+    // 2. Direct Mahfil Transactions (Income & Expense vouchers)
+    const txns = m.transactions || [];
+    txns.forEach((t: any) => {
+      const d = t.date || m.start_date || "";
+      if (isWithinRange(d)) {
+        if (t.type === "INCOME") {
+          const fundInfo = resolveDonationFund(t.category, t.description);
+          addIncomeToFund(fundInfo.id, fundInfo.name, Number(t.amount || 0));
+        } else if (t.type === "EXPENSE") {
+          const parsed = parseExpenseFund(t.description || t.category);
+          addExpenseToFund(parsed.fundId || "fund-general", parsed.fundName || "সাধারণ ফান্ড", Number(t.amount || 0));
+        }
+      }
+    });
+  });
+
+  // E. Add Donor Subscriptions from Metadata
+  const donorPayments = meta.donor_subscription_payments || [];
+  donorPayments.forEach((p: any) => {
+    const d = p.payment_date || p.date || (p.created_at ? p.created_at.split("T")[0] : "");
+    if (isWithinRange(d)) {
+      const fundInfo = resolveDonationFund(p.fund_name || p.fund_category, p.notes);
+      addIncomeToFund(fundInfo.id, fundInfo.name, Number(p.amount || 0));
+    }
+  });
+
+  // F. Add Donation Box Collections from Metadata
+  const boxLogs = meta.donation_box_logs || [];
+  boxLogs.forEach((l: any) => {
+    const d = l.collection_date || l.date || (l.created_at ? l.created_at.split("T")[0] : "");
+    if (isWithinRange(d)) {
+      const fundInfo = resolveDonationFund(l.fund_name || "দানবাক্স ফান্ড", l.notes);
+      addIncomeToFund(fundInfo.id, fundInfo.name, Number(l.amount || 0));
+    }
+  });
+
+  // G. Add Online Donations (Completed/Verified) from Metadata
+  const onlineDonations = meta.online_donations || [];
+  onlineDonations.forEach((d: any) => {
+    if (d.status === "COMPLETED" || d.status === "VERIFIED" || d.status === "SUCCESS") {
+      const dt = d.payment_date || (d.created_at ? d.created_at.split("T")[0] : "");
+      if (isWithinRange(dt)) {
+        const fundInfo = resolveDonationFund(d.fund_name || d.purpose, d.notes);
+        addIncomeToFund(fundInfo.id, fundInfo.name, Number(d.amount || 0));
+      }
+    }
+  });
+
+  // H. Add Qurbani Leather Records from Metadata
+  const leatherRecords = meta.qurbani_leather_records || meta.leather_batches || [];
+  leatherRecords.forEach((r: any) => {
+    const d = r.collection_date || r.sale_date || r.date || (r.created_at ? r.created_at.split("T")[0] : "");
+    if (isWithinRange(d)) {
+      const inc = Number(r.received_amount || r.total_sale_price || r.total_sale_amount || 0);
+      const exp = Number(r.transport_labour_cost || r.transport_labor_cost || 0);
+      if (inc > 0) addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", inc);
+      if (exp > 0) addExpenseToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", exp);
+    }
+  });
+
+  // I. Add Expenses to Fund Map
   monthlyExpenses.forEach((exp: any) => {
     const amt = Number(exp.amount || 0);
-    if (amt <= 0) return;
     const parsed = parseExpenseFund(exp.description);
     const fId = parsed.fundId || "fund-general";
     const fName = parsed.fundName || "সাধারণ ফান্ড";
-
-    if (!fundMap.has(fId)) {
-      fundMap.set(fId, { fund_id: fId, fund_name: fName, income: 0, expense: 0 });
-    }
-    fundMap.get(fId)!.expense += amt;
+    addExpenseToFund(fId, fName, amt);
   });
 
-  // E. Add Bazar Expenses to Fund Map (Default: Lillah Boarding Fund)
+  // J. Add Bazar Expenses to Fund Map (Default: Lillah Boarding Fund)
   monthlyBazar.forEach((b: any) => {
     const amt = Number(b.amount || 0);
-    if (amt <= 0) return;
     const details = b.items_details || "";
     let fId = "fund-lillah";
     let fName = "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
@@ -601,10 +693,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       }
     }
 
-    if (!fundMap.has(fId)) {
-      fundMap.set(fId, { fund_id: fId, fund_name: fName, income: 0, expense: 0 });
-    }
-    fundMap.get(fId)!.expense += amt;
+    addExpenseToFund(fId, fName, amt);
   });
 
   // Aggregate totals

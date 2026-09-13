@@ -554,11 +554,45 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
     const ratePerPage = Number(book.rate_per_page || 0);
     const expectedAmount = Number(book.expected_amount || (ratePerPage > 0 ? totalPages * ratePerPage : 0));
     const totalCollected = Number(book.total_collected || 0);
-    const distributedPages = Number(book.distributed_pages || totalPages);
     const usedPages = Number(book.used_pages || 0);
-    const returnedPages = Number(book.returned_pages !== undefined ? book.returned_pages : Math.max(0, distributedPages - usedPages));
-    const isDistributed = book.is_distributed ?? Boolean(book.issued_to_name && book.issued_to_name.trim());
-    const isDeposited = book.is_deposited ?? (totalCollected > 0 || book.status === "RETURNED" || book.status === "PARTIALLY_RETURNED");
+    const remainingPages = Number(
+      book.remaining_pages !== undefined
+        ? book.remaining_pages
+        : Math.max(0, totalPages - usedPages)
+    );
+    const currentPageFrom = Number(
+      book.current_page_from !== undefined
+        ? book.current_page_from
+        : Math.min(pageTo, pageFrom + usedPages)
+    );
+    const distributedPages = Number(
+      book.distributed_pages || (remainingPages > 0 ? remainingPages : totalPages)
+    );
+    const returnedPages = Number(
+      book.returned_pages !== undefined
+        ? book.returned_pages
+        : Math.max(0, distributedPages - usedPages)
+    );
+
+    // Determine distribution & deposit states
+    const hasAssignee = Boolean(book.issued_to_name && book.issued_to_name.trim().length > 0);
+    let isDistributed = book.is_distributed !== undefined ? book.is_distributed : hasAssignee;
+    const isDeposited = book.is_deposited ?? (totalCollected > 0 || book.status === "RETURNED" || book.status === "PARTIALLY_RETURNED" || book.status === "IN_STOCK");
+
+    // Compute status
+    let finalStatus = book.status;
+    if (!finalStatus) {
+      if (!isDistributed) {
+        finalStatus = remainingPages === 0 && usedPages > 0 ? "RETURNED" : "IN_STOCK";
+      } else {
+        finalStatus = "ISSUED";
+      }
+    }
+
+    // If status is explicitly IN_STOCK or RETURNED, it is not currently distributed in the field
+    if (finalStatus === "IN_STOCK" || finalStatus === "RETURNED") {
+      isDistributed = false;
+    }
 
     // Match by ID first, or by trimmed book_no if ID not provided
     let idx = -1;
@@ -571,38 +605,46 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
 
     let savedBook: MahfilReceiptBook;
     if (idx !== -1) {
+      const prevBook = books[idx];
+      const depositHistory = Array.isArray(book.deposit_history)
+        ? book.deposit_history
+        : (prevBook.deposit_history || []);
+
       savedBook = {
-        ...books[idx],
+        ...prevBook,
         ...book,
-        id: books[idx].id,
-        book_no: (book.book_no || books[idx].book_no || `বই #${idx + 1}`).trim(),
-        category: book.category || books[idx].category || "সাধারণ অনুদান",
+        id: prevBook.id,
+        book_no: (book.book_no || prevBook.book_no || `বই #${idx + 1}`).trim(),
+        category: book.category || prevBook.category || "সাধারণ অনুদান",
         page_from: pageFrom,
         page_to: pageTo,
         total_pages: totalPages,
         rate_per_page: ratePerPage,
         expected_amount: expectedAmount,
-        receipt_type: book.receipt_type || books[idx].receipt_type || "সাধারণ রসিদ বই",
+        receipt_type: book.receipt_type || prevBook.receipt_type || "সাধারণ রসিদ বই",
         is_distributed: isDistributed,
-        issued_to_name: (book.issued_to_name !== undefined ? book.issued_to_name : (books[idx].issued_to_name || "")).trim(),
-        issued_to_type: book.issued_to_type || books[idx].issued_to_type || "উস্তাদ",
-        issued_to_phone: book.issued_to_phone !== undefined ? book.issued_to_phone : (books[idx].issued_to_phone || ""),
-        issued_to_jamath: book.issued_to_jamath !== undefined ? book.issued_to_jamath : (books[idx].issued_to_jamath || ""),
-        issued_to_area: book.issued_to_area !== undefined ? book.issued_to_area : (books[idx].issued_to_area || ""),
-        issued_date: book.issued_date || books[idx].issued_date || (isDistributed ? new Date().toISOString().split("T")[0] : ""),
+        issued_to_name: (book.issued_to_name !== undefined ? book.issued_to_name : (prevBook.issued_to_name || "")).trim(),
+        issued_to_type: book.issued_to_type || prevBook.issued_to_type || "উস্তাদ",
+        issued_to_phone: book.issued_to_phone !== undefined ? book.issued_to_phone : (prevBook.issued_to_phone || ""),
+        issued_to_jamath: book.issued_to_jamath !== undefined ? book.issued_to_jamath : (prevBook.issued_to_jamath || ""),
+        issued_to_area: book.issued_to_area !== undefined ? book.issued_to_area : (prevBook.issued_to_area || ""),
+        issued_date: book.issued_date || prevBook.issued_date || (isDistributed ? new Date().toISOString().split("T")[0] : ""),
         distributed_pages: distributedPages,
-        issued_by: book.issued_by !== undefined ? book.issued_by : (books[idx].issued_by || ""),
+        issued_by: book.issued_by !== undefined ? book.issued_by : (prevBook.issued_by || ""),
         is_deposited: isDeposited,
-        return_date: book.return_date !== undefined ? book.return_date : (books[idx].return_date || ""),
+        return_date: book.return_date !== undefined ? book.return_date : (prevBook.return_date || ""),
         used_pages: usedPages,
         returned_pages: returnedPages,
+        remaining_pages: remainingPages,
+        current_page_from: currentPageFrom,
         total_collected: totalCollected,
-        payment_method: book.payment_method || books[idx].payment_method || "Cash",
-        deposit_voucher_no: book.deposit_voucher_no !== undefined ? book.deposit_voucher_no : (books[idx].deposit_voucher_no || ""),
-        received_by: book.received_by !== undefined ? book.received_by : (books[idx].received_by || ""),
-        due_amount: Number(book.due_amount !== undefined ? book.due_amount : (books[idx].due_amount || 0)),
-        status: (book.status || (isDeposited ? (returnedPages === 0 && usedPages === distributedPages ? "RETURNED" : "PARTIALLY_RETURNED") : (isDistributed ? "ISSUED" : "ISSUED"))) as any,
-        notes: book.notes !== undefined ? book.notes : (books[idx].notes || ""),
+        payment_method: book.payment_method || prevBook.payment_method || "Cash",
+        deposit_voucher_no: book.deposit_voucher_no !== undefined ? book.deposit_voucher_no : (prevBook.deposit_voucher_no || ""),
+        received_by: book.received_by !== undefined ? book.received_by : (prevBook.received_by || ""),
+        due_amount: Number(book.due_amount !== undefined ? book.due_amount : (prevBook.due_amount || 0)),
+        status: finalStatus as any,
+        deposit_history: depositHistory,
+        notes: book.notes !== undefined ? book.notes : (prevBook.notes || ""),
       };
       books[idx] = savedBook;
     } else {
@@ -629,12 +671,15 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
         return_date: book.return_date || "",
         used_pages: usedPages,
         returned_pages: returnedPages,
+        remaining_pages: remainingPages,
+        current_page_from: currentPageFrom,
         total_collected: totalCollected,
         payment_method: book.payment_method || "Cash",
         deposit_voucher_no: book.deposit_voucher_no || "",
         received_by: book.received_by || "",
         due_amount: Number(book.due_amount || 0),
-        status: (book.status || (isDeposited ? "RETURNED" : (isDistributed ? "ISSUED" : "ISSUED"))) as any,
+        status: finalStatus as any,
+        deposit_history: book.deposit_history || [],
         notes: book.notes || "",
       };
       books.push(savedBook);
@@ -724,12 +769,15 @@ export async function saveMahfilBulkReceiptBooks(
         return_date: "",
         used_pages: 0,
         returned_pages: pagesPerBook,
+        remaining_pages: pagesPerBook,
+        current_page_from: pageFrom,
         total_collected: 0,
         payment_method: "Cash",
         deposit_voucher_no: "",
         received_by: "",
         due_amount: 0,
-        status: "ISSUED", // Available in stock
+        status: "IN_STOCK",
+        deposit_history: [],
         notes,
       };
 
