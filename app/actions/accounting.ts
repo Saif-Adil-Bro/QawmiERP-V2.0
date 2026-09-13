@@ -385,8 +385,13 @@ export async function deleteExpense(expenseId: string) {
   return { success: true };
 }
 
+import { getMadrasaMetadata } from "@/lib/sessions";
+import { getFunds } from "./zakat";
+import { DEFAULT_FUNDS } from "@/lib/fund-utils";
+
 export async function getAccountingReport(month: string, year: string, fundId?: string) {
-  const startDate = `${year}-${month.padStart(2, '0')}-01`;
+  const padMonth = month.padStart(2, '0');
+  const startDate = `${year}-${padMonth}-01`;
   const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
   
   const supabase = await createClient();
@@ -396,119 +401,230 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { totalIncome: 0, totalExpense: 0, netBalance: 0, fundStats: [] };
 
-  const { data: feesData } = await supabase
-    .from("fees")
-    .select("amount, created_at, payment_date")
-    .eq('madrasa_id', finalMadrasaId)
-    .gte('payment_date', startDate)
-    .lte('payment_date', endDate);
+  // 1. Fetch Registered Funds (default + custom)
+  let registeredFunds = DEFAULT_FUNDS;
+  try {
+    const fetchedFunds = await getFunds();
+    if (fetchedFunds && fetchedFunds.length > 0) {
+      registeredFunds = fetchedFunds;
+    }
+  } catch (e) {
+    console.warn("Could not fetch custom funds list:", e);
+  }
 
-  // Also fetch zakat / general donations for accurate total madrasa fund income
-  const { data: donationsData } = await supabase
+  // 2. Fetch Donations (Zakat, Mahfil, Leather, Donation Box, General)
+  // NOTE: donations table does NOT have a fund_id column; select valid columns
+  const { data: donationsData, error: donErr } = await supabase
     .from("donations")
-    .select("amount, fund_id, donation_type, donation_date")
-    .eq('madrasa_id', finalMadrasaId)
-    .gte('donation_date', startDate)
-    .lte('donation_date', endDate);
+    .select("id, amount, donation_type, donation_date, notes, created_at")
+    .eq('madrasa_id', finalMadrasaId);
 
-  const { data: expensesData } = await supabase
-    .from("expenses")
-    .select("amount, description, category, expense_date")
-    .eq('madrasa_id', finalMadrasaId)
-    .gte('expense_date', startDate)
-    .lte('expense_date', endDate);
+  if (donErr) {
+    console.error("Error fetching donations for report:", donErr);
+  }
 
-  const { data: bazarData } = await supabase
-    .from("bazar_expenses")
-    .select("amount, items_details, expense_date")
-    .eq('madrasa_id', finalMadrasaId)
-    .gte('expense_date', startDate)
-    .lte('expense_date', endDate);
-
-  // Parse expenses with their selected fund
-  const parsedExpenses = (expensesData || []).map((exp: any) => {
-    const parsed = parseExpenseFund(exp.description);
-    return {
-      ...exp,
-      fund_id: parsed.fundId || "fund-general",
-      fund_name: parsed.fundName || "সাধারণ ফান্ড",
-      amount: Number(exp.amount || 0),
-    };
+  // Filter donations by target month and year
+  const monthlyDonations = (donationsData || []).filter((d: any) => {
+    const dateStr = d.donation_date || (d.created_at ? d.created_at.split("T")[0] : "");
+    return dateStr >= startDate && dateStr <= endDate;
   });
 
-  // Parse bazar expenses with fund (default to Lillah boarding fund or selected fund)
-  const parsedBazar = (bazarData || []).map((b: any) => {
+  // 3. Fetch Student Fees (from fees table)
+  const { data: feesData } = await supabase
+    .from("fees")
+    .select("id, amount, payment_date, fee_month, fee_year, fee_type, notes, created_at")
+    .eq('madrasa_id', finalMadrasaId);
+
+  const monthlyFees = (feesData || []).filter((f: any) => {
+    const dateStr = f.payment_date || (f.created_at ? f.created_at.split("T")[0] : "");
+    return dateStr >= startDate && dateStr <= endDate;
+  });
+
+  // 4. Fetch Fee Management Payments (from madrasa metadata)
+  let metaPayments: any[] = [];
+  try {
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const trackedFeeIds = new Set(monthlyFees.map((f: any) => f.id));
+    metaPayments = (meta.payments || []).filter((p: any) => {
+      const dateStr = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+      return (
+        dateStr >= startDate &&
+        dateStr <= endDate &&
+        p.status === "COMPLETED" &&
+        !trackedFeeIds.has(p.id) &&
+        !trackedFeeIds.has(p.db_fee_id)
+      );
+    });
+  } catch (e) {
+    console.warn("Could not fetch metadata fee payments:", e);
+  }
+
+  // 5. Fetch General Expenses
+  const { data: expensesData } = await supabase
+    .from("expenses")
+    .select("id, amount, description, category, expense_date, created_at")
+    .eq('madrasa_id', finalMadrasaId);
+
+  const monthlyExpenses = (expensesData || []).filter((e: any) => {
+    const dateStr = e.expense_date || (e.created_at ? e.created_at.split("T")[0] : "");
+    return dateStr >= startDate && dateStr <= endDate;
+  });
+
+  // 6. Fetch Bazar Expenses
+  const { data: bazarData } = await supabase
+    .from("bazar_expenses")
+    .select("id, amount, items_details, expense_date, created_at")
+    .eq('madrasa_id', finalMadrasaId);
+
+  const monthlyBazar = (bazarData || []).filter((b: any) => {
+    const dateStr = b.expense_date || (b.created_at ? b.created_at.split("T")[0] : "");
+    return dateStr >= startDate && dateStr <= endDate;
+  });
+
+  // Setup Fund Map with Registered Funds
+  const fundMap = new Map<string, { fund_id: string; fund_name: string; income: number; expense: number }>();
+
+  registeredFunds.forEach(f => {
+    fundMap.set(f.id, {
+      fund_id: f.id,
+      fund_name: f.name,
+      income: 0,
+      expense: 0,
+    });
+  });
+
+  // Helper to map a donation type or label to a Fund ID & Name
+  function resolveDonationFund(typeStr?: string, notesStr?: string): { id: string; name: string } {
+    const combined = `${typeStr || ""} ${notesStr || ""}`.toLowerCase();
+    
+    // Check if fund tag exists in notes, e.g. [FUND: fund-lillah | লিল্লাহ বোর্ডিং ফান্ড]
+    if (notesStr && notesStr.includes("[FUND:")) {
+      const match = notesStr.match(/\[FUND:\s*([^\]|]+)(?:\|\s*([^\]]+))?\]/i);
+      if (match && match[1]) {
+        const parsedId = match[1].trim();
+        const parsedName = match[2]?.trim() || typeStr || "ফান্ড";
+        return { id: parsedId, name: parsedName };
+      }
+    }
+
+    if (combined.includes("zakat") || combined.includes("যাকাত")) {
+      return { id: "fund-zakat", name: "যাকাত ফান্ড (Zakat Fund)" };
+    }
+    if (combined.includes("lillah") || combined.includes("লিল্লাহ") || combined.includes("চামড়া") || combined.includes("leather")) {
+      return { id: "fund-lillah", name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" };
+    }
+    if (combined.includes("orphan") || combined.includes("এতিম")) {
+      return { id: "fund-orphan", name: "এতিম কল্যাণ ফান্ড (Orphan Welfare Fund)" };
+    }
+    if (combined.includes("dev") || combined.includes("মসজিদ") || combined.includes("উন্নয়ন") || combined.includes("building")) {
+      return { id: "fund-dev", name: "মসজিদ ও উন্নয়ন ফান্ড" };
+    }
+    if (combined.includes("fitra") || combined.includes("sadqah") || combined.includes("ফিতরা") || combined.includes("সদকা")) {
+      return { id: "fund-fitra", name: "ফিতরা ও সদকা ফান্ড" };
+    }
+    if (combined.includes("general") || combined.includes("সাধারণ") || combined.includes("মাহফিল") || combined.includes("দানবাক্স") || combined.includes("box")) {
+      return { id: "fund-general", name: "সাধারণ ফান্ড (General Fund)" };
+    }
+
+    // Match with any registered fund name
+    for (const rf of registeredFunds) {
+      if (rf.name && combined.includes(rf.name.toLowerCase())) {
+        return { id: rf.id, name: rf.name };
+      }
+    }
+
+    const fallbackName = typeStr?.trim() || "সাধারণ ফান্ড";
+    return { id: "fund-general", name: fallbackName };
+  }
+
+  // A. Add Donations income to Fund Map
+  monthlyDonations.forEach((don: any) => {
+    const amt = Number(don.amount || 0);
+    if (amt <= 0) return;
+    const { id: fId, name: fName } = resolveDonationFund(don.donation_type, don.notes);
+    
+    if (!fundMap.has(fId)) {
+      fundMap.set(fId, { fund_id: fId, fund_name: fName, income: 0, expense: 0 });
+    }
+    fundMap.get(fId)!.income += amt;
+  });
+
+  // B. Add Fees income to General Fund (or designated fund)
+  monthlyFees.forEach((fee: any) => {
+    const amt = Number(fee.amount || 0);
+    if (amt <= 0) return;
+    const fId = "fund-general";
+    if (!fundMap.has(fId)) {
+      fundMap.set(fId, { fund_id: fId, fund_name: "সাধারণ ফান্ড (General Fund)", income: 0, expense: 0 });
+    }
+    fundMap.get(fId)!.income += amt;
+  });
+
+  // C. Add Meta Fee Payments to General Fund
+  metaPayments.forEach((p: any) => {
+    const amt = Number(p.total_amount_received || 0);
+    if (amt <= 0) return;
+    const fId = "fund-general";
+    if (!fundMap.has(fId)) {
+      fundMap.set(fId, { fund_id: fId, fund_name: "সাধারণ ফান্ড (General Fund)", income: 0, expense: 0 });
+    }
+    fundMap.get(fId)!.income += amt;
+  });
+
+  // D. Add Expenses to Fund Map
+  monthlyExpenses.forEach((exp: any) => {
+    const amt = Number(exp.amount || 0);
+    if (amt <= 0) return;
+    const parsed = parseExpenseFund(exp.description);
+    const fId = parsed.fundId || "fund-general";
+    const fName = parsed.fundName || "সাধারণ ফান্ড";
+
+    if (!fundMap.has(fId)) {
+      fundMap.set(fId, { fund_id: fId, fund_name: fName, income: 0, expense: 0 });
+    }
+    fundMap.get(fId)!.expense += amt;
+  });
+
+  // E. Add Bazar Expenses to Fund Map (Default: Lillah Boarding Fund)
+  monthlyBazar.forEach((b: any) => {
+    const amt = Number(b.amount || 0);
+    if (amt <= 0) return;
     const details = b.items_details || "";
-    let fundId = "fund-lillah"; // Default boarding bazar fund
-    let fundName = "লিল্লাহ বোর্ডিং ফান্ড";
+    let fId = "fund-lillah";
+    let fName = "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
+
     if (details.includes("[FUND:")) {
       const match = details.match(/\[FUND:\s*([^\]|]+)(?:\|\s*([^\]]+))?\]/i);
       if (match && match[1]) {
-        fundId = match[1].trim();
-        fundName = match[2]?.trim() || fundName;
+        fId = match[1].trim();
+        fName = match[2]?.trim() || fName;
       }
     }
-    return {
-      amount: Number(b.amount || 0),
-      fund_id: fundId,
-      fund_name: fundName,
-      category: "Food",
-    };
+
+    if (!fundMap.has(fId)) {
+      fundMap.set(fId, { fund_id: fId, fund_name: fName, income: 0, expense: 0 });
+    }
+    fundMap.get(fId)!.expense += amt;
   });
 
-  const allExpenses = [...parsedExpenses, ...parsedBazar];
-
-  // Group by Fund for income vs expense reconciliation
-  const fundMap = new Map<string, { fund_id: string; fund_name: string; income: number; expense: number }>();
-
-  // Initialize standard funds
-  const defaultFundKeys = [
-    { id: "fund-general", name: "সাধারণ ফান্ড (General Fund)" },
-    { id: "fund-lillah", name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" },
-    { id: "fund-zakat", name: "যাকাত ফান্ড (Zakat Fund)" },
-    { id: "fund-fitra", name: "ফিতরা ও সদকা ফান্ড" },
-    { id: "fund-dev", name: "মসজিদ ও উন্নয়ন ফান্ড" },
-    { id: "fund-orphan", name: "এতিম কল্যাণ ফান্ড" },
-  ];
-
-  defaultFundKeys.forEach(f => {
-    fundMap.set(f.id, { fund_id: f.id, fund_name: f.name, income: 0, expense: 0 });
-  });
-
-  // Add Fees income to General fund
-  const totalFees = feesData?.reduce((sum, item) => sum + Number(item.amount || 0), 0) || 0;
-  if (fundMap.has("fund-general")) {
-    fundMap.get("fund-general")!.income += totalFees;
-  }
-
-  // Add Donations to their respective funds
-  (donationsData || []).forEach((don: any) => {
-    const fId = don.fund_id || (don.donation_type === "Zakat" ? "fund-zakat" : don.donation_type === "Lillah" ? "fund-lillah" : "fund-general");
-    const current = fundMap.get(fId) || { fund_id: fId, fund_name: don.donation_type || "অন্যান্য ফান্ড", income: 0, expense: 0 };
-    current.income += Number(don.amount || 0);
-    fundMap.set(fId, current);
-  });
-
-  // Add Expenses to their respective funds
-  allExpenses.forEach((exp: any) => {
-    const fId = exp.fund_id || "fund-general";
-    const current = fundMap.get(fId) || { fund_id: fId, fund_name: exp.fund_name || "অন্যান্য ফান্ড", income: 0, expense: 0 };
-    current.expense += exp.amount;
-    fundMap.set(fId, current);
-  });
-
-  const totalDonations = donationsData?.reduce((sum, item) => sum + Number(item.amount || 0), 0) || 0;
-  const totalIncome = totalFees + totalDonations;
-  const totalExpenses = allExpenses.reduce((sum, item) => sum + item.amount, 0);
-
+  // Aggregate totals
   const fundStats = Array.from(fundMap.values()).map(f => ({
     ...f,
     balance: f.income - f.expense,
   }));
 
+  const totalIncome = fundStats.reduce((sum, f) => sum + f.income, 0);
+  const totalExpense = fundStats.reduce((sum, f) => sum + f.expense, 0);
+  const netBalance = totalIncome - totalExpense;
+
   // If specific fund filtered
   if (fundId && fundId !== "all") {
-    const target = fundMap.get(fundId) || { fund_id: fundId, fund_name: "ফান্ড", income: 0, expense: 0 };
+    const target = fundMap.get(fundId) || {
+      fund_id: fundId,
+      fund_name: registeredFunds.find(f => f.id === fundId)?.name || "ফান্ড",
+      income: 0,
+      expense: 0,
+    };
     return {
       totalIncome: target.income,
       totalExpense: target.expense,
@@ -518,9 +634,9 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   }
 
   return {
-    totalIncome: totalIncome,
-    totalExpense: totalExpenses,
-    netBalance: totalIncome - totalExpenses,
+    totalIncome,
+    totalExpense,
+    netBalance,
     fundStats,
   };
 }
