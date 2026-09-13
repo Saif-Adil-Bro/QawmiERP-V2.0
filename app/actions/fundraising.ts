@@ -811,22 +811,46 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
     if (payload.settlement_type === "SURPLUS_DEPOSIT") {
       // 1. Surplus: Deposit into target Fund -> Create Income / Donation record in Accounting
       accountingVoucherNo = `MHF-SURPLUS-${Date.now().toString().slice(-4)}`;
+      const donationNotes = `[মাহফিল উদ্বৃত্ত তহবিল জমা] মাহফিল: ${targetMahfil.title} (${targetMahfil.year}) থেকে ${payload.fund_name}-এ উদ্বৃত্ত জমা।${payload.payment_method ? ` [Method: ${payload.payment_method}]` : ""} ${payload.notes || ""}`.trim();
       
       const { data: donRec, error: donErr } = await adminClient.from("donations").insert({
         madrasa_id: activeMadrasaId,
         amount: amount,
         donation_type: payload.fund_name,
-        fund_id: payload.fund_id,
         donation_date: dateStr,
         receipt_no: accountingVoucherNo,
-        payment_method: payload.payment_method || "Cash",
-        notes: `[মাহফিল উদ্বৃত্ত তহবিল জমা] মাহফিল: ${targetMahfil.title} (${targetMahfil.year}) থেকে ${payload.fund_name}-এ উদ্বৃত্ত জমা। ${payload.notes || ""}`.trim(),
+        notes: donationNotes,
       }).select("id").single();
 
       if (donErr) {
         console.error("Error creating donation for mahfil surplus:", donErr);
       }
       accountingRecordId = donRec?.id || "";
+
+      // Also update zakat_funds balance if applicable
+      try {
+        const { data: zFunds } = await adminClient
+          .from("zakat_funds")
+          .select("id, name, current_balance")
+          .eq("madrasa_id", activeMadrasaId);
+
+        if (zFunds && zFunds.length > 0) {
+          const targetFund = zFunds.find(
+            (f: any) =>
+              f.id === payload.fund_id ||
+              f.name?.trim().toLowerCase() === payload.fund_name.trim().toLowerCase() ||
+              payload.fund_name.toLowerCase().includes(f.name?.toLowerCase() || "")
+          );
+          if (targetFund) {
+            await adminClient
+              .from("zakat_funds")
+              .update({ current_balance: (Number(targetFund.current_balance) || 0) + amount })
+              .eq("id", targetFund.id);
+          }
+        }
+      } catch (zfErr) {
+        console.error("zakat_funds balance update note:", zfErr);
+      }
 
       // Also create a Mahfil EXPENSE transaction to balance the Mahfil account
       const mahfilTxn: MahfilTransaction = {
@@ -848,21 +872,61 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
       const cleanDesc = `মাহফিল: ${targetMahfil.title} (${targetMahfil.year}) এর ঘাটতি পূরণ বাবদ ${payload.fund_name} থেকে প্রদান। ${payload.notes || ""}`.trim();
       const wrappedDesc = `[FUND: ${payload.fund_id} | ${payload.fund_name}]\n${cleanDesc}`;
 
-      const { data: expRec, error: expErr } = await adminClient.from("expenses").insert({
+      const expPayload: any = {
         madrasa_id: activeMadrasaId,
         category: "মাহফিল ঘাটতি সমন্বয়",
         amount: amount,
         expense_date: dateStr,
         description: wrappedDesc,
-        fund_id: payload.fund_id,
-        fund_name: payload.fund_name,
-        voucher_no: accountingVoucherNo,
-      }).select("id").single();
+      };
+
+      let { data: expRec, error: expErr } = await adminClient
+        .from("expenses")
+        .insert({
+          ...expPayload,
+          fund_id: payload.fund_id,
+          fund_name: payload.fund_name,
+          voucher_no: accountingVoucherNo,
+        })
+        .select("id")
+        .single();
 
       if (expErr) {
-        console.error("Error creating expense for mahfil deficit:", expErr);
+        const { data: retryExp } = await adminClient
+          .from("expenses")
+          .insert(expPayload)
+          .select("id")
+          .single();
+        if (retryExp) expRec = retryExp;
       }
+
       accountingRecordId = expRec?.id || "";
+
+      // Deduct from zakat_funds balance if applicable
+      try {
+        const { data: zFunds } = await adminClient
+          .from("zakat_funds")
+          .select("id, name, current_balance")
+          .eq("madrasa_id", activeMadrasaId);
+
+        if (zFunds && zFunds.length > 0) {
+          const targetFund = zFunds.find(
+            (f: any) =>
+              f.id === payload.fund_id ||
+              f.name?.trim().toLowerCase() === payload.fund_name.trim().toLowerCase() ||
+              payload.fund_name.toLowerCase().includes(f.name?.toLowerCase() || "")
+          );
+          if (targetFund) {
+            const newBal = Math.max(0, (Number(targetFund.current_balance) || 0) - amount);
+            await adminClient
+              .from("zakat_funds")
+              .update({ current_balance: newBal })
+              .eq("id", targetFund.id);
+          }
+        }
+      } catch (zfErr) {
+        console.error("zakat_funds balance update note:", zfErr);
+      }
 
       // Also create a Mahfil INCOME transaction so Mahfil balance becomes 0
       const mahfilTxn: MahfilTransaction = {
@@ -905,6 +969,12 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
+      revalidatePath("/dashboard/fundraising/mahfil");
+      revalidatePath("/dashboard/zakat");
+      revalidatePath("/dashboard/zakat/funds");
+      revalidatePath("/dashboard/zakat/collection");
+      revalidatePath("/dashboard/zakat/reports");
+      revalidatePath("/dashboard/accounting");
       revalidatePath("/dashboard/accounting/expenses");
       revalidatePath("/dashboard/accounting/donations");
       revalidatePath("/dashboard/accounting/funds");
@@ -948,12 +1018,39 @@ export async function deleteMahfilSettlement(mahfilId: string, settlementId: str
       }
     }
 
-    // 2. Remove internal mahfil transaction
+    // 2. Revert zakat_funds balance if applicable
+    try {
+      const { data: zFunds } = await adminClient
+        .from("zakat_funds")
+        .select("id, name, current_balance")
+        .eq("madrasa_id", activeMadrasaId);
+
+      if (zFunds && zFunds.length > 0) {
+        const targetFund = zFunds.find(
+          (f: any) =>
+            f.id === settlement.fund_id ||
+            f.name?.trim().toLowerCase() === settlement.fund_name.trim().toLowerCase() ||
+            settlement.fund_name.toLowerCase().includes(f.name?.toLowerCase() || "")
+        );
+        if (targetFund) {
+          const current = Number(targetFund.current_balance) || 0;
+          const revertBal = settlement.settlement_type === "SURPLUS_DEPOSIT"
+            ? Math.max(0, current - settlement.amount)
+            : current + settlement.amount;
+          await adminClient
+            .from("zakat_funds")
+            .update({ current_balance: revertBal })
+            .eq("id", targetFund.id);
+        }
+      }
+    } catch {}
+
+    // 3. Remove internal mahfil transaction
     if (settlement.mahfil_txn_id) {
       targetMahfil.transactions = (targetMahfil.transactions || []).filter((t: MahfilTransaction) => t.id !== settlement.mahfil_txn_id);
     }
 
-    // 3. Update settlements array
+    // 4. Update settlements array
     targetMahfil.settlements = (targetMahfil.settlements || []).filter((s: MahfilSettlement) => s.id !== settlementId);
     if (targetMahfil.settlement?.id === settlementId) {
       targetMahfil.settlement = targetMahfil.settlements.length > 0 ? targetMahfil.settlements[targetMahfil.settlements.length - 1] : undefined;
@@ -965,6 +1062,12 @@ export async function deleteMahfilSettlement(mahfilId: string, settlementId: str
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
+      revalidatePath("/dashboard/fundraising/mahfil");
+      revalidatePath("/dashboard/zakat");
+      revalidatePath("/dashboard/zakat/funds");
+      revalidatePath("/dashboard/zakat/collection");
+      revalidatePath("/dashboard/zakat/reports");
+      revalidatePath("/dashboard/accounting");
       revalidatePath("/dashboard/accounting/expenses");
       revalidatePath("/dashboard/accounting/donations");
       revalidatePath("/dashboard/accounting/funds");
@@ -978,36 +1081,189 @@ export async function deleteMahfilSettlement(mahfilId: string, settlementId: str
 
 
 // ============================================================================
-// 2. DONORS & LIFE MEMBERS (আজীবন সদস্য ও দাতা)
+// 2. DONORS & LIFE MEMBERS (আজীবন সদস্য ও দাতা - Unified Master Donors)
 // ============================================================================
 
 export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]; payments: DonorSubscriptionPayment[] }> {
   try {
     const supabase = await createClient();
+    const adminClient = await createAdminClient();
     const user = await getAuthUser(supabase);
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return { donors: [], payments: [] };
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
     const rawDonors: LifeMemberDonor[] = meta.life_member_donors || [];
-    const payments: DonorSubscriptionPayment[] = meta.donor_subscription_payments || [];
+    const subscriptionPayments: DonorSubscriptionPayment[] = meta.donor_subscription_payments || [];
+    const mahfils: Mahfil[] = meta.mahfils || [];
 
-    // Calculate dynamic total_donated for each donor based on actual payment records
-    const donors = rawDonors.map((d: LifeMemberDonor) => {
-      const donorPayments = payments.filter((p: DonorSubscriptionPayment) => p.donor_id === d.id);
-      const totalPaid = donorPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+    // Fetch relational database donors & donations
+    const { data: dbDonors } = await adminClient
+      .from("donors")
+      .select("*")
+      .eq("madrasa_id", finalMadrasaId);
+
+    const { data: dbDonations } = await adminClient
+      .from("donations")
+      .select("*")
+      .eq("madrasa_id", finalMadrasaId);
+
+    // Merge Map for Donors
+    const donorMap = new Map<string, LifeMemberDonor>();
+    const phoneToDonorId = new Map<string, string>();
+
+    // 1. Add raw meta donors
+    rawDonors.forEach((d) => {
+      donorMap.set(d.id, { ...d });
+      if (d.phone && d.phone.trim()) {
+        phoneToDonorId.set(d.phone.trim().replace(/\D/g, ""), d.id);
+      }
+    });
+
+    // 2. Merge database donors
+    (dbDonors || []).forEach((dbD: any) => {
+      const cleanPhone = (dbD.phone || "").trim().replace(/\D/g, "");
+      const existingId = donorMap.has(dbD.id) ? dbD.id : (cleanPhone ? phoneToDonorId.get(cleanPhone) : null);
+
+      let pledgeAmount = 0;
+      let memberNoFromNotes = "";
+      let notesText = dbD.notes || "";
+      if (dbD.notes && dbD.notes.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(dbD.notes);
+          pledgeAmount = parsed.pledge_amount || 0;
+          memberNoFromNotes = parsed.member_no || "";
+          notesText = parsed.notes || "";
+        } catch {}
+      }
+
+      if (existingId && donorMap.has(existingId)) {
+        const existing = donorMap.get(existingId)!;
+        donorMap.set(existingId, {
+          ...existing,
+          name: existing.name || dbD.name,
+          phone: existing.phone || dbD.phone || "",
+          address: existing.address || dbD.address || "",
+          notes: existing.notes || notesText,
+        });
+      } else {
+        const memberCount = donorMap.size + 1;
+        const mappedMemberType: any = 
+          dbD.donor_type === "Monthly" ? "MONTHLY_DONOR" :
+          dbD.donor_type === "Annual" ? "ANNUAL_DONOR" :
+          dbD.donor_type === "LIFE_MEMBER" ? "LIFE_MEMBER" : "ONETIME";
+        const prefix = mappedMemberType === "LIFE_MEMBER" ? "LM" : mappedMemberType === "MONTHLY_DONOR" ? "MD" : "DN";
+
+        const newUnifiedDonor: LifeMemberDonor = {
+          id: dbD.id,
+          madrasa_id: finalMadrasaId,
+          member_no: memberNoFromNotes || `${prefix}-${String(memberCount).padStart(3, "0")}`,
+          name: dbD.name,
+          father_name: "",
+          phone: dbD.phone || "",
+          email: dbD.email || "",
+          address: dbD.address || "",
+          occupation: "শুভাকাঙ্ক্ষী",
+          blood_group: "",
+          member_type: mappedMemberType,
+          membership_type: mappedMemberType,
+          pledge_amount: pledgeAmount || dbD.pledge_amount || 0,
+          preferred_fund: dbD.preferred_fund || "সাধারণ ফান্ড",
+          collection_day: 10,
+          payment_method: "Cash",
+          join_date: dbD.created_at ? dbD.created_at.split("T")[0] : new Date().toISOString().split("T")[0],
+          status: "ACTIVE",
+          notes: notesText,
+          created_at: dbD.created_at || new Date().toISOString(),
+          updated_at: dbD.created_at || new Date().toISOString(),
+        };
+
+        donorMap.set(dbD.id, newUnifiedDonor);
+        if (cleanPhone) phoneToDonorId.set(cleanPhone, dbD.id);
+      }
+    });
+
+    // 3. Aggregate all payments (Subscriptions + Direct Zakat/Donations + Mahfil contributions)
+    const allUnifiedPayments: DonorSubscriptionPayment[] = [...subscriptionPayments];
+    const donorDonationSumMap = new Map<string, number>();
+
+    // Add subscription payments sum
+    subscriptionPayments.forEach((p) => {
+      if (p.donor_id) {
+        const cur = donorDonationSumMap.get(p.donor_id) || 0;
+        donorDonationSumMap.set(p.donor_id, cur + (Number(p.amount) || 0));
+      }
+    });
+
+    // Add database donations into payments & totals
+    (dbDonations || []).forEach((dn: any) => {
+      let donorId = dn.donor_id;
+      if (!donorId && dn.donors?.phone) {
+        const cleanPhone = dn.donors.phone.trim().replace(/\D/g, "");
+        if (phoneToDonorId.has(cleanPhone)) {
+          donorId = phoneToDonorId.get(cleanPhone);
+        }
+      }
+
+      const amt = Number(dn.amount) || 0;
+      if (donorId && donorMap.has(donorId)) {
+        const cur = donorDonationSumMap.get(donorId) || 0;
+        donorDonationSumMap.set(donorId, cur + amt);
+
+        // Check if already in subscription payments
+        const alreadyInSubs = subscriptionPayments.some(sp => sp.receipt_no === dn.receipt_no || sp.id === dn.id);
+        if (!alreadyInSubs) {
+          const dObj = donorMap.get(donorId);
+          allUnifiedPayments.push({
+            id: `dn_${dn.id}`,
+            donor_id: donorId,
+            donor_name: dObj?.name || dn.donors?.name || "দানকারী",
+            month: (dn.donation_date || dn.created_at || "").slice(0, 7) || new Date().toISOString().slice(0, 7),
+            amount: amt,
+            payment_date: dn.donation_date || (dn.created_at ? dn.created_at.split("T")[0] : ""),
+            payment_method: dn.payment_method || "Cash",
+            receipt_no: dn.receipt_no || `REC-${dn.id.slice(0, 5)}`,
+            fund_name: dn.donation_type || dn.fund_name || "সাধারণ ফান্ড",
+            notes: dn.notes || "সরাসরি অনুদান",
+            collected_by: "হিসাব বিভাগ",
+            created_at: dn.created_at || dn.donation_date,
+          });
+        }
+      }
+    });
+
+    // Add Mahfil income transactions sum
+    mahfils.forEach((m) => {
+      (m.transactions || []).forEach((txn) => {
+        if (txn.type === "INCOME" && txn.paid_to_or_received_from) {
+          const donorName = txn.paid_to_or_received_from.trim().toLowerCase();
+          // Find matching donor
+          for (const [dId, donor] of Array.from(donorMap.entries())) {
+            if (donor.name.trim().toLowerCase() === donorName) {
+              const cur = donorDonationSumMap.get(dId) || 0;
+              donorDonationSumMap.set(dId, cur + (Number(txn.amount) || 0));
+              break;
+            }
+          }
+        }
+      });
+    });
+
+    // Build final merged donors with lifetime total donated
+    const finalDonors: LifeMemberDonor[] = Array.from(donorMap.values()).map((d) => {
+      const calculatedTotal = donorDonationSumMap.get(d.id) || 0;
       return {
         ...d,
-        total_donated: totalPaid > 0 ? totalPaid : (Number((d as any).total_donated) || 0),
+        total_donated: calculatedTotal > 0 ? calculatedTotal : (Number((d as any).total_donated) || 0),
       };
     });
 
     return {
-      donors: donors.sort((a: LifeMemberDonor, b: LifeMemberDonor) => (a.member_no || "").localeCompare(b.member_no || "")),
-      payments: payments.sort((a: DonorSubscriptionPayment, b: DonorSubscriptionPayment) => new Date(b.payment_date || b.created_at || "").getTime() - new Date(a.payment_date || a.created_at || "").getTime())
+      donors: finalDonors.sort((a, b) => (a.member_no || "").localeCompare(b.member_no || "", undefined, { numeric: true })),
+      payments: allUnifiedPayments.sort((a, b) => new Date(b.payment_date || b.created_at || "").getTime() - new Date(a.payment_date || a.created_at || "").getTime())
     };
   } catch (err) {
-    console.error("Error fetching donors:", err);
+    console.error("Error fetching unified donors:", err);
     return { donors: [], payments: [] };
   }
 }
@@ -1015,6 +1271,7 @@ export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]
 export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
   try {
     const supabase = await createClient();
+    const adminClient = await createAdminClient();
     const user = await getAuthUser(supabase);
     if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -1025,50 +1282,107 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
     const now = new Date().toISOString();
 
     let targetId = data.id;
+    let savedDonorObj: LifeMemberDonor;
+
     if (targetId) {
       const idx = donors.findIndex((d: LifeMemberDonor) => d.id === targetId);
       if (idx !== -1) {
         donors[idx] = {
           ...donors[idx],
           ...data,
-          pledge_amount: Number(data.pledge_amount || 0),
+          pledge_amount: Number(data.pledge_amount || data.committed_amount || 0),
           updated_at: now,
         };
+        savedDonorObj = donors[idx];
+      } else {
+        savedDonorObj = {
+          id: targetId,
+          madrasa_id: finalMadrasaId,
+          member_no: data.member_no || `DN-${String(donors.length + 1).padStart(3, "0")}`,
+          name: data.name || "",
+          phone: data.phone || "",
+          email: data.email || "",
+          address: data.address || "",
+          occupation: data.occupation || "",
+          blood_group: data.blood_group || "",
+          member_type: data.member_type || data.membership_type || "MONTHLY_DONOR",
+          pledge_amount: Number(data.pledge_amount || data.committed_amount || 0),
+          preferred_fund: data.preferred_fund || "সাধারণ ফান্ড",
+          collection_day: Number(data.collection_day || 10),
+          payment_method: data.payment_method || "Cash",
+          join_date: data.join_date || data.joined_date || new Date().toISOString().split("T")[0],
+          status: data.status || "ACTIVE",
+          notes: data.notes || "",
+          created_at: now,
+          updated_at: now,
+        };
+        donors.unshift(savedDonorObj);
       }
     } else {
       targetId = `donor_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
       const memberCount = donors.length + 1;
-      const prefix = data.member_type === "LIFE_MEMBER" ? "LM" : "MD";
-      const newDonor: LifeMemberDonor = {
+      const mType = data.member_type || data.membership_type || "MONTHLY_DONOR";
+      const prefix = mType === "LIFE_MEMBER" ? "LM" : mType === "MONTHLY_DONOR" || mType === "MONTHLY" ? "MD" : "DN";
+      savedDonorObj = {
         id: targetId,
         madrasa_id: finalMadrasaId,
         member_no: data.member_no || `${prefix}-${String(memberCount).padStart(3, "0")}`,
         name: data.name || "",
+        father_name: data.father_name || "",
         phone: data.phone || "",
         email: data.email || "",
         address: data.address || "",
         occupation: data.occupation || "",
         blood_group: data.blood_group || "",
-        member_type: data.member_type || "MONTHLY_DONOR",
-        pledge_amount: Number(data.pledge_amount || 500),
+        member_type: mType,
+        membership_type: mType,
+        pledge_amount: Number(data.pledge_amount || data.committed_amount || 500),
         preferred_fund: data.preferred_fund || "সাধারণ ফান্ড",
         collection_day: Number(data.collection_day || 10),
         payment_method: data.payment_method || "Cash",
         account_or_trx_no: data.account_or_trx_no || "",
-        join_date: data.join_date || new Date().toISOString().split("T")[0],
+        join_date: data.join_date || data.joined_date || new Date().toISOString().split("T")[0],
         status: data.status || "ACTIVE",
         notes: data.notes || "",
         created_at: now,
         updated_at: now,
       };
-      donors.unshift(newDonor);
+      donors.unshift(savedDonorObj);
     }
 
+    // Save to Metadata
     meta.life_member_donors = donors;
     await saveMadrasaMetadata(finalMadrasaId, meta);
 
+    // Sync to Supabase `donors` table
+    const dbDonorType = 
+      savedDonorObj.member_type === "LIFE_MEMBER" ? "Annual" :
+      savedDonorObj.member_type === "MONTHLY_DONOR" || savedDonorObj.member_type === "MONTHLY" ? "Monthly" :
+      savedDonorObj.member_type === "ANNUAL_DONOR" || savedDonorObj.member_type === "YEARLY" ? "Annual" : "OneTime";
+
+    const metaNotes = JSON.stringify({
+      member_no: savedDonorObj.member_no,
+      member_type: savedDonorObj.member_type,
+      pledge_amount: savedDonorObj.pledge_amount,
+      preferred_fund: savedDonorObj.preferred_fund,
+      notes: savedDonorObj.notes || "",
+    });
+
+    await adminClient.from("donors").upsert({
+      id: targetId,
+      madrasa_id: finalMadrasaId,
+      name: savedDonorObj.name,
+      phone: savedDonorObj.phone || "",
+      address: savedDonorObj.address || "",
+      donor_type: dbDonorType,
+      notes: metaNotes,
+    });
+
     revalidatePath("/dashboard/fundraising/donors");
-    return { success: true, id: targetId };
+    revalidatePath("/dashboard/zakat/donors");
+    revalidatePath("/dashboard/zakat/collection");
+    revalidatePath("/dashboard/zakat");
+    return { success: true, id: targetId, donor: savedDonorObj };
   } catch (err: any) {
     return { error: err.message || "সংরক্ষণে সমস্যা হয়েছে" };
   }
@@ -1077,15 +1391,22 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
 export async function deleteLifeMemberDonor(id: string) {
   try {
     const supabase = await createClient();
+    const adminClient = await createAdminClient();
     const user = await getAuthUser(supabase);
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
     meta.life_member_donors = (meta.life_member_donors || []).filter((d: LifeMemberDonor) => d.id !== id);
-
     await saveMadrasaMetadata(finalMadrasaId, meta);
+
+    // Delete from Supabase `donors` table
+    await adminClient.from("donors").delete().eq("id", id).eq("madrasa_id", finalMadrasaId);
+
     revalidatePath("/dashboard/fundraising/donors");
+    revalidatePath("/dashboard/zakat/donors");
+    revalidatePath("/dashboard/zakat/collection");
+    revalidatePath("/dashboard/zakat");
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "মুছতে ব্যর্থ হয়েছে" };
@@ -1095,6 +1416,7 @@ export async function deleteLifeMemberDonor(id: string) {
 export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubscriptionPayment>) {
   try {
     const supabase = await createClient();
+    const adminClient = await createAdminClient();
     const user = await getAuthUser(supabase);
     if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
@@ -1151,7 +1473,26 @@ export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubsc
 
     await saveMadrasaMetadata(finalMadrasaId, meta);
 
+    // Also record into Supabase `donations` table
+    try {
+      await adminClient.from("donations").insert({
+        madrasa_id: finalMadrasaId,
+        donor_id: payment.donor_id || null,
+        amount: Number(payment.amount || 0),
+        donation_type: payment.fund_name || "সাধারণ ফান্ড",
+        donation_date: newPayment.payment_date,
+        receipt_no: newPayment.receipt_no,
+        notes: `[মাসিক চাঁদা: ${newPayment.month}] ${newPayment.notes || ""}`.trim(),
+      });
+    } catch (e) {
+      console.warn("Could not insert subscription into donations table:", e);
+    }
+
     revalidatePath("/dashboard/fundraising/donors");
+    revalidatePath("/dashboard/zakat/donors");
+    revalidatePath("/dashboard/zakat/collection");
+    revalidatePath("/dashboard/zakat");
+    revalidatePath("/dashboard/zakat/reports");
     return { success: true, payment: newPayment, id: newPayment.id };
   } catch (err: any) {
     return { error: err.message || "পেমেন্ট রেকর্ডে সমস্যা হয়েছে" };

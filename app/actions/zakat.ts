@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
+import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, normalizeFundName } from "@/lib/fund-utils";
 
 // In-memory fallback cache for custom funds if database table is not yet created
@@ -272,33 +273,50 @@ export async function deleteFund(fundId: string): Promise<{ success?: boolean; e
   }
 }
 
-// Fetch all donors with donation aggregates
+// Fetch all donors with donation aggregates (Unified Master Donors)
 export async function getDonors(): Promise<DonorItem[]> {
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) return [];
 
-    const { data: donors, error } = await adminClient
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const rawDonors: any[] = meta.life_member_donors || [];
+    const subscriptionPayments: any[] = meta.donor_subscription_payments || [];
+    const mahfils: any[] = meta.mahfils || [];
+
+    const { data: dbDonors, error } = await adminClient
       .from("donors")
       .select("*")
       .eq("madrasa_id", finalMadrasaId)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("Error fetching donors:", error);
-      return [];
-    }
-
     // Get donations to calculate donor totals
-    const { data: donations } = await adminClient
+    const { data: dbDonations } = await adminClient
       .from("donations")
-      .select("donor_id, amount, donation_date")
+      .select("donor_id, amount, donation_date, receipt_no, donors(name, phone)")
       .eq("madrasa_id", finalMadrasaId);
 
     const donorDonationMap = new Map<string, { total: number; count: number; lastDate: string }>();
-    donations?.forEach((d: any) => {
+
+    // Add subscription payments into map
+    subscriptionPayments.forEach((p: any) => {
+      if (p.donor_id) {
+        const cur = donorDonationMap.get(p.donor_id) || { total: 0, count: 0, lastDate: "" };
+        cur.total += Number(p.amount || 0);
+        cur.count += 1;
+        const pDate = p.payment_date || p.created_at || "";
+        if (!cur.lastDate || new Date(pDate) > new Date(cur.lastDate)) {
+          cur.lastDate = pDate;
+        }
+        donorDonationMap.set(p.donor_id, cur);
+      }
+    });
+
+    // Add relational DB donations into map
+    dbDonations?.forEach((d: any) => {
       if (!d.donor_id) return;
       const current = donorDonationMap.get(d.donor_id) || { total: 0, count: 0, lastDate: "" };
       current.total += Number(d.amount || 0);
@@ -309,10 +327,12 @@ export async function getDonors(): Promise<DonorItem[]> {
       donorDonationMap.set(d.donor_id, current);
     });
 
-    return (donors || []).map((d: any) => {
+    // Master unified donors mapping
+    const donorResultMap = new Map<string, DonorItem>();
+
+    // First, add all DB donors
+    (dbDonors || []).forEach((d: any) => {
       const stats = donorDonationMap.get(d.id) || { total: 0, count: 0, lastDate: "" };
-      
-      // Parse extra meta stored in notes if JSON
       let pledgeAmount = 0;
       let notesText = d.notes || "";
       if (d.notes && d.notes.startsWith("{")) {
@@ -320,12 +340,10 @@ export async function getDonors(): Promise<DonorItem[]> {
           const parsed = JSON.parse(d.notes);
           pledgeAmount = parsed.pledge_amount || 0;
           notesText = parsed.notes || "";
-        } catch {
-          // fallback
-        }
+        } catch {}
       }
 
-      return {
+      donorResultMap.set(d.id, {
         id: d.id,
         madrasa_id: d.madrasa_id,
         name: d.name,
@@ -340,8 +358,40 @@ export async function getDonors(): Promise<DonorItem[]> {
         total_donated: stats.total,
         donation_count: stats.count,
         last_donation_date: stats.lastDate,
-      };
+      });
     });
+
+    // Second, merge any metadata life_member_donors not in DB
+    rawDonors.forEach((lm: any) => {
+      const existing = donorResultMap.get(lm.id);
+      const stats = donorDonationMap.get(lm.id) || { total: 0, count: 0, lastDate: "" };
+      const dType = lm.member_type === "LIFE_MEMBER" ? "Annual" : lm.member_type === "MONTHLY_DONOR" || lm.member_type === "MONTHLY" ? "Monthly" : "Annual";
+
+      if (existing) {
+        existing.pledge_amount = existing.pledge_amount || lm.pledge_amount || 0;
+        existing.preferred_fund = existing.preferred_fund || lm.preferred_fund || "";
+        existing.total_donated = Math.max(existing.total_donated || 0, stats.total || 0, Number(lm.total_donated) || 0);
+      } else {
+        donorResultMap.set(lm.id, {
+          id: lm.id,
+          madrasa_id: finalMadrasaId,
+          name: lm.name,
+          phone: lm.phone || "",
+          email: lm.email || "",
+          address: lm.address || "",
+          donor_type: dType as any,
+          pledge_amount: Number(lm.pledge_amount || lm.committed_amount || 0),
+          preferred_fund: lm.preferred_fund || "",
+          notes: lm.notes || "",
+          created_at: lm.created_at || new Date().toISOString(),
+          total_donated: Math.max(stats.total, Number(lm.total_donated) || 0),
+          donation_count: stats.count || (stats.total > 0 ? 1 : 0),
+          last_donation_date: stats.lastDate || lm.join_date || "",
+        });
+      }
+    });
+
+    return Array.from(donorResultMap.values());
   } catch (err) {
     console.error("Error in getDonors:", err);
     return [];
@@ -361,6 +411,7 @@ export async function addDonor(formData: FormData) {
     const address = (formData.get("address") as string)?.trim() || "";
     const donor_type = (formData.get("donor_type") as string) || "OneTime"; // "Monthly", "Annual", "OneTime"
     const pledge_amount = parseFloat(formData.get("pledge_amount") as string) || 0;
+    const preferred_fund = (formData.get("preferred_fund") as string)?.trim() || "সাধারণ ফান্ড";
     const notes = (formData.get("notes") as string)?.trim() || "";
 
     if (!name) {
@@ -370,6 +421,7 @@ export async function addDonor(formData: FormData) {
     // Store notes with metadata safely
     const metaNotes = JSON.stringify({
       pledge_amount,
+      preferred_fund,
       notes,
     });
 
@@ -397,9 +449,44 @@ export async function addDonor(formData: FormData) {
       donorData = data;
     }
 
+    // Sync into Madrasa Metadata life_member_donors
+    try {
+      const meta = await getMadrasaMetadata(finalMadrasaId);
+      const rawDonors = meta.life_member_donors || [];
+      const mType = donor_type === "Monthly" ? "MONTHLY_DONOR" : donor_type === "Annual" ? "LIFE_MEMBER" : "ONETIME";
+      const prefix = mType === "LIFE_MEMBER" ? "LM" : mType === "MONTHLY_DONOR" ? "MD" : "DN";
+      const newDonorEntry = {
+        id: donorData.id,
+        madrasa_id: finalMadrasaId,
+        member_no: `${prefix}-${String(rawDonors.length + 1).padStart(3, "0")}`,
+        name,
+        phone,
+        email: "",
+        address,
+        occupation: "শুভাকাঙ্ক্ষী",
+        blood_group: "",
+        member_type: mType,
+        pledge_amount,
+        preferred_fund,
+        collection_day: 10,
+        payment_method: "Cash",
+        join_date: new Date().toISOString().split("T")[0],
+        status: "ACTIVE",
+        notes,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      rawDonors.unshift(newDonorEntry);
+      meta.life_member_donors = rawDonors;
+      await saveMadrasaMetadata(finalMadrasaId, meta);
+    } catch (metaErr) {
+      console.warn("Could not sync metadata donor:", metaErr);
+    }
+
     revalidatePath("/dashboard/zakat");
     revalidatePath("/dashboard/zakat/donors");
     revalidatePath("/dashboard/zakat/collection");
+    revalidatePath("/dashboard/fundraising/donors");
     return { 
       success: true, 
       donor: donorData ? {
@@ -427,15 +514,21 @@ export async function addDonor(formData: FormData) {
 export async function updateDonor(donorId: string, formData: FormData) {
   try {
     const adminClient = await createAdminClient();
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+
     const name = (formData.get("name") as string)?.trim();
     const phone = (formData.get("phone") as string)?.trim() || "";
     const address = (formData.get("address") as string)?.trim() || "";
     const donor_type = (formData.get("donor_type") as string) || "OneTime";
     const pledge_amount = parseFloat(formData.get("pledge_amount") as string) || 0;
+    const preferred_fund = (formData.get("preferred_fund") as string)?.trim() || "সাধারণ ফান্ড";
     const notes = (formData.get("notes") as string)?.trim() || "";
 
     const metaNotes = JSON.stringify({
       pledge_amount,
+      preferred_fund,
       notes,
     });
 
@@ -451,8 +544,32 @@ export async function updateDonor(donorId: string, formData: FormData) {
       return { error: error.message };
     }
 
+    // Sync to Madrasa metadata
+    if (finalMadrasaId) {
+      try {
+        const meta = await getMadrasaMetadata(finalMadrasaId);
+        const rawDonors = meta.life_member_donors || [];
+        const idx = rawDonors.findIndex((d: any) => d.id === donorId);
+        if (idx !== -1) {
+          rawDonors[idx] = {
+            ...rawDonors[idx],
+            name,
+            phone,
+            address,
+            pledge_amount,
+            preferred_fund,
+            notes,
+            updated_at: new Date().toISOString(),
+          };
+          meta.life_member_donors = rawDonors;
+          await saveMadrasaMetadata(finalMadrasaId, meta);
+        }
+      } catch {}
+    }
+
     revalidatePath("/dashboard/zakat/donors");
     revalidatePath("/dashboard/zakat/collection");
+    revalidatePath("/dashboard/fundraising/donors");
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "আপডেট ব্যর্থ হয়েছে" };
@@ -462,15 +579,28 @@ export async function updateDonor(donorId: string, formData: FormData) {
 export async function deleteDonor(id: string) {
   try {
     const adminClient = await createAdminClient();
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+
     const { error } = await adminClient.from("donors").delete().eq("id", id);
     
     if (error) {
       return { error: error.message };
     }
 
+    if (finalMadrasaId) {
+      try {
+        const meta = await getMadrasaMetadata(finalMadrasaId);
+        meta.life_member_donors = (meta.life_member_donors || []).filter((d: any) => d.id !== id);
+        await saveMadrasaMetadata(finalMadrasaId, meta);
+      } catch {}
+    }
+
     revalidatePath("/dashboard/zakat/donors");
     revalidatePath("/dashboard/zakat/collection");
     revalidatePath("/dashboard/zakat/reports");
+    revalidatePath("/dashboard/fundraising/donors");
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "মুছে ফেলা ব্যর্থ হয়েছে" };

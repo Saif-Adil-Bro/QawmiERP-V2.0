@@ -22,22 +22,10 @@ export default function ZakatNav({
 
   const navItems = [
     {
-      name: "ওভারভিউ",
+      name: "যাকাত ও অনুদান রেজিস্টার",
       href: "/dashboard/zakat",
       icon: LayoutDashboard,
       exact: true,
-    },
-    {
-      name: "ফান্ড ক্যাটাগরি",
-      href: "/dashboard/zakat/funds",
-      icon: Layers,
-      count: totalFundsCount,
-    },
-    {
-      name: "দাতাদের তালিকা",
-      href: "/dashboard/zakat/donors",
-      icon: Users,
-      count: totalDonorsCount,
     },
     {
       name: "যাকাত ও অনুদান সংগ্রহ",
@@ -45,7 +33,19 @@ export default function ZakatNav({
       icon: HeartHandshake,
     },
     {
-      name: "ফান্ড রিপোর্টস",
+      name: "কেন্দ্রীয় দাতা রেজিস্টার",
+      href: "/dashboard/fundraising/donors",
+      icon: Users,
+      count: totalDonorsCount,
+    },
+    {
+      name: "ফান্ড ক্যাটাগরি ও ব্যবস্থাপনা",
+      href: "/dashboard/zakat/funds",
+      icon: Layers,
+      count: totalFundsCount,
+    },
+    {
+      name: "তহবিল অডিট ও ব্যালেন্স রিপোর্ট",
       href: "/dashboard/zakat/reports",
       icon: FileText,
     },
