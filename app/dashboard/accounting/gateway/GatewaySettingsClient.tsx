@@ -611,6 +611,251 @@ export default function GatewaySettingsClient({
             </div>
           )}
 
+          {/* Provider Credentials Form (ShurjoPay) */}
+          {config.active_provider === "SHURJOPAY" && (
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                    ShurjoPay (সূর্যপে) API ক্রেডেনশিয়াল
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    বাংলাদেশ ব্যাংকের পিএসও অনুমোদিত সূর্যপে মার্চেন্ট প্যানেল থেকে তথ্যগুলো দিন।
+                  </p>
+                </div>
+                <span className="text-xs bg-amber-50 text-amber-700 px-2.5 py-1 rounded-lg font-bold">
+                  ShurjoPay Merchant
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    মার্চেন্ট ইউজারনেম (Merchant Username):
+                  </label>
+                  <input
+                    type="text"
+                    value={config.shurjopay?.merchant_username || ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        shurjopay: {
+                          ...(prev.shurjopay || { merchant_password: "", merchant_prefix: "MDR", is_live: false }),
+                          merchant_username: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="e.g. sp_madrasa_user"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    মার্চেন্ট পাসওয়ার্ড / সিক্রেট:
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showSecret ? "text" : "password"}
+                      value={config.shurjopay?.merchant_password || ""}
+                      onChange={(e) =>
+                        setConfig((prev) => ({
+                          ...prev,
+                          shurjopay: {
+                            ...(prev.shurjopay || { merchant_username: "", merchant_prefix: "MDR", is_live: false }),
+                            merchant_password: e.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="••••••••••••••••"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecret(!showSecret)}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                    >
+                      {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    মার্চেন্ট প্রিফিক্স (Store Prefix):
+                  </label>
+                  <input
+                    type="text"
+                    value={config.shurjopay?.merchant_prefix || ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        shurjopay: {
+                          ...(prev.shurjopay || { merchant_username: "", merchant_password: "", is_live: false }),
+                          merchant_prefix: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="e.g. MDR বা JAM (৩-৪ অক্ষর)"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono text-sm uppercase focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Provider Credentials Form (IBBL Direct) */}
+          {config.active_provider === "DIRECT_ISLAMI_BANK" && (
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-emerald-50 text-emerald-700 rounded-xl">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                      ইসলামী ব্যাংক বাংলাদেশ (IBBL / CellFin) সেটআপ
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      অভিভাবকরা সরাসরি এই ব্যাংক অ্যাকাউন্ট ও সেলফিন নম্বরে পেমেন্ট পাঠাতে পারবেন।
+                    </p>
+                  </div>
+                </div>
+                <span className="text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg font-bold">
+                  IBBL Direct
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    হিসাবের শিরোনাম (Account Name):
+                  </label>
+                  <input
+                    type="text"
+                    value={config.islami_bank?.account_name || ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        islami_bank: {
+                          ...prev.islami_bank,
+                          account_name: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="মাদরাসার অফিশিয়াল নাম"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    ১৭-ডিজিট অ্যাকাউন্ট নম্বর (Account No):
+                  </label>
+                  <input
+                    type="text"
+                    value={config.islami_bank?.account_number || ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        islami_bank: {
+                          ...prev.islami_bank,
+                          account_number: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="20501450200XXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    শাখা (Branch Name):
+                  </label>
+                  <input
+                    type="text"
+                    value={config.islami_bank?.branch_name || ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        islami_bank: {
+                          ...prev.islami_bank,
+                          branch_name: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="e.g. মিরপুর শাখা, ঢাকা"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">
+                    রাউটিং নম্বর (Routing No):
+                  </label>
+                  <input
+                    type="text"
+                    value={config.islami_bank?.routing_number || ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        islami_bank: {
+                          ...prev.islami_bank,
+                          routing_number: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="125262728"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="font-bold text-slate-700 block mb-1">
+                    মাদরাসার সেলফিন নম্বর (CellFin / WhatsApp No):
+                  </label>
+                  <input
+                    type="text"
+                    value={config.islami_bank?.cellfin_number || ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        islami_bank: {
+                          ...prev.islami_bank,
+                          cellfin_number: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="01XXXXXXXXX"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="font-bold text-slate-700 block mb-1">
+                    পেমেন্ট নির্দেশিকা (অভিভাবকদের দেখানোর জন্য):
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={config.islami_bank?.instructions || ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        islami_bank: {
+                          ...prev.islami_bank,
+                          instructions: e.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="সরাসরি সেলফিন বা ইন্টারনেট ব্যাংকিংয়ের মাধ্যমে ফি পাঠিয়ে ট্রানজেকশন রেফারেন্স দিন"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Provider Credentials Form (bKash) */}
           {config.active_provider === "BKASH_CHECKOUT" && (
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
@@ -648,6 +893,38 @@ export default function GatewaySettingsClient({
                         bkash: { ...prev.bkash, app_secret: e.target.value },
                       }))
                     }
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Username:</label>
+                  <input
+                    type="text"
+                    value={config.bkash.username || ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        bkash: { ...prev.bkash, username: e.target.value },
+                      }))
+                    }
+                    placeholder="Merchant API Username"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">Password:</label>
+                  <input
+                    type={showSecret ? "text" : "password"}
+                    value={config.bkash.password || ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        bkash: { ...prev.bkash, password: e.target.value },
+                      }))
+                    }
+                    placeholder="••••••••••••••••"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono text-sm"
                   />
                 </div>
