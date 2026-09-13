@@ -27,8 +27,20 @@ import type {
   GatewayEnvironment,
   OnlinePaymentTransaction,
 } from "@/lib/payment-gateway";
-import { savePaymentGatewayConfig } from "@/app/actions/payment-gateway";
+import {
+  savePaymentGatewayConfig,
+  testGatewayCredentialsAction,
+  verifyOnlineTransactionAsAdmin,
+  rejectOnlineTransactionAsAdmin,
+} from "@/app/actions/payment-gateway";
 import OnlinePaymentCheckoutModal from "@/components/payments/OnlinePaymentCheckoutModal";
+import {
+  BkashBadge,
+  NagadBadge,
+  IslamiBankBadge,
+  RocketBadge,
+  CardBrandsIcon,
+} from "@/components/payments/PaymentBrandLogos";
 
 interface Props {
   initialConfig: PaymentGatewayConfig;
@@ -51,8 +63,106 @@ export default function GatewaySettingsClient({
   const [showSecret, setShowSecret] = useState(false);
   const [activeTab, setActiveTab] = useState<"SETTINGS" | "CHANNELS" | "ISLAMI_BANK" | "HISTORY">("SETTINGS");
 
+  const [transactions, setTransactions] = useState<OnlinePaymentTransaction[]>(recentTransactions);
+  const [isTestingGateway, setIsTestingGateway] = useState(false);
+  const [processingTxnId, setProcessingTxnId] = useState<string | null>(null);
+
   // Test Modal
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+
+  const handleTestConnection = async () => {
+    setIsTestingGateway(true);
+    setAlert(null);
+    try {
+      const res = await testGatewayCredentialsAction(config);
+      if (res.success) {
+        setAlert({
+          type: "success",
+          text: res.message || "গেটওয়ে সার্ভারের সাথে সফলভাবে সংযোগ স্থাপিত হয়েছে।",
+        });
+      } else {
+        setAlert({
+          type: "error",
+          text: res.error || "গেটওয়ে কানেকশন টেস্ট ব্যর্থ হয়েছে।",
+        });
+      }
+    } catch (err: any) {
+      setAlert({
+        type: "error",
+        text: `কানেকশন টেস্ট এরর: ${err.message || "সার্ভারে পৌঁছানো সম্ভব হয়নি"}`,
+      });
+    } finally {
+      setIsTestingGateway(false);
+    }
+  };
+
+  const handleApproveTransaction = async (txnId: string) => {
+    if (!confirm("আপনি কি নিশ্চিত যে এই ট্রানজেকশনটি ভেরিফাই করে মূল মানি রসিদ ইস্যু করবেন এবং বকেয়া সমন্বয় করবেন?")) {
+      return;
+    }
+    setProcessingTxnId(txnId);
+    try {
+      const res = await verifyOnlineTransactionAsAdmin(txnId);
+      if (res.success) {
+        setAlert({
+          type: "success",
+          text: `ট্রানজেকশন সফলভাবে ভেরিফাইড হয়েছে! অফিসিয়াল রসিদ নং: ${res.receipt_no}`,
+        });
+        setTransactions((prev) =>
+          prev.map((t) =>
+            t.transaction_id === txnId
+              ? { ...t, status: "SUCCESS", receipt_no: res.receipt_no }
+              : t
+          )
+        );
+      } else {
+        setAlert({
+          type: "error",
+          text: res.error || "ভেরিফিকেশন সম্পন্ন হতে সমস্যা হয়েছে।",
+        });
+      }
+    } catch (err: any) {
+      setAlert({
+        type: "error",
+        text: err.message || "ভেরিফিকেশনে ত্রুটি ঘটেছে।",
+      });
+    } finally {
+      setProcessingTxnId(null);
+    }
+  };
+
+  const handleRejectTransaction = async (txnId: string) => {
+    const reason = prompt("বাতিল করার কারণ লিখুন (যেমন: ভুল ট্রানজেকশন আইডি বা ব্যাংকে টাকা জমা না হওয়া):", "অস্বীকৃত ট্রানজেকশন");
+    if (!reason) return;
+
+    setProcessingTxnId(txnId);
+    try {
+      const res = await rejectOnlineTransactionAsAdmin(txnId, reason);
+      if (res.success) {
+        setAlert({
+          type: "success",
+          text: "ট্রানজেকশনটি সফলভাবে বাতিল করা হয়েছে।",
+        });
+        setTransactions((prev) =>
+          prev.map((t) =>
+            t.transaction_id === txnId ? { ...t, status: "FAILED" } : t
+          )
+        );
+      } else {
+        setAlert({
+          type: "error",
+          text: res.error || "বাতিল করতে সমস্যা হয়েছে।",
+        });
+      }
+    } catch (err: any) {
+      setAlert({
+        type: "error",
+        text: err.message || "বাতিল করতে সমস্যা হয়েছে।",
+      });
+    } finally {
+      setProcessingTxnId(null);
+    }
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -99,6 +209,20 @@ export default function GatewaySettingsClient({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleTestConnection}
+            disabled={isTestingGateway}
+            className="px-4 py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold rounded-2xl text-xs sm:text-sm border border-emerald-500/30 flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+          >
+            {isTestingGateway ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <Globe className="w-4 h-4" />
+            )}
+            <span>{isTestingGateway ? "যাচাই হচ্ছে..." : "গেটওয়ে কানেকশন টেস্ট"}</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsTestModalOpen(true)}
@@ -677,9 +801,7 @@ export default function GatewaySettingsClient({
             {/* bKash */}
             <div className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 hover:border-pink-300 transition">
               <div className="flex items-center gap-3">
-                <span className="w-8 h-8 rounded-xl bg-[#D12053] text-white flex items-center justify-center font-black text-xs">
-                  bK
-                </span>
+                <BkashBadge size="md" />
                 <div>
                   <span className="font-bold text-slate-900 block text-sm">বিকাশ (bKash)</span>
                   <span className="text-slate-500 text-[11px]">১-ক্লিক অটো অনলাইন ফি কালেকশন</span>
@@ -701,9 +823,7 @@ export default function GatewaySettingsClient({
             {/* Nagad */}
             <div className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 hover:border-orange-300 transition">
               <div className="flex items-center gap-3">
-                <span className="w-8 h-8 rounded-xl bg-[#EA1D25] text-white flex items-center justify-center font-black text-xs">
-                  নগ
-                </span>
+                <NagadBadge size="md" />
                 <div>
                   <span className="font-bold text-slate-900 block text-sm">নগদ (Nagad)</span>
                   <span className="text-slate-500 text-[11px]">ইনস্ট্যান্ট পেমেন্ট গেটওয়ে</span>
@@ -725,9 +845,7 @@ export default function GatewaySettingsClient({
             {/* Islami Bank */}
             <div className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 hover:border-emerald-300 transition">
               <div className="flex items-center gap-3">
-                <span className="w-8 h-8 rounded-xl bg-emerald-700 text-white flex items-center justify-center font-black text-xs">
-                  IB
-                </span>
+                <IslamiBankBadge size="md" />
                 <div>
                   <span className="font-bold text-slate-900 block text-sm">
                     ইসলামী ব্যাংক বাংলাদেশ (IBBL / CellFin)
@@ -753,9 +871,7 @@ export default function GatewaySettingsClient({
             {/* Rocket */}
             <div className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 hover:border-purple-300 transition">
               <div className="flex items-center gap-3">
-                <span className="w-8 h-8 rounded-xl bg-[#8C3494] text-white flex items-center justify-center font-black text-xs">
-                  র
-                </span>
+                <RocketBadge size="md" />
                 <div>
                   <span className="font-bold text-slate-900 block text-sm">রকেট (Rocket)</span>
                   <span className="text-slate-500 text-[11px]">ডিবিবিএল রকেট অ্যাকাউন্ট</span>
@@ -777,9 +893,7 @@ export default function GatewaySettingsClient({
             {/* Cards */}
             <div className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 hover:border-blue-300 transition">
               <div className="flex items-center gap-3">
-                <span className="w-8 h-8 rounded-xl bg-blue-700 text-white flex items-center justify-center font-black text-xs">
-                  Card
-                </span>
+                <CardBrandsIcon />
                 <div>
                   <span className="font-bold text-slate-900 block text-sm">
                     ভিসা, মাস্টারকার্ড ও অন্যান্য কার্ড
@@ -829,11 +943,12 @@ export default function GatewaySettingsClient({
                   <th className="px-4 py-3.5 text-right">টাকার পরিমাণ</th>
                   <th className="px-4 py-3.5">রসিদ নং</th>
                   <th className="px-4 py-3.5 text-center">স্ট্যাটাস</th>
+                  <th className="px-4 py-3.5 text-right">পদক্ষেপ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {recentTransactions.length > 0 ? (
-                  recentTransactions.map((t) => (
+                {transactions.length > 0 ? (
+                  transactions.map((t) => (
                     <tr key={t.id} className="hover:bg-slate-50/60 transition">
                       <td className="px-4 py-3 font-mono font-bold text-slate-800">
                         {t.transaction_id}
@@ -875,11 +990,37 @@ export default function GatewaySettingsClient({
                             : "ব্যর্থ"}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-right">
+                        {t.status === "PENDING" ? (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleApproveTransaction(t.transaction_id)}
+                              disabled={processingTxnId === t.transaction_id}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition disabled:opacity-50"
+                            >
+                              {processingTxnId === t.transaction_id ? "..." : "অনুমোদন"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRejectTransaction(t.transaction_id)}
+                              disabled={processingTxnId === t.transaction_id}
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold transition disabled:opacity-50"
+                            >
+                              বাতিল
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 text-[11px] font-medium">
+                            {t.status === "SUCCESS" ? "নিশ্চিতকৃত" : "বাতিলকৃত"}
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-400">
+                    <td colSpan={7} className="text-center py-8 text-slate-400">
                       কোন অনলাইন পেমেন্ট ট্রানজেকশন এখনও সম্পন্ন হয়নি।
                     </td>
                   </tr>

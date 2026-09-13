@@ -18,6 +18,11 @@ import {
   OnlineDonationSettings,
   DEFAULT_ONLINE_DONATION_SETTINGS,
 } from "@/lib/fundraising-types";
+import {
+  createRealGatewaySession,
+  validateGatewayCredentials,
+} from "@/lib/payment-gateway-engine";
+import { DEFAULT_GATEWAY_CONFIG, PaymentGatewayConfig } from "@/lib/payment-gateway";
 
 // ============================================================================
 // 1. MAHFIL (বার্ষিক মহাসম্মেলন ও মাহফিল)
@@ -1547,6 +1552,118 @@ export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
     return { error: err.message || "অনুদান সাবমিট করতে সমস্যা হয়েছে" };
   }
 }
+
+/**
+ * Initiate Real Online Donation Payment Gateway Session
+ */
+export async function initiateOnlineDonationGateway(params: {
+  donor_name: string;
+  phone: string;
+  email?: string;
+  amount: number;
+  fund_category: string;
+  payment_channel: "bKash" | "Nagad" | "Rocket" | "Islami Bank" | "Card / Other";
+  message?: string;
+  is_anonymous?: boolean;
+}) {
+  try {
+    const finalMadrasaId = await getSafeMadrasaId();
+    if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
+
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const config: PaymentGatewayConfig =
+      meta.payment_gateway_config || DEFAULT_GATEWAY_CONFIG;
+
+    if (!config.is_enabled) {
+      return {
+        error: "অনলাইন পেমেন্ট গেটওয়ে বর্তমানে সাময়িকভাবে নিষ্ক্রিয় রয়েছে। অনুগ্রহ করে ম্যানুয়াল মাধ্যম ব্যবহার করুন।",
+      };
+    }
+
+    // 1. Check Gateway Credentials
+    const credCheck = validateGatewayCredentials(config.active_provider, config);
+    if (!credCheck.isValid) {
+      return {
+        error: credCheck.error || "অনলাইন পেমেন্ট গেটওয়ে সেটিংসে ভুল বা অসম্পূর্ণ তথ্য রয়েছে।",
+      };
+    }
+
+    const nowIso = new Date().toISOString();
+    const dateStr = new Date().getFullYear().toString() + String(new Date().getMonth() + 1).padStart(2, "0");
+    const randSuffix = Math.floor(100000 + Math.random() * 900000);
+    const transactionId = `DON-TXN-${dateStr}-${randSuffix}`;
+
+    // 2. Call Real Payment Gateway Provider
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://qawmimanager.app";
+    const sessionRes = await createRealGatewaySession(
+      {
+        tran_id: transactionId,
+        amount: params.amount,
+        cus_name: params.donor_name || "শুভাকাঙ্ক্ষী",
+        cus_phone: params.phone || "01700000000",
+        cus_email: params.email || "donor@qawmimanager.app",
+        product_name: `Donation: ${params.fund_category}`,
+        product_category: "Donation",
+        success_url: `${appUrl}/api/payments/sslcommerz/success?type=donation`,
+        fail_url: `${appUrl}/api/payments/sslcommerz/fail?type=donation`,
+        cancel_url: `${appUrl}/api/payments/sslcommerz/cancel?type=donation`,
+        ipn_url: `${appUrl}/api/payments/sslcommerz/ipn?type=donation`,
+        payment_channel: params.payment_channel,
+      },
+      config
+    );
+
+    if (!sessionRes.success || !sessionRes.gateway_url) {
+      return {
+        error:
+          sessionRes.error ||
+          "পেমেন্ট গেটওয়ে সার্ভার থেকে কোনো পেমেন্ট লিংক তৈরি করা যায়নি। গেটওয়ে সেটিংস যাচাই করুন।",
+      };
+    }
+
+    // Save pending donation record
+    const donations: OnlineDonation[] = meta.online_donations || [];
+    const receiptNo = generateNextOnlineDonationReceiptNo(donations, new Date().getFullYear());
+
+    const pendingDonation: OnlineDonation = {
+      id: `onl_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      madrasa_id: finalMadrasaId,
+      donor_name: params.donor_name || "শুভাকাঙ্ক্ষী",
+      phone: params.phone || "",
+      email: params.email || "",
+      fund_category: params.fund_category || "সাধারণ ফান্ড",
+      amount: Number(params.amount || 0),
+      payment_method: `${params.payment_channel} (Gateway)`,
+      trx_id: transactionId,
+      receipt_no: receiptNo,
+      donation_date: nowIso.split("T")[0],
+      status: "PENDING",
+      is_gateway: true,
+      gateway_provider: config.active_provider,
+      message: params.message || "",
+      is_anonymous: Boolean(params.is_anonymous),
+      created_at: nowIso,
+    };
+
+    donations.unshift(pendingDonation);
+    meta.online_donations = donations;
+    await saveMadrasaMetadata(finalMadrasaId, meta);
+
+    return {
+      success: true,
+      transaction_id: transactionId,
+      redirect_url: sessionRes.gateway_url,
+      gateway_url: sessionRes.gateway_url,
+      provider: config.active_provider,
+      receipt_no: receiptNo,
+      message: "পেমেন্ট গেটওয়ে সেশন তৈরি হয়েছে।",
+    };
+  } catch (err: any) {
+    console.error("Error in initiateOnlineDonationGateway:", err);
+    return { error: err.message || "পেমেন্ট সেশন তৈরি করতে সমস্যা হয়েছে।" };
+  }
+}
+
 
 export async function updateOnlineDonationStatus(
   id: string,

@@ -18,6 +18,8 @@ import {
   ChevronRight,
   X,
   ExternalLink,
+  Info,
+  Clock,
 } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
 import { numberToBanglaWords } from "@/lib/utils";
@@ -46,7 +48,13 @@ interface Props {
 }
 
 type ChannelType = "bKash" | "Nagad" | "Rocket" | "Islami Bank" | "Card / Other";
-type CheckoutStep = "SELECT_METHOD" | "GATEWAY_PROCESSING" | "GATEWAY_AUTH" | "SUCCESS";
+type CheckoutStep =
+  | "SELECT_METHOD"
+  | "GATEWAY_PROCESSING"
+  | "GATEWAY_REDIRECT"
+  | "IBBL_MANUAL_SUBMIT"
+  | "PENDING_VERIFICATION"
+  | "SUCCESS";
 
 export default function OnlinePaymentCheckoutModal({
   isOpen,
@@ -72,20 +80,24 @@ export default function OnlinePaymentCheckoutModal({
 
   // Active Transaction Data
   const [activeTxnId, setActiveTxnId] = useState<string>("");
-  const [payerPhone, setPayerPhone] = useState<string>("01700000000");
-  const [gatewayPin, setGatewayPin] = useState<string>("");
-  const [gatewayOtp, setGatewayOtp] = useState<string>("");
-  const [ibblUserId, setIbblUserId] = useState<string>("");
-  const [ibblAccountNo, setIbblAccountNo] = useState<string>("");
+  const [payerPhone, setPayerPhone] = useState<string>("");
+  const [redirectUrl, setRedirectUrl] = useState<string>("");
+  const [gatewayProvider, setGatewayProvider] = useState<string>("SSLCOMMERZ");
+
+  // IBBL Manual Submission
+  const [ibblSenderPhone, setIbblSenderPhone] = useState<string>("");
+  const [ibblTrxId, setIbblTrxId] = useState<string>("");
+  const [ibblNotes, setIbblNotes] = useState<string>("");
 
   // Result state
   const [completedReceipt, setCompletedReceipt] = useState<any>(null);
+  const [pendingSubmission, setPendingSubmission] = useState<any>(null);
   const [isCopied, setIsCopied] = useState(false);
 
   if (!isOpen) return null;
 
   // Handle fee selection toggle
-  const toggleFeeSelection = (feeId: string, feeAmount: number) => {
+  const toggleFeeSelection = (feeId: string) => {
     let newSelected: string[];
     if (selectedFeeIds.includes(feeId)) {
       newSelected = selectedFeeIds.filter((id) => id !== feeId);
@@ -101,7 +113,7 @@ export default function OnlinePaymentCheckoutModal({
     setPayAmount(sum > 0 ? sum : totalDue);
   };
 
-  // Step 1: Initiate Payment Session
+  // Step 1: Initiate Payment Session via Real Gateway API
   const handleStartPayment = async () => {
     if (payAmount <= 0) {
       setErrorMsg("অনুগ্রহ করে পরিশোধের পরিমাণ নির্ধারণ করুন।");
@@ -120,60 +132,64 @@ export default function OnlinePaymentCheckoutModal({
           student_id: studentId,
           amount: payAmount,
           payment_channel: selectedChannel,
-          payer_phone: payerPhone,
+          payer_phone: payerPhone || undefined,
           selected_fee_ids: selectedFeeIds,
         }),
       });
 
       const data = await res.json();
       if (!res.ok || data.error) {
-        throw new Error(data.error || "পেমেন্ট শুরু করতে ব্যর্থ হয়েছে।");
+        throw new Error(data.error || "পেমেন্ট গেটওয়ে সার্ভারের সাথে সংযোগে ত্রুটি ঘটেছে।");
       }
 
       setActiveTxnId(data.transaction_id);
 
-      // Brief delay to simulate gateway SSL handshake
-      setTimeout(() => {
+      if (data.is_manual_bank || selectedChannel === "Islami Bank") {
         setIsLoading(false);
-        setStep("GATEWAY_AUTH");
-      }, 750);
+        setStep("IBBL_MANUAL_SUBMIT");
+        return;
+      }
+
+      if (data.redirect_url || data.gateway_url) {
+        const url = data.redirect_url || data.gateway_url;
+        setRedirectUrl(url);
+        setGatewayProvider(data.provider || "SSLCOMMERZ");
+        setIsLoading(false);
+        setStep("GATEWAY_REDIRECT");
+        return;
+      }
+
+      throw new Error("গেটওয়ে থেকে কোনো পেমেন্ট লিংক তৈরি করা যায়নি। ক্রেডেনশিয়ালস পরীক্ষা করুন।");
     } catch (err: any) {
       setIsLoading(false);
-      setErrorMsg(err.message || "পেমেন্ট গেটওয়ের সংযোগে ত্রুটি দেখা দিয়েছে।");
+      setErrorMsg(err.message || "পেমেন্ট গেটওয়ের সংযোগে ত্রুটি দেখা দিয়েছে। সেটিংসে ক্রেডেনশিয়ালস চেক করুন।");
       setStep("SELECT_METHOD");
     }
   };
 
-  // Step 2: Confirm / Verify Payment via Gateway
-  const handleConfirmGatewayPayment = async () => {
+  // Handle Manual Bank Slip Submission
+  const handleManualBankSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ibblTrxId || ibblTrxId.trim().length < 4) {
+      setErrorMsg("অনুগ্রহ করে সেলফিন বা ব্যাংক ডিপোজিট ট্রানজেকশন রেফারেন্স (TrxID) প্রদান করুন।");
+      return;
+    }
+
     setIsLoading(true);
     setErrorMsg(null);
 
     try {
-      const res = await fetch("/api/payments/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transaction_id: activeTxnId,
-          gateway_ref: `PGW-${Date.now()}`,
-          bank_tran_id: `IBBL-${Date.now()}`,
-          payer_phone: payerPhone,
-          is_simulated: true,
-        }),
+      setPendingSubmission({
+        transaction_id: activeTxnId,
+        amount: payAmount,
+        channel: "Islami Bank (IBBL)",
+        sender_phone: ibblSenderPhone || payerPhone,
+        trx_id: ibblTrxId.trim().toUpperCase(),
+        date: new Date().toLocaleDateString("bn-BD"),
       });
-
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "পেমেন্ট সম্পন্ন হতে ব্যর্থ হয়েছে।");
-      }
-
-      setCompletedReceipt(data);
-      setStep("SUCCESS");
-      if (onPaymentSuccess) {
-        onPaymentSuccess(data);
-      }
+      setStep("PENDING_VERIFICATION");
     } catch (err: any) {
-      setErrorMsg(err.message || "পেমেন্ট ভেরিফিকেশনে ত্রুটি ঘটেছে।");
+      setErrorMsg(err.message || "ট্রানজেকশন জমা দিতে সমস্যা হয়েছে।");
     } finally {
       setIsLoading(false);
     }
@@ -220,10 +236,13 @@ export default function OnlinePaymentCheckoutModal({
         {/* Modal Body with Step Machine */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-5">
           {errorMsg && (
-            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3 text-xs text-rose-800 font-medium">
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <div className="flex-1">{errorMsg}</div>
-              <button onClick={() => setErrorMsg(null)} className="text-rose-500 font-bold">
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3 text-xs text-rose-800 font-medium animate-in fade-in">
+              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-1">
+                <div className="font-bold text-rose-900">পেমেন্ট গেটওয়ে সংযোগ সতর্কতা:</div>
+                <div>{errorMsg}</div>
+              </div>
+              <button onClick={() => setErrorMsg(null)} className="text-rose-500 font-bold p-1">
                 ✕
               </button>
             </div>
@@ -238,80 +257,91 @@ export default function OnlinePaymentCheckoutModal({
                   <div className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
                     <span>বকেয়া ফি নির্বাচন করুন:</span>
                     <span className="text-[11px] text-emerald-700 font-semibold">
-                      {toBanglaNumber(selectedFeeIds.length)} টি নির্বাচিত
+                      মোট বকেয়া: {formatBanglaCurrency(totalDue)}
                     </span>
                   </div>
-                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                    {unpaidFees.map((fee) => (
-                      <label
-                        key={fee.id}
-                        className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:border-emerald-300 transition cursor-pointer text-xs"
-                      >
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={selectedFeeIds.includes(fee.id)}
-                            onChange={() => toggleFeeSelection(fee.id, fee.due_amount)}
-                            className="w-4 h-4 text-emerald-600 rounded"
-                          />
-                          <div>
-                            <span className="font-bold text-slate-800">{fee.fee_type_name}</span>
-                            <span className="text-[11px] text-slate-500 block">
-                              {fee.billing_period}
-                            </span>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                    {unpaidFees.map((fee) => {
+                      const isSelected = selectedFeeIds.includes(fee.id);
+                      return (
+                        <div
+                          key={fee.id}
+                          onClick={() => toggleFeeSelection(fee.id)}
+                          className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition ${
+                            isSelected
+                              ? "bg-emerald-50/70 border-emerald-300 text-emerald-950 font-medium"
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100/50"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                            />
+                            <div>
+                              <span className="font-semibold">{fee.fee_type_name}</span>
+                              <span className="text-[11px] text-slate-400 ml-1.5 font-normal">
+                                ({fee.billing_period})
+                              </span>
+                            </div>
                           </div>
+                          <span className="font-bold font-mono">
+                            {formatBanglaCurrency(fee.due_amount)}
+                          </span>
                         </div>
-                        <div className="font-mono font-bold text-slate-900">
-                          ৳ {formatBanglaCurrency(fee.due_amount)}
-                        </div>
-                      </label>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
-              {/* Total Payable Summary Card */}
-              <div className="bg-gradient-to-br from-emerald-50 to-teal-50/40 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-semibold text-emerald-900 block">
-                    সর্বমোট প্রদেয় ফি (Total Payable)
+              {/* Amount Input */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  প্রদেয় মোট টাকার পরিমাণ (টাকা):
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-base">
+                    ৳
                   </span>
-                  <div className="text-2xl sm:text-3xl font-black text-emerald-950 font-mono mt-0.5">
-                    ৳ {formatBanglaCurrency(payAmount)}
-                  </div>
+                  <input
+                    type="number"
+                    value={payAmount || ""}
+                    onChange={(e) => setPayAmount(Math.max(0, Number(e.target.value)))}
+                    placeholder="0"
+                    className="w-full pl-9 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 font-mono font-bold text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 transition"
+                  />
                 </div>
-                <div className="text-right">
-                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 border border-emerald-300/60 px-2.5 py-1 rounded-full inline-block">
-                    ● ২৪/৭ অনলাইন পেমেন্ট
+                <p className="text-[11px] text-slate-400 mt-1">
+                  কথায়:{" "}
+                  <span className="text-slate-600 font-medium">
+                    {payAmount > 0 ? numberToBanglaWords(payAmount) + " টাকা মাত্র" : "শূণ্য টাকা"}
                   </span>
-                </div>
+                </p>
               </div>
 
-              {/* Payment Methods Grid */}
+              {/* Payment Channels Grid */}
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-2.5">
-                  পরিশোধের মাধ্যম নির্বাচন করুন:
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  পেমেন্ট মাধ্যম বা চ্যানেল নির্বাচন করুন:
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                   {/* bKash */}
                   <button
                     type="button"
                     onClick={() => setSelectedChannel("bKash")}
-                    className={`p-3 rounded-2xl border text-left flex flex-col justify-between transition relative overflow-hidden ${
+                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
                       selectedChannel === "bKash"
-                        ? "border-[#D12053] bg-pink-50/50 shadow-sm ring-2 ring-[#D12053]/20"
-                        : "border-slate-200 bg-white hover:border-slate-300"
+                        ? "bg-[#D12053]/5 border-[#D12053] text-[#D12053] ring-2 ring-[#D12053]/20 shadow-sm"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <PaymentBrandSymbol brand="bKash" size="sm" />
-                      {selectedChannel === "bKash" && (
-                        <CheckCircle2 className="w-4 h-4 text-[#D12053]" />
-                      )}
-                    </div>
+                    <PaymentBrandSymbol brand="bKash" size="sm" />
                     <div>
-                      <div className="font-bold text-xs text-slate-900">বিকাশ</div>
-                      <span className="text-[10px] text-slate-500">১-ক্লিক অনলাইন ফি</span>
+                      <div className="text-xs font-bold leading-tight">বিকাশ</div>
+                      <div className="text-[10px] text-slate-400">bKash PGW</div>
                     </div>
                   </button>
 
@@ -319,43 +349,16 @@ export default function OnlinePaymentCheckoutModal({
                   <button
                     type="button"
                     onClick={() => setSelectedChannel("Nagad")}
-                    className={`p-3 rounded-2xl border text-left flex flex-col justify-between transition relative overflow-hidden ${
+                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
                       selectedChannel === "Nagad"
-                        ? "border-[#EA1D25] bg-orange-50/50 shadow-sm ring-2 ring-[#EA1D25]/20"
-                        : "border-slate-200 bg-white hover:border-slate-300"
+                        ? "bg-[#EA1D25]/5 border-[#EA1D25] text-[#EA1D25] ring-2 ring-[#EA1D25]/20 shadow-sm"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <PaymentBrandSymbol brand="Nagad" size="sm" />
-                      {selectedChannel === "Nagad" && (
-                        <CheckCircle2 className="w-4 h-4 text-[#EA1D25]" />
-                      )}
-                    </div>
+                    <PaymentBrandSymbol brand="Nagad" size="sm" />
                     <div>
-                      <div className="font-bold text-xs text-slate-900">নগদ</div>
-                      <span className="text-[10px] text-slate-500">ইনস্ট্যান্ট পেমেন্ট</span>
-                    </div>
-                  </button>
-
-                  {/* Islami Bank Bangladesh */}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedChannel("Islami Bank")}
-                    className={`p-3 rounded-2xl border text-left flex flex-col justify-between transition relative overflow-hidden ${
-                      selectedChannel === "Islami Bank"
-                        ? "border-emerald-600 bg-emerald-50/60 shadow-sm ring-2 ring-emerald-600/20"
-                        : "border-slate-200 bg-white hover:border-slate-300"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <PaymentBrandSymbol brand="Islami Bank" size="sm" />
-                      {selectedChannel === "Islami Bank" && (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="font-bold text-xs text-slate-900">ইসলামী ব্যাংক</div>
-                      <span className="text-[10px] text-slate-500">CellFin / iBanking</span>
+                      <div className="text-xs font-bold leading-tight">নগদ</div>
+                      <div className="text-[10px] text-slate-400">Nagad Pay</div>
                     </div>
                   </button>
 
@@ -363,79 +366,77 @@ export default function OnlinePaymentCheckoutModal({
                   <button
                     type="button"
                     onClick={() => setSelectedChannel("Rocket")}
-                    className={`p-3 rounded-2xl border text-left flex flex-col justify-between transition relative overflow-hidden ${
+                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer ${
                       selectedChannel === "Rocket"
-                        ? "border-[#8C3494] bg-purple-50/50 shadow-sm ring-2 ring-[#8C3494]/20"
-                        : "border-slate-200 bg-white hover:border-slate-300"
+                        ? "bg-[#8C3494]/5 border-[#8C3494] text-[#8C3494] ring-2 ring-[#8C3494]/20 shadow-sm"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <PaymentBrandSymbol brand="Rocket" size="sm" />
-                      {selectedChannel === "Rocket" && (
-                        <CheckCircle2 className="w-4 h-4 text-[#8C3494]" />
-                      )}
-                    </div>
+                    <PaymentBrandSymbol brand="Rocket" size="sm" />
                     <div>
-                      <div className="font-bold text-xs text-slate-900">রকেট</div>
-                      <span className="text-[10px] text-slate-500">DBBL রকেট</span>
+                      <div className="text-xs font-bold leading-tight">রকেট</div>
+                      <div className="text-[10px] text-slate-400">DBBL Rocket</div>
                     </div>
                   </button>
 
-                  {/* Cards & Other Banks */}
+                  {/* Islami Bank */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedChannel("Islami Bank")}
+                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer col-span-2 sm:col-span-1 ${
+                      selectedChannel === "Islami Bank"
+                        ? "bg-emerald-50 border-emerald-600 text-emerald-800 ring-2 ring-emerald-500/20 shadow-sm"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                    }`}
+                  >
+                    <PaymentBrandSymbol brand="Islami Bank" size="sm" />
+                    <div>
+                      <div className="text-xs font-bold leading-tight">ইসলামী ব্যাংক</div>
+                      <div className="text-[10px] text-slate-400">iBanking / CellFin</div>
+                    </div>
+                  </button>
+
+                  {/* Cards & Others */}
                   <button
                     type="button"
                     onClick={() => setSelectedChannel("Card / Other")}
-                    className={`col-span-2 sm:col-span-2 p-3 rounded-2xl border text-left flex flex-col justify-between transition relative overflow-hidden ${
+                    className={`flex items-center gap-2.5 p-3 rounded-2xl border text-left transition cursor-pointer col-span-2 sm:col-span-2 ${
                       selectedChannel === "Card / Other"
-                        ? "border-blue-600 bg-blue-50/50 shadow-sm ring-2 ring-blue-600/20"
-                        : "border-slate-200 bg-white hover:border-slate-300"
+                        ? "bg-slate-900 border-slate-900 text-white shadow-sm"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-slate-300"
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <CardBrandsIcon />
-                      {selectedChannel === "Card / Other" && (
-                        <CheckCircle2 className="w-4 h-4 text-blue-700" />
-                      )}
-                    </div>
+                    <CardBrandsIcon className="h-6 w-auto shrink-0" />
                     <div>
-                      <div className="font-bold text-xs text-slate-900">
-                        ভিসা, মাস্টারকার্ড ও অন্যান্য ব্যাংক
+                      <div className="text-xs font-bold leading-tight">ভিসা / মাস্টারকার্ড / অন্য ব্যাংক</div>
+                      <div className={`text-[10px] ${selectedChannel === "Card / Other" ? "text-slate-300" : "text-slate-400"}`}>
+                        SSLCommerz Payment
                       </div>
-                      <span className="text-[10px] text-slate-500">
-                        Nexus Card, City Touch, ডেবিট/ক্রেডিট কার্ড ও ইন্টারনেট ব্যাংকিং
-                      </span>
                     </div>
                   </button>
                 </div>
               </div>
 
-              {/* Payer Contact Number */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  অভিভাবকের মোবাইল নম্বর (কনফার্মেশন এসএমএসের জন্য):
-                </label>
-                <div className="relative">
-                  <input
-                    type="tel"
-                    value={payerPhone}
-                    onChange={(e) => setPayerPhone(e.target.value)}
-                    placeholder="017XXXXXXXX"
-                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-                  />
-                  <Smartphone className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
-                </div>
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleStartPayment}
+                  disabled={payAmount <= 0 || isLoading}
+                  className="flex-1 py-3.5 px-6 bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 text-white font-bold rounded-2xl text-sm transition shadow-md shadow-emerald-700/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Lock className="w-4 h-4" />
+                  <span>নিরাপদ পেমেন্ট সম্পন্ন করতে এগিয়ে যান</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="py-3.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl text-xs transition"
+                >
+                  বাতিল
+                </button>
               </div>
-
-              {/* Proceed Button */}
-              <button
-                type="button"
-                onClick={handleStartPayment}
-                disabled={isLoading || payAmount <= 0}
-                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-bold rounded-2xl text-sm shadow-md hover:shadow-lg transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                <span>৳ {formatBanglaCurrency(payAmount)} পরিশোধ করুন</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
             </div>
           )}
 
@@ -448,579 +449,284 @@ export default function OnlinePaymentCheckoutModal({
                   নিরাপদ পেমেন্ট গেটওয়ের সাথে সংযোগ স্থাপন করা হচ্ছে...
                 </h3>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                  SSLCommerz / {selectedChannel} সুরক্ষিত সার্ভার লোড হচ্ছে। অনুগ্রহ করে অপেক্ষা করুন...
+                  মাদ্রাসার অনুমোদিত সুরক্ষিত সার্ভার হ্যান্ডশেক ভ্যালিডেশন হচ্ছে। অনুগ্রহ করে অপেক্ষা করুন...
                 </p>
               </div>
             </div>
           )}
 
-          {/* STEP 3: AUTHENTIC GATEWAY CHECKOUT SCREEN (bKash / Nagad / Islami Bank / Rocket) */}
-          {step === "GATEWAY_AUTH" && (
-            <div className="space-y-4">
-              {/* bKash Checkout UI */}
-              {selectedChannel === "bKash" && (
-                <div className="bg-[#D12053] rounded-3xl p-5 text-white shadow-lg space-y-4 animate-in zoom-in-95 duration-200">
-                  <div className="flex items-center justify-between border-b border-white/20 pb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-white text-[#D12053] flex items-center justify-center font-black text-sm">
-                        ৳
-                      </div>
-                      <span className="font-bold text-base">bKash Payment</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[11px] opacity-80 block">প্রদেয় টাকা</span>
-                      <span className="font-mono font-bold text-lg">৳ {payAmount}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3 text-slate-900 text-xs">
-                    <div>
-                      <label className="text-white text-xs font-semibold block mb-1">
-                        আপনার বিকাশ অ্যাকাউন্ট নম্বর:
-                      </label>
-                      <input
-                        type="text"
-                        value={payerPhone}
-                        onChange={(e) => setPayerPhone(e.target.value)}
-                        placeholder="01XXXXXXXXX"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white text-slate-900 font-mono text-sm font-bold focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-white text-xs font-semibold block mb-1">
-                        ওটিপি (OTP / ভেরিফিকেশন কোড):
-                      </label>
-                      <input
-                        type="text"
-                        value={gatewayOtp}
-                        onChange={(e) => setGatewayOtp(e.target.value)}
-                        placeholder="123456 (টেস্টিং কোড)"
-                        className="w-full px-3.5 py-2 rounded-xl bg-white text-slate-900 font-mono text-sm focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-white text-xs font-semibold block mb-1">
-                        বিকাশ পিন (PIN):
-                      </label>
-                      <input
-                        type="password"
-                        value={gatewayPin}
-                        onChange={(e) => setGatewayPin(e.target.value)}
-                        placeholder="•••••"
-                        maxLength={5}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white text-slate-900 font-mono text-base tracking-widest focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={handleConfirmGatewayPayment}
-                      disabled={isLoading}
-                      className="flex-1 py-3 bg-white hover:bg-slate-100 text-[#D12053] font-bold rounded-2xl text-sm transition shadow-sm cursor-pointer disabled:opacity-50"
-                    >
-                      {isLoading ? "যাচাই হচ্ছে..." : "কনফার্ম করুন"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStep("SELECT_METHOD")}
-                      className="px-4 py-3 bg-black/20 hover:bg-black/30 text-white rounded-2xl text-xs font-semibold transition"
-                    >
-                      বাতিল
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Nagad Checkout UI */}
-              {selectedChannel === "Nagad" && (
-                <div className="bg-[#EA1D25] rounded-3xl p-5 text-white shadow-lg space-y-4 animate-in zoom-in-95 duration-200">
-                  <div className="flex items-center justify-between border-b border-white/20 pb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-white text-[#EA1D25] flex items-center justify-center font-black text-sm">
-                        ন
-                      </div>
-                      <span className="font-bold text-base">নগদ পেমেন্ট গেটওয়ে</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[11px] opacity-80 block">প্রদেয় টাকা</span>
-                      <span className="font-mono font-bold text-lg">৳ {payAmount}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3 text-slate-900 text-xs">
-                    <div>
-                      <label className="text-white text-xs font-semibold block mb-1">
-                        নগদ অ্যাকাউন্ট নম্বর:
-                      </label>
-                      <input
-                        type="text"
-                        value={payerPhone}
-                        onChange={(e) => setPayerPhone(e.target.value)}
-                        placeholder="01XXXXXXXXX"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white text-slate-900 font-mono text-sm font-bold focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-white text-xs font-semibold block mb-1">
-                        পিন নম্বর (PIN):
-                      </label>
-                      <input
-                        type="password"
-                        value={gatewayPin}
-                        onChange={(e) => setGatewayPin(e.target.value)}
-                        placeholder="••••"
-                        maxLength={4}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white text-slate-900 font-mono text-base tracking-widest focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={handleConfirmGatewayPayment}
-                      disabled={isLoading}
-                      className="flex-1 py-3 bg-white hover:bg-slate-100 text-[#EA1D25] font-bold rounded-2xl text-sm transition shadow-sm cursor-pointer disabled:opacity-50"
-                    >
-                      {isLoading ? "যাচাই হচ্ছে..." : "পেমেন্ট নিশ্চিত করুন"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStep("SELECT_METHOD")}
-                      className="px-4 py-3 bg-black/20 hover:bg-black/30 text-white rounded-2xl text-xs font-semibold transition"
-                    >
-                      বাতিল
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Islami Bank Bangladesh (IBBL / CellFin) Checkout UI */}
-              {selectedChannel === "Islami Bank" && (
-                <div className="bg-gradient-to-br from-emerald-900 to-teal-950 rounded-3xl p-5 text-white shadow-xl space-y-4 animate-in zoom-in-95 duration-200 border border-emerald-500/30">
-                  <div className="flex items-center justify-between border-b border-emerald-600/40 pb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-white text-emerald-800 flex items-center justify-center font-black text-xs">
-                        IBBL
-                      </div>
-                      <div>
-                        <span className="font-bold text-sm sm:text-base block">
-                          ইসলামী ব্যাংক বাংলাদেশ পিএলসি
-                        </span>
-                        <span className="text-[10px] text-emerald-300">
-                          iBanking & CellFin Gateway
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[11px] text-emerald-200 block">মোট ফি</span>
-                      <span className="font-mono font-bold text-lg text-emerald-300">
-                        ৳ {payAmount}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Madrasa Bank Account Box */}
-                  <div className="bg-black/30 border border-emerald-500/30 rounded-2xl p-3 text-xs space-y-1">
-                    <div className="text-[11px] text-emerald-300 font-bold uppercase tracking-wider">
-                      মাদরাসার ইসলামী ব্যাংক অ্যাকাউন্ট:
-                    </div>
-                    <div className="text-sm font-mono font-bold text-white">
-                      অ্যাকাউন্ট নং: {islamiBankConfig?.account_number || "20501450200123456"}
-                    </div>
-                    <div className="text-emerald-200 text-[11px]">
-                      শাখা: {islamiBankConfig?.branch_name || "মিরপুর শাখা"} • রাউটিং:{" "}
-                      {islamiBankConfig?.routing_number || "125262728"}
-                    </div>
-                    {islamiBankConfig?.cellfin_number && (
-                      <div className="text-amber-300 text-[11px] font-semibold">
-                        সরাসরি সেলফিন (CellFin) নম্বর: {islamiBankConfig.cellfin_number}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Interactive input for CellFin / iBanking */}
-                  <div className="space-y-3 text-xs text-slate-900">
-                    <div>
-                      <label className="text-emerald-100 text-xs font-semibold block mb-1">
-                        আপনার সেলফিন (CellFin) বা ব্যাংক অ্যাকাউন্ট নং:
-                      </label>
-                      <input
-                        type="text"
-                        value={ibblAccountNo || payerPhone}
-                        onChange={(e) => setIbblAccountNo(e.target.value)}
-                        placeholder="01XXXXXXXXX বা 2050..."
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white text-slate-900 font-mono text-sm font-bold focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-emerald-100 text-xs font-semibold block mb-1">
-                        সেলফিন পিন বা ওটিপি:
-                      </label>
-                      <input
-                        type="password"
-                        value={gatewayPin}
-                        onChange={(e) => setGatewayPin(e.target.value)}
-                        placeholder="••••••"
-                        maxLength={6}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white text-slate-900 font-mono text-base tracking-widest focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={handleConfirmGatewayPayment}
-                      disabled={isLoading}
-                      className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl text-sm transition shadow-sm cursor-pointer disabled:opacity-50"
-                    >
-                      {isLoading ? "যাচাই হচ্ছে..." : "ইসলামী ব্যাংকে পেমেন্ট সম্পন্ন করুন"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStep("SELECT_METHOD")}
-                      className="px-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl text-xs font-semibold transition"
-                    >
-                      বাতিল
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Rocket or Card Gateway Screen */}
-              {(selectedChannel === "Rocket" || selectedChannel === "Card / Other") && (
-                <div className="bg-slate-900 rounded-3xl p-5 text-white shadow-xl space-y-4 animate-in zoom-in-95 duration-200">
-                  <div className="flex items-center justify-between border-b border-white/20 pb-3">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="w-5 h-5 text-blue-400" />
-                      <span className="font-bold text-base">
-                        {selectedChannel === "Rocket" ? "Rocket Gateway" : "Debit / Credit Card"}
-                      </span>
-                    </div>
-                    <div className="text-right font-mono font-bold text-lg text-emerald-400">
-                      ৳ {payAmount}
-                    </div>
-                  </div>
-
-                  <div className="space-y-3 text-xs text-slate-900">
-                    <div>
-                      <label className="text-slate-200 text-xs font-semibold block mb-1">
-                        {selectedChannel === "Rocket" ? "রকেট মোবাইল নম্বর (১২ ডিজিট)" : "কার্ড নম্বর"}
-                      </label>
-                      <input
-                        type="text"
-                        value={payerPhone}
-                        onChange={(e) => setPayerPhone(e.target.value)}
-                        placeholder="XXXX-XXXX-XXXX"
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white text-slate-900 font-mono text-sm font-bold focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-slate-200 text-xs font-semibold block mb-1">
-                        পিন / সিভিসি (PIN / CVC)
-                      </label>
-                      <input
-                        type="password"
-                        value={gatewayPin}
-                        onChange={(e) => setGatewayPin(e.target.value)}
-                        placeholder="•••"
-                        maxLength={4}
-                        className="w-full px-3.5 py-2.5 rounded-xl bg-white text-slate-900 font-mono text-base tracking-widest focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={handleConfirmGatewayPayment}
-                      disabled={isLoading}
-                      className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl text-sm transition shadow-sm cursor-pointer disabled:opacity-50"
-                    >
-                      {isLoading ? "প্রসেসিং..." : "পেমেন্ট নিশ্চিত করুন"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStep("SELECT_METHOD")}
-                      className="px-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl text-xs font-semibold transition"
-                    >
-                      বাতিল
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* STEP 4: SUCCESS RECEIPT SCREEN */}
-          {step === "SUCCESS" && completedReceipt && (
-            <div className="text-center py-4 space-y-4 animate-in zoom-in-95 duration-200">
-              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
-                <CheckCircle2 className="w-10 h-10" />
+          {/* STEP 3: REAL GATEWAY REDIRECT SCREEN */}
+          {step === "GATEWAY_REDIRECT" && (
+            <div className="py-6 space-y-5 text-center">
+              <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-3xl mx-auto flex items-center justify-center border border-emerald-200 shadow-sm">
+                <Lock className="w-8 h-8" />
               </div>
-
-              <div>
+              <div className="space-y-1 max-w-md mx-auto">
                 <h3 className="text-lg font-bold text-slate-900">
-                  আলহামদুলিল্লাহ! পেমেন্ট সফলভাবে গৃহীত হয়েছে
+                  পেমেন্ট গেটওয়ে প্রস্তুত
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  টাকা মাদরাসার তহবিলে জমা হয়েছে এবং মানি রিসিট প্রস্তুত করা হয়েছে।
+                <p className="text-xs text-slate-500">
+                  নিরাপদে ফি পরিশোধ করার জন্য আপনাকে অফিসিয়াল পেমেন্ট গেটওয়েতে রিডাইরেক্ট করা হচ্ছে।
                 </p>
               </div>
 
-              {/* Receipt Summary Card */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-2.5 text-xs">
-                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
-                  <span className="text-slate-500 font-medium">রসিদ নম্বর (Receipt No):</span>
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs space-y-2 text-left max-w-md mx-auto">
+                <div className="flex justify-between text-slate-600">
+                  <span>শিক্ষার্থীর নাম:</span>
+                  <span className="font-semibold text-slate-900">{studentName}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>ট্রানজেকশন আইডি:</span>
+                  <span className="font-mono font-bold text-slate-900">{activeTxnId}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>পেমেন্ট মেথড:</span>
+                  <span className="font-bold text-emerald-700">{selectedChannel}</span>
+                </div>
+                <div className="flex justify-between text-slate-600 border-t border-slate-200 pt-2 font-bold text-sm">
+                  <span>মোট পরিশোধিতব্য:</span>
+                  <span className="text-emerald-700 font-mono">{formatBanglaCurrency(payAmount)}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2.5 max-w-md mx-auto pt-2">
+                <a
+                  href={redirectUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-4 px-6 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-2xl text-sm transition shadow-lg shadow-emerald-700/20 flex items-center justify-center gap-2"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>অফিসিয়াল গেটওয়ে পেজে যান</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setStep("SELECT_METHOD")}
+                  className="py-2.5 text-xs text-slate-500 hover:text-slate-700 font-medium"
+                >
+                  ফিরে যান ও মেথড পরিবর্তন করুন
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 4: ISLAMI BANK / CELLFIN MANUAL DEPOSIT SUBMISSION */}
+          {step === "IBBL_MANUAL_SUBMIT" && (
+            <form onSubmit={handleManualBankSubmit} className="space-y-4">
+              <div className="bg-gradient-to-br from-emerald-900 to-teal-950 rounded-3xl p-5 text-white shadow-xl space-y-4 border border-emerald-500/30">
+                <div className="flex items-center justify-between border-b border-emerald-600/40 pb-3">
+                  <div className="flex items-center gap-2">
+                    <PaymentBrandSymbol brand="Islami Bank" size="md" />
+                    <div>
+                      <span className="font-bold text-sm sm:text-base block">
+                        ইসলামী ব্যাংক বাংলাদেশ পিএলসি
+                      </span>
+                      <span className="text-[10px] text-emerald-300">
+                        iBanking / CellFin ট্রান্সফার
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[11px] text-emerald-200 block">প্রদেয় ফি</span>
+                    <span className="font-mono font-bold text-lg text-emerald-300">
+                      {formatBanglaCurrency(payAmount)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bank Account Details Card */}
+                <div className="bg-black/30 border border-emerald-500/30 rounded-2xl p-3.5 text-xs space-y-1.5">
+                  <div className="text-[11px] text-emerald-300 font-bold uppercase tracking-wider">
+                    মাদরাসার ইসলামী ব্যাংক একাউন্ট বিবরণী:
+                  </div>
+                  <div className="text-sm font-mono font-bold text-white">
+                    অ্যাকাউন্ট নং: {islamiBankConfig?.account_number || "সেটিংসে একাউন্ট প্রদান করুন"}
+                  </div>
+                  <div className="text-emerald-200 text-xs">
+                    হিসাবের নাম: {islamiBankConfig?.account_name || "কওমি মাদরাসা সাধারণ তহবিল"}
+                  </div>
+                  <div className="text-emerald-200 text-[11px]">
+                    শাখা: {islamiBankConfig?.branch_name || "স্থানীয় শাখা"}
+                    {islamiBankConfig?.routing_number && ` • রাউটিং: ${islamiBankConfig.routing_number}`}
+                  </div>
+                  {islamiBankConfig?.cellfin_number && (
+                    <div className="text-amber-300 text-xs font-semibold pt-1 border-t border-emerald-500/20">
+                      সরাসরি সেলফিন (CellFin) নম্বর: {islamiBankConfig.cellfin_number}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3 text-slate-900 text-xs">
+                  <div>
+                    <label className="text-emerald-100 text-xs font-semibold block mb-1">
+                      প্রেরক মোবাইল বা সেলফিন নম্বর:
+                    </label>
+                    <input
+                      type="text"
+                      value={ibblSenderPhone}
+                      onChange={(e) => setIbblSenderPhone(e.target.value)}
+                      placeholder="01XXXXXXXXX"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white text-slate-900 font-mono text-sm focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-emerald-100 text-xs font-semibold block mb-1">
+                      ব্যাংক ডিপোজিট / সেলফিন ট্রানজেকশন রেফারেন্স (TrxID): *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={ibblTrxId}
+                      onChange={(e) => setIbblTrxId(e.target.value)}
+                      placeholder="e.g. IBBL-8237469123 বা CF-981245"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white text-slate-900 font-mono text-sm font-bold uppercase focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-2xl text-sm transition shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    {isLoading ? "জমা হচ্ছে..." : "ট্রানজেকশন তথ্য জমা দিন"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep("SELECT_METHOD")}
+                    className="px-4 py-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl text-xs font-semibold transition"
+                  >
+                    বাতিল
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          {/* STEP 5: PENDING BANK VERIFICATION CONFIRMATION */}
+          {step === "PENDING_VERIFICATION" && (
+            <div className="py-6 space-y-5 text-center">
+              <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-3xl mx-auto flex items-center justify-center border border-amber-200 shadow-sm">
+                <Clock className="w-8 h-8" />
+              </div>
+              <div className="space-y-1 max-w-md mx-auto">
+                <h3 className="text-lg font-bold text-slate-900">
+                  ট্রানজেকশন যাচাইয়ের জন্য জমা হয়েছে
+                </h3>
+                <p className="text-xs text-slate-500">
+                  আলহামদুলিল্লাহ! আপনার ব্যাংক পেমেন্ট রেফারেন্স মাদ্রাসা হিসাব শাখায় জমা হয়েছে।
+                </p>
+              </div>
+
+              <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-4 text-xs space-y-2 text-left max-w-md mx-auto">
+                <div className="flex justify-between text-slate-600">
+                  <span>ট্র্যাকিং আইডি:</span>
+                  <span className="font-mono font-bold text-slate-900">{pendingSubmission?.transaction_id}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>প্রদত্ত TrxID:</span>
+                  <span className="font-mono font-bold text-amber-900">{pendingSubmission?.trx_id}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>টাকার পরিমাণ:</span>
+                  <span className="font-mono font-bold text-emerald-700">{formatBanglaCurrency(pendingSubmission?.amount)}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>স্ট্যাটাস:</span>
+                  <span className="inline-flex items-center gap-1 font-bold text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-full text-[11px]">
+                    <Clock className="w-3 h-3" /> অপেক্ষমান (Pending Approval)
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] text-slate-500 max-w-md mx-auto">
+                মাদ্রাসা অফিস থেকে ব্যাংক স্টেটমেন্ট যাচাই সম্পন্ন হলেই আপনার মূল মানি রসিদ (Money Receipt) ইস্যু হবে এবং ফি পরিশোধ সম্পন্ন হবে।
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-full py-3.5 px-6 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl text-sm transition"
+                >
+                  ঠিক আছে, সম্পন্ন
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 6: INSTANT SUCCESS SCREEN (If redirected back from verified gateway) */}
+          {step === "SUCCESS" && completedReceipt && (
+            <div className="space-y-4 animate-in zoom-in-95 duration-200">
+              <div className="text-center space-y-1.5 py-2">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+                  <CheckCircle2 className="w-7 h-7" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">
+                  পেমেন্ট সফলভাবে সম্পন্ন হয়েছে!
+                </h3>
+                <p className="text-xs text-slate-500">
+                  আপনার ফি মাদরাসা অ্যাকাউন্টে স্বয়ংক্রিয়ভাবে জমা ও হালনাগাদ হয়েছে।
+                </p>
+              </div>
+
+              <div
+                id="online-receipt-print-area"
+                className="bg-emerald-50/50 border border-emerald-200 rounded-2xl p-4 text-xs space-y-2.5"
+              >
+                <div className="flex items-center justify-between border-b border-emerald-200/80 pb-2">
+                  <span className="text-slate-500">অফিসিয়াল রসিদ নম্বর:</span>
                   <span className="font-mono font-bold text-emerald-800 text-sm">
                     {completedReceipt.receipt_no}
                   </span>
                 </div>
-
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500 font-medium">ট্রানজেকশন আইডি:</span>
-                  <span className="font-mono font-semibold text-slate-700">
+                  <span className="text-slate-500">ট্রানজেকশন আইডি:</span>
+                  <span className="font-mono font-semibold text-slate-800">
                     {completedReceipt.transaction_id}
                   </span>
                 </div>
-
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500 font-medium">পরিশোধের মাধ্যম:</span>
-                  <span className="font-bold text-slate-800">
-                    {completedReceipt.payment_channel || selectedChannel}
-                  </span>
+                  <span className="text-slate-500">শিক্ষার্থী:</span>
+                  <span className="font-bold text-slate-800">{studentName}</span>
                 </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500 font-medium">পরিশোধিত টাকা:</span>
-                  <span className="font-mono font-black text-emerald-700 text-base">
-                    ৳ {formatBanglaCurrency(completedReceipt.amount)}
+                <div className="flex items-center justify-between border-t border-emerald-200/80 pt-2 text-sm font-bold">
+                  <span className="text-emerald-950">পরিশোধিত টাকার পরিমাণ:</span>
+                  <span className="font-mono text-emerald-800">
+                    {formatBanglaCurrency(completedReceipt.amount || payAmount)}
                   </span>
-                </div>
-
-                <div className="flex items-center justify-between pt-1 border-t border-slate-200/80">
-                  <span className="text-slate-500 font-medium">তারিখ ও সময়:</span>
-                  <span className="text-slate-700">{completedReceipt.payment_date || "আজ"}</span>
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-2">
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => printElementIsolated("online-receipt-print-area", "ফি পরিশোধের রসিদ")}
+                  className="flex-1 py-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-2xl text-xs transition flex items-center justify-center gap-2"
+                >
+                  <Printer className="w-4 h-4" />
+                  রসিদ প্রিন্ট করুন
+                </button>
                 <button
                   type="button"
                   onClick={handleCopyReceipt}
-                  className="w-full sm:flex-1 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl text-xs transition flex items-center gap-1.5"
                 >
-                  {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{isCopied ? "কপি হয়েছে" : "রসিদ কপি করুন"}</span>
+                  {isCopied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                  {isCopied ? "কপি হয়েছে" : "কপি"}
                 </button>
-
                 <button
                   type="button"
-                  onClick={() => {
-                    printElementIsolated(
-                      "online-fee-payment-receipt-sheet",
-                      `ফি_রসিদ_${completedReceipt.receipt_no || "অনলাইন_পেমেন্ট"}`
-                    );
-                  }}
-                  className="w-full sm:flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-sm"
+                  onClick={onClose}
+                  className="px-4 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl text-xs transition"
                 >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>রসিদ প্রিন্ট / PDF</span>
+                  বন্ধ করুন
                 </button>
               </div>
-
-              {/* Hidden Dedicated Isolated Print Container */}
-              <div className="hidden">
-                <div
-                  id="online-fee-payment-receipt-sheet"
-                  className="p-8 bg-white text-slate-900 font-sans max-w-3xl mx-auto border-2 border-emerald-800/80 rounded-2xl"
-                  style={{ width: "100%", minHeight: "140mm" }}
-                >
-                  {/* Receipt Header */}
-                  <div className="text-center border-b-2 border-emerald-800 pb-4 mb-4">
-                    <div className="text-xs font-serif font-bold text-emerald-950">
-                      بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ
-                    </div>
-                    <h2 className="text-2xl font-black text-emerald-950 mt-1">
-                      আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা ও এতিমখানা
-                    </h2>
-                    <p className="text-xs text-slate-600 mt-0.5">
-                      মিরপুর শাখা, ঢাকা-১২১৬ • মোবা: ০১৬০০-৯৮৯৫৫৫
-                    </p>
-                    <div className="mt-2.5 inline-block px-4 py-1 bg-emerald-800 text-white font-bold text-xs rounded-full uppercase tracking-wider">
-                      অনলাইন ফি পরিশোধের অফিসিয়াল মানি রিসিট (ডিজিটাল কপি)
-                    </div>
-                  </div>
-
-                  {/* Metadata Row */}
-                  <div className="grid grid-cols-2 gap-4 text-xs pb-3 border-b border-slate-200">
-                    <div>
-                      <p className="text-slate-600">
-                        রসিদ নম্বর (Receipt No):{" "}
-                        <strong className="font-mono text-emerald-900 font-bold text-sm">
-                          {completedReceipt.receipt_no || "MR-Auto"}
-                        </strong>
-                      </p>
-                      <p className="text-slate-600 mt-1">
-                        ট্রানজেকশন আইডি:{" "}
-                        <strong className="font-mono text-slate-800">
-                          {completedReceipt.transaction_id || activeTxnId}
-                        </strong>
-                      </p>
-                      <p className="text-slate-600 mt-1">
-                        পেমেন্ট চ্যানেল:{" "}
-                        <strong className="text-slate-900">
-                          {completedReceipt.payment_channel || selectedChannel} (Online Gateway)
-                        </strong>
-                      </p>
-                    </div>
-
-                    <div className="text-right">
-                      <p className="text-slate-600">
-                        পরিশোধের তারিখ:{" "}
-                        <strong className="text-slate-800">
-                          {toBanglaNumber(completedReceipt.payment_date || new Date().toISOString().split("T")[0])}
-                        </strong>
-                      </p>
-                      <p className="text-slate-600 mt-1">
-                        শিক্ষার্থীর নাম:{" "}
-                        <strong className="text-emerald-950 font-bold text-sm">
-                          {studentName}
-                        </strong>
-                      </p>
-                      <p className="text-slate-600 mt-1">
-                        জামাত: <strong>{className || "সাধারণ"}</strong>
-                        {studentRoll && <span> • রোল: <strong>{toBanglaNumber(studentRoll)}</strong></span>}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Particulars Breakdown Table */}
-                  <div className="my-4">
-                    <table className="w-full text-xs border border-slate-300">
-                      <thead>
-                        <tr className="bg-emerald-50 text-emerald-950 border-b border-slate-300">
-                          <th className="p-2 text-left w-12 border-r border-slate-300">ক্র.নং</th>
-                          <th className="p-2 text-left border-r border-slate-300">ফি বিবরণ / খাত</th>
-                          <th className="p-2 text-left border-r border-slate-300">মাস / সেশন</th>
-                          <th className="p-2 text-right w-28">টাকার পরিমাণ</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {unpaidFees.filter(f => selectedFeeIds.includes(f.id)).length > 0 ? (
-                          unpaidFees
-                            .filter(f => selectedFeeIds.includes(f.id))
-                            .map((f, idx) => (
-                              <tr key={f.id} className="border-b border-slate-200">
-                                <td className="p-2 border-r border-slate-200 text-center font-mono">
-                                  {toBanglaNumber(idx + 1)}
-                                </td>
-                                <td className="p-2 border-r border-slate-200 font-medium">
-                                  {f.fee_type_name}
-                                </td>
-                                <td className="p-2 border-r border-slate-200 text-slate-600">
-                                  {f.billing_period || "-"}
-                                </td>
-                                <td className="p-2 text-right font-mono font-bold">
-                                  ৳ {formatBanglaCurrency(f.due_amount)}
-                                </td>
-                              </tr>
-                            ))
-                        ) : (
-                          <tr className="border-b border-slate-200">
-                            <td className="p-2 border-r border-slate-200 text-center font-mono">১</td>
-                            <td className="p-2 border-r border-slate-200 font-medium">শিক্ষার্থী ফি পরিশোধ</td>
-                            <td className="p-2 border-r border-slate-200 text-slate-600">চলতি সেশন</td>
-                            <td className="p-2 text-right font-mono font-bold">
-                              ৳ {formatBanglaCurrency(completedReceipt.amount || payAmount)}
-                            </td>
-                          </tr>
-                        )}
-                        <tr className="bg-slate-50 font-bold border-t-2 border-slate-300">
-                          <td colSpan={3} className="p-2.5 text-right border-r border-slate-300">
-                            সর্বমোট পরিশোধিত টাকা (Total Paid):
-                          </td>
-                          <td className="p-2.5 text-right text-emerald-900 font-black text-sm">
-                            ৳ {formatBanglaCurrency(completedReceipt.amount || payAmount)}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Amount in words */}
-                  <div className="p-2.5 bg-emerald-50/60 border border-emerald-200 rounded-lg text-xs mb-6 text-slate-800">
-                    <span className="font-bold text-emerald-950">কথায় (In Words): </span>
-                    <span className="italic">
-                      {numberToBanglaWords(Number(completedReceipt.amount || payAmount))}
-                    </span>
-                  </div>
-
-                  {/* Status & Verification Stamp */}
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-dashed border-slate-300 mb-8">
-                    <div className="flex items-center gap-1.5 text-emerald-800 font-bold">
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>অনলাইন গেটওয়ের মাধ্যমে স্বয়ংক্রিয়ভাবে যাচাইকৃত ও অনুমোদিত</span>
-                    </div>
-                    <div>ইস্যু তারিখ: {new Date().toLocaleDateString("en-GB")}</div>
-                  </div>
-
-                  {/* Signatures */}
-                  <div className="grid grid-cols-2 gap-12 text-center text-xs text-slate-700 pt-6">
-                    <div>
-                      <div className="border-t border-slate-400 pt-1 font-semibold">
-                        আদায়কারী / অনলাইন গেটওয়ে সিস্টেম
-                      </div>
-                      <span className="text-[10px] text-slate-400">কম্পিউটার জেনারেটেড ডিজিটাল রসিদ</span>
-                    </div>
-                    <div>
-                      <div className="border-t border-slate-400 pt-1 font-semibold">
-                        হিসাবরক্ষক / মুহতামিম
-                      </div>
-                      <span className="text-[10px] text-slate-400">আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  window.location.reload();
-                }}
-                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition"
-              >
-                সম্পন্ন করুন
-              </button>
             </div>
           )}
-        </div>
-
-        {/* Footer Security Badges */}
-        <div className="bg-slate-50 border-t border-slate-100 p-3 sm:px-6 flex items-center justify-between text-[11px] text-slate-500 shrink-0">
-          <div className="flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5 text-emerald-600" />
-            <span>২৫৬-বিট SSL এনক্রিপ্টেড পেমেন্ট</span>
-          </div>
-          <div className="flex items-center gap-2 font-mono font-bold text-[10px] text-slate-400">
-            <span>bKash</span>
-            <span>•</span>
-            <span>Nagad</span>
-            <span>•</span>
-            <span>IBBL</span>
-            <span>•</span>
-            <span>Rocket</span>
-          </div>
         </div>
       </div>
     </div>

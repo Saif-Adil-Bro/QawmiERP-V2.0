@@ -10,31 +10,42 @@ import {
   OnlinePaymentTransaction,
 } from "@/lib/payment-gateway";
 import {
+  createRealGatewaySession,
+  validateGatewayCredentials,
+  validateSSLCommerzTransaction,
+} from "@/lib/payment-gateway-engine";
+import {
   getFeeMetadata,
   saveFeeMetadata,
   getStudentFeeProfile,
 } from "./fee-management";
 import { FeePayment, PaymentAllocation } from "@/lib/fee-management";
 
+export async function getSafeMadrasaId(): Promise<string | null> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+    if (madrasaId) return madrasaId;
+
+    const adminClient = await createAdminClient();
+    const { data: firstM } = await adminClient
+      .from("madrasas")
+      .select("id")
+      .limit(1)
+      .single();
+    return firstM?.id || "00000000-0000-0000-0000-000000000001";
+  } catch {
+    return "00000000-0000-0000-0000-000000000001";
+  }
+}
+
 /**
  * 1. Fetch current Payment Gateway Configuration for the Madrasa
  */
 export async function getPaymentGatewayConfig(): Promise<PaymentGatewayConfig> {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
-
-    if (!madrasaId) {
-      const adminClient = await createAdminClient();
-      const { data: firstM } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .limit(1)
-        .single();
-      madrasaId = firstM?.id || null;
-    }
-
+    const madrasaId = await getSafeMadrasaId();
     if (!madrasaId) {
       return DEFAULT_GATEWAY_CONFIG;
     }
@@ -245,6 +256,70 @@ export async function initiateOnlinePayment(params: {
       allocations: allocations,
     };
 
+    // 2. Validate Gateway Credentials and Channel Requirements
+    if (params.payment_channel === "Islami Bank") {
+      const ibCheck = validateGatewayCredentials("DIRECT_ISLAMI_BANK", config);
+      if (!ibCheck.isValid) {
+        return { error: ibCheck.error || "ইসলামী ব্যাংক একাউন্ট নম্বর সেটিংসে কনফিগার করা নেই।" };
+      }
+
+      // Save transaction in online_transactions array in metadata
+      const existingTransactions: OnlinePaymentTransaction[] =
+        meta.online_transactions || [];
+      existingTransactions.unshift(newTxn);
+
+      await saveMadrasaMetadata(madrasaId, {
+        ...meta,
+        online_transactions: existingTransactions.slice(0, 500),
+      });
+
+      return {
+        success: true,
+        transaction_id: transactionId,
+        total_payable: totalPayable,
+        provider: "DIRECT_ISLAMI_BANK",
+        is_manual_bank: true,
+        islami_bank_info: config.islami_bank,
+        message: "ইসলামী ব্যাংক ট্রান্সফারের জন্য প্রয়োজনীয় তথ্য প্রদান করা হয়েছে।",
+      };
+    }
+
+    // Direct Automated Gateway Check (SSLCommerz, bKash Checkout, Shurjopay, AamarPay)
+    const credCheck = validateGatewayCredentials(config.active_provider, config);
+    if (!credCheck.isValid) {
+      return {
+        error: credCheck.error || "অনলাইন পেমেন্ট গেটওয়ে সেটিংসে ভুল বা অসম্পূর্ণ ক্রেডেনশিয়ালস রয়েছে।",
+      };
+    }
+
+    // Call Real Gateway Provider API
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://qawmimanager.app";
+    const sessionRes = await createRealGatewaySession(
+      {
+        tran_id: transactionId,
+        amount: totalPayable,
+        cus_name: studentName,
+        cus_phone: params.payer_phone || (student as any)?.guardian_phone || (student as any)?.phone || "01700000000",
+        cus_email: "student_fee@madrasa.internal",
+        product_name: `Student Fee - ${studentName}`,
+        product_category: "Education",
+        success_url: `${appUrl}/api/payments/sslcommerz/success`,
+        fail_url: `${appUrl}/api/payments/sslcommerz/fail`,
+        cancel_url: `${appUrl}/api/payments/sslcommerz/cancel`,
+        ipn_url: `${appUrl}/api/payments/sslcommerz/ipn`,
+        payment_channel: params.payment_channel,
+      },
+      config
+    );
+
+    if (!sessionRes.success || !sessionRes.gateway_url) {
+      return {
+        error:
+          sessionRes.error ||
+          "পেমেন্ট গেটওয়ে সার্ভার থেকে কোনো ভ্যালিড পেমেন্ট লিঙ্ক তৈরি করা যায়নি। ক্রেডেনশিয়ালস বা সংযোগ যাচাই করুন।",
+      };
+    }
+
     // Save transaction in online_transactions array in metadata
     const existingTransactions: OnlinePaymentTransaction[] =
       meta.online_transactions || [];
@@ -260,12 +335,10 @@ export async function initiateOnlinePayment(params: {
       transaction_id: transactionId,
       total_payable: totalPayable,
       provider: config.active_provider,
+      redirect_url: sessionRes.gateway_url,
+      gateway_url: sessionRes.gateway_url,
       is_sandbox: config.environment === "SANDBOX" || config.sandbox_test_mode,
-      islami_bank_info:
-        params.payment_channel === "Islami Bank"
-          ? config.islami_bank
-          : undefined,
-      message: "পেমেন্ট সেশন সফলভাবে শুরু হয়েছে।",
+      message: "পেমেন্ট গেটওয়ে সেশন সফলভাবে তৈরি হয়েছে। রিডাইরেক্ট করা হচ্ছে...",
     };
   } catch (err: any) {
     console.error("Error in initiateOnlinePayment:", err);
@@ -563,3 +636,102 @@ export async function getStudentPublicFeeInfo(studentId: string) {
     return null;
   }
 }
+
+/**
+ * 7. Test Gateway Credentials Action
+ */
+export async function testGatewayCredentialsAction(config: PaymentGatewayConfig) {
+  try {
+    const credCheck = validateGatewayCredentials(config.active_provider, config);
+    if (!credCheck.isValid) {
+      return {
+        success: false,
+        error: credCheck.error || "গেটওয়ে ক্রেডেনশিয়ালস অসম্পূর্ণ বা ভুল।",
+      };
+    }
+
+    // Attempt dummy handshake test session
+    const testSession = await createRealGatewaySession(
+      {
+        tran_id: `TEST-${Date.now()}`,
+        amount: 10,
+        cus_name: "Gateway Ping Test",
+        cus_phone: "01700000000",
+        product_name: "Credential Verification Ping",
+        product_category: "Test",
+        success_url: "https://example.com/success",
+        fail_url: "https://example.com/fail",
+        cancel_url: "https://example.com/cancel",
+      },
+      config
+    );
+
+    if (!testSession.success) {
+      return {
+        success: false,
+        error: `গেটওয়ে কানেকশন টেস্ট ব্যর্থ: ${testSession.error}`,
+      };
+    }
+
+    return {
+      success: true,
+      message: `আলহামদুলিল্লাহ! ${config.active_provider} গেটওয়ে সার্ভারের সাথে সফলভাবে সংযোগ স্থাপিত হয়েছে।`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: `কানেকশন টেস্ট এরর: ${err.message || "সার্ভারে পৌঁছানো যায়নি"}`,
+    };
+  }
+}
+
+/**
+ * 8. Admin Manual Verification of Pending Online Transaction
+ */
+export async function verifyOnlineTransactionAsAdmin(transactionId: string) {
+  return verifyAndCompleteOnlinePayment({
+    transaction_id: transactionId,
+    gateway_ref: `ADMIN-VERIFIED-${Date.now()}`,
+    is_simulated: false,
+  });
+}
+
+/**
+ * 9. Admin Rejection of Online Transaction
+ */
+export async function rejectOnlineTransactionAsAdmin(
+  transactionId: string,
+  reason?: string
+) {
+  try {
+    const adminClient = await createAdminClient();
+    const { data: madrasas } = await adminClient
+      .from("madrasas")
+      .select("id, registration_no");
+
+    if (!madrasas) return { error: "মাদরাসার তথ্য পাওয়া যায়নি" };
+
+    for (const m of madrasas) {
+      if (m.registration_no && m.registration_no.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(m.registration_no);
+          const txns: OnlinePaymentTransaction[] = parsed.online_transactions || [];
+          const idx = txns.findIndex((t) => t.transaction_id === transactionId);
+          if (idx >= 0) {
+            txns[idx].status = "FAILED";
+            txns[idx].notes = `[অ্যাডমিন কর্তৃক বাতিল: ${reason || "অননুমোদিত বা ভুল ট্রানজেকশন"}] ${txns[idx].notes || ""}`;
+            parsed.online_transactions = txns;
+            await saveMadrasaMetadata(m.id, parsed);
+            revalidatePath("/dashboard/accounting/gateway");
+            return { success: true, message: "ট্রানজেকশনটি সফলভাবে বাতিল করা হয়েছে।" };
+          }
+        } catch {}
+      }
+    }
+
+    return { error: "ট্রানজেকশন পাওয়া যায়নি।" };
+  } catch (err: any) {
+    return { error: err.message || "বাতিল করতে সমস্যা হয়েছে।" };
+  }
+}
+

@@ -29,7 +29,11 @@ import {
   Share2,
   QrCode
 } from "lucide-react";
-import { submitOnlineDonation, getOnlineDonations } from "@/app/actions/fundraising";
+import {
+  submitOnlineDonation,
+  getOnlineDonations,
+  initiateOnlineDonationGateway,
+} from "@/app/actions/fundraising";
 import { printElementIsolated } from "@/lib/printUtils";
 import { numberToBanglaWords } from "@/lib/utils";
 import {
@@ -94,6 +98,7 @@ export default function PublicDonateClient({
     payment_method: "bKash" as "bKash" | "Nagad" | "Rocket" | "Bank" | "Online Gateway" | "Other",
     trx_id: "",
     message: "",
+    is_anonymous: false,
   });
 
   const [loading, setLoading] = useState(false);
@@ -212,42 +217,48 @@ export default function PublicDonateClient({
     setShowGatewayModal(true);
   };
 
-  // 3. Complete Real Gateway Payment
+  // 3. Complete Real Gateway Payment via Provider API
   const handleCompleteGatewayPayment = async () => {
     setGatewayProcessing(true);
     try {
-      // Generate genuine transaction identifier
-      const prefix = selectedGatewayChannel === "bKash" ? "BK"
-        : selectedGatewayChannel === "Nagad" ? "NG"
-        : selectedGatewayChannel === "Rocket" ? "RK"
-        : selectedGatewayChannel === "Islami Bank" ? "IBBL"
-        : "SSL";
-      const generatedTrxId = `${prefix}${Date.now().toString().slice(-7)}${Math.floor(100 + Math.random() * 900)}`;
+      const channelMapped: "bKash" | "Nagad" | "Rocket" | "Islami Bank" | "Card / Other" =
+        selectedGatewayChannel === "bKash"
+          ? "bKash"
+          : selectedGatewayChannel === "Nagad"
+          ? "Nagad"
+          : selectedGatewayChannel === "Rocket"
+          ? "Rocket"
+          : selectedGatewayChannel === "Islami Bank"
+          ? "Islami Bank"
+          : "Card / Other";
 
-      const res = await submitOnlineDonation({
+      const res = await initiateOnlineDonationGateway({
         donor_name: formData.donor_name,
-        phone: formData.phone,
+        phone: formData.phone || gatewayPayerNumber,
         email: formData.email,
         amount: formData.amount,
         fund_category: formData.fund_category,
-        payment_method: `${selectedGatewayChannel} (অনলাইন গেটওয়ে)`,
-        trx_id: generatedTrxId,
+        payment_channel: channelMapped,
         message: formData.message,
-        is_gateway: true,
-        gateway_provider: settings.gateway_provider || "SSLCOMMERZ",
-        status: "VERIFIED",
+        is_anonymous: formData.is_anonymous,
       });
 
-      if (res.error) {
-        alert(res.error);
+      if (res.error || !res.success) {
+        alert(res.error || "পেমেন্ট গেটওয়ে সার্ভারের সাথে সংযোগ স্থাপন করা যায়নি। গেটওয়ে সেটিংস বা ক্রেডেনশিয়ালস চেক করুন।");
         setGatewayProcessing(false);
         return;
       }
 
-      setShowGatewayModal(false);
-      setSubmittedReceipt(res.donation as OnlineDonation);
-    } catch {
-      alert("পেমেন্ট সম্পন্ন করতে সমস্যা হয়েছে। পুনরায় চেষ্টা করুন।");
+      if (res.redirect_url || res.gateway_url) {
+        const targetUrl = res.redirect_url || res.gateway_url;
+        // Redirect donor to official checkout
+        window.location.href = targetUrl;
+        return;
+      }
+
+      alert("পেমেন্ট লিঙ্ক তৈরি করা যায়নি। অনুগ্রহ করে পুনরায় চেষ্টা করুন।");
+    } catch (err: any) {
+      alert(err.message || "পেমেন্ট সম্পন্ন করতে সমস্যা হয়েছে। পুনরায় চেষ্টা করুন।");
     } finally {
       setGatewayProcessing(false);
     }

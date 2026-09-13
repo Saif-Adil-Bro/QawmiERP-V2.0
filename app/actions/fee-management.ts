@@ -1242,28 +1242,101 @@ export async function getFeeDashboardOverview() {
       } catch {}
     }
 
-    // Calculate Collection
-    const totalCollected = payments.reduce((sum, p) => sum + p.total_amount_received, 0) || dbFees.reduce((sum, f) => sum + (Number(f.amount) || 0), 0);
-    const totalDue = studentFees.reduce((sum, f) => sum + f.due_amount, 0);
+    const studentMap = new Map<string, any>();
+    students.forEach((s) => studentMap.set(s.id, s));
+
+    // Reconcile and unify all payments (from meta.payments and Supabase dbFees)
+    const trackedDbFeeIds = new Set<string>();
+    const unifiedPayments: FeePayment[] = [];
+
+    // 1. Add valid completed payments from metadata
+    for (const p of payments) {
+      unifiedPayments.push(p);
+      if (p.db_fee_id) {
+        trackedDbFeeIds.add(p.db_fee_id);
+      }
+      if (p.id) {
+        trackedDbFeeIds.add(p.id);
+      }
+    }
+
+    // 2. Add dbFees that are not already covered in payments
+    for (const f of dbFees) {
+      if (!trackedDbFeeIds.has(f.id)) {
+        const student = studentMap.get(f.student_id);
+        const feeDate = f.payment_date || (f.created_at ? f.created_at.split("T")[0] : "");
+        const feeAmount = Number(f.amount) || 0;
+        const feeTypeName = f.fee_type || "মাসিক ফি";
+        
+        unifiedPayments.push({
+          id: f.id,
+          receipt_no: f.receipt_no || (f.notes?.match(/\[রিসিট:\s*([^\]]+)\]/)?.[1]) || f.id.substring(0, 8).toUpperCase(),
+          madrasa_id: madrasaId,
+          session_id: "default",
+          student_id: f.student_id,
+          student_name: student ? `${student.first_name || ""} ${student.last_name || ""}`.trim() : (f.student_name || "শিক্ষার্থী"),
+          student_roll: student?.roll_number ? String(student.roll_number) : (f.student_roll || "-"),
+          class_name: student?.class_name || f.class_name || "-",
+          total_amount_received: feeAmount,
+          payment_date: feeDate,
+          payment_method: f.payment_method || "Cash",
+          allocations: [{ fee_type_name: feeTypeName, allocated_amount: feeAmount }],
+          discount_total: 0,
+          fine_total: 0,
+          advance_amount: 0,
+          collector_name: "হিসাব বিভাগ",
+          notes: f.notes || "",
+          status: "COMPLETED",
+          created_at: f.created_at || feeDate || new Date().toISOString(),
+        });
+      }
+    }
+
+    // Sort unified payments by date descending
+    unifiedPayments.sort((a, b) => {
+      const dateA = a.payment_date || a.created_at || "";
+      const dateB = b.payment_date || b.created_at || "";
+      return dateB.localeCompare(dateA);
+    });
+
+    // Dates for current month and today
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonthNum = now.getMonth() + 1;
+    const currentMonthStr = `${currentYear}-${String(currentMonthNum).padStart(2, "0")}`; // "YYYY-MM"
+    const todayStr = now.toISOString().split("T")[0];
+
+    // Total Collection
+    const totalCollected = unifiedPayments.reduce((sum, p) => sum + (Number(p.total_amount_received) || 0), 0);
+    const totalDue = studentFees.reduce((sum, f) => sum + (Number(f.due_amount) || 0), 0);
 
     // Current month collection
-    const currentMonthStr = new Date().toISOString().substring(0, 7); // YYYY-MM
-    const thisMonthCollection = payments
-      .filter((p) => p.payment_date?.startsWith(currentMonthStr))
-      .reduce((sum, p) => sum + p.total_amount_received, 0);
+    const thisMonthCollection = unifiedPayments
+      .filter((p) => {
+        const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+        return Boolean(pDate && pDate.startsWith(currentMonthStr));
+      })
+      .reduce((sum, p) => sum + (Number(p.total_amount_received) || 0), 0);
 
     // Today's collection
-    const todayStr = new Date().toISOString().split("T")[0];
-    const todayCollection = payments
-      .filter((p) => p.payment_date === todayStr)
-      .reduce((sum, p) => sum + p.total_amount_received, 0);
+    const todayCollection = unifiedPayments
+      .filter((p) => {
+        const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+        return pDate === todayStr;
+      })
+      .reduce((sum, p) => sum + (Number(p.total_amount_received) || 0), 0);
 
     // Fee Type breakdown
     const typeBreakdown: Record<string, number> = {};
-    payments.forEach((p) => {
-      p.allocations?.forEach((a) => {
-        typeBreakdown[a.fee_type_name] = (typeBreakdown[a.fee_type_name] || 0) + a.allocated_amount;
-      });
+    unifiedPayments.forEach((p) => {
+      if (p.allocations && p.allocations.length > 0) {
+        p.allocations.forEach((a) => {
+          typeBreakdown[a.fee_type_name] = (typeBreakdown[a.fee_type_name] || 0) + (Number(a.allocated_amount) || 0);
+        });
+      } else {
+        const defaultType = "মাসিক ফি";
+        typeBreakdown[defaultType] = (typeBreakdown[defaultType] || 0) + (Number(p.total_amount_received) || 0);
+      }
     });
 
     // Payment Method breakdown
@@ -1275,8 +1348,9 @@ export async function getFeeDashboardOverview() {
       Rocket: 0,
       Other: 0,
     };
-    payments.forEach((p) => {
-      methodBreakdown[p.payment_method] = (methodBreakdown[p.payment_method] || 0) + p.total_amount_received;
+    unifiedPayments.forEach((p) => {
+      const method = p.payment_method || "Cash";
+      methodBreakdown[method] = (methodBreakdown[method] || 0) + (Number(p.total_amount_received) || 0);
     });
 
     return {
@@ -1284,9 +1358,9 @@ export async function getFeeDashboardOverview() {
       totalDue,
       thisMonthCollection,
       todayCollection,
-      totalPaymentsCount: payments.length || dbFees.length,
+      totalPaymentsCount: unifiedPayments.length,
       totalStudentsCount: students.length,
-      recentPayments: payments.slice(0, 10),
+      recentPayments: unifiedPayments.slice(0, 10),
       typeBreakdown,
       methodBreakdown,
       auditLogs: (meta.audit_logs || []).slice(0, 5),
