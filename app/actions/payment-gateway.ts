@@ -673,9 +673,18 @@ export async function testGatewayCredentialsAction(config: PaymentGatewayConfig)
       };
     }
 
+    const providerNames: Record<string, string> = {
+      SSLCOMMERZ: "SSLCommerz",
+      BKASH_CHECKOUT: "bKash Direct",
+      SHURJOPAY: "ShurjoPay",
+      AAMARPAY: "AamarPay",
+      DIRECT_ISLAMI_BANK: "ইসলামী ব্যাংক (IBBL / CellFin)",
+    };
+    const friendlyName = providerNames[config.active_provider] || config.active_provider;
+
     return {
       success: true,
-      message: `আলহামদুলিল্লাহ! ${config.active_provider} গেটওয়ে সার্ভারের সাথে সফলভাবে সংযোগ স্থাপিত হয়েছে।`,
+      message: `আলহামদুলিল্লাহ! ${friendlyName} সফলভাবে যাচাই ও সক্রিয় করা হয়েছে।`,
     };
   } catch (err: any) {
     return {

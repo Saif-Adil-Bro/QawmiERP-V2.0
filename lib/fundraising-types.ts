@@ -66,6 +66,22 @@ export interface MahfilTransaction {
   voucher_no?: string;
 }
 
+export interface MahfilSettlement {
+  id: string;
+  mahfil_id: string;
+  settlement_type: "SURPLUS_DEPOSIT" | "DEFICIT_COVER"; // উদ্বৃত্ত জমা (Surplus) | ঘাটতি পূরণ (Deficit Cover)
+  amount: number;
+  fund_id: string;
+  fund_name: string;
+  settlement_date: string;
+  payment_method: "Cash" | "bKash" | "Nagad" | "Bank" | "Other";
+  accounting_voucher_no: string; // স্বয়ংক্রিয় তৈরি ভাউচার নং
+  accounting_record_id?: string; // donations or expenses record id
+  mahfil_txn_id?: string; // associated transaction inside mahfil
+  notes?: string;
+  created_at: string;
+}
+
 export interface Mahfil {
   id: string;
   madrasa_id: string;
@@ -82,6 +98,8 @@ export interface Mahfil {
   receipt_books: MahfilReceiptBook[];
   transactions: MahfilTransaction[];
   status: MahfilStatus;
+  settlement?: MahfilSettlement;
+  settlements?: MahfilSettlement[];
   notes?: string;
   created_at: string;
   updated_at: string;

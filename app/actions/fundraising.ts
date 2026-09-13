@@ -9,6 +9,7 @@ import {
   MahfilSpeaker,
   MahfilReceiptBook,
   MahfilTransaction,
+  MahfilSettlement,
   LifeMemberDonor,
   DonorSubscriptionPayment,
   QurbaniLeatherRecord,
@@ -18,6 +19,7 @@ import {
   OnlineDonationSettings,
   DEFAULT_ONLINE_DONATION_SETTINGS,
 } from "@/lib/fundraising-types";
+import { DEFAULT_FUNDS } from "@/lib/fund-utils";
 import {
   createRealGatewaySession,
   validateGatewayCredentials,
@@ -741,6 +743,251 @@ export async function deleteMahfilTransaction(mahfilId: string, txnId: string) {
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "মুছতে সমস্যা হয়েছে" };
+  }
+}
+
+// -------------------------------------------------------------
+// Mahfil Fund Coordination & Settlement (তহবিল উদ্বৃত্ত/ঘাটতি সমন্বয়)
+// -------------------------------------------------------------
+
+export interface MahfilSettlementPayload {
+  settlement_type: "SURPLUS_DEPOSIT" | "DEFICIT_COVER";
+  amount: number;
+  fund_id: string;
+  fund_name: string;
+  settlement_date: string;
+  payment_method: "Cash" | "bKash" | "Nagad" | "Bank" | "Other";
+  notes?: string;
+}
+
+export async function getAvailableFundsForMahfil() {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+
+    const adminClient = await createAdminClient();
+    const [fundsRes, zakatRes] = await Promise.all([
+      finalMadrasaId ? adminClient.from("funds").select("*").eq("madrasa_id", finalMadrasaId) : { data: [] },
+      finalMadrasaId ? adminClient.from("zakat_funds").select("*").eq("madrasa_id", finalMadrasaId) : { data: [] },
+    ]);
+
+    const customList = [...(fundsRes.data || []), ...(zakatRes.data || [])];
+    if (customList.length > 0) {
+      const uniqueMap = new Map();
+      customList.forEach((f: any) => {
+        if (!uniqueMap.has(f.name)) {
+          uniqueMap.set(f.name, {
+            id: f.id,
+            name: f.name,
+            category: f.category || "General",
+            current_balance: Number(f.current_balance || 0),
+          });
+        }
+      });
+      return Array.from(uniqueMap.values());
+    }
+
+    return DEFAULT_FUNDS.map(f => ({
+      id: f.id,
+      name: f.name,
+      category: f.category,
+      current_balance: 0,
+    }));
+  } catch {
+    return DEFAULT_FUNDS.map(f => ({
+      id: f.id,
+      name: f.name,
+      category: f.category,
+      current_balance: 0,
+    }));
+  }
+}
+
+export async function settleMahfilFund(mahfilId: string, payload: MahfilSettlementPayload) {
+  try {
+    const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
+    if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
+
+    const adminClient = await createAdminClient();
+    const settlementId = `settle_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const now = new Date().toISOString();
+    const dateStr = payload.settlement_date || now.split("T")[0];
+    const amount = Number(payload.amount);
+
+    if (!amount || amount <= 0) {
+      return { error: "সঠিক পরিমাণ টাকা উল্লেখ করুন।" };
+    }
+
+    let accountingVoucherNo = "";
+    let accountingRecordId = "";
+    const mahfilTxnId = `txn_settle_${Date.now()}`;
+
+    if (payload.settlement_type === "SURPLUS_DEPOSIT") {
+      // 1. Surplus: Deposit into target Fund -> Create Income / Donation record in Accounting
+      accountingVoucherNo = `MHF-SURPLUS-${Date.now().toString().slice(-4)}`;
+      
+      const { data: donRec, error: donErr } = await adminClient.from("donations").insert({
+        madrasa_id: activeMadrasaId,
+        amount: amount,
+        donation_type: payload.fund_name,
+        fund_id: payload.fund_id,
+        donation_date: dateStr,
+        receipt_no: accountingVoucherNo,
+        payment_method: payload.payment_method || "Cash",
+        notes: `[মাহফিল উদ্বৃত্ত তহবিল জমা] মাহফিল: ${targetMahfil.title} (${targetMahfil.year}) থেকে ${payload.fund_name}-এ উদ্বৃত্ত জমা। ${payload.notes || ""}`.trim(),
+      }).select("id").single();
+
+      if (donErr) {
+        console.error("Error creating donation for mahfil surplus:", donErr);
+      }
+      accountingRecordId = donRec?.id || "";
+
+      // Also create a Mahfil EXPENSE transaction to balance the Mahfil account
+      const mahfilTxn: MahfilTransaction = {
+        id: mahfilTxnId,
+        mahfil_id: mahfilId,
+        type: "EXPENSE",
+        category: "উদ্বৃত্ত ফান্ডে স্থানান্তর",
+        amount: amount,
+        description: `মাহফিলের উদ্বৃত্ত অর্থ ${payload.fund_name}-এ স্থানান্তর ও জমা (${accountingVoucherNo})`,
+        date: dateStr,
+        payment_method: payload.payment_method || "Cash",
+        receipt_no: accountingVoucherNo,
+      };
+
+      targetMahfil.transactions = [...(targetMahfil.transactions || []), mahfilTxn];
+    } else {
+      // 2. Deficit: Cover from another Fund -> Create Expense Voucher in Madrasa Accounting
+      accountingVoucherNo = `EXP-MHF-DEF-${Date.now().toString().slice(-4)}`;
+      const cleanDesc = `মাহফিল: ${targetMahfil.title} (${targetMahfil.year}) এর ঘাটতি পূরণ বাবদ ${payload.fund_name} থেকে প্রদান। ${payload.notes || ""}`.trim();
+      const wrappedDesc = `[FUND: ${payload.fund_id} | ${payload.fund_name}]\n${cleanDesc}`;
+
+      const { data: expRec, error: expErr } = await adminClient.from("expenses").insert({
+        madrasa_id: activeMadrasaId,
+        category: "মাহফিল ঘাটতি সমন্বয়",
+        amount: amount,
+        expense_date: dateStr,
+        description: wrappedDesc,
+        fund_id: payload.fund_id,
+        fund_name: payload.fund_name,
+        voucher_no: accountingVoucherNo,
+      }).select("id").single();
+
+      if (expErr) {
+        console.error("Error creating expense for mahfil deficit:", expErr);
+      }
+      accountingRecordId = expRec?.id || "";
+
+      // Also create a Mahfil INCOME transaction so Mahfil balance becomes 0
+      const mahfilTxn: MahfilTransaction = {
+        id: mahfilTxnId,
+        mahfil_id: mahfilId,
+        type: "INCOME",
+        category: "ফান্ড থেকে ঘাটতি পূরণ",
+        amount: amount,
+        description: `${payload.fund_name} থেকে ঘাটতি সমন্বয় বাবদ প্রাপ্তি (${accountingVoucherNo})`,
+        date: dateStr,
+        payment_method: payload.payment_method || "Cash",
+        receipt_no: accountingVoucherNo,
+      };
+
+      targetMahfil.transactions = [...(targetMahfil.transactions || []), mahfilTxn];
+    }
+
+    const settlementRecord: MahfilSettlement = {
+      id: settlementId,
+      mahfil_id: mahfilId,
+      settlement_type: payload.settlement_type,
+      amount: amount,
+      fund_id: payload.fund_id,
+      fund_name: payload.fund_name,
+      settlement_date: dateStr,
+      payment_method: payload.payment_method,
+      accounting_voucher_no: accountingVoucherNo,
+      accounting_record_id: accountingRecordId,
+      mahfil_txn_id: mahfilTxnId,
+      notes: payload.notes || "",
+      created_at: now,
+    };
+
+    targetMahfil.settlement = settlementRecord;
+    targetMahfil.settlements = [...(targetMahfil.settlements || []), settlementRecord];
+    targetMahfil.updated_at = now;
+
+    meta.mahfils = mahfils;
+    await saveMadrasaMetadata(activeMadrasaId, meta);
+
+    try {
+      revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
+      revalidatePath("/dashboard/accounting/expenses");
+      revalidatePath("/dashboard/accounting/donations");
+      revalidatePath("/dashboard/accounting/funds");
+    } catch {}
+
+    return {
+      success: true,
+      settlement: settlementRecord,
+      message: payload.settlement_type === "SURPLUS_DEPOSIT"
+        ? `আলহামদুলিল্লাহ! ৳${amount} উদ্বৃত্ত অর্থ সফলভাবে "${payload.fund_name}"-এ স্থানান্তর করা হয়েছে এবং জমা ভাউচার #${accountingVoucherNo} যুক্ত হয়েছে।`
+        : `আলহামদুলিল্লাহ! "${payload.fund_name}" থেকে ৳${amount} ঘাটতি সমন্বয় সম্পন্ন হয়েছে এবং খরচ ভাউচার #${accountingVoucherNo} যুক্ত হয়েছে।`,
+    };
+  } catch (err: any) {
+    console.error("Error settling mahfil fund:", err);
+    return { error: err.message || "তহবিল সমন্বয়ে সমস্যা হয়েছে" };
+  }
+}
+
+export async function deleteMahfilSettlement(mahfilId: string, settlementId: string) {
+  try {
+    const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
+    if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
+
+    const settlement = (targetMahfil.settlements || []).find((s: MahfilSettlement) => s.id === settlementId) || targetMahfil.settlement;
+    if (!settlement) return { error: "সমন্বয় রেকর্ড পাওয়া যায়নি" };
+
+    const adminClient = await createAdminClient();
+
+    // 1. If we have an accounting record id or voucher no, clean up
+    if (settlement.accounting_record_id) {
+      if (settlement.settlement_type === "SURPLUS_DEPOSIT") {
+        await adminClient.from("donations").delete().eq("id", settlement.accounting_record_id);
+      } else {
+        await adminClient.from("expenses").delete().eq("id", settlement.accounting_record_id);
+      }
+    } else if (settlement.accounting_voucher_no) {
+      if (settlement.settlement_type === "SURPLUS_DEPOSIT") {
+        await adminClient.from("donations").delete().eq("receipt_no", settlement.accounting_voucher_no);
+      } else {
+        await adminClient.from("expenses").delete().eq("voucher_no", settlement.accounting_voucher_no);
+      }
+    }
+
+    // 2. Remove internal mahfil transaction
+    if (settlement.mahfil_txn_id) {
+      targetMahfil.transactions = (targetMahfil.transactions || []).filter((t: MahfilTransaction) => t.id !== settlement.mahfil_txn_id);
+    }
+
+    // 3. Update settlements array
+    targetMahfil.settlements = (targetMahfil.settlements || []).filter((s: MahfilSettlement) => s.id !== settlementId);
+    if (targetMahfil.settlement?.id === settlementId) {
+      targetMahfil.settlement = targetMahfil.settlements.length > 0 ? targetMahfil.settlements[targetMahfil.settlements.length - 1] : undefined;
+    }
+    targetMahfil.updated_at = new Date().toISOString();
+
+    meta.mahfils = mahfils;
+    await saveMadrasaMetadata(activeMadrasaId, meta);
+
+    try {
+      revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
+      revalidatePath("/dashboard/accounting/expenses");
+      revalidatePath("/dashboard/accounting/donations");
+      revalidatePath("/dashboard/accounting/funds");
+    } catch {}
+
+    return { success: true, message: "সমন্বয় বাতিল করা হয়েছে এবং হিসাব আপডেট করা হয়েছে।" };
+  } catch (err: any) {
+    return { error: err.message || "বাতিল করতে সমস্যা হয়েছে" };
   }
 }
 

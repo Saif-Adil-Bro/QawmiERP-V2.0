@@ -393,6 +393,120 @@ export async function createRealGatewaySession(
       }
     }
 
+    // -------------------------------------------------------------
+    // Provider D: ShurjoPay (Bangladesh Bank PSO Approved)
+    // -------------------------------------------------------------
+    if (provider === "SHURJOPAY") {
+      const isLive = config.environment === "LIVE" && config.shurjopay?.is_live;
+      const baseUrl = isLive
+        ? "https://engine.shurjopayment.com/api"
+        : "https://sandbox.shurjopayment.com/api";
+
+      // Step 1: Obtain Token
+      const tokenRes = await fetch(`${baseUrl}/get_token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: config.shurjopay.merchant_username.trim(),
+          password: config.shurjopay.merchant_password.trim(),
+        }),
+        cache: "no-store",
+      });
+
+      const tokenData = await tokenRes.json().catch(() => null);
+
+      if (!tokenRes.ok || !tokenData?.token) {
+        return {
+          success: false,
+          status: "FAILED",
+          provider,
+          error: `ShurjoPay অথেন্টিকেশন ব্যর্থ: ${tokenData?.message || "মার্চেন্ট ইউজারনেম বা পাসওয়ার্ড সঠিক নয়।"}`
+        };
+      }
+
+      // Step 2: Initiate Payment Session
+      const payRes = await fetch(`${baseUrl}/secret-pay`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${tokenData.token}`,
+        },
+        body: JSON.stringify({
+          prefix: config.shurjopay.merchant_prefix?.trim() || "MDR",
+          token: tokenData.token,
+          return_url: req.success_url,
+          cancel_url: req.cancel_url,
+          store_id: tokenData.store_id || "1",
+          amount: req.amount.toFixed(2),
+          order_id: req.tran_id,
+          currency: "BDT",
+          customer_name: req.cus_name || "সম্মানিত অভিভাবক",
+          customer_address: req.cus_add1 || "ঢাকা",
+          customer_email: req.cus_email || "guardian@madrasa.edu",
+          customer_phone: req.cus_phone || "01700000000",
+          customer_city: req.cus_city || "ঢাকা",
+          customer_post_code: req.cus_postcode || "1216",
+          client_ip: "127.0.0.1",
+        }),
+        cache: "no-store",
+      });
+
+      const payData = await payRes.json().catch(() => null);
+
+      if (payData?.checkout_url) {
+        return {
+          success: true,
+          status: "SUCCESS",
+          gateway_url: payData.checkout_url,
+          session_key: payData.sp_order_id || req.tran_id,
+          redirect_url: payData.checkout_url,
+          provider,
+          raw_response: payData,
+        };
+      } else {
+        return {
+          success: false,
+          status: "FAILED",
+          provider,
+          error: `ShurjoPay সেশন তৈরিতে ব্যর্থ: ${payData?.message || "চেকআউট ইউআরএল পাওয়া যায়নি।"}`,
+          raw_response: payData,
+        };
+      }
+    }
+
+    // -------------------------------------------------------------
+    // Provider E: Direct Islami Bank (IBBL & CellFin Direct)
+    // -------------------------------------------------------------
+    if (provider === "DIRECT_ISLAMI_BANK") {
+      const { account_number, account_name, branch_name } = config.islami_bank || {};
+      if (!account_number || account_number.trim() === "") {
+        return {
+          success: false,
+          status: "FAILED",
+          provider,
+          error: "ইসলামী ব্যাংক হিসাব নম্বর প্রদান করা হয়নি।",
+        };
+      }
+
+      // Direct Bank/CellFin generates direct instruction session
+      return {
+        success: true,
+        status: "SUCCESS",
+        gateway_url: req.success_url || "/portal/fees",
+        session_key: `IBBL-${req.tran_id}`,
+        redirect_url: req.success_url || "/portal/fees",
+        provider,
+        raw_response: {
+          mode: "MANUAL_BANK_TRANSFER",
+          bank: "Islami Bank Bangladesh PLC",
+          account_name,
+          account_number,
+          branch_name,
+          tran_id: req.tran_id,
+        },
+      };
+    }
+
     // Default Fallback
     return {
       success: false,

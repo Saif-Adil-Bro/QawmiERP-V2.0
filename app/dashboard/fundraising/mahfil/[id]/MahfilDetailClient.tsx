@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -27,13 +27,22 @@ import {
   Receipt,
   Layers,
   Search,
-  Filter
+  Filter,
+  RefreshCw,
+  Wallet,
+  Scale,
+  Building2,
+  CheckCircle2,
+  ArrowRightLeft,
+  Sparkles,
+  ShieldCheck
 } from "lucide-react";
 import {
   Mahfil,
   MahfilSpeaker,
   MahfilReceiptBook,
-  MahfilTransaction
+  MahfilTransaction,
+  MahfilSettlement
 } from "@/lib/fundraising-types";
 import {
   saveMahfilSpeaker,
@@ -42,7 +51,10 @@ import {
   deleteMahfilReceiptBook,
   saveMahfilTransaction,
   deleteMahfilTransaction,
-  saveMahfil
+  saveMahfil,
+  settleMahfilFund,
+  deleteMahfilSettlement,
+  getAvailableFundsForMahfil
 } from "@/app/actions/fundraising";
 
 function toBanglaNumber(val: number | string | undefined | null): string {
@@ -80,6 +92,36 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   // Transaction Modal State
   const [txnModalOpen, setTxnModalOpen] = useState(false);
   const [editingTxn, setEditingTxn] = useState<Partial<MahfilTransaction> | null>(null);
+
+  // Settlement State (তহবিল সমন্বয় স্টেট)
+  const [settlementModalOpen, setSettlementModalOpen] = useState(false);
+  const [settlementMode, setSettlementMode] = useState<"SURPLUS_DEPOSIT" | "DEFICIT_COVER">("SURPLUS_DEPOSIT");
+  const [settlementAmount, setSettlementAmount] = useState<number>(0);
+  const [settlementFundId, setSettlementFundId] = useState<string>("fund-general");
+  const [settlementFundName, setSettlementFundName] = useState<string>("সাধারণ ফান্ড (General Fund)");
+  const [settlementDate, setSettlementDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [settlementPaymentMethod, setSettlementPaymentMethod] = useState<"Cash" | "bKash" | "Nagad" | "Bank" | "Other">("Cash");
+  const [settlementNotes, setSettlementNotes] = useState<string>("");
+  const [availableFunds, setAvailableFunds] = useState<Array<{ id: string; name: string; category?: string; current_balance?: number }>>([]);
+  const [settling, setSettling] = useState(false);
+
+  useEffect(() => {
+    async function loadFunds() {
+      try {
+        const funds = await getAvailableFundsForMahfil();
+        if (funds && funds.length > 0) {
+          setAvailableFunds(funds);
+          if (!settlementFundId || settlementFundId === "fund-general") {
+            setSettlementFundId(funds[0].id);
+            setSettlementFundName(funds[0].name);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load funds:", err);
+      }
+    }
+    loadFunds();
+  }, []);
 
   const [loading, setLoading] = useState(false);
 
@@ -514,6 +556,165 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     }
   };
 
+  // -------------------------------------------------------------
+  // Mahfil Settlement Handlers (তহবিল সমন্বয় ও ভাউচার হ্যান্ডলার)
+  // -------------------------------------------------------------
+  const handleOpenSettlementModal = (modeOverride?: "SURPLUS_DEPOSIT" | "DEFICIT_COVER") => {
+    const determinedMode = modeOverride || (netBalance >= 0 ? "SURPLUS_DEPOSIT" : "DEFICIT_COVER");
+    const defaultAmt = Math.abs(netBalance);
+
+    setSettlementMode(determinedMode);
+    setSettlementAmount(defaultAmt);
+    setSettlementDate(new Date().toISOString().split("T")[0]);
+    setSettlementPaymentMethod("Cash");
+    setSettlementNotes("");
+
+    if (availableFunds.length > 0) {
+      setSettlementFundId(availableFunds[0].id);
+      setSettlementFundName(availableFunds[0].name);
+    } else {
+      setSettlementFundId("fund-general");
+      setSettlementFundName("সাধারণ ফান্ড (General Fund)");
+    }
+    setSettlementModalOpen(true);
+  };
+
+  const handleFundSelectChange = (fundId: string) => {
+    setSettlementFundId(fundId);
+    const found = availableFunds.find(f => f.id === fundId);
+    if (found) {
+      setSettlementFundName(found.name);
+    }
+  };
+
+  const handleExecuteSettlement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settlementAmount || settlementAmount <= 0) {
+      alert("অনুগ্রহ করে সঠিক টাকার পরিমাণ উল্লেখ করুন।");
+      return;
+    }
+    if (!settlementFundId || !settlementFundName) {
+      alert("অনুগ্রহ করে একটি ফান্ড নির্বাচন করুন।");
+      return;
+    }
+
+    setSettling(true);
+    const payload = {
+      settlement_type: settlementMode,
+      amount: Number(settlementAmount),
+      fund_id: settlementFundId,
+      fund_name: settlementFundName,
+      settlement_date: settlementDate,
+      payment_method: settlementPaymentMethod,
+      notes: settlementNotes,
+    };
+
+    try {
+      let res = await settleMahfilFund(mahfil.id, payload);
+      if (res && "error" in res && res.error) {
+        // Try fallback via API route
+        const apiRes = await fetch("/api/fundraising/mahfil/settlement", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mahfil_id: mahfil.id, ...payload }),
+        });
+        const apiData = await apiRes.json();
+        if (!apiRes.ok || apiData.error) {
+          alert(apiData.error || res.error || "তহবিল সমন্বয়ে সমস্যা হয়েছে");
+          return;
+        }
+        res = apiData;
+      }
+
+      setSettlementModalOpen(false);
+      router.refresh();
+
+      if (res.settlement) {
+        const newSettlement = res.settlement;
+        setMahfil(prev => ({
+          ...prev,
+          settlement: newSettlement,
+          settlements: [...(prev.settlements || []), newSettlement],
+          transactions: payload.settlement_type === "SURPLUS_DEPOSIT"
+            ? [
+                ...(prev.transactions || []),
+                {
+                  id: newSettlement.mahfil_txn_id || `txn_settle_${Date.now()}`,
+                  mahfil_id: mahfil.id,
+                  type: "EXPENSE",
+                  category: "উদ্বৃত্ত ফান্ডে স্থানান্তর",
+                  amount: Number(payload.amount),
+                  description: `মাহফিলের উদ্বৃত্ত অর্থ ${payload.fund_name}-এ স্থানান্তর ও জমা (${newSettlement.accounting_voucher_no})`,
+                  date: payload.settlement_date,
+                  payment_method: payload.payment_method,
+                  receipt_no: newSettlement.accounting_voucher_no,
+                }
+              ]
+            : [
+                ...(prev.transactions || []),
+                {
+                  id: newSettlement.mahfil_txn_id || `txn_settle_${Date.now()}`,
+                  mahfil_id: mahfil.id,
+                  type: "INCOME",
+                  category: "ফান্ড থেকে ঘাটতি পূরণ",
+                  amount: Number(payload.amount),
+                  description: `${payload.fund_name} থেকে ঘাটতি সমন্বয় বাবদ প্রাপ্তি (${newSettlement.accounting_voucher_no})`,
+                  date: payload.settlement_date,
+                  payment_method: payload.payment_method,
+                  receipt_no: newSettlement.accounting_voucher_no,
+                }
+              ]
+        }));
+      }
+
+      alert(res.message || "তহবিল সমন্বয় সফলভাবে সম্পন্ন হয়েছে এবং ভাউচার তৈরি হয়েছে।");
+    } catch (err: any) {
+      alert("তহবিল সমন্বয়ে সমস্যা হয়েছে: " + (err?.message || ""));
+    } finally {
+      setSettling(false);
+    }
+  };
+
+  const handleDeleteSettlementItem = async (settlementId: string) => {
+    if (!confirm("আপনি কি নিশ্চিতভাবে এই তহবিল সমন্বয়টি বাতিল করতে চান? এতে মাদরাসা হিসাবের স্বয়ংক্রিয় ভাউচারটিও মুছে যাবে।")) return;
+    setLoading(true);
+    try {
+      let res = await deleteMahfilSettlement(mahfil.id, settlementId);
+      if (res && "error" in res && res.error) {
+        const apiRes = await fetch(`/api/fundraising/mahfil/settlement?mahfil_id=${mahfil.id}&settlement_id=${settlementId}`, {
+          method: "DELETE",
+        });
+        const apiData = await apiRes.json();
+        if (!apiRes.ok || apiData.error) {
+          alert(apiData.error || res.error || "সমন্বয় বাতিল করতে সমস্যা হয়েছে");
+          return;
+        }
+      }
+
+      setMahfil(prev => {
+        const remainingSettlements = (prev.settlements || []).filter(s => s.id !== settlementId);
+        const targetSettlement = (prev.settlements || []).find(s => s.id === settlementId) || prev.settlement;
+        const filteredTxns = targetSettlement?.mahfil_txn_id
+          ? (prev.transactions || []).filter(t => t.id !== targetSettlement.mahfil_txn_id)
+          : (prev.transactions || []);
+
+        return {
+          ...prev,
+          settlements: remainingSettlements,
+          settlement: remainingSettlements.length > 0 ? remainingSettlements[remainingSettlements.length - 1] : undefined,
+          transactions: filteredTxns,
+        };
+      });
+
+      router.refresh();
+      alert("তহবিল সমন্বয় ও ভাউচার সফলভাবে বাতিল করা হয়েছে।");
+    } catch (err) {
+      alert("বাতিল করতে সমস্যা হয়েছে");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
       {/* Top Header Card */}
@@ -635,6 +836,105 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           <span className="text-[11px] text-slate-400 font-medium block mt-0.5">
             মোট আয়: ৳ {toBanglaNumber(totalIncome)}
           </span>
+        </div>
+      </div>
+
+      {/* Mahfil Fund Coordination Banner (তহবিল সমন্বয় ও অটোমেটিক ভাউচার বার) */}
+      <div className={`p-4 rounded-2xl border shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+        mahfil.settlement || (mahfil.settlements && mahfil.settlements.length > 0)
+          ? "bg-emerald-50/80 border-emerald-200"
+          : netBalance > 0
+          ? "bg-blue-50/70 border-blue-200"
+          : netBalance < 0
+          ? "bg-rose-50/70 border-rose-200"
+          : "bg-slate-50 border-slate-200"
+      }`}>
+        <div className="flex items-center gap-3">
+          <div className={`p-2.5 rounded-xl ${
+            mahfil.settlement || (mahfil.settlements && mahfil.settlements.length > 0)
+              ? "bg-emerald-600 text-white"
+              : netBalance > 0
+              ? "bg-blue-600 text-white"
+              : netBalance < 0
+              ? "bg-rose-600 text-white"
+              : "bg-slate-700 text-white"
+          }`}>
+            <Scale className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="text-sm font-bold text-slate-900">
+                মাহফিলের আয়-ব্যয় তহবিল সমন্বয় ও হিসাব ভাউচার
+              </h4>
+              {mahfil.settlement ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  সমন্বিত ({mahfil.settlement.settlement_type === "SURPLUS_DEPOSIT" ? "উদ্বৃত্ত জমা" : "ঘাটতি পূরণ"})
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                  অপেক্ষমাণ (Pending)
+                </span>
+              )}
+            </div>
+
+            {mahfil.settlement ? (
+              <p className="text-xs text-slate-600 mt-0.5">
+                {mahfil.settlement.settlement_type === "SURPLUS_DEPOSIT" ? "উদ্বৃত্ত অর্থ" : "ঘাটতি পূরণ বাবদ"} <strong className="text-slate-900">৳ {toBanglaNumber(mahfil.settlement.amount)}</strong> &rarr; <span className="font-semibold text-emerald-800">{mahfil.settlement.fund_name}</span>-এ সমন্বিত। স্বয়ংক্রিয় ভাউচার নং: <span className="font-mono font-bold text-slate-900 bg-white px-1.5 py-0.5 rounded border border-slate-200">{mahfil.settlement.accounting_voucher_no}</span>
+              </p>
+            ) : (
+              <p className="text-xs text-slate-600 mt-0.5">
+                {netBalance > 0
+                  ? `মাহফিলে উদ্বৃত্ত জমা রয়েছে ৳ ${toBanglaNumber(netBalance)}। এই অর্থ সাধারণ ফান্ড বা নির্দিষ্ট ফান্ডে জমা করে স্বয়ংক্রিয় ভাউচার তৈরি করুন।`
+                  : netBalance < 0
+                  ? `মাহফিলে ঘাটতি রয়েছে ৳ ${toBanglaNumber(Math.abs(netBalance))}। অন্য কোনো ফান্ড থেকে এই ঘাটতি পূরণ করে স্বয়ংক্রিয় খরচ ভাউচার তৈরি করুন।`
+                  : "মাহফিলের আয় এবং ব্যয় সমপরিমাণ রয়েছে। কোনো তহবিল সমন্বয় প্রয়োজন নেই।"}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+          {mahfil.settlement ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleOpenSettlementModal(netBalance >= 0 ? "SURPLUS_DEPOSIT" : "DEFICIT_COVER")}
+                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>নতুন সমন্বয়</span>
+              </button>
+              <button
+                onClick={() => mahfil.settlement && handleDeleteSettlementItem(mahfil.settlement.id)}
+                disabled={loading}
+                className="px-3 py-1.5 bg-white hover:bg-red-50 text-red-600 border border-red-200 font-bold rounded-xl text-xs flex items-center gap-1 transition-colors"
+                title="সমন্বয় ও ভাউচার বাতিল করুন"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>বাতিল</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => handleOpenSettlementModal(netBalance >= 0 ? "SURPLUS_DEPOSIT" : "DEFICIT_COVER")}
+              className={`px-4 py-2 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs text-white ${
+                netBalance > 0
+                  ? "bg-blue-600 hover:bg-blue-700"
+                  : netBalance < 0
+                  ? "bg-rose-600 hover:bg-rose-700"
+                  : "bg-slate-700 hover:bg-slate-800"
+              }`}
+            >
+              <ArrowRightLeft className="w-4 h-4" />
+              <span>
+                {netBalance > 0
+                  ? `উদ্বৃত্ত ৳ ${toBanglaNumber(netBalance)} ফান্ডে জমা করুন`
+                  : netBalance < 0
+                  ? `ঘাটতি ৳ ${toBanglaNumber(Math.abs(netBalance))} ফান্ড থেকে পূরণ করুন`
+                  : "তহবিল সমন্বয় করুন"}
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1167,7 +1467,96 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       {/* ========================================================================= */}
       {activeTab === "finance" && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          {/* Fund Settlement & Accounting Integration Card */}
+          <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-50 text-emerald-700 rounded-xl border border-emerald-200/60">
+                  <Scale className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <span>মাহফিল সমাপনী তহবিল সমন্বয় (Fund Settlement)</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                      অটোমেটিক ভাউচার
+                    </span>
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    মাহফিলের উদ্বৃত্ত অর্থ নির্দিষ্ট ফান্ডে জমা বা ঘাটতি অন্য ফান্ড থেকে পূরণ করার স্বয়ংক্রিয় অ্যাকাউন্টিং সমন্বয়
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => handleOpenSettlementModal(netBalance >= 0 ? "SURPLUS_DEPOSIT" : "DEFICIT_COVER")}
+                className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs transition-colors shadow-xs"
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5" />
+                <span>তহবিল সমন্বয় / ভাউচার তৈরি</span>
+              </button>
+            </div>
+
+            {/* Settlements List / Records */}
+            {(mahfil.settlements || (mahfil.settlement ? [mahfil.settlement] : [])).length === 0 ? (
+              <div className="bg-slate-50/60 p-4 rounded-xl border border-dashed border-slate-200 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    এখনো কোনো তহবিল সমন্বয় করা হয়নি। বর্তমান নিট স্থিতি: <strong className={netBalance >= 0 ? "text-emerald-700 font-bold" : "text-rose-600 font-bold"}>৳ {toBanglaNumber(netBalance)}</strong>
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleOpenSettlementModal(netBalance >= 0 ? "SURPLUS_DEPOSIT" : "DEFICIT_COVER")}
+                  className="text-xs font-bold text-emerald-700 hover:underline"
+                >
+                  এখনই সমন্বয় করুন &rarr;
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <h5 className="text-xs font-bold text-slate-700">সমন্বয় ও ট্রান্সফার রেকর্ডসমূহ:</h5>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {(mahfil.settlements || (mahfil.settlement ? [mahfil.settlement] : [])).map((st) => (
+                    <div key={st.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-2 text-xs">
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            st.settlement_type === "SURPLUS_DEPOSIT" ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"
+                          }`}>
+                            {st.settlement_type === "SURPLUS_DEPOSIT" ? "উদ্বৃত্ত জমা" : "ঘাটতি পূরণ"}
+                          </span>
+                          <span className="font-bold text-slate-900">{st.fund_name}</span>
+                        </div>
+                        <div className="text-slate-500 text-[11px] mt-1 flex items-center gap-2 flex-wrap">
+                          <span>তারিখ: {toBanglaNumber(st.settlement_date)}</span>
+                          <span>•</span>
+                          <span>মেথড: {st.payment_method}</span>
+                          <span>•</span>
+                          <span className="font-mono font-semibold text-slate-700">ভাউচার: {st.accounting_voucher_no}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-slate-900">
+                          ৳ {toBanglaNumber(st.amount)}
+                        </span>
+                        <button
+                          onClick={() => handleDeleteSettlementItem(st.id)}
+                          disabled={loading}
+                          className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
+                          title="সমন্বয় ও ভাউচার বাতিল করুন"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2">
             <h3 className="text-base font-bold text-slate-900">মাহফিলের আয় ও ব্যয় ভাউচার খতিয়ান</h3>
             <div className="flex items-center gap-2">
               <button
@@ -1349,6 +1738,58 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   {netBalance >= 0 ? "উদ্বৃত্ত: " : "ঘাটতি: "} ৳ {toBanglaNumber(Math.abs(netBalance))}
                 </span>
               </div>
+            </div>
+
+            {/* তহবিল সমন্বয় ও স্থিতি স্থানান্তর বিবরণী (Fund Settlement & Transfer Statement) */}
+            <div className="border border-slate-300 rounded-xl p-4 bg-slate-50/50 space-y-3">
+              <div className="border-b border-slate-200 pb-2 flex items-center justify-between">
+                <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                  <Scale className="w-4 h-4 text-emerald-700" />
+                  <span>তহবিল সমন্বয় ও স্থানান্তর বিবরণী (Fund Coordination Statement)</span>
+                </h4>
+                <span className="text-xs text-slate-500 font-medium">অ্যাকাউন্টিং ভাউচার ট্র্যাকিং</span>
+              </div>
+
+              {(mahfil.settlements || (mahfil.settlement ? [mahfil.settlement] : [])).length === 0 ? (
+                <p className="text-xs text-slate-500 py-1">
+                  এখনো কোনো তহবিল সমন্বয় করা হয়নি (উদ্বৃত্ত/ঘাটতি অনিষ্পন্ন অবস্থায় রয়েছে)।
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-200/70 text-slate-800 font-bold border-b border-slate-300">
+                      <tr>
+                        <th className="py-2 px-3">সমন্বয়ের ধরন</th>
+                        <th className="py-2 px-3">ফান্ডের নাম</th>
+                        <th className="py-2 px-3">তারিখ</th>
+                        <th className="py-2 px-3">পেমেন্ট মাধ্যম</th>
+                        <th className="py-2 px-3">অ্যাকাউন্টিং ভাউচার নং</th>
+                        <th className="py-2 px-3 text-right">টাকার পরিমাণ (৳)</th>
+                        <th className="py-2 px-3">মন্তব্য / বিবরণ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {(mahfil.settlements || (mahfil.settlement ? [mahfil.settlement] : [])).map((st) => (
+                        <tr key={st.id} className="hover:bg-white/60">
+                          <td className="py-2 px-3 font-bold">
+                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] ${
+                              st.settlement_type === "SURPLUS_DEPOSIT" ? "bg-emerald-100 text-emerald-900" : "bg-blue-100 text-blue-900"
+                            }`}>
+                              {st.settlement_type === "SURPLUS_DEPOSIT" ? "উদ্বৃত্ত জমা" : "ঘাটতি পূরণ"}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 font-bold text-slate-900">{st.fund_name}</td>
+                          <td className="py-2 px-3">{toBanglaNumber(st.settlement_date)}</td>
+                          <td className="py-2 px-3">{st.payment_method}</td>
+                          <td className="py-2 px-3 font-mono font-bold text-slate-800">{st.accounting_voucher_no}</td>
+                          <td className="py-2 px-3 text-right font-bold text-slate-900">৳ {toBanglaNumber(st.amount)}</td>
+                          <td className="py-2 px-3 text-slate-600 max-w-[200px] truncate">{st.notes || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             {/* রসিদ, বিতরণ ও জমার পূর্ণাঙ্গ রিপোর্ট বিবরণী */}
@@ -2217,6 +2658,214 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg"
                 >
                   ভাউচার সংরক্ষণ
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MAHFIL FUND SETTLEMENT & VOUCHER GENERATOR MODAL */}
+      {/* ========================================================================= */}
+      {settlementModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-100 text-emerald-800 rounded-xl">
+                  <Scale className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-slate-900">
+                    {settlementMode === "SURPLUS_DEPOSIT"
+                      ? "মাহফিল উদ্বৃত্ত তহবিল স্থানান্তর ও জমা"
+                      : "মাহফিল ব্যয় ঘাটতি পূরণ ও সমন্বয়"}
+                  </h3>
+                  <p className="text-xs text-slate-500">মাদরাসা অ্যাকাউন্টিংয়ে স্বয়ংক্রিয় ভাউচার ও খতিয়ান পোস্টিং</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSettlementModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 font-bold text-base"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Financial Overview in Modal */}
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 mb-4 grid grid-cols-3 gap-2 text-center text-xs">
+              <div>
+                <span className="text-slate-500 block text-[11px]">মোট আয় ও আদায়</span>
+                <span className="font-bold text-slate-900 text-sm">৳ {toBanglaNumber(totalIncome)}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[11px]">মোট মাহফিল ব্যয়</span>
+                <span className="font-bold text-rose-600 text-sm">৳ {toBanglaNumber(totalExpense)}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[11px]">বর্তমান স্থিতি</span>
+                <span className={`font-bold text-sm ${netBalance >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                  {netBalance >= 0 ? "উদ্বৃত্ত: " : "ঘাটতি: "} ৳ {toBanglaNumber(Math.abs(netBalance))}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleExecuteSettlement} className="space-y-3.5 text-xs">
+              {/* Type selector */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">সমন্বয়ের ধরন নির্বাচন করুন</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettlementMode("SURPLUS_DEPOSIT");
+                      if (netBalance > 0) setSettlementAmount(netBalance);
+                    }}
+                    className={`py-2 px-3 rounded-xl border font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                      settlementMode === "SURPLUS_DEPOSIT"
+                        ? "bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs"
+                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>💰 উদ্বৃত্ত ফান্ডে জমা</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettlementMode("DEFICIT_COVER");
+                      if (netBalance < 0) setSettlementAmount(Math.abs(netBalance));
+                    }}
+                    className={`py-2 px-3 rounded-xl border font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                      settlementMode === "DEFICIT_COVER"
+                        ? "bg-blue-50 border-blue-500 text-blue-800 shadow-xs"
+                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>🔄 ঘাটতি ফান্ড থেকে পূরণ</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Fund Selection */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  {settlementMode === "SURPLUS_DEPOSIT" ? "যে ফান্ডে উদ্বৃত্ত জমা হবে *" : "যে ফান্ড থেকে ঘাটতি পূরণ হবে *"}
+                </label>
+                <select
+                  value={settlementFundId}
+                  onChange={(e) => handleFundSelectChange(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-medium text-slate-900"
+                  required
+                >
+                  {availableFunds.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name} {f.category ? `(${f.category})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Amount & Date */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">টাকার পরিমাণ (৳) <span className="text-red-500">*</span></label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={settlementAmount || ""}
+                    onChange={(e) => setSettlementAmount(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold text-slate-900"
+                    placeholder="টাকার পরিমাণ..."
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">সমন্বয়ের তারিখ</label>
+                  <input
+                    type="date"
+                    required
+                    value={settlementDate}
+                    onChange={(e) => setSettlementDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900"
+                  />
+                </div>
+              </div>
+
+              {/* Payment Method */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">স্থানান্তর / পেমেন্ট মাধ্যম</label>
+                <select
+                  value={settlementPaymentMethod}
+                  onChange={(e) => setSettlementPaymentMethod(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white"
+                >
+                  <option value="Cash">নগদ ক্যাশ (Cash)</option>
+                  <option value="Bank">ব্যাংক ট্রান্সফার / অ্যাকাউন্ট</option>
+                  <option value="bKash">বিকাশ (bKash)</option>
+                  <option value="Nagad">নগদ (Nagad)</option>
+                  <option value="Other">অন্যান্য</option>
+                </select>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">বিবরণ / অনুমোদনের নোট</label>
+                <textarea
+                  rows={2}
+                  placeholder="যেমন: শুরা কমিটির সিদ্ধান্ত অনুযায়ী উদ্বৃত্ত অর্থ সাধারণ ফান্ডে স্থানান্তর..."
+                  value={settlementNotes}
+                  onChange={(e) => setSettlementNotes(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-slate-900"
+                />
+              </div>
+
+              {/* Automatic Voucher Explanatory Note */}
+              <div className={`p-3 rounded-xl border text-[11px] leading-relaxed flex items-start gap-2 ${
+                settlementMode === "SURPLUS_DEPOSIT"
+                  ? "bg-emerald-50/70 border-emerald-200 text-emerald-900"
+                  : "bg-blue-50/70 border-blue-200 text-blue-900"
+              }`}>
+                <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                <span>
+                  {settlementMode === "SURPLUS_DEPOSIT" ? (
+                    <>
+                      <strong>অটোমেটিক ভাউচার সুবিধা:</strong> এই সমন্বয়টি নিশ্চিত করলে মূল মাদরাসার সাধারণ হিসাব বহিতে স্বয়ংক্রিয়ভাবে একটি <strong>[জমা ভাউচার]</strong> তৈরি হবে এবং নির্বাচিত ফান্ডে <strong>৳ {toBanglaNumber(settlementAmount)}</strong> জমা হিসেবে নথিভুক্ত হবে।
+                    </>
+                  ) : (
+                    <>
+                      <strong>অটোমেটিক ভাউচার সুবিধা:</strong> এই সমন্বয়টি নিশ্চিত করলে মূল মাদরাসার সাধারণ হিসাব বহিতে স্বয়ংক্রিয়ভাবে একটি <strong>[ব্যয়/স্থানান্তর ভাউচার]</strong> তৈরি হবে এবং মাহফিলের ঘাটতি সমন্বয় করা হবে।
+                    </>
+                  )}
+                </span>
+              </div>
+
+              {/* Actions */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSettlementModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 font-bold"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={settling}
+                  className={`px-5 py-2 font-bold rounded-xl text-white shadow-xs flex items-center gap-1.5 transition-colors ${
+                    settlementMode === "SURPLUS_DEPOSIT"
+                      ? "bg-emerald-600 hover:bg-emerald-700"
+                      : "bg-blue-600 hover:bg-blue-700"
+                  }`}
+                >
+                  {settling ? (
+                    <span>প্রক্রিয়াধীন হচ্ছে...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>সমন্বয় নিশ্চিত করুন এবং ভাউচার তৈরি করুন</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
