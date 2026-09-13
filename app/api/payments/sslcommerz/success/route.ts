@@ -55,12 +55,12 @@ export async function POST(req: NextRequest) {
           meta.online_donations = donations;
           await saveMadrasaMetadata(madrasaId, meta);
           return NextResponse.redirect(
-            `${baseUrl}/portal/donate?receipt=${donations[dIdx].receipt_no}&success=true`,
+            `${baseUrl}/donate?receipt=${donations[dIdx].receipt_no}&success=true`,
             303
           );
         }
       }
-      return NextResponse.redirect(`${baseUrl}/portal/donate?success=true`, 303);
+      return NextResponse.redirect(`${baseUrl}/donate?success=true`, 303);
     }
 
     // Otherwise, it's a student fee payment

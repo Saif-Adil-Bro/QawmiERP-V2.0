@@ -34,7 +34,8 @@ import {
   deleteLeatherCollection,
   saveCollectionBox,
   deleteCollectionBox,
-  recordBoxOpening
+  recordBoxOpening,
+  deleteDonationBoxCollectionLog
 } from "@/app/actions/fundraising";
 import { numberToBanglaWords } from "@/lib/utils";
 import { printElementIsolated } from "@/lib/printUtils";
@@ -51,25 +52,27 @@ function toBanglaNumber(val: number | string | undefined | null): string {
 export default function CollectionsClient({
   initialLeathers,
   initialBoxes,
+  availableFunds,
   madrasaInfo,
 }: {
   initialLeathers: QurbaniLeatherBatch[];
   initialBoxes: CollectionBox[];
+  availableFunds?: any[];
   madrasaInfo?: any;
 }) {
   const router = useRouter();
-  const [leathers, setLeathers] = useState<QurbaniLeatherBatch[]>(initialLeathers);
-  const [boxes, setBoxes] = useState<CollectionBox[]>(initialBoxes);
+  const [leathers, setLeathers] = useState<QurbaniLeatherBatch[]>(initialLeathers || []);
+  const [boxes, setBoxes] = useState<CollectionBox[]>(initialBoxes || []);
   const [activeTab, setActiveTab] = useState<"leather" | "boxes">("leather");
 
   useEffect(() => {
-    if (initialBoxes && initialBoxes.length > 0) {
+    if (initialBoxes) {
       setBoxes(initialBoxes);
     }
   }, [initialBoxes]);
 
   useEffect(() => {
-    if (initialLeathers && initialLeathers.length > 0) {
+    if (initialLeathers) {
       setLeathers(initialLeathers);
     }
   }, [initialLeathers]);
@@ -91,9 +94,20 @@ export default function CollectionsClient({
     amount: 1500,
     date: new Date().toISOString().split("T")[0],
     witnesses: "মুহতামিম ও ক্যাশিয়ার",
-    receipt_no: `BOX-${Date.now().toString().slice(-4)}`,
+    receipt_no: "BOX-REC-001",
+    fund_name: "সাধারণ ফান্ড (General Fund)",
     notes: "",
   });
+
+  // Fund choices
+  const fundOptions = (availableFunds && availableFunds.length > 0)
+    ? availableFunds.map((f: any) => f.name || f)
+    : [
+        "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
+        "সাধারণ ফান্ড (General Fund)",
+        "এতিম কল্যাণ ফান্ড (Orphan Welfare Fund)",
+        "ভবন নির্মাণ ফান্ড (Building Construction Fund)",
+      ];
 
   // Print Modals
   const [printLeatherMemo, setPrintLeatherMemo] = useState<QurbaniLeatherBatch | null>(null);
@@ -160,8 +174,23 @@ export default function CollectionsClient({
     return `BOX-REC-${String(maxSeq + 1).padStart(3, "0")}`;
   };
 
+  // Leather helpers
+  const calculateNextLeatherVoucherNo = (leatherList: QurbaniLeatherBatch[]) => {
+    let maxSeq = 0;
+    (leatherList || []).forEach((l) => {
+      const rec = (l.receipt_no || "").trim();
+      const match = rec.match(/(?:LTH[-_]?(?:REC)?[-_]?)?(\d+)/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxSeq) maxSeq = num;
+      }
+    });
+    return `LTH-REC-${String(maxSeq + 1).padStart(3, "0")}`;
+  };
+
   // Actions for Leather
   const handleOpenCreateLeather = () => {
+    const nextRec = calculateNextLeatherVoucherNo(leathers);
     setEditingLeather({
       year: "২০২৬",
       type: "গরু",
@@ -170,17 +199,23 @@ export default function CollectionsClient({
       total_sale_amount: 22500,
       transport_labor_cost: 3500,
       net_profit: 19000,
+      due_amount: 0,
       buyer_name: "",
       buyer_phone: "",
+      receipt_no: nextRec,
+      fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
       sale_date: new Date().toISOString().split("T")[0],
-      due_amount: 0,
       notes: "",
     });
     setLeatherModalOpen(true);
   };
 
   const handleOpenEditLeather = (l: QurbaniLeatherBatch) => {
-    setEditingLeather({ ...l });
+    setEditingLeather({
+      ...l,
+      receipt_no: l.receipt_no || calculateNextLeatherVoucherNo(leathers),
+      fund_name: l.fund_name || (l as any).target_fund || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
+    });
     setLeatherModalOpen(true);
   };
 
@@ -198,7 +233,10 @@ export default function CollectionsClient({
       const transport = Number(editingLeather.transport_labor_cost || 0);
       const due = Number(editingLeather.due_amount || 0);
       const netProfit = Number(editingLeather.net_profit !== undefined ? editingLeather.net_profit : (totalSale - transport));
+      const received = Number(editingLeather.received_amount !== undefined ? editingLeather.received_amount : Math.max(0, totalSale - due));
       const recordDate = editingLeather.sale_date || editingLeather.collection_date || new Date().toISOString().split("T")[0];
+      const receiptNo = (editingLeather.receipt_no || calculateNextLeatherVoucherNo(leathers)).trim();
+      const fundName = editingLeather.fund_name || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
 
       const payload: Partial<QurbaniLeatherBatch> = {
         ...editingLeather,
@@ -210,6 +248,8 @@ export default function CollectionsClient({
         transport_labor_cost: transport,
         transport_labour_cost: transport,
         net_profit: netProfit,
+        received_amount: received,
+        paid_amount: received,
         due_amount: due,
         type: editingLeather.type || "গরু",
         leather_type: editingLeather.type || "গরু",
@@ -218,6 +258,9 @@ export default function CollectionsClient({
         buyer_phone: (editingLeather.buyer_phone || "").trim(),
         sale_date: recordDate,
         collection_date: recordDate,
+        receipt_no: receiptNo,
+        fund_name: fundName,
+        target_fund: fundName,
       };
 
       let res = await saveLeatherCollection(payload);
@@ -417,6 +460,7 @@ export default function CollectionsClient({
       date: new Date().toISOString().split("T")[0],
       witnesses: "মুহতামিম ও ক্যাশিয়ার",
       receipt_no: nextVoucher,
+      fund_name: "সাধারণ ফান্ড (General Fund)",
       notes: "",
     });
     setOpenLogModal(true);
@@ -432,6 +476,7 @@ export default function CollectionsClient({
     setLoading(true);
     try {
       const receiptNumber = (logFormData.receipt_no || calculateNextReceiptNo(boxes)).trim();
+      const fundName = logFormData.fund_name || "সাধারণ ফান্ড (General Fund)";
       const logPayload = {
         box_id: selectedBoxForOpen.id,
         box_code: selectedBoxForOpen.box_code,
@@ -442,6 +487,8 @@ export default function CollectionsClient({
         witnesses: logFormData.witnesses || "মুহতামিম ও ক্যাশিয়ার",
         witness_name: logFormData.witnesses || "মুহতামিম ও ক্যাশিয়ার",
         receipt_no: receiptNumber,
+        fund_name: fundName,
+        target_fund: fundName,
         notes: logFormData.notes || "",
       };
 
@@ -469,6 +516,7 @@ export default function CollectionsClient({
         date: logFormData.date,
         witnesses: logFormData.witnesses,
         receipt_no: receiptNumber,
+        fund_name: fundName,
         notes: logFormData.notes,
       };
 
@@ -491,6 +539,36 @@ export default function CollectionsClient({
       router.refresh();
     } catch (err: any) {
       alert("বক্স কালেকশন সংরক্ষণে সমস্যা হয়েছে: " + (err?.message || ""));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // State for expanded box logs
+  const [expandedBoxId, setExpandedBoxId] = useState<string | null>(null);
+
+  const handleDeleteLog = async (boxId: string, logId: string) => {
+    if (!confirm("আপনি কি নিশ্চিতভাবে এই জমার রেকর্ড ও রসিদ মুছে ফেলতে চান?")) return;
+    try {
+      setLoading(true);
+      await deleteDonationBoxCollectionLog(logId);
+      setBoxes((prev) =>
+        prev.map((b) => {
+          if (b.id !== boxId) return b;
+          const targetLog = (b.collection_logs || []).find((l) => l.id === logId);
+          const deductAmount = targetLog ? Number(targetLog.amount || 0) : 0;
+          const updatedLogs = (b.collection_logs || []).filter((l) => l.id !== logId);
+          return {
+            ...b,
+            total_collected_lifetime: Math.max(0, (b.total_collected_lifetime || 0) - deductAmount),
+            collection_logs: updatedLogs,
+            last_opened_date: updatedLogs.length > 0 ? updatedLogs[0].date : undefined,
+          };
+        })
+      );
+      router.refresh();
+    } catch (err: any) {
+      alert("জমার রেকর্ড মুছতে সমস্যা হয়েছে: " + (err?.message || ""));
     } finally {
       setLoading(false);
     }
@@ -768,7 +846,64 @@ export default function CollectionsClient({
                       <span>শেষ খোলার তারিখ:</span>
                       <span>{box.last_opened_date ? toBanglaNumber(box.last_opened_date) : "নতুন স্থাপিত"}</span>
                     </div>
+                    {box.collection_logs && box.collection_logs.length > 0 && (
+                      <div className="pt-1 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedBoxId(expandedBoxId === box.id ? null : box.id)}
+                          className="text-[11px] text-emerald-700 hover:text-emerald-800 font-bold underline"
+                        >
+                          {expandedBoxId === box.id ? "জমা হিস্ট্রি লুকান ▲" : `জমা হিস্ট্রি দেখুন (${toBanglaNumber(box.collection_logs.length)} বার) ▼`}
+                        </button>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Expanded collection logs */}
+                  {expandedBoxId === box.id && box.collection_logs && box.collection_logs.length > 0 && (
+                    <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs space-y-2">
+                      <h4 className="font-bold text-slate-800 text-[11px] border-b border-slate-200 pb-1">
+                        কালেকশন হিস্ট্রি ও ভাউচার
+                      </h4>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                        {box.collection_logs.map((log) => (
+                          <div
+                            key={log.id}
+                            className="bg-white p-2 rounded-lg border border-slate-200 flex items-center justify-between text-[11px]"
+                          >
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-slate-700">{log.receipt_no || "ভাউচার"}</span>
+                                <span className="text-slate-400">•</span>
+                                <span className="text-slate-500">{toBanglaNumber(log.date)}</span>
+                              </div>
+                              <div className="font-bold text-emerald-800 mt-0.5">
+                                ৳ {toBanglaNumber(log.amount)}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setPrintBoxLogMemo({ box, log })}
+                                className="p-1 text-slate-400 hover:text-emerald-700 rounded"
+                                title="ভাউচার প্রিন্ট"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteLog(box.id, log.id)}
+                                className="p-1 text-slate-400 hover:text-red-600 rounded"
+                                title="রেকর্ড মুছুন"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
                     <div className="flex items-center gap-1">
@@ -841,42 +976,75 @@ export default function CollectionsClient({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">সংগৃহীত পরিমাণ (পিস)</label>
+                  <label className="block font-bold text-slate-700 mb-1">চালান / রসিদ নং</label>
+                  <input
+                    type="text"
+                    value={editingLeather?.receipt_no || ""}
+                    onChange={(e) => setEditingLeather(prev => ({ ...prev, receipt_no: e.target.value }))}
+                    placeholder="LTH-REC-001"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">জমা ফান্ড (Target Fund)</label>
+                  <select
+                    value={editingLeather?.fund_name || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)"}
+                    onChange={(e) => setEditingLeather(prev => ({ ...prev, fund_name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-medium"
+                  >
+                    {fundOptions.map((opt: string) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">সংগৃহীত পরিমাণ (পিস) <span className="text-red-500">*</span></label>
                   <input
                     type="number"
                     required
-                    value={editingLeather?.quantity || ""}
+                    min="1"
+                    value={editingLeather?.quantity !== undefined ? editingLeather.quantity : ""}
                     onChange={(e) => {
-                      const qty = Number(e.target.value);
+                      const qty = e.target.value === "" ? 0 : Number(e.target.value);
                       const rate = Number(editingLeather?.rate_per_piece || 0);
                       const gross = qty * rate;
                       const exp = Number(editingLeather?.transport_labor_cost || 0);
+                      const due = Number(editingLeather?.due_amount || 0);
                       setEditingLeather(prev => ({
                         ...prev,
                         quantity: qty,
                         total_sale_amount: gross,
                         net_profit: gross - exp,
+                        received_amount: Math.max(0, gross - due),
                       }));
                     }}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">বিক্রয় দর (প্রতি পিস)</label>
+                  <label className="block font-bold text-slate-700 mb-1">বিক্রয় দর (প্রতি পিস ৳) <span className="text-red-500">*</span></label>
                   <input
                     type="number"
                     required
-                    value={editingLeather?.rate_per_piece || ""}
+                    min="1"
+                    value={editingLeather?.rate_per_piece !== undefined ? editingLeather.rate_per_piece : ""}
                     onChange={(e) => {
-                      const rate = Number(e.target.value);
+                      const rate = e.target.value === "" ? 0 : Number(e.target.value);
                       const qty = Number(editingLeather?.quantity || 0);
                       const gross = qty * rate;
                       const exp = Number(editingLeather?.transport_labor_cost || 0);
+                      const due = Number(editingLeather?.due_amount || 0);
                       setEditingLeather(prev => ({
                         ...prev,
                         rate_per_piece: rate,
                         total_sale_amount: gross,
                         net_profit: gross - exp,
+                        received_amount: Math.max(0, gross - due),
                       }));
                     }}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg"
@@ -886,12 +1054,13 @@ export default function CollectionsClient({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">লেবার ও পরিবহন খরচ</label>
+                  <label className="block font-bold text-slate-700 mb-1">লেবার ও পরিবহন খরচ (৳)</label>
                   <input
                     type="number"
-                    value={editingLeather?.transport_labor_cost || 0}
+                    min="0"
+                    value={editingLeather?.transport_labor_cost !== undefined ? editingLeather.transport_labor_cost : 0}
                     onChange={(e) => {
-                      const exp = Number(e.target.value);
+                      const exp = e.target.value === "" ? 0 : Number(e.target.value);
                       const gross = Number(editingLeather?.total_sale_amount || 0);
                       setEditingLeather(prev => ({
                         ...prev,
@@ -903,13 +1072,11 @@ export default function CollectionsClient({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">নিট লাভ (তহবিলে জমা)</label>
-                  <input
-                    type="number"
-                    readOnly
-                    value={editingLeather?.net_profit || 0}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-emerald-50 text-emerald-900 font-bold"
-                  />
+                  <label className="block font-bold text-slate-700 mb-1">নিট লাভ (ফান্ডে জমা হবে)</label>
+                  <div className="w-full px-3 py-2 border border-emerald-200 rounded-lg bg-emerald-50 text-emerald-950 font-bold flex items-center justify-between">
+                    <span>৳ {toBanglaNumber(editingLeather?.net_profit || 0)}</span>
+                    <span className="text-[10px] text-emerald-700 font-normal">মোট - খরচ</span>
+                  </div>
                 </div>
               </div>
 
@@ -925,11 +1092,42 @@ export default function CollectionsClient({
                   />
                 </div>
                 <div>
+                  <label className="block font-bold text-slate-700 mb-1">ক্রেতার মোবাইল নম্বর</label>
+                  <input
+                    type="text"
+                    placeholder="017XXXXXXXX"
+                    value={editingLeather?.buyer_phone || ""}
+                    onChange={(e) => setEditingLeather(prev => ({ ...prev, buyer_phone: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">বিক্রয় / কালেকশন তারিখ</label>
+                  <input
+                    type="date"
+                    value={editingLeather?.sale_date || new Date().toISOString().split("T")[0]}
+                    onChange={(e) => setEditingLeather(prev => ({ ...prev, sale_date: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  />
+                </div>
+                <div>
                   <label className="block font-bold text-slate-700 mb-1">বকেয়া টাকা (যদি থাকে)</label>
                   <input
                     type="number"
-                    value={editingLeather?.due_amount || 0}
-                    onChange={(e) => setEditingLeather(prev => ({ ...prev, due_amount: Number(e.target.value) }))}
+                    min="0"
+                    value={editingLeather?.due_amount !== undefined ? editingLeather.due_amount : 0}
+                    onChange={(e) => {
+                      const due = e.target.value === "" ? 0 : Number(e.target.value);
+                      const total = Number(editingLeather?.total_sale_amount || 0);
+                      setEditingLeather(prev => ({
+                        ...prev,
+                        due_amount: due,
+                        received_amount: Math.max(0, total - due),
+                      }));
+                    }}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg"
                   />
                 </div>
@@ -1060,14 +1258,20 @@ export default function CollectionsClient({
             <form onSubmit={handleSaveBoxOpening} className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">প্রাপ্ত টাকার পরিমাণ <span className="text-red-500">*</span></label>
+                  <label className="block font-bold text-slate-700 mb-1">প্রাপ্ত টাকার পরিমাণ (৳) <span className="text-red-500">*</span></label>
                   <input
                     type="number"
                     required
-                    value={logFormData.amount}
+                    min="1"
+                    value={logFormData.amount || ""}
                     onChange={(e) => setLogFormData(prev => ({ ...prev, amount: Number(e.target.value) }))}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg font-bold text-sm"
                   />
+                  {logFormData.amount > 0 && (
+                    <p className="text-[10px] text-emerald-700 mt-1 font-medium">
+                      কথায়: {numberToBanglaWords(logFormData.amount)}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">খোলার তারিখ</label>
@@ -1078,6 +1282,33 @@ export default function CollectionsClient({
                     onChange={(e) => setLogFormData(prev => ({ ...prev, date: e.target.value }))}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">জমা ভাউচার / রসিদ নং</label>
+                  <input
+                    type="text"
+                    value={logFormData.receipt_no}
+                    onChange={(e) => setLogFormData(prev => ({ ...prev, receipt_no: e.target.value }))}
+                    placeholder="BOX-REC-001"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">জমা ফান্ড (Target Fund)</label>
+                  <select
+                    value={logFormData.fund_name || "সাধারণ ফান্ড (General Fund)"}
+                    onChange={(e) => setLogFormData(prev => ({ ...prev, fund_name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-medium"
+                  >
+                    {fundOptions.map((opt: string) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -1093,12 +1324,13 @@ export default function CollectionsClient({
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">জমা ভাউচার / রসিদ নং</label>
+                <label className="block font-bold text-slate-700 mb-1">মন্তব্য (যদি থাকে)</label>
                 <input
                   type="text"
-                  value={logFormData.receipt_no}
-                  onChange={(e) => setLogFormData(prev => ({ ...prev, receipt_no: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono"
+                  placeholder="অতিরিক্ত কোনো তথ্য"
+                  value={logFormData.notes}
+                  onChange={(e) => setLogFormData(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg"
                 />
               </div>
 

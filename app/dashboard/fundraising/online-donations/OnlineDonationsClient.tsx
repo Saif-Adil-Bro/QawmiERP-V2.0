@@ -230,7 +230,7 @@ export default function OnlineDonationsClient({
   const handleShareWhatsApp = (donation: OnlineDonation) => {
     const madrasaName = madrasaInfo?.name || "আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা";
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const receiptUrl = `${origin}/portal/donate?receipt=${donation.receipt_no}`;
+    const receiptUrl = `${origin}/donate?receipt=${donation.receipt_no}`;
     const text = generateWhatsAppMessage(donation, madrasaName, receiptUrl);
 
     const phone = donation.phone ? formatWhatsAppPhone(donation.phone) : "";
@@ -318,7 +318,7 @@ export default function OnlineDonationsClient({
           </button>
 
           <a
-            href="/portal/donate"
+            href="/donate"
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-medium px-4 py-2.5 rounded-xl shadow-xs transition-all text-xs"

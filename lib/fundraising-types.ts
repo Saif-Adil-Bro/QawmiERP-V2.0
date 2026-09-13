@@ -193,6 +193,9 @@ export interface QurbaniLeatherRecord {
   collection_date: string;
   date?: string;
   sale_date?: string;
+  fund_name?: string;
+  target_fund?: string;
+  receipt_no?: string;
   payment_status: "PAID" | "PARTIAL" | "DUE";
   notes?: string;
   created_at: string;
@@ -216,6 +219,7 @@ export interface DonationBox {
   total_collected_lifetime: number;
   total_collected?: number;
   collection_logs?: DonationBoxCollectionLog[];
+  fund_name?: string;
   notes?: string;
   created_at: string;
 }
@@ -228,6 +232,7 @@ export interface DonationBoxCollectionLog {
   collection_date?: string;
   date?: string;
   amount: number;
+  fund_name?: string;
   collector_name?: string;
   witness_name?: string;
   witnesses?: string;

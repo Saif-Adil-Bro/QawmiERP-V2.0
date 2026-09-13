@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
 
     if (tran_id.startsWith("DON-") || tran_id.startsWith("DONATION-")) {
       return NextResponse.redirect(
-        `${baseUrl}/portal/donate?error=${encodeURIComponent("পেমেন্ট বাতিল করা হয়েছে।")}&txn=${tran_id}`,
+        `${baseUrl}/donate?error=${encodeURIComponent("পেমেন্ট বাতিল করা হয়েছে।")}&txn=${tran_id}`,
         303
       );
     }

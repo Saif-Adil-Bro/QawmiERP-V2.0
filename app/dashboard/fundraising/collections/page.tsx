@@ -1,5 +1,6 @@
 import { Suspense } from "react";
-import { getLeatherCollections, getCollectionBoxes } from "@/app/actions/fundraising";
+import { getLeatherCollections, getCollectionBoxes, syncFundraisingCollectionsToDonations } from "@/app/actions/fundraising";
+import { getFunds } from "@/app/actions/zakat";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import CollectionsClient from "./CollectionsClient";
 import { Loader2 } from "lucide-react";
@@ -7,9 +8,13 @@ import { Loader2 } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 export default async function CollectionsManagementPage() {
-  const [leatherBatches, boxesData, madrasaInfo] = await Promise.all([
+  // Ensure any collections are synchronized to the donations ledger
+  await syncFundraisingCollectionsToDonations().catch(() => {});
+
+  const [leatherBatches, boxesData, funds, madrasaInfo] = await Promise.all([
     getLeatherCollections(),
     getCollectionBoxes(),
+    getFunds(),
     getMadrasaInfo(),
   ]);
 
@@ -24,6 +29,7 @@ export default async function CollectionsManagementPage() {
       <CollectionsClient
         initialLeathers={leatherBatches}
         initialBoxes={boxesData.boxes}
+        availableFunds={funds}
         madrasaInfo={madrasaInfo}
       />
     </Suspense>

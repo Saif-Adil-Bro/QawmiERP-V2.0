@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
 
     if (tran_id.startsWith("DON-") || tran_id.startsWith("DONATION-")) {
       return NextResponse.redirect(
-        `${baseUrl}/portal/donate?error=${encodeURIComponent(error_reason)}&txn=${tran_id}`,
+        `${baseUrl}/donate?error=${encodeURIComponent(error_reason)}&txn=${tran_id}`,
         303
       );
     }

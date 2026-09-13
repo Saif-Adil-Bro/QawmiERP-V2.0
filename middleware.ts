@@ -14,12 +14,20 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
+  // Redirect any legacy /portal/donate links directly to standalone /donate page
+  if (request.nextUrl.pathname === '/portal/donate' || request.nextUrl.pathname.startsWith('/portal/donate/')) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/donate';
+    return NextResponse.redirect(url);
+  }
+
   const isAuthRoute = request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname === '/';
   const isApiRoute = request.nextUrl.pathname.startsWith('/api');
   const isPublicRoute =
     request.nextUrl.pathname.startsWith('/admission') ||
     request.nextUrl.pathname.startsWith('/verify') ||
     request.nextUrl.pathname.startsWith('/pay') ||
+    request.nextUrl.pathname.startsWith('/donate') ||
     request.nextUrl.pathname.startsWith('/portal') ||
     request.nextUrl.pathname.startsWith('/fonts');
 

@@ -269,7 +269,7 @@ export default function PublicDonateClient({
 
   const handleShareReceiptWhatsApp = (donation: OnlineDonation) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const receiptUrl = `${origin}/portal/donate?receipt=${donation.receipt_no}`;
+    const receiptUrl = `${origin}/donate?receipt=${donation.receipt_no}`;
     const text = `আসসালামু আলাইকুম,\n${madrasaTitle}-এ আপনার অনলাইন অনুদান সফলভাবে গৃহীত ও ভেরিফাইড হয়েছে।\n\nরসিদ নং: ${donation.receipt_no}\nপরিমাণ: ৳ ${donation.amount}\nখাত: ${donation.fund_category}\nTrxID: ${donation.trx_id}\n\nআপনার ডিজিটাল রসিদ দেখতে ও ডাউনলোড করতে নিচের লিংকে ক্লিক করুন:\n${receiptUrl}\n\nজাযাকাল্লাহু খাইরান।`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
   };
