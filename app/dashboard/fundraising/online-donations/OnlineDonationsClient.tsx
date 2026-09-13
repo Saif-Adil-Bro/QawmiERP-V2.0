@@ -36,6 +36,7 @@ import {
   sendDonationNotificationSMS,
 } from "@/app/actions/fundraising";
 import { PaymentGatewayConfig } from "@/lib/payment-gateway";
+import { FundItem } from "@/lib/fund-utils";
 import { printElementIsolated } from "@/lib/printUtils";
 import { numberToBanglaWords } from "@/lib/utils";
 
@@ -83,11 +84,13 @@ export default function OnlineDonationsClient({
   initialSettings,
   paymentGatewayConfig,
   madrasaInfo,
+  funds = [],
 }: {
   initialDonations: OnlineDonation[];
   initialSettings?: OnlineDonationSettings;
   paymentGatewayConfig?: PaymentGatewayConfig;
   madrasaInfo?: any;
+  funds?: FundItem[];
 }) {
   const router = useRouter();
   const [donations, setDonations] = useState<OnlineDonation[]>(initialDonations);

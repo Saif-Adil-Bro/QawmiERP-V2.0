@@ -1441,6 +1441,7 @@ export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
     const currentYear = new Date().getFullYear();
     const receiptNo = generateNextOnlineDonationReceiptNo(donations, currentYear);
 
+    const nowIso = new Date().toISOString();
     const newDonation: OnlineDonation = {
       id: `onl_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       madrasa_id: finalMadrasaId,
@@ -1453,16 +1454,16 @@ export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
       amount: Number(donation.amount || 0),
       payment_method: donation.payment_method || (isGateway ? "Online Gateway" : "bKash"),
       trx_id: (donation.trx_id || (isGateway ? `GW-${Date.now().toString().slice(-8)}` : "")).trim().toUpperCase(),
-      donation_date: donation.donation_date || new Date().toISOString().split("T")[0],
+      donation_date: donation.donation_date || nowIso.split("T")[0],
       receipt_no: receiptNo,
       status: isGateway ? "VERIFIED" : (donation.status || "PENDING"),
       is_gateway: isGateway,
       gateway_provider: donation.gateway_provider || (isGateway ? "SSLCOMMERZ" : undefined),
       message: donation.message || "",
       is_anonymous: Boolean(donation.is_anonymous),
-      verified_at: isGateway ? new Date().toISOString() : undefined,
-      verified_by: isGateway ? "অটোমেটেড গেটওয়ে" : undefined,
-      created_at: new Date().toISOString(),
+      verified_at: isGateway ? nowIso : undefined,
+      verified_by: isGateway ? `অটোমেটেড গেটওয়ে (${donation.payment_method || "Digital Gateway"})` : undefined,
+      created_at: nowIso,
     };
 
     donations.unshift(newDonation);
@@ -1471,8 +1472,73 @@ export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
     const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
     if (!ok) return { error: "অনুদান সংরক্ষণ ব্যর্থ হয়েছে" };
 
+    // Dual-write & sync verified donation into madrasa accounts & funds
+    if (newDonation.status === "VERIFIED") {
+      try {
+        const adminClient = await createAdminClient();
+        let donorId: string | null = null;
+        if (newDonation.phone) {
+          const { data: existingDonor } = await adminClient
+            .from("donors")
+            .select("id")
+            .eq("madrasa_id", finalMadrasaId)
+            .eq("phone", newDonation.phone)
+            .limit(1)
+            .single();
+          if (existingDonor?.id) donorId = existingDonor.id;
+        }
+
+        if (!donorId && newDonation.donor_name) {
+          const { data: newDonorRec } = await adminClient.from("donors").insert({
+            madrasa_id: finalMadrasaId,
+            name: newDonation.donor_name,
+            phone: newDonation.phone || "",
+            email: newDonation.email || "",
+            address: newDonation.address || "",
+            donor_type: "OneTime",
+            notes: JSON.stringify({ source: "Online Portal", created_at: nowIso }),
+          }).select("id").single();
+          if (newDonorRec?.id) donorId = newDonorRec.id;
+        }
+
+        await adminClient.from("donations").insert({
+          madrasa_id: finalMadrasaId,
+          donor_id: donorId,
+          amount: newDonation.amount,
+          donation_type: newDonation.fund_category,
+          donation_date: newDonation.donation_date,
+          receipt_no: newDonation.receipt_no,
+          notes: `[অনলাইন ডোনেশন | মেথড: ${newDonation.payment_method} | TrxID: ${newDonation.trx_id}] ${newDonation.message || ""}`,
+        });
+
+        // Update zakat_funds balance if fund exists
+        const { data: zFunds } = await adminClient
+          .from("zakat_funds")
+          .select("id, name, current_balance")
+          .eq("madrasa_id", finalMadrasaId);
+
+        if (zFunds && zFunds.length > 0) {
+          const targetFund = zFunds.find(
+            (f: any) =>
+              f.name?.trim().toLowerCase() === newDonation.fund_category.trim().toLowerCase() ||
+              newDonation.fund_category.toLowerCase().includes(f.name?.toLowerCase() || "")
+          );
+          if (targetFund) {
+            await adminClient
+              .from("zakat_funds")
+              .update({ current_balance: (Number(targetFund.current_balance) || 0) + newDonation.amount })
+              .eq("id", targetFund.id);
+          }
+        }
+      } catch (syncErr) {
+        console.error("Online donation accounting sync note:", syncErr);
+      }
+    }
+
     try {
       revalidatePath("/dashboard/fundraising/online-donations");
+      revalidatePath("/dashboard/zakat/collection");
+      revalidatePath("/dashboard/zakat/reports");
       revalidatePath("/portal/donate");
     } catch {}
 
@@ -1496,6 +1562,7 @@ export async function updateOnlineDonationStatus(
     const target = donations.find((d: OnlineDonation) => d.id === id);
     if (!target) return { error: "অনুদান রেকর্ড পাওয়া যায়নি" };
 
+    const previousStatus = target.status;
     target.status = status;
     target.verified_by = verifierName || "অ্যাডমিন";
     target.verified_at = new Date().toISOString();
@@ -1504,8 +1571,72 @@ export async function updateOnlineDonationStatus(
     const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
     if (!ok) return { error: "স্ট্যাটাস সংরক্ষণ ব্যর্থ" };
 
+    // If newly verified, sync with accounting
+    if (status === "VERIFIED" && previousStatus !== "VERIFIED") {
+      try {
+        const adminClient = await createAdminClient();
+        let donorId: string | null = null;
+        if (target.phone) {
+          const { data: existingDonor } = await adminClient
+            .from("donors")
+            .select("id")
+            .eq("madrasa_id", finalMadrasaId)
+            .eq("phone", target.phone)
+            .limit(1)
+            .single();
+          if (existingDonor?.id) donorId = existingDonor.id;
+        }
+
+        if (!donorId && target.donor_name) {
+          const { data: newDonorRec } = await adminClient.from("donors").insert({
+            madrasa_id: finalMadrasaId,
+            name: target.donor_name,
+            phone: target.phone || "",
+            email: target.email || "",
+            address: target.address || "",
+            donor_type: "OneTime",
+            notes: JSON.stringify({ source: "Online Portal Verified", created_at: target.verified_at }),
+          }).select("id").single();
+          if (newDonorRec?.id) donorId = newDonorRec.id;
+        }
+
+        await adminClient.from("donations").insert({
+          madrasa_id: finalMadrasaId,
+          donor_id: donorId,
+          amount: target.amount,
+          donation_type: target.fund_category,
+          donation_date: target.donation_date,
+          receipt_no: target.receipt_no,
+          notes: `[অনলাইন অনুদান ভেরিফাইড | মেথড: ${target.payment_method} | TrxID: ${target.trx_id}] ${target.message || ""}`,
+        });
+
+        const { data: zFunds } = await adminClient
+          .from("zakat_funds")
+          .select("id, name, current_balance")
+          .eq("madrasa_id", finalMadrasaId);
+
+        if (zFunds && zFunds.length > 0) {
+          const targetFund = zFunds.find(
+            (f: any) =>
+              f.name?.trim().toLowerCase() === target.fund_category.trim().toLowerCase() ||
+              target.fund_category.toLowerCase().includes(f.name?.toLowerCase() || "")
+          );
+          if (targetFund) {
+            await adminClient
+              .from("zakat_funds")
+              .update({ current_balance: (Number(targetFund.current_balance) || 0) + target.amount })
+              .eq("id", targetFund.id);
+          }
+        }
+      } catch (syncErr) {
+        console.error("Online donation status update sync note:", syncErr);
+      }
+    }
+
     try {
       revalidatePath("/dashboard/fundraising/online-donations");
+      revalidatePath("/dashboard/zakat/collection");
+      revalidatePath("/dashboard/zakat/reports");
       revalidatePath("/portal/donate");
     } catch {}
 

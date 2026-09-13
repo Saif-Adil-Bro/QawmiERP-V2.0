@@ -268,7 +268,7 @@ export interface OnlineDonation {
   address?: string;
   fund_category: string;
   amount: number;
-  payment_method: "bKash" | "Nagad" | "Rocket" | "Bank" | "Online Gateway" | "Other";
+  payment_method: "bKash" | "Nagad" | "Rocket" | "Bank" | "Online Gateway" | "Other" | string;
   trx_id: string;
   donation_date: string;
   date?: string;

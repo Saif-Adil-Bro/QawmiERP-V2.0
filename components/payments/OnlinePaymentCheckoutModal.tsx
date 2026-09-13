@@ -23,6 +23,7 @@ import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
 import { numberToBanglaWords } from "@/lib/utils";
 import { printElementIsolated } from "@/lib/printUtils";
 import type { IslamiBankConfig } from "@/lib/payment-gateway";
+import { PaymentBrandSymbol, CardBrandsIcon } from "@/components/payments/PaymentBrandLogos";
 
 interface FeeInvoiceItem {
   id: string;
@@ -303,9 +304,7 @@ export default function OnlinePaymentCheckoutModal({
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-black bg-[#D12053] text-white">
-                        bKash
-                      </span>
+                      <PaymentBrandSymbol brand="bKash" size="sm" />
                       {selectedChannel === "bKash" && (
                         <CheckCircle2 className="w-4 h-4 text-[#D12053]" />
                       )}
@@ -327,9 +326,7 @@ export default function OnlinePaymentCheckoutModal({
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-black bg-[#EA1D25] text-white">
-                        Nagad
-                      </span>
+                      <PaymentBrandSymbol brand="Nagad" size="sm" />
                       {selectedChannel === "Nagad" && (
                         <CheckCircle2 className="w-4 h-4 text-[#EA1D25]" />
                       )}
@@ -351,9 +348,7 @@ export default function OnlinePaymentCheckoutModal({
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-700 text-white">
-                        IBBL
-                      </span>
+                      <PaymentBrandSymbol brand="Islami Bank" size="sm" />
                       {selectedChannel === "Islami Bank" && (
                         <CheckCircle2 className="w-4 h-4 text-emerald-700" />
                       )}
@@ -375,9 +370,7 @@ export default function OnlinePaymentCheckoutModal({
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-black bg-[#8C3494] text-white">
-                        Rocket
-                      </span>
+                      <PaymentBrandSymbol brand="Rocket" size="sm" />
                       {selectedChannel === "Rocket" && (
                         <CheckCircle2 className="w-4 h-4 text-[#8C3494]" />
                       )}
@@ -399,9 +392,7 @@ export default function OnlinePaymentCheckoutModal({
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-black bg-blue-700 text-white">
-                        Cards / Bank
-                      </span>
+                      <CardBrandsIcon />
                       {selectedChannel === "Card / Other" && (
                         <CheckCircle2 className="w-4 h-4 text-blue-700" />
                       )}
@@ -411,7 +402,7 @@ export default function OnlinePaymentCheckoutModal({
                         ভিসা, মাস্টারকার্ড ও অন্যান্য ব্যাংক
                       </div>
                       <span className="text-[10px] text-slate-500">
-                        Nexus Card, City Touch, অন্যান্য ডেবিট/ক্রেডিট কার্ড
+                        Nexus Card, City Touch, ডেবিট/ক্রেডিট কার্ড ও ইন্টারনেট ব্যাংকিং
                       </span>
                     </div>
                   </button>
