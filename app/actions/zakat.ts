@@ -52,47 +52,60 @@ export async function getNextMahfilVoucherNo(madrasaId: string, type: "SURPLUS" 
   try {
     const adminClient = await createAdminClient();
     const currentYear = new Date().getFullYear();
-    const prefix = type === "SURPLUS" ? "MHF-SURP" : "MHF-DEF";
+    const prefix = "MHF";
     
     let maxSeq = 0;
-    if (type === "SURPLUS") {
-      const { data: donations } = await adminClient
-        .from("donations")
-        .select("receipt_no")
-        .eq("madrasa_id", madrasaId);
+    
+    // Check donations for existing vouchers
+    const { data: donations } = await adminClient
+      .from("donations")
+      .select("receipt_no")
+      .eq("madrasa_id", madrasaId);
 
-      const pattern = new RegExp(`^${prefix}-(\\d{4})-(\\d+)$`, "i");
-      (donations || []).forEach((d: any) => {
-        const rec = (d.receipt_no || "").trim();
-        const match = rec.match(pattern);
-        if (match && match[1] === String(currentYear)) {
-          const seq = parseInt(match[2], 10);
+    const mhfPattern = /MHF(?:-(?:SURP|DEF|SURPLUS|DEFICIT))?-?(\d{4})?-?(\d+)/i;
+    
+    (donations || []).forEach((d: any) => {
+      const rec = (d.receipt_no || "").trim();
+      const match = rec.match(mhfPattern);
+      if (match) {
+        const yearOrSeq = match[1];
+        const numPart = match[2];
+        if (yearOrSeq && yearOrSeq === String(currentYear) && numPart) {
+          const seq = parseInt(numPart, 10);
+          if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+        } else if (numPart) {
+          const seq = parseInt(numPart, 10);
           if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
         }
-      });
-    } else {
-      const { data: expenses } = await adminClient
-        .from("expenses")
-        .select("voucher_no")
-        .eq("madrasa_id", madrasaId);
+      }
+    });
 
-      const pattern = new RegExp(`^${prefix}-(\\d{4})-(\\d+)$`, "i");
-      (expenses || []).forEach((e: any) => {
-        const rec = (e.voucher_no || "").trim();
-        const match = rec.match(pattern);
-        if (match && match[1] === String(currentYear)) {
-          const seq = parseInt(match[2], 10);
+    const { data: expenses } = await adminClient
+      .from("expenses")
+      .select("voucher_no")
+      .eq("madrasa_id", madrasaId);
+
+    (expenses || []).forEach((e: any) => {
+      const rec = (e.voucher_no || "").trim();
+      const match = rec.match(mhfPattern);
+      if (match) {
+        const yearOrSeq = match[1];
+        const numPart = match[2];
+        if (yearOrSeq && yearOrSeq === String(currentYear) && numPart) {
+          const seq = parseInt(numPart, 10);
+          if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+        } else if (numPart) {
+          const seq = parseInt(numPart, 10);
           if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
         }
-      });
-    }
+      }
+    });
 
     const nextSeq = maxSeq + 1;
-    return `${prefix}-${currentYear}-${String(nextSeq).padStart(4, "0")}`;
+    return `MHF-${currentYear}-${String(nextSeq).padStart(4, "0")}`;
   } catch {
     const currentYear = new Date().getFullYear();
-    const prefix = type === "SURPLUS" ? "MHF-SURP" : "MHF-DEF";
-    return `${prefix}-${currentYear}-0001`;
+    return `MHF-${currentYear}-0001`;
   }
 }
 

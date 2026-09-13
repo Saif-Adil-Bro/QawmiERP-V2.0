@@ -791,6 +791,10 @@ export async function getAvailableFundsForMahfil() {
 
 export async function settleMahfilFund(mahfilId: string, payload: MahfilSettlementPayload) {
   try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
 
@@ -826,6 +830,22 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
         console.error("Error creating donation for mahfil surplus:", donErr);
       }
       accountingRecordId = donRec?.id || "";
+
+      // Ensure sync to finalMadrasaId if different
+      if (finalMadrasaId && finalMadrasaId !== activeMadrasaId) {
+        try {
+          await adminClient.from("donations").insert({
+            madrasa_id: finalMadrasaId,
+            amount: amount,
+            donation_type: payload.fund_name,
+            donation_date: dateStr,
+            receipt_no: accountingVoucherNo,
+            notes: donationNotes,
+          });
+        } catch (syncErr) {
+          console.error("Cross-madrasa donation sync note:", syncErr);
+        }
+      }
 
       // Also update zakat_funds balance if applicable
       try {
@@ -966,6 +986,13 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
 
     meta.mahfils = mahfils;
     await saveMadrasaMetadata(activeMadrasaId, meta);
+    if (finalMadrasaId && finalMadrasaId !== activeMadrasaId) {
+      try {
+        const fMeta = await getMadrasaMetadata(finalMadrasaId);
+        fMeta.mahfils = mahfils;
+        await saveMadrasaMetadata(finalMadrasaId, fMeta);
+      } catch {}
+    }
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);

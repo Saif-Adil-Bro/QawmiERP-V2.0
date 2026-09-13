@@ -305,21 +305,25 @@ export function isTransactionInFund(
   allFunds?: FundItem[]
 ): boolean {
   if (!fund) return false;
-  const fId = (fund.id || "").toLowerCase();
-  const fName = (fund.name || "").toLowerCase();
-  const fCode = (fund.code || "").toLowerCase();
+  const fId = (fund.id || "").toLowerCase().trim();
+  const fName = (fund.name || "").toLowerCase().trim();
+  const fCode = (fund.code || "").toLowerCase().trim();
 
-  const candidateId = (itemFundId || "").toLowerCase();
-  const candidateName = (itemFundName || "").toLowerCase();
+  const candidateId = (itemFundId || "").toLowerCase().trim();
+  const candidateName = (itemFundName || "").toLowerCase().trim();
 
   if (fId && candidateId && fId === candidateId) return true;
   if (fName && candidateName && fName === candidateName) return true;
   if (fCode && candidateName && (candidateName === fCode || candidateName.includes(fCode))) return true;
 
-  const canonA = normalizeFundName(fund.name, allFunds).toLowerCase();
-  const canonB = normalizeFundName(itemFundName || itemFundId, allFunds).toLowerCase();
+  const canonA = normalizeFundName(fund.name, allFunds).toLowerCase().trim();
+  const canonB = normalizeFundName(itemFundName || itemFundId, allFunds).toLowerCase().trim();
 
-  return canonA === canonB;
+  if (canonA === canonB) return true;
+  if (canonA.includes(canonB) || canonB.includes(canonA)) return true;
+  if (fName.includes(candidateName) || candidateName.includes(fName)) return true;
+
+  return false;
 }
 
 
