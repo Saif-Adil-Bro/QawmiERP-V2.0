@@ -108,7 +108,18 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   useEffect(() => {
     async function loadFunds() {
       try {
-        const funds = await getAvailableFundsForMahfil();
+        let funds: any[] = [];
+        try {
+          const res = await getAvailableFundsForMahfil();
+          if (res && res.length > 0) funds = res;
+        } catch {}
+
+        if (!funds || funds.length === 0) {
+          const apiRes = await fetch("/api/fundraising/mahfil/settlement");
+          const data = await apiRes.json();
+          if (data.funds && data.funds.length > 0) funds = data.funds;
+        }
+
         if (funds && funds.length > 0) {
           setAvailableFunds(funds);
           if (!settlementFundId || settlementFundId === "fund-general") {
@@ -2760,7 +2771,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                 >
                   {availableFunds.map((f) => (
                     <option key={f.id} value={f.id}>
-                      {f.name} {f.category ? `(${f.category})` : ""}
+                      {f.name}
                     </option>
                   ))}
                 </select>

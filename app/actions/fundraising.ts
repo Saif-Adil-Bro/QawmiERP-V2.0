@@ -20,6 +20,7 @@ import {
   DEFAULT_ONLINE_DONATION_SETTINGS,
 } from "@/lib/fundraising-types";
 import { DEFAULT_FUNDS } from "@/lib/fund-utils";
+import { getFunds } from "@/app/actions/zakat";
 import {
   createRealGatewaySession,
   validateGatewayCredentials,
@@ -762,30 +763,14 @@ export interface MahfilSettlementPayload {
 
 export async function getAvailableFundsForMahfil() {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-
-    const adminClient = await createAdminClient();
-    const [fundsRes, zakatRes] = await Promise.all([
-      finalMadrasaId ? adminClient.from("funds").select("*").eq("madrasa_id", finalMadrasaId) : { data: [] },
-      finalMadrasaId ? adminClient.from("zakat_funds").select("*").eq("madrasa_id", finalMadrasaId) : { data: [] },
-    ]);
-
-    const customList = [...(fundsRes.data || []), ...(zakatRes.data || [])];
-    if (customList.length > 0) {
-      const uniqueMap = new Map();
-      customList.forEach((f: any) => {
-        if (!uniqueMap.has(f.name)) {
-          uniqueMap.set(f.name, {
-            id: f.id,
-            name: f.name,
-            category: f.category || "General",
-            current_balance: Number(f.current_balance || 0),
-          });
-        }
-      });
-      return Array.from(uniqueMap.values());
+    const allFunds = await getFunds();
+    if (allFunds && allFunds.length > 0) {
+      return allFunds.map(f => ({
+        id: f.id,
+        name: f.name,
+        category: f.category || "General",
+        current_balance: Number((f as any).current_balance || 0),
+      }));
     }
 
     return DEFAULT_FUNDS.map(f => ({
