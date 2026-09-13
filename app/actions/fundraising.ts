@@ -660,6 +660,102 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
   }
 }
 
+export async function saveMahfilBulkReceiptBooks(
+  mahfilId: string,
+  params: {
+    totalBooks: number;
+    pagesPerBook: number;
+    startPageNo?: number;
+    startBookNo?: number;
+    prefix?: string;
+    category?: string;
+    ratePerPage?: number;
+    expectedAmountPerBook?: number;
+    receiptType?: string;
+    notes?: string;
+  }
+) {
+  try {
+    const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
+    if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
+
+    const totalBooks = Math.max(1, Math.min(500, Number(params.totalBooks || 1)));
+    const pagesPerBook = Math.max(1, Number(params.pagesPerBook || 50));
+    const startPageNo = Math.max(1, Number(params.startPageNo || 1));
+    const startBookNo = Math.max(1, Number(params.startBookNo || 1));
+    const prefix = params.prefix !== undefined ? params.prefix : "বই #";
+    const category = params.category || "সাধারণ অনুদান";
+    const ratePerPage = Number(params.ratePerPage || 0);
+    const receiptType = params.receiptType || "সাধারণ রসিদ বই";
+    const notes = params.notes || "";
+
+    const existingBooks = targetMahfil.receipt_books || [];
+    const newBooks: MahfilReceiptBook[] = [];
+
+    const now = Date.now();
+    for (let i = 0; i < totalBooks; i++) {
+      const bookIndex = startBookNo + i;
+      const pageFrom = startPageNo + (i * pagesPerBook);
+      const pageTo = pageFrom + pagesPerBook - 1;
+      const expectedAmount = Number(
+        params.expectedAmountPerBook || (ratePerPage > 0 ? pagesPerBook * ratePerPage : 0)
+      );
+
+      const newBook: MahfilReceiptBook = {
+        id: `bk_bulk_${now}_${i}_${Math.random().toString(36).substr(2, 4)}`,
+        book_no: `${prefix}${bookIndex}`,
+        category,
+        page_from: pageFrom,
+        page_to: pageTo,
+        total_pages: pagesPerBook,
+        rate_per_page: ratePerPage,
+        expected_amount: expectedAmount,
+        receipt_type: receiptType,
+        is_distributed: false,
+        issued_to_name: "",
+        issued_to_type: "উস্তাদ",
+        issued_to_phone: "",
+        issued_to_jamath: "",
+        issued_to_area: "",
+        issued_date: "",
+        distributed_pages: pagesPerBook,
+        issued_by: "",
+        is_deposited: false,
+        return_date: "",
+        used_pages: 0,
+        returned_pages: pagesPerBook,
+        total_collected: 0,
+        payment_method: "Cash",
+        deposit_voucher_no: "",
+        received_by: "",
+        due_amount: 0,
+        status: "ISSUED", // Available in stock
+        notes,
+      };
+
+      newBooks.push(newBook);
+    }
+
+    targetMahfil.receipt_books = [...existingBooks, ...newBooks];
+    targetMahfil.updated_at = new Date().toISOString();
+
+    meta.mahfils = mahfils;
+    const saveSuccess = await saveMadrasaMetadata(activeMadrasaId, meta);
+    if (!saveSuccess) {
+      return { error: "ডাটাবেজে বাল্ক রসিদ বই সংরক্ষণ করা সম্ভব হয়নি।" };
+    }
+
+    try {
+      revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
+    } catch {}
+
+    return { success: true, count: newBooks.length, books: targetMahfil.receipt_books };
+  } catch (err: any) {
+    console.error("Error saving bulk mahfil receipt books:", err);
+    return { error: err.message || "বাল্ক রসিদ বই তৈরিতে সমস্যা হয়েছে" };
+  }
+}
+
 export async function deleteMahfilReceiptBook(mahfilId: string, bookId: string) {
   try {
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);

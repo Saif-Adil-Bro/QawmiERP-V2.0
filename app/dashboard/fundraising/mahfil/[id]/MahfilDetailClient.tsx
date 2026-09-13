@@ -50,6 +50,7 @@ import {
   saveMahfilSpeaker,
   deleteMahfilSpeaker,
   saveMahfilReceiptBook,
+  saveMahfilBulkReceiptBooks,
   deleteMahfilReceiptBook,
   saveMahfilTransaction,
   deleteMahfilTransaction,
@@ -90,6 +91,21 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   const [bookModalOpen, setBookModalOpen] = useState(false);
   const [bookModalMode, setBookModalMode] = useState<BookModalMode>("create_book");
   const [editingBook, setEditingBook] = useState<Partial<MahfilReceiptBook> | null>(null);
+
+  // Bulk Receipt Generator State
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [bulkForm, setBulkForm] = useState({
+    totalBooks: 100,
+    pagesPerBook: 50,
+    startPageNo: 1,
+    startBookNo: 1,
+    prefix: "বই #",
+    category: "সাধারণ অনুদান",
+    ratePerPage: 0,
+    expectedAmountPerBook: 0,
+    receiptType: "সাধারণ রসিদ বই",
+    notes: "",
+  });
 
   // Transaction Modal State
   const [txnModalOpen, setTxnModalOpen] = useState(false);
@@ -498,6 +514,76 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       router.refresh();
     } catch (err) {
       alert("মুছতে সমস্যা হয়েছে");
+    }
+  };
+
+  // -------------------------------------------------------------
+  // Bulk Receipt Generator Handlers (বাল্ক রসিদ তৈরি)
+  // -------------------------------------------------------------
+  const handleOpenBulkModal = () => {
+    let maxPage = 0;
+    books.forEach(b => {
+      if (b.page_to && Number(b.page_to) > maxPage) maxPage = Number(b.page_to);
+    });
+    const nextStartPage = maxPage > 0 ? maxPage + 1 : 1;
+    const nextStartBook = books.length + 1;
+
+    setBulkForm({
+      totalBooks: 100,
+      pagesPerBook: 50,
+      startPageNo: nextStartPage,
+      startBookNo: nextStartBook,
+      prefix: "বই #",
+      category: "সাধারণ অনুদান",
+      ratePerPage: 0,
+      expectedAmountPerBook: 0,
+      receiptType: "সাধারণ রসিদ বই",
+      notes: "",
+    });
+    setBulkModalOpen(true);
+  };
+
+  const handleSaveBulkBooks = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const count = Number(bulkForm.totalBooks || 0);
+    const pages = Number(bulkForm.pagesPerBook || 0);
+    if (count <= 0 || pages <= 0) {
+      alert("মোট বইয়ের সংখ্যা এবং প্রতি বইয়ের পাতা সংখ্যা ন্যূনতম ১ হতে হবে");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // 1. Try Server Action
+      let res = await saveMahfilBulkReceiptBooks(mahfil.id, bulkForm);
+
+      // 2. If Server Action had issue, fallback to API
+      if (res && "error" in res && res.error) {
+        console.warn("Server action error, trying bulk API route fallback:", res.error);
+        const apiRes = await fetch("/api/fundraising/mahfil/receipt-book/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mahfilId: mahfil.id, ...bulkForm }),
+        });
+        const apiData = await apiRes.json();
+        if (!apiRes.ok || apiData.error) {
+          alert(apiData.error || res.error || "বাল্ক রসিদ বই তৈরিতে সমস্যা হয়েছে");
+          return;
+        }
+        if (apiData.books) {
+          setMahfil(prev => ({ ...prev, receipt_books: apiData.books }));
+        }
+      } else if (res && res.books) {
+        setMahfil(prev => ({ ...prev, receipt_books: res.books }));
+      }
+
+      setBulkModalOpen(false);
+      router.refresh();
+      alert(`সফলভাবে ${toBanglaNumber(count)}টি রসিদ বই তৈরি ও ডাটাবেজে সংরক্ষিত হয়েছে!`);
+    } catch (err: any) {
+      alert("বাল্ক রসিদ তৈরিতে সমস্যা হয়েছে: " + (err?.message || ""));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1034,11 +1120,19 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             </div>
             <div className="flex items-center gap-2">
               <button
+                onClick={handleOpenBulkModal}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs"
+                title="একসাথে অনেকগুলো রশিদ বই তৈরি ও গণনা করুন"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                <span>বাল্ক রশিদ তৈরি (Bulk Add)</span>
+              </button>
+              <button
                 onClick={() => handleOpenBookModal("create_book")}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs"
               >
                 <Plus className="w-4 h-4" />
-                <span>নতুন রশিদ বই তৈরি</span>
+                <span>একক রশিদ বই</span>
               </button>
             </div>
           </div>
@@ -1095,12 +1189,16 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   <tbody className="divide-y divide-slate-100">
                     {filteredBooks.map((bk) => (
                       <tr key={bk.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 font-bold text-slate-900">{bk.book_no}</td>
-                        <td className="py-3 px-4 text-slate-600 font-mono">
-                          {toBanglaNumber(bk.page_from)} হতে {toBanglaNumber(bk.page_to)}
+                        <td className="py-3 px-4 font-bold text-slate-900">
+                          <span className="text-slate-900 font-bold">{bk.book_no}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 font-mono font-bold rounded-md text-xs inline-block">
+                            {toBanglaNumber(bk.page_from)} হতে {toBanglaNumber(bk.page_to)}
+                          </span>
                         </td>
                         <td className="py-3 px-4 font-bold text-slate-800">
-                          {toBanglaNumber(bk.total_pages)} পাতা
+                          <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-800 font-bold">{toBanglaNumber(bk.total_pages)} পাতা</span>
                         </td>
                         <td className="py-3 px-4">
                           <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 font-bold rounded text-[11px]">
@@ -1116,12 +1214,17 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                         </td>
                         <td className="py-3 px-4">
                           {bk.issued_to_name ? (
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px]">
-                              বিতরণকৃত: {bk.issued_to_name}
-                            </span>
+                            <div className="space-y-0.5">
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px] inline-block">
+                                বিতরণকৃত: {bk.issued_to_name}
+                              </span>
+                              <span className="text-[10px] text-slate-500 block">
+                                বিতরণকৃত পাতা: {toBanglaNumber(bk.distributed_pages || bk.total_pages)}
+                              </span>
+                            </div>
                           ) : (
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 font-bold rounded text-[10px]">
-                              স্টকে সংরক্ষিত (অবিতরণকৃত)
+                            <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 font-bold rounded text-[10px]">
+                              স্টকে মজুদ (অবিতরণকৃত)
                             </span>
                           )}
                         </td>
@@ -1217,13 +1320,14 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                 <table className="w-full text-xs text-left">
                   <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
                     <tr>
-                      <th className="py-3 px-4">বই নম্বর</th>
+                      <th className="py-3 px-4">বই নম্বর ও খাত</th>
+                      <th className="py-3 px-4">রশিদ পাতা পরিচিতি</th>
+                      <th className="py-3 px-4">বিতরণকৃত পাতা</th>
                       <th className="py-3 px-4">কার নামে বিতরণ</th>
                       <th className="py-3 px-4">পদবি / জামাত</th>
                       <th className="py-3 px-4">মোবাইল</th>
                       <th className="py-3 px-4">দায়িত্বপ্রাপ্ত এলাকা</th>
                       <th className="py-3 px-4">বিতরণ তারিখ</th>
-                      <th className="py-3 px-4">বিতরণকৃত পাতা</th>
                       <th className="py-3 px-4">বর্তমান অবস্থা</th>
                       <th className="py-3 px-4 text-right">অ্যাকশন</th>
                     </tr>
@@ -1231,10 +1335,28 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   <tbody className="divide-y divide-slate-100">
                     {distributedBooks.map((bk) => (
                       <tr key={bk.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 font-bold text-slate-900">{bk.book_no}</td>
+                        <td className="py-3 px-4">
+                          <span className="font-bold text-slate-900 block text-xs">{bk.book_no}</span>
+                          <span className="text-[10px] text-slate-500">{bk.category || "সাধারণ অনুদান"}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-800 font-mono font-bold rounded-md text-[11px]">
+                              <span>পৃষ্ঠা:</span>
+                              <span>{toBanglaNumber(bk.page_from)} হতে {toBanglaNumber(bk.page_to)}</span>
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-medium">
+                              বইয়ের মোট পাতা: {toBanglaNumber(bk.total_pages)} টি
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="inline-block px-2.5 py-1 bg-indigo-50 border border-indigo-200 text-indigo-900 font-bold rounded-md text-xs">
+                            {toBanglaNumber(bk.distributed_pages || bk.total_pages)} পাতা
+                          </span>
+                        </td>
                         <td className="py-3 px-4">
                           <span className="font-bold text-slate-900 block">{bk.issued_to_name}</span>
-                          <span className="text-[10px] text-slate-400">{bk.category}</span>
                         </td>
                         <td className="py-3 px-4">
                           <span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-semibold rounded text-[11px]">
@@ -1244,7 +1366,6 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                         <td className="py-3 px-4 text-slate-600 font-mono">{bk.issued_to_phone || "-"}</td>
                         <td className="py-3 px-4 text-slate-700 font-medium">{bk.issued_to_area || "সাধারণ"}</td>
                         <td className="py-3 px-4 text-slate-600">{toBanglaNumber(bk.issued_date)}</td>
-                        <td className="py-3 px-4 font-bold text-slate-800">{toBanglaNumber(bk.distributed_pages || bk.total_pages)} পাতা</td>
                         <td className="py-3 px-4">
                           <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
                             bk.status === "RETURNED" ? "bg-emerald-100 text-emerald-800" :
@@ -2270,25 +2391,94 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   </div>
 
                   {bookModalMode === "distribute" && (
-                    <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-3">
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1">রশিদ বই নম্বর <span className="text-red-500">*</span></label>
-                        <input
-                          type="text"
-                          required
-                          value={editingBook?.book_no || ""}
-                          onChange={(e) => setEditingBook(prev => ({ ...prev, book_no: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-bold"
-                        />
+                        <label className="block font-bold text-slate-700 mb-1">
+                          স্টক থেকে রশিদ বই নির্বাচন করুন <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={editingBook?.id || ""}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            const found = books.find(b => b.id === selectedId);
+                            if (found) {
+                              setEditingBook(prev => ({
+                                ...prev,
+                                id: found.id,
+                                book_no: found.book_no,
+                                page_from: found.page_from,
+                                page_to: found.page_to,
+                                total_pages: found.total_pages,
+                                distributed_pages: found.total_pages,
+                                category: found.category,
+                                rate_per_page: found.rate_per_page,
+                                expected_amount: found.expected_amount,
+                                is_distributed: true
+                              }));
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-medium text-slate-800"
+                        >
+                          <option value="">-- স্টক থেকে রশিদ বই বেছে নিন ({books.filter(b => !b.is_distributed && !b.issued_to_name).length}টি বই মজুত আছে) --</option>
+                          {books.map(b => (
+                            <option key={b.id} value={b.id}>
+                              {b.book_no} - (পৃষ্ঠা: {toBanglaNumber(b.page_from)} হতে {toBanglaNumber(b.page_to)}, মোট {toBanglaNumber(b.total_pages)} পাতা) {b.is_distributed || b.issued_to_name ? `[বিতরণকৃত: ${b.issued_to_name}]` : "[স্টকে মজুদ]"}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                      <div>
-                        <label className="block font-bold text-slate-700 mb-1">মোট পাতা</label>
-                        <input
-                          type="number"
-                          value={editingBook?.total_pages || 50}
-                          onChange={(e) => setEditingBook(prev => ({ ...prev, total_pages: Number(e.target.value) }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white"
-                        />
+
+                      {/* DISTINCT PAGE PREVIEW CARD */}
+                      <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-blue-900 text-xs flex items-center gap-1.5">
+                            <BookOpen className="w-4 h-4 text-blue-600" />
+                            <span>নির্বাচিত বইয়ের পাতা পরিচিতি ও রেঞ্জ</span>
+                          </span>
+                          <span className="px-2 py-0.5 bg-blue-600 text-white font-mono font-bold rounded text-[10px]">
+                            {editingBook?.book_no || "কোনো বই নির্বাচিত হয়নি"}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                          <div className="bg-white p-2 rounded-lg border border-blue-100">
+                            <span className="text-[10px] text-slate-400 block">পাতা শুরু (হতে)</span>
+                            <span className="font-bold text-slate-800 font-mono text-sm">{toBanglaNumber(editingBook?.page_from || 1)}</span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-blue-100">
+                            <span className="text-[10px] text-slate-400 block">পাতা শেষ (পর্যন্ত)</span>
+                            <span className="font-bold text-slate-800 font-mono text-sm">{toBanglaNumber(editingBook?.page_to || 50)}</span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-blue-100">
+                            <span className="text-[10px] text-slate-400 block">বইয়ের মোট পাতা</span>
+                            <span className="font-bold text-blue-700 text-sm">{toBanglaNumber(editingBook?.total_pages || 50)} পাতা</span>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-blue-100">
+                            <span className="text-[10px] text-slate-400 block">খাত / ধরন</span>
+                            <span className="font-bold text-slate-700 truncate block">{editingBook?.category || "সাধারণ অনুদান"}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">রশিদ বই নম্বর <span className="text-red-500">*</span></label>
+                          <input
+                            type="text"
+                            required
+                            value={editingBook?.book_no || ""}
+                            onChange={(e) => setEditingBook(prev => ({ ...prev, book_no: e.target.value }))}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">মোট পাতা</label>
+                          <input
+                            type="number"
+                            value={editingBook?.total_pages || 50}
+                            onChange={(e) => setEditingBook(prev => ({ ...prev, total_pages: Number(e.target.value) }))}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white"
+                          />
+                        </div>
                       </div>
                     </div>
                   )}
@@ -2409,6 +2599,37 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                       <span>জমা ও আদায় সংক্রান্ত ফিল্ড (Deposit Details)</span>
                     </span>
                     <span className="text-[11px] text-indigo-700 font-medium">আদায় ও হিসাব মিলানো</span>
+                  </div>
+
+                  {/* DISTINCT PAGE & DEPOSIT PREVIEW CARD */}
+                  <div className="p-3 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-indigo-900 text-xs flex items-center gap-1.5">
+                        <BookOpen className="w-4 h-4 text-indigo-600" />
+                        <span>জমা ও হিসাব সমন্বয়ের বইয়ের বিবরণ</span>
+                      </span>
+                      <span className="px-2 py-0.5 bg-indigo-600 text-white font-mono font-bold rounded text-[10px]">
+                        {editingBook?.book_no || "-"}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                        <span className="text-[10px] text-slate-400 block">পৃষ্ঠা রেঞ্জ</span>
+                        <span className="font-bold text-indigo-800 font-mono text-xs">{toBanglaNumber(editingBook?.page_from || 1)} হতে {toBanglaNumber(editingBook?.page_to || 50)}</span>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                        <span className="text-[10px] text-slate-400 block">বইয়ের মোট পাতা</span>
+                        <span className="font-bold text-slate-800">{toBanglaNumber(editingBook?.total_pages || 50)} পাতা</span>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                        <span className="text-[10px] text-slate-400 block">বিতরণকৃত পাতা</span>
+                        <span className="font-bold text-blue-700">{toBanglaNumber(editingBook?.distributed_pages || editingBook?.total_pages || 50)} পাতা</span>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                        <span className="text-[10px] text-slate-400 block">গ্রহীতা</span>
+                        <span className="font-bold text-slate-800 truncate block">{editingBook?.issued_to_name || "অনির্দিষ্ট"}</span>
+                      </div>
+                    </div>
                   </div>
 
                   {bookModalMode === "deposit" && (
@@ -2569,6 +2790,259 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg flex items-center gap-1.5 shadow-xs"
                 >
                   {loading ? <span>সংরক্ষণ হচ্ছে...</span> : <span>সংরক্ষণ করুন</span>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: বাল্ক রশিদ বই জেনারেটর (BULK RECEIPT BOOK GENERATOR) */}
+      {/* ========================================================================= */}
+      {bulkModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-indigo-100 rounded-xl text-indigo-700">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    বাল্ক রশিদ বই জেনারেটর (Bulk Receipt Generator)
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    বই ও পাতার সংখ্যা দিলে সিস্টেম স্বয়ংক্রিয়ভাবে হিসাব করে প্রতিটি বই ও পাতার রেঞ্জ তৈরি করবে
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBulkModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBulkBooks} className="mt-4 space-y-4 text-xs">
+              {/* Core Parameters */}
+              <div className="p-3.5 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-3">
+                <span className="font-bold text-indigo-900 text-xs flex items-center gap-1.5">
+                  <BookOpen className="w-4 h-4 text-indigo-600" />
+                  <span>বই ও পাতা সংখ্যা নির্ধারণ (Calculation Inputs)</span>
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      মোট বইয়ের সংখ্যা <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      max={500}
+                      value={bulkForm.totalBooks}
+                      onChange={(e) => setBulkForm(prev => ({ ...prev, totalBooks: Number(e.target.value) }))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-bold text-sm text-slate-900 focus:border-indigo-500"
+                      placeholder="যেমন: 100"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">সর্বোচ্চ ৫০০টি বই একসাথে তৈরি করা যাবে</span>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      প্রতিটি বইয়ে পাতার সংখ্যা <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      value={bulkForm.pagesPerBook}
+                      onChange={(e) => setBulkForm(prev => ({ ...prev, pagesPerBook: Number(e.target.value) }))}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-bold text-sm text-slate-900 focus:border-indigo-500"
+                      placeholder="যেমন: 50"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">সাধারণত প্রতিটি বই ৫০ বা ১০০ পাতার হয়ে থাকে</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">শুরুর পৃষ্ঠা নম্বর</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={bulkForm.startPageNo}
+                      onChange={(e) => setBulkForm(prev => ({ ...prev, startPageNo: Number(e.target.value) }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">শুরুর বই নম্বর ক্রম</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={bulkForm.startBookNo}
+                      onChange={(e) => setBulkForm(prev => ({ ...prev, startBookNo: Number(e.target.value) }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">বইয়ের প্রিফিক্স (Prefix)</label>
+                    <input
+                      type="text"
+                      value={bulkForm.prefix}
+                      onChange={(e) => setBulkForm(prev => ({ ...prev, prefix: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white"
+                      placeholder="যেমন: বই #"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Financial & Category Settings */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">খাত / তহবিলের ধরন</label>
+                  <select
+                    value={bulkForm.category}
+                    onChange={(e) => setBulkForm(prev => ({ ...prev, category: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white"
+                  >
+                    <option value="সাধারণ অনুদান">সাধারণ অনুদান</option>
+                    <option value="মাদ্রাসার উন্নয়ন">মাদ্রাসার উন্নয়ন</option>
+                    <option value="এতিমখানা ও লিল্লাহ ফান্ড">এতিমখানা ও লিল্লাহ ফান্ড</option>
+                    <option value="কিতাব ও লাইব্রেরি ফান্ড">কিতাব ও লাইব্রেরি ফান্ড</option>
+                    <option value="মঞ্চের কালেকশন">মঞ্চের কালেকশন</option>
+                    <option value="অন্যান্য তহবিল">অন্যান্য তহবিল</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">প্রতি পাতার দর (৳, ঐচ্ছিক)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={bulkForm.ratePerPage || ""}
+                    onChange={(e) => setBulkForm(prev => ({ ...prev, ratePerPage: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white"
+                    placeholder="যেমন: ১০০ / ৫০০"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">রসিদের ধরন</label>
+                  <select
+                    value={bulkForm.receiptType}
+                    onChange={(e) => setBulkForm(prev => ({ ...prev, receiptType: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white"
+                  >
+                    <option value="সাধারণ রসিদ বই">সাধারণ রসিদ বই</option>
+                    <option value="আজীবন সদস্য রসিদ">আজীবন সদস্য রসিদ</option>
+                    <option value="মঞ্চের বিশেষ রসিদ">মঞ্চের বিশেষ রসিদ</option>
+                    <option value="কমিটি কোটা রসিদ">কমিটি কোটা রসিদ</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Dynamic Live Sequence & Math Preview Card */}
+              <div className="p-3.5 bg-gradient-to-br from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>স্বয়ংক্রিয় হিসাব ও ক্রম প্রিভিউ (Live Sequence Preview)</span>
+                  </span>
+                  <span className="px-2 py-0.5 bg-emerald-600 text-white font-bold rounded text-[10px]">
+                    মোট {toBanglaNumber(bulkForm.totalBooks * bulkForm.pagesPerBook)} পাতা
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="bg-white/90 p-2 rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-slate-500 block">মোট বই</span>
+                    <span className="font-bold text-slate-800 text-sm">{toBanglaNumber(bulkForm.totalBooks)} টি</span>
+                  </div>
+                  <div className="bg-white/90 p-2 rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-slate-500 block">প্রতি বই পাতা</span>
+                    <span className="font-bold text-slate-800 text-sm">{toBanglaNumber(bulkForm.pagesPerBook)} পাতা</span>
+                  </div>
+                  <div className="bg-white/90 p-2 rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-slate-500 block">সর্বমোট পাতা</span>
+                    <span className="font-bold text-emerald-700 text-sm font-mono">
+                      {toBanglaNumber(bulkForm.totalBooks * bulkForm.pagesPerBook)} পাতা
+                    </span>
+                  </div>
+                  <div className="bg-white/90 p-2 rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-slate-500 block">সম্ভাব্য লক্ষ্যমাত্রা</span>
+                    <span className="font-bold text-indigo-700 text-sm">
+                      ৳ {toBanglaNumber(bulkForm.totalBooks * bulkForm.pagesPerBook * (bulkForm.ratePerPage || 0))}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Sequence Demonstration */}
+                <div className="bg-white/80 p-2.5 rounded-lg border border-emerald-200/80 text-[11px] space-y-1">
+                  <span className="font-bold text-slate-700 block text-[10px] uppercase tracking-wide">
+                    যেভাবে বই ও পাতাগুলো তৈরি হবে:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 font-mono">
+                    <div className="px-2 py-1 bg-white rounded border border-slate-200">
+                      <strong>১ম বই:</strong> {bulkForm.prefix}{bulkForm.startBookNo} ➔ পৃষ্ঠা {toBanglaNumber(bulkForm.startPageNo)} হতে {toBanglaNumber(bulkForm.startPageNo + bulkForm.pagesPerBook - 1)} ({toBanglaNumber(bulkForm.pagesPerBook)} পাতা)
+                    </div>
+                    {bulkForm.totalBooks > 1 && (
+                      <div className="px-2 py-1 bg-white rounded border border-slate-200">
+                        <strong>২য় বই:</strong> {bulkForm.prefix}{bulkForm.startBookNo + 1} ➔ পৃষ্ঠা {toBanglaNumber(bulkForm.startPageNo + bulkForm.pagesPerBook)} হতে {toBanglaNumber(bulkForm.startPageNo + (2 * bulkForm.pagesPerBook) - 1)} ({toBanglaNumber(bulkForm.pagesPerBook)} পাতা)
+                      </div>
+                    )}
+                    {bulkForm.totalBooks > 2 && (
+                      <div className="px-2 py-1 bg-white rounded border border-slate-200">
+                        <strong>৩য় বই:</strong> {bulkForm.prefix}{bulkForm.startBookNo + 2} ➔ পৃষ্ঠা {toBanglaNumber(bulkForm.startPageNo + (2 * bulkForm.pagesPerBook))} হতে {toBanglaNumber(bulkForm.startPageNo + (3 * bulkForm.pagesPerBook) - 1)} ({toBanglaNumber(bulkForm.pagesPerBook)} পাতা)
+                      </div>
+                    )}
+                    {bulkForm.totalBooks > 3 && (
+                      <div className="px-2 py-1 bg-white rounded border border-slate-200">
+                        <strong>... শেষ বই ({toBanglaNumber(bulkForm.totalBooks)}ম):</strong> {bulkForm.prefix}{bulkForm.startBookNo + bulkForm.totalBooks - 1} ➔ পৃষ্ঠা {toBanglaNumber(bulkForm.startPageNo + ((bulkForm.totalBooks - 1) * bulkForm.pagesPerBook))} হতে {toBanglaNumber(bulkForm.startPageNo + (bulkForm.totalBooks * bulkForm.pagesPerBook) - 1)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">নোট / মন্তব্য (ঐচ্ছিক)</label>
+                <input
+                  type="text"
+                  value={bulkForm.notes}
+                  onChange={(e) => setBulkForm(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg"
+                  placeholder="যেমন: মাহফিলের জন্য প্রেস থেকে মুদ্রিত মূল ১০০টি বই"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBulkModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 font-bold"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors"
+                >
+                  {loading ? (
+                    <span>বইগুলো তৈরি হচ্ছে...</span>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-amber-300" />
+                      <span>একসাথে {toBanglaNumber(bulkForm.totalBooks)}টি বই তৈরি ও সংরক্ষণ করুন</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
