@@ -222,10 +222,24 @@ export async function getFunds(): Promise<FundItem[]> {
     }
 
     // Fetch dynamic live collections & expenses to calculate real-time balances for all funds
-    const [donationsRes, expensesRes] = await Promise.all([
-      adminClient.from("donations").select("amount, donation_type, donor_id").eq("madrasa_id", finalMadrasaId),
-      adminClient.from("expenses").select("amount, description, category").eq("madrasa_id", finalMadrasaId),
+    const [donationsRes, expensesRes, meta] = await Promise.all([
+      adminClient.from("donations").select("id, amount, donation_type, donor_id, receipt_no, notes").eq("madrasa_id", finalMadrasaId),
+      adminClient.from("expenses").select("id, amount, description, category, voucher_no").eq("madrasa_id", finalMadrasaId),
+      getMadrasaMetadata(finalMadrasaId),
     ]);
+
+    const mahfils = meta.mahfils || [];
+    const validMahfilVouchers = new Set<string>();
+    const validMahfilRecordIds = new Set<string>();
+
+    mahfils.forEach((m: any) => {
+      const allSt = m.settlements || (m.settlement ? [m.settlement] : []);
+      allSt.forEach((s: any) => {
+        if (s.accounting_voucher_no) validMahfilVouchers.add(s.accounting_voucher_no);
+        if (s.accounting_record_id) validMahfilRecordIds.add(s.accounting_record_id);
+        if (s.mahfil_txn_id) validMahfilRecordIds.add(s.mahfil_txn_id);
+      });
+    });
 
     const allDonations = donationsRes.data || [];
     const allExpenses = expensesRes.data || [];
@@ -235,7 +249,18 @@ export async function getFunds(): Promise<FundItem[]> {
       fundStats.set(f.name, { collected: 0, expense: 0, count: 0, donors: new Set<string>() });
     });
 
-    allDonations.forEach((d: any) => {
+    for (const d of allDonations) {
+      const isMahfil = d.receipt_no?.startsWith("MHF-") || (d.notes && d.notes.includes("মাহফিল"));
+      if (isMahfil) {
+        const isValid = (d.receipt_no && validMahfilVouchers.has(d.receipt_no)) || validMahfilRecordIds.has(d.id);
+        if (!isValid) {
+          try {
+            await adminClient.from("donations").delete().eq("id", d.id);
+          } catch {}
+          continue;
+        }
+      }
+
       const amt = Number(d.amount || 0);
       const matched = baseFunds.find((f) => isTransactionInFund(f, undefined, d.donation_type, baseFunds));
       if (matched) {
@@ -247,9 +272,20 @@ export async function getFunds(): Promise<FundItem[]> {
           if (donorIdentifier) stat.donors.add(donorIdentifier);
         }
       }
-    });
+    }
 
-    allExpenses.forEach((e: any) => {
+    for (const e of allExpenses) {
+      const isMahfilDeficit = e.voucher_no?.startsWith("EXP-MHF") || (e.description && e.description.includes("মাহফিল"));
+      if (isMahfilDeficit) {
+        const isValid = (e.voucher_no && validMahfilVouchers.has(e.voucher_no)) || validMahfilRecordIds.has(e.id);
+        if (!isValid) {
+          try {
+            await adminClient.from("expenses").delete().eq("id", e.id);
+          } catch {}
+          continue;
+        }
+      }
+
       const amt = Number(e.amount || 0);
       const parsed = parseExpenseFund(e.description);
       const targetFundName = parsed.fundName || parsed.fundId || e.category;
@@ -260,7 +296,7 @@ export async function getFunds(): Promise<FundItem[]> {
           stat.expense += amt;
         }
       }
-    });
+    }
 
     return baseFunds.map((f) => {
       const st = fundStats.get(f.name) || { collected: 0, expense: 0, count: 0, donors: new Set<string>() };
@@ -1040,24 +1076,45 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
       .eq("madrasa_id", finalMadrasaId)
       .order("expense_date", { ascending: false });
 
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const mahfils = meta.mahfils || [];
+    const validMahfilVouchers = new Set<string>();
+    const validMahfilRecordIds = new Set<string>();
+
+    mahfils.forEach((m: any) => {
+      const allSt = m.settlements || (m.settlement ? [m.settlement] : []);
+      allSt.forEach((s: any) => {
+        if (s.accounting_voucher_no) validMahfilVouchers.add(s.accounting_voucher_no);
+        if (s.accounting_record_id) validMahfilRecordIds.add(s.accounting_record_id);
+        if (s.mahfil_txn_id) validMahfilRecordIds.add(s.mahfil_txn_id);
+      });
+    });
+
     const transactions: FundTransactionRecord[] = [];
     let totalInflow = 0;
     let totalOutflow = 0;
 
     // Process Donations
-    (dbDonations || []).forEach((d: any) => {
+    for (const d of dbDonations || []) {
       if (isTransactionInFund(targetFund, d.fund_id, d.donation_type, funds)) {
-        const amt = Number(d.amount || 0);
-        totalInflow += amt;
-
         let isMahfil = false;
         let sourceName = d.donors?.name || "সাধারণ দাতা";
         if (d.receipt_no?.startsWith("MHF-") || (d.notes && d.notes.includes("মাহফিল"))) {
           isMahfil = true;
+          const isValid = (d.receipt_no && validMahfilVouchers.has(d.receipt_no)) || validMahfilRecordIds.has(d.id);
+          if (!isValid) {
+            try {
+              await adminClient.from("donations").delete().eq("id", d.id);
+            } catch {}
+            continue;
+          }
           const mMatch = (d.notes || "").match(/মাহফিল:\s*([^(|.]+)/);
           const mTitle = mMatch ? mMatch[1].trim() : "বার্ষিক ইসলামি মহাসম্মেলন";
           sourceName = `${mTitle} (মাহফিল উদ্বৃত্ত তহবিল)`;
         }
+
+        const amt = Number(d.amount || 0);
+        totalInflow += amt;
 
         transactions.push({
           id: d.id,
@@ -1074,24 +1131,31 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           is_mahfil_settlement: isMahfil,
         });
       }
-    });
+    }
 
     // Process Expenses
-    (dbExpenses || []).forEach((e: any) => {
+    for (const e of dbExpenses || []) {
       const parsed = parseExpenseFund(e.description);
       const expFundId = e.fund_id || parsed.fundId;
       const expFundName = e.fund_name || parsed.fundName || e.category;
 
       if (isTransactionInFund(targetFund, expFundId, expFundName, funds)) {
-        const amt = Number(e.amount || 0);
-        totalOutflow += amt;
-
         let isMahfilDeficit = false;
         let recipientName = e.category || "মাদরাসা সাধারণ খরচ";
         if (e.voucher_no?.startsWith("EXP-MHF") || (e.description && e.description.includes("মাহফিল"))) {
           isMahfilDeficit = true;
+          const isValid = (e.voucher_no && validMahfilVouchers.has(e.voucher_no)) || validMahfilRecordIds.has(e.id);
+          if (!isValid) {
+            try {
+              await adminClient.from("expenses").delete().eq("id", e.id);
+            } catch {}
+            continue;
+          }
           recipientName = "মাহফিল পরিচালনা কমিটি (ঘাটতি সমন্বয়)";
         }
+
+        const amt = Number(e.amount || 0);
+        totalOutflow += amt;
 
         transactions.push({
           id: e.id,
@@ -1107,7 +1171,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           is_mahfil_settlement: isMahfilDeficit,
         });
       }
-    });
+    }
 
     // Sort all transactions by date descending
     transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -1130,6 +1194,85 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
       totalOutflow: 0,
       currentBalance: 0,
     };
+  }
+}
+
+// Delete a specific transaction from Fund Ledger (Donation or Expense or Settlement)
+export async function deleteFundTransaction(
+  txnId: string,
+  txnType: string,
+  voucherNo?: string
+): Promise<{ success?: boolean; error?: string }> {
+  try {
+    const adminClient = await createAdminClient();
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
+
+    const isInflow = txnType === "INCOME" || txnType === "MAHFIL_SURPLUS";
+    const isOutflow = txnType === "EXPENSE" || txnType === "MAHFIL_DEFICIT";
+
+    // Delete from donations
+    if (isInflow || txnId.startsWith("ZR-") || voucherNo?.startsWith("ZR-") || voucherNo?.startsWith("MHF-")) {
+      await adminClient.from("donations").delete().eq("id", txnId);
+      if (voucherNo) {
+        await adminClient.from("donations").delete().eq("receipt_no", voucherNo);
+        await adminClient.from("donations").delete().like("notes", `%${voucherNo}%`);
+      }
+    }
+
+    // Delete from expenses
+    if (isOutflow || txnId.startsWith("EXP-") || voucherNo?.startsWith("EXP-")) {
+      await adminClient.from("expenses").delete().eq("id", txnId);
+      if (voucherNo) {
+        await adminClient.from("expenses").delete().eq("voucher_no", voucherNo);
+        await adminClient.from("expenses").delete().like("description", `%${voucherNo}%`);
+      }
+    }
+
+    // If it is a mahfil settlement, also clean up metadata in mahfils
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    let metaChanged = false;
+    (meta.mahfils || []).forEach((m: any) => {
+      const origCount = (m.settlements || []).length;
+      m.settlements = (m.settlements || []).filter(
+        (s: any) =>
+          s.id !== txnId &&
+          s.accounting_record_id !== txnId &&
+          s.mahfil_txn_id !== txnId &&
+          (!voucherNo || s.accounting_voucher_no !== voucherNo)
+      );
+      if (m.settlements.length !== origCount) metaChanged = true;
+
+      if (
+        m.settlement &&
+        (m.settlement.id === txnId ||
+          m.settlement.accounting_record_id === txnId ||
+          m.settlement.mahfil_txn_id === txnId ||
+          (voucherNo && m.settlement.accounting_voucher_no === voucherNo))
+      ) {
+        m.settlement = m.settlements.length > 0 ? m.settlements[m.settlements.length - 1] : undefined;
+        metaChanged = true;
+      }
+    });
+
+    if (metaChanged) {
+      await saveMadrasaMetadata(finalMadrasaId, meta);
+    }
+
+    revalidatePath("/dashboard/zakat/funds");
+    revalidatePath("/dashboard/zakat");
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/accounting/funds");
+    revalidatePath("/dashboard/accounting/donations");
+    revalidatePath("/dashboard/accounting/expenses");
+    revalidatePath("/dashboard/fundraising/mahfil");
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error deleting fund transaction:", err);
+    return { error: err.message || "লেনদেন ডিলিট করতে সমস্যা হয়েছে" };
   }
 }
 

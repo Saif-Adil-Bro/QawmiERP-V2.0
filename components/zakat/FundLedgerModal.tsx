@@ -16,10 +16,12 @@ import {
   CheckCircle2,
   AlertCircle,
   Download,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 import { FundItem, FundTransactionRecord, DonationItem } from "@/lib/fund-utils";
 import { toBanglaNumber, formatBanglaCurrency, numberToBanglaWords } from "@/lib/numberToBangla";
-import { getFundLedgerData, getDonationById, getActiveMadrasaHeaderInfo } from "@/app/actions/zakat";
+import { getFundLedgerData, getDonationById, getActiveMadrasaHeaderInfo, deleteFundTransaction } from "@/app/actions/zakat";
 import DonationReceipt from "./DonationReceipt";
 import { printElementIsolated } from "@/lib/printUtils";
 
@@ -54,6 +56,8 @@ export default function FundLedgerModal({
 
   const [activeReceiptDonation, setActiveReceiptDonation] = useState<DonationItem | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteTxn, setConfirmDeleteTxn] = useState<FundTransactionRecord | null>(null);
   const [liveMadrasaInfo, setLiveMadrasaInfo] = useState<any>(initialMadrasaInfo || null);
 
   useEffect(() => {
@@ -102,6 +106,24 @@ export default function FundLedgerModal({
       console.error("Error loading fund ledger:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async (txn: FundTransactionRecord) => {
+    setDeletingId(txn.id);
+    try {
+      const res = await deleteFundTransaction(txn.id, txn.type, txn.voucher_no);
+      if (res?.success) {
+        setConfirmDeleteTxn(null);
+        await loadLedger();
+      } else {
+        alert(res?.error || "লেনদেন ডিলিট করা যায়নি");
+      }
+    } catch (err: any) {
+      console.error("Error deleting txn:", err);
+      alert("লেনদেন ডিলিট করতে ত্রুটি হয়েছে");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -373,24 +395,40 @@ export default function FundLedgerModal({
                             </div>
                           </td>
 
-                          {/* Action / Receipt */}
+                          {/* Action / Receipt / Delete */}
                           <td className="py-3 px-4 text-right">
-                            {isInflow ? (
+                            <div className="flex items-center justify-end gap-1.5">
+                              {isInflow ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenReceipt(txn)}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                    isMahfil
+                                      ? "bg-amber-700 hover:bg-amber-800 text-white shadow-2xs"
+                                      : "bg-slate-900 hover:bg-slate-800 text-white"
+                                  }`}
+                                >
+                                  <Printer className="w-3 h-3 text-emerald-300" />
+                                  <span>{isMahfil ? "মেমো ভাউচার" : "রসিদ"}</span>
+                                </button>
+                              ) : (
+                                <span className="text-[11px] font-mono text-slate-400">ব্যয় ভাউচার</span>
+                              )}
+
                               <button
                                 type="button"
-                                onClick={() => handleOpenReceipt(txn)}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                                  isMahfil
-                                    ? "bg-amber-700 hover:bg-amber-800 text-white shadow-2xs"
-                                    : "bg-slate-900 hover:bg-slate-800 text-white"
-                                }`}
+                                onClick={() => setConfirmDeleteTxn(txn)}
+                                disabled={deletingId === txn.id}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                title="লেনদেন ডিলিট / বাতিল করুন"
                               >
-                                <Printer className="w-3 h-3 text-emerald-300" />
-                                <span>{isMahfil ? "মেমো ভাউচার" : "রসিদ"}</span>
+                                {deletingId === txn.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
                               </button>
-                            ) : (
-                              <span className="text-[11px] font-mono text-slate-400">ব্যয় ভাউচার</span>
-                            )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -521,6 +559,60 @@ export default function FundLedgerModal({
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {confirmDeleteTxn && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center bg-slate-900/80 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900">
+              লেনদেন রেকর্ড ডিলিট করবেন?
+            </h3>
+            <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+              আপনি কি নিশ্চিত যে ভাউচার{" "}
+              <span className="font-mono font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
+                {confirmDeleteTxn.voucher_no}
+              </span>{" "}
+              (পরিমাণ: <span className="font-bold text-rose-700">৳ {formatBanglaCurrency(confirmDeleteTxn.amount)}</span>) হিসাব ও খতিয়ান থেকে স্থায়ীভাবে মুছে ফেলতে চান?
+            </p>
+            {confirmDeleteTxn.is_mahfil_settlement && (
+              <div className="mt-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 font-medium">
+                ⚠️ এটি একটি মাহফিল উদ্বৃত্ত/ঘাটতি সমন্বয়ের লেনদেন। এটি ডিলিট করলে সাধারণ ফান্ড থেকে এর স্থিতি স্বয়ংক্রিয়ভাবে সমন্বয় করা হবে।
+              </div>
+            )}
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteTxn(null)}
+                disabled={deletingId !== null}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              >
+                বাতিল
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(confirmDeleteTxn)}
+                disabled={deletingId !== null}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {deletingId ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>মুছে ফেলা হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>স্থায়ীভাবে ডিলিট করুন</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Receipt / Voucher Popup if clicked */}
       {activeReceiptDonation && (
