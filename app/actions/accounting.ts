@@ -600,36 +600,47 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // D. Add Mahfil Receipt Book Collections & Transactions from Metadata (untracked)
   const mahfils = meta.mahfils || [];
   mahfils.forEach((m: any) => {
-    // 1. Receipt books (collected amounts from deposits)
-    const books = m.receipt_books || [];
-    books.forEach((bk: any) => {
-      const fundInfo = resolveDonationFund(bk.category, bk.receipt_type || "মাহফিল রসিদ বই আদায়");
-      if (Array.isArray(bk.deposit_history) && bk.deposit_history.length > 0) {
-        bk.deposit_history.forEach((dep: any) => {
-          const recNo = dep.receipt_no || bk.receipt_no || dep.id;
-          if (isWithinRange(dep.date) && !trackedDonationKeys.has(recNo)) {
-            addIncomeToFund(fundInfo.id, fundInfo.name, Number(dep.amount || 0));
+    const isSettled = Boolean(m.settlement || (m.settlements && m.settlements.length > 0));
+
+    // 1. Receipt books (collected amounts from deposits) - only if not already settled/tracked
+    if (!isSettled) {
+      const books = m.receipt_books || [];
+      books.forEach((bk: any) => {
+        const fundInfo = resolveDonationFund(bk.category, bk.receipt_type || "মাহফিল রসিদ বই আদায়");
+        if (Array.isArray(bk.deposit_history) && bk.deposit_history.length > 0) {
+          bk.deposit_history.forEach((dep: any) => {
+            const recNo = dep.receipt_no || bk.receipt_no || dep.id;
+            if (isWithinRange(dep.date) && !trackedDonationKeys.has(recNo)) {
+              addIncomeToFund(fundInfo.id, fundInfo.name, Number(dep.amount || 0));
+            }
+          });
+        } else if (Number(bk.total_collected || 0) > 0) {
+          const d = bk.return_date || bk.issued_date || m.start_date || "";
+          const recNo = bk.receipt_no || bk.id;
+          if (isWithinRange(d) && !trackedDonationKeys.has(recNo)) {
+            addIncomeToFund(fundInfo.id, fundInfo.name, Number(bk.total_collected || 0));
           }
-        });
-      } else if (Number(bk.total_collected || 0) > 0) {
-        const d = bk.return_date || bk.issued_date || m.start_date || "";
-        const recNo = bk.receipt_no || bk.id;
-        if (isWithinRange(d) && !trackedDonationKeys.has(recNo)) {
-          addIncomeToFund(fundInfo.id, fundInfo.name, Number(bk.total_collected || 0));
         }
-      }
-    });
+      });
+    }
 
     // 2. Direct Mahfil Transactions (Income & Expense vouchers)
     const txns = m.transactions || [];
     txns.forEach((t: any) => {
       const d = t.date || m.start_date || "";
       const tKey = t.id || t.voucher_no;
+      const isInternalSettlement = 
+        (t.id && t.id.startsWith("txn_settle")) ||
+        (t.category && (t.category.includes("উদ্বৃত্ত") || t.category.includes("স্থানান্তর"))) ||
+        (t.description && (t.description.includes("উদ্বৃত্ত") || t.description.includes("স্থানান্তর")));
+
+      if (isInternalSettlement) return;
+
       if (isWithinRange(d)) {
-        if (t.type === "INCOME" && !trackedDonationKeys.has(tKey)) {
+        if (t.type === "INCOME" && !isSettled && !trackedDonationKeys.has(tKey)) {
           const fundInfo = resolveDonationFund(t.category, t.description);
           addIncomeToFund(fundInfo.id, fundInfo.name, Number(t.amount || 0));
-        } else if (t.type === "EXPENSE") {
+        } else if (t.type === "EXPENSE" && !isSettled) {
           const parsed = parseExpenseFund(t.description || t.category);
           addExpenseToFund(parsed.fundId || "fund-general", parsed.fundName || "সাধারণ ফান্ড", Number(t.amount || 0));
         }

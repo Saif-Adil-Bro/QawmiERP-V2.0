@@ -176,36 +176,51 @@ export default async function DashboardPage() {
       // 2. Mahfil Receipt Books & Direct Transactions (untracked)
       const mahfils = meta.mahfils || [];
       mahfils.forEach((m: any) => {
-        (m.receipt_books || []).forEach((bk: any) => {
-          if (Array.isArray(bk.deposit_history) && bk.deposit_history.length > 0) {
-            bk.deposit_history.forEach((dep: any) => {
-              const amt = Number(dep.amount || 0);
-              const recNo = dep.receipt_no || bk.receipt_no || dep.id;
-              if (amt > 0 && !trackedDonationKeys.has(recNo)) {
+        // Check if Mahfil is settled or has a surplus deposit in donations table
+        const isSettled = Boolean(m.settlement || (m.settlements && m.settlements.length > 0));
+
+        // If Mahfil is settled, its surplus is already recorded as a donation in the donations DB table.
+        // To prevent double counting settled Mahfil funds, skip internal books/transactions if settled or tracked.
+        if (!isSettled) {
+          (m.receipt_books || []).forEach((bk: any) => {
+            if (Array.isArray(bk.deposit_history) && bk.deposit_history.length > 0) {
+              bk.deposit_history.forEach((dep: any) => {
+                const amt = Number(dep.amount || 0);
+                const recNo = dep.receipt_no || bk.receipt_no || dep.id;
+                if (amt > 0 && !trackedDonationKeys.has(recNo)) {
+                  totalIncome += amt;
+                  addMonthly(dep.date, amt, 'income');
+                }
+              });
+            } else if (Number(bk.total_collected || 0) > 0) {
+              const amt = Number(bk.total_collected || 0);
+              const dt = bk.return_date || bk.issued_date || m.start_date || "";
+              const recNo = bk.receipt_no || bk.id;
+              if (!trackedDonationKeys.has(recNo)) {
                 totalIncome += amt;
-                addMonthly(dep.date, amt, 'income');
+                addMonthly(dt, amt, 'income');
               }
-            });
-          } else if (Number(bk.total_collected || 0) > 0) {
-            const amt = Number(bk.total_collected || 0);
-            const dt = bk.return_date || bk.issued_date || m.start_date || "";
-            const recNo = bk.receipt_no || bk.id;
-            if (!trackedDonationKeys.has(recNo)) {
-              totalIncome += amt;
-              addMonthly(dt, amt, 'income');
             }
-          }
-        });
+          });
+        }
 
         (m.transactions || []).forEach((t: any) => {
           const amt = Number(t.amount || 0);
           const dt = t.date || m.start_date || "";
           const tKey = t.id || t.voucher_no;
+          const isInternalSettlement = 
+            (t.id && t.id.startsWith("txn_settle")) ||
+            (t.category && (t.category.includes("উদ্বৃত্ত") || t.category.includes("স্থানান্তর"))) ||
+            (t.description && (t.description.includes("উদ্বৃত্ত") || t.description.includes("স্থানান্তর")));
+
+          // Ignore internal balancing settlement transactions
+          if (isInternalSettlement) return;
+
           if (amt > 0) {
-            if (t.type === "INCOME" && !trackedDonationKeys.has(tKey)) {
+            if (t.type === "INCOME" && !isSettled && !trackedDonationKeys.has(tKey)) {
               totalIncome += amt;
               addMonthly(dt, amt, 'income');
-            } else if (t.type === "EXPENSE") {
+            } else if (t.type === "EXPENSE" && !isSettled) {
               totalExpense += amt;
               addMonthly(dt, amt, 'expense');
             }
