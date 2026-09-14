@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Printer, Type, Scissors, Copy, CheckCircle2, Download, ArrowLeft, Eye } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency, translateMonthToBangla, numberToBanglaWords } from "@/lib/numberToBangla";
 import { printElementIsolated } from "@/lib/printUtils";
+import { getActiveMadrasaHeaderInfo } from "@/app/actions/zakat";
 
 interface StudentInfo {
   first_name?: string;
@@ -57,11 +58,40 @@ interface DualMoneyReceiptProps {
 export default function DualMoneyReceipt({
   fee,
   student,
-  madrasaInfo,
+  madrasaInfo: initialMadrasaInfo,
   showControls = true,
 }: DualMoneyReceiptProps) {
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
   const [printLayout, setPrintLayout] = useState<"dual" | "student" | "office">("dual");
+  const [liveMadrasaInfo, setLiveMadrasaInfo] = useState<MadrasaInfo | null>(initialMadrasaInfo || null);
+
+  useEffect(() => {
+    if (initialMadrasaInfo && initialMadrasaInfo.name && initialMadrasaInfo.name !== "মাদরাসা") {
+      setLiveMadrasaInfo(initialMadrasaInfo);
+      return;
+    }
+
+    let isMounted = true;
+    async function loadDynamicBranding() {
+      try {
+        const info = await getActiveMadrasaHeaderInfo();
+        if (isMounted && info) {
+          setLiveMadrasaInfo((prev) => ({
+            ...prev,
+            ...info,
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to load live madrasa branding:", err);
+      }
+    }
+    loadDynamicBranding();
+    return () => {
+      isMounted = false;
+    };
+  }, [initialMadrasaInfo]);
+
+  const madrasaInfo = liveMadrasaInfo || initialMadrasaInfo;
 
   const effectiveStudent = student || fee.students;
   const studentName = effectiveStudent 
@@ -138,11 +168,18 @@ export default function DualMoneyReceipt({
                     {madrasaInfo.address}
                   </p>
                 )}
-                {madrasaInfo?.phone && (
-                  <p className="text-[10px] sm:text-[11px] text-slate-500 font-mono">
-                    মোবাইল: {toBanglaNumber(madrasaInfo.phone)}
-                  </p>
-                )}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] sm:text-[11px] text-slate-500 mt-0.5">
+                  {madrasaInfo?.phone && (
+                    <span className="font-mono">
+                      মোবাইল: {toBanglaNumber(madrasaInfo.phone)}
+                    </span>
+                  )}
+                  {(madrasaInfo?.registration_no || madrasaInfo?.reg_no) && (
+                    <span>
+                      রেজি: {toBanglaNumber(madrasaInfo?.registration_no || madrasaInfo?.reg_no)}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 

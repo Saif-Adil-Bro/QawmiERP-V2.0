@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { FundItem, DonorItem, DonationItem, getFundCategoryBadge, getDonorTypeBadge } from "@/lib/fund-utils";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
+import { printElementIsolated } from "@/lib/printUtils";
 
 interface ReportsClientProps {
   stats: any;

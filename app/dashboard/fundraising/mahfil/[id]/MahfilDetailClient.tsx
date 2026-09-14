@@ -47,6 +47,7 @@ import {
 } from "@/lib/fundraising-types";
 import DonationReceipt from "@/components/zakat/DonationReceipt";
 import { DonationItem } from "@/lib/fund-utils";
+import { printElementIsolated } from "@/lib/printUtils";
 import {
   saveMahfilSpeaker,
   deleteMahfilSpeaker,
@@ -189,19 +190,33 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     return b.status === "RETURNED" || b.status === "COMPLETED" || (rem <= 0 && used > 0) || (used >= total && total > 0);
   };
 
+  // স্টকে থাকা বই (সম্পূর্ণ নতুন বই অথবা আংশিক জমা নিয়ে স্টকে ফেরত রাখা বই যার বাকি পাতা এখনও স্টকে আছে)
   const isBookInStock = (b: MahfilReceiptBook) => {
     if (isBookCompleted(b)) return false;
     const total = Number(b.total_pages || (Math.max(1, (b.page_to || 50) - (b.page_from || 1) + 1)));
     const used = Number(b.used_pages || 0);
     const rem = b.remaining_pages !== undefined ? Number(b.remaining_pages) : Math.max(0, total - used);
     if (rem <= 0) return false;
-    return !b.is_distributed || b.status === "IN_STOCK";
+    // বই যদি বর্তমানে কোনো ব্যক্তির কাছে ফিল্ডে বিতরণকৃত না থাকে অথবা স্ট্যাটাস IN_STOCK হয়
+    return !b.is_distributed || b.status === "IN_STOCK" || (b.status === "PARTIALLY_RETURNED" && !b.is_distributed);
   };
 
+  // বর্তমানে ফিল্ডে বিতরণকৃত চলমান বই (যার কাছে বই রয়েছে এবং এখনো সম্পূর্ণ বা আংশিক ফেরত দিয়ে স্টকে দেয়নি)
   const isBookDistributed = (b: MahfilReceiptBook) => {
     if (isBookCompleted(b)) return false;
     if (isBookInStock(b)) return false;
-    return Boolean(b.is_distributed && (b.status === "ISSUED" || b.status === "PARTIALLY_RETURNED" || b.status === "OVERDUE"));
+    return Boolean(b.is_distributed && (b.status === "ISSUED" || b.status === "OVERDUE" || (b.status === "PARTIALLY_RETURNED" && b.is_distributed)));
+  };
+
+  // বইয়ের জমা সম্পন্ন বা আংশিক অর্থ আদায় হয়েছে কিনা (যা জমা ও আদায় রেজিস্টারে লিপিবদ্ধ)
+  const isBookDeposited = (b: MahfilReceiptBook) => {
+    return Boolean(
+      b.is_deposited ||
+      (Number(b.total_collected || 0) > 0) ||
+      (Array.isArray(b.deposit_history) && b.deposit_history.length > 0) ||
+      b.status === "RETURNED" ||
+      b.status === "COMPLETED"
+    );
   };
 
   // ১. কুপন বই (Coupon Books) ক্যালকুলেশন
@@ -233,7 +248,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   const distributionPercentage = totalBooksCount > 0 ? Math.round((distributedBooksCount / totalBooksCount) * 100) : 0;
 
   // ৪. জমা (Deposit / Collection) ক্যালকুলেশন
-  const depositedBooks = books.filter(b => (b.total_collected || 0) > 0 || isBookCompleted(b) || b.status === "PARTIALLY_RETURNED" || (b.status === "IN_STOCK" && (b.used_pages || 0) > 0));
+  const depositedBooks = books.filter(b => isBookDeposited(b));
   const totalCollectedAmount = books.reduce((acc, b) => acc + (Number(b.total_collected) || 0), 0);
   const totalUsedPages = books.reduce((acc, b) => acc + (Number(b.used_pages) || 0), 0);
   const totalReturnedPages = books.reduce((acc, b) => acc + (Number(b.returned_pages) || 0), 0);
@@ -1087,7 +1102,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
       {/* Top Header Card */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs print:hidden">
         <div className="flex items-center gap-3">
           <Link
             href="/dashboard/fundraising/mahfil"
@@ -1119,7 +1134,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
         <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveTab("audit")}
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
           >
             <Printer className="w-4 h-4" />
             <span>অডিট ও ব্যালেন্স শীট</span>
@@ -1128,7 +1143,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       </div>
 
       {/* Dynamic Summary KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 print:hidden">
         <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-500 font-medium">কুপন বই (মোট)</span>
@@ -1209,7 +1224,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       </div>
 
       {/* Mahfil Fund Coordination Banner (তহবিল সমন্বয় ও অটোমেটিক ভাউচার বার) */}
-      <div className={`p-4 rounded-2xl border shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+      <div className={`p-4 rounded-2xl border shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:hidden ${
         mahfil.settlement || (mahfil.settlements && mahfil.settlements.length > 0)
           ? "bg-emerald-50/80 border-emerald-200"
           : netBalance > 0
@@ -1319,7 +1334,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       </div>
 
       {/* Main Tabs Navigation (কুপন, বিতরণ এবং জমা সম্পূর্ণ আলাদা ফিল্ড ও মেনু) */}
-      <div className="bg-white rounded-xl border border-slate-200/80 p-1.5 flex items-center gap-1 shadow-xs overflow-x-auto">
+      <div className="bg-white rounded-xl border border-slate-200/80 p-1.5 flex items-center gap-1 shadow-xs overflow-x-auto print:hidden">
         {[
           { id: "receipts", label: "১. কুপন (কুপন বই)", icon: Receipt, count: totalBooksCount },
           { id: "distribution", label: "২. বিতরণ (বিতরণ রেজিস্টার)", icon: Send, count: distributedBooksCount },
@@ -1831,7 +1846,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {books.filter(b => (Number(b.total_collected) > 0) || (Number(b.used_pages) > 0) || isBookCompleted(b) || (Array.isArray(b.deposit_history) && b.deposit_history.length > 0)).length === 0 ? (
+                  {books.filter(b => isBookDeposited(b)).length === 0 ? (
                     <tr>
                       <td colSpan={10} className="py-8 text-center text-slate-400">
                         এখনো কোনো জমার তথ্য যুক্ত করা হয়নি। 'নতুন আদায় ও জমা এন্ট্রি' বাটনে ক্লিক করে জমা এন্ট্রি দিন।
@@ -1839,7 +1854,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                     </tr>
                   ) : (
                     books
-                      .filter(b => (Number(b.total_collected) > 0) || (Number(b.used_pages) > 0) || isBookCompleted(b) || (Array.isArray(b.deposit_history) && b.deposit_history.length > 0))
+                      .filter(b => isBookDeposited(b))
                       .map((bk) => (
                         <tr key={bk.id} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-3 px-4 font-bold text-slate-900">{bk.book_no}</td>
@@ -2185,8 +2200,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
               <p className="text-xs text-slate-500">শুরা কমিটি ও সাধারণ শুভাকাঙ্ক্ষীদের জন্য অফিসিয়াল প্রতিবেদন (কুপন, বিতরণ ও জমার তথ্য সহ)</p>
             </div>
             <button
-              onClick={() => window.print()}
-              className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow-xs"
+              onClick={() => printElementIsolated("mahfil-audit-report-sheet", `${mahfil.title} - অডিট ও আয়-ব্যয় বিবরণী`)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer transition-colors"
             >
               <Printer className="w-4 h-4" />
               <span>প্রিন্ট / পিডিএফ ডাউনলোড</span>
@@ -2194,12 +2209,19 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           </div>
 
           {/* Printable Container */}
-          <div className="bg-white p-8 rounded-2xl border border-slate-200/80 shadow-xs print:p-0 print:border-none print:shadow-none space-y-6 text-slate-900">
+          <div
+            id="mahfil-audit-report-sheet"
+            className="bg-white p-8 rounded-2xl border border-slate-200/80 shadow-xs print:p-0 print:border-none print:shadow-none space-y-6 text-slate-900"
+          >
             {/* Header */}
             <div className="text-center border-b-2 border-slate-800 pb-4">
+              <p className="text-xs text-slate-500 font-serif tracking-wide mb-1">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
               <h2 className="text-xl font-bold text-slate-900">{mahfil.title}</h2>
-              <p className="text-sm font-semibold text-slate-700 mt-1">
-                শিক্ষাবর্ষ: {mahfil.year} {mahfil.hijri_year ? `(${mahfil.hijri_year})` : ""} | স্থান: {mahfil.venue}
+              <div className="inline-block px-3 py-0.5 bg-slate-100 border border-slate-300 rounded text-xs font-bold text-slate-800 mt-1 mb-1.5">
+                অফিসিয়াল নিরীক্ষা, তহবিল সমন্বয় ও পূর্ণাঙ্গ আয়-ব্যয় বিবরণী
+              </div>
+              <p className="text-xs font-semibold text-slate-700">
+                শিক্ষাবর্ষ: {mahfil.year} {mahfil.hijri_year ? `(${mahfil.hijri_year})` : ""} | স্থান: {mahfil.venue || "মাদ্রাসা প্রাঙ্গণ"}
               </p>
               <p className="text-xs text-slate-500 mt-0.5">
                 তারিখ: {toBanglaNumber(mahfil.start_date)} {mahfil.end_date !== mahfil.start_date ? `থেকে ${toBanglaNumber(mahfil.end_date)}` : ""}
@@ -2207,7 +2229,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             </div>
 
             {/* Financial Grid */}
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-2 gap-6 break-inside-avoid">
               {/* Income Column */}
               <div className="border border-emerald-200 rounded-xl p-4 bg-emerald-50/30">
                 <h4 className="font-bold text-emerald-900 border-b border-emerald-200 pb-2 mb-3 text-sm flex items-center justify-between">
@@ -2257,7 +2279,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             </div>
 
             {/* Net Summary Box */}
-            <div className="p-4 bg-slate-100 rounded-xl border border-slate-300 flex items-center justify-between">
+            <div className="p-4 bg-slate-100 rounded-xl border border-slate-300 flex items-center justify-between break-inside-avoid">
               <div>
                 <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">চূড়ান্ত ফলাফল:</span>
                 <span className="text-sm text-slate-600">মোট আয় - মোট ব্যয়</span>
@@ -2270,7 +2292,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             </div>
 
             {/* তহবিল সমন্বয় ও স্থিতি স্থানান্তর বিবরণী (Fund Settlement & Transfer Statement) */}
-            <div className="border border-slate-300 rounded-xl p-4 bg-slate-50/50 space-y-3">
+            <div className="border border-slate-300 rounded-xl p-4 bg-slate-50/50 space-y-3 break-inside-avoid">
               <div className="border-b border-slate-200 pb-2 flex items-center justify-between">
                 <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                   <Scale className="w-4 h-4 text-emerald-700" />
@@ -2388,7 +2410,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             </div>
 
             {/* Signatures */}
-            <div className="pt-16 grid grid-cols-3 gap-8 text-center text-xs">
+            <div className="pt-16 grid grid-cols-3 gap-8 text-center text-xs break-inside-avoid">
               <div className="border-t border-slate-400 pt-1 font-bold text-slate-800">
                 মুহতারাম ক্যাশিয়ার
               </div>

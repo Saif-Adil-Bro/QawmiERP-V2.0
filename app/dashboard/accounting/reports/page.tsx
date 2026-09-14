@@ -8,6 +8,7 @@ import { ArrowLeft, FileText, TrendingUp, TrendingDown, Wallet, Landmark } from 
 import Link from "next/link";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
 import PrintLetterpad from "@/app/components/PrintLetterpad";
+import { printElementIsolated } from "@/lib/printUtils";
 
 export default function AccountingReportPage() {
   const currentMonth = new Date().getMonth() + 1;
@@ -56,7 +57,7 @@ export default function AccountingReportPage() {
   }, [month, year, selectedFundId]);
 
   const handlePrint = () => {
-    window.print();
+    printElementIsolated("accounting-report-print-root", "মাসিক_আয়_ব্যয়_হিসাবরক্ষণ_রিপোর্ট");
   };
 
   return (
@@ -138,8 +139,9 @@ export default function AccountingReportPage() {
           </div>
         </div>
 
-        <PrintLetterpad madrasaInfo={madrasaInfo} logoUrl={logoUrl}>
-          <div className="mb-6 text-center border-b border-slate-100 pb-4">
+        <div id="accounting-report-print-root" className="bg-white p-2 sm:p-4 rounded-xl">
+          <PrintLetterpad madrasaInfo={madrasaInfo} logoUrl={logoUrl}>
+            <div className="mb-6 text-center border-b border-slate-100 pb-4">
             <h2 className="text-xl sm:text-2xl font-bold text-slate-800">
               {selectedFundId !== "all" 
                 ? `${funds.find(f => f.id === selectedFundId)?.name || "ফান্ড"} - আয়-ব্যয় রিপোর্ট`
@@ -252,6 +254,7 @@ export default function AccountingReportPage() {
             </div>
           ) : null}
         </PrintLetterpad>
+        </div>
       </div>
     </div>
   );

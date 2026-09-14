@@ -3,7 +3,11 @@
  * Completely eliminates background page, backdrop blur, buttons, and modal dialog borders.
  * Uses isolated invisible iframe with injected stylesheets to prevent blank pages across all browsers.
  */
-export function printElementIsolated(elementId: string, pageTitle = "মানি রিসিট ও ভাউচার মেমো") {
+export function printElementIsolated(
+  elementId: string,
+  pageTitle = "মানি রিসিট ও ভাউচার মেমো",
+  orientation: "portrait" | "landscape" = "portrait"
+) {
   if (typeof window === "undefined") return;
 
   const targetElem = document.getElementById(elementId);
@@ -51,7 +55,7 @@ export function printElementIsolated(elementId: string, pageTitle = "মান�
         ${styleTags}
         <style>
           @page {
-            size: A4 portrait;
+            size: A4 ${orientation};
             margin: 6mm;
           }
           *, *::before, *::after {

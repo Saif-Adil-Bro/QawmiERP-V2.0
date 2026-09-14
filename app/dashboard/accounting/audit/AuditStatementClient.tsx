@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { toBanglaNumber, formatCurrencyBangla } from "@/lib/numberToBangla";
 import { AnnualAuditStatement, AuditSettings, saveAuditSettings } from "@/app/actions/audit";
+import { printElementIsolated } from "@/lib/printUtils";
 
 interface AuditStatementClientProps {
   initialStatement: AnnualAuditStatement | null;
@@ -169,7 +170,12 @@ export default function AuditStatementClient({
 
           {/* One-Click Print */}
           <button
-            onClick={() => window.print()}
+            onClick={() =>
+              printElementIsolated(
+                "audit-statement-print-root",
+                `বার্ষিক_অডিট_স্টেটমেন্ট_${statement.fiscalYear}`
+              )
+            }
             className="flex items-center gap-2 px-5 py-2 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition cursor-pointer"
           >
             <Printer className="w-4 h-4" />
@@ -233,31 +239,74 @@ export default function AuditStatementClient({
       </div>
 
       {/* Main Printable Document Layout */}
-      <div className="bg-white border-2 border-slate-300 print:border-none rounded-2xl shadow-lg print:shadow-none p-6 sm:p-10 space-y-6 text-slate-900 print:p-0">
+      <div
+        id="audit-statement-print-root"
+        className="bg-white border-2 border-slate-300 print:border-none rounded-2xl shadow-lg print:shadow-none p-6 sm:p-10 space-y-6 text-slate-900 print:p-0"
+      >
         {/* Madrasa Shura Letterhead Header */}
-        <div className="text-center space-y-1.5 border-b-2 border-slate-900 pb-5">
-          <p className="text-xs font-serif text-slate-600 print:text-black">
+        <div className="border-b-2 border-slate-900 pb-5">
+          <p className="text-center text-xs font-serif text-slate-600 print:text-black mb-2">
             بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ • حَامِدًا وَّمُصَلِّيًا
           </p>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-emerald-900 print:text-black tracking-tight">
-            {statement.madrasaName}
-          </h2>
-          <p className="text-xs text-slate-600 print:text-black font-medium">
-            {statement.madrasaAddress}
-          </p>
-          <div className="pt-2">
+          <div className="flex items-center justify-between gap-4">
+            {/* Logo on Left */}
+            <div className="w-16 h-16 shrink-0 flex items-center justify-center">
+              {statement.logoUrl ? (
+                <img
+                  src={statement.logoUrl}
+                  alt={statement.madrasaName}
+                  className="w-16 h-16 object-contain rounded-lg"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-14 h-14 rounded-full border-2 border-emerald-700 bg-emerald-50 flex items-center justify-center text-emerald-800 font-bold text-xl">
+                  {statement.madrasaName?.charAt(0) || "ম"}
+                </div>
+              )}
+            </div>
+
+            {/* Title & Info Center */}
+            <div className="text-center flex-1 space-y-1">
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-emerald-900 print:text-black tracking-tight">
+                {statement.madrasaName}
+              </h2>
+              {statement.slogan && (
+                <p className="text-xs italic text-emerald-700 font-medium">
+                  "{statement.slogan}"
+                </p>
+              )}
+              <p className="text-xs text-slate-600 print:text-black font-medium">
+                {statement.madrasaAddress}
+                {statement.madrasaPhone && ` • ফোন: ${toBanglaNumber(statement.madrasaPhone)}`}
+              </p>
+              {statement.registrationNo && (
+                <p className="text-[11px] text-slate-500 font-medium">
+                  রেজিস্ট্রেশন নং: {toBanglaNumber(statement.registrationNo)}
+                </p>
+              )}
+            </div>
+
+            {/* Right details */}
+            <div className="w-16 shrink-0 text-right hidden sm:block">
+              <span className="text-[10px] text-slate-400 block font-mono">
+                অর্থবছর {toBanglaNumber(statement.fiscalYear)}
+              </span>
+            </div>
+          </div>
+
+          <div className="text-center pt-3 space-y-1">
             <span className="inline-block bg-slate-900 text-white print:bg-black print:text-white px-5 py-1 rounded-md text-xs sm:text-sm font-bold tracking-wide uppercase">
               {activeFundView === "all"
                 ? "বার্ষিক সমন্বিত আর্থিক অডিট স্টেটমেন্ট ও উদ্বৃত্ত পত্র"
                 : `${currentFund?.fundName} — বার্ষিক নিরীক্ষা বিবরণী`}
             </span>
+            <p className="text-xs text-slate-700 print:text-black font-semibold pt-1">
+              মজলিসে শুরা ও দাতাবৃন্দের অবগতির জন্য উপস্থাপিত • অর্থবছর: {toBanglaNumber(statement.fiscalYear)} ({statement.hijriYear})
+            </p>
+            <p className="text-[11px] text-slate-500 print:text-black">
+              হিসাবকাল: {toBanglaNumber(statement.startDate)} খ্রি. হতে {toBanglaNumber(statement.endDate)} খ্রি. পর্যন্ত
+            </p>
           </div>
-          <p className="text-xs text-slate-700 print:text-black font-semibold pt-1">
-            মজলিসে শুরা ও দাতাবৃন্দের অবগতির জন্য উপস্থাপিত • অর্থবছর: {toBanglaNumber(statement.fiscalYear)} ({statement.hijriYear})
-          </p>
-          <p className="text-[11px] text-slate-500 print:text-black">
-            হিসাবকাল: {statement.startDate} খ্রি. হতে {statement.endDate} খ্রি. পর্যন্ত
-          </p>
         </div>
 
         {/* 4 Tri-Fund Balance Overview Cards (if viewing All Funds) */}

@@ -5,6 +5,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { getAuthMadrasaId } from "./students";
 import { parseExpenseFund } from "@/lib/fund-utils";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
+import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 
 export interface FundAuditSummary {
   fundId: string;
@@ -45,6 +46,9 @@ export interface AnnualAuditStatement {
   endDate: string;
   madrasaName: string;
   madrasaAddress: string;
+  madrasaPhone?: string;
+  logoUrl?: string;
+  slogan?: string;
   registrationNo?: string;
   principalName?: string;
   signatories?: {
@@ -381,16 +385,20 @@ export async function getAnnualAuditStatement(
   }));
 
   const hijriYear = auditSettings.hijriYear || "১৪৪৭-৪৮ হিজরি";
-  const realPrincipal = auditSettings.signatories?.principalName || meta?.principal_name || madrasa?.principal_name || "মুহতামিম";
+  const madrasaInfo = await getMadrasaInfo(madrasaId);
+  const realPrincipal = auditSettings.signatories?.principalName || madrasaInfo.principal_name || meta?.principal_name || madrasa?.principal_name || "মুহতামিম";
 
   return {
     fiscalYear: year,
     hijriYear,
     startDate,
     endDate,
-    madrasaName: madrasa?.name || "মাদরাসা",
-    madrasaAddress: madrasa?.address || "",
-    registrationNo: madrasa?.registration_no?.substring(0, 15),
+    madrasaName: madrasaInfo.name || madrasa?.name || "মাদরাসা",
+    madrasaAddress: madrasaInfo.address || madrasa?.address || "",
+    madrasaPhone: madrasaInfo.phone || madrasa?.contact_phone || "",
+    logoUrl: madrasaInfo.logo_url || "",
+    slogan: madrasaInfo.slogan || "",
+    registrationNo: madrasaInfo.registration_no || madrasaInfo.reg_no || (typeof madrasa?.registration_no === "string" && !madrasa.registration_no.startsWith("{") ? madrasa.registration_no : ""),
     principalName: realPrincipal,
     signatories: {
       auditorName: auditSettings.signatories?.auditorName || "অভ্যন্তরীণ অডিট শাখা",
