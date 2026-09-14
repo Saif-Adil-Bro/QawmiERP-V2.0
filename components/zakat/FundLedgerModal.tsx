@@ -57,28 +57,29 @@ export default function FundLedgerModal({
   const [liveMadrasaInfo, setLiveMadrasaInfo] = useState<any>(initialMadrasaInfo || null);
 
   useEffect(() => {
+    if (initialMadrasaInfo && initialMadrasaInfo.name && initialMadrasaInfo.name !== "মাদরাসা") {
+      setLiveMadrasaInfo(initialMadrasaInfo);
+      return;
+    }
     let isMounted = true;
     async function fetchInfo() {
       try {
         const info = await getActiveMadrasaHeaderInfo();
-        if (isMounted && info && info.name) {
-          setLiveMadrasaInfo(info);
+        if (isMounted && info) {
+          setLiveMadrasaInfo((prev: any) => ({
+            ...prev,
+            ...info,
+          }));
         }
       } catch (err) {
         console.error("Failed to load header info:", err);
       }
     }
-
-    if (!initialMadrasaInfo || !initialMadrasaInfo.name || initialMadrasaInfo.name === "মাদরাসা" || !initialMadrasaInfo.address) {
-      fetchInfo();
-    } else {
-      setLiveMadrasaInfo(initialMadrasaInfo);
-    }
-
+    fetchInfo();
     return () => {
       isMounted = false;
     };
-  }, [initialMadrasaInfo, isOpen]);
+  }, [initialMadrasaInfo]);
 
   const madrasaInfo = liveMadrasaInfo || initialMadrasaInfo;
 

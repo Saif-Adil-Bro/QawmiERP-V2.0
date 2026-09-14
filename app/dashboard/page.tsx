@@ -121,10 +121,27 @@ export default async function DashboardPage() {
       bazarSum = (bazarData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       totalExpense = expensesSum + bazarSum;
 
+      // Sets to track IDs, receipt numbers, and transaction IDs to strictly avoid double counting
+      const trackedFeeKeys = new Set<string>();
+      (feesData || []).forEach((f: any) => {
+        if (f.id) trackedFeeKeys.add(f.id);
+        if (f.receipt_no) trackedFeeKeys.add(f.receipt_no);
+        const rMatch = f.notes?.match(/\[(?:রিসিট|অনলাইন পেমেন্ট):\s*([^\]|]+)/)?.[1];
+        if (rMatch) trackedFeeKeys.add(rMatch.trim());
+      });
+
+      const trackedDonationKeys = new Set<string>();
+      (donationsData || []).forEach((d: any) => {
+        if (d.id) trackedDonationKeys.add(d.id);
+        if (d.receipt_no) trackedDonationKeys.add(d.receipt_no);
+        const rMatch = d.notes?.match(/\[(?:চালান|রিসিট|কুরবানির চামড়া বিক্রয়|দানবাক্স কালেকশন):\s*([^\]|,]+)/)?.[1];
+        if (rMatch) trackedDonationKeys.add(rMatch.trim());
+      });
+
       // Process Monthly Income/Expense
       const monthlyData: Record<string, { income: number; expense: number }> = {};
       const addMonthly = (dateStr: string, amount: number, type: 'income' | 'expense') => {
-        if (!dateStr) return;
+        if (!dateStr || amount <= 0) return;
         const cleanDate = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr.trim();
         const month = cleanDate.substring(0, 7); // YYYY-MM
         if (!monthlyData[month]) monthlyData[month] = { income: 0, expense: 0 };
@@ -136,13 +153,17 @@ export default async function DashboardPage() {
       (expensesData || []).forEach((e: any) => addMonthly(e.expense_date, e.amount, 'expense'));
       (bazarData || []).forEach((b: any) => addMonthly(b.expense_date, b.amount, 'expense'));
 
-      // Include all Madrasa Metadata Live Collections in Dashboard
+      // Include all Madrasa Metadata Live Collections ONLY if not already tracked in DB tables
       const meta = madrasaMeta || {};
 
-      // 1. Fee management payments from metadata (not yet tracked in fees table)
-      const trackedFeeIds = new Set((feesData || []).map((f: any) => f.id));
+      // 1. Fee management payments from metadata (untracked in fees table)
       (meta.payments || []).forEach((p: any) => {
-        if (p.status === "COMPLETED" && !trackedFeeIds.has(p.id) && !trackedFeeIds.has(p.db_fee_id)) {
+        if (
+          p.status === "COMPLETED" &&
+          !trackedFeeKeys.has(p.id) &&
+          !trackedFeeKeys.has(p.db_fee_id) &&
+          !trackedFeeKeys.has(p.receipt_no)
+        ) {
           const amt = Number(p.total_amount_received || 0);
           const dt = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
           if (amt > 0) {
@@ -152,14 +173,15 @@ export default async function DashboardPage() {
         }
       });
 
-      // 2. Mahfil Receipt Books & Direct Transactions
+      // 2. Mahfil Receipt Books & Direct Transactions (untracked)
       const mahfils = meta.mahfils || [];
       mahfils.forEach((m: any) => {
         (m.receipt_books || []).forEach((bk: any) => {
           if (Array.isArray(bk.deposit_history) && bk.deposit_history.length > 0) {
             bk.deposit_history.forEach((dep: any) => {
               const amt = Number(dep.amount || 0);
-              if (amt > 0) {
+              const recNo = dep.receipt_no || bk.receipt_no || dep.id;
+              if (amt > 0 && !trackedDonationKeys.has(recNo)) {
                 totalIncome += amt;
                 addMonthly(dep.date, amt, 'income');
               }
@@ -167,16 +189,20 @@ export default async function DashboardPage() {
           } else if (Number(bk.total_collected || 0) > 0) {
             const amt = Number(bk.total_collected || 0);
             const dt = bk.return_date || bk.issued_date || m.start_date || "";
-            totalIncome += amt;
-            addMonthly(dt, amt, 'income');
+            const recNo = bk.receipt_no || bk.id;
+            if (!trackedDonationKeys.has(recNo)) {
+              totalIncome += amt;
+              addMonthly(dt, amt, 'income');
+            }
           }
         });
 
         (m.transactions || []).forEach((t: any) => {
           const amt = Number(t.amount || 0);
           const dt = t.date || m.start_date || "";
+          const tKey = t.id || t.voucher_no;
           if (amt > 0) {
-            if (t.type === "INCOME") {
+            if (t.type === "INCOME" && !trackedDonationKeys.has(tKey)) {
               totalIncome += amt;
               addMonthly(dt, amt, 'income');
             } else if (t.type === "EXPENSE") {
@@ -187,51 +213,57 @@ export default async function DashboardPage() {
         });
       });
 
-      // 3. Regular Donor / Life Member Payments
+      // 3. Regular Donor / Life Member Payments (untracked)
       (meta.donor_subscription_payments || []).forEach((p: any) => {
         const amt = Number(p.amount || 0);
         const dt = p.payment_date || p.date || (p.created_at ? p.created_at.split("T")[0] : "");
-        if (amt > 0) {
+        const pKey = p.id || p.receipt_no;
+        if (amt > 0 && !trackedDonationKeys.has(pKey)) {
           totalIncome += amt;
           addMonthly(dt, amt, 'income');
         }
       });
 
-      // 4. Donation Box Collections
+      // 4. Donation Box Collections (untracked)
       (meta.donation_box_logs || []).forEach((l: any) => {
         const amt = Number(l.amount || 0);
         const dt = l.collection_date || l.date || (l.created_at ? l.created_at.split("T")[0] : "");
-        if (amt > 0) {
+        const lKey = l.receipt_no || l.id;
+        if (amt > 0 && !trackedDonationKeys.has(lKey)) {
           totalIncome += amt;
           addMonthly(dt, amt, 'income');
         }
       });
 
-      // 5. Online Donations
+      // 5. Online Donations (untracked)
       (meta.online_donations || []).forEach((d: any) => {
         if (d.status === "COMPLETED" || d.status === "VERIFIED" || d.status === "SUCCESS") {
           const amt = Number(d.amount || 0);
           const dt = d.payment_date || (d.created_at ? d.created_at.split("T")[0] : "");
-          if (amt > 0) {
+          const dKey = d.receipt_no || d.transaction_id || d.id;
+          if (amt > 0 && !trackedDonationKeys.has(dKey)) {
             totalIncome += amt;
             addMonthly(dt, amt, 'income');
           }
         }
       });
 
-      // 6. Qurbani Leather Records
+      // 6. Qurbani Leather Records (untracked)
       const leatherRecords = meta.qurbani_leather_records || meta.leather_batches || [];
       leatherRecords.forEach((r: any) => {
         const inc = Number(r.received_amount || r.total_sale_price || r.total_sale_amount || 0);
         const exp = Number(r.transport_labour_cost || r.transport_labor_cost || 0);
         const dt = r.collection_date || r.sale_date || r.date || (r.created_at ? r.created_at.split("T")[0] : "");
-        if (inc > 0) {
-          totalIncome += inc;
-          addMonthly(dt, inc, 'income');
-        }
-        if (exp > 0) {
-          totalExpense += exp;
-          addMonthly(dt, exp, 'expense');
+        const rKey = r.receipt_no || r.id;
+        if (!trackedDonationKeys.has(rKey)) {
+          if (inc > 0) {
+            totalIncome += inc;
+            addMonthly(dt, inc, 'income');
+          }
+          if (exp > 0) {
+            totalExpense += exp;
+            addMonthly(dt, exp, 'expense');
+          }
         }
       });
 

@@ -6,7 +6,6 @@ import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName, isTransactionInFund } from "@/lib/fund-utils";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
-import { getMadrasaProfileWithLogo } from "./tenant";
 
 // In-memory fallback cache for custom funds if database table is not yet created
 const customFundsStore: Map<string, FundItem[]> = new Map();
@@ -113,23 +112,6 @@ export async function getNextMahfilVoucherNo(madrasaId: string, type: "SURPLUS" 
 // Active Madrasa Header Info for Money Receipts and Invoices
 export async function getActiveMadrasaHeaderInfo() {
   try {
-    const profile = await getMadrasaProfileWithLogo();
-    if (profile && profile.madrasa) {
-      const m = profile.madrasa as any;
-      return {
-        name: m.name || "মাদরাসা",
-        address: m.address || "",
-        phone: m.phone || m.contact_phone || "",
-        email: m.email || "",
-        logo_url: profile.logoUrl || m.logo_url || "",
-        registration_no: m.registration_no || m.reg_no || "",
-        reg_no: m.registration_no || m.reg_no || "",
-        signature_url: profile.signatureUrl || m.signature_url || "",
-        principal_name: m.principal_name || "",
-        slogan: m.slogan || "",
-        established_year: m.established_year || "",
-      };
-    }
     const info = await getMadrasaInfo();
     return {
       name: info.name || "মাদরাসা",
@@ -138,7 +120,6 @@ export async function getActiveMadrasaHeaderInfo() {
       email: info.email || "",
       logo_url: info.logo_url || "",
       registration_no: info.registration_no || info.reg_no || "",
-      reg_no: info.registration_no || info.reg_no || "",
       signature_url: info.signature_url || "",
       principal_name: info.principal_name || "",
       slogan: info.slogan || "",
@@ -152,7 +133,6 @@ export async function getActiveMadrasaHeaderInfo() {
       email: "",
       logo_url: "",
       registration_no: "",
-      reg_no: "",
       signature_url: "",
       principal_name: "",
       slogan: "",
@@ -263,7 +243,8 @@ export async function getFunds(): Promise<FundItem[]> {
         if (stat) {
           stat.collected += amt;
           stat.count += 1;
-          if (d.donor_id) stat.donors.add(d.donor_id);
+          const donorIdentifier = d.donor_id || d.receipt_no || d.id;
+          if (donorIdentifier) stat.donors.add(donorIdentifier);
         }
       }
     });
@@ -1339,8 +1320,22 @@ export async function getZakatReportStats() {
     let annualDonorTotal = 0;
     let oneTimeDonorTotal = 0;
 
+    // Normalize donor type string to "Monthly" | "Annual" | "OneTime"
+    const normalizeDonorType = (rawType?: string): "Monthly" | "Annual" | "OneTime" => {
+      if (!rawType) return "OneTime";
+      const upper = rawType.toUpperCase();
+      if (upper.includes("MONTH") || upper.includes("মাসিক")) return "Monthly";
+      if (upper.includes("ANNUAL") || upper.includes("LIFE") || upper.includes("বাৎসরিক") || upper.includes("আজীবন")) return "Annual";
+      return "OneTime";
+    };
+
     // Donor type map
-    const donorTypeMap = new Map(donors.map(d => [d.id, d.donor_type]));
+    const donorTypeMap = new Map(donors.map(d => [d.id, normalizeDonorType(d.donor_type)]));
+
+    // Unique donor identifiers per type for donations
+    const monthlyDonorSet = new Set<string>();
+    const annualDonorSet = new Set<string>();
+    const oneTimeDonorSet = new Set<string>();
 
     donations.forEach((d: any) => {
       const amt = Number(d.amount || 0);
@@ -1358,20 +1353,43 @@ export async function getZakatReportStats() {
       }
 
       // Group by donor type
-      const dtype = d.donor_id ? donorTypeMap.get(d.donor_id) : "OneTime";
-      if (dtype === "Monthly") monthlyDonorTotal += amt;
-      else if (dtype === "Annual") annualDonorTotal += amt;
-      else oneTimeDonorTotal += amt;
+      const dtype = d.donor_id ? (donorTypeMap.get(d.donor_id) || "OneTime") : "OneTime";
+      const donorKey = d.donor_id || d.receipt_no || d.id;
+
+      if (dtype === "Monthly") {
+        monthlyDonorTotal += amt;
+        if (donorKey) monthlyDonorSet.add(donorKey);
+      } else if (dtype === "Annual") {
+        annualDonorTotal += amt;
+        if (donorKey) annualDonorSet.add(donorKey);
+      } else {
+        oneTimeDonorTotal += amt;
+        if (donorKey) oneTimeDonorSet.add(donorKey);
+      }
     });
 
-    // Calculate donor counts by type
-    const monthlyDonorsCount = donors.filter(d => d.donor_type === "Monthly").length;
-    const annualDonorsCount = donors.filter(d => d.donor_type === "Annual").length;
-    const oneTimeDonorsCount = donors.filter(d => d.donor_type === "OneTime").length;
+    // Calculate donor counts by type combining registered profiles and active transaction donors
+    const regMonthly = donors.filter(d => normalizeDonorType(d.donor_type) === "Monthly").length;
+    const regAnnual = donors.filter(d => normalizeDonorType(d.donor_type) === "Annual").length;
+    const regOneTime = donors.filter(d => normalizeDonorType(d.donor_type) === "OneTime").length;
+
+    const monthlyDonorsCount = Math.max(regMonthly, monthlyDonorSet.size);
+    const annualDonorsCount = Math.max(regAnnual, annualDonorSet.size);
+    const oneTimeDonorsCount = Math.max(regOneTime, oneTimeDonorSet.size);
+
+    const allUniqueDonorKeys = new Set<string>();
+    monthlyDonorSet.forEach(k => allUniqueDonorKeys.add(k));
+    annualDonorSet.forEach(k => allUniqueDonorKeys.add(k));
+    oneTimeDonorSet.forEach(k => allUniqueDonorKeys.add(k));
+
+    const totalUniqueDonors = Math.max(
+      donors.length,
+      allUniqueDonorKeys.size
+    );
 
     return {
       grandTotal,
-      totalDonors: donors.length,
+      totalDonors: totalUniqueDonors,
       totalCollectionsCount: donations.length,
       fundBreakdown: Object.values(fundTotals),
       donorTypeStats: {

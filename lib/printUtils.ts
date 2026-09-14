@@ -77,10 +77,6 @@ export function printElementIsolated(
             padding: 0 !important;
             background: #ffffff !important;
           }
-          .isolated-print-wrapper > div {
-            display: block !important;
-            visibility: visible !important;
-          }
           .receipt-card {
             border: 1.5px solid #475569 !important;
             border-radius: 8px !important;

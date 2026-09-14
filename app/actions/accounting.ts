@@ -569,6 +569,15 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     return { id: "fund-general", name: fallbackName };
   }
 
+  // Sets to track IDs and receipt numbers already in database tables
+  const trackedDonationKeys = new Set<string>();
+  monthlyDonations.forEach((d: any) => {
+    if (d.id) trackedDonationKeys.add(d.id);
+    if (d.receipt_no) trackedDonationKeys.add(d.receipt_no);
+    const rMatch = d.notes?.match(/\[(?:চালান|রিসিট|কুরবানির চামড়া বিক্রয়|দানবাক্স কালেকশন):\s*([^\]|,]+)/)?.[1];
+    if (rMatch) trackedDonationKeys.add(rMatch.trim());
+  });
+
   // A. Add Donations income to Fund Map
   monthlyDonations.forEach((don: any) => {
     const amt = Number(don.amount || 0);
@@ -588,7 +597,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
   });
 
-  // D. Add Mahfil Receipt Book Collections & Transactions from Metadata
+  // D. Add Mahfil Receipt Book Collections & Transactions from Metadata (untracked)
   const mahfils = meta.mahfils || [];
   mahfils.forEach((m: any) => {
     // 1. Receipt books (collected amounts from deposits)
@@ -597,13 +606,15 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       const fundInfo = resolveDonationFund(bk.category, bk.receipt_type || "মাহফিল রসিদ বই আদায়");
       if (Array.isArray(bk.deposit_history) && bk.deposit_history.length > 0) {
         bk.deposit_history.forEach((dep: any) => {
-          if (isWithinRange(dep.date)) {
+          const recNo = dep.receipt_no || bk.receipt_no || dep.id;
+          if (isWithinRange(dep.date) && !trackedDonationKeys.has(recNo)) {
             addIncomeToFund(fundInfo.id, fundInfo.name, Number(dep.amount || 0));
           }
         });
       } else if (Number(bk.total_collected || 0) > 0) {
         const d = bk.return_date || bk.issued_date || m.start_date || "";
-        if (isWithinRange(d)) {
+        const recNo = bk.receipt_no || bk.id;
+        if (isWithinRange(d) && !trackedDonationKeys.has(recNo)) {
           addIncomeToFund(fundInfo.id, fundInfo.name, Number(bk.total_collected || 0));
         }
       }
@@ -613,8 +624,9 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     const txns = m.transactions || [];
     txns.forEach((t: any) => {
       const d = t.date || m.start_date || "";
+      const tKey = t.id || t.voucher_no;
       if (isWithinRange(d)) {
-        if (t.type === "INCOME") {
+        if (t.type === "INCOME" && !trackedDonationKeys.has(tKey)) {
           const fundInfo = resolveDonationFund(t.category, t.description);
           addIncomeToFund(fundInfo.id, fundInfo.name, Number(t.amount || 0));
         } else if (t.type === "EXPENSE") {
@@ -625,43 +637,47 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     });
   });
 
-  // E. Add Donor Subscriptions from Metadata
+  // E. Add Donor Subscriptions from Metadata (untracked)
   const donorPayments = meta.donor_subscription_payments || [];
   donorPayments.forEach((p: any) => {
     const d = p.payment_date || p.date || (p.created_at ? p.created_at.split("T")[0] : "");
-    if (isWithinRange(d)) {
+    const pKey = p.id || p.receipt_no;
+    if (isWithinRange(d) && !trackedDonationKeys.has(pKey)) {
       const fundInfo = resolveDonationFund(p.fund_name || p.fund_category, p.notes);
       addIncomeToFund(fundInfo.id, fundInfo.name, Number(p.amount || 0));
     }
   });
 
-  // F. Add Donation Box Collections from Metadata
+  // F. Add Donation Box Collections from Metadata (untracked)
   const boxLogs = meta.donation_box_logs || [];
   boxLogs.forEach((l: any) => {
     const d = l.collection_date || l.date || (l.created_at ? l.created_at.split("T")[0] : "");
-    if (isWithinRange(d)) {
+    const lKey = l.receipt_no || l.id;
+    if (isWithinRange(d) && !trackedDonationKeys.has(lKey)) {
       const fundInfo = resolveDonationFund(l.fund_name || "দানবাক্স ফান্ড", l.notes);
       addIncomeToFund(fundInfo.id, fundInfo.name, Number(l.amount || 0));
     }
   });
 
-  // G. Add Online Donations (Completed/Verified) from Metadata
+  // G. Add Online Donations (Completed/Verified) from Metadata (untracked)
   const onlineDonations = meta.online_donations || [];
   onlineDonations.forEach((d: any) => {
     if (d.status === "COMPLETED" || d.status === "VERIFIED" || d.status === "SUCCESS") {
       const dt = d.payment_date || (d.created_at ? d.created_at.split("T")[0] : "");
-      if (isWithinRange(dt)) {
+      const dKey = d.receipt_no || d.transaction_id || d.id;
+      if (isWithinRange(dt) && !trackedDonationKeys.has(dKey)) {
         const fundInfo = resolveDonationFund(d.fund_name || d.purpose, d.notes);
         addIncomeToFund(fundInfo.id, fundInfo.name, Number(d.amount || 0));
       }
     }
   });
 
-  // H. Add Qurbani Leather Records from Metadata
+  // H. Add Qurbani Leather Records from Metadata (untracked)
   const leatherRecords = meta.qurbani_leather_records || meta.leather_batches || [];
   leatherRecords.forEach((r: any) => {
     const d = r.collection_date || r.sale_date || r.date || (r.created_at ? r.created_at.split("T")[0] : "");
-    if (isWithinRange(d)) {
+    const rKey = r.receipt_no || r.id;
+    if (isWithinRange(d) && !trackedDonationKeys.has(rKey)) {
       const inc = Number(r.received_amount || r.total_sale_price || r.total_sale_amount || 0);
       const exp = Number(r.transport_labour_cost || r.transport_labor_cost || 0);
       if (inc > 0) addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", inc);

@@ -30,12 +30,7 @@ interface EnrichedFund extends FundItem {
   unique_donors_count: number;
 }
 
-interface FundsClientProps {
-  initialFunds: EnrichedFund[];
-  madrasaInfo?: any;
-}
-
-export default function FundsClient({ initialFunds, madrasaInfo }: FundsClientProps) {
+export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFund[] }) {
   const [funds, setFunds] = useState<EnrichedFund[]>(initialFunds);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
@@ -343,7 +338,6 @@ export default function FundsClient({ initialFunds, madrasaInfo }: FundsClientPr
         fund={ledgerFund}
         isOpen={isLedgerOpen}
         onClose={() => setIsLedgerOpen(false)}
-        madrasaInfo={madrasaInfo}
       />
     </div>
   );
