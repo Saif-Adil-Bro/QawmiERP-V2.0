@@ -6,6 +6,7 @@ import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName, isTransactionInFund } from "@/lib/fund-utils";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaProfileWithLogo } from "./tenant";
 
 // In-memory fallback cache for custom funds if database table is not yet created
 const customFundsStore: Map<string, FundItem[]> = new Map();
@@ -112,6 +113,23 @@ export async function getNextMahfilVoucherNo(madrasaId: string, type: "SURPLUS" 
 // Active Madrasa Header Info for Money Receipts and Invoices
 export async function getActiveMadrasaHeaderInfo() {
   try {
+    const profile = await getMadrasaProfileWithLogo();
+    if (profile && profile.madrasa) {
+      const m = profile.madrasa as any;
+      return {
+        name: m.name || "মাদরাসা",
+        address: m.address || "",
+        phone: m.phone || m.contact_phone || "",
+        email: m.email || "",
+        logo_url: profile.logoUrl || m.logo_url || "",
+        registration_no: m.registration_no || m.reg_no || "",
+        reg_no: m.registration_no || m.reg_no || "",
+        signature_url: profile.signatureUrl || m.signature_url || "",
+        principal_name: m.principal_name || "",
+        slogan: m.slogan || "",
+        established_year: m.established_year || "",
+      };
+    }
     const info = await getMadrasaInfo();
     return {
       name: info.name || "মাদরাসা",
@@ -120,6 +138,7 @@ export async function getActiveMadrasaHeaderInfo() {
       email: info.email || "",
       logo_url: info.logo_url || "",
       registration_no: info.registration_no || info.reg_no || "",
+      reg_no: info.registration_no || info.reg_no || "",
       signature_url: info.signature_url || "",
       principal_name: info.principal_name || "",
       slogan: info.slogan || "",
@@ -133,6 +152,7 @@ export async function getActiveMadrasaHeaderInfo() {
       email: "",
       logo_url: "",
       registration_no: "",
+      reg_no: "",
       signature_url: "",
       principal_name: "",
       slogan: "",
