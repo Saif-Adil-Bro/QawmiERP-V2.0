@@ -35,7 +35,8 @@ import {
   CheckCircle2,
   ArrowRightLeft,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  Package
 } from "lucide-react";
 import {
   Mahfil,
@@ -1461,7 +1462,11 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                           )}
                         </td>
                         <td className="py-3 px-4">
-                          {bk.status === "IN_STOCK" || (!bk.is_distributed && !bk.issued_to_name) ? (
+                          {isBookCompleted(bk) ? (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded text-[10px] inline-flex items-center gap-1">
+                              পূর্ণাঙ্গ জমা সম্পন্ন ({toBanglaNumber(bk.total_pages)} পাতা)
+                            </span>
+                          ) : isBookInStock(bk) ? (
                             (bk.used_pages || 0) > 0 ? (
                               <div className="space-y-0.5">
                                 <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold rounded text-[10px] inline-flex items-center gap-1">
@@ -1478,10 +1483,6 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                                 স্টকে মজুদ (নতুন {toBanglaNumber(bk.total_pages)} পাতা)
                               </span>
                             )
-                          ) : bk.status === "RETURNED" || bk.status === "COMPLETED" ? (
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 font-bold rounded text-[10px] inline-flex items-center gap-1">
-                              পূর্ণাঙ্গ জমা সম্পন্ন ({toBanglaNumber(bk.total_pages)} পাতা)
-                            </span>
                           ) : (
                             <div className="space-y-0.5">
                               <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px] inline-block">
@@ -1498,8 +1499,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                         </td>
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {/* If in stock, allow distribution */}
-                            {(bk.status === "IN_STOCK" || (!bk.is_distributed && !bk.issued_to_name)) && (
+                            {/* If in stock and has remaining pages, allow distribution */}
+                            {!isBookCompleted(bk) && isBookInStock(bk) && (
                               <button
                                 onClick={() => handleOpenBookModal("distribute", bk)}
                                 className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded text-[10px] flex items-center gap-1"
@@ -1509,8 +1510,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                                 <span>বিতরণ</span>
                               </button>
                             )}
-                            {/* If distributed or active, allow deposit */}
-                            {(bk.is_distributed || bk.issued_to_name) && bk.status !== "RETURNED" && bk.status !== "COMPLETED" && (
+                            {/* If distributed and not completed, allow deposit */}
+                            {!isBookCompleted(bk) && (bk.is_distributed || bk.issued_to_name) && (
                               <button
                                 onClick={() => handleOpenBookModal("deposit", bk)}
                                 className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded text-[10px] flex items-center gap-1"
@@ -1645,13 +1646,21 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                         <td className="py-3 px-4 text-slate-600">{toBanglaNumber(bk.issued_date)}</td>
                         <td className="py-3 px-4">
                           <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                            bk.status === "RETURNED" ? "bg-emerald-100 text-emerald-800" :
-                            bk.status === "PARTIALLY_RETURNED" ? "bg-amber-100 text-amber-800" :
-                            bk.status === "OVERDUE" ? "bg-red-100 text-red-800" : "bg-blue-100 text-blue-800"
+                            isBookCompleted(bk)
+                              ? "bg-emerald-100 text-emerald-800"
+                              : Number(bk.total_collected || 0) > 0 || bk.status === "PARTIALLY_RETURNED"
+                              ? "bg-amber-100 text-amber-800"
+                              : bk.status === "OVERDUE"
+                              ? "bg-red-100 text-red-800"
+                              : "bg-blue-100 text-blue-800"
                           }`}>
-                            {bk.status === "RETURNED" ? "জমা সম্পন্ন" :
-                             bk.status === "PARTIALLY_RETURNED" ? "আংশিক জমা" :
-                             bk.status === "OVERDUE" ? "বকেয়া" : "বিতরণকৃত"}
+                            {isBookCompleted(bk)
+                              ? "জমা সম্পন্ন"
+                              : Number(bk.total_collected || 0) > 0 || bk.status === "PARTIALLY_RETURNED"
+                              ? "মাঠে চলমান (আংশিক আদায়কৃত)"
+                              : bk.status === "OVERDUE"
+                              ? "বকেয়া"
+                              : "মাঠে চলমান (বিতরণকৃত)"}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
@@ -1687,6 +1696,77 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
               </div>
             </div>
           )}
+
+          {/* স্টকে বিতরণের অপেক্ষায় প্রস্তুত কুপন বই (Ready to Distribute Section) */}
+          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 mt-6">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Package className="w-4 h-4 text-amber-600" />
+                  <span>স্টকে মজুত কুপন বই (বিতরণের জন্য প্রস্তুত)</span>
+                  <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold">
+                    {toBanglaNumber(inStockBooksCount)} টি উপলব্ধ
+                  </span>
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  যেসব কুপন বই এখনো অফিসে মজুত রয়েছে এবং নতুন করে দায়িত্বপ্রাপ্ত ব্যক্তির নামে বিতরণ করা যাবে
+                </p>
+              </div>
+            </div>
+
+            {inStockBooks.length === 0 ? (
+              <div className="bg-white p-6 rounded-xl border border-slate-200 text-center text-slate-400 text-xs">
+                বর্তমানে কোনো কুপন বই স্টকে নেই। সকল বই বিতরণ করা হয়েছে।
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {inStockBooks.map((sbk) => {
+                  const used = Number(sbk.used_pages || 0);
+                  const total = Number(sbk.total_pages || 50);
+                  const rem = sbk.remaining_pages !== undefined ? Number(sbk.remaining_pages) : Math.max(0, total - used);
+                  const startPage = sbk.current_page_from || (sbk.page_from + used);
+                  return (
+                    <div key={sbk.id} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-bold text-slate-900 text-sm">{sbk.book_no}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            {used > 0 ? "আংশিক ফেরত" : "নতুন বই"}
+                          </span>
+                        </div>
+                        <span className="text-xs text-slate-500 block mt-0.5">{sbk.category || "সাধারণ অনুদান"}</span>
+                        
+                        <div className="mt-2 text-xs bg-slate-50 p-2 rounded-lg space-y-1">
+                          <div className="flex justify-between text-slate-600">
+                            <span>উপলব্ধ পাতা:</span>
+                            <span className="font-bold text-slate-900">{toBanglaNumber(rem)} পাতা</span>
+                          </div>
+                          <div className="flex justify-between text-slate-600">
+                            <span>পৃষ্ঠা রেঞ্জ:</span>
+                            <span className="font-mono font-bold text-blue-700">{toBanglaNumber(startPage)} হতে {toBanglaNumber(sbk.page_to)}</span>
+                          </div>
+                          {sbk.rate_per_page && (
+                            <div className="flex justify-between text-slate-600">
+                              <span>প্রতি পাতা:</span>
+                              <span className="font-bold text-emerald-700">৳ {toBanglaNumber(sbk.rate_per_page)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleOpenBookModal("distribute", sbk)}
+                        className="mt-3 w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>এখনই বিতরণ করুন</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1751,7 +1831,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {books.filter(b => (b.total_collected || 0) > 0 || b.status === "RETURNED" || b.status === "PARTIALLY_RETURNED" || b.used_pages).length === 0 ? (
+                  {books.filter(b => (Number(b.total_collected) > 0) || (Number(b.used_pages) > 0) || isBookCompleted(b) || (Array.isArray(b.deposit_history) && b.deposit_history.length > 0)).length === 0 ? (
                     <tr>
                       <td colSpan={10} className="py-8 text-center text-slate-400">
                         এখনো কোনো জমার তথ্য যুক্ত করা হয়নি। 'নতুন আদায় ও জমা এন্ট্রি' বাটনে ক্লিক করে জমা এন্ট্রি দিন।
@@ -1759,7 +1839,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                     </tr>
                   ) : (
                     books
-                      .filter(b => (b.total_collected || 0) > 0 || b.status === "RETURNED" || b.status === "PARTIALLY_RETURNED" || b.used_pages)
+                      .filter(b => (Number(b.total_collected) > 0) || (Number(b.used_pages) > 0) || isBookCompleted(b) || (Array.isArray(b.deposit_history) && b.deposit_history.length > 0))
                       .map((bk) => (
                         <tr key={bk.id} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-3 px-4 font-bold text-slate-900">{bk.book_no}</td>
@@ -1784,17 +1864,13 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                                 ? "bg-emerald-100 text-emerald-800"
                                 : isBookInStock(bk)
                                 ? "bg-amber-100 text-amber-800"
-                                : isBookDistributed(bk)
-                                ? "bg-blue-100 text-blue-800"
-                                : "bg-slate-100 text-slate-800"
+                                : "bg-indigo-100 text-indigo-800"
                             }`}>
                               {isBookCompleted(bk)
                                 ? "পূর্ণাঙ্গ জমা"
                                 : isBookInStock(bk)
                                 ? "স্টকে জমা"
-                                : isBookDistributed(bk)
-                                ? "চলমান"
-                                : "স্টকে"}
+                                : "আংশিক জমা (মাঠে চলমান)"}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
