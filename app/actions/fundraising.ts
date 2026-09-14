@@ -574,25 +574,45 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
         : Math.max(0, distributedPages - usedPages)
     );
 
-    // Determine distribution & deposit states
-    const hasAssignee = Boolean(book.issued_to_name && book.issued_to_name.trim().length > 0);
-    let isDistributed = book.is_distributed !== undefined ? book.is_distributed : hasAssignee;
-    const isDeposited = book.is_deposited ?? (totalCollected > 0 || book.status === "RETURNED" || book.status === "PARTIALLY_RETURNED" || book.status === "IN_STOCK");
+    // Precise status and distribution determination
+    const hasRemainingPages = remainingPages > 0;
+    const isCompleted = !hasRemainingPages || (totalPages > 0 && usedPages >= totalPages);
 
-    // Compute status
-    let finalStatus = book.status;
-    if (!finalStatus) {
-      if (!isDistributed) {
-        finalStatus = remainingPages === 0 && usedPages > 0 ? "RETURNED" : "IN_STOCK";
-      } else {
-        finalStatus = "ISSUED";
+    let finalStatus: "IN_STOCK" | "ISSUED" | "RETURNED" | "PARTIALLY_RETURNED" | "OVERDUE" | "COMPLETED" = book.status || "IN_STOCK";
+    let isDistributed = book.is_distributed;
+
+    if (isCompleted) {
+      // If no pages left or used_pages >= total_pages, it is 100% completed & returned
+      finalStatus = "RETURNED";
+      isDistributed = false;
+    } else {
+      // Still has remaining pages
+      if (finalStatus === "RETURNED" || finalStatus === "COMPLETED") {
+        finalStatus = usedPages > 0 ? "PARTIALLY_RETURNED" : "IN_STOCK";
+      }
+
+      if (isDistributed === undefined) {
+        isDistributed = Boolean(book.issued_to_name && book.issued_to_name.trim().length > 0 && finalStatus !== "IN_STOCK");
+      }
+
+      if (!finalStatus) {
+        if (isDistributed) {
+          finalStatus = usedPages > 0 ? "PARTIALLY_RETURNED" : "ISSUED";
+        } else {
+          finalStatus = "IN_STOCK";
+        }
+      }
+
+      if (finalStatus === "IN_STOCK") {
+        isDistributed = false;
+      } else if (finalStatus === "ISSUED" || finalStatus === "PARTIALLY_RETURNED") {
+        if (book.issued_to_name && book.issued_to_name.trim().length > 0) {
+          isDistributed = true;
+        }
       }
     }
 
-    // If status is explicitly IN_STOCK or RETURNED, it is not currently distributed in the field
-    if (finalStatus === "IN_STOCK" || finalStatus === "RETURNED") {
-      isDistributed = false;
-    }
+    const isDeposited = book.is_deposited ?? (totalCollected > 0 || isCompleted || finalStatus === "PARTIALLY_RETURNED" || finalStatus === "RETURNED");
 
     // Match by ID first, or by trimmed book_no if ID not provided
     let idx = -1;
@@ -614,14 +634,14 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
         ...prevBook,
         ...book,
         id: prevBook.id,
-        book_no: (book.book_no || prevBook.book_no || `বই #${idx + 1}`).trim(),
+        book_no: (book.book_no || prevBook.book_no || `কুপন বই #${idx + 1}`).trim(),
         category: book.category || prevBook.category || "সাধারণ অনুদান",
         page_from: pageFrom,
         page_to: pageTo,
         total_pages: totalPages,
         rate_per_page: ratePerPage,
         expected_amount: expectedAmount,
-        receipt_type: book.receipt_type || prevBook.receipt_type || "সাধারণ রসিদ বই",
+        receipt_type: book.receipt_type || prevBook.receipt_type || "সাধারণ কুপন বই",
         is_distributed: isDistributed,
         issued_to_name: (book.issued_to_name !== undefined ? book.issued_to_name : (prevBook.issued_to_name || "")).trim(),
         issued_to_type: book.issued_to_type || prevBook.issued_to_type || "উস্তাদ",
@@ -635,7 +655,7 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
         return_date: book.return_date !== undefined ? book.return_date : (prevBook.return_date || ""),
         used_pages: usedPages,
         returned_pages: returnedPages,
-        remaining_pages: remainingPages,
+        remaining_pages: isCompleted ? 0 : remainingPages,
         current_page_from: currentPageFrom,
         total_collected: totalCollected,
         payment_method: book.payment_method || prevBook.payment_method || "Cash",
@@ -650,14 +670,14 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
     } else {
       savedBook = {
         id: book.id || `bk_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        book_no: (book.book_no || `বই #${books.length + 1}`).trim(),
+        book_no: (book.book_no || `কুপন বই #${books.length + 1}`).trim(),
         category: book.category || "সাধারণ অনুদান",
         page_from: pageFrom,
         page_to: pageTo,
         total_pages: totalPages,
         rate_per_page: ratePerPage,
         expected_amount: expectedAmount,
-        receipt_type: book.receipt_type || "সাধারণ রসিদ বই",
+        receipt_type: book.receipt_type || "সাধারণ কুপন বই",
         is_distributed: isDistributed,
         issued_to_name: (book.issued_to_name || "").trim(),
         issued_to_type: book.issued_to_type || "উস্তাদ",
@@ -671,7 +691,7 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
         return_date: book.return_date || "",
         used_pages: usedPages,
         returned_pages: returnedPages,
-        remaining_pages: remainingPages,
+        remaining_pages: isCompleted ? 0 : remainingPages,
         current_page_from: currentPageFrom,
         total_collected: totalCollected,
         payment_method: book.payment_method || "Cash",
@@ -691,7 +711,7 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
     meta.mahfils = mahfils;
     const saveSuccess = await saveMadrasaMetadata(activeMadrasaId, meta);
     if (!saveSuccess) {
-      return { error: "ডাটাবেজে রসিদ বই সংরক্ষণ করা সম্ভব হয়নি। পুনরায় চেষ্টা করুন।" };
+      return { error: "ডাটাবেজে কুপন বই সংরক্ষণ করা সম্ভব হয়নি। পুনরায় চেষ্টা করুন।" };
     }
 
     try {
@@ -700,8 +720,8 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
 
     return { success: true, book: savedBook, books };
   } catch (err: any) {
-    console.error("Error saving mahfil receipt book:", err);
-    return { error: err.message || "রসিদ বই সংরক্ষণে সমস্যা হয়েছে" };
+    console.error("Error saving mahfil coupon book:", err);
+    return { error: err.message || "কুপন বই সংরক্ষণে সমস্যা হয়েছে" };
   }
 }
 
@@ -728,10 +748,10 @@ export async function saveMahfilBulkReceiptBooks(
     const pagesPerBook = Math.max(1, Number(params.pagesPerBook || 50));
     const startPageNo = Math.max(1, Number(params.startPageNo || 1));
     const startBookNo = Math.max(1, Number(params.startBookNo || 1));
-    const prefix = params.prefix !== undefined ? params.prefix : "বই #";
+    const prefix = params.prefix !== undefined ? params.prefix : "কুপন বই #";
     const category = params.category || "সাধারণ অনুদান";
     const ratePerPage = Number(params.ratePerPage || 0);
-    const receiptType = params.receiptType || "সাধারণ রসিদ বই";
+    const receiptType = params.receiptType || "সাধারণ কুপন বই";
     const notes = params.notes || "";
 
     const existingBooks = targetMahfil.receipt_books || [];
@@ -799,8 +819,8 @@ export async function saveMahfilBulkReceiptBooks(
 
     return { success: true, count: newBooks.length, books: targetMahfil.receipt_books };
   } catch (err: any) {
-    console.error("Error saving bulk mahfil receipt books:", err);
-    return { error: err.message || "বাল্ক রসিদ বই তৈরিতে সমস্যা হয়েছে" };
+    console.error("Error saving bulk mahfil coupon books:", err);
+    return { error: err.message || "বাল্ক কুপন বই তৈরিতে সমস্যা হয়েছে" };
   }
 }
 
@@ -820,7 +840,7 @@ export async function deleteMahfilReceiptBook(mahfilId: string, bookId: string) 
     } catch {}
     return { success: true };
   } catch (err: any) {
-    return { error: err.message || "রসিদ বই মুছতে ব্যর্থ হয়েছে" };
+    return { error: err.message || "কুপন বই মুছতে ব্যর্থ হয়েছে" };
   }
 }
 

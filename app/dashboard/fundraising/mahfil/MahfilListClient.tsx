@@ -162,7 +162,7 @@ export default function MahfilListClient({ initialMahfils }: { initialMahfils: M
             </h1>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            মাহফিলের বক্তা তালিকা, রসিদ বই বিতরণ, মঞ্চের দান ও পূর্ণাঙ্গ আয়-ব্যয় অডিট খতিয়ান।
+            মাহফিলের বক্তা তালিকা, কুপন বই বিতরণ, মঞ্চের দান ও পূর্ণাঙ্গ আয়-ব্যয় অডিট খতিয়ান।
           </p>
         </div>
 
@@ -201,7 +201,7 @@ export default function MahfilListClient({ initialMahfils }: { initialMahfils: M
 
         <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-500 font-medium">রসিদ বই ও দান কালেকশন</p>
+            <p className="text-xs text-slate-500 font-medium">কুপন বই ও দান কালেকশন</p>
             <p className="text-2xl font-bold text-emerald-700 mt-1">৳ {toBanglaNumber(totalReceiptCollected)}</p>
             <span className="text-[11px] text-slate-400">সর্বমোট জমা</span>
           </div>
@@ -346,7 +346,7 @@ export default function MahfilListClient({ initialMahfils }: { initialMahfils: M
                         <span className="font-bold text-slate-800">{toBanglaNumber(speakerCount)} জন</span>
                       </div>
                       <div className="bg-slate-50 p-2 rounded-lg">
-                        <span className="text-[10px] text-slate-400 block font-medium">রসিদ বই</span>
+                        <span className="text-[10px] text-slate-400 block font-medium">কুপন বই</span>
                         <span className="font-bold text-slate-800">{toBanglaNumber(bookCount)} টি</span>
                       </div>
                     </div>

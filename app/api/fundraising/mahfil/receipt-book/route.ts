@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { mahfilId, book } = body;
     if (!mahfilId || !book) {
-      return NextResponse.json({ error: "মাহফিল আইডি এবং রসিদ বইয়ের তথ্য আবশ্যক" }, { status: 400 });
+      return NextResponse.json({ error: "মাহফিল আইডি এবং কুপন বইয়ের তথ্য আবশ্যক" }, { status: 400 });
     }
     const result = await saveMahfilReceiptBook(mahfilId, book);
     if (result && "error" in result && result.error) {
@@ -14,8 +14,8 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ success: true, ...result });
   } catch (err: any) {
-    console.error("API error saving mahfil receipt book:", err);
-    return NextResponse.json({ error: err.message || "রসিদ বই সংরক্ষণে সমস্যা হয়েছে" }, { status: 500 });
+    console.error("API error saving mahfil coupon book:", err);
+    return NextResponse.json({ error: err.message || "কুপন বই সংরক্ষণে সমস্যা হয়েছে" }, { status: 500 });
   }
 }
 
@@ -33,7 +33,7 @@ export async function DELETE(req: NextRequest) {
     }
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error("API error deleting mahfil receipt book:", err);
-    return NextResponse.json({ error: err.message || "রসিদ বই মুছতে সমস্যা হয়েছে" }, { status: 500 });
+    console.error("API error deleting mahfil coupon book:", err);
+    return NextResponse.json({ error: err.message || "কুপন বই মুছতে সমস্যা হয়েছে" }, { status: 500 });
   }
 }

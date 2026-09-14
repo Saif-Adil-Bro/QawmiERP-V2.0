@@ -180,20 +180,36 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   // -------------------------------------------------------------
   const books = mahfil.receipt_books || [];
 
-  // ১. রশিদ (Receipt Books) ক্যালকুলেশন
+  // Helper to accurately determine if a coupon book is fully returned/completed
+  const isBookCompleted = (b: MahfilReceiptBook) => {
+    const total = Number(b.total_pages || (Math.max(1, (b.page_to || 50) - (b.page_from || 1) + 1)));
+    const used = Number(b.used_pages || 0);
+    const rem = b.remaining_pages !== undefined ? Number(b.remaining_pages) : Math.max(0, total - used);
+    return b.status === "RETURNED" || b.status === "COMPLETED" || (rem <= 0 && used > 0) || (used >= total && total > 0);
+  };
+
+  const isBookInStock = (b: MahfilReceiptBook) => {
+    if (isBookCompleted(b)) return false;
+    const total = Number(b.total_pages || (Math.max(1, (b.page_to || 50) - (b.page_from || 1) + 1)));
+    const used = Number(b.used_pages || 0);
+    const rem = b.remaining_pages !== undefined ? Number(b.remaining_pages) : Math.max(0, total - used);
+    if (rem <= 0) return false;
+    return !b.is_distributed || b.status === "IN_STOCK";
+  };
+
+  const isBookDistributed = (b: MahfilReceiptBook) => {
+    if (isBookCompleted(b)) return false;
+    if (isBookInStock(b)) return false;
+    return Boolean(b.is_distributed && (b.status === "ISSUED" || b.status === "PARTIALLY_RETURNED" || b.status === "OVERDUE"));
+  };
+
+  // ১. কুপন বই (Coupon Books) ক্যালকুলেশন
   const totalBooksCount = books.length;
   const totalReceiptPages = books.reduce((acc, b) => acc + (b.total_pages || 0), 0);
   const totalExpectedTarget = books.reduce((acc, b) => acc + (Number(b.expected_amount) || ((b.total_pages || 0) * (Number(b.rate_per_page) || 0))), 0);
 
   // ২. স্টকে থাকা বই ও পাতা ক্যালকুলেশন (সম্পূর্ণ নতুন বই + আংশিক জমা হয়ে স্টকে ফেরত বই)
-  const inStockBooks = books.filter(b => {
-    const used = Number(b.used_pages || 0);
-    const total = Number(b.total_pages || 50);
-    const rem = b.remaining_pages !== undefined ? Number(b.remaining_pages) : Math.max(0, total - used);
-    if (rem <= 0) return false;
-    if (b.status === "RETURNED" || b.status === "COMPLETED") return false;
-    return !b.is_distributed || b.status === "IN_STOCK";
-  });
+  const inStockBooks = books.filter(b => isBookInStock(b));
   const inStockBooksCount = inStockBooks.length;
   const inStockPagesCount = inStockBooks.reduce((acc, b) => {
     const used = Number(b.used_pages || 0);
@@ -204,20 +220,25 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   const inStockPartiallyReturnedBooks = inStockBooks.filter(b => (Number(b.used_pages || 0) > 0));
   const inStockPartiallyReturnedCount = inStockPartiallyReturnedBooks.length;
 
-  // ৩. বর্তমানে মাঠে বিতরণকৃত বই (বর্তমানে চলমান বিতরণ)
-  const distributedBooks = books.filter(b => b.is_distributed && b.status === "ISSUED");
+  // ৩. বর্তমানে মাঠে বিতরণকৃত বই (চলমান বিতরণ)
+  const distributedBooks = books.filter(b => isBookDistributed(b));
   const distributedBooksCount = distributedBooks.length;
-  const distributedPagesTotal = distributedBooks.reduce((acc, b) => acc + (b.distributed_pages || b.total_pages || 0), 0);
+  const distributedPagesTotal = distributedBooks.reduce((acc, b) => {
+    const total = Number(b.total_pages || 50);
+    const used = Number(b.used_pages || 0);
+    const rem = b.remaining_pages !== undefined ? Number(b.remaining_pages) : Math.max(0, total - used);
+    return acc + (b.distributed_pages || rem || total);
+  }, 0);
   const distributionPercentage = totalBooksCount > 0 ? Math.round((distributedBooksCount / totalBooksCount) * 100) : 0;
 
   // ৪. জমা (Deposit / Collection) ক্যালকুলেশন
-  const depositedBooks = books.filter(b => (b.total_collected || 0) > 0 || b.status === "RETURNED" || b.status === "PARTIALLY_RETURNED" || (b.status === "IN_STOCK" && (b.used_pages || 0) > 0));
+  const depositedBooks = books.filter(b => (b.total_collected || 0) > 0 || isBookCompleted(b) || b.status === "PARTIALLY_RETURNED" || (b.status === "IN_STOCK" && (b.used_pages || 0) > 0));
   const totalCollectedAmount = books.reduce((acc, b) => acc + (Number(b.total_collected) || 0), 0);
   const totalUsedPages = books.reduce((acc, b) => acc + (Number(b.used_pages) || 0), 0);
   const totalReturnedPages = books.reduce((acc, b) => acc + (Number(b.returned_pages) || 0), 0);
-  const fullyReturnedBooksCount = books.filter(b => b.status === "RETURNED" || b.status === "COMPLETED").length;
-  const partiallyReturnedBooksCount = books.filter(b => b.status === "PARTIALLY_RETURNED").length;
-  const pendingCollectionBooksCount = books.filter(b => b.status === "ISSUED" || b.status === "OVERDUE").length;
+  const fullyReturnedBooksCount = books.filter(b => isBookCompleted(b)).length;
+  const partiallyReturnedBooksCount = books.filter(b => !isBookCompleted(b) && b.status === "PARTIALLY_RETURNED").length;
+  const pendingCollectionBooksCount = books.filter(b => isBookDistributed(b)).length;
   const averageCollectionPerUsedSlip = totalUsedPages > 0 ? Math.round(totalCollectedAmount / totalUsedPages) : 0;
 
   // ৫. সার্বিক ফিনান্সিয়াল ক্যালকুলেশন
@@ -244,11 +265,11 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     let matchesStatus = true;
     if (receiptStatusFilter !== "ALL") {
       if (receiptStatusFilter === "IN_STOCK") {
-        matchesStatus = !b.is_distributed || b.status === "IN_STOCK";
+        matchesStatus = isBookInStock(b);
       } else if (receiptStatusFilter === "ISSUED") {
-        matchesStatus = Boolean(b.is_distributed && b.status === "ISSUED");
+        matchesStatus = isBookDistributed(b);
       } else if (receiptStatusFilter === "RETURNED") {
-        matchesStatus = b.status === "RETURNED" || b.status === "COMPLETED";
+        matchesStatus = isBookCompleted(b);
       } else {
         matchesStatus = b.status === receiptStatusFilter;
       }
@@ -346,7 +367,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   };
 
   // -------------------------------------------------------------
-  // Receipt Book Handlers (রশিদ, বিতরণ, জমা - পৃথক ও ডায়নামিক)
+  // Coupon Book Handlers (কুপন, বিতরণ, জমা - পৃথক ও ডায়নামিক)
   // -------------------------------------------------------------
   const handleOpenBookModal = (mode: BookModalMode, bk?: MahfilReceiptBook) => {
     setBookModalMode(mode);
@@ -359,10 +380,11 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       if (mode === "distribute") {
         setEditingBook({
           ...bk,
-          page_from: startPage,
+          page_from: bk.page_from,
           page_to: bk.page_to,
           total_pages: total,
           remaining_pages: rem,
+          current_page_from: startPage,
           distributed_pages: rem > 0 ? rem : total,
           is_distributed: true,
           status: "ISSUED",
@@ -372,6 +394,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           issued_to_jamath: "",
           issued_to_area: "",
           issued_date: new Date().toISOString().split("T")[0],
+          used_pages: used,
+          total_collected: Number(bk.total_collected || 0),
         });
       } else if (mode === "deposit") {
         const currentDist = Number(bk.distributed_pages || rem || total);
@@ -379,12 +403,12 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           ...bk,
           total_pages: total,
           distributed_pages: currentDist,
-          used_pages: 0,
-          returned_pages: currentDist,
-          total_collected: 0,
+          used_pages: rem > 0 ? rem : 0,
+          returned_pages: 0,
+          total_collected: rem > 0 && bk.rate_per_page ? rem * bk.rate_per_page : 0,
           is_deposited: true,
           return_date: new Date().toISOString().split("T")[0],
-          status: "IN_STOCK",
+          status: rem <= 0 ? "RETURNED" : "IN_STOCK",
         });
       } else {
         setEditingBook({
@@ -407,7 +431,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           const u = Number(b.used_pages || 0);
           const t = Number(b.total_pages || 50);
           const r = b.remaining_pages !== undefined ? Number(b.remaining_pages) : Math.max(0, t - u);
-          return r > 0 && b.status !== "RETURNED" && (!b.is_distributed || b.status === "IN_STOCK");
+          return r > 0 && b.status !== "RETURNED" && b.status !== "COMPLETED" && (!b.is_distributed || b.status === "IN_STOCK");
         });
 
         if (firstInStock) {
@@ -417,10 +441,11 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           const startPage = firstInStock.current_page_from || (firstInStock.page_from + used);
           setEditingBook({
             ...firstInStock,
-            page_from: startPage,
+            page_from: firstInStock.page_from,
             page_to: firstInStock.page_to,
             total_pages: total,
             remaining_pages: rem,
+            current_page_from: startPage,
             distributed_pages: rem > 0 ? rem : total,
             is_distributed: true,
             status: "ISSUED",
@@ -430,6 +455,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             issued_to_jamath: "",
             issued_to_area: "",
             issued_date: new Date().toISOString().split("T")[0],
+            used_pages: used,
+            total_collected: Number(firstInStock.total_collected || 0),
           });
         } else {
           setEditingBook({
@@ -438,6 +465,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             page_to: 50,
             total_pages: 50,
             distributed_pages: 50,
+            remaining_pages: 50,
+            current_page_from: 1,
             is_distributed: true,
             status: "ISSUED",
             issued_to_name: "",
@@ -447,20 +476,22 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
         }
       } else if (mode === "deposit") {
         // Find first currently issued book
-        const firstIssued = books.find(b => b.is_distributed && b.status === "ISSUED");
+        const firstIssued = books.find(b => isBookDistributed(b));
         if (firstIssued) {
           const total = firstIssued.total_pages || 50;
-          const dist = Number(firstIssued.distributed_pages || total);
+          const usedSoFar = Number(firstIssued.used_pages || 0);
+          const remSoFar = firstIssued.remaining_pages !== undefined ? Number(firstIssued.remaining_pages) : Math.max(0, total - usedSoFar);
+          const dist = Number(firstIssued.distributed_pages || remSoFar || total);
           setEditingBook({
             ...firstIssued,
             total_pages: total,
             distributed_pages: dist,
-            used_pages: 0,
-            returned_pages: dist,
-            total_collected: 0,
+            used_pages: remSoFar > 0 ? remSoFar : 0,
+            returned_pages: 0,
+            total_collected: remSoFar > 0 && firstIssued.rate_per_page ? remSoFar * firstIssued.rate_per_page : 0,
             is_deposited: true,
             return_date: new Date().toISOString().split("T")[0],
-            status: "IN_STOCK",
+            status: remSoFar <= 0 ? "RETURNED" : "IN_STOCK",
           });
         } else {
           setEditingBook({
@@ -476,12 +507,12 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       } else {
         const nextNum = books.length + 1;
         setEditingBook({
-          book_no: `বই #${nextNum}`,
+          book_no: `কুপন বই #${nextNum}`,
           page_from: 1,
           page_to: 50,
           total_pages: 50,
           category: "সাধারণ অনুদান",
-          receipt_type: "সাধারণ রসিদ বই",
+          receipt_type: "সাধারণ কুপন বই",
           rate_per_page: 100,
           expected_amount: 5000,
           is_distributed: false,
@@ -516,7 +547,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   const handleSaveBook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBook?.book_no?.trim()) {
-      alert("রসিদ বই নম্বর প্রদান করুন");
+      alert("কুপন বই নম্বর প্রদান করুন");
       return;
     }
     if (bookModalMode === "distribute" && !editingBook?.issued_to_name?.trim()) {
@@ -550,19 +581,26 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     } else if (bookModalMode === "deposit") {
       const thisSessionUsed = Number(editingBook.used_pages || 0);
       const thisSessionAmount = Number(editingBook.total_collected || 0);
-      const thisSessionReturned = Number(editingBook.returned_pages !== undefined ? editingBook.returned_pages : Math.max(0, finalDistributedPages - thisSessionUsed));
+      const prevUsed = Number(existingBook?.used_pages || 0);
+      const prevCollected = Number(existingBook?.total_collected || 0);
 
-      finalUsedPages = Number(existingBook?.used_pages || 0) + thisSessionUsed;
-      finalTotalCollected = Number(existingBook?.total_collected || 0) + thisSessionAmount;
+      finalUsedPages = prevUsed + thisSessionUsed;
+      finalTotalCollected = prevCollected + thisSessionAmount;
       finalRemainingPages = Math.max(0, totalPages - finalUsedPages);
       finalCurrentPageFrom = Math.min(pageTo, pageFrom + finalUsedPages);
+
+      const thisSessionReturned = Number(
+        editingBook.returned_pages !== undefined
+          ? editingBook.returned_pages
+          : Math.max(0, finalRemainingPages)
+      );
       finalReturnedPages = thisSessionReturned;
 
       // Log into deposit history
       const depositRecord = {
         id: `dep_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         date: editingBook.return_date || new Date().toISOString().split("T")[0],
-        collector_name: editingBook.issued_to_name || existingBook?.issued_to_name || "সংগ্রাহক",
+        collector_name: (editingBook.issued_to_name || existingBook?.issued_to_name || "সংগ্রাহক").trim(),
         collector_type: editingBook.issued_to_type || existingBook?.issued_to_type || "উস্তাদ",
         collector_phone: editingBook.issued_to_phone || existingBook?.issued_to_phone || "",
         used_pages: thisSessionUsed,
@@ -575,19 +613,20 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       };
       depositHistory.push(depositRecord);
 
-      if (editingBook.status === "IN_STOCK" || (finalRemainingPages > 0 && editingBook.status !== "PARTIALLY_RETURNED" && editingBook.status !== "RETURNED")) {
-        finalStatus = "IN_STOCK";
-        finalIsDistributed = false;
-      } else if (editingBook.status === "RETURNED" || finalRemainingPages === 0) {
+      // Check if finished
+      if (finalRemainingPages === 0 || finalUsedPages >= totalPages) {
         finalStatus = "RETURNED";
         finalIsDistributed = false;
         finalRemainingPages = 0;
-      } else if (editingBook.status === "PARTIALLY_RETURNED") {
-        finalStatus = "PARTIALLY_RETURNED";
-        finalIsDistributed = true;
       } else {
-        finalStatus = (editingBook.status || "IN_STOCK") as any;
-        finalIsDistributed = finalStatus === "ISSUED";
+        if (editingBook.status === "PARTIALLY_RETURNED") {
+          finalStatus = "PARTIALLY_RETURNED";
+          finalIsDistributed = true; // still with collector
+        } else {
+          // In stock (both money & book returned to office)
+          finalStatus = "IN_STOCK";
+          finalIsDistributed = false;
+        }
       }
     } else {
       // create_book or full_edit
@@ -596,27 +635,34 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       finalRemainingPages = Math.max(0, totalPages - finalUsedPages);
       finalCurrentPageFrom = Math.min(pageTo, pageFrom + finalUsedPages);
       finalIsDistributed = Boolean(editingBook.is_distributed ?? (editingBook.issued_to_name && editingBook.issued_to_name.trim().length > 0));
-      if (editingBook.status) {
+
+      if (finalRemainingPages === 0 && finalUsedPages > 0) {
+        finalStatus = "RETURNED";
+        finalIsDistributed = false;
+      } else if (editingBook.status) {
         finalStatus = editingBook.status as any;
         if (finalStatus === "IN_STOCK" || finalStatus === "RETURNED") finalIsDistributed = false;
       } else {
-        finalStatus = finalIsDistributed ? "ISSUED" : (finalRemainingPages === 0 && finalUsedPages > 0 ? "RETURNED" : "IN_STOCK");
+        finalStatus = finalIsDistributed ? "ISSUED" : "IN_STOCK";
       }
     }
 
     const payload: Partial<MahfilReceiptBook> = {
       ...editingBook,
       id: editingBook.id || existingBook?.id || `bk_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-      book_no: (editingBook.book_no || existingBook?.book_no || `বই #${books.length + 1}`).trim(),
+      book_no: (editingBook.book_no || existingBook?.book_no || `কুপন বই #${books.length + 1}`).trim(),
       category: editingBook.category || existingBook?.category || "সাধারণ অনুদান",
       page_from: pageFrom,
       page_to: pageTo,
       total_pages: totalPages,
       rate_per_page: ratePerPage,
       expected_amount: expectedAmount,
-      receipt_type: editingBook.receipt_type || existingBook?.receipt_type || "সাধারণ রসিদ বই",
+      receipt_type: editingBook.receipt_type || existingBook?.receipt_type || "সাধারণ কুপন বই",
       is_distributed: finalIsDistributed,
-      issued_to_name: finalIsDistributed ? (editingBook.issued_to_name || "").trim() : (existingBook?.issued_to_name || ""),
+      issued_to_name: (bookModalMode === "distribute"
+        ? (editingBook.issued_to_name || "").trim()
+        : (editingBook.issued_to_name || existingBook?.issued_to_name || "").trim()
+      ),
       issued_to_type: editingBook.issued_to_type || existingBook?.issued_to_type || "উস্তাদ",
       issued_to_phone: editingBook.issued_to_phone || existingBook?.issued_to_phone || "",
       issued_to_jamath: editingBook.issued_to_jamath || existingBook?.issued_to_jamath || "",
@@ -1084,7 +1130,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500 font-medium">রশিদ বই (মোট)</span>
+            <span className="text-xs text-slate-500 font-medium">কুপন বই (মোট)</span>
             <Receipt className="w-4 h-4 text-emerald-600" />
           </div>
           <span className="text-xl font-bold text-slate-900 mt-1 block">
@@ -1271,10 +1317,10 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
         </div>
       </div>
 
-      {/* Main Tabs Navigation (রশিদ, বিতরণ এবং জমা সম্পূর্ণ আলাদা ফিল্ড ও মেনু) */}
+      {/* Main Tabs Navigation (কুপন, বিতরণ এবং জমা সম্পূর্ণ আলাদা ফিল্ড ও মেনু) */}
       <div className="bg-white rounded-xl border border-slate-200/80 p-1.5 flex items-center gap-1 shadow-xs overflow-x-auto">
         {[
-          { id: "receipts", label: "১. রশিদ (রসিদ বই)", icon: Receipt, count: totalBooksCount },
+          { id: "receipts", label: "১. কুপন (কুপন বই)", icon: Receipt, count: totalBooksCount },
           { id: "distribution", label: "২. বিতরণ (বিতরণ রেজিস্টার)", icon: Send, count: distributedBooksCount },
           { id: "deposits", label: "৩. জমা (আদায় ও জমা)", icon: ArrowDownToLine, count: depositedBooks.length },
           { id: "speakers", label: "বক্তা ও অতিথি সূচি", icon: Users, count: mahfil.speakers?.length || 0 },
@@ -1306,7 +1352,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       </div>
 
       {/* ========================================================================= */}
-      {/* TAB 1: রসিদ বই (RECEIPT BOOKS MANAGEMENT) */}
+      {/* TAB 1: কুপন বই (COUPON BOOKS MANAGEMENT) */}
       {/* ========================================================================= */}
       {activeTab === "receipts" && (
         <div className="space-y-4">
@@ -1314,27 +1360,27 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             <div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Receipt className="w-5 h-5 text-emerald-600" />
-                <span>রশিদ বই ব্যবস্থাপনা</span>
+                <span>কুপন বই ব্যবস্থাপনা</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                রশিদ বই ক্রম, পাতা রেঞ্জ, খাতের তালিকা, প্রতি পাতার দর ও লক্ষ্যমাত্রা ব্যবস্থাপনা
+                কুপন বই ক্রম, পাতা রেঞ্জ, খাতের তালিকা, প্রতি পাতার দর ও লক্ষ্যমাত্রা ব্যবস্থাপনা
               </p>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleOpenBulkModal}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs"
-                title="একসাথে অনেকগুলো রশিদ বই তৈরি ও গণনা করুন"
+                title="একসাথে অনেকগুলো কুপন বই তৈরি ও গণনা করুন"
               >
                 <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>বাল্ক রশিদ তৈরি (Bulk Add)</span>
+                <span>বাল্ক কুপন তৈরি (Bulk Add)</span>
               </button>
               <button
                 onClick={() => handleOpenBookModal("create_book")}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs"
               >
                 <Plus className="w-4 h-4" />
-                <span>একক রশিদ বই</span>
+                <span>একক কুপন বই</span>
               </button>
             </div>
           </div>
@@ -1369,8 +1415,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           {filteredBooks.length === 0 ? (
             <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400">
               <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-50 text-emerald-600" />
-              <p className="font-bold text-sm text-slate-700">কোনো রশিদ বই পাওয়া যায়নি</p>
-              <p className="text-xs mt-1 text-slate-500">উপরে 'নতুন রশিদ বই তৈরি' বাটনে ক্লিক করে রশিদ বই যোগ করুন।</p>
+              <p className="font-bold text-sm text-slate-700">কোনো কুপন বই পাওয়া যায়নি</p>
+              <p className="text-xs mt-1 text-slate-500">উপরে 'নতুন কুপন বই তৈরি' বাটনে ক্লিক করে কুপন বই যোগ করুন।</p>
             </div>
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
@@ -1509,10 +1555,10 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             <div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Send className="w-5 h-5 text-blue-600" />
-                <span>রশিদ বই বিতরণ রেজিস্টার</span>
+                <span>কুপন বই বিতরণ রেজিস্টার</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                উস্তাদ, ছাত্র, কমিটি সদস্য বা প্রতিনিধিদের নামে রশিদ বই বিতরণ ও দায়িত্বপ্রাপ্ত এলাকা রেকর্ড করুন
+                উস্তাদ, ছাত্র, কমিটি সদস্য বা প্রতিনিধিদের নামে কুপন বই বিতরণ ও দায়িত্বপ্রাপ্ত এলাকা রেকর্ড করুন
               </p>
             </div>
             <button
@@ -1520,7 +1566,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
               className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs"
             >
               <Plus className="w-4 h-4" />
-              <span>নতুন রশিদ বই বিতরণ করুন</span>
+              <span>নতুন কুপন বই বিতরণ করুন</span>
             </button>
           </div>
 
@@ -1542,8 +1588,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           {distributedBooks.length === 0 ? (
             <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400">
               <Send className="w-10 h-10 mx-auto mb-2 opacity-50 text-blue-500" />
-              <p className="font-bold text-sm text-slate-700">এখনো কোনো রশিদ বিতরণ রেকর্ড করা হয়নি</p>
-              <p className="text-xs mt-1 text-slate-500">উস্তাদ, ছাত্র বা স্বেচ্ছাসেবকদের নামে রশিদ বই বিতরণ শুরু করতে ওপরের বাটনে ক্লিক করুন।</p>
+              <p className="font-bold text-sm text-slate-700">এখনো কোনো কুপন বিতরণ রেকর্ড করা হয়নি</p>
+              <p className="text-xs mt-1 text-slate-500">উস্তাদ, ছাত্র বা স্বেচ্ছাসেবকদের নামে কুপন বই বিতরণ শুরু করতে ওপরের বাটনে ক্লিক করুন।</p>
             </div>
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
@@ -1552,7 +1598,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
                     <tr>
                       <th className="py-3 px-4">বই নম্বর ও খাত</th>
-                      <th className="py-3 px-4">রশিদ পাতা পরিচিতি</th>
+                      <th className="py-3 px-4">কুপন পাতা পরিচিতি</th>
                       <th className="py-3 px-4">বিতরণকৃত পাতা</th>
                       <th className="py-3 px-4">কার নামে বিতরণ</th>
                       <th className="py-3 px-4">পদবি / জামাত</th>
@@ -1653,7 +1699,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             <div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <ArrowDownToLine className="w-5 h-5 text-emerald-600" />
-                <span>রশিদ আদায় ও জমা রেজিস্টার</span>
+                <span>কুপন আদায় ও জমা রেজিস্টার</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 ব্যবহৃত পাতা, ফেরত পাতা, জমাকৃত অর্থ (৳), জমার মেমো ও ক্যাশিয়ার জমা খতিয়ান
@@ -1674,11 +1720,11 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
               <span className="text-xl font-bold text-emerald-700 block mt-0.5">৳ {toBanglaNumber(totalCollectedAmount)}</span>
             </div>
             <div className="bg-white p-3 rounded-xl border border-slate-200">
-              <span className="text-xs text-slate-400 font-medium">ব্যবহৃত রসিদ</span>
+              <span className="text-xs text-slate-400 font-medium">ব্যবহৃত কুপন পাতা</span>
               <span className="text-xl font-bold text-slate-800 block mt-0.5">{toBanglaNumber(totalUsedPages)} পাতা</span>
             </div>
             <div className="bg-white p-3 rounded-xl border border-slate-200">
-              <span className="text-xs text-slate-400 font-medium">ফেরত রসিদ</span>
+              <span className="text-xs text-slate-400 font-medium">ফেরত কুপন পাতা</span>
               <span className="text-xl font-bold text-blue-700 block mt-0.5">{toBanglaNumber(totalReturnedPages)} পাতা</span>
             </div>
             <div className="bg-white p-3 rounded-xl border border-slate-200">
@@ -1734,11 +1780,21 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                           <td className="py-3 px-4 text-slate-700">{bk.received_by || "ক্যাশিয়ার"}</td>
                           <td className="py-3 px-4">
                             <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                              bk.status === "RETURNED" ? "bg-emerald-100 text-emerald-800" :
-                              bk.status === "PARTIALLY_RETURNED" ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
+                              isBookCompleted(bk)
+                                ? "bg-emerald-100 text-emerald-800"
+                                : isBookInStock(bk)
+                                ? "bg-amber-100 text-amber-800"
+                                : isBookDistributed(bk)
+                                ? "bg-blue-100 text-blue-800"
+                                : "bg-slate-100 text-slate-800"
                             }`}>
-                              {bk.status === "RETURNED" ? "পূর্ণাঙ্গ জমা" :
-                               bk.status === "PARTIALLY_RETURNED" ? "আংশিক জমা" : "চলমান"}
+                              {isBookCompleted(bk)
+                                ? "পূর্ণাঙ্গ জমা"
+                                : isBookInStock(bk)
+                                ? "স্টকে জমা"
+                                : isBookDistributed(bk)
+                                ? "চলমান"
+                                : "স্টকে"}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
@@ -2050,7 +2106,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           <div className="flex items-center justify-between print:hidden">
             <div>
               <h3 className="text-base font-bold text-slate-900">মাহফিলের পূর্ণাঙ্গ অডিট ও আয়-ব্যয় বিবরণী</h3>
-              <p className="text-xs text-slate-500">শুরা কমিটি ও সাধারণ শুভাকাঙ্ক্ষীদের জন্য অফিসিয়াল প্রতিবেদন (রশিদ, বিতরণ ও জমার তথ্য সহ)</p>
+              <p className="text-xs text-slate-500">শুরা কমিটি ও সাধারণ শুভাকাঙ্ক্ষীদের জন্য অফিসিয়াল প্রতিবেদন (কুপন, বিতরণ ও জমার তথ্য সহ)</p>
             </div>
             <button
               onClick={() => window.print()}
@@ -2189,10 +2245,10 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
               )}
             </div>
 
-            {/* রসিদ, বিতরণ ও জমার পূর্ণাঙ্গ রিপোর্ট বিবরণী */}
+            {/* কুপন, বিতরণ ও জমার পূর্ণাঙ্গ রিপোর্ট বিবরণী */}
             <div className="border border-slate-200 rounded-xl p-4 space-y-4">
               <div className="border-b border-slate-200 pb-2 flex items-center justify-between">
-                <h4 className="font-bold text-sm text-slate-900">রশিদ বই, বিতরণ ও আদায়ের বিস্তারিত খতিয়ান</h4>
+                <h4 className="font-bold text-sm text-slate-900">কুপন বই, বিতরণ ও আদায়ের বিস্তারিত খতিয়ান</h4>
                 <span className="text-xs text-slate-500">
                   মোট বই: {toBanglaNumber(totalBooksCount)} টি | বিতরণ: {toBanglaNumber(distributedBooksCount)} টি | মোট আদায়: ৳ {toBanglaNumber(totalCollectedAmount)}
                 </span>
@@ -2217,7 +2273,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   <tbody className="divide-y divide-slate-200">
                     {books.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="py-4 text-center text-slate-400">কোনো রসিদ বইয়ের ডাটা নেই</td>
+                        <td colSpan={10} className="py-4 text-center text-slate-400">কোনো কুপন বইয়ের ডাটা নেই</td>
                       </tr>
                     ) : (
                       books.map((bk) => (
@@ -2233,9 +2289,9 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                           <td className="py-2 px-3 text-right font-bold text-emerald-800">৳ {toBanglaNumber(bk.total_collected || 0)}</td>
                           <td className="py-2 px-3">
                             <span className="text-[10px] font-bold">
-                              {bk.status === "RETURNED" ? "জমা সম্পন্ন" :
-                               bk.status === "PARTIALLY_RETURNED" ? "আংশিক জমা" :
-                               bk.issued_to_name ? "বিতরণকৃত" : "স্টকে"}
+                              {isBookCompleted(bk) ? "পূর্ণাঙ্গ জমা" :
+                               isBookInStock(bk) ? "স্টকে জমা" :
+                               isBookDistributed(bk) ? "চলমান" : "স্টকে"}
                             </span>
                           </td>
                         </tr>
@@ -2244,7 +2300,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   </tbody>
                   <tfoot className="bg-slate-50 font-bold border-t border-slate-300">
                     <tr>
-                      <td colSpan={6} className="py-2 px-3 text-right">সর্বমোট রশিদ কালেকশন:</td>
+                      <td colSpan={6} className="py-2 px-3 text-right">সর্বমোট কুপন কালেকশন:</td>
                       <td className="py-2 px-3">{toBanglaNumber(totalUsedPages)}</td>
                       <td className="py-2 px-3">{toBanglaNumber(totalReturnedPages)}</td>
                       <td className="py-2 px-3 text-right text-emerald-800">৳ {toBanglaNumber(totalCollectedAmount)}</td>
@@ -2431,9 +2487,9 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                 <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <Receipt className="w-5 h-5 text-emerald-600" />
                   <span>
-                    {bookModalMode === "create_book" ? "রশিদ বই তৈরি / তথ্য" :
-                     bookModalMode === "distribute" ? "রশিদ বিতরণ ফরম" :
-                     bookModalMode === "deposit" ? "রশিদ আদায় ও জমা ফরম" : "রশিদ, বিতরণ ও জমা সম্পূর্ণ তথ্য"}
+                    {bookModalMode === "create_book" ? "কুপন বই তৈরি / তথ্য" :
+                     bookModalMode === "distribute" ? "কুপন বিতরণ ফরম" :
+                     bookModalMode === "deposit" ? "কুপন আদায় ও জমা ফরম" : "কুপন, বিতরণ ও জমা সম্পূর্ণ তথ্য"}
                   </span>
                 </h2>
                 <button onClick={() => setBookModalOpen(false)} className="text-slate-400 font-bold p-1 hover:text-slate-700">✕</button>
@@ -2448,7 +2504,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                     bookModalMode === "create_book" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
                   }`}
                 >
-                  ১. রশিদ তথ্য
+                  ১. কুপন তথ্য
                 </button>
                 <button
                   type="button"
@@ -2482,14 +2538,14 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
 
             <form onSubmit={handleSaveBook} className="space-y-4 text-xs">
               {/* ------------------------------------------------------------- */}
-              {/* SECTION 1: রশিদ সংক্রান্ত ফিল্ড (Receipt Book Info) */}
+              {/* SECTION 1: কুপন সংক্রান্ত ফিল্ড (Coupon Book Info) */}
               {/* ------------------------------------------------------------- */}
               {(bookModalMode === "create_book" || bookModalMode === "full_edit") && (
                 <div className="p-3.5 bg-emerald-50/40 rounded-xl border border-emerald-100 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
                       <Receipt className="w-4 h-4 text-emerald-600" />
-                      <span>রশিদ সংক্রান্ত মূল ফিল্ড (Receipt Details)</span>
+                      <span>কুপন সংক্রান্ত মূল ফিল্ড (Coupon Details)</span>
                     </span>
                     <span className="text-[11px] text-slate-500 font-mono">
                       মোট পাতা: {toBanglaNumber(Math.max(1, Number(editingBook?.page_to || 50) - Number(editingBook?.page_from || 1) + 1))}
@@ -2618,14 +2674,14 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                       <Send className="w-4 h-4 text-blue-600" />
                       <span>বিতরণ সংক্রান্ত ফিল্ড (Distribution Details)</span>
                     </span>
-                    <span className="text-[11px] text-blue-700 font-medium">রশিদ বই দায়িত্ব প্রদান</span>
+                    <span className="text-[11px] text-blue-700 font-medium">কুপন বই দায়িত্ব প্রদান</span>
                   </div>
 
                   {bookModalMode === "distribute" && (
                     <div className="space-y-3">
                       <div>
                         <label className="block font-bold text-slate-700 mb-1">
-                          স্টক থেকে রশিদ বই নির্বাচন করুন <span className="text-red-500">*</span>
+                          স্টক থেকে কুপন বই নির্বাচন করুন <span className="text-red-500">*</span>
                         </label>
                         <select
                           value={editingBook?.id || ""}
@@ -2633,27 +2689,35 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                             const selectedId = e.target.value;
                             const found = books.find(b => b.id === selectedId);
                             if (found) {
+                              const total = found.total_pages || 50;
+                              const used = Number(found.used_pages || 0);
+                              const rem = found.remaining_pages !== undefined ? Number(found.remaining_pages) : Math.max(0, total - used);
+                              const startPage = found.current_page_from || (found.page_from + used);
                               setEditingBook(prev => ({
                                 ...prev,
                                 id: found.id,
                                 book_no: found.book_no,
                                 page_from: found.page_from,
                                 page_to: found.page_to,
-                                total_pages: found.total_pages,
-                                distributed_pages: found.total_pages,
+                                total_pages: total,
+                                distributed_pages: rem > 0 ? rem : total,
+                                remaining_pages: rem,
+                                current_page_from: startPage,
                                 category: found.category,
                                 rate_per_page: found.rate_per_page,
                                 expected_amount: found.expected_amount,
-                                is_distributed: true
+                                is_distributed: true,
+                                used_pages: used,
+                                total_collected: Number(found.total_collected || 0),
                               }));
                             }
                           }}
                           className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-medium text-slate-800"
                         >
-                          <option value="">-- স্টক থেকে রশিদ বই বেছে নিন ({books.filter(b => !b.is_distributed && !b.issued_to_name).length}টি বই মজুত আছে) --</option>
-                          {books.map(b => (
+                          <option value="">-- স্টক থেকে কুপন বই বেছে নিন ({books.filter(b => isBookInStock(b) || !b.is_distributed).length}টি বই মজুত আছে) --</option>
+                          {books.filter(b => isBookInStock(b) || !b.is_distributed).map(b => (
                             <option key={b.id} value={b.id}>
-                              {b.book_no} - (পৃষ্ঠা: {toBanglaNumber(b.page_from)} হতে {toBanglaNumber(b.page_to)}, মোট {toBanglaNumber(b.total_pages)} পাতা) {b.is_distributed || b.issued_to_name ? `[বিতরণকৃত: ${b.issued_to_name}]` : "[স্টকে মজুদ]"}
+                              {b.book_no} - (অবশিষ্ট: {toBanglaNumber(b.remaining_pages !== undefined ? b.remaining_pages : b.total_pages)} পাতা, পৃষ্ঠা {toBanglaNumber(b.current_page_from || b.page_from)} হতে {toBanglaNumber(b.page_to)}) [স্টকে মজুদ]
                             </option>
                           ))}
                         </select>
@@ -2672,16 +2736,18 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                         </div>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                           <div className="bg-white p-2 rounded-lg border border-blue-100">
-                            <span className="text-[10px] text-slate-400 block">পাতা শুরু (হতে)</span>
-                            <span className="font-bold text-slate-800 font-mono text-sm">{toBanglaNumber(editingBook?.page_from || 1)}</span>
+                            <span className="text-[10px] text-slate-400 block">বর্তমান শুরু পাতা</span>
+                            <span className="font-bold text-slate-800 font-mono text-sm">{toBanglaNumber(editingBook?.current_page_from || editingBook?.page_from || 1)}</span>
                           </div>
                           <div className="bg-white p-2 rounded-lg border border-blue-100">
-                            <span className="text-[10px] text-slate-400 block">পাতা শেষ (পর্যন্ত)</span>
+                            <span className="text-[10px] text-slate-400 block">শেষ পাতা</span>
                             <span className="font-bold text-slate-800 font-mono text-sm">{toBanglaNumber(editingBook?.page_to || 50)}</span>
                           </div>
                           <div className="bg-white p-2 rounded-lg border border-blue-100">
-                            <span className="text-[10px] text-slate-400 block">বইয়ের মোট পাতা</span>
-                            <span className="font-bold text-blue-700 text-sm">{toBanglaNumber(editingBook?.total_pages || 50)} পাতা</span>
+                            <span className="text-[10px] text-slate-400 block">বিতরণযোগ্য পাতা</span>
+                            <span className="font-bold text-blue-700 text-sm">
+                              {toBanglaNumber(editingBook?.remaining_pages !== undefined ? editingBook.remaining_pages : (editingBook?.total_pages || 50))} পাতা
+                            </span>
                           </div>
                           <div className="bg-white p-2 rounded-lg border border-blue-100">
                             <span className="text-[10px] text-slate-400 block">খাত / ধরন</span>
@@ -2692,7 +2758,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
 
                       <div className="grid grid-cols-2 gap-2.5">
                         <div>
-                          <label className="block font-bold text-slate-700 mb-1">রশিদ বই নম্বর <span className="text-red-500">*</span></label>
+                          <label className="block font-bold text-slate-700 mb-1">কুপন বই নম্বর <span className="text-red-500">*</span></label>
                           <input
                             type="text"
                             required
@@ -2837,7 +2903,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-indigo-900 text-xs flex items-center gap-1.5">
                         <BookOpen className="w-4 h-4 text-indigo-600" />
-                        <span>জমা ও হিসাব সমন্বয়ের বইয়ের বিবরণ</span>
+                        <span>জমা ও হিসাব সমন্বয়ের কুপন বইয়ের বিবরণ</span>
                       </span>
                       <span className="px-2 py-0.5 bg-indigo-600 text-white font-mono font-bold rounded text-[10px]">
                         {editingBook?.book_no || "-"}
@@ -2853,55 +2919,112 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                         <span className="font-bold text-slate-800">{toBanglaNumber(editingBook?.total_pages || 50)} পাতা</span>
                       </div>
                       <div className="bg-white p-2 rounded-lg border border-indigo-100">
-                        <span className="text-[10px] text-slate-400 block">বিতরণকৃত পাতা</span>
-                        <span className="font-bold text-blue-700">{toBanglaNumber(editingBook?.distributed_pages || editingBook?.total_pages || 50)} পাতা</span>
+                        <span className="text-[10px] text-slate-400 block">বিতরণকৃত / অবশিষ্ট পাতা</span>
+                        <span className="font-bold text-blue-700">
+                          {toBanglaNumber(editingBook?.remaining_pages !== undefined ? editingBook.remaining_pages : (editingBook?.distributed_pages || editingBook?.total_pages || 50))} পাতা
+                        </span>
                       </div>
                       <div className="bg-white p-2 rounded-lg border border-indigo-100">
-                        <span className="text-[10px] text-slate-400 block">গ্রহীতা</span>
+                        <span className="text-[10px] text-slate-400 block">দায়িত্বপ্রাপ্ত গ্রহীতা</span>
                         <span className="font-bold text-slate-800 truncate block">{editingBook?.issued_to_name || "অনির্দিষ্ট"}</span>
                       </div>
                     </div>
                   </div>
 
                   {bookModalMode === "deposit" && (
-                    <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-3">
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1">বই নম্বর</label>
-                        <input
-                          type="text"
-                          value={editingBook?.book_no || ""}
-                          onChange={(e) => setEditingBook(prev => ({ ...prev, book_no: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-bold"
-                        />
+                        <label className="block font-bold text-slate-700 mb-1">
+                          জমা গ্রহণের জন্য কুপন বই নির্বাচন করুন <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={editingBook?.id || ""}
+                          onChange={(e) => {
+                            const selectedId = e.target.value;
+                            const found = books.find(b => b.id === selectedId);
+                            if (found) {
+                              const total = found.total_pages || 50;
+                              const used = Number(found.used_pages || 0);
+                              const rem = found.remaining_pages !== undefined ? Number(found.remaining_pages) : Math.max(0, total - used);
+                              const startPage = found.current_page_from || (found.page_from + used);
+                              setEditingBook(prev => ({
+                                ...prev,
+                                ...found,
+                                id: found.id,
+                                book_no: found.book_no,
+                                issued_to_name: found.issued_to_name,
+                                issued_to_phone: found.issued_to_phone,
+                                issued_to_type: found.issued_to_type,
+                                total_pages: total,
+                                distributed_pages: Number(found.distributed_pages || rem || total),
+                                used_pages: rem > 0 ? rem : 0,
+                                returned_pages: 0,
+                                total_collected: rem > 0 && found.rate_per_page ? rem * found.rate_per_page : 0,
+                                is_deposited: true,
+                                remaining_pages: rem,
+                                current_page_from: startPage,
+                                return_date: new Date().toISOString().split("T")[0],
+                                status: rem <= 0 ? "RETURNED" : "IN_STOCK",
+                              }));
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-bold text-slate-800 text-xs"
+                        >
+                          <option value="">-- জমাযোগ্য কুপন বই নির্বাচন করুন --</option>
+                          {books.filter(b => !isBookCompleted(b)).map(b => (
+                            <option key={b.id} value={b.id}>
+                              {b.book_no} - {b.issued_to_name ? `গ্রহীতা: ${b.issued_to_name}` : "[স্টকে মজুদ]"} (অবশিষ্ট: {toBanglaNumber(b.remaining_pages !== undefined ? b.remaining_pages : b.total_pages)} পাতা)
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                      <div>
-                        <label className="block font-bold text-slate-700 mb-1">জমা প্রদানকারী (গ্রহীতা)</label>
-                        <input
-                          type="text"
-                          value={editingBook?.issued_to_name || ""}
-                          onChange={(e) => setEditingBook(prev => ({ ...prev, issued_to_name: e.target.value }))}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white"
-                        />
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">কুপন বই নম্বর</label>
+                          <input
+                            type="text"
+                            value={editingBook?.book_no || ""}
+                            onChange={(e) => setEditingBook(prev => ({ ...prev, book_no: e.target.value }))}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">জমা প্রদানকারী (সংগ্রাহক / গ্রহীতা)</label>
+                          <input
+                            type="text"
+                            value={editingBook?.issued_to_name || ""}
+                            onChange={(e) => setEditingBook(prev => ({ ...prev, issued_to_name: e.target.value }))}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-medium"
+                          />
+                        </div>
                       </div>
                     </div>
                   )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     <div>
-                      <label className="block font-bold text-slate-700 mb-1">ব্যবহৃত / আদায়কৃত পাতা</label>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        এই দফায় ব্যবহৃত / আদায়কৃত পাতা <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="number"
                         min={0}
                         value={editingBook?.used_pages || 0}
                         onChange={(e) => {
-                          const used = Number(e.target.value);
+                          const thisUsed = Number(e.target.value);
                           setEditingBook(prev => {
-                            const dist = Number(prev?.distributed_pages || prev?.total_pages || 50);
-                            const rem = Math.max(0, dist - used);
+                            const rate = Number(prev?.rate_per_page || 0);
+                            const prevAccumUsed = Number(books.find(b => b.id === prev?.id)?.used_pages || 0);
+                            const total = Number(prev?.total_pages || 50);
+                            const newTotalUsed = prevAccumUsed + thisUsed;
+                            const remaining = Math.max(0, total - newTotalUsed);
                             return {
                               ...prev,
-                              used_pages: used,
-                              returned_pages: rem
+                              used_pages: thisUsed,
+                              returned_pages: remaining,
+                              total_collected: rate > 0 ? thisUsed * rate : prev?.total_collected,
+                              status: remaining === 0 ? "RETURNED" : (prev?.status === "PARTIALLY_RETURNED" ? "PARTIALLY_RETURNED" : "IN_STOCK")
                             };
                           });
                         }}
@@ -2909,11 +3032,11 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                       />
                     </div>
                     <div>
-                      <label className="block font-bold text-slate-700 mb-1">ফেরত / অবিক্রিত পাতা</label>
+                      <label className="block font-bold text-slate-700 mb-1">অবশিষ্ট / অবিক্রিত পাতা</label>
                       <input
                         type="number"
                         min={0}
-                        value={editingBook?.returned_pages !== undefined ? editingBook.returned_pages : Math.max(0, Number(editingBook?.distributed_pages || 50) - Number(editingBook?.used_pages || 0))}
+                        value={editingBook?.returned_pages !== undefined ? editingBook.returned_pages : 0}
                         onChange={(e) => setEditingBook(prev => ({ ...prev, returned_pages: Number(e.target.value) }))}
                         className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white"
                       />
@@ -2980,17 +3103,19 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                       />
                     </div>
                     <div>
-                      <label className="block font-bold text-slate-700 mb-1">জমার স্ট্যাটাস</label>
+                      <label className="block font-bold text-slate-700 mb-1">জমা পরবর্তী বই ও পাতার অবস্থান</label>
                       <select
-                        value={editingBook?.status || "ISSUED"}
+                        value={editingBook?.status || "IN_STOCK"}
                         onChange={(e) => setEditingBook(prev => ({ ...prev, status: e.target.value as any }))}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-bold"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-bold text-xs"
                       >
-                        <option value="ISSUED">বিতরণকৃত (এখনো জমা বাকি)</option>
-                        <option value="PARTIALLY_RETURNED">আংশিক জমা (কিছু পাতা বাকি)</option>
-                        <option value="RETURNED">পূর্ণাঙ্গ জমা সম্পন্ন</option>
-                        <option value="OVERDUE">বকেয়া / বিলম্বিত</option>
+                        <option value="IN_STOCK">স্টকে জমা (টাকা ও অবশিষ্ট কুপন বই অফিসে স্টকে ফেরত জমা)</option>
+                        <option value="PARTIALLY_RETURNED">আংশিক জমা (টাকা জমা হয়েছে, বাকি পাতা সংগ্রাহকের কাছেই চলমান)</option>
+                        <option value="RETURNED">পূর্ণাঙ্গ জমা সম্পন্ন (সব পাতা সমাপ্ত)</option>
                       </select>
+                      <span className="text-[11px] text-slate-500 block mt-0.5">
+                        * টাকা ও অবশিষ্ট কুপন বই স্টকে জমা হলে পরবর্তীতে অন্য যেকোনো ব্যক্তির নামে পুনরায় বিতরণ করা যাবে।
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -3029,7 +3154,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL: বাল্ক রশিদ বই জেনারেটর (BULK RECEIPT BOOK GENERATOR) */}
+      {/* MODAL: বাল্ক কুপন বই জেনারেটর (BULK COUPON BOOK GENERATOR) */}
       {/* ========================================================================= */}
       {bulkModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
@@ -3041,7 +3166,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-slate-900">
-                    বাল্ক রশিদ বই জেনারেটর (Bulk Receipt Generator)
+                    বাল্ক কুপন বই জেনারেটর (Bulk Coupon Generator)
                   </h2>
                   <p className="text-xs text-slate-500">
                     বই ও পাতার সংখ্যা দিলে সিস্টেম স্বয়ংক্রিয়ভাবে হিসাব করে প্রতিটি বই ও পাতার রেঞ্জ তৈরি করবে
