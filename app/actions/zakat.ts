@@ -981,7 +981,80 @@ export async function getDonations(filters?: {
       });
     }
 
-    const combinedList = [...(data || []), ...extraSubscriptionDonations];
+    // Merge student fee payments into donations (e.g. Tuition -> General Fund, Khoraki -> Lillah Fund)
+    const extraFeeDonations: any[] = [];
+    const feePayments = (meta.payments || []).filter(
+      (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
+    );
+    for (const p of feePayments) {
+      if ((p.receipt_no && existingReceiptNos.has(p.receipt_no)) || existingIds.has(p.id)) continue;
+      const paymentDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : new Date().toISOString().split("T")[0]);
+      
+      if (p.allocations && p.allocations.length > 0) {
+        for (const alloc of p.allocations) {
+          const amt = Number(alloc.allocated_amount || 0);
+          if (amt <= 0) continue;
+          const name = alloc.fee_type_name || "মাসিক বেতন";
+          const isLillah = name.includes("বোর্ডিং") || name.includes("খাবার") || name.includes("খোরাকি") || name.includes("hostel") || name.includes("lillah");
+          const fundCategory = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)";
+          
+          extraFeeDonations.push({
+            id: `${p.id}_${alloc.fee_type_id || "alloc"}`,
+            madrasa_id: finalMadrasaId,
+            donor_id: p.student_id,
+            amount: amt,
+            donation_type: fundCategory,
+            donation_date: paymentDate,
+            receipt_no: p.receipt_no || `MR-${p.id.slice(0, 5)}`,
+            notes: p.notes ? `[${name}] ${p.notes}` : `[${name}] শিক্ষার্থী ফি আদায়`,
+            created_at: p.created_at || new Date().toISOString(),
+            donors: {
+              id: p.student_id || "student",
+              name: `${p.student_name || "শিক্ষার্থী"} (${p.class_name || "শ্রেণি"}${p.student_roll ? `, রোল: ${p.student_roll}` : ""})`,
+              phone: "-",
+              address: "মাদরাসা শিক্ষার্থী",
+              donor_type: "Monthly",
+            },
+          });
+        }
+      } else {
+        const amt = Number(p.total_amount_received || 0);
+        if (amt > 0) {
+          const isLillah = (p.notes || "").includes("খোরাকি") || (p.notes || "").includes("খাবার") || (p.notes || "").includes("বোর্ডিং");
+          const fundCategory = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)";
+          
+          extraFeeDonations.push({
+            id: p.id,
+            madrasa_id: finalMadrasaId,
+            donor_id: p.student_id,
+            amount: amt,
+            donation_type: fundCategory,
+            donation_date: paymentDate,
+            receipt_no: p.receipt_no || `MR-${p.id.slice(0, 5)}`,
+            notes: p.notes ? `[ফি কালেকশন] ${p.notes}` : `[ফি কালেকশন] শিক্ষার্থী ফি আদায়`,
+            created_at: p.created_at || new Date().toISOString(),
+            donors: {
+              id: p.student_id || "student",
+              name: `${p.student_name || "শিক্ষার্থী"} (${p.class_name || "শ্রেণি"}${p.student_roll ? `, রোল: ${p.student_roll}` : ""})`,
+              phone: "-",
+              address: "মাদরাসা শিক্ষার্থী",
+              donor_type: "Monthly",
+            },
+          });
+        }
+      }
+    }
+
+    let combinedList = [...(data || []), ...extraSubscriptionDonations, ...extraFeeDonations];
+
+    if (filters?.donor_id) combinedList = combinedList.filter((d: any) => d.donor_id === filters.donor_id);
+    if (filters?.donation_type && filters.donation_type !== "ALL") {
+      const targetFundName = normalizeFundName(filters.donation_type, funds);
+      combinedList = combinedList.filter((d: any) => normalizeFundName(d.donation_type, funds) === targetFundName);
+    }
+    if (filters?.startDate) combinedList = combinedList.filter((d: any) => (d.donation_date || "") >= filters.startDate!);
+    if (filters?.endDate) combinedList = combinedList.filter((d: any) => (d.donation_date || "") <= filters.endDate!);
+
     // Sort combined by date descending
     combinedList.sort((a, b) => new Date(b.donation_date || b.created_at).getTime() - new Date(a.donation_date || a.created_at).getTime());
 
