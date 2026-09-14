@@ -142,13 +142,10 @@ export async function getAnnualAuditStatement(
   const meta: any = await getMadrasaMetadata(madrasaId);
   const auditSettings: AuditSettings = meta.audit_settings?.[year] || {};
 
-  // 2. Fetch all student fees (Income: General Fund / Hostel)
-  const { data: feesData } = await adminClient
-    .from("fees")
-    .select("*")
-    .eq("madrasa_id", madrasaId)
-    .gte("payment_date", startDate)
-    .lte("payment_date", endDate);
+  // 2. Fetch all student fee payments from metadata (System B)
+  const feePayments = (meta.payments || []).filter(
+    (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
+  );
 
   // 3. Fetch all donations (Income: General, Lillah, Zakat, Building)
   const { data: donationsData, error: donErr } = await adminClient
@@ -185,8 +182,7 @@ export async function getAnnualAuditStatement(
   let priorBldOpening = 0;
 
   try {
-    const [priorFeesRes, priorDonationsRes, priorExpRes, priorBazarRes] = await Promise.all([
-      adminClient.from("fees").select("amount, fee_type, notes").eq("madrasa_id", madrasaId).lt("payment_date", startDate),
+    const [priorDonationsRes, priorExpRes, priorBazarRes] = await Promise.all([
       adminClient.from("donations").select("*").eq("madrasa_id", madrasaId).lt("donation_date", startDate),
       adminClient.from("expenses").select("amount, description, category").eq("madrasa_id", madrasaId).lt("expense_date", startDate),
       adminClient.from("bazar_expenses").select("amount, items_details").eq("madrasa_id", madrasaId).lt("expense_date", startDate),
@@ -195,13 +191,18 @@ export async function getAnnualAuditStatement(
     let pGenIn = 0, pLilIn = 0, pZakIn = 0, pBldIn = 0;
     let pGenEx = 0, pLilEx = 0, pZakEx = 0, pBldEx = 0;
 
-    (priorFeesRes.data || []).forEach((f: any) => {
-      const amt = Number(f.amount || 0);
-      const notes = (f.notes || "").toLowerCase();
-      if (notes.includes("বোর্ডিং") || notes.includes("খাবার") || (f.fee_type || "").toLowerCase().includes("hostel")) {
-        pLilIn += amt;
-      } else {
-        pGenIn += amt;
+    // Prior fee payments from System B metadata
+    feePayments.forEach((p: any) => {
+      const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+      if (pDate && pDate < startDate) {
+        const amt = Number(p.total_amount_received || 0);
+        const notes = (p.notes || "").toLowerCase();
+        const type = ((p.allocations?.[0]?.fee_type_name || "") + " " + notes).toLowerCase();
+        if (type.includes("বোর্ডিং") || type.includes("খাবার") || type.includes("hostel")) {
+          pLilIn += amt;
+        } else {
+          pGenIn += amt;
+        }
       }
     });
 
@@ -272,16 +273,31 @@ export async function getAnnualAuditStatement(
     }
   };
 
-  // Process Fees
-  (feesData || []).forEach((fee: any) => {
-    const amt = Number(fee.amount || 0);
-    const notes = (fee.notes || "").toLowerCase();
-    const feeType = fee.fee_type || "মাসিক বেতন ও ভর্তি ফি";
-
-    if (notes.includes("বোর্ডিং") || notes.includes("খাবার") || feeType.toLowerCase().includes("hostel")) {
-      addCategoryAmount(lillahIncomes, "ছাত্র বোর্ডিং ও খাবার ফি", amt);
-    } else {
-      addCategoryAmount(generalIncomes, feeType, amt);
+  // Process Fees from System B
+  feePayments.forEach((p: any) => {
+    const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+    if (pDate && pDate >= startDate && pDate <= endDate) {
+      if (p.allocations && p.allocations.length > 0) {
+        p.allocations.forEach((alloc: any) => {
+          const amt = Number(alloc.allocated_amount || 0);
+          if (amt <= 0) return;
+          const name = alloc.fee_type_name || "মাসিক বেতন ও ভর্তি ফি";
+          const combined = `${name} ${p.notes || ""}`.toLowerCase();
+          if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel")) {
+            addCategoryAmount(lillahIncomes, "ছাত্র বোর্ডিং ও খাবার ফি", amt);
+          } else {
+            addCategoryAmount(generalIncomes, name, amt);
+          }
+        });
+      } else {
+        const amt = Number(p.total_amount_received || 0);
+        const combined = `${p.notes || ""}`.toLowerCase();
+        if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel")) {
+          addCategoryAmount(lillahIncomes, "ছাত্র বোর্ডিং ও খাবার ফি", amt);
+        } else {
+          addCategoryAmount(generalIncomes, "মাসিক বেতন ও ভর্তি ফি", amt);
+        }
+      }
     }
   });
 

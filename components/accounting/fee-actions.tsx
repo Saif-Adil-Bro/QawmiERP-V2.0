@@ -8,13 +8,16 @@ export function FeeDeleteButton({ feeId }: { feeId: string }) {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const handleDelete = async () => {
-    if (confirm("আপনি কি নিশ্চিত যে আপনি এই ফি রেকর্ডটি মুছে ফেলতে চান?")) {
+    if (confirm("আপনি কি নিশ্চিত যে আপনি এই ফি রেকর্ডটি মুছে ফেলতে চান? (এর ফলে শিক্ষার্থীর বকেয়া পুনরায় প্রযোজ্য হবে)")) {
       setIsDeleting(true);
       try {
-        await deleteFee(feeId);
+        const res = await deleteFee(feeId);
+        if (res && !res.success && res.error) {
+          alert(res.error);
+        }
       } catch (err) {
         console.error("deleteFee failed:", err);
-        alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+        alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
       } finally {
         setIsDeleting(false);
       }

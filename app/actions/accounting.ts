@@ -4,48 +4,86 @@ import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { parseExpenseFund } from "@/lib/fund-utils";
+import { getFeeMetadata, saveFeeMetadata } from "./fee-management";
 
 export async function getFees(filters?: { month?: string; year?: string; student_id?: string }) {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return [];
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+  if (!finalMadrasaId) return [];
 
-  // Get all fees to calculate serial receipt numbers
-  const { data: allFees } = await supabase
-    .from("fees")
-    .select("id")
-    .eq("madrasa_id", finalMadrasaId)
-    .order("created_at", { ascending: true });
+  const meta = await getFeeMetadata(finalMadrasaId);
+  const payments = (meta.payments || []).filter(
+    (p) => p.status !== "REVERSED" && p.status !== "VOID"
+  );
 
-  const receiptNoMap = new Map();
-  allFees?.forEach((f, index) => {
-    receiptNoMap.set(f.id, `RN${String(index + 1).padStart(4, '0')}`);
-  });
+  let filtered = payments;
 
-  let query = supabase
-    .from("fees")
-    .select(`
-      *,
-      students (first_name, last_name, roll_number, class_name)
-    `)
-    .eq("madrasa_id", finalMadrasaId)
-    .order("created_at", { ascending: false });
-
-  if (filters?.month) query = query.eq("fee_month", filters.month);
-  if (filters?.year) query = query.eq("fee_year", filters.year);
-  if (filters?.student_id) query = query.eq("student_id", filters.student_id);
-
-  const { data, error } = await query;
-  if (error) {
-    console.error("Error fetching fees:", error);
-    return [];
+  if (filters?.student_id) {
+    filtered = filtered.filter((p) => p.student_id === filters.student_id);
   }
 
-  return data.map(fee => ({
-    ...fee,
-    receipt_no: receiptNoMap.get(fee.id) || fee.id.substring(0, 8).toUpperCase()
-  }));
+  if (filters?.year) {
+    filtered = filtered.filter((p) => {
+      const dt = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+      const allocYear = p.allocations?.[0]?.billing_period?.split("-")?.[0];
+      return dt.startsWith(filters.year!) || allocYear === filters.year;
+    });
+  }
+
+  if (filters?.month) {
+    filtered = filtered.filter((p) => {
+      const dt = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+      const allocMonth = p.allocations?.[0]?.billing_period?.split("-")?.[1];
+      return dt.includes(`-${filters.month}-`) || allocMonth === filters.month;
+    });
+  }
+
+  // Sort descending by payment date / creation
+  filtered.sort((a, b) => {
+    const dateA = a.payment_date || a.created_at || "";
+    const dateB = b.payment_date || b.created_at || "";
+    return dateB.localeCompare(dateA);
+  });
+
+  return filtered.map((p) => {
+    const feeTypeName =
+      p.allocations && p.allocations.length > 0
+        ? p.allocations.map((a) => a.fee_type_name).join(", ")
+        : "ফি কালেকশন";
+
+    const billingPeriod = p.allocations?.[0]?.billing_period || "";
+    const [bYear, bMonth] = billingPeriod.includes("-") ? billingPeriod.split("-") : ["", ""];
+
+    return {
+      id: p.id,
+      madrasa_id: finalMadrasaId,
+      receipt_no: p.receipt_no || p.id.substring(0, 8).toUpperCase(),
+      payment_date: p.payment_date || (p.created_at ? p.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+      student_id: p.student_id,
+      fee_type: feeTypeName,
+      fee_month: bMonth || "",
+      fee_year: bYear || "",
+      amount: Number(p.total_amount_received || 0),
+      total_amount_received: Number(p.total_amount_received || 0),
+      discount_total: Number(p.discount_total || 0),
+      fine_total: Number(p.fine_total || 0),
+      advance_amount: Number(p.advance_amount || 0),
+      payment_method: p.payment_method || "Cash",
+      allocations: p.allocations || [],
+      collector_name: p.collector_name || "হিসাব বিভাগ",
+      notes: p.notes || "",
+      status: p.status || "COMPLETED",
+      students: {
+        first_name: p.student_name || "শিক্ষার্থী",
+        last_name: "",
+        roll_number: p.student_roll || "-",
+        class_name: p.class_name || "-",
+      },
+      created_at: p.created_at || p.payment_date || new Date().toISOString(),
+    };
+  });
 }
 
 export async function getFeeWithReceiptNo(feeId: string) {
@@ -53,98 +91,136 @@ export async function getFeeWithReceiptNo(feeId: string) {
   const user = await getAuthUser(supabase);
   if (!user) return null;
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+  if (!finalMadrasaId) return null;
 
-  const { data: allFees } = await supabase
-    .from("fees")
-    .select("id")
-    .eq("madrasa_id", finalMadrasaId)
-    .order("created_at", { ascending: true });
+  const meta = await getFeeMetadata(finalMadrasaId);
+  const payments = meta.payments || [];
+  const payment = payments.find((p) => p.id === feeId || p.receipt_no === feeId);
 
-  const receiptNoMap = new Map();
-  allFees?.forEach((f, index) => {
-    receiptNoMap.set(f.id, `RN${String(index + 1).padStart(4, '0')}`);
-  });
+  if (!payment) return null;
 
-  const { data: fee, error } = await supabase
-    .from("fees")
-    .select(`
-      *,
-      students (first_name, last_name, roll_number, class_name)
-    `)
-    .eq("id", feeId)
-    .single();
+  const feeTypeName =
+    payment.allocations && payment.allocations.length > 0
+      ? payment.allocations.map((a) => a.fee_type_name).join(", ")
+      : "ফি কালেকশন";
 
-  if (error || !fee) return null;
+  const billingPeriod = payment.allocations?.[0]?.billing_period || "";
+  const [bYear, bMonth] = billingPeriod.includes("-") ? billingPeriod.split("-") : ["", ""];
 
   return {
-    ...fee,
-    receipt_no: receiptNoMap.get(fee.id) || fee.id.substring(0, 8).toUpperCase()
+    id: payment.id,
+    madrasa_id: finalMadrasaId,
+    receipt_no: payment.receipt_no || payment.id.substring(0, 8).toUpperCase(),
+    payment_date: payment.payment_date || (payment.created_at ? payment.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+    student_id: payment.student_id,
+    fee_type: feeTypeName,
+    fee_month: bMonth || "",
+    fee_year: bYear || "",
+    amount: Number(payment.total_amount_received || 0),
+    total_amount_received: Number(payment.total_amount_received || 0),
+    discount_total: Number(payment.discount_total || 0),
+    fine_total: Number(payment.fine_total || 0),
+    advance_amount: Number(payment.advance_amount || 0),
+    payment_method: payment.payment_method || "Cash",
+    allocations: payment.allocations || [],
+    collector_name: payment.collector_name || "হিসাব বিভাগ",
+    notes: payment.notes || "",
+    status: payment.status || "COMPLETED",
+    students: {
+      first_name: payment.student_name || "শিক্ষার্থী",
+      last_name: "",
+      roll_number: payment.student_roll || "-",
+      class_name: payment.class_name || "-",
+    },
+    created_at: payment.created_at || payment.payment_date || new Date().toISOString(),
   };
 }
 
-export async function createFee(prevState: any, formData: FormData) {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "Unauthorized" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "Madrasa not found" };
-
-  const studentId = formData.get("student_id") as string;
-  const feeType = formData.get("fee_type") as string;
-  const amount = formData.get("amount") as string;
-  const paymentDate = formData.get("payment_date") as string;
-  const feeMonth = formData.get("fee_month") as string;
-  const feeYear = formData.get("fee_year") as string;
-  const notes = formData.get("notes") as string;
-
-  if (!studentId || !feeType || !amount || !paymentDate) {
-    return { error: "শিক্ষার্থী, ফি'র ধরন, পরিমাণ এবং তারিখ আবশ্যক।" };
-  }
-
-  const { data, error } = await supabase.from("fees").insert({
-
-    madrasa_id: finalMadrasaId,
-    student_id: studentId,
-    fee_type: feeType,
-    amount: parseFloat(amount),
-    payment_date: paymentDate,
-    fee_month: feeMonth || null,
-    fee_year: feeYear || null,
-    notes: notes || null,
-  
-  }).select().single();
-
-  if (error) {
-    console.error("Error creating fee:", error);
-    return { error: error.message };
-  }
-
-  revalidatePath("/dashboard/accounting/fees");
-  
-  // Calculate receipt_no for the newly created fee
-  const { count } = await supabase
-    .from("fees")
-    .select("*", { count: "exact", head: true })
-    .eq("madrasa_id", finalMadrasaId);
-  
-  const receiptNo = `RN${String(count || 1).padStart(4, '0')}`;
-  data.receipt_no = receiptNo;
-
-  return { success: true, fee: data };
-}
-
 export async function deleteFee(feeId: string) {
-  const supabase = await createClient();
-  const { error } = await supabase.from("fees").delete().eq("id", feeId);
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
 
-  if (error) {
-    console.error("Error deleting fee:", error);
-    return { error: error.message };
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) return { error: "মাদ্রাসা সনাক্ত করা যায়নি" };
+
+    const meta = await getFeeMetadata(finalMadrasaId);
+    const payments = [...(meta.payments || [])];
+    const studentFees = [...(meta.student_fees || [])];
+
+    const payIdx = payments.findIndex((p) => p.id === feeId || p.receipt_no === feeId);
+
+    if (payIdx >= 0) {
+      const payment = payments[payIdx];
+      const now = new Date().toISOString();
+
+      // Roll back paid amounts and restore due balances in student_fees
+      for (const alloc of payment.allocations || []) {
+        if (alloc.student_fee_id) {
+          const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
+          if (feeIdx >= 0) {
+            const target = studentFees[feeIdx];
+            const newPaid = Math.max(0, target.paid_amount - alloc.allocated_amount);
+            const newDue = Math.max(0, target.payable_amount - newPaid);
+            studentFees[feeIdx] = {
+              ...target,
+              paid_amount: newPaid,
+              due_amount: newDue,
+              status: newPaid === 0 ? "UNPAID" : "PARTIAL",
+              updated_at: now,
+            };
+          }
+        }
+      }
+
+      // Remove the payment from active list
+      payments.splice(payIdx, 1);
+
+      // Audit log
+      const auditLogs = meta.audit_logs || [];
+      auditLogs.unshift({
+        id: `audit_${Date.now()}`,
+        madrasa_id: finalMadrasaId,
+        action: "DELETE_FEE_PAYMENT",
+        user_name: user.email || "অ্যাডমিন",
+        user_role: "admin",
+        record_id: feeId,
+        details: `রিসিট নং ${payment.receipt_no} (পরিমাণ: ৳${payment.total_amount_received}) ফি তালিকা থেকে ডিলিট করা হয়েছে এবং বকেয়া পুনর্স্থাপন করা হয়েছে।`,
+        created_at: now,
+      });
+
+      await saveFeeMetadata(finalMadrasaId, {
+        student_fees: studentFees,
+        payments,
+        audit_logs: auditLogs.slice(0, 100),
+      });
+    } else {
+      // Also check if this is an unpaid fee invoice in student_fees
+      const feeIdx = studentFees.findIndex((f) => f.id === feeId);
+      if (feeIdx >= 0) {
+        studentFees.splice(feeIdx, 1);
+        await saveFeeMetadata(finalMadrasaId, {
+          student_fees: studentFees,
+        });
+      }
+    }
+
+    // Attempt clean up in legacy fees table if present
+    try {
+      await supabase.from("fees").delete().eq("id", feeId).eq("madrasa_id", finalMadrasaId);
+    } catch {}
+
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/accounting/fees");
+    revalidatePath("/dashboard/accounting/receipts");
+    revalidatePath("/dashboard/accounting/due");
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error in deleteFee:", err);
+    return { error: err.message || "ফি মুছতে সমস্যা হয়েছে।" };
   }
-
-  revalidatePath("/dashboard/accounting/fees");
-  return { success: true };
 }
 
 export async function getExpenses(filters?: { month?: string; year?: string; fundId?: string }) {
@@ -443,30 +519,17 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     return isWithinRange(dateStr);
   });
 
-  // 3. Fetch Student Fees (from fees table)
-  const { data: feesData } = await supabase
-    .from("fees")
-    .select("id, amount, payment_date, fee_month, fee_year, fee_type, notes, created_at")
-    .eq('madrasa_id', finalMadrasaId);
-
-  const monthlyFees = (feesData || []).filter((f: any) => {
-    const dateStr = f.payment_date || (f.created_at ? f.created_at.split("T")[0] : "");
-    return isWithinRange(dateStr);
-  });
-
-  // 4. Fetch Metadata (Fee Payments, Mahfils, Donors, Boxes, Leather, Online)
+  // 3. Fetch Fee Payments & Metadata (Fee Payments, Mahfils, Donors, Boxes, Leather, Online)
   let meta: any = {};
   let metaPayments: any[] = [];
   try {
     meta = await getMadrasaMetadata(finalMadrasaId);
-    const trackedFeeIds = new Set(monthlyFees.map((f: any) => f.id));
     metaPayments = (meta.payments || []).filter((p: any) => {
       const dateStr = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
       return (
         isWithinRange(dateStr) &&
-        p.status === "COMPLETED" &&
-        !trackedFeeIds.has(p.id) &&
-        !trackedFeeIds.has(p.db_fee_id)
+        p.status !== "REVERSED" &&
+        p.status !== "VOID"
       );
     });
   } catch (e) {
@@ -585,16 +648,29 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     addIncomeToFund(fId, fName, amt);
   });
 
-  // B. Add Fees income to General Fund (or designated fund)
-  monthlyFees.forEach((fee: any) => {
-    const amt = Number(fee.amount || 0);
-    addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
-  });
-
-  // C. Add Meta Fee Payments to General Fund
+  // B. Add Fee Payments to General Fund or Lillah/Boarding Fund based on fee allocations
   metaPayments.forEach((p: any) => {
-    const amt = Number(p.total_amount_received || 0);
-    addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
+    if (p.allocations && p.allocations.length > 0) {
+      p.allocations.forEach((alloc: any) => {
+        const amt = Number(alloc.allocated_amount || 0);
+        if (amt <= 0) return;
+        const name = alloc.fee_type_name || "মাসিক বেতন";
+        const combined = `${name} ${p.notes || ""}`.toLowerCase();
+        if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
+          addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt);
+        } else {
+          addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
+        }
+      });
+    } else {
+      const amt = Number(p.total_amount_received || 0);
+      const combined = `${p.notes || ""}`.toLowerCase();
+      if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
+        addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt);
+      } else {
+        addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
+      }
+    }
   });
 
   // D. Add Mahfil Receipt Book Collections & Transactions from Metadata (untracked)
@@ -712,11 +788,14 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     let fId = "fund-lillah";
     let fName = "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
 
-    if (details.includes("[FUND:")) {
-      const match = details.match(/\[FUND:\s*([^\]|]+)(?:\|\s*([^\]]+))?\]/i);
-      if (match && match[1]) {
-        fId = match[1].trim();
-        fName = match[2]?.trim() || fName;
+    if (details.includes("FUND:")) {
+      const matchFund = details.match(/FUND:\s*([^\]|]+)/i);
+      if (matchFund && matchFund[1]) {
+        fId = matchFund[1].trim();
+      }
+      const matchFundName = details.match(/FUND_NAME:\s*([^\]|]+)/i);
+      if (matchFundName && matchFundName[1]) {
+        fName = matchFundName[1].trim();
       }
     }
 
