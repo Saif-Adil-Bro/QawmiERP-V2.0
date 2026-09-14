@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   FileText, 
   Printer, 
@@ -17,6 +17,7 @@ import {
 import { FundItem, DonorItem, DonationItem, getFundCategoryBadge, getDonorTypeBadge } from "@/lib/fund-utils";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
 import { printElementIsolated } from "@/lib/printUtils";
+import { getActiveMadrasaHeaderInfo } from "@/app/actions/zakat";
 
 interface ReportsClientProps {
   stats: any;
@@ -31,12 +32,40 @@ export default function ReportsClient({
   funds,
   donors,
   donations,
-  madrasaInfo,
+  madrasaInfo: initialMadrasaInfo,
 }: ReportsClientProps) {
   const [selectedFund, setSelectedFund] = useState("ALL");
   const [selectedDonorType, setSelectedDonorType] = useState("ALL");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [liveMadrasaInfo, setLiveMadrasaInfo] = useState<any>(initialMadrasaInfo || null);
+
+  useEffect(() => {
+    if (initialMadrasaInfo && initialMadrasaInfo.name && initialMadrasaInfo.name !== "মাদরাসা") {
+      setLiveMadrasaInfo(initialMadrasaInfo);
+      return;
+    }
+    let isMounted = true;
+    async function fetchInfo() {
+      try {
+        const info = await getActiveMadrasaHeaderInfo();
+        if (isMounted && info) {
+          setLiveMadrasaInfo((prev: any) => ({
+            ...prev,
+            ...info,
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to load header info:", err);
+      }
+    }
+    fetchInfo();
+    return () => {
+      isMounted = false;
+    };
+  }, [initialMadrasaInfo]);
+
+  const madrasaInfo = liveMadrasaInfo || initialMadrasaInfo;
 
   const filteredDonations = donations.filter(d => {
     const matchesFund = selectedFund === "ALL" || d.donation_type === selectedFund || d.fund_name === selectedFund;
@@ -49,11 +78,11 @@ export default function ReportsClient({
   const totalFilteredAmount = filteredDonations.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
 
   const handlePrint = () => {
-    window.print();
+    printElementIsolated("zakat-reports-print-root", "যাকাত_ও_ফান্ড_কালেকশন_রিপোর্ট");
   };
 
   return (
-    <div className="space-y-6">
+    <div id="zakat-reports-print-root" className="space-y-6 bg-white p-2 sm:p-4 rounded-2xl">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs print:hidden">
         <div>
@@ -76,13 +105,58 @@ export default function ReportsClient({
       </div>
 
       {/* Printable Report Header */}
-      <div className="hidden print:block text-center border-b border-slate-300 pb-4 mb-6">
-        <h2 className="text-xl font-bold text-slate-900">{madrasaInfo?.name || "মাদরাসা"}</h2>
-        <p className="text-xs text-slate-600">{madrasaInfo?.address}</p>
-        <h3 className="text-base font-bold text-slate-800 mt-2 underline">যাকাত ও ফান্ড কালেকশন রিপোর্ট</h3>
-        <p className="text-xs text-slate-500 mt-0.5">
-          প্রিন্টের তারিখ: {toBanglaNumber(new Date().toLocaleDateString("en-GB"))}
+      <div className="hidden print:block text-center border-b-2 border-slate-900 pb-4 mb-6">
+        <p className="text-center text-xs font-serif text-slate-600 mb-2">
+          بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ • حَامِدًا وَّمُصَلِّيًا
         </p>
+        <div className="flex items-center justify-between gap-4">
+          <div className="w-16 h-16 shrink-0 flex items-center justify-center">
+            {madrasaInfo?.logo_url ? (
+              <img
+                src={madrasaInfo.logo_url}
+                alt={madrasaInfo.name || "লোগো"}
+                className="w-16 h-16 object-contain rounded-lg"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-full border-2 border-emerald-700 bg-emerald-50 flex items-center justify-center text-emerald-800 font-bold text-xl">
+                {madrasaInfo?.name?.charAt(0) || "ম"}
+              </div>
+            )}
+          </div>
+
+          <div className="text-center flex-1 space-y-1">
+            <h1 className="text-2xl font-black text-slate-900">
+              {madrasaInfo?.name || "মাদরাসা"}
+            </h1>
+            {madrasaInfo?.slogan && (
+              <p className="text-xs italic text-emerald-700 font-medium">
+                "{madrasaInfo.slogan}"
+              </p>
+            )}
+            {madrasaInfo?.address && (
+              <p className="text-xs text-slate-600 font-medium">
+                {madrasaInfo.address}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center justify-center gap-x-4 text-xs text-slate-600 font-medium">
+              {madrasaInfo?.phone && (
+                <span>মোবাইল: {toBanglaNumber(madrasaInfo.phone)}</span>
+              )}
+              {(madrasaInfo?.registration_no || madrasaInfo?.reg_no) && (
+                <span>রেজিস্ট্রেশন নং: {toBanglaNumber(madrasaInfo?.registration_no || madrasaInfo?.reg_no)}</span>
+              )}
+            </div>
+          </div>
+
+          <div className="w-16 shrink-0 text-right text-[11px] text-slate-500">
+            তারিখ: {toBanglaNumber(new Date().toLocaleDateString("en-GB"))}
+          </div>
+        </div>
+
+        <h3 className="text-base font-bold text-slate-900 mt-3 inline-block bg-slate-100 px-4 py-1 rounded-md border border-slate-300">
+          যাকাত ও ফান্ড কালেকশন অডিট রিপোর্ট
+        </h3>
       </div>
 
       {/* Top Level Summary Cards */}

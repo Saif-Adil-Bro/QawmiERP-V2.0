@@ -123,6 +123,7 @@ export async function getActiveMadrasaHeaderInfo() {
       signature_url: info.signature_url || "",
       principal_name: info.principal_name || "",
       slogan: info.slogan || "",
+      established_year: info.established_year || "",
     };
   } catch {
     return {
@@ -135,6 +136,7 @@ export async function getActiveMadrasaHeaderInfo() {
       signature_url: "",
       principal_name: "",
       slogan: "",
+      established_year: "",
     };
   }
 }

@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { FundItem, FundTransactionRecord, DonationItem } from "@/lib/fund-utils";
 import { toBanglaNumber, formatBanglaCurrency, numberToBanglaWords } from "@/lib/numberToBangla";
-import { getFundLedgerData, getDonationById } from "@/app/actions/zakat";
+import { getFundLedgerData, getDonationById, getActiveMadrasaHeaderInfo } from "@/app/actions/zakat";
 import DonationReceipt from "./DonationReceipt";
 import { printElementIsolated } from "@/lib/printUtils";
 
@@ -32,6 +32,8 @@ interface FundLedgerModalProps {
     address?: string;
     phone?: string;
     logo_url?: string;
+    registration_no?: string;
+    slogan?: string;
   };
 }
 
@@ -39,7 +41,7 @@ export default function FundLedgerModal({
   fund,
   isOpen,
   onClose,
-  madrasaInfo,
+  madrasaInfo: initialMadrasaInfo,
 }: FundLedgerModalProps) {
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<FundTransactionRecord[]>([]);
@@ -52,6 +54,34 @@ export default function FundLedgerModal({
 
   const [activeReceiptDonation, setActiveReceiptDonation] = useState<DonationItem | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
+  const [liveMadrasaInfo, setLiveMadrasaInfo] = useState<any>(initialMadrasaInfo || null);
+
+  useEffect(() => {
+    if (initialMadrasaInfo && initialMadrasaInfo.name && initialMadrasaInfo.name !== "মাদরাসা") {
+      setLiveMadrasaInfo(initialMadrasaInfo);
+      return;
+    }
+    let isMounted = true;
+    async function fetchInfo() {
+      try {
+        const info = await getActiveMadrasaHeaderInfo();
+        if (isMounted && info) {
+          setLiveMadrasaInfo((prev: any) => ({
+            ...prev,
+            ...info,
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to load header info:", err);
+      }
+    }
+    fetchInfo();
+    return () => {
+      isMounted = false;
+    };
+  }, [initialMadrasaInfo]);
+
+  const madrasaInfo = liveMadrasaInfo || initialMadrasaInfo;
 
   useEffect(() => {
     if (isOpen && fund) {
@@ -384,11 +414,57 @@ export default function FundLedgerModal({
 
         {/* Hidden Printable Area for Official Fund Statement */}
         <div id="fund-statement-print-area" className="hidden print:block p-8 bg-white text-slate-900">
-          <div className="text-center border-b-2 border-slate-900 pb-4 mb-6">
-            <h1 className="text-2xl font-black text-slate-900">{madrasaInfo?.name || "মাদরাসা"}</h1>
-            {madrasaInfo?.address && <p className="text-xs text-slate-600 mt-1">{madrasaInfo.address}</p>}
-            {madrasaInfo?.phone && <p className="text-xs text-slate-600">মোবাইল: {toBanglaNumber(madrasaInfo.phone)}</p>}
-            <div className="mt-3 inline-block bg-slate-900 text-white px-4 py-1 rounded font-bold text-sm">
+          <div className="border-b-2 border-slate-900 pb-4 mb-6 text-center">
+            <p className="text-center text-xs font-serif text-slate-600 mb-2">
+              بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ • حَامِدًا وَّمُصَلِّيًا
+            </p>
+            <div className="flex items-center justify-between gap-4">
+              {/* Logo */}
+              <div className="w-16 h-16 shrink-0 flex items-center justify-center">
+                {madrasaInfo?.logo_url ? (
+                  <img
+                    src={madrasaInfo.logo_url}
+                    alt={madrasaInfo.name || "লোগো"}
+                    className="w-16 h-16 object-contain rounded-lg"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-14 h-14 rounded-full border-2 border-emerald-700 bg-emerald-50 flex items-center justify-center text-emerald-800 font-bold text-xl">
+                    {madrasaInfo?.name?.charAt(0) || "ম"}
+                  </div>
+                )}
+              </div>
+
+              {/* Title & Info Center */}
+              <div className="text-center flex-1 space-y-1">
+                <h1 className="text-2xl font-black text-slate-900">
+                  {madrasaInfo?.name || "মাদরাসা"}
+                </h1>
+                {madrasaInfo?.slogan && (
+                  <p className="text-xs italic text-emerald-700 font-medium">
+                    "{madrasaInfo.slogan}"
+                  </p>
+                )}
+                {madrasaInfo?.address && (
+                  <p className="text-xs text-slate-600 font-medium">
+                    {madrasaInfo.address}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center justify-center gap-x-4 text-xs text-slate-600 font-medium">
+                  {madrasaInfo?.phone && (
+                    <span>মোবাইল: {toBanglaNumber(madrasaInfo.phone)}</span>
+                  )}
+                  {(madrasaInfo?.registration_no || madrasaInfo?.reg_no) && (
+                    <span>রেজিস্ট্রেশন নং: {toBanglaNumber(madrasaInfo?.registration_no || madrasaInfo?.reg_no)}</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Empty spacer to balance header center alignment */}
+              <div className="w-16 shrink-0" />
+            </div>
+
+            <div className="mt-3 inline-block bg-slate-900 text-white px-5 py-1 rounded font-bold text-sm">
               ফান্ড খতিয়ান ও আর্থিক বিবরণী: {fund.name}
             </div>
           </div>
