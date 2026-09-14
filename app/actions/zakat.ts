@@ -243,11 +243,15 @@ export async function getFunds(): Promise<FundItem[]> {
 
     const allDonations = donationsRes.data || [];
     const allExpenses = expensesRes.data || [];
+    const subscriptionPayments = meta.donor_subscription_payments || [];
 
     const fundStats = new Map<string, { collected: number; expense: number; count: number; donors: Set<string> }>();
     baseFunds.forEach((f) => {
       fundStats.set(f.name, { collected: 0, expense: 0, count: 0, donors: new Set<string>() });
     });
+
+    const existingReceiptNos = new Set(allDonations.map((d: any) => d.receipt_no).filter(Boolean));
+    const existingIds = new Set(allDonations.map((d: any) => d.id).filter(Boolean));
 
     for (const d of allDonations) {
       const isMahfil = d.receipt_no?.startsWith("MHF-") || (d.notes && d.notes.includes("মাহফিল"));
@@ -270,6 +274,66 @@ export async function getFunds(): Promise<FundItem[]> {
           stat.count += 1;
           const donorIdentifier = d.donor_id || d.receipt_no || d.id;
           if (donorIdentifier) stat.donors.add(donorIdentifier);
+        }
+      }
+    }
+
+    // Merge meta subscription payments into funds collection calculation
+    for (const sp of subscriptionPayments) {
+      if ((sp.receipt_no && existingReceiptNos.has(sp.receipt_no)) || existingIds.has(sp.id)) continue;
+      const amt = Number(sp.amount || 0);
+      const targetFundName = sp.fund_name || "সাধারণ ফান্ড";
+      const matched = baseFunds.find((f) => isTransactionInFund(f, undefined, targetFundName, baseFunds));
+      if (matched) {
+        const stat = fundStats.get(matched.name);
+        if (stat) {
+          stat.collected += amt;
+          stat.count += 1;
+          const donorIdentifier = sp.donor_id || sp.receipt_no || sp.id;
+          if (donorIdentifier) stat.donors.add(donorIdentifier);
+        }
+      }
+    }
+
+    // Merge student fee payments into funds collection calculation (e.g. Tuition -> General Fund, Food -> Lillah Boarding Fund)
+    const feePayments = (meta.payments || []).filter(
+      (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
+    );
+    for (const p of feePayments) {
+      if ((p.receipt_no && existingReceiptNos.has(p.receipt_no)) || existingIds.has(p.id)) continue;
+      if (p.allocations && p.allocations.length > 0) {
+        for (const alloc of p.allocations) {
+          const amt = Number(alloc.allocated_amount || 0);
+          if (amt <= 0) continue;
+          const name = alloc.fee_type_name || "মাসিক বেতন";
+          const isLillah = name.includes("বোর্ডিং") || name.includes("খাবার") || name.includes("খোরাকি") || name.includes("hostel") || name.includes("lillah");
+          const targetFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+          const matched = baseFunds.find((f) => isTransactionInFund(f, undefined, targetFundName, baseFunds));
+          if (matched) {
+            const stat = fundStats.get(matched.name);
+            if (stat) {
+              stat.collected += amt;
+              stat.count += 1;
+              const identifier = p.student_id || p.receipt_no || p.id;
+              if (identifier) stat.donors.add(identifier);
+            }
+          }
+        }
+      } else {
+        const amt = Number(p.total_amount_received || 0);
+        if (amt > 0) {
+          const isLillah = (p.notes || "").includes("বোর্ডিং") || (p.notes || "").includes("খাবার") || (p.notes || "").includes("খোরাকি");
+          const targetFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+          const matched = baseFunds.find((f) => isTransactionInFund(f, undefined, targetFundName, baseFunds));
+          if (matched) {
+            const stat = fundStats.get(matched.name);
+            if (stat) {
+              stat.collected += amt;
+              stat.count += 1;
+              const identifier = p.student_id || p.receipt_no || p.id;
+              if (identifier) stat.donors.add(identifier);
+            }
+          }
         }
       }
     }
@@ -879,7 +943,49 @@ export async function getDonations(filters?: {
     const funds = await getFunds();
     const fundNameMap = new Map(funds.map(f => [f.name, f]));
 
-    return (data || []).map((d: any, index: number) => {
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const subscriptionPayments = meta.donor_subscription_payments || [];
+    const donorsList = await getDonors();
+    const donorMap = new Map(donorsList.map(d => [d.id, d]));
+
+    const existingReceiptNos = new Set((data || []).map((d: any) => d.receipt_no).filter(Boolean));
+    const existingIds = new Set((data || []).map((d: any) => d.id).filter(Boolean));
+
+    const extraSubscriptionDonations: any[] = [];
+    for (const sp of subscriptionPayments) {
+      if ((sp.receipt_no && existingReceiptNos.has(sp.receipt_no)) || existingIds.has(sp.id)) continue;
+      const dObj = donorMap.get(sp.donor_id);
+      extraSubscriptionDonations.push({
+        id: sp.id,
+        madrasa_id: finalMadrasaId,
+        donor_id: sp.donor_id,
+        amount: Number(sp.amount || 0),
+        donation_type: sp.fund_name || "সাধারণ ফান্ড",
+        donation_date: sp.payment_date || (sp.created_at ? sp.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+        receipt_no: sp.receipt_no || `MR-${sp.id.slice(0, 5)}`,
+        notes: sp.notes ? `[মাস: ${sp.month || ""}] ${sp.notes}` : `[মাস: ${sp.month || ""}] মাসিক/বাৎসরিক চাঁদা আদায়`,
+        created_at: sp.created_at || new Date().toISOString(),
+        donors: dObj ? {
+          id: dObj.id,
+          name: dObj.name,
+          phone: dObj.phone,
+          address: dObj.address,
+          donor_type: dObj.donor_type,
+        } : {
+          id: sp.donor_id || "sp-donor",
+          name: sp.donor_name || "সম্মানিত দাতা",
+          phone: "",
+          address: "",
+          donor_type: "Monthly",
+        },
+      });
+    }
+
+    const combinedList = [...(data || []), ...extraSubscriptionDonations];
+    // Sort combined by date descending
+    combinedList.sort((a, b) => new Date(b.donation_date || b.created_at).getTime() - new Date(a.donation_date || a.created_at).getTime());
+
+    return combinedList.map((d: any, index: number) => {
       // Resolve canonical fund name and fund ID
       const fundName = normalizeFundName(d.donation_type, funds);
       const matchedFund = fundNameMap.get(fundName);
@@ -1094,6 +1200,9 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
     let totalInflow = 0;
     let totalOutflow = 0;
 
+    const existingReceiptNos = new Set((dbDonations || []).map((d: any) => d.receipt_no).filter(Boolean));
+    const existingIds = new Set((dbDonations || []).map((d: any) => d.id).filter(Boolean));
+
     // Process Donations
     for (const d of dbDonations || []) {
       if (isTransactionInFund(targetFund, d.fund_id, d.donation_type, funds)) {
@@ -1129,6 +1238,88 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           notes: d.notes || "",
           category: isMahfil ? "মাহফিল উদ্বৃত্ত জমা" : "সাধারণ অনুদান প্রাপ্তি",
           is_mahfil_settlement: isMahfil,
+        });
+      }
+    }
+
+    // Process Student Fee Payments into Fund Ledger (Tuition/Admission -> General Fund, Khoraki -> Lillah Boarding Fund)
+    const feePayments = (meta.payments || []).filter(
+      (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
+    );
+    for (const p of feePayments) {
+      if ((p.receipt_no && existingReceiptNos.has(p.receipt_no)) || existingIds.has(p.id)) continue;
+      if (p.allocations && p.allocations.length > 0) {
+        for (const alloc of p.allocations) {
+          const amt = Number(alloc.allocated_amount || 0);
+          if (amt <= 0) continue;
+          const name = alloc.fee_type_name || "মাসিক বেতন";
+          const isLillah = name.includes("বোর্ডিং") || name.includes("খাবার") || name.includes("খোরাকি") || name.includes("hostel") || name.includes("lillah");
+          const targetFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+          if (isTransactionInFund(targetFund, undefined, targetFundName, funds)) {
+            totalInflow += amt;
+            transactions.push({
+              id: `${p.id}_${alloc.fee_type_id || "alloc"}`,
+              type: "INCOME",
+              fund_id: targetFundId,
+              fund_name: targetCanonicalName,
+              amount: amt,
+              date: p.payment_date || (p.created_at ? p.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+              source_or_recipient: `${p.student_name || "শিক্ষার্থী"} (${p.class_name || "সাধারণ"}) [${name}]`,
+              voucher_no: p.receipt_no || `MR-${p.id.substring(0, 6)}`,
+              payment_method: p.payment_method || "Cash",
+              notes: p.notes ? `${name} - ${p.notes}` : `${name} আদায়`,
+              category: name,
+              is_mahfil_settlement: false,
+            });
+          }
+        }
+      } else {
+        const amt = Number(p.total_amount_received || 0);
+        if (amt > 0) {
+          const isLillah = (p.notes || "").includes("বোর্ডিং") || (p.notes || "").includes("খাবার") || (p.notes || "").includes("খোরাকি");
+          const targetFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+          if (isTransactionInFund(targetFund, undefined, targetFundName, funds)) {
+            totalInflow += amt;
+            transactions.push({
+              id: p.id,
+              type: "INCOME",
+              fund_id: targetFundId,
+              fund_name: targetCanonicalName,
+              amount: amt,
+              date: p.payment_date || (p.created_at ? p.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+              source_or_recipient: `${p.student_name || "শিক্ষার্থী"} (${p.class_name || "সাধারণ"})`,
+              voucher_no: p.receipt_no || `MR-${p.id.substring(0, 6)}`,
+              payment_method: p.payment_method || "Cash",
+              notes: p.notes || "শিক্ষার্থীর ফি আদায়",
+              category: "শিক্ষার্থীর ফি",
+              is_mahfil_settlement: false,
+            });
+          }
+        }
+      }
+    }
+
+    // Process Donor Subscriptions
+    const subscriptionPayments = meta.donor_subscription_payments || [];
+    for (const sp of subscriptionPayments) {
+      if ((sp.receipt_no && existingReceiptNos.has(sp.receipt_no)) || existingIds.has(sp.id)) continue;
+      const amt = Number(sp.amount || 0);
+      const targetFundName = sp.fund_name || "সাধারণ ফান্ড";
+      if (isTransactionInFund(targetFund, undefined, targetFundName, funds)) {
+        totalInflow += amt;
+        transactions.push({
+          id: sp.id,
+          type: "INCOME",
+          fund_id: targetFundId,
+          fund_name: targetCanonicalName,
+          amount: amt,
+          date: sp.payment_date || (sp.created_at ? sp.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+          source_or_recipient: `${sp.donor_name || "সম্মানিত দাতা"} (মাসিক/বাৎসরিক চাঁদা)`,
+          voucher_no: sp.receipt_no || `SUB-${sp.id.substring(0, 6)}`,
+          payment_method: sp.payment_method || "Cash",
+          notes: sp.notes || `[মাস: ${sp.month || ""}] চাঁদা আদায়`,
+          category: "দাতা চাঁদা",
+          is_mahfil_settlement: false,
         });
       }
     }
@@ -1432,18 +1623,16 @@ export async function deleteDonation(id: string) {
 // Comprehensive Fund & Zakat Report Statistics
 export async function getZakatReportStats() {
   try {
-    const adminClient = await createAdminClient();
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) return null;
 
-    const [funds, donors, donationsRes] = await Promise.all([
+    const [funds, donors, donations] = await Promise.all([
       getFunds(),
       getDonors(),
-      adminClient.from("donations").select("*").eq("madrasa_id", finalMadrasaId)
+      getDonations(),
     ]);
-
-    const donations = donationsRes.data || [];
 
     // Calculate total collection per fund
     const fundTotals: Record<string, { name: string; total: number; count: number; category: string; color: string }> = {};
