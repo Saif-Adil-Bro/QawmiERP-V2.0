@@ -95,237 +95,7 @@ export async function getMahfils(): Promise<Mahfil[]> {
     const { activeMadrasaId, meta, mahfils: resolvedMahfils } = await resolveMadrasaAndMahfil();
     if (!activeMadrasaId) return [];
 
-    let mahfils: Mahfil[] = resolvedMahfils || [];
-
-    // Fallback: If empty in current madrasa, check all madrasas for existing mahfils
-    if (mahfils.length === 0) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: allMadrasas } = await adminClient.from("madrasas").select("id, registration_no");
-        for (const mRow of allMadrasas || []) {
-          if (mRow.registration_no && mRow.registration_no.startsWith("{")) {
-            try {
-              const pMeta = JSON.parse(mRow.registration_no);
-              if (pMeta.mahfils && pMeta.mahfils.length > 0) {
-                mahfils = pMeta.mahfils;
-                break;
-              }
-            } catch {}
-          }
-        }
-      } catch (e) {
-        console.warn("Could not check other madrasas for mahfils:", e);
-      }
-    }
-
-    // If still no mahfil exists, seed an initial full-featured Mahfil so the system is immediately usable
-    if (mahfils.length === 0) {
-      const now = new Date().toISOString();
-      const initialMahfil: Mahfil = {
-        id: "mahfil_2026_annual",
-        madrasa_id: activeMadrasaId,
-        title: "বার্ষিক ইসলামি মহাসম্মেলন ও খতমে বুখারী মাহফিল",
-        year: "২০২৬-২৭",
-        hijri_year: "১৪৪৭-৪৮",
-        start_date: "2026-11-20",
-        end_date: "2026-11-21",
-        venue: "মাদ্রাসা ময়দান ও প্রাঙ্গণ",
-        president: "আল্লামা মুফতী মুহাম্মদ আব্দুল্লাহ দা.বা.",
-        host: "মাওলানা ক্বারী মাহফুজুর রহমান",
-        target_budget: 350000,
-        speakers: [
-          {
-            id: "spk_1",
-            title: "শাইখুল হাদীস",
-            name: "মুফতী দেলাওয়ার হোসাইন",
-            designation: "উস্তাদুল আসাতাজা, জামিয়া ইসলামিয়া",
-            topic: "আখলাক ও আদর্শ মুমিনের চরিত্র",
-            phone: "01711-223344",
-            date: "2026-11-20",
-            time_slot: "রাত ৯:০০ টা",
-            agreed_hadia: 15000,
-            status: "CONFIRMED",
-            notes: "প্রধান আকর্ষণ"
-          },
-          {
-            id: "spk_2",
-            title: "মুফাসসিরে কুরআন",
-            name: "মাওলানা খালেদ সাইফুল্লাহ",
-            designation: "প্রখ্যাত ওয়ায়েজ ও চিন্তাবিদ",
-            topic: "কুরআন পাঠ ও বাস্তব জীবনে এর প্রভাব",
-            phone: "01819-556677",
-            date: "2026-11-21",
-            time_slot: "বাদ মাগরিব",
-            agreed_hadia: 10000,
-            status: "CONFIRMED",
-            notes: "দ্বিতীয় দিনের বিশেষ আলোচক"
-          }
-        ],
-        receipt_books: [
-          {
-            id: "bk_seed_01",
-            book_no: "বই #০১",
-            page_from: 1,
-            page_to: 50,
-            total_pages: 50,
-            category: "সাধারণ অনুদান",
-            receipt_type: "সাধারণ রসিদ বই",
-            rate_per_page: 100,
-            expected_amount: 5000,
-            is_distributed: true,
-            issued_to_name: "মাওলানা আবু বকর সিদ্দিক",
-            issued_to_type: "উস্তাদ",
-            issued_to_phone: "01712-345678",
-            issued_to_jamath: "তালীমাত",
-            issued_to_area: "চকবাজার ও স্টেশন রোড",
-            issued_date: "2026-10-15",
-            distributed_pages: 50,
-            issued_by: "মাওলানা আবদুর রহমান",
-            is_deposited: true,
-            return_date: "2026-11-05",
-            used_pages: 50,
-            returned_pages: 0,
-            total_collected: 5000,
-            due_amount: 0,
-            payment_method: "Cash",
-            deposit_voucher_no: "DP-001",
-            received_by: "মুফতী মুহাম্মদ ইসহাক (ক্যাশিয়ার)",
-            status: "RETURNED",
-            notes: "পূর্ণাঙ্গ আদায় ও জমা সম্পন্ন"
-          },
-          {
-            id: "bk_seed_02",
-            book_no: "বই #০২",
-            page_from: 51,
-            page_to: 100,
-            total_pages: 50,
-            category: "মাদ্রাসার উন্নয়ন",
-            receipt_type: "উন্নয়ন অনুদান বই",
-            rate_per_page: 500,
-            expected_amount: 25000,
-            is_distributed: true,
-            issued_to_name: "হাফেজ তানভীর আহমেদ",
-            issued_to_type: "ছাত্র",
-            issued_to_phone: "01823-456789",
-            issued_to_jamath: "হেফজ খানা",
-            issued_to_area: "নতুন বাজার ও পূর্ব পাড়া",
-            issued_date: "2026-10-18",
-            distributed_pages: 50,
-            issued_by: "মুফতী হাসিবুল হাসান",
-            is_deposited: true,
-            return_date: "2026-11-10",
-            used_pages: 35,
-            returned_pages: 15,
-            total_collected: 17500,
-            due_amount: 0,
-            payment_method: "bKash",
-            deposit_voucher_no: "DP-002",
-            received_by: "মাওলানা তারিক জামিল",
-            status: "PARTIALLY_RETURNED",
-            notes: "৩৫ পাতা ব্যবহার হয়েছে, ১৫ পাতা ফেরত জমা হয়েছে"
-          },
-          {
-            id: "bk_seed_03",
-            book_no: "বই #০৩",
-            page_from: 101,
-            page_to: 150,
-            total_pages: 50,
-            category: "এতিমখানা ও লিল্লাহ ফান্ড",
-            receipt_type: "লিল্লাহ ফান্ড বই",
-            rate_per_page: 200,
-            expected_amount: 10000,
-            is_distributed: true,
-            issued_to_name: "আলহাজ্ব রফিকুল ইসলাম",
-            issued_to_type: "কমিটি সদস্য",
-            issued_to_phone: "01911-889900",
-            issued_to_jamath: "পরিচালনা কমিটি",
-            issued_to_area: "উপজেলা সদর ও বাণিজ্যিক এলাকা",
-            issued_date: "2026-10-20",
-            distributed_pages: 50,
-            issued_by: "মাওলানা আবদুর রহমান",
-            is_deposited: false,
-            return_date: "",
-            used_pages: 0,
-            returned_pages: 50,
-            total_collected: 0,
-            due_amount: 0,
-            payment_method: "Cash",
-            deposit_voucher_no: "",
-            received_by: "",
-            status: "ISSUED",
-            notes: "দায়িত্ব প্রদান করা হয়েছে, কালেকশন চলমান"
-          },
-          {
-            id: "bk_seed_04",
-            book_no: "বই #০৪",
-            page_from: 151,
-            page_to: 200,
-            total_pages: 50,
-            category: "সাধারণ অনুদান",
-            receipt_type: "সাধারণ রসিদ বই",
-            rate_per_page: 100,
-            expected_amount: 5000,
-            is_distributed: false,
-            issued_to_name: "",
-            issued_to_type: "উস্তাদ",
-            issued_to_phone: "",
-            issued_to_jamath: "",
-            issued_to_area: "",
-            issued_date: "",
-            distributed_pages: 0,
-            issued_by: "",
-            is_deposited: false,
-            return_date: "",
-            used_pages: 0,
-            returned_pages: 50,
-            total_collected: 0,
-            due_amount: 0,
-            payment_method: "Cash",
-            deposit_voucher_no: "",
-            received_by: "",
-            status: "ISSUED",
-            notes: "অফিস স্টকে সংরক্ষিত"
-          }
-        ],
-        transactions: [
-          {
-            id: "txn_1",
-            mahfil_id: "mahfil_2026_annual",
-            type: "INCOME",
-            category: "মঞ্চের প্রকাশ্য দান",
-            amount: 45000,
-            description: "প্রথম দিনের শেষ অধিবেশনের প্রকাশ্য কালেকশন",
-            date: "2026-11-20",
-            receipt_no: "ST-01",
-            paid_to_or_received_from: "উপস্থিত মুসল্লিবৃন্দ",
-            payment_method: "Cash",
-            voucher_no: "V-IN-01"
-          },
-          {
-            id: "txn_2",
-            mahfil_id: "mahfil_2026_annual",
-            type: "EXPENSE",
-            category: "মাইক ও সাউন্ড সিস্টেম",
-            amount: 22000,
-            description: "২ দিনের পূর্ণাঙ্গ মাইক ও সাউন্ড সেটআপ ভাড়া",
-            date: "2026-11-19",
-            receipt_no: "BILL-501",
-            paid_to_or_received_from: "আল-ফালাহ সাউন্ড সিস্টেম",
-            payment_method: "Cash",
-            voucher_no: "V-EX-01"
-          }
-        ],
-        status: "ONGOING",
-        notes: "বার্ষিক মহাসম্মেলনের যাবতীয় হিসাব লাইভ ও ডায়নামিক সংরক্ষিত হচ্ছে",
-        created_at: now,
-        updated_at: now,
-      };
-
-      mahfils = [initialMahfil];
-      meta.mahfils = mahfils;
-      await saveMadrasaMetadata(activeMadrasaId, meta);
-    }
-
+    const mahfils: Mahfil[] = resolvedMahfils || [];
     return mahfils.sort((a: Mahfil, b: Mahfil) => new Date(b.start_date || b.created_at).getTime() - new Date(a.start_date || a.created_at).getTime());
   } catch (err) {
     console.error("Error fetching mahfils:", err);
@@ -437,13 +207,70 @@ export async function deleteMahfil(id: string) {
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
     const meta = await getMadrasaMetadata(finalMadrasaId);
+    const targetMahfil = (meta.mahfils || []).find((m: Mahfil) => m.id === id);
+
+    // Clean up any settlements and accounting vouchers created by this Mahfil
+    if (targetMahfil) {
+      const adminClient = await createAdminClient();
+      const allSettlements = targetMahfil.settlements || (targetMahfil.settlement ? [targetMahfil.settlement] : []);
+      for (const s of allSettlements) {
+        try {
+          if (s.accounting_record_id) {
+            await adminClient.from("donations").delete().eq("id", s.accounting_record_id);
+            await adminClient.from("expenses").delete().eq("id", s.accounting_record_id);
+          }
+          if (s.accounting_voucher_no) {
+            await adminClient.from("donations").delete().eq("receipt_no", s.accounting_voucher_no);
+            await adminClient.from("expenses").delete().eq("voucher_no", s.accounting_voucher_no);
+            await adminClient.from("donations").delete().like("notes", `%${s.accounting_voucher_no}%`);
+            await adminClient.from("expenses").delete().like("description", `%${s.accounting_voucher_no}%`);
+          }
+          // Revert zakat_funds balance
+          const { data: zFunds } = await adminClient.from("zakat_funds").select("id, name, current_balance").eq("madrasa_id", finalMadrasaId);
+          if (zFunds && zFunds.length > 0) {
+            const tFund = zFunds.find((f: any) => f.id === s.fund_id || f.name?.trim().toLowerCase() === s.fund_name?.trim().toLowerCase());
+            if (tFund) {
+              const current = Number(tFund.current_balance) || 0;
+              const revertBal = s.settlement_type === "SURPLUS_DEPOSIT" ? Math.max(0, current - s.amount) : current + s.amount;
+              await adminClient.from("zakat_funds").update({ current_balance: revertBal }).eq("id", tFund.id);
+            }
+          }
+        } catch (sErr) {
+          console.warn("Could not clean up settlement accounting for deleted mahfil:", sErr);
+        }
+      }
+    }
+
     meta.mahfils = (meta.mahfils || []).filter((m: Mahfil) => m.id !== id);
 
     const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
     if (!ok) return { error: "মুছতে সমস্যা হয়েছে" };
 
+    // Clean up across other madrasa rows if present
+    try {
+      const adminClient = await createAdminClient();
+      const { data: allMadrasas } = await adminClient.from("madrasas").select("id, registration_no");
+      for (const mRow of allMadrasas || []) {
+        if (mRow.id !== finalMadrasaId && mRow.registration_no && mRow.registration_no.startsWith("{")) {
+          try {
+            const pMeta = JSON.parse(mRow.registration_no);
+            if (pMeta.mahfils && pMeta.mahfils.some((m: any) => m.id === id)) {
+              pMeta.mahfils = pMeta.mahfils.filter((m: any) => m.id !== id);
+              await saveMadrasaMetadata(mRow.id, pMeta);
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+
     try {
       revalidatePath("/dashboard/fundraising/mahfil");
+      revalidatePath("/dashboard/accounting");
+      revalidatePath("/dashboard/accounting/funds");
+      revalidatePath("/dashboard/accounting/donations");
+      revalidatePath("/dashboard/accounting/expenses");
+      revalidatePath("/dashboard/zakat");
+      revalidatePath("/dashboard/zakat/funds");
     } catch {}
 
     return { success: true };
@@ -896,14 +723,49 @@ export async function deleteMahfilTransaction(mahfilId: string, txnId: string) {
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
 
+    const targetTxn = (targetMahfil.transactions || []).find((t: MahfilTransaction) => t.id === txnId);
+
     targetMahfil.transactions = (targetMahfil.transactions || []).filter((t: MahfilTransaction) => t.id !== txnId);
     targetMahfil.updated_at = new Date().toISOString();
+
+    // If deleting a settlement transaction, clean up associated settlement and accounting entries
+    if (targetTxn && (targetTxn.id?.startsWith("txn_settle") || targetTxn.voucher_no?.startsWith("MHF-20") || targetTxn.voucher_no?.startsWith("EXP-MHF"))) {
+      const associatedSettlement = (targetMahfil.settlements || []).find((s: MahfilSettlement) => 
+        s.mahfil_txn_id === txnId || s.accounting_voucher_no === targetTxn.voucher_no
+      ) || (targetMahfil.settlement?.mahfil_txn_id === txnId ? targetMahfil.settlement : undefined);
+
+      if (associatedSettlement) {
+        targetMahfil.settlements = (targetMahfil.settlements || []).filter((s: MahfilSettlement) => s.id !== associatedSettlement.id);
+        if (targetMahfil.settlement?.id === associatedSettlement.id) {
+          targetMahfil.settlement = targetMahfil.settlements.length > 0 ? targetMahfil.settlements[targetMahfil.settlements.length - 1] : undefined;
+        }
+
+        try {
+          const adminClient = await createAdminClient();
+          if (associatedSettlement.accounting_record_id) {
+            await adminClient.from("donations").delete().eq("id", associatedSettlement.accounting_record_id);
+            await adminClient.from("expenses").delete().eq("id", associatedSettlement.accounting_record_id);
+          }
+          if (associatedSettlement.accounting_voucher_no) {
+            await adminClient.from("donations").delete().eq("receipt_no", associatedSettlement.accounting_voucher_no);
+            await adminClient.from("expenses").delete().eq("voucher_no", associatedSettlement.accounting_voucher_no);
+            await adminClient.from("donations").delete().like("notes", `%${associatedSettlement.accounting_voucher_no}%`);
+            await adminClient.from("expenses").delete().like("description", `%${associatedSettlement.accounting_voucher_no}%`);
+          }
+        } catch (dbErr) {
+          console.warn("Could not delete accounting entry for transaction:", dbErr);
+        }
+      }
+    }
 
     meta.mahfils = mahfils;
     await saveMadrasaMetadata(activeMadrasaId, meta);
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
+      revalidatePath("/dashboard/accounting");
+      revalidatePath("/dashboard/accounting/funds");
+      revalidatePath("/dashboard/zakat/funds");
     } catch {}
     return { success: true };
   } catch (err: any) {
@@ -1194,19 +1056,16 @@ export async function deleteMahfilSettlement(mahfilId: string, settlementId: str
 
     const adminClient = await createAdminClient();
 
-    // 1. If we have an accounting record id or voucher no, clean up
+    // 1. Delete matching donation & expense records from accounting tables across database
     if (settlement.accounting_record_id) {
-      if (settlement.settlement_type === "SURPLUS_DEPOSIT") {
-        await adminClient.from("donations").delete().eq("id", settlement.accounting_record_id);
-      } else {
-        await adminClient.from("expenses").delete().eq("id", settlement.accounting_record_id);
-      }
-    } else if (settlement.accounting_voucher_no) {
-      if (settlement.settlement_type === "SURPLUS_DEPOSIT") {
-        await adminClient.from("donations").delete().eq("receipt_no", settlement.accounting_voucher_no);
-      } else {
-        await adminClient.from("expenses").delete().eq("voucher_no", settlement.accounting_voucher_no);
-      }
+      await adminClient.from("donations").delete().eq("id", settlement.accounting_record_id);
+      await adminClient.from("expenses").delete().eq("id", settlement.accounting_record_id);
+    }
+    if (settlement.accounting_voucher_no) {
+      await adminClient.from("donations").delete().eq("receipt_no", settlement.accounting_voucher_no);
+      await adminClient.from("expenses").delete().eq("voucher_no", settlement.accounting_voucher_no);
+      await adminClient.from("donations").delete().like("notes", `%${settlement.accounting_voucher_no}%`);
+      await adminClient.from("expenses").delete().like("description", `%${settlement.accounting_voucher_no}%`);
     }
 
     // 2. Revert zakat_funds balance if applicable
@@ -1220,8 +1079,8 @@ export async function deleteMahfilSettlement(mahfilId: string, settlementId: str
         const targetFund = zFunds.find(
           (f: any) =>
             f.id === settlement.fund_id ||
-            f.name?.trim().toLowerCase() === settlement.fund_name.trim().toLowerCase() ||
-            settlement.fund_name.toLowerCase().includes(f.name?.toLowerCase() || "")
+            f.name?.trim().toLowerCase() === settlement.fund_name?.trim().toLowerCase() ||
+            settlement.fund_name?.toLowerCase().includes(f.name?.toLowerCase() || "")
         );
         if (targetFund) {
           const current = Number(targetFund.current_balance) || 0;
@@ -1237,19 +1096,37 @@ export async function deleteMahfilSettlement(mahfilId: string, settlementId: str
     } catch {}
 
     // 3. Remove internal mahfil transaction
-    if (settlement.mahfil_txn_id) {
-      targetMahfil.transactions = (targetMahfil.transactions || []).filter((t: MahfilTransaction) => t.id !== settlement.mahfil_txn_id);
-    }
+    targetMahfil.transactions = (targetMahfil.transactions || []).filter((t: MahfilTransaction) => {
+      if (settlement.mahfil_txn_id && t.id === settlement.mahfil_txn_id) return false;
+      if (settlement.accounting_voucher_no && (t.voucher_no === settlement.accounting_voucher_no || t.description?.includes(settlement.accounting_voucher_no))) return false;
+      return true;
+    });
 
     // 4. Update settlements array
-    targetMahfil.settlements = (targetMahfil.settlements || []).filter((s: MahfilSettlement) => s.id !== settlementId);
-    if (targetMahfil.settlement?.id === settlementId) {
+    targetMahfil.settlements = (targetMahfil.settlements || []).filter((s: MahfilSettlement) => s.id !== settlementId && s.id !== settlement.id && s.accounting_voucher_no !== settlement.accounting_voucher_no);
+    if (targetMahfil.settlement?.id === settlementId || targetMahfil.settlement?.accounting_voucher_no === settlement.accounting_voucher_no) {
       targetMahfil.settlement = targetMahfil.settlements.length > 0 ? targetMahfil.settlements[targetMahfil.settlements.length - 1] : undefined;
     }
     targetMahfil.updated_at = new Date().toISOString();
 
     meta.mahfils = mahfils;
     await saveMadrasaMetadata(activeMadrasaId, meta);
+
+    // Sync to other madrasa metadata records if this mahfil is shared
+    try {
+      const { data: allM } = await adminClient.from("madrasas").select("id, registration_no");
+      for (const mRow of allM || []) {
+        if (mRow.id !== activeMadrasaId && mRow.registration_no && mRow.registration_no.startsWith("{")) {
+          try {
+            const pMeta = JSON.parse(mRow.registration_no);
+            if (pMeta.mahfils && pMeta.mahfils.some((m: any) => m.id === mahfilId)) {
+              pMeta.mahfils = mahfils;
+              await saveMadrasaMetadata(mRow.id, pMeta);
+            }
+          } catch {}
+        }
+      }
+    } catch {}
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
@@ -1728,32 +1605,6 @@ export async function getQurbaniLeatherRecords(): Promise<QurbaniLeatherRecord[]
     let meta = await getMadrasaMetadata(finalMadrasaId);
     let records: QurbaniLeatherRecord[] = meta.qurbani_leather_records || meta.leather_batches || [];
 
-    // Fallback: check all madrasas if records are empty
-    if (records.length === 0) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: allMadrasas } = await adminClient.from("madrasas").select("id, registration_no");
-        for (const mRow of allMadrasas || []) {
-          if (mRow.registration_no && mRow.registration_no.startsWith("{")) {
-            try {
-              const pMeta = JSON.parse(mRow.registration_no);
-              const found = pMeta.qurbani_leather_records || pMeta.leather_batches;
-              if (found && found.length > 0) {
-                records = found;
-                // Sync to current madrasa
-                meta.qurbani_leather_records = found;
-                meta.leather_batches = found;
-                await saveMadrasaMetadata(finalMadrasaId, meta);
-                break;
-              }
-            } catch {}
-          }
-        }
-      } catch (e) {
-        console.warn("Could not check other madrasas for leather records:", e);
-      }
-    }
-
     return records.map((r: any) => {
       const qty = Number(r.quantity || 0);
       const rate = Number(r.rate_per_piece !== undefined ? r.rate_per_piece : (r.rate_per_unit || 0));
@@ -2035,15 +1886,49 @@ export async function deleteQurbaniLeatherRecord(id: string) {
 
     await saveMadrasaMetadata(finalMadrasaId, meta);
 
-    // Delete associated donation entry if any
+    const adminClient = await createAdminClient();
+
+    // Clean up from all other madrasa metadata records as well so it never resurrects across tenants
     try {
-      const adminClient = await createAdminClient();
+      const { data: allMadrasas } = await adminClient.from("madrasas").select("id, registration_no");
+      for (const mRow of allMadrasas || []) {
+        if (mRow.id !== finalMadrasaId && mRow.registration_no && mRow.registration_no.startsWith("{")) {
+          try {
+            const pMeta = JSON.parse(mRow.registration_no);
+            let changed = false;
+            if (pMeta.qurbani_leather_records && pMeta.qurbani_leather_records.some((r: any) => r.id === id)) {
+              pMeta.qurbani_leather_records = pMeta.qurbani_leather_records.filter((r: any) => r.id !== id);
+              changed = true;
+            }
+            if (pMeta.leather_batches && pMeta.leather_batches.some((r: any) => r.id === id)) {
+              pMeta.leather_batches = pMeta.leather_batches.filter((r: any) => r.id !== id);
+              changed = true;
+            }
+            if (changed) {
+              await saveMadrasaMetadata(mRow.id, pMeta);
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+
+    // Delete associated donation entry from DB by receipt_no and notes
+    try {
       if (targetRec?.receipt_no) {
         await adminClient
           .from("donations")
           .delete()
-          .eq("madrasa_id", finalMadrasaId)
           .eq("receipt_no", targetRec.receipt_no);
+        await adminClient
+          .from("donations")
+          .delete()
+          .like("notes", `%${targetRec.receipt_no}%`);
+      }
+      if (id) {
+        await adminClient
+          .from("donations")
+          .delete()
+          .like("notes", `%${id}%`);
       }
     } catch (dErr) {
       console.warn("Could not delete associated donation for leather batch:", dErr);
@@ -2056,6 +1941,8 @@ export async function deleteQurbaniLeatherRecord(id: string) {
       revalidatePath("/dashboard/zakat/funds");
       revalidatePath("/dashboard/zakat/reports");
       revalidatePath("/dashboard/accounting");
+      revalidatePath("/dashboard/accounting/funds");
+      revalidatePath("/dashboard/accounting/donations");
       revalidatePath("/dashboard/finance");
       revalidatePath("/dashboard/fundraising");
     } catch {}
@@ -2073,31 +1960,6 @@ export async function getDonationBoxes(): Promise<{ boxes: DonationBox[]; logs: 
     const meta = await getMadrasaMetadata(finalMadrasaId);
     let boxes: DonationBox[] = meta.donation_boxes || [];
     let logs: DonationBoxCollectionLog[] = meta.donation_box_logs || [];
-
-    // Fallback: check other madrasas if current is empty
-    if (boxes.length === 0) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: allMadrasas } = await adminClient.from("madrasas").select("id, registration_no");
-        for (const mRow of allMadrasas || []) {
-          if (mRow.registration_no && mRow.registration_no.startsWith("{")) {
-            try {
-              const pMeta = JSON.parse(mRow.registration_no);
-              if (pMeta.donation_boxes && pMeta.donation_boxes.length > 0) {
-                boxes = pMeta.donation_boxes;
-                logs = pMeta.donation_box_logs || [];
-                meta.donation_boxes = boxes;
-                meta.donation_box_logs = logs;
-                await saveMadrasaMetadata(finalMadrasaId, meta);
-                break;
-              }
-            } catch {}
-          }
-        }
-      } catch (e) {
-        console.warn("Could not check other madrasas for donation boxes:", e);
-      }
-    }
 
     return {
       boxes: boxes.map((b: any) => ({
