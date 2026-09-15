@@ -1011,6 +1011,19 @@ export async function reverseFeePayment(paymentId: string, reason: string) {
       reversed_by: user.email || "অ্যাডমিন",
     };
 
+    // Clean up legacy fees table row if present
+    try {
+      if (payment.db_fee_id) {
+        await supabase.from("fees").delete().eq("id", payment.db_fee_id).eq("madrasa_id", madrasaId);
+      }
+      if (payment.receipt_no) {
+        await supabase.from("fees").delete().like("notes", `%${payment.receipt_no}%`).eq("madrasa_id", madrasaId);
+      }
+      await supabase.from("fees").delete().eq("id", payment.id).eq("madrasa_id", madrasaId);
+    } catch (e) {
+      console.warn("Could not delete from legacy fees table:", e);
+    }
+
     // Audit log
     const auditLogs = meta.audit_logs || [];
     auditLogs.unshift({
@@ -1224,7 +1237,8 @@ export async function getFeeDashboardOverview() {
       supabase.from("students").select("id, first_name, last_name, roll_number, class_name").eq("madrasa_id", madrasaId),
     ]);
 
-    const payments = (meta.payments || []).filter((p) => p.status === "COMPLETED");
+    const allMetaPayments = meta.payments || [];
+    const validPayments = allMetaPayments.filter((p) => p.status === "COMPLETED");
     const studentFees = meta.student_fees || [];
     const dbFees = dbFeesRes.data || [];
     let students = studentsRes.data || [];
@@ -1247,22 +1261,34 @@ export async function getFeeDashboardOverview() {
 
     // Reconcile and unify all payments (from meta.payments and Supabase dbFees)
     const trackedDbFeeIds = new Set<string>();
-    const unifiedPayments: FeePayment[] = [];
+    const reversedOrVoidPaymentIds = new Set<string>();
 
-    // 1. Add valid completed payments from metadata
-    for (const p of payments) {
-      unifiedPayments.push(p);
-      if (p.db_fee_id) {
-        trackedDbFeeIds.add(p.db_fee_id);
-      }
-      if (p.id) {
-        trackedDbFeeIds.add(p.id);
+    for (const p of allMetaPayments) {
+      if (p.db_fee_id) trackedDbFeeIds.add(p.db_fee_id);
+      if (p.id) trackedDbFeeIds.add(p.id);
+      if (p.receipt_no) trackedDbFeeIds.add(p.receipt_no);
+
+      if (p.status === "REVERSED" || p.status === "VOID") {
+        if (p.db_fee_id) reversedOrVoidPaymentIds.add(p.db_fee_id);
+        if (p.id) reversedOrVoidPaymentIds.add(p.id);
+        if (p.receipt_no) reversedOrVoidPaymentIds.add(p.receipt_no);
       }
     }
 
-    // 2. Add dbFees that are not already covered in payments
+    const unifiedPayments: FeePayment[] = [];
+
+    // 1. Add valid completed payments from metadata
+    for (const p of validPayments) {
+      unifiedPayments.push(p);
+    }
+
+    // 2. Add dbFees that are not already covered in payments and not reversed
     for (const f of dbFees) {
-      if (!trackedDbFeeIds.has(f.id)) {
+      const receiptMatch = f.notes?.match(/\[রিসিট:\s*([^\]]+)\]/)?.[1];
+      const isTracked = trackedDbFeeIds.has(f.id) || (receiptMatch && trackedDbFeeIds.has(receiptMatch));
+      const isReversed = reversedOrVoidPaymentIds.has(f.id) || (receiptMatch && reversedOrVoidPaymentIds.has(receiptMatch));
+
+      if (!isTracked && !isReversed) {
         const student = studentMap.get(f.student_id);
         const feeDate = f.payment_date || (f.created_at ? f.created_at.split("T")[0] : "");
         const feeAmount = Number(f.amount) || 0;
@@ -1270,7 +1296,7 @@ export async function getFeeDashboardOverview() {
         
         unifiedPayments.push({
           id: f.id,
-          receipt_no: f.receipt_no || (f.notes?.match(/\[রিসিট:\s*([^\]]+)\]/)?.[1]) || f.id.substring(0, 8).toUpperCase(),
+          receipt_no: f.receipt_no || receiptMatch || f.id.substring(0, 8).toUpperCase(),
           madrasa_id: madrasaId,
           session_id: "default",
           student_id: f.student_id,
@@ -1289,6 +1315,11 @@ export async function getFeeDashboardOverview() {
           status: "COMPLETED",
           created_at: f.created_at || feeDate || new Date().toISOString(),
         });
+      } else if (isReversed) {
+        // Clean up reversed record from SQL table if still lingering
+        try {
+          supabase.from("fees").delete().eq("id", f.id).then(() => {});
+        } catch {}
       }
     }
 

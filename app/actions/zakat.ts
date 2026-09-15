@@ -1655,7 +1655,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
   }
 }
 
-// Delete a specific transaction from Fund Ledger (Donation or Expense or Settlement)
+// Delete a specific transaction from Fund Ledger (Donation or Expense or Settlement or Fee or Online or Box or Leather)
 export async function deleteFundTransaction(
   txnId: string,
   txnType: string,
@@ -1671,27 +1671,144 @@ export async function deleteFundTransaction(
     const isInflow = txnType === "INCOME" || txnType === "MAHFIL_SURPLUS";
     const isOutflow = txnType === "EXPENSE" || txnType === "MAHFIL_DEFICIT";
 
-    // Delete from donations
+    // 1. Delete from SQL donations table
     if (isInflow || txnId.startsWith("ZR-") || voucherNo?.startsWith("ZR-") || voucherNo?.startsWith("MHF-")) {
-      await adminClient.from("donations").delete().eq("id", txnId);
-      if (voucherNo) {
-        await adminClient.from("donations").delete().eq("receipt_no", voucherNo);
-        await adminClient.from("donations").delete().like("notes", `%${voucherNo}%`);
-      }
+      try {
+        await adminClient.from("donations").delete().eq("id", txnId);
+        if (voucherNo) {
+          await adminClient.from("donations").delete().eq("receipt_no", voucherNo);
+          await adminClient.from("donations").delete().like("notes", `%${voucherNo}%`);
+        }
+      } catch {}
     }
 
-    // Delete from expenses
-    if (isOutflow || txnId.startsWith("EXP-") || voucherNo?.startsWith("EXP-")) {
-      await adminClient.from("expenses").delete().eq("id", txnId);
-      if (voucherNo) {
-        await adminClient.from("expenses").delete().eq("voucher_no", voucherNo);
-        await adminClient.from("expenses").delete().like("description", `%${voucherNo}%`);
-      }
+    // 2. Delete from SQL expenses table
+    if (isOutflow || txnId.startsWith("EXP-") || voucherNo?.startsWith("EXP-") || txnId.startsWith("leather_exp_")) {
+      try {
+        await adminClient.from("expenses").delete().eq("id", txnId);
+        if (voucherNo) {
+          await adminClient.from("expenses").delete().eq("voucher_no", voucherNo);
+          await adminClient.from("expenses").delete().like("description", `%${voucherNo}%`);
+        }
+      } catch {}
     }
 
-    // If it is a mahfil settlement, also clean up metadata in mahfils
+    // 3. Process metadata (fees, online donations, subscriptions, donation boxes, leather, mahfils)
     const meta = await getMadrasaMetadata(finalMadrasaId);
     let metaChanged = false;
+
+    // Check Student Fee Payments
+    const feePayments = meta.payments || [];
+    const studentFees = meta.student_fees || [];
+    const payIdx = feePayments.findIndex(
+      (p: any) =>
+        p.id === txnId ||
+        p.receipt_no === voucherNo ||
+        txnId.startsWith(p.id) ||
+        (voucherNo && p.receipt_no === voucherNo)
+    );
+
+    if (payIdx >= 0) {
+      const payment = feePayments[payIdx];
+      const now = new Date().toISOString();
+
+      // Rollback allocations from student fees to restore dues
+      for (const alloc of payment.allocations || []) {
+        if (alloc.student_fee_id) {
+          const feeIdx = studentFees.findIndex((f: any) => f.id === alloc.student_fee_id);
+          if (feeIdx >= 0) {
+            const target = studentFees[feeIdx];
+            const newPaid = Math.max(0, (target.paid_amount || 0) - (alloc.allocated_amount || 0));
+            const newDue = Math.max(0, (target.payable_amount || 0) - newPaid);
+            studentFees[feeIdx] = {
+              ...target,
+              paid_amount: newPaid,
+              due_amount: newDue,
+              status: newPaid === 0 ? "UNPAID" : "PARTIAL",
+              updated_at: now,
+            };
+          }
+        }
+      }
+
+      // Remove the payment from payments array
+      feePayments.splice(payIdx, 1);
+      meta.payments = feePayments;
+      meta.student_fees = studentFees;
+      metaChanged = true;
+
+      // Clean up legacy fees table if linked
+      try {
+        if (payment.db_fee_id) {
+          await adminClient.from("fees").delete().eq("id", payment.db_fee_id).eq("madrasa_id", finalMadrasaId);
+        }
+        if (payment.receipt_no) {
+          await adminClient.from("fees").delete().like("notes", `%${payment.receipt_no}%`).eq("madrasa_id", finalMadrasaId);
+        }
+        await adminClient.from("fees").delete().eq("id", payment.id).eq("madrasa_id", finalMadrasaId);
+      } catch {}
+    }
+
+    // Check Online Donations
+    const origOnlineCount = (meta.online_donations || []).length;
+    meta.online_donations = (meta.online_donations || []).filter(
+      (od: any) =>
+        od.id !== txnId &&
+        (!voucherNo || od.receipt_no !== voucherNo) &&
+        (!voucherNo || od.trx_id !== voucherNo) &&
+        !txnId.includes(od.id)
+    );
+    if ((meta.online_donations || []).length !== origOnlineCount) {
+      metaChanged = true;
+    }
+
+    // Check Donor Subscriptions
+    const origSubCount = (meta.donor_subscription_payments || []).length;
+    meta.donor_subscription_payments = (meta.donor_subscription_payments || []).filter(
+      (sp: any) =>
+        sp.id !== txnId &&
+        (!voucherNo || sp.receipt_no !== voucherNo) &&
+        !txnId.includes(sp.id)
+    );
+    if ((meta.donor_subscription_payments || []).length !== origSubCount) {
+      metaChanged = true;
+    }
+
+    // Check Donation Boxes
+    const origBoxCount = (meta.donation_box_logs || []).length;
+    meta.donation_box_logs = (meta.donation_box_logs || []).filter(
+      (b: any) =>
+        b.id !== txnId &&
+        (!voucherNo || b.receipt_no !== voucherNo) &&
+        !txnId.includes(b.id)
+    );
+    if ((meta.donation_box_logs || []).length !== origBoxCount) {
+      metaChanged = true;
+    }
+
+    // Check Qurbani Leather Records
+    const origLeatherCount = (meta.qurbani_leather_records || []).length;
+    meta.qurbani_leather_records = (meta.qurbani_leather_records || []).filter(
+      (lr: any) =>
+        lr.id !== txnId &&
+        (!voucherNo || lr.receipt_no !== voucherNo) &&
+        !txnId.includes(lr.id)
+    );
+    if ((meta.qurbani_leather_records || []).length !== origLeatherCount) {
+      metaChanged = true;
+    }
+    const origBatchCount = (meta.leather_batches || []).length;
+    meta.leather_batches = (meta.leather_batches || []).filter(
+      (lb: any) =>
+        lb.id !== txnId &&
+        (!voucherNo || lb.receipt_no !== voucherNo) &&
+        !txnId.includes(lb.id)
+    );
+    if ((meta.leather_batches || []).length !== origBatchCount) {
+      metaChanged = true;
+    }
+
+    // Check Mahfil settlements in metadata
     (meta.mahfils || []).forEach((m: any) => {
       const origCount = (m.settlements || []).length;
       m.settlements = (m.settlements || []).filter(
@@ -1723,6 +1840,9 @@ export async function deleteFundTransaction(
     revalidatePath("/dashboard/zakat");
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/funds");
+    revalidatePath("/dashboard/accounting/fees");
+    revalidatePath("/dashboard/accounting/payments");
+    revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/donations");
     revalidatePath("/dashboard/accounting/expenses");
     revalidatePath("/dashboard/fundraising/mahfil");

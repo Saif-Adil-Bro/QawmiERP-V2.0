@@ -209,6 +209,15 @@ export async function deleteFee(feeId: string) {
     // Attempt clean up in legacy fees table if present
     try {
       await supabase.from("fees").delete().eq("id", feeId).eq("madrasa_id", finalMadrasaId);
+      if (payIdx >= 0) {
+        const payment = payments[payIdx];
+        if (payment?.db_fee_id) {
+          await supabase.from("fees").delete().eq("id", payment.db_fee_id).eq("madrasa_id", finalMadrasaId);
+        }
+        if (payment?.receipt_no) {
+          await supabase.from("fees").delete().like("notes", `%${payment.receipt_no}%`).eq("madrasa_id", finalMadrasaId);
+        }
+      }
     } catch {}
 
     revalidatePath("/dashboard/accounting");
