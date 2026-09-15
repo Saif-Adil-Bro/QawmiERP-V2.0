@@ -64,6 +64,7 @@ export default function ZakatNav({
             <Link
               key={item.href}
               href={item.href}
+              prefetch={false}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
                 isActive
                   ? "bg-slate-900 text-white shadow-xs"

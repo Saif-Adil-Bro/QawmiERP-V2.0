@@ -136,7 +136,7 @@ export default async function ZakatDashboardPage() {
 
       {/* 4 Feature Module Shortcut Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Link href="/dashboard/zakat/funds" className="block group">
+        <Link href="/dashboard/zakat/funds" prefetch={false} className="block group">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs group-hover:border-indigo-300 group-hover:shadow-md transition-all h-full flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-3 mb-3">
@@ -156,7 +156,7 @@ export default async function ZakatDashboardPage() {
           </div>
         </Link>
 
-        <Link href="/dashboard/zakat/donors" className="block group">
+        <Link href="/dashboard/zakat/donors" prefetch={false} className="block group">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs group-hover:border-purple-300 group-hover:shadow-md transition-all h-full flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-3 mb-3">
@@ -176,7 +176,7 @@ export default async function ZakatDashboardPage() {
           </div>
         </Link>
 
-        <Link href="/dashboard/zakat/collection" className="block group">
+        <Link href="/dashboard/zakat/collection" prefetch={false} className="block group">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs group-hover:border-emerald-300 group-hover:shadow-md transition-all h-full flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-3 mb-3">
@@ -196,7 +196,7 @@ export default async function ZakatDashboardPage() {
           </div>
         </Link>
 
-        <Link href="/dashboard/zakat/reports" className="block group">
+        <Link href="/dashboard/zakat/reports" prefetch={false} className="block group">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs group-hover:border-amber-300 group-hover:shadow-md transition-all h-full flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-3 mb-3">
