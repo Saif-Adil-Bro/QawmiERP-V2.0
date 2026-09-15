@@ -211,8 +211,9 @@ export function parseExpenseFund(rawDesc: string | null | undefined): { cleanDes
 
 // Canonical normalize fund names/codes/types into matching active fund names
 export function normalizeFundName(input?: string | null, customFunds?: FundItem[]): string {
-  if (!input) return "সাধারণ ফান্ড (General Fund)";
+  if (!input || typeof input !== "string") return "সাধারণ ফান্ড (General Fund)";
   const trimmed = input.trim();
+  if (!trimmed) return "সাধারণ ফান্ড (General Fund)";
 
   // If a list of known funds is passed, check exact or code match first
   if (customFunds && customFunds.length > 0) {
@@ -222,7 +223,8 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
         f.code?.toLowerCase() === trimmed.toLowerCase() ||
         f.id === trimmed ||
         f.name.toLowerCase() === trimmed.toLowerCase() ||
-        (trimmed.startsWith(f.name) && trimmed.length > 3)
+        (trimmed.length > 3 && f.name.toLowerCase().includes(trimmed.toLowerCase())) ||
+        (f.name.length > 3 && trimmed.toLowerCase().includes(f.name.toLowerCase()))
     );
     if (found) return found.name;
   }
@@ -234,7 +236,7 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     lower === "zkt" ||
     lower === "fund-zakat" ||
     trimmed.includes("যাকাত") ||
-    lower.includes("zakat fund")
+    lower.includes("zakat")
   ) {
     return "যাকাত ফান্ড (Zakat Fund)";
   }
@@ -244,7 +246,12 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     lower === "lil" ||
     lower === "fund-lillah" ||
     trimmed.includes("লিল্লাহ") ||
-    lower.includes("lillah fund")
+    trimmed.includes("খোরাকি") ||
+    trimmed.includes("বোর্ডিং") ||
+    trimmed.includes("খাবার") ||
+    lower.includes("hostel") ||
+    lower.includes("boarding") ||
+    lower.includes("lillah")
   ) {
     return "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
   }
@@ -255,7 +262,9 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     lower === "sadaqah" ||
     lower === "fund-fitra" ||
     trimmed.includes("ফিতরা") ||
-    lower.includes("fitra & sadaqah")
+    trimmed.includes("সদকা") ||
+    lower.includes("fitra") ||
+    lower.includes("sadaqah")
   ) {
     return "ফিতরা ও সদকা ফান্ড (Fitra & Sadaqah)";
   }
@@ -267,7 +276,10 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     lower === "fund-dev" ||
     trimmed.includes("মসজিদ ও উন্নয়ন") ||
     trimmed.includes("উন্নয়ন ও নির্মাণ") ||
-    trimmed.includes("উন্নয়ন ফান্ড")
+    trimmed.includes("উন্নয়ন ফান্ড") ||
+    trimmed.includes("মসজিদ ফান্ড") ||
+    lower.includes("dev") ||
+    lower.includes("building")
   ) {
     return "মসজিদ ও উন্নয়ন ফান্ড (Development Fund)";
   }
@@ -278,7 +290,8 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     lower === "education" ||
     lower === "fund-orphan" ||
     trimmed.includes("এতিম কল্যাণ") ||
-    lower.includes("orphan welfare")
+    trimmed.includes("এতিমখানা") ||
+    lower.includes("orphan")
   ) {
     return "এতিম কল্যাণ ফান্ড (Orphan Welfare Fund)";
   }
@@ -288,7 +301,10 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     lower === "gen" ||
     lower === "fund-general" ||
     trimmed.includes("সাধারণ") ||
-    lower.includes("general fund") ||
+    trimmed.includes("বেতন") ||
+    trimmed.includes("ভর্তি") ||
+    trimmed.includes("টিউশন") ||
+    lower.includes("tuition") ||
     lower.includes("general")
   ) {
     return "সাধারণ ফান্ড (General Fund)";
@@ -312,16 +328,25 @@ export function isTransactionInFund(
   const candidateId = (itemFundId || "").toLowerCase().trim();
   const candidateName = (itemFundName || "").toLowerCase().trim();
 
+  if (!candidateId && !candidateName) {
+    // If no candidate fund specified, it only matches General Fund if default
+    return fund.id === "fund-general" || fund.name.includes("সাধারণ");
+  }
+
   if (fId && candidateId && fId === candidateId) return true;
   if (fName && candidateName && fName === candidateName) return true;
   if (fCode && candidateName && (candidateName === fCode || candidateName.includes(fCode))) return true;
 
   const canonA = normalizeFundName(fund.name, allFunds).toLowerCase().trim();
-  const canonB = normalizeFundName(itemFundName || itemFundId, allFunds).toLowerCase().trim();
+  const canonB = normalizeFundName(candidateName || candidateId, allFunds).toLowerCase().trim();
 
-  if (canonA === canonB) return true;
-  if (canonA.includes(canonB) || canonB.includes(canonA)) return true;
-  if (fName.includes(candidateName) || candidateName.includes(fName)) return true;
+  if (canonA && canonB && canonA === canonB) return true;
+  if (canonA && canonB && canonA.length >= 4 && canonB.length >= 4) {
+    if (canonA.includes(canonB) || canonB.includes(canonA)) return true;
+  }
+  if (fName && candidateName && fName.length >= 4 && candidateName.length >= 4) {
+    if (fName.includes(candidateName) || candidateName.includes(fName)) return true;
+  }
 
   return false;
 }

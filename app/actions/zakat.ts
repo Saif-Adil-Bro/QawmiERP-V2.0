@@ -295,6 +295,69 @@ export async function getFunds(): Promise<FundItem[]> {
       }
     }
 
+    // Merge online donations into funds collection calculation
+    const onlineDonations = meta.online_donations || [];
+    for (const od of onlineDonations) {
+      if ((od.receipt_no && existingReceiptNos.has(od.receipt_no)) || existingIds.has(od.id) || (od.trx_id && existingReceiptNos.has(od.trx_id))) continue;
+      if (od.status === "VERIFIED" || od.status === "COMPLETED" || od.status === "SUCCESS") {
+        const amt = Number(od.amount || 0);
+        if (amt <= 0) continue;
+        const targetFundName = od.fund_category || od.fund_name || od.purpose || "সাধারণ ফান্ড";
+        const matched = baseFunds.find((f) => isTransactionInFund(f, undefined, targetFundName, baseFunds));
+        if (matched) {
+          const stat = fundStats.get(matched.name);
+          if (stat) {
+            stat.collected += amt;
+            stat.count += 1;
+            const donorIdentifier = od.phone || od.receipt_no || od.trx_id || od.id;
+            if (donorIdentifier) stat.donors.add(donorIdentifier);
+          }
+        }
+      }
+    }
+
+    // Merge donation box collections
+    const boxLogs = meta.donation_box_logs || [];
+    for (const b of boxLogs) {
+      const recNo = b.receipt_no || b.id;
+      if (recNo && (existingReceiptNos.has(recNo) || existingIds.has(recNo))) continue;
+      const amt = Number(b.amount || 0);
+      if (amt <= 0) continue;
+      const targetFundName = b.fund_name || "সাধারণ ফান্ড";
+      const matched = baseFunds.find((f) => isTransactionInFund(f, undefined, targetFundName, baseFunds));
+      if (matched) {
+        const stat = fundStats.get(matched.name);
+        if (stat) {
+          stat.collected += amt;
+          stat.count += 1;
+          stat.donors.add(b.id || "box");
+        }
+      }
+    }
+
+    // Merge Qurbani leather sale collections
+    const leatherRecords = meta.qurbani_leather_records || meta.leather_batches || [];
+    for (const lr of leatherRecords) {
+      const recNo = lr.receipt_no || lr.id;
+      if (recNo && (existingReceiptNos.has(recNo) || existingIds.has(recNo))) continue;
+      const inc = Number(lr.received_amount || lr.total_sale_price || lr.total_sale_amount || 0);
+      const exp = Number(lr.transport_labour_cost || lr.transport_labor_cost || 0);
+      const lillahFund = baseFunds.find((f) => isTransactionInFund(f, undefined, "লিল্লাহ বোর্ডিং ফান্ড", baseFunds));
+      if (lillahFund) {
+        const stat = fundStats.get(lillahFund.name);
+        if (stat) {
+          if (inc > 0) {
+            stat.collected += inc;
+            stat.count += 1;
+            stat.donors.add(lr.id || "leather");
+          }
+          if (exp > 0) {
+            stat.expense += exp;
+          }
+        }
+      }
+    }
+
     // Merge student fee payments into funds collection calculation (e.g. Tuition -> General Fund, Food -> Lillah Boarding Fund)
     const feePayments = (meta.payments || []).filter(
       (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
@@ -1045,7 +1108,34 @@ export async function getDonations(filters?: {
       }
     }
 
-    let combinedList = [...(data || []), ...extraSubscriptionDonations, ...extraFeeDonations];
+    // Merge online donations into donations list
+    const extraOnlineDonations: any[] = [];
+    const onlineDonations = meta.online_donations || [];
+    for (const od of onlineDonations) {
+      if ((od.receipt_no && existingReceiptNos.has(od.receipt_no)) || existingIds.has(od.id) || (od.trx_id && existingReceiptNos.has(od.trx_id))) continue;
+      const paymentDate = od.donation_date || (od.created_at ? od.created_at.split("T")[0] : new Date().toISOString().split("T")[0]);
+      const canonicalFund = normalizeFundName(od.fund_category || od.fund_name || od.purpose, funds);
+      extraOnlineDonations.push({
+        id: od.id,
+        madrasa_id: finalMadrasaId,
+        donor_id: od.id,
+        amount: Number(od.amount || 0),
+        donation_type: canonicalFund,
+        donation_date: paymentDate,
+        receipt_no: od.receipt_no || `ONL-${od.id.slice(0, 5)}`,
+        notes: `[অনলাইন দান | মেথড: ${od.payment_method || "Digital"} | TrxID: ${od.trx_id || "-"}] ${od.message || ""}`.trim(),
+        created_at: od.created_at || new Date().toISOString(),
+        donors: {
+          id: od.id,
+          name: `${od.donor_name || "অনলাইন শুভাকাঙ্ক্ষী"}${od.is_anonymous ? " (গোপন দান)" : ""}`,
+          phone: od.phone || "-",
+          address: od.address || "অনলাইন পোর্টাল",
+          donor_type: "OneTime",
+        },
+      });
+    }
+
+    let combinedList = [...(data || []), ...extraSubscriptionDonations, ...extraFeeDonations, ...extraOnlineDonations];
 
     if (filters?.donor_id) combinedList = combinedList.filter((d: any) => d.donor_id === filters.donor_id);
     if (filters?.donation_type && filters.donation_type !== "ALL") {
@@ -1394,6 +1484,110 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           category: "দাতা চাঁদা",
           is_mahfil_settlement: false,
         });
+      }
+    }
+
+    // Process Online Donations
+    const onlineDonations = meta.online_donations || [];
+    for (const od of onlineDonations) {
+      if ((od.receipt_no && existingReceiptNos.has(od.receipt_no)) || existingIds.has(od.id) || (od.trx_id && existingReceiptNos.has(od.trx_id))) continue;
+      const targetFundName = od.fund_category || od.fund_name || od.purpose || "সাধারণ ফান্ড";
+      if (isTransactionInFund(targetFund, undefined, targetFundName, funds)) {
+        const amt = Number(od.amount || 0);
+        if (amt > 0) {
+          const isVerified = od.status === "VERIFIED" || od.status === "COMPLETED" || od.status === "SUCCESS";
+          if (isVerified) {
+            totalInflow += amt;
+          }
+          transactions.push({
+            id: od.id,
+            type: "INCOME",
+            fund_id: targetFundId,
+            fund_name: targetCanonicalName,
+            amount: amt,
+            date: od.donation_date || (od.created_at ? od.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+            source_or_recipient: `${od.donor_name || "অনলাইন শুভাকাঙ্ক্ষী"}${od.phone ? ` (${od.phone})` : ""}${od.is_anonymous ? " [গোপন দান]" : ""}`,
+            voucher_no: od.receipt_no || `ONL-${od.id.substring(0, 6)}`,
+            payment_method: od.payment_method || "Digital",
+            notes: `[অনলাইন অনুদান | TrxID: ${od.trx_id || "-"}] ${od.message || ""}`.trim(),
+            category: `অনলাইন দান (${isVerified ? "ভেরিফাইড" : od.status === "PENDING" ? "অপেক্ষমান" : od.status})`,
+            is_mahfil_settlement: false,
+          });
+        }
+      }
+    }
+
+    // Process Donation Boxes
+    const boxLogs = meta.donation_box_logs || [];
+    for (const b of boxLogs) {
+      const recNo = b.receipt_no || b.id;
+      if (recNo && (existingReceiptNos.has(recNo) || existingIds.has(recNo))) continue;
+      const targetFundName = b.fund_name || "সাধারণ ফান্ড";
+      if (isTransactionInFund(targetFund, undefined, targetFundName, funds)) {
+        const amt = Number(b.amount || 0);
+        if (amt > 0) {
+          totalInflow += amt;
+          transactions.push({
+            id: b.id,
+            type: "INCOME",
+            fund_id: targetFundId,
+            fund_name: targetCanonicalName,
+            amount: amt,
+            date: b.collection_date || (b.created_at ? b.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+            source_or_recipient: `${b.box_name || "দানবাক্স"} (কালেকশন)`,
+            voucher_no: b.receipt_no || `BOX-${b.id.substring(0, 6)}`,
+            payment_method: "Cash",
+            notes: b.notes || "দানবাক্স থেকে সংগৃহীত অর্থ",
+            category: "দানবাক্স কালেকশন",
+            is_mahfil_settlement: false,
+          });
+        }
+      }
+    }
+
+    // Process Qurbani Leather Records
+    const leatherRecords = meta.qurbani_leather_records || meta.leather_batches || [];
+    for (const lr of leatherRecords) {
+      const recNo = lr.receipt_no || lr.id;
+      if (recNo && (existingReceiptNos.has(recNo) || existingIds.has(recNo))) continue;
+      if (isTransactionInFund(targetFund, undefined, "লিল্লাহ বোর্ডিং ফান্ড", funds)) {
+        const inc = Number(lr.received_amount || lr.total_sale_price || lr.total_sale_amount || 0);
+        const exp = Number(lr.transport_labour_cost || lr.transport_labor_cost || 0);
+        const date = lr.sale_date || lr.collection_date || (lr.created_at ? lr.created_at.split("T")[0] : new Date().toISOString().split("T")[0]);
+        if (inc > 0) {
+          totalInflow += inc;
+          transactions.push({
+            id: `leather_inc_${lr.id}`,
+            type: "INCOME",
+            fund_id: targetFundId,
+            fund_name: targetCanonicalName,
+            amount: inc,
+            date,
+            source_or_recipient: `${lr.buyer_name || "চামড়া ক্রেতা"} (কুরবানির চামড়া বিক্রয়)`,
+            voucher_no: lr.receipt_no || `LTH-${lr.id.substring(0, 6)}`,
+            payment_method: "Cash",
+            notes: lr.notes || "কুরবানির চামড়া বিক্রয় বাবদ আয়",
+            category: "কুরবানির চামড়া বিক্রয়",
+            is_mahfil_settlement: false,
+          });
+        }
+        if (exp > 0) {
+          totalOutflow += exp;
+          transactions.push({
+            id: `leather_exp_${lr.id}`,
+            type: "EXPENSE",
+            fund_id: targetFundId,
+            fund_name: targetCanonicalName,
+            amount: exp,
+            date,
+            source_or_recipient: "চামড়া পরিবহন ও শ্রমিক মজুরি",
+            voucher_no: `EXP-LTH-${lr.id.substring(0, 6)}`,
+            payment_method: "Cash",
+            notes: "কুরবানির চামড়া সংগ্রহ ও পরিবহন খরচ",
+            category: "চামড়া সংগ্রহ খরচ",
+            is_mahfil_settlement: false,
+          });
+        }
       }
     }
 

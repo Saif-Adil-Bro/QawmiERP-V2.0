@@ -753,7 +753,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       const dt = d.payment_date || (d.created_at ? d.created_at.split("T")[0] : "");
       const dKey = d.receipt_no || d.transaction_id || d.id;
       if (isWithinRange(dt) && !trackedDonationKeys.has(dKey)) {
-        const fundInfo = resolveDonationFund(d.fund_name || d.purpose, d.notes);
+        const fundInfo = resolveDonationFund(d.fund_category || d.fund_name || d.purpose, d.notes);
         addIncomeToFund(fundInfo.id, fundInfo.name, Number(d.amount || 0));
       }
     }
