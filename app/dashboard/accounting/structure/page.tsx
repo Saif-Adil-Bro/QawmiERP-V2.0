@@ -1,16 +1,18 @@
 import { getFeeStructures, getFeeTypes } from "@/app/actions/fee-management";
 import { getAcademicSessions } from "@/app/actions/sessions";
 import { getClasses } from "@/app/actions/students";
+import { getFunds } from "@/app/actions/zakat";
 import StructureClient from "./StructureClient";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 export default async function FeeStructurePage() {
-  const [structures, feeTypes, sessions, classes] = await Promise.all([
+  const [structures, feeTypes, sessions, classes, funds] = await Promise.all([
     getFeeStructures(),
     getFeeTypes(),
     getAcademicSessions(),
     getClasses(),
+    getFunds(),
   ]);
 
   return (
@@ -25,9 +27,9 @@ export default async function FeeStructurePage() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">ফি কাঠামো ও টাইপ কনফিগারেশন</h1>
+            <h1 className="text-2xl font-bold text-slate-900">ফি কাঠামো ও ফান্ড ম্যাপিং</h1>
             <p className="text-slate-500 text-xs sm:text-sm">
-              জামাত ও ক্যাটাগরিভিত্তিক ফি তালিকা ও মাসিক চার্জ নির্ধারণ
+              ফি খাত অনুযায়ী নির্ধারিত ফান্ড নির্বাচন, জামাত ও ক্যাটাগরিভিত্তিক ফি তালিকা ও মাসিক চার্জ নির্ধারণ
             </p>
           </div>
         </div>
@@ -38,7 +40,9 @@ export default async function FeeStructurePage() {
         initialFeeTypes={feeTypes}
         sessions={sessions}
         classes={classes}
+        funds={funds || []}
       />
     </div>
   );
 }
+

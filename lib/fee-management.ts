@@ -15,6 +15,8 @@ export interface FeeType {
   category: FeeCategory;
   frequency: FeeFrequency;
   default_amount: number;
+  fund_id?: string; // Target fund ID e.g. "fund-general", "fund-lillah"
+  fund_name?: string; // Target fund name e.g. "সাধারণ ফান্ড (General Fund)"
   is_active: boolean;
   is_system?: boolean;
 }
@@ -24,6 +26,8 @@ export interface FeeStructureItem {
   fee_type_name: string;
   amount: number;
   frequency: FeeFrequency;
+  fund_id?: string;
+  fund_name?: string;
 }
 
 export interface FeeStructure {
@@ -52,6 +56,8 @@ export interface StudentFee {
   class_name?: string;
   fee_type_id: string;
   fee_type_name: string;
+  fund_id?: string;
+  fund_name?: string;
   billing_period: string; // e.g. "Muharram 1447" or "January 2026" or "Admission 1447"
   month_name?: string;
   year?: string;
@@ -75,6 +81,8 @@ export interface PaymentAllocation {
   fee_type_name: string;
   billing_period?: string;
   allocated_amount: number;
+  fund_id?: string; // Target fund ID chosen at collection or defaulted
+  fund_name?: string; // Target fund Name chosen at collection or defaulted
   discount_applied?: number;
   fine_applied?: number;
 }
@@ -88,6 +96,8 @@ export interface FeePayment {
   student_name: string;
   student_roll?: string;
   class_name?: string;
+  fund_id?: string;
+  fund_name?: string;
   total_amount_received: number;
   payment_date: string;
   payment_method: PaymentMethod;
@@ -136,17 +146,17 @@ export interface FeeAuditLog {
  * Standard default Fee Types for Qawmi Madrasas
  */
 export const DEFAULT_FEE_TYPES: FeeType[] = [
-  { id: "ft_admission", name: "ভর্তি ফি (Admission Fee)", code: "ADMISSION", category: "ACADEMIC", frequency: "ONETIME", default_amount: 2000, is_active: true, is_system: true },
-  { id: "ft_monthly", name: "মাসিক বেতন (Monthly Tuition)", code: "MONTHLY", category: "ACADEMIC", frequency: "MONTHLY", default_amount: 1500, is_active: true, is_system: true },
-  { id: "ft_exam", name: "পরীক্ষার ফি (Exam Fee)", code: "EXAM", category: "ACADEMIC", frequency: "TERM", default_amount: 300, is_active: true, is_system: true },
-  { id: "ft_hostel", name: "বোর্ডিং ও খাবার ফি (Hostel/Food)", code: "HOSTEL", category: "BOARDING", frequency: "MONTHLY", default_amount: 2000, is_active: true, is_system: true },
-  { id: "ft_books", name: "কিতাব ও পাঠ্যপুস্তক ফি (Books)", code: "BOOKS", category: "ACADEMIC", frequency: "ONETIME", default_amount: 1000, is_active: true, is_system: true },
-  { id: "ft_library", name: "কুতুবখানা / লাইব্রেরি ফি", code: "LIBRARY", category: "ACADEMIC", frequency: "YEARLY", default_amount: 200, is_active: true, is_system: true },
-  { id: "ft_idcard", name: "আইডি কার্ড ও ব্যাজ ফি", code: "IDCARD", category: "ADMINISTRATIVE", frequency: "ONETIME", default_amount: 150, is_active: true, is_system: true },
-  { id: "ft_transport", name: "যাতায়াত / পরিবহন ফি", code: "TRANSPORT", category: "OTHER", frequency: "MONTHLY", default_amount: 800, is_active: true, is_system: true },
-  { id: "ft_uniform", name: "পোশাক / ইউনিফর্ম ফি", code: "UNIFORM", category: "ADMINISTRATIVE", frequency: "ONETIME", default_amount: 600, is_active: true, is_system: true },
-  { id: "ft_certificate", name: "সনদ ও প্রশংসাপত্র ফি", code: "CERTIFICATE", category: "ADMINISTRATIVE", frequency: "ONETIME", default_amount: 300, is_active: true, is_system: true },
-  { id: "ft_other", name: "বিবিধ / অন্যান্য ফি", code: "OTHER", category: "OTHER", frequency: "ONETIME", default_amount: 100, is_active: true, is_system: true },
+  { id: "ft_admission", name: "ভর্তি ফি (Admission Fee)", code: "ADMISSION", category: "ACADEMIC", frequency: "ONETIME", default_amount: 2000, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
+  { id: "ft_monthly", name: "মাসিক বেতন (Monthly Tuition)", code: "MONTHLY", category: "ACADEMIC", frequency: "MONTHLY", default_amount: 1500, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
+  { id: "ft_exam", name: "পরীক্ষার ফি (Exam Fee)", code: "EXAM", category: "ACADEMIC", frequency: "TERM", default_amount: 300, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
+  { id: "ft_hostel", name: "বোর্ডিং ও খাবার ফি (Hostel/Food)", code: "HOSTEL", category: "BOARDING", frequency: "MONTHLY", default_amount: 2000, fund_id: "fund-lillah", fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", is_active: true, is_system: true },
+  { id: "ft_books", name: "কিতাব ও পাঠ্যপুস্তক ফি (Books)", code: "BOOKS", category: "ACADEMIC", frequency: "ONETIME", default_amount: 1000, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
+  { id: "ft_library", name: "কুতুবখানা / লাইব্রেরি ফি", code: "LIBRARY", category: "ACADEMIC", frequency: "YEARLY", default_amount: 200, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
+  { id: "ft_idcard", name: "আইডি কার্ড ও ব্যাজ ফি", code: "IDCARD", category: "ADMINISTRATIVE", frequency: "ONETIME", default_amount: 150, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
+  { id: "ft_transport", name: "যাতায়াত / পরিবহন ফি", code: "TRANSPORT", category: "OTHER", frequency: "MONTHLY", default_amount: 800, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
+  { id: "ft_uniform", name: "পোশাক / ইউনিফর্ম ফি", code: "UNIFORM", category: "ADMINISTRATIVE", frequency: "ONETIME", default_amount: 600, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
+  { id: "ft_certificate", name: "সনদ ও প্রশংসাপত্র ফি", code: "CERTIFICATE", category: "ADMINISTRATIVE", frequency: "ONETIME", default_amount: 300, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
+  { id: "ft_other", name: "বিবিধ / অন্যান্য ফি", code: "OTHER", category: "OTHER", frequency: "ONETIME", default_amount: 100, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
 ];
 
 /**

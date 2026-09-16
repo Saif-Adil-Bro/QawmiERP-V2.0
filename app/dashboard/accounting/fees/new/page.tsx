@@ -1,5 +1,6 @@
 import { getStudents } from "@/app/actions/students";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getFunds } from "@/app/actions/zakat";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import CollectPaymentClient from "./CollectPaymentClient";
@@ -8,9 +9,10 @@ export default async function NewFeePage(props: {
   searchParams?: Promise<{ student_id?: string }>;
 }) {
   const params = props.searchParams ? (await props.searchParams) || {} : {};
-  const [students, madrasaInfo] = await Promise.all([
+  const [students, madrasaInfo, funds] = await Promise.all([
     getStudents(),
     getMadrasaInfo(),
+    getFunds(),
   ]);
 
   return (
@@ -25,7 +27,7 @@ export default async function NewFeePage(props: {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">ফি আদায় ও কালেকশন</h1>
           <p className="text-slate-500 text-xs sm:text-sm">
-            শিক্ষার্থীর বকেয়া চার্জ থেকে ফি গ্রহণ, ছাড় সমন্বয় ও মানি রিসিট প্রস্তুত
+            শিক্ষার্থীর বকেয়া চার্জ থেকে ফি গ্রহণ, ফান্ড নির্ধারণ ও মানি রিসিট প্রস্তুত
           </p>
         </div>
       </div>
@@ -33,6 +35,7 @@ export default async function NewFeePage(props: {
       <CollectPaymentClient
         students={students || []}
         madrasaInfo={madrasaInfo}
+        funds={funds || []}
         preselectedStudentId={params?.student_id}
       />
     </div>

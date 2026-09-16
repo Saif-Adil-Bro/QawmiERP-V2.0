@@ -358,7 +358,7 @@ export async function getFunds(): Promise<FundItem[]> {
       }
     }
 
-    // Merge student fee payments into funds collection calculation (e.g. Tuition -> General Fund, Food -> Lillah Boarding Fund)
+    // Merge student fee payments into funds collection calculation (Dynamic Fund Routing)
     const feePayments = (meta.payments || []).filter(
       (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
     );
@@ -369,9 +369,19 @@ export async function getFunds(): Promise<FundItem[]> {
           const amt = Number(alloc.allocated_amount || 0);
           if (amt <= 0) continue;
           const name = alloc.fee_type_name || "মাসিক বেতন";
-          const isLillah = name.includes("বোর্ডিং") || name.includes("খাবার") || name.includes("খোরাকি") || name.includes("hostel") || name.includes("lillah");
-          const targetFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
-          const matched = baseFunds.find((f) => isTransactionInFund(f, undefined, targetFundName, baseFunds));
+          const isLillah =
+            name.includes("বোর্ডিং") ||
+            name.includes("খাবার") ||
+            name.includes("খোরাকি") ||
+            name.includes("hostel") ||
+            name.includes("lillah");
+          const fallbackFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+          const targetFundId = alloc.fund_id || p.fund_id;
+          const targetFundName = alloc.fund_name || p.fund_name || fallbackFundName;
+
+          const matched = baseFunds.find((f) =>
+            isTransactionInFund(f, targetFundId, targetFundName, baseFunds)
+          );
           if (matched) {
             const stat = fundStats.get(matched.name);
             if (stat) {
@@ -385,9 +395,17 @@ export async function getFunds(): Promise<FundItem[]> {
       } else {
         const amt = Number(p.total_amount_received || 0);
         if (amt > 0) {
-          const isLillah = (p.notes || "").includes("বোর্ডিং") || (p.notes || "").includes("খাবার") || (p.notes || "").includes("খোরাকি");
-          const targetFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
-          const matched = baseFunds.find((f) => isTransactionInFund(f, undefined, targetFundName, baseFunds));
+          const isLillah =
+            (p.notes || "").includes("বোর্ডিং") ||
+            (p.notes || "").includes("খাবার") ||
+            (p.notes || "").includes("খোরাকি");
+          const fallbackFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+          const targetFundId = p.fund_id;
+          const targetFundName = p.fund_name || fallbackFundName;
+
+          const matched = baseFunds.find((f) =>
+            isTransactionInFund(f, targetFundId, targetFundName, baseFunds)
+          );
           if (matched) {
             const stat = fundStats.get(matched.name);
             if (stat) {
@@ -1405,7 +1423,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
       }
     }
 
-    // Process Student Fee Payments into Fund Ledger (Tuition/Admission -> General Fund, Khoraki -> Lillah Boarding Fund)
+    // Process Student Fee Payments into Fund Ledger (Dynamic Fund Routing)
     const feePayments = (meta.payments || []).filter(
       (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
     );
@@ -1416,9 +1434,17 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           const amt = Number(alloc.allocated_amount || 0);
           if (amt <= 0) continue;
           const name = alloc.fee_type_name || "মাসিক বেতন";
-          const isLillah = name.includes("বোর্ডিং") || name.includes("খাবার") || name.includes("খোরাকি") || name.includes("hostel") || name.includes("lillah");
-          const targetFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
-          if (isTransactionInFund(targetFund, undefined, targetFundName, funds)) {
+          const isLillah =
+            name.includes("বোর্ডিং") ||
+            name.includes("খাবার") ||
+            name.includes("খোরাকি") ||
+            name.includes("hostel") ||
+            name.includes("lillah");
+          const fallbackFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+          const itemFundId = alloc.fund_id || p.fund_id;
+          const itemFundName = alloc.fund_name || p.fund_name || fallbackFundName;
+
+          if (isTransactionInFund(targetFund, itemFundId, itemFundName, funds)) {
             totalInflow += amt;
             transactions.push({
               id: `${p.id}_${alloc.fee_type_id || "alloc"}`,
@@ -1439,9 +1465,15 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
       } else {
         const amt = Number(p.total_amount_received || 0);
         if (amt > 0) {
-          const isLillah = (p.notes || "").includes("বোর্ডিং") || (p.notes || "").includes("খাবার") || (p.notes || "").includes("খোরাকি");
-          const targetFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
-          if (isTransactionInFund(targetFund, undefined, targetFundName, funds)) {
+          const isLillah =
+            (p.notes || "").includes("বোর্ডিং") ||
+            (p.notes || "").includes("খাবার") ||
+            (p.notes || "").includes("খোরাকি");
+          const fallbackFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+          const itemFundId = p.fund_id;
+          const itemFundName = p.fund_name || fallbackFundName;
+
+          if (isTransactionInFund(targetFund, itemFundId, itemFundName, funds)) {
             totalInflow += amt;
             transactions.push({
               id: p.id,

@@ -73,7 +73,23 @@ export async function getFeeTypes(): Promise<FeeType[]> {
     if (!madrasaId) return DEFAULT_FEE_TYPES;
 
     const meta = await getFeeMetadata(madrasaId);
-    return meta.fee_types && meta.fee_types.length > 0 ? meta.fee_types : DEFAULT_FEE_TYPES;
+    const feeTypes = meta.fee_types && meta.fee_types.length > 0 ? meta.fee_types : DEFAULT_FEE_TYPES;
+    return feeTypes.map((ft) => {
+      if (!ft.fund_id || !ft.fund_name) {
+        const isFood =
+          ft.category === "BOARDING" ||
+          ft.code === "HOSTEL" ||
+          ft.name.includes("বোর্ডিং") ||
+          ft.name.includes("খাবার") ||
+          ft.name.includes("খোরাকি");
+        return {
+          ...ft,
+          fund_id: ft.fund_id || (isFood ? "fund-lillah" : "fund-general"),
+          fund_name: ft.fund_name || (isFood ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)"),
+        };
+      }
+      return ft;
+    });
   } catch (err) {
     console.error("Error in getFeeTypes:", err);
     return DEFAULT_FEE_TYPES;
@@ -106,13 +122,32 @@ export async function saveFeeType(feeType: Partial<FeeType>) {
 
     const meta = await getFeeMetadata(madrasaId);
     const feeTypes = [...(meta.fee_types || DEFAULT_FEE_TYPES)];
+    const isFood =
+      feeType.category === "BOARDING" ||
+      feeType.code === "HOSTEL" ||
+      (feeType.name || "").includes("বোর্ডিং") ||
+      (feeType.name || "").includes("খাবার") ||
+      (feeType.name || "").includes("খোরাকি");
+
+    const defaultFundId = feeType.fund_id || (isFood ? "fund-lillah" : "fund-general");
+    const defaultFundName =
+      feeType.fund_name || (isFood ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)");
 
     if (feeType.id) {
       const idx = feeTypes.findIndex((f) => f.id === feeType.id);
       if (idx >= 0) {
-        feeTypes[idx] = { ...feeTypes[idx], ...feeType } as FeeType;
+        feeTypes[idx] = {
+          ...feeTypes[idx],
+          ...feeType,
+          fund_id: defaultFundId,
+          fund_name: defaultFundName,
+        } as FeeType;
       } else {
-        feeTypes.push(feeType as FeeType);
+        feeTypes.push({
+          ...feeType,
+          fund_id: defaultFundId,
+          fund_name: defaultFundName,
+        } as FeeType);
       }
     } else {
       const newType: FeeType = {
@@ -122,6 +157,8 @@ export async function saveFeeType(feeType: Partial<FeeType>) {
         category: feeType.category || "OTHER",
         frequency: feeType.frequency || "MONTHLY",
         default_amount: Number(feeType.default_amount) || 0,
+        fund_id: defaultFundId,
+        fund_name: defaultFundName,
         is_active: feeType.is_active ?? true,
       };
       feeTypes.push(newType);
@@ -574,6 +611,10 @@ export async function generateMonthlyFees(params: {
           continue;
         }
 
+        const targetFundId = ft.fund_id || (isFood ? "fund-lillah" : "fund-general");
+        const targetFundName =
+          ft.fund_name || (isFood ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)");
+
         const newFee: StudentFee = {
           id: `fee_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
           madrasa_id: madrasaId,
@@ -585,6 +626,8 @@ export async function generateMonthlyFees(params: {
           class_name: studentClassName,
           fee_type_id: ft.id,
           fee_type_name: ft.name,
+          fund_id: targetFundId,
+          fund_name: targetFundName,
           billing_period: params.billingPeriod,
           month_name: params.monthName || params.billingPeriod,
           year: params.year || new Date().getFullYear().toString(),
@@ -718,11 +761,15 @@ export async function collectFeePayment(paymentData: {
     fee_type_name: string;
     billing_period?: string;
     allocated_amount: number;
+    fund_id?: string;
+    fund_name?: string;
   }[];
   notes?: string;
   billing_month?: string;
   billing_year?: string;
   fee_type?: string;
+  fund_id?: string;
+  fund_name?: string;
 }) {
   try {
     const supabase = await createClient();
@@ -771,6 +818,42 @@ export async function collectFeePayment(paymentData: {
 
     const studentFees = [...(meta.student_fees || [])];
     const payments = [...(meta.payments || [])];
+    const feeTypesList = meta.fee_types || DEFAULT_FEE_TYPES;
+
+    const resolveFund = (
+      feeTypeId?: string,
+      feeTypeName?: string,
+      studentFeeId?: string,
+      explicitFundId?: string,
+      explicitFundName?: string
+    ) => {
+      if (explicitFundId && explicitFundName) {
+        return { fund_id: explicitFundId, fund_name: explicitFundName };
+      }
+      if (studentFeeId) {
+        const sf = studentFees.find((f) => f.id === studentFeeId);
+        if (sf?.fund_id && sf?.fund_name) {
+          return { fund_id: sf.fund_id, fund_name: sf.fund_name };
+        }
+      }
+      if (feeTypeId) {
+        const ft = feeTypesList.find((t: any) => t.id === feeTypeId);
+        if (ft?.fund_id && ft?.fund_name) {
+          return { fund_id: ft.fund_id, fund_name: ft.fund_name };
+        }
+      }
+      const name = feeTypeName || "";
+      const isFood =
+        name.includes("বোর্ডিং") ||
+        name.includes("খাবার") ||
+        name.includes("খোরাকি") ||
+        name.includes("hostel") ||
+        name.includes("lillah");
+      return {
+        fund_id: isFood ? "fund-lillah" : "fund-general",
+        fund_name: isFood ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)",
+      };
+    };
 
     let amountToDistribute = Number(paymentData.total_amount) || 0;
     const finalAllocations: PaymentAllocation[] = [];
@@ -779,12 +862,22 @@ export async function collectFeePayment(paymentData: {
     if (paymentData.fee_allocations && paymentData.fee_allocations.length > 0) {
       for (const alloc of paymentData.fee_allocations) {
         if (alloc.allocated_amount > 0) {
+          const fundInfo = resolveFund(
+            alloc.fee_type_id,
+            alloc.fee_type_name,
+            alloc.student_fee_id,
+            alloc.fund_id || paymentData.fund_id,
+            alloc.fund_name || paymentData.fund_name
+          );
+
           finalAllocations.push({
             student_fee_id: alloc.student_fee_id,
             fee_type_id: alloc.fee_type_id,
             fee_type_name: alloc.fee_type_name,
             billing_period: alloc.billing_period,
             allocated_amount: alloc.allocated_amount,
+            fund_id: fundInfo.fund_id,
+            fund_name: fundInfo.fund_name,
           });
 
           // Update student fee invoice record
@@ -827,12 +920,22 @@ export async function collectFeePayment(paymentData: {
           updated_at: now,
         };
 
+        const fundInfo = resolveFund(
+          fee.fee_type_id,
+          fee.fee_type_name,
+          fee.id,
+          paymentData.fund_id,
+          paymentData.fund_name
+        );
+
         finalAllocations.push({
           student_fee_id: fee.id,
           fee_type_id: fee.fee_type_id,
           fee_type_name: fee.fee_type_name,
           billing_period: fee.billing_period,
           allocated_amount: allocAmt,
+          fund_id: fundInfo.fund_id,
+          fund_name: fundInfo.fund_name,
         });
 
         remaining -= allocAmt;
@@ -840,21 +943,44 @@ export async function collectFeePayment(paymentData: {
 
       // If money left, record as Advance Payment
       if (remaining > 0) {
+        const advFund = resolveFund(
+          undefined,
+          paymentData.fee_type || "অগ্রিম জমা (Advance Payment)",
+          undefined,
+          paymentData.fund_id,
+          paymentData.fund_name
+        );
         finalAllocations.push({
           fee_type_name: paymentData.fee_type || "অগ্রিম জমা (Advance Payment)",
           billing_period: paymentData.billing_month || "অগ্রিম",
           allocated_amount: remaining,
+          fund_id: advFund.fund_id,
+          fund_name: advFund.fund_name,
         });
       }
     }
 
     if (finalAllocations.length === 0) {
+      const defFund = resolveFund(
+        undefined,
+        paymentData.fee_type || "সাধারণ ফি",
+        undefined,
+        paymentData.fund_id,
+        paymentData.fund_name
+      );
       finalAllocations.push({
         fee_type_name: paymentData.fee_type || "সাধারণ ফি",
         billing_period: paymentData.billing_month || "হালনাগাদ",
         allocated_amount: amountToDistribute,
+        fund_id: defFund.fund_id,
+        fund_name: defFund.fund_name,
       });
     }
+
+    const primaryFundId =
+      paymentData.fund_id || finalAllocations[0]?.fund_id || "fund-general";
+    const primaryFundName =
+      paymentData.fund_name || finalAllocations[0]?.fund_name || "সাধারণ ফান্ড (General Fund)";
 
     // Create New Payment Record
     const newPayment: FeePayment = {
@@ -866,6 +992,8 @@ export async function collectFeePayment(paymentData: {
       student_name: studentFullName,
       student_roll: studentRoll,
       class_name: studentClass,
+      fund_id: primaryFundId,
+      fund_name: primaryFundName,
       total_amount_received: amountToDistribute,
       payment_date: paymentDate,
       payment_method: paymentData.payment_method || "Cash",

@@ -20,6 +20,7 @@ import {
   Smartphone,
   Banknote,
   Percent,
+  BookOpen,
 } from "lucide-react";
 import Link from "next/link";
 import DualMoneyReceipt from "@/components/accounting/DualMoneyReceipt";
@@ -29,15 +30,39 @@ interface CollectPaymentClientProps {
   students: any[];
   madrasaInfo?: any;
   preselectedStudentId?: string;
+  funds?: any[];
 }
 
 export default function CollectPaymentClient({
   students = [],
   madrasaInfo,
   preselectedStudentId,
+  funds = [],
 }: CollectPaymentClientProps) {
   const currentYear = new Date().getFullYear();
   const todayStr = new Date().toISOString().split("T")[0];
+
+  const allFunds = [
+    { id: "general_fund", name: "সাধারণ ফান্ড" },
+    { id: "lillah_boarding_fund", name: "লিল্লাহ বোর্ডিং ফান্ড" },
+    { id: "zakat_fund", name: "যাকাত ফান্ড" },
+    { id: "masjid_fund", name: "মসজিদ ফান্ড" },
+    { id: "building_fund", name: "ভবন নির্মাণ ফান্ড" },
+    { id: "it_fund", name: "কম্পিউটার ও আইটি ফান্ড" },
+    { id: "health_fund", name: "চিকিৎসা ও সেবা ফান্ড" },
+    ...funds.filter(
+      (f) =>
+        ![
+          "general_fund",
+          "lillah_boarding_fund",
+          "zakat_fund",
+          "masjid_fund",
+          "building_fund",
+          "it_fund",
+          "health_fund",
+        ].includes(f.id)
+    ),
+  ];
 
   const [studentId, setStudentId] = useState<string>(preselectedStudentId || "");
   const [studentProfile, setStudentProfile] = useState<any>(null);
@@ -53,21 +78,34 @@ export default function CollectPaymentClient({
   const [fineAmount, setFineAmount] = useState<number>(0);
   const [fineReason, setFineReason] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+  const [selectedGlobalFund, setSelectedGlobalFund] = useState<string>("general_fund");
 
-  // Allocations
+  // Allocations & Fund Overrides
   const [allocations, setAllocations] = useState<{
     [feeId: string]: number;
+  }>({});
+  const [allocationFunds, setAllocationFunds] = useState<{
+    [feeId: string]: string;
   }>({});
 
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successReceipt, setSuccessReceipt] = useState<any>(null);
 
+  // Helper to determine initial fund for a fee
+  const resolveInitialFundId = (fee: any) => {
+    if (fee.fund_id) return fee.fund_id;
+    const name = fee.fee_type_name || fee.name || "";
+    const isLillah = name.includes("বোর্ডিং") || name.includes("খাবার") || name.includes("খোরাকি");
+    return isLillah ? "lillah_boarding_fund" : "general_fund";
+  };
+
   // Load student due profile whenever studentId changes
   useEffect(() => {
     if (!studentId) {
       setStudentProfile(null);
       setAllocations({});
+      setAllocationFunds({});
       setTotalAmount(0);
       return;
     }
@@ -97,14 +135,17 @@ export default function CollectPaymentClient({
         if (profile && profile.fees) {
           const unpaidFees = profile.fees.filter((f: any) => f.due_amount > 0);
           const initialAlloc: Record<string, number> = {};
+          const initialFunds: Record<string, string> = {};
           let initialSum = 0;
 
           unpaidFees.forEach((f: any) => {
             initialAlloc[f.id] = f.due_amount;
+            initialFunds[f.id] = resolveInitialFundId(f);
             initialSum += f.due_amount;
           });
 
           setAllocations(initialAlloc);
+          setAllocationFunds(initialFunds);
           setTotalAmount(initialSum > 0 ? initialSum : 1500);
         }
       } catch (err) {
@@ -136,6 +177,11 @@ export default function CollectPaymentClient({
     setTotalAmount(sum);
   };
 
+  // Handle fund change for a fee
+  const handleAllocationFundChange = (feeId: string, fundId: string) => {
+    setAllocationFunds((prev) => ({ ...prev, [feeId]: fundId }));
+  };
+
   // Submit payment
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,22 +197,28 @@ export default function CollectPaymentClient({
     setIsPending(true);
     setError(null);
 
-    // Prepare allocations payload
+    // Prepare allocations payload with specific funds
     const feeAllocationsList: any[] = [];
     if (studentProfile?.fees) {
       studentProfile.fees.forEach((f: any) => {
         const allocated = allocations[f.id] || 0;
         if (allocated > 0) {
+          const assignedFundId = allocationFunds[f.id] || resolveInitialFundId(f);
+          const fundObj = allFunds.find((af) => af.id === assignedFundId);
           feeAllocationsList.push({
             student_fee_id: f.id,
             fee_type_id: f.fee_type_id,
             fee_type_name: f.fee_type_name,
             billing_period: f.billing_period,
             allocated_amount: allocated,
+            fund_id: assignedFundId,
+            fund_name: fundObj?.name || "সাধারণ ফান্ড",
           });
         }
       });
     }
+
+    const globalFundObj = allFunds.find((af) => af.id === selectedGlobalFund);
 
     try {
       const res = await collectFeePayment({
@@ -182,6 +234,8 @@ export default function CollectPaymentClient({
         fine_reason: fineReason,
         fee_allocations: feeAllocationsList,
         notes: notes,
+        fund_id: selectedGlobalFund,
+        fund_name: globalFundObj?.name || "সাধারণ ফান্ড",
       });
 
       if (res?.success && res.payment) {
@@ -208,6 +262,7 @@ export default function CollectPaymentClient({
     setFineReason("");
     setNotes("");
     setAllocations({});
+    setAllocationFunds({});
   };
 
   return (
@@ -330,15 +385,15 @@ export default function CollectPaymentClient({
             ) : null}
           </div>
 
-          {/* Fee Invoices Breakdown & Allocations (if available) */}
+          {/* Fee Invoices Breakdown, Allocations & Destination Fund Selection */}
           {studentProfile && studentProfile.fees && studentProfile.fees.filter((f: any) => f.due_amount > 0).length > 0 && (
             <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
                   <Layers className="w-5 h-5 text-emerald-600" />
-                  <h3 className="font-bold text-slate-900 text-base">২. বকেয়া ফি'র খাত ও বণ্টন (Allocations)</h3>
+                  <h3 className="font-bold text-slate-900 text-base">২. বকেয়া ফি'র খাত ও ফান্ড বণ্টন (Fund Allocations)</h3>
                 </div>
-                <span className="text-xs text-slate-500">বকেয়া ইনভয়েস অনুযায়ী স্বয়ংক্রিয় বরাদ্দ</span>
+                <span className="text-xs text-slate-500">প্রয়োজনে যেকোনো ফি'র ফান্ড পরিবর্তন করুন</span>
               </div>
 
               <div className="border border-slate-200 rounded-2xl overflow-hidden text-xs sm:text-sm">
@@ -346,7 +401,7 @@ export default function CollectPaymentClient({
                   <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
                     <tr>
                       <th className="py-2.5 px-4">ফি'র খাত</th>
-                      <th className="py-2.5 px-4">মাস / পিরিয়ড</th>
+                      <th className="py-2.5 px-4">জমা হওয়ার ফান্ড</th>
                       <th className="py-2.5 px-4 text-right">নির্ধারিত ফি</th>
                       <th className="py-2.5 px-4 text-right">বকেয়া (৳)</th>
                       <th className="py-2.5 px-4 text-right">এই রিসিটে জমা (৳)</th>
@@ -355,26 +410,45 @@ export default function CollectPaymentClient({
                   <tbody className="divide-y divide-slate-100">
                     {studentProfile.fees
                       .filter((f: any) => f.due_amount > 0)
-                      .map((fee: any) => (
-                        <tr key={fee.id} className="hover:bg-slate-50/50">
-                          <td className="py-2.5 px-4 font-bold text-slate-900">{fee.fee_type_name}</td>
-                          <td className="py-2.5 px-4 text-slate-600">{fee.billing_period}</td>
-                          <td className="py-2.5 px-4 text-right font-mono">৳{formatBanglaCurrency(fee.payable_amount)}</td>
-                          <td className="py-2.5 px-4 text-right font-mono font-bold text-red-700">
-                            ৳{formatBanglaCurrency(fee.due_amount)}
-                          </td>
-                          <td className="py-2.5 px-4 text-right">
-                            <input
-                              type="number"
-                              min="0"
-                              max={fee.due_amount}
-                              value={allocations[fee.id] ?? fee.due_amount}
-                              onChange={(e) => handleAllocationChange(fee.id, Number(e.target.value))}
-                              className="w-28 px-2.5 py-1 border border-slate-300 rounded-lg text-right font-mono font-bold text-xs sm:text-sm focus:ring-2 focus:ring-slate-900"
-                            />
-                          </td>
-                        </tr>
-                      ))}
+                      .map((fee: any) => {
+                        const currentFundId = allocationFunds[fee.id] || resolveInitialFundId(fee);
+
+                        return (
+                          <tr key={fee.id} className="hover:bg-slate-50/50">
+                            <td className="py-2.5 px-4">
+                              <div className="font-bold text-slate-900">{fee.fee_type_name}</div>
+                              <div className="text-[11px] text-slate-500">{fee.billing_period}</div>
+                            </td>
+                            <td className="py-2.5 px-4">
+                              <select
+                                value={currentFundId}
+                                onChange={(e) => handleAllocationFundChange(fee.id, e.target.value)}
+                                className="px-2.5 py-1 text-xs border border-emerald-300 rounded-lg bg-emerald-50/60 font-semibold text-emerald-950 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                              >
+                                {allFunds.map((af) => (
+                                  <option key={af.id} value={af.id}>
+                                    {af.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="py-2.5 px-4 text-right font-mono">৳{formatBanglaCurrency(fee.payable_amount)}</td>
+                            <td className="py-2.5 px-4 text-right font-mono font-bold text-red-700">
+                              ৳{formatBanglaCurrency(fee.due_amount)}
+                            </td>
+                            <td className="py-2.5 px-4 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                max={fee.due_amount}
+                                value={allocations[fee.id] ?? fee.due_amount}
+                                onChange={(e) => handleAllocationChange(fee.id, Number(e.target.value))}
+                                className="w-28 px-2.5 py-1 border border-slate-300 rounded-lg text-right font-mono font-bold text-xs sm:text-sm focus:ring-2 focus:ring-slate-900"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -404,6 +478,25 @@ export default function CollectPaymentClient({
                   placeholder="যেমন: 1500"
                   className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 font-mono font-bold text-base text-emerald-950 bg-emerald-50/40"
                 />
+              </div>
+
+              {/* Fund Selection for General or Direct collection */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-800 block flex items-center gap-1">
+                  <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>জমা হওয়ার প্রধান ফান্ড</span>
+                </label>
+                <select
+                  value={selectedGlobalFund}
+                  onChange={(e) => setSelectedGlobalFund(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-emerald-300 bg-emerald-50/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 font-bold text-slate-900"
+                >
+                  {allFunds.map((af) => (
+                    <option key={af.id} value={af.id}>
+                      {af.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Payment Date */}

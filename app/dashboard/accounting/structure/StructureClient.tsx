@@ -30,6 +30,7 @@ interface StructureClientProps {
   initialFeeTypes: FeeType[];
   sessions: AcademicSession[];
   classes: any[];
+  funds?: any[];
 }
 
 export default function StructureClient({
@@ -37,11 +38,50 @@ export default function StructureClient({
   initialFeeTypes,
   sessions,
   classes,
+  funds = [],
 }: StructureClientProps) {
   const [structures, setStructures] = useState<FeeStructure[]>(initialStructures);
   const [feeTypes, setFeeTypes] = useState<FeeType[]>(initialFeeTypes);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("ALL");
   const [activeTab, setActiveTab] = useState<"structures" | "types">("structures");
+
+  // Comprehensive funds list
+  const allFunds = [
+    { id: "general_fund", name: "সাধারণ ফান্ড" },
+    { id: "lillah_boarding_fund", name: "লিল্লাহ বোর্ডিং ফান্ড" },
+    { id: "zakat_fund", name: "যাকাত ফান্ড" },
+    { id: "masjid_fund", name: "মসজিদ ফান্ড" },
+    { id: "building_fund", name: "ভবন নির্মাণ ফান্ড" },
+    { id: "it_fund", name: "কম্পিউটার ও আইটি ফান্ড" },
+    { id: "health_fund", name: "চিকিৎসা ও সেবা ফান্ড" },
+    ...funds.filter(
+      (f) =>
+        ![
+          "general_fund",
+          "lillah_boarding_fund",
+          "zakat_fund",
+          "masjid_fund",
+          "building_fund",
+          "it_fund",
+          "health_fund",
+        ].includes(f.id)
+    ),
+  ];
+
+  // Helper to get fund display name
+  const getFundDisplay = (ft: FeeType) => {
+    if (ft.fund_name) return ft.fund_name;
+    if (ft.fund_id) {
+      const match = allFunds.find((f) => f.id === ft.fund_id);
+      if (match) return match.name;
+    }
+    const isLillah =
+      (ft.name || "").includes("বোর্ডিং") ||
+      (ft.name || "").includes("খাবার") ||
+      (ft.name || "").includes("খোরাকি") ||
+      (ft.category === "BOARDING");
+    return isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+  };
 
   // Structure Modal State
   const [isStructModalOpen, setIsStructModalOpen] = useState(false);
@@ -65,12 +105,15 @@ export default function StructureClient({
 
   // Type Modal State
   const [isTypeModalOpen, setIsTypeModalOpen] = useState(false);
+  const [editingType, setEditingType] = useState<FeeType | null>(null);
   const [typeForm, setTypeForm] = useState<Partial<FeeType>>({
     name: "",
     code: "CUSTOM",
     category: "ACADEMIC",
     frequency: "MONTHLY",
     default_amount: 1000,
+    fund_id: "general_fund",
+    fund_name: "সাধারণ ফান্ড",
     is_active: true,
   });
 
@@ -179,6 +222,41 @@ export default function StructureClient({
     }
   };
 
+  // Open Create Fee Type Modal
+  const handleOpenCreateType = () => {
+    setEditingType(null);
+    setTypeForm({
+      name: "",
+      code: "CUSTOM",
+      category: "ACADEMIC",
+      frequency: "MONTHLY",
+      default_amount: 500,
+      fund_id: "general_fund",
+      fund_name: "সাধারণ ফান্ড",
+      is_active: true,
+    });
+    setIsTypeModalOpen(true);
+  };
+
+  // Open Edit Fee Type Modal
+  const handleOpenEditType = (ft: FeeType) => {
+    setEditingType(ft);
+    const assignedFundName = getFundDisplay(ft);
+    const matchedFund = allFunds.find((f) => f.name === assignedFundName || f.id === ft.fund_id);
+    setTypeForm({
+      id: ft.id,
+      name: ft.name,
+      code: ft.code,
+      category: ft.category,
+      frequency: ft.frequency,
+      default_amount: ft.default_amount,
+      fund_id: ft.fund_id || matchedFund?.id || "general_fund",
+      fund_name: ft.fund_name || assignedFundName,
+      is_active: ft.is_active !== false,
+    });
+    setIsTypeModalOpen(true);
+  };
+
   // Save Fee Type
   const handleSaveType = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -187,7 +265,7 @@ export default function StructureClient({
     try {
       const res = await saveFeeType(typeForm);
       if (res?.success) {
-        setFeedback({ type: "success", text: res.message || "ফি টাইপ সংরক্ষিত হয়েছে।" });
+        setFeedback({ type: "success", text: res.message || "ফি টাইপ ও ফান্ড ম্যাপিং সংরক্ষিত হয়েছে।" });
         setIsTypeModalOpen(false);
         window.location.reload();
       } else {
@@ -281,21 +359,11 @@ export default function StructureClient({
         ) : (
           <button
             type="button"
-            onClick={() => {
-              setTypeForm({
-                name: "",
-                code: "CUSTOM",
-                category: "ACADEMIC",
-                frequency: "MONTHLY",
-                default_amount: 500,
-                is_active: true,
-              });
-              setIsTypeModalOpen(true);
-            }}
+            onClick={handleOpenCreateType}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>+ নতুন ফি টাইপ যোগ করুন</span>
+            <span>+ নতুন ফি টাইপ ও ফান্ড ম্যাপিং</span>
           </button>
         )}
       </div>
@@ -418,13 +486,26 @@ export default function StructureClient({
         </div>
       )}
 
-      {/* TAB 2: Standard Fee Types */}
+      {/* TAB 2: Standard Fee Types & Assigned Funds */}
       {activeTab === "types" && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-              মানসম্মত ফি টাইপ ও ক্যাটাগরি তালিকা ({feeTypes.length} টি)
-            </h3>
+          <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                ফি টাইপ ও ফান্ড ম্যাপিং তালিকা ({feeTypes.length} টি)
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                কোন ফি'র টাকা কোন ফান্ডে জমা হবে তা এখান থেকে কাস্টমাইজ করুন।
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenCreateType}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>নতুন ফি খাত যোগ করুন</span>
+            </button>
           </div>
 
           <div className="overflow-x-auto">
@@ -432,36 +513,72 @@ export default function StructureClient({
               <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
                 <tr>
                   <th className="py-3 px-4">ফি'র নাম</th>
-                  <th className="py-3 px-4">কোড</th>
+                  <th className="py-3 px-4">জমা হওয়ার ফান্ড</th>
                   <th className="py-3 px-4">ক্যাটাগরি</th>
-                  <th className="py-3 px-4">চার্জ ফ্রিকোয়েন্সি</th>
+                  <th className="py-3 px-4">চার্জের ধরন</th>
                   <th className="py-3 px-4 text-right">ডিফল্ট পরিমাণ (৳)</th>
-                  <th className="py-3 px-4 text-center">স্ট্যাটাস</th>
+                  <th className="py-3 px-4 text-center">অ্যাকশন</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {feeTypes.map((ft) => (
-                  <tr key={ft.id} className="hover:bg-slate-50/60 transition">
-                    <td className="py-3 px-4 font-bold text-slate-900">{ft.name}</td>
-                    <td className="py-3 px-4 font-mono text-slate-500">{ft.code}</td>
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                        {ft.category === "ACADEMIC" ? "একাডেমিক" : ft.category === "BOARDING" ? "বোর্ডিং/আবাসিক" : "প্রশাসনিক"}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-slate-600">
-                      {ft.frequency === "MONTHLY" ? "মাসিক (Recurring)" : ft.frequency === "ONETIME" ? "এককালীন" : "মেয়াদী"}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-emerald-800">
-                      ৳ {formatBanglaCurrency(ft.default_amount)}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
-                        সক্রিয়
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {feeTypes.map((ft) => {
+                  const assignedFund = getFundDisplay(ft);
+                  const isLillah = assignedFund.includes("লিল্লাহ");
+                  const isGeneral = assignedFund.includes("সাধারণ");
+
+                  return (
+                    <tr key={ft.id} className="hover:bg-slate-50/60 transition">
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-slate-900">{ft.name}</div>
+                        <div className="text-[11px] font-mono text-slate-400">{ft.code}</div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                            isLillah
+                              ? "bg-amber-50 text-amber-800 border-amber-200"
+                              : isGeneral
+                              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                              : "bg-indigo-50 text-indigo-800 border-indigo-200"
+                          }`}
+                        >
+                          <BookOpen className="w-3 h-3" />
+                          <span>{assignedFund}</span>
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                          {ft.category === "ACADEMIC"
+                            ? "একাডেমিক"
+                            : ft.category === "BOARDING"
+                            ? "বোর্ডিং/আবাসিক"
+                            : "প্রশাসনিক"}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-600">
+                        {ft.frequency === "MONTHLY"
+                          ? "মাসিক"
+                          : ft.frequency === "ONETIME"
+                          ? "এককালীন"
+                          : "মেয়াদী"}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
+                        ৳ {formatBanglaCurrency(ft.default_amount)}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditType(ft)}
+                          className="px-2.5 py-1 text-slate-700 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200 rounded-lg text-xs font-bold transition flex items-center gap-1 mx-auto cursor-pointer"
+                          title="ফান্ড বা ফি তথ্য পরিবর্তন করুন"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>ফান্ড পরিবর্তন</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -582,12 +699,19 @@ export default function StructureClient({
         </div>
       )}
 
-      {/* Type Modal */}
+      {/* Type Modal (Create / Edit with Fund Assignment) */}
       {isTypeModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-bold text-slate-900">নতুন ফি টাইপ যোগ করুন</h3>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {editingType ? "ফি টাইপ ও ফান্ড ম্যাপিং সম্পাদনা" : "নতুন ফি টাইপ যোগ করুন"}
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  টাকা স্বয়ংক্রিয়ভাবে কোন ফান্ডে জমা হবে তা নির্বাচন করুন
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsTypeModalOpen(false)}
@@ -605,9 +729,39 @@ export default function StructureClient({
                   required
                   value={typeForm.name}
                   onChange={(e) => setTypeForm({ ...typeForm, name: e.target.value })}
-                  placeholder="যেমন: কম্পিউটার ল্যাব ফি"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  placeholder="যেমন: কম্পিউটার ল্যাব ফি, খোরাকি ফি, ইত্যাদি"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 font-medium"
                 />
+              </div>
+
+              {/* Fund Assignment Dropdown */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-900 block flex items-center gap-1.5">
+                  <BookOpen className="w-4 h-4 text-emerald-600" />
+                  <span>জমা হওয়ার নির্দিষ্ট ফান্ড (Assigned Fund) <span className="text-red-500">*</span></span>
+                </label>
+                <select
+                  value={typeForm.fund_id || "general_fund"}
+                  onChange={(e) => {
+                    const selId = e.target.value;
+                    const match = allFunds.find((f) => f.id === selId);
+                    setTypeForm({
+                      ...typeForm,
+                      fund_id: selId,
+                      fund_name: match?.name || "সাধারণ ফান্ড",
+                    });
+                  }}
+                  className="w-full px-3.5 py-2.5 border-2 border-emerald-300 bg-emerald-50/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 font-bold text-slate-900"
+                >
+                  {allFunds.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500">
+                  এই ফি'র টাকা আদায় করার সাথে সাথে স্বয়ংক্রিয়ভাবে নির্বাচিত ফান্ডে জমা হবে।
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -632,9 +786,23 @@ export default function StructureClient({
                     min="0"
                     value={typeForm.default_amount}
                     onChange={(e) => setTypeForm({ ...typeForm, default_amount: Number(e.target.value) })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono font-bold"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono font-bold text-right"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">ক্যাটাগরি</label>
+                <select
+                  value={typeForm.category || "ACADEMIC"}
+                  onChange={(e) => setTypeForm({ ...typeForm, category: e.target.value as FeeCategory })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 bg-white"
+                >
+                  <option value="ACADEMIC">একাডেমিক (Academic)</option>
+                  <option value="BOARDING">বোর্ডিং ও খাবার (Boarding/Food)</option>
+                  <option value="ADMINISTRATIVE">প্রশাসনিক (Administrative)</option>
+                  <option value="OTHER">অন্যান্য (Other)</option>
+                </select>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
@@ -648,9 +816,9 @@ export default function StructureClient({
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-xs cursor-pointer"
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold shadow-xs cursor-pointer disabled:opacity-50"
                 >
-                  {loading ? "সেভ হচ্ছে..." : "ফি টাইপ সেভ করুন"}
+                  {loading ? "সেভ হচ্ছে..." : "ফি টাইপ ও ফান্ড সংরক্ষণ"}
                 </button>
               </div>
             </form>
