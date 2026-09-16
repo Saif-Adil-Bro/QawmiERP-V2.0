@@ -288,6 +288,9 @@ export default async function DashboardPage() {
         }
       });
 
+      // Ensure Total Income is the definitive sum of all funds collections
+      totalIncome = fundsTotalCollected;
+
       // Process Attendance Rate
       let presentTotal = 0;
       let absentTotal = 0;

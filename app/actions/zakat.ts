@@ -269,7 +269,8 @@ export async function getFunds(): Promise<FundItem[]> {
       }
 
       const amt = Number(d.amount || 0);
-      const matched = baseFunds.find((f) => isTransactionInFund(f, undefined, d.donation_type, baseFunds));
+      const targetFundName = d.donation_type || "সাধারণ ফান্ড";
+      const matched = baseFunds.find((f) => isTransactionInFund(f, (d as any).fund_id, targetFundName, baseFunds)) || baseFunds[0];
       if (matched) {
         const stat = fundStats.get(matched.name);
         if (stat) {
@@ -428,8 +429,12 @@ export async function getFunds(): Promise<FundItem[]> {
       }
     }
 
+    const processedFeeIds = new Set<string>();
     for (const p of unifiedFeePayments) {
-      if ((p.receipt_no && existingReceiptNos.has(p.receipt_no)) || existingIds.has(p.id)) continue;
+      const pKey = p.id || p.receipt_no;
+      if (pKey && processedFeeIds.has(pKey)) continue;
+      if (pKey) processedFeeIds.add(pKey);
+
       if (p.allocations && p.allocations.length > 0) {
         for (const alloc of p.allocations) {
           const amt = Number(alloc.allocated_amount || 0);
@@ -445,9 +450,9 @@ export async function getFunds(): Promise<FundItem[]> {
           const targetFundId = alloc.fund_id || p.fund_id;
           const targetFundName = alloc.fund_name || p.fund_name || fallbackFundName;
 
-          const matched = baseFunds.find((f) =>
-            isTransactionInFund(f, targetFundId, targetFundName, baseFunds)
-          );
+          const matched =
+            baseFunds.find((f) => isTransactionInFund(f, targetFundId, targetFundName, baseFunds)) ||
+            baseFunds[0];
           if (matched) {
             const stat = fundStats.get(matched.name);
             if (stat) {
@@ -469,9 +474,9 @@ export async function getFunds(): Promise<FundItem[]> {
           const targetFundId = p.fund_id;
           const targetFundName = p.fund_name || fallbackFundName;
 
-          const matched = baseFunds.find((f) =>
-            isTransactionInFund(f, targetFundId, targetFundName, baseFunds)
-          );
+          const matched =
+            baseFunds.find((f) => isTransactionInFund(f, targetFundId, targetFundName, baseFunds)) ||
+            baseFunds[0];
           if (matched) {
             const stat = fundStats.get(matched.name);
             if (stat) {

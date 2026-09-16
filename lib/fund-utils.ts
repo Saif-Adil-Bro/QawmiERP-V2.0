@@ -231,6 +231,7 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
 
   const lower = trimmed.toLowerCase();
 
+  // 1. Zakat Fund
   if (
     lower === "zakat" ||
     lower === "zkt" ||
@@ -241,6 +242,7 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     return "যাকাত ফান্ড (Zakat Fund)";
   }
 
+  // 2. Lillah Boarding Fund
   if (
     lower === "lillah" ||
     lower === "lil" ||
@@ -249,6 +251,7 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     trimmed.includes("খোরাকি") ||
     trimmed.includes("বোর্ডিং") ||
     trimmed.includes("খাবার") ||
+    trimmed.includes("খাদ্য") ||
     lower.includes("hostel") ||
     lower.includes("boarding") ||
     lower.includes("lillah")
@@ -256,12 +259,15 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     return "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
   }
 
+  // 3. Fitra & Sadaqah Fund (Fitra, specific Sadaqah)
   if (
     lower === "fitra" ||
     lower === "ftr" ||
     lower === "sadaqah" ||
+    lower === "sadqah" ||
     lower === "fund-fitra" ||
     trimmed.includes("ফিতরা") ||
+    trimmed.includes("সদকাতুল ফিতর") ||
     trimmed.includes("সদকা") ||
     lower.includes("fitra") ||
     lower.includes("sadaqah")
@@ -269,6 +275,7 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     return "ফিতরা ও সদকা ফান্ড (Fitra & Sadaqah)";
   }
 
+  // 4. Mosque & Development Fund
   if (
     lower === "development" ||
     lower === "dev" ||
@@ -278,12 +285,16 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     trimmed.includes("উন্নয়ন ও নির্মাণ") ||
     trimmed.includes("উন্নয়ন ফান্ড") ||
     trimmed.includes("মসজিদ ফান্ড") ||
+    trimmed.includes("নির্মাণ") ||
+    trimmed.includes("মসজিদ") ||
     lower.includes("dev") ||
-    lower.includes("building")
+    lower.includes("building") ||
+    lower.includes("construction")
   ) {
     return "মসজিদ ও উন্নয়ন ফান্ড (Development Fund)";
   }
 
+  // 5. Orphan Welfare Fund
   if (
     lower === "orphan" ||
     lower === "orp" ||
@@ -291,26 +302,42 @@ export function normalizeFundName(input?: string | null, customFunds?: FundItem[
     lower === "fund-orphan" ||
     trimmed.includes("এতিম কল্যাণ") ||
     trimmed.includes("এতিমখানা") ||
+    trimmed.includes("এতিম") ||
     lower.includes("orphan")
   ) {
     return "এতিম কল্যাণ ফান্ড (Orphan Welfare Fund)";
   }
 
+  // 6. General Fund (Tuition, General Donation, Grant, Subscriptions, One-time, Unspecified donations)
   if (
     lower === "general" ||
     lower === "gen" ||
     lower === "fund-general" ||
+    lower === "onetime" ||
+    lower === "monthly" ||
+    lower === "annual" ||
+    lower === "donation" ||
+    lower === "donations" ||
     trimmed.includes("সাধারণ") ||
+    trimmed.includes("দান") ||
+    trimmed.includes("অনুদান") ||
+    trimmed.includes("চাঁদা") ||
     trimmed.includes("বেতন") ||
     trimmed.includes("ভর্তি") ||
     trimmed.includes("টিউশন") ||
+    trimmed.includes("ফি") ||
+    trimmed.includes("এককালীন") ||
+    trimmed.includes("সদস্য") ||
     lower.includes("tuition") ||
-    lower.includes("general")
+    lower.includes("general") ||
+    lower.includes("donation") ||
+    lower.includes("fee")
   ) {
     return "সাধারণ ফান্ড (General Fund)";
   }
 
-  return trimmed;
+  // Default fallback to General Fund for any donation record
+  return "সাধারণ ফান্ড (General Fund)";
 }
 
 // Robust helper to check if a donation or transaction belongs to a given fund
@@ -328,17 +355,23 @@ export function isTransactionInFund(
   const candidateId = (itemFundId || "").toLowerCase().trim();
   const candidateName = (itemFundName || "").toLowerCase().trim();
 
+  const isGeneralFund =
+    fund.is_default ||
+    fId === "fund-general" ||
+    fId === "gen" ||
+    fName.includes("সাধারণ");
+
   if (!candidateId && !candidateName) {
-    // If no candidate fund specified, it only matches General Fund if default
-    return fund.id === "fund-general" || fund.name.includes("সাধারণ");
+    return isGeneralFund;
   }
 
   if (fId && candidateId && fId === candidateId) return true;
   if (fName && candidateName && fName === candidateName) return true;
   if (fCode && candidateName && (candidateName === fCode || candidateName.includes(fCode))) return true;
 
-  const canonA = normalizeFundName(fund.name, allFunds).toLowerCase().trim();
-  const canonB = normalizeFundName(candidateName || candidateId, allFunds).toLowerCase().trim();
+  const fundsList = allFunds || DEFAULT_FUNDS;
+  const canonA = normalizeFundName(fund.name, fundsList).toLowerCase().trim();
+  const canonB = normalizeFundName(candidateName || candidateId, fundsList).toLowerCase().trim();
 
   if (canonA && canonB && canonA === canonB) return true;
   if (canonA && canonB && canonA.length >= 4 && canonB.length >= 4) {
@@ -346,6 +379,28 @@ export function isTransactionInFund(
   }
   if (fName && candidateName && fName.length >= 4 && candidateName.length >= 4) {
     if (fName.includes(candidateName) || candidateName.includes(fName)) return true;
+  }
+
+  // If candidate is a general donation/grant and this is the General Fund
+  if (isGeneralFund && (!candidateId || candidateId === "fund-general" || candidateId === "gen")) {
+    const isOtherSpecificFund =
+      candidateName.includes("যাকাত") ||
+      candidateName.includes("লিল্লাহ") ||
+      candidateName.includes("খোরাকি") ||
+      candidateName.includes("বোর্ডিং") ||
+      candidateName.includes("ফিতরা") ||
+      candidateName.includes("উন্নয়ন") ||
+      candidateName.includes("মসজিদ") ||
+      candidateName.includes("এতিম") ||
+      candidateId.includes("zakat") ||
+      candidateId.includes("lillah") ||
+      candidateId.includes("fitra") ||
+      candidateId.includes("dev") ||
+      candidateId.includes("orphan");
+
+    if (!isOtherSpecificFund) {
+      return true;
+    }
   }
 
   return false;
