@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, DragEvent } from "react";
+import { useState, useRef, DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   Database,
@@ -9,7 +9,6 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertTriangle,
-  ShieldCheck,
   FileJson,
   Layers,
   Clock,
@@ -24,20 +23,19 @@ import {
   Library,
   Bell,
   Sliders,
-  HelpCircle,
   FileCheck2,
-  Trash2,
-  ArrowRight,
-  Info,
   Sparkles,
-  Lock,
+  HeartHandshake,
+  CreditCard,
+  Package,
+  CalendarDays,
+  ShieldCheck,
 } from "lucide-react";
 import {
   BackupOverviewStats,
   BackupModuleKey,
   BackupPayload,
   BackupManifest,
-  BackupAuditEntry,
   generateBackupExport,
   analyzeBackupFile,
   executeDataRestore,
@@ -60,7 +58,7 @@ const MODULE_DEFINITIONS: {
   {
     key: "academic",
     name: "একাডেমিক ও পাঠদান",
-    desc: "জামাত/শাখা, বিষয়, শিক্ষক বণ্টন ও ক্লাস রুটিন",
+    desc: "জামাত/শাখা, বিষয়, শিক্ষক বণ্টন, ক্লাস রুটিন ও সিলেবাস",
     icon: BookOpen,
     color: "text-blue-600 bg-blue-50 border-blue-200",
   },
@@ -73,21 +71,49 @@ const MODULE_DEFINITIONS: {
   },
   {
     key: "attendance",
-    name: "হাজিরা ও ছুটি",
-    desc: "ছাত্র ও শিক্ষকদের দৈনিক উপস্থিতি এবং ছুটির রেকর্ড",
+    name: "হাজিরা ব্যবস্থাপনা",
+    desc: "ছাত্র ও শিক্ষকদের দৈনিক বায়োমেট্রিক/ম্যানুয়াল উপস্থিতি",
     icon: CalendarCheck,
     color: "text-purple-600 bg-purple-50 border-purple-200",
   },
   {
     key: "finance",
-    name: "হিসাব ও অনুদান",
-    desc: "ছাত্রদের ফি আদায়, মাদরাসার খরচ, জাকাত ও ডোনার তহবিল",
+    name: "ফি ও হিসাব ব্যবস্থাপনা",
+    desc: "ফি স্ট্রাকচার, ছাত্রদের লেজার, পেমেন্ট রসিদ, খরচ ও ফান্ড",
     icon: Wallet,
     color: "text-teal-600 bg-teal-50 border-teal-200",
   },
   {
+    key: "fundraising",
+    name: "তহবিল সংগ্রহ ও বিশেষ দান",
+    desc: "মাহফিল, আজীবন সদস্য, চামড়া ও দান বাক্সের সম্পূর্ণ হিসাব",
+    icon: HeartHandshake,
+    color: "text-rose-600 bg-rose-50 border-rose-200",
+  },
+  {
+    key: "certificates",
+    name: "ডিজিটাল আইডি ও সনদ",
+    desc: "আইডি কার্ড, প্রশংসা ও প্রত্যয়নপত্র এবং কাস্টম টেমপ্লেট",
+    icon: CreditCard,
+    color: "text-violet-600 bg-violet-50 border-violet-200",
+  },
+  {
+    key: "leaves",
+    name: "ছুটি ও অ্যালামনাই",
+    desc: "শিক্ষার্থী ও শিক্ষক ছুটির আবেদন এবং প্রাক্তন ছাত্র ডাটাবেজ",
+    icon: CalendarDays,
+    color: "text-cyan-600 bg-cyan-50 border-cyan-200",
+  },
+  {
+    key: "inventory",
+    name: "ইনভেন্টরি ও সম্পদ",
+    desc: "মাদরাসার সকল মালামাল, সম্পদ বরাদ্দ ও সার্ভিসিং রেকর্ড",
+    icon: Package,
+    color: "text-amber-700 bg-amber-50 border-amber-300",
+  },
+  {
     key: "staff",
-    name: "শিক্ষক ও স্টাফ",
+    name: "শিক্ষক ও কর্মকর্তা",
     desc: "শিক্ষক প্রোফাইল এবং ইউজার লগইন তথ্য",
     icon: GraduationCap,
     color: "text-indigo-600 bg-indigo-50 border-indigo-200",
@@ -97,14 +123,14 @@ const MODULE_DEFINITIONS: {
     name: "বোর্ডিং ও মিল",
     desc: "দৈনিক খাবার ও মেস ব্যবস্থাপনা সংক্রান্ত ডাটা",
     icon: UtensilsCrossed,
-    color: "text-rose-600 bg-rose-50 border-rose-200",
+    color: "text-pink-600 bg-pink-50 border-pink-200",
   },
   {
     key: "library",
     name: "লাইব্রেরি ও কুতুবখানা",
     desc: "বইয়ের তালিকা ও ইস্যু/রিটার্ন ডাটা",
     icon: Library,
-    color: "text-cyan-600 bg-cyan-50 border-cyan-200",
+    color: "text-sky-600 bg-sky-50 border-sky-200",
   },
   {
     key: "communication",
@@ -116,7 +142,7 @@ const MODULE_DEFINITIONS: {
   {
     key: "settings",
     name: "মাদরাসা সেটিংস",
-    desc: "প্রতিষ্ঠানের তথ্য, শিক্ষাবর্ষ ও ছুটির ক্যালেন্ডার",
+    desc: "প্রতিষ্ঠানের তথ্য, শিক্ষাবর্ষ, ছুটির ক্যালেন্ডার ও পেমেন্ট গেটওয়ে",
     icon: Sliders,
     color: "text-slate-600 bg-slate-100 border-slate-200",
   },
@@ -129,21 +155,12 @@ export default function BackupClient({
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"export" | "restore" | "history">("export");
-  const [stats, setStats] = useState<BackupOverviewStats>(initialStats);
+  const [stats] = useState<BackupOverviewStats>(initialStats);
 
   // Export States
-  const [selectedExportModules, setSelectedExportModules] = useState<BackupModuleKey[]>([
-    "students",
-    "academic",
-    "attendance",
-    "exams",
-    "finance",
-    "staff",
-    "boarding",
-    "library",
-    "communication",
-    "settings",
-  ]);
+  const [selectedExportModules, setSelectedExportModules] = useState<BackupModuleKey[]>(
+    MODULE_DEFINITIONS.map((m) => m.key)
+  );
   const [exportFormat, setExportFormat] = useState<"formatted" | "minified">("formatted");
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccessMessage, setExportSuccessMessage] = useState<string | null>(null);
@@ -164,18 +181,9 @@ export default function BackupClient({
   } | null>(null);
 
   const [restoreMode, setRestoreMode] = useState<"merge" | "replace">("merge");
-  const [selectedRestoreModules, setSelectedRestoreModules] = useState<BackupModuleKey[]>([
-    "students",
-    "academic",
-    "attendance",
-    "exams",
-    "finance",
-    "staff",
-    "boarding",
-    "library",
-    "communication",
-    "settings",
-  ]);
+  const [selectedRestoreModules, setSelectedRestoreModules] = useState<BackupModuleKey[]>(
+    MODULE_DEFINITIONS.map((m) => m.key)
+  );
   const [createAutoSnapshot, setCreateAutoSnapshot] = useState(true);
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
   const [isRestoring, setIsRestoring] = useState(false);
@@ -198,12 +206,6 @@ export default function BackupClient({
 
   const toggleExportModule = (key: BackupModuleKey) => {
     setSelectedExportModules((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
-  };
-
-  const toggleRestoreModule = (key: BackupModuleKey) => {
-    setSelectedRestoreModules((prev) =>
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
     );
   };
@@ -244,7 +246,7 @@ export default function BackupClient({
       URL.revokeObjectURL(url);
 
       setExportSuccessMessage(
-        `সফলভাবে ব্যাকআপ ফাইল প্রস্তুত ও ডাউনলোড হয়েছে (${res.backupPayload?.manifest.total_records || 0} টি রেকর্ড)।`
+        `সফলভাবে শতভাগ পূর্ণাঙ্গ ব্যাকআপ ফাইল প্রস্তুত ও ডাউনলোড হয়েছে (${res.backupPayload?.manifest.total_records || 0} টি রেকর্ড ও সকল ডায়নামিক মেটাডাটা)।`
       );
 
       // Refresh overview
@@ -379,23 +381,24 @@ export default function BackupClient({
 
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2.5">
               <div className="p-2.5 bg-emerald-600 text-white rounded-2xl shadow-md shadow-emerald-600/20">
                 <Database className="w-6 h-6" />
               </div>
               <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
                 ডাটা ব্যাকআপ ও রিস্টোর সেন্টার
               </h1>
-              <span className="bg-emerald-100 text-emerald-800 text-xs px-3 py-1 rounded-full font-bold border border-emerald-200">
-                ক্লাউড ভল্ট v2.5
+              <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-xs px-3 py-1 rounded-full font-bold border border-emerald-200">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>ইউনিভার্সাল অটো-ব্যাকআপ ইঞ্জিন</span>
               </span>
             </div>
             <p className="text-slate-600 text-sm max-w-3xl leading-relaxed">
-              মাদরাসার সকল ছাত্র-ছাত্রী, ভর্তি, ফলাফল, হিসাব-নিকাশ, হাজিরা এবং সেটিংস নিরাপদে ব্যাকআপ রাখুন এবং যেকোনো প্রয়োজনে ১-ক্লিকে পুনরুদ্ধার করুন।
+              মাদরাসার বর্তমান ও ভবিষ্যতের সকল ফিচার, শিক্ষার্থী, ফি, ফান্ডরেইজিং, পরীক্ষা, সনদ, ছুটি এবং কাস্টম সেটিংসের ১০০% ডাটা চিরতরে সুরক্ষিত রাখুন।
             </p>
           </div>
 
-          {/* Quick 1-Click Backup Button */}
+          {/* Quick 1-Click Universal Backup Button */}
           <button
             type="button"
             onClick={() => handleDownloadBackup(MODULE_DEFINITIONS.map((m) => m.key))}
@@ -405,7 +408,7 @@ export default function BackupClient({
             {isExporting ? (
               <>
                 <RefreshCw className="w-5 h-5 animate-spin" />
-                <span>ব্যাকআপ প্রস্তুত হচ্ছে...</span>
+                <span>পূর্ণাঙ্গ ব্যাকআপ প্রস্তুত হচ্ছে...</span>
               </>
             ) : (
               <>
@@ -417,43 +420,63 @@ export default function BackupClient({
         </div>
 
         {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-8 pt-6 border-t border-slate-100">
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3.5 mt-8 pt-6 border-t border-slate-100">
+          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/60">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
               <Layers className="w-4 h-4 text-emerald-600" />
               <span>সর্বমোট রেকর্ড</span>
             </div>
-            <p className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
+            <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">
               {stats.total_records.toLocaleString("bn-BD")} টি
             </p>
           </div>
 
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/60">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
               <Users className="w-4 h-4 text-blue-600" />
               <span>ছাত্র ও ভর্তি</span>
             </div>
-            <p className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
+            <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">
               {stats.counts.students.toLocaleString("bn-BD")} জন
             </p>
           </div>
 
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/60">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
               <Wallet className="w-4 h-4 text-teal-600" />
-              <span>আর্থিক লেনদেন</span>
+              <span>ফি ও হিসাব</span>
             </div>
-            <p className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
+            <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">
               {stats.counts.fees_and_transactions.toLocaleString("bn-BD")} টি
             </p>
           </div>
 
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/60">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+              <HeartHandshake className="w-4 h-4 text-rose-600" />
+              <span>তহবিল ও ডোনেশন</span>
+            </div>
+            <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">
+              {(stats.counts.fundraising_records || 0).toLocaleString("bn-BD")} টি
+            </p>
+          </div>
+
+          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/60">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+              <CreditCard className="w-4 h-4 text-violet-600" />
+              <span>আইডি ও সনদ</span>
+            </div>
+            <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">
+              {(stats.counts.id_and_certificates || 0).toLocaleString("bn-BD")} টি
+            </p>
+          </div>
+
+          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/60">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
               <Clock className="w-4 h-4 text-purple-600" />
               <span>সর্বশেষ ব্যাকআপ</span>
             </div>
-            <p className="text-xs sm:text-sm font-bold text-slate-800 mt-1.5 truncate">
+            <p className="text-xs font-bold text-slate-800 mt-1.5 truncate">
               {stats.last_backup?.timestamp
                 ? new Date(stats.last_backup.timestamp).toLocaleDateString("bn-BD", {
                     month: "short",
@@ -463,6 +486,14 @@ export default function BackupClient({
                 : "এখনও নেওয়া হয়নি"}
             </p>
           </div>
+        </div>
+
+        {/* Dynamic Zero-Maintenance Banner */}
+        <div className="mt-4 p-3 bg-emerald-50/70 border border-emerald-200/70 rounded-2xl flex items-center gap-2.5 text-xs text-emerald-900">
+          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>
+            <strong>স্মার্ট সেলফ-হার্ভেস্টিং প্রযুক্তি সক্রিয়:</strong> ভবিষ্যতে যেকোনো নতুন মডিউল, কাস্টম ফিল্ড বা সেটিংস যুক্ত হলেও ব্যাকআপ ইঞ্জিন স্বয়ংক্রিয়ভাবে তা শনাক্ত ও রিস্টোর করবে।
+          </span>
         </div>
       </div>
 
@@ -535,7 +566,7 @@ export default function BackupClient({
                   <span>কাস্টম মডিউল নির্বাচন ও এক্সপোর্ট সেটিংস</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  যেসব মডিউলের তথ্য ব্যাকআপ ফাইলে অন্তর্ভুক্ত করতে চান তা নির্বাচন করুন
+                  যেসব মডিউলের তথ্য ব্যাকআপ ফাইলে অন্তর্ভুক্ত করতে চান তা নির্বাচন করুন (ডিফল্টভাবে সবগুলো নির্বাচিত থাকে)
                 </p>
               </div>
 
@@ -692,7 +723,7 @@ export default function BackupClient({
             <div className="bg-white rounded-3xl p-12 border border-slate-200 text-center space-y-3">
               <RefreshCw className="w-8 h-8 text-emerald-600 animate-spin mx-auto" />
               <p className="text-sm font-bold text-slate-800">
-                ব্যাকআপ ফাইলটি যাচাই ও বিশ্লেষণ করা হচ্ছে...
+                ব্যাকআপ ফাইলটি স্মার্ট স্ক্যানারের মাধ্যমে যাচাই ও বিশ্লেষণ করা হচ্ছে...
               </p>
             </div>
           )}
@@ -712,7 +743,7 @@ export default function BackupClient({
                     </h4>
                     <p className="text-xs text-slate-500">
                       সাইজ: {Math.round((uploadedFile?.size || 0) / 1024)} KB • সংস্করণ:{" "}
-                      {analyzedData.manifest?.version || "2.0"} • জেনারেট:{" "}
+                      {analyzedData.manifest?.version || "3.0"} • জেনারেট:{" "}
                       {analyzedData.manifest?.generated_at
                         ? new Date(analyzedData.manifest.generated_at).toLocaleString("bn-BD")
                         : "N/A"}
@@ -748,16 +779,16 @@ export default function BackupClient({
               <div>
                 <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
                   <Layers className="w-4 h-4 text-emerald-600" />
-                  <span>ফাইলে প্রাপ্ত ডাটার বিবরণ (মোট {analyzedData.totalRecords || 0} টি রেকর্ড)</span>
+                  <span>ফাইলে প্রাপ্ত ডাটার পূর্ণাঙ্গ বিবরণ (মোট {analyzedData.totalRecords || 0} টি রেকর্ড)</span>
                 </h4>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                   {Object.entries(analyzedData.moduleCounts || {}).map(([key, count]) => {
                     if (count === 0) return null;
                     return (
                       <div key={key} className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                         <span className="text-[11px] font-medium text-slate-500 capitalize block truncate">
-                          {key}
+                          {key.replace(/_/g, " ")}
                         </span>
                         <span className="text-base font-bold text-slate-800">
                           {count.toLocaleString("bn-BD")} টি
@@ -797,7 +828,7 @@ export default function BackupClient({
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 mt-2 leading-relaxed pl-6">
-                      বিদ্যমান ডাটা মুছে যাবে না। নতুন রেকর্ডগুলো যোগ হবে এবং বিদ্যমান রেকর্ডের সাথে আপডেট হবে।
+                      বিদ্যমান ডাটা সুরক্ষিত থাকবে। ব্যাকআপের নতুন ডাটা যোগ হবে এবং মেটাডাটা নিরাপদে সিঙ্ক হবে।
                     </p>
                   </div>
 
@@ -822,7 +853,7 @@ export default function BackupClient({
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 mt-2 leading-relaxed pl-6">
-                      নির্বাচিত মডিউলের বর্তমান ডাটা সম্পূর্ণ খালি করে ব্যাকআপের নতুন ডাটা দিয়ে ডাটাবেজ পুনর্গঠন করবে।
+                      বর্তমান ডাটাবেজ খালি করে ব্যাকআপের সম্পূর্ণ নতুন তথ্য স্থাপন করবে।
                     </p>
                   </div>
                 </div>
