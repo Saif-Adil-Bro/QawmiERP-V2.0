@@ -6,20 +6,33 @@ import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { revalidatePath } from "next/cache";
 
 export type BackupModuleKey = 
-  | "students"
-  | "academic"
-  | "attendance"
-  | "exams"
-  | "finance"
-  | "fundraising"
-  | "staff"
-  | "boarding"
-  | "library"
-  | "communication"
-  | "certificates"
-  | "leaves"
-  | "inventory"
-  | "settings"
+  | "students"               // শিক্ষার্থী ও প্রোফাইল
+  | "admissions"             // ভর্তি ব্যবস্থাপনা
+  | "academic"               // জামাত, বিষয় ও সিলেবাস
+  | "routines"               // ক্লাস ও পরীক্ষার রুটিন
+  | "hifz_kitab"             // হিফজুল কুরআন ও কিতাব লগ
+  | "attendance"             // হাজিরা ও বায়োমেট্রিক
+  | "leaves"                 // শিক্ষার্থী ও শিক্ষক ছুটি
+  | "exams"                  // পরীক্ষা ও মেধা মূল্যায়ন
+  | "question_bank"          // প্রশ্নব্যাংক ও প্রশ্নপত্র
+  | "fees"                   // শিক্ষার্থী ফি ও বকেয়া
+  | "finance_transactions"   // ফি আদায়, রসিদ ও ক্যাশবুক
+  | "expenses"               // সাধারণ ব্যয় ও মেস বাজার
+  | "zakat_donations"        // যাকাত, অনুদান ও রসিদ
+  | "donors_funds"           // কেন্দ্রীয় দাতা রেজিস্টার ও ফান্ড
+  | "fundraising_special"    // বিশেষ তহবিল (মাহফিল, চামড়া, দান বাক্স)
+  | "payment_gateway"        // অনলাইন পেমেন্ট গেটওয়ে ও ট্রানজেকশন
+  | "id_cards"               // ডিজিটাল স্মার্ট আইডি কার্ড
+  | "certificates"           // সনদপত্র ও প্রশংসাপত্র
+  | "boarding"               // বোর্ডিং, মেস ও মিল রেজিস্টার
+  | "library"                // গ্রন্থাগার ও কিতাব ইস্যু
+  | "inventory"              // সম্পদ ও ইনভেন্টরি মজুদ
+  | "staff"                  // শিক্ষক, স্টাফ ও একাউন্টস
+  | "communication"          // অভিভাবক যোগাযোগ ও অভিযোগ
+  | "notices_sms"            // নোটিশ বোর্ড ও বাল্ক এসএমএস
+  | "alumni"                 // কওমি অ্যালামনাই নেটওয়ার্ক
+  | "settings"               // শিক্ষাবর্ষ, সেশন ও সেটিংস
+  | "audit_logs"             // অডিট ট্রেইল ও সিস্টেম লগ
   | "all_metadata"
   | string;
 
@@ -82,6 +95,8 @@ export interface BackupPayload {
     donation_boxes?: any[];
     box_collections?: any[];
     online_donations?: any[];
+    online_settings?: any;
+    gateways?: any[];
     id_cards?: any[];
     id_card_templates?: any[];
     certificates?: any[];
@@ -103,6 +118,7 @@ export interface BackupPayload {
     sms_logs?: any[];
     sessions?: any[];
     academic_holidays?: any[];
+    audit_logs?: any[];
     [key: string]: any;
   };
 }
@@ -126,21 +142,34 @@ export interface BackupOverviewStats {
   total_records: number;
   counts: {
     students: number;
+    admissions: number;
     classes: number;
     subjects: number;
-    teachers: number;
+    routines: number;
+    hifz_kitab: number;
+    attendance_records: number;
+    leaves: number;
     exams: number;
     exam_results: number;
-    attendance_records: number;
-    fees_and_transactions: number;
-    fundraising_records: number;
-    id_and_certificates: number;
-    leaves_and_alumni: number;
+    question_bank: number;
+    fees: number;
+    finance_transactions: number;
+    expenses: number;
+    zakat_donations: number;
+    donors_funds: number;
+    fundraising_special: number;
+    payment_gateway: number;
+    id_cards: number;
+    certificates: number;
+    boarding_meals: number;
+    library_books: number;
     inventory_items: number;
-    hifz_logs: number;
-    meals: number;
-    books: number;
-    notices: number;
+    teachers_staff: number;
+    parent_feedbacks: number;
+    notices_sms: number;
+    alumni: number;
+    sessions_settings: number;
+    audit_logs: number;
     dynamic_extensions: number;
     [key: string]: number;
   };
@@ -280,53 +309,85 @@ export async function getBackupOverviewStats(): Promise<{
       admin.from("notices").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
     ]);
 
-    const studentCount = (studentsRes.count || 0) + countCollectionItems(meta.admissions) + countCollectionItems(meta.student_enrollments);
+    const studentCount = (studentsRes.count || 0) + countCollectionItems(meta.student_enrollments) + countCollectionItems(meta.student_profiles);
+    const admissionsCount = countCollectionItems(meta.admissions);
     const classCount = classesRes.count || 0;
-    const subjectCount = subjectsRes.count || 0;
-    const teacherCount = teachersRes.count || 0;
-    const examCount = examsRes.count || 0;
-    const examResultCount = examResultsRes.count || 0;
-    const attCount = attRes.count || 0;
+    const subjectCount = (subjectsRes.count || 0) + countCollectionItems(meta.syllabus);
+    const routinesCount = countCollectionItems(meta.routines) + countCollectionItems(meta.exam_routines);
+    const hifzKitabCount = (hifzRes.count || 0) + countCollectionItems(meta.kitab_logs);
+    const attCount = (attRes.count || 0) + countCollectionItems(meta.teacher_attendance);
+    const leavesCount = countCollectionItems(meta.student_leaves) + countCollectionItems(meta.teacher_leaves);
+    const examCount = (examsRes.count || 0) + countCollectionItems(meta.exam_subjects);
+    const examResultCount = (examResultsRes.count || 0) + countCollectionItems(meta.published_exams);
+    const questionBankCount = countCollectionItems(meta.question_bank) + countCollectionItems(meta.exam_papers);
     
-    // Comprehensive finance count (DB tables + Metadata fee ledger + donations)
-    const dbFinanceCount = (feesRes.count || 0) + (expRes.count || 0);
-    const metaFinanceCount = 
+    // Fees ledger & setup
+    const feesCount = 
       countCollectionItems(meta.student_fees) +
-      countCollectionItems(meta.payments) +
       countCollectionItems(meta.fee_structures) +
+      countCollectionItems(meta.fee_types) +
       countCollectionItems(meta.discounts);
-    const financeCount = dbFinanceCount + metaFinanceCount;
-
-    // Fundraising records (Mahfil, Life members, Subscriptions, Leather, Donation boxes)
-    const fundraisingCount =
+      
+    // Cash transactions & fee collection receipts
+    const financeTransactionsCount = (feesRes.count || 0) + countCollectionItems(meta.payments);
+    
+    // Expenses and Bazar
+    const expensesCount = (expRes.count || 0) + countCollectionItems(meta.bazar_expenses);
+    
+    // Zakat & General Donations (Zakat, General, Lillah, and online donations)
+    const zakatDonationsCount =
+      countCollectionItems(meta.donations) +
+      countCollectionItems(meta.zakat_funds) +
+      countCollectionItems(meta.online_donations);
+      
+    // Donors Register & Fund Categories
+    const donorsFundsCount =
+      countCollectionItems(meta.donors) +
+      countCollectionItems(meta.funds);
+      
+    // Special Fundraising (Mahfil, Life members, Subscriptions, Leather, Donation boxes)
+    const fundraisingSpecialCount =
       countCollectionItems(meta.mahfils) +
       countCollectionItems(meta.life_members) +
       countCollectionItems(meta.subscription_payments) +
       countCollectionItems(meta.qurbani_leathers) +
       countCollectionItems(meta.donation_boxes) +
-      countCollectionItems(meta.box_collections) +
-      countCollectionItems(meta.online_donations);
+      countCollectionItems(meta.box_collections);
+      
+    // Payment Gateway & API configs
+    const paymentGatewayCount =
+      countCollectionItems(meta.gateways) +
+      (meta.online_settings ? 1 : 0);
 
     // ID Cards & Certificates
-    const idCertCount =
-      countCollectionItems(meta.id_cards) +
-      countCollectionItems(meta.id_card_templates) +
-      countCollectionItems(meta.certificates) +
-      countCollectionItems(meta.certificate_templates);
+    const idCardsCount = countCollectionItems(meta.id_cards) + countCollectionItems(meta.id_card_templates);
+    const certificatesCount = countCollectionItems(meta.certificates) + countCollectionItems(meta.certificate_templates);
 
-    // Leaves & Alumni
-    const leavesAlumniCount =
-      countCollectionItems(meta.student_leaves) +
-      countCollectionItems(meta.teacher_leaves) +
-      countCollectionItems(meta.alumni);
-
-    // Inventory & Asset items
+    // Boarding, Library, Inventory
+    const boardingMealsCount = (mealsRes.count || 0) + countCollectionItems(meta.meal_entries);
+    const libraryBooksCount = (booksRes.count || 0) + countCollectionItems(meta.book_issues);
     const inventoryCount = countCollectionItems(meta.inventory?.items || meta.inventory);
 
-    const hifzCount = (hifzRes.count || 0) + countCollectionItems(meta.kitab_logs);
-    const mealsCount = mealsRes.count || 0;
-    const booksCount = booksRes.count || 0;
-    const noticesCount = (noticesRes.count || 0) + countCollectionItems(meta.sms_logs);
+    // Staff & Users
+    const teachersStaffCount = (teachersRes.count || 0) + countCollectionItems(meta.users);
+
+    // Parent communication & complaints
+    const parentFeedbacksCount = countCollectionItems(meta.parent_feedbacks) + countCollectionItems(meta.parent_appointments);
+
+    // Notices & SMS
+    const noticesSmsCount = (noticesRes.count || 0) + countCollectionItems(meta.sms_templates) + countCollectionItems(meta.sms_logs);
+
+    // Alumni
+    const alumniCount = countCollectionItems(meta.alumni);
+
+    // Sessions & Settings
+    const sessionsSettingsCount =
+      countCollectionItems(meta.sessions) +
+      countCollectionItems(meta.academic_holidays) +
+      1; // Madrasa profile settings
+
+    // Audit logs
+    const auditLogsCount = countCollectionItems(meta.audit_logs) + countCollectionItems(meta.backup_history);
 
     // Dynamic extensions (any other custom keys in metadata that aren't specifically categorized above)
     const standardMetaKeys = new Set([
@@ -337,7 +398,9 @@ export async function getBackupOverviewStats(): Promise<{
       "online_donations", "online_settings", "id_cards", "id_card_templates",
       "certificates", "certificate_templates", "student_leaves", "teacher_leaves",
       "alumni", "inventory", "parent_feedbacks", "parent_appointments", "absence_alert_settings",
-      "fee_alert_settings", "syllabus", "published_exams", "kitab_logs", "sms_logs"
+      "fee_alert_settings", "syllabus", "published_exams", "kitab_logs", "sms_logs",
+      "donors", "donations", "funds", "zakat_funds", "routines", "exam_routines", "question_bank",
+      "exam_papers", "bazar_expenses", "gateways", "read_notification_ids"
     ]);
 
     let dynamicExtensionsCount = 0;
@@ -349,24 +412,35 @@ export async function getBackupOverviewStats(): Promise<{
 
     const totalRecords =
       studentCount +
+      admissionsCount +
       classCount +
       subjectCount +
-      teacherCount +
+      routinesCount +
+      hifzKitabCount +
+      attCount +
+      leavesCount +
       examCount +
       examResultCount +
-      attCount +
-      financeCount +
-      fundraisingCount +
-      idCertCount +
-      leavesAlumniCount +
+      questionBankCount +
+      feesCount +
+      financeTransactionsCount +
+      expensesCount +
+      zakatDonationsCount +
+      donorsFundsCount +
+      fundraisingSpecialCount +
+      paymentGatewayCount +
+      idCardsCount +
+      certificatesCount +
+      boardingMealsCount +
+      libraryBooksCount +
       inventoryCount +
-      hifzCount +
-      mealsCount +
-      booksCount +
-      noticesCount +
-      dynamicExtensionsCount +
-      countCollectionItems(meta.sessions) +
-      countCollectionItems(meta.syllabus);
+      teachersStaffCount +
+      parentFeedbacksCount +
+      noticesSmsCount +
+      alumniCount +
+      sessionsSettingsCount +
+      auditLogsCount +
+      dynamicExtensionsCount;
 
     const history: BackupAuditEntry[] = meta.backup_history || [];
     const lastBackup = history.find((h) => h.type === "BACKUP_EXPORT") || history[0] || null;
@@ -379,21 +453,34 @@ export async function getBackupOverviewStats(): Promise<{
         total_records: totalRecords,
         counts: {
           students: studentCount,
+          admissions: admissionsCount,
           classes: classCount,
           subjects: subjectCount,
-          teachers: teacherCount,
+          routines: routinesCount,
+          hifz_kitab: hifzKitabCount,
+          attendance_records: attCount,
+          leaves: leavesCount,
           exams: examCount,
           exam_results: examResultCount,
-          attendance_records: attCount,
-          fees_and_transactions: financeCount,
-          fundraising_records: fundraisingCount,
-          id_and_certificates: idCertCount,
-          leaves_and_alumni: leavesAlumniCount,
+          question_bank: questionBankCount,
+          fees: feesCount,
+          finance_transactions: financeTransactionsCount,
+          expenses: expensesCount,
+          zakat_donations: zakatDonationsCount,
+          donors_funds: donorsFundsCount,
+          fundraising_special: fundraisingSpecialCount,
+          payment_gateway: paymentGatewayCount,
+          id_cards: idCardsCount,
+          certificates: certificatesCount,
+          boarding_meals: boardingMealsCount,
+          library_books: libraryBooksCount,
           inventory_items: inventoryCount,
-          hifz_logs: hifzCount,
-          meals: mealsCount,
-          books: booksCount,
-          notices: noticesCount,
+          teachers_staff: teachersStaffCount,
+          parent_feedbacks: parentFeedbacksCount,
+          notices_sms: noticesSmsCount,
+          alumni: alumniCount,
+          sessions_settings: sessionsSettingsCount,
+          audit_logs: auditLogsCount,
           dynamic_extensions: dynamicExtensionsCount,
         },
         last_backup: lastBackup,
@@ -686,25 +773,35 @@ export async function analyzeBackupFile(fileContent: string): Promise<{
       return { isValid: false, error: "এই ফাইলে কোনো চেনার উপযোগী কওমি ব্যাকআপ ডেটা পাওয়া যায়নি।" };
     }
 
-    // Dynamic Category Calculation Engine
+    // Dynamic Granular Category Calculation Engine
     const moduleCounts: Record<string, number> = {
-      students: countCollectionItems(dataObj.students) + countCollectionItems(dataObj.admissions) + countCollectionItems(dataObj.student_enrollments),
-      classes: countCollectionItems(dataObj.classes),
-      subjects: countCollectionItems(dataObj.subjects) + countCollectionItems(dataObj.class_subjects) + countCollectionItems(dataObj.teacher_subjects) + countCollectionItems(dataObj.routines),
-      teachers: countCollectionItems(dataObj.teachers) + countCollectionItems(dataObj.users),
+      students: countCollectionItems(dataObj.students) + countCollectionItems(dataObj.student_enrollments) + countCollectionItems(dataObj.student_profiles),
+      admissions: countCollectionItems(dataObj.admissions),
+      academic: countCollectionItems(dataObj.classes) + countCollectionItems(dataObj.subjects) + countCollectionItems(dataObj.class_subjects) + countCollectionItems(dataObj.teacher_subjects) + countCollectionItems(dataObj.syllabus),
+      routines: countCollectionItems(dataObj.routines) + countCollectionItems(dataObj.exam_routines),
+      hifz_kitab: countCollectionItems(dataObj.hifz_logs) + countCollectionItems(dataObj.kitab_logs),
       attendance: countCollectionItems(dataObj.attendance) + countCollectionItems(dataObj.teacher_attendance),
-      exams: countCollectionItems(dataObj.exams) + countCollectionItems(dataObj.exam_subjects) + countCollectionItems(dataObj.exam_routines),
-      exam_results: countCollectionItems(dataObj.exam_results) + countCollectionItems(dataObj.question_bank) + countCollectionItems(dataObj.exam_papers),
-      finance: countCollectionItems(dataObj.fees) + countCollectionItems(dataObj.expenses) + countCollectionItems(dataObj.bazar_expenses) + countCollectionItems(dataObj.donations) + countCollectionItems(dataObj.funds) + countCollectionItems(dataObj.student_fees) + countCollectionItems(dataObj.payments) + countCollectionItems(dataObj.fee_structures) + countCollectionItems(dataObj.discounts),
-      fundraising: countCollectionItems(dataObj.mahfils) + countCollectionItems(dataObj.life_members) + countCollectionItems(dataObj.subscription_payments) + countCollectionItems(dataObj.qurbani_leathers) + countCollectionItems(dataObj.donation_boxes) + countCollectionItems(dataObj.box_collections) + countCollectionItems(dataObj.online_donations),
-      certificates_and_id: countCollectionItems(dataObj.id_cards) + countCollectionItems(dataObj.id_card_templates) + countCollectionItems(dataObj.certificates) + countCollectionItems(dataObj.certificate_templates),
-      leaves_and_alumni: countCollectionItems(dataObj.student_leaves) + countCollectionItems(dataObj.teacher_leaves) + countCollectionItems(dataObj.alumni),
+      leaves: countCollectionItems(dataObj.student_leaves) + countCollectionItems(dataObj.teacher_leaves),
+      exams: countCollectionItems(dataObj.exams) + countCollectionItems(dataObj.exam_subjects) + countCollectionItems(dataObj.exam_results) + countCollectionItems(dataObj.published_exams),
+      question_bank: countCollectionItems(dataObj.question_bank) + countCollectionItems(dataObj.exam_papers),
+      fees: countCollectionItems(dataObj.fee_structures) + countCollectionItems(dataObj.student_fees) + countCollectionItems(dataObj.discounts) + countCollectionItems(dataObj.fee_types),
+      finance_transactions: countCollectionItems(dataObj.fees) + countCollectionItems(dataObj.payments),
+      expenses: countCollectionItems(dataObj.expenses) + countCollectionItems(dataObj.bazar_expenses),
+      zakat_donations: countCollectionItems(dataObj.donations) + countCollectionItems(dataObj.zakat_funds) + countCollectionItems(dataObj.online_donations),
+      donors_funds: countCollectionItems(dataObj.donors) + countCollectionItems(dataObj.funds),
+      fundraising_special: countCollectionItems(dataObj.mahfils) + countCollectionItems(dataObj.life_members) + countCollectionItems(dataObj.subscription_payments) + countCollectionItems(dataObj.qurbani_leathers) + countCollectionItems(dataObj.donation_boxes) + countCollectionItems(dataObj.box_collections),
+      payment_gateway: countCollectionItems(dataObj.gateways) + (dataObj.online_settings ? 1 : 0),
+      id_cards: countCollectionItems(dataObj.id_cards) + countCollectionItems(dataObj.id_card_templates),
+      certificates: countCollectionItems(dataObj.certificates) + countCollectionItems(dataObj.certificate_templates),
+      boarding: countCollectionItems(dataObj.meal_entries),
+      library: countCollectionItems(dataObj.books) + countCollectionItems(dataObj.book_issues),
       inventory: countCollectionItems(dataObj.inventory?.items || dataObj.inventory),
-      hifz_logs: countCollectionItems(dataObj.hifz_logs) + countCollectionItems(dataObj.kitab_logs),
-      meals: countCollectionItems(dataObj.meal_entries),
-      books: countCollectionItems(dataObj.books) + countCollectionItems(dataObj.book_issues),
-      notices: countCollectionItems(dataObj.notices) + countCollectionItems(dataObj.sms_templates) + countCollectionItems(dataObj.sms_logs),
-      syllabus_and_settings: countCollectionItems(dataObj.syllabus) + countCollectionItems(dataObj.sessions) + countCollectionItems(dataObj.academic_holidays),
+      staff: countCollectionItems(dataObj.teachers) + countCollectionItems(dataObj.users),
+      communication: countCollectionItems(dataObj.parent_feedbacks) + countCollectionItems(dataObj.parent_appointments),
+      notices_sms: countCollectionItems(dataObj.notices) + countCollectionItems(dataObj.sms_templates) + countCollectionItems(dataObj.sms_logs),
+      alumni: countCollectionItems(dataObj.alumni),
+      settings: countCollectionItems(dataObj.sessions) + countCollectionItems(dataObj.academic_holidays) + (dataObj.madrasa ? 1 : 0),
+      audit_logs: countCollectionItems(dataObj.audit_logs) + countCollectionItems(dataObj.backup_history),
     };
 
     // Calculate dynamic unknown extension keys

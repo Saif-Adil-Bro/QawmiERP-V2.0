@@ -9,7 +9,18 @@ import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { revalidatePath } from "next/cache";
 
-export type NotificationCategory = "LEAVE" | "COMPLAINT" | "ADMISSION" | "ACADEMIC" | "FINANCE" | "SYSTEM";
+export type NotificationCategory =
+  | "LEAVE"
+  | "COMPLAINT"
+  | "ADMISSION"
+  | "ACADEMIC"
+  | "FINANCE"
+  | "PAYMENT"
+  | "ATTENDANCE"
+  | "LIBRARY"
+  | "INVENTORY"
+  | "SYSTEM";
+
 export type NotificationSeverity = "INFO" | "WARNING" | "SUCCESS" | "CRITICAL";
 
 export interface GlobalNotificationItem {
@@ -21,6 +32,7 @@ export interface GlobalNotificationItem {
   relativeTime?: string;
   link: string;
   status: "UNREAD" | "READ" | "PENDING" | "RESOLVED";
+  isRead?: boolean;
   severity: NotificationSeverity;
   metadata?: Record<string, any>;
   sourceModule: string;
@@ -34,6 +46,9 @@ export interface NotificationStats {
   pendingLeaves: number;
   pendingComplaints: number;
   pendingAdmissions: number;
+  pendingPayments: number;
+  pendingDonations: number;
+  pendingAlerts: number;
 }
 
 /**
@@ -61,18 +76,44 @@ export async function getRelativeTimeBangla(dateStr: string): Promise<string> {
 }
 
 /**
- * Aggregates all global notifications across leaves, feedbacks, admissions, and system events
+ * Aggregates all global notifications across all madrasa modules with persistent read tracking
  */
-export async function getGlobalNotifications(limit = 40): Promise<{
+export async function getGlobalNotifications(limit = 60): Promise<{
   notifications: GlobalNotificationItem[];
   stats: NotificationStats;
+  readIds: string[];
 }> {
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
+    if (!madrasaId) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: firstM } = await adminClient
+          .from("madrasas")
+          .select("id")
+          .limit(1)
+          .single();
+        madrasaId = firstM?.id || null;
+      } catch {}
+    }
 
     const items: GlobalNotificationItem[] = [];
+    let meta: any = {};
+    let persistentReadIds: string[] = [];
+
+    if (madrasaId) {
+      try {
+        meta = await getMadrasaMetadata(madrasaId);
+        persistentReadIds = Array.isArray(meta.read_notification_ids) ? meta.read_notification_ids : [];
+      } catch (err) {
+        console.warn("Error fetching madrasa metadata for notifications:", err);
+      }
+    }
+
+    const readSet = new Set(persistentReadIds);
 
     // 1. Fetch Leaves Data (Both Student and Teacher)
     try {
@@ -82,6 +123,7 @@ export async function getGlobalNotifications(limit = 40): Promise<{
         const teacherLeaves: TeacherLeaveApplication[] = leaveResult.teacherLeaves || [];
 
         studentLeaves.forEach((s) => {
+          const isPending = s.status === "PENDING";
           items.push({
             id: `leave-student-${s.id}`,
             category: "LEAVE",
@@ -89,8 +131,8 @@ export async function getGlobalNotifications(limit = 40): Promise<{
             description: `${s.leave_type || "ছুটি"} • জামাত: ${s.class_name || "অনির্দিষ্ট"} • মেয়াদ: ${s.start_date} হতে ${s.end_date} (${toBanglaNumber(s.total_days)} দিন)। কারণ: ${s.reason}`,
             timestamp: s.created_at || new Date().toISOString(),
             link: "/dashboard/attendance/leaves",
-            status: s.status === "PENDING" ? "PENDING" : "RESOLVED",
-            severity: s.status === "PENDING" ? "WARNING" : "INFO",
+            status: isPending ? "PENDING" : "RESOLVED",
+            severity: isPending ? "WARNING" : "INFO",
             sourceModule: "হাজিরা ও ছুটি",
             senderName: s.student_name,
             senderRole: "শিক্ষার্থী",
@@ -103,6 +145,7 @@ export async function getGlobalNotifications(limit = 40): Promise<{
         });
 
         teacherLeaves.forEach((t) => {
+          const isPending = t.status === "PENDING";
           items.push({
             id: `leave-teacher-${t.id}`,
             category: "LEAVE",
@@ -110,8 +153,8 @@ export async function getGlobalNotifications(limit = 40): Promise<{
             description: `${t.leave_type_name_bn || "ছুটি"} • পদবি: ${t.designation || "শিক্ষক"} • মেয়াদ: ${t.start_date} হতে ${t.end_date} (${toBanglaNumber(t.total_days)} দিন)। কারণ: ${t.reason}`,
             timestamp: t.created_at || new Date().toISOString(),
             link: "/dashboard/attendance/leaves",
-            status: t.status === "PENDING" ? "PENDING" : "RESOLVED",
-            severity: t.status === "PENDING" ? "WARNING" : "INFO",
+            status: isPending ? "PENDING" : "RESOLVED",
+            severity: isPending ? "WARNING" : "INFO",
             sourceModule: "হাজিরা ও ছুটি",
             senderName: t.teacher_name,
             senderRole: "শিক্ষক/স্টাফ",
@@ -132,6 +175,7 @@ export async function getGlobalNotifications(limit = 40): Promise<{
       const feedbacks: ParentFeedbackItem[] = await getParentFeedbacks();
       feedbacks.forEach((f) => {
         const isComplaint = f.action_type === "COMPLAINT";
+        const isPending = f.status === "PENDING";
         items.push({
           id: `feedback-${f.id}`,
           category: "COMPLAINT",
@@ -139,7 +183,7 @@ export async function getGlobalNotifications(limit = 40): Promise<{
           description: `বিষয়: ${f.subject} • শিক্ষার্থী: ${f.student_name || "অনির্দিষ্ট"} (${f.class_name || ""}) • বিবরণ: ${f.description?.slice(0, 90) || ""}`,
           timestamp: f.created_at || new Date().toISOString(),
           link: "/dashboard/communication/feedback",
-          status: f.status === "PENDING" ? "PENDING" : "RESOLVED",
+          status: isPending ? "PENDING" : "RESOLVED",
           severity: isComplaint ? "CRITICAL" : "INFO",
           sourceModule: "অভিভাবক যোগাযোগ",
           senderName: f.guardian_name,
@@ -168,7 +212,7 @@ export async function getGlobalNotifications(limit = 40): Promise<{
           timestamp: a.created_at || new Date().toISOString(),
           link: "/dashboard/admissions",
           status: isPending ? "PENDING" : "RESOLVED",
-          severity: "INFO",
+          severity: isPending ? "INFO" : "SUCCESS",
           sourceModule: "ভর্তি ব্যবস্থাপনা",
           senderName: a.applicant_name_bn,
           senderRole: "ভর্তিচ্ছু শিক্ষার্থী",
@@ -182,10 +226,163 @@ export async function getGlobalNotifications(limit = 40): Promise<{
       console.warn("Notification error fetching admissions:", err);
     }
 
-    // 4. Fetch Custom System Notifications & Broadcasts
+    // 4. Fetch Online & Offline Fee Payments (New Payments)
     if (madrasaId) {
       try {
-        const meta = await getMadrasaMetadata(madrasaId);
+        // Online transactions (bKash, Nagad, etc.)
+        const onlineTxns: any[] = meta.online_transactions || [];
+        onlineTxns.forEach((txn) => {
+          const isSuccess = txn.status === "SUCCESS" || txn.status === "PAID" || txn.status === "COMPLETED";
+          items.push({
+            id: `online-pay-${txn.id || txn.transaction_id}`,
+            category: "PAYMENT",
+            title: `অনলাইন পেমেন্ট: ${txn.student_name || "শিক্ষার্থী"} (৳${toBanglaNumber(txn.amount)})`,
+            description: `গেটওয়ে: ${txn.payment_channel || "অনলাইন"} • ট্রানজেকশন আইডি: ${txn.transaction_id || txn.gateway_trx_id || "N/A"} • রোল: ${txn.student_roll || txn.roll_number || "অনির্দিষ্ট"}`,
+            timestamp: txn.payment_date || txn.created_at || new Date().toISOString(),
+            link: "/dashboard/accounting/gateway",
+            status: isSuccess ? "PENDING" : "RESOLVED", // Pending review by accountant until acknowledged
+            severity: "SUCCESS",
+            sourceModule: "অনলাইন পেমেন্ট গেটওয়ে",
+            senderName: txn.student_name,
+            senderRole: "অভিভাবক / শিক্ষার্থী",
+            metadata: {
+              transaction_id: txn.transaction_id,
+              amount: txn.amount,
+              status: txn.status,
+            },
+          });
+        });
+
+        // General fee payments from fee management
+        const feePayments: any[] = meta.payments || [];
+        feePayments.slice(0, 30).forEach((pay) => {
+          items.push({
+            id: `fee-pay-${pay.id || pay.receipt_no}`,
+            category: "FINANCE",
+            title: `ফি আদায়: রসিদ নং #${toBanglaNumber(pay.receipt_no || "")} (৳${toBanglaNumber(pay.total_amount || pay.amount || 0)})`,
+            description: `শিক্ষার্থী: ${pay.student_name || "শিক্ষার্থী"} • মাধ্যম: ${pay.payment_method || "নগদ"} • তারিখ: ${pay.payment_date || ""}`,
+            timestamp: pay.created_at || (pay.payment_date ? `${pay.payment_date}T12:00:00.000Z` : new Date().toISOString()),
+            link: "/dashboard/accounting/payments",
+            status: "PENDING",
+            severity: "INFO",
+            sourceModule: "ফি ও হিসাব ব্যবস্থাপনা",
+            senderName: pay.collected_by_name || "হিসাবরক্ষক",
+            senderRole: "হিসাব বিভাগ",
+            metadata: {
+              payment_id: pay.id,
+              receipt_no: pay.receipt_no,
+              amount: pay.total_amount || pay.amount,
+            },
+          });
+        });
+      } catch (err) {
+        console.warn("Notification error fetching fee payments:", err);
+      }
+
+      // 5. Fetch Online Donations & Fundraising Collections
+      try {
+        const onlineDonations: any[] = meta.online_donations || [];
+        onlineDonations.slice(0, 20).forEach((don) => {
+          const isVerified = don.status === "VERIFIED" || don.status === "COMPLETED";
+          items.push({
+            id: `donation-${don.id || don.trx_id}`,
+            category: "FINANCE",
+            title: `অনলাইন দান প্রাপ্তি: ৳${toBanglaNumber(don.amount)} (${don.donor_name || "নাম প্রকাশে অনিচ্ছুক"})`,
+            description: `ফান্ড: ${don.fund_name || "সাধারণ ফান্ড"} • মাধ্যম: ${don.payment_method || "অনলাইন"} • ট্রানজেকশন: ${don.trx_id || "N/A"} • ফোন: ${don.donor_phone || "N/A"}`,
+            timestamp: don.date || don.created_at || new Date().toISOString(),
+            link: "/dashboard/fundraising/online-donations",
+            status: isVerified ? "RESOLVED" : "PENDING",
+            severity: "SUCCESS",
+            sourceModule: "অনলাইন অনুদান ও তহবিল",
+            senderName: don.donor_name,
+            senderRole: "সম্মানিত দাতা",
+            metadata: {
+              donation_id: don.id,
+              amount: don.amount,
+              fund_id: don.fund_id,
+            },
+          });
+        });
+      } catch (err) {
+        console.warn("Notification error fetching donations:", err);
+      }
+
+      // 6. Fetch Inventory Low Stock Alerts
+      try {
+        const invItems: any[] = meta.inventory?.items || [];
+        invItems.forEach((item) => {
+          const minStock = Number(item.min_stock_alert || 5);
+          const currentQty = Number(item.quantity || 0);
+          if (currentQty <= minStock) {
+            items.push({
+              id: `inv-low-${item.id}`,
+              category: "INVENTORY",
+              title: `মজুদ ঘাটতি সতর্কতা: ${item.name}`,
+              description: `বর্তমান মজুদ: ${toBanglaNumber(currentQty)} ${item.unit || "টি"} (সর্বনিম্ন সতর্কতা সীমা: ${toBanglaNumber(minStock)} ${item.unit || "টি"}) • ক্যাটাগরি: ${item.category || "মালামাল"}`,
+              timestamp: item.updated_at || item.created_at || new Date().toISOString(),
+              link: "/dashboard/inventory",
+              status: "PENDING",
+              severity: "WARNING",
+              sourceModule: "সম্পদ ও ইনভেন্টরি",
+              senderName: "সিস্টেম ইনভেন্টরি মনিটর",
+              senderRole: "অটোমেশন",
+              metadata: {
+                item_id: item.id,
+                quantity: currentQty,
+                min_stock: minStock,
+              },
+            });
+          }
+        });
+      } catch (err) {
+        console.warn("Notification error fetching inventory alerts:", err);
+      }
+    }
+
+    // 7. Fetch Library Overdue Book Returns (Borrow Records)
+    if (madrasaId) {
+      try {
+        const adminClient = await createAdminClient();
+        const todayStr = new Date().toISOString().split("T")[0];
+        const { data: overdues } = await adminClient
+          .from("borrow_records")
+          .select("id, book_id, student_id, due_date, status, books(title), students(first_name, last_name, roll_number)")
+          .eq("madrasa_id", madrasaId)
+          .eq("status", "BORROWED")
+          .lt("due_date", todayStr)
+          .limit(20);
+
+        if (overdues && overdues.length > 0) {
+          overdues.forEach((b: any) => {
+            const bookTitle = b.books?.title || "কিতাব";
+            const studentName = `${b.students?.first_name || ""} ${b.students?.last_name || ""}`.trim() || "শিক্ষার্থী";
+            items.push({
+              id: `lib-overdue-${b.id}`,
+              category: "LIBRARY",
+              title: `কিতাব ফেরত বিলম্ব: ${bookTitle}`,
+              description: `গ্রহীতা: ${studentName} (রোল: ${toBanglaNumber(b.students?.roll_number || "")}) • নির্ধারিত শেষ তারিখ: ${b.due_date}`,
+              timestamp: b.due_date ? `${b.due_date}T00:00:00.000Z` : new Date().toISOString(),
+              link: "/dashboard/library",
+              status: "PENDING",
+              severity: "WARNING",
+              sourceModule: "মাদরাসা গ্রন্থাগার",
+              senderName: studentName,
+              senderRole: "শিক্ষার্থী",
+              metadata: {
+                borrow_id: b.id,
+                due_date: b.due_date,
+              },
+            });
+          });
+        }
+      } catch (err) {
+        // Table may not have all fields or is optional
+      }
+    }
+
+    // 8. Fetch Custom System Notifications & Broadcasts
+    if (madrasaId && meta.system_notifications) {
+      try {
         const sysList: GlobalNotificationItem[] = meta.system_notifications || [];
         sysList.forEach((sys) => {
           items.push(sys);
@@ -195,26 +392,42 @@ export async function getGlobalNotifications(limit = 40): Promise<{
       }
     }
 
+    // Apply persistent read statuses
+    items.forEach((item) => {
+      const isRead = readSet.has(item.id);
+      item.isRead = isRead;
+      if (isRead) {
+        item.status = "RESOLVED";
+      }
+    });
+
     // Sort by timestamp descending (newest first)
     items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-    // Calculate stats
-    const pendingLeaves = items.filter((i) => i.category === "LEAVE" && i.status === "PENDING").length;
-    const pendingComplaints = items.filter((i) => i.category === "COMPLAINT" && i.status === "PENDING").length;
-    const pendingAdmissions = items.filter((i) => i.category === "ADMISSION" && i.status === "PENDING").length;
-    const totalPending = pendingLeaves + pendingComplaints + pendingAdmissions;
+    // Calculate dynamic stats taking persistent read tracking into account
+    const unreadItems = items.filter((i) => !readSet.has(i.id) && (i.status === "PENDING" || i.status === "UNREAD"));
+    const pendingLeaves = items.filter((i) => i.category === "LEAVE" && !readSet.has(i.id) && i.status === "PENDING").length;
+    const pendingComplaints = items.filter((i) => i.category === "COMPLAINT" && !readSet.has(i.id) && i.status === "PENDING").length;
+    const pendingAdmissions = items.filter((i) => i.category === "ADMISSION" && !readSet.has(i.id) && i.status === "PENDING").length;
+    const pendingPayments = items.filter((i) => (i.category === "PAYMENT" || i.category === "FINANCE") && !readSet.has(i.id) && i.status === "PENDING").length;
+    const pendingDonations = items.filter((i) => i.id.startsWith("donation-") && !readSet.has(i.id) && i.status === "PENDING").length;
+    const pendingAlerts = items.filter((i) => (i.category === "ATTENDANCE" || i.category === "LIBRARY" || i.category === "INVENTORY") && !readSet.has(i.id) && i.status === "PENDING").length;
 
     const stats: NotificationStats = {
       total: items.length,
-      unread: totalPending,
+      unread: unreadItems.length,
       pendingLeaves,
       pendingComplaints,
       pendingAdmissions,
+      pendingPayments,
+      pendingDonations,
+      pendingAlerts,
     };
 
     return {
       notifications: items.slice(0, limit),
       stats,
+      readIds: persistentReadIds,
     };
   } catch (err) {
     console.error("getGlobalNotifications error:", err);
@@ -226,8 +439,166 @@ export async function getGlobalNotifications(limit = 40): Promise<{
         pendingLeaves: 0,
         pendingComplaints: 0,
         pendingAdmissions: 0,
+        pendingPayments: 0,
+        pendingDonations: 0,
+        pendingAlerts: 0,
       },
+      readIds: [],
     };
+  }
+}
+
+/**
+ * Persistently marks a notification as read in the database
+ */
+export async function markNotificationAsRead(notificationId: string): Promise<{
+  success: boolean;
+  readIds?: string[];
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
+    if (!madrasaId) {
+      const adminClient = await createAdminClient();
+      const { data: firstM } = await adminClient
+        .from("madrasas")
+        .select("id")
+        .limit(1)
+        .single();
+      madrasaId = firstM?.id || null;
+    }
+
+    if (!madrasaId) return { success: false, error: "মাদরাসা পাওয়া যায়নি।" };
+
+    const meta = await getMadrasaMetadata(madrasaId);
+    const existingReadIds: string[] = Array.isArray(meta.read_notification_ids) ? meta.read_notification_ids : [];
+
+    if (!existingReadIds.includes(notificationId)) {
+      existingReadIds.push(notificationId);
+      // Keep up to 2500 IDs to avoid bloat
+      if (existingReadIds.length > 2500) {
+        existingReadIds.splice(0, existingReadIds.length - 2500);
+      }
+      meta.read_notification_ids = existingReadIds;
+      await saveMadrasaMetadata(madrasaId, meta);
+    }
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/notifications");
+
+    return { success: true, readIds: existingReadIds };
+  } catch (err: any) {
+    console.error("Error marking notification as read:", err);
+    return { success: false, error: err.message || "পঠিত হিসেবে সংরক্ষণ ব্যর্থ।" };
+  }
+}
+
+/**
+ * Persistently marks all notifications (or a given category) as read in the database
+ */
+export async function markAllNotificationsAsRead(category?: NotificationCategory): Promise<{
+  success: boolean;
+  readIds?: string[];
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
+    if (!madrasaId) {
+      const adminClient = await createAdminClient();
+      const { data: firstM } = await adminClient
+        .from("madrasas")
+        .select("id")
+        .limit(1)
+        .single();
+      madrasaId = firstM?.id || null;
+    }
+
+    if (!madrasaId) return { success: false, error: "মাদরাসা পাওয়া যায়নি।" };
+
+    // Fetch current notifications to gather all IDs
+    const res = await getGlobalNotifications(150);
+    const targetItems = category
+      ? res.notifications.filter((n) => n.category === category)
+      : res.notifications;
+
+    const meta = await getMadrasaMetadata(madrasaId);
+    const currentReadIds: string[] = Array.isArray(meta.read_notification_ids) ? meta.read_notification_ids : [];
+    const readSet = new Set(currentReadIds);
+
+    targetItems.forEach((item) => {
+      readSet.add(item.id);
+    });
+
+    const updatedReadIds = Array.from(readSet);
+    if (updatedReadIds.length > 2500) {
+      updatedReadIds.splice(0, updatedReadIds.length - 2500);
+    }
+
+    meta.read_notification_ids = updatedReadIds;
+    await saveMadrasaMetadata(madrasaId, meta);
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/notifications");
+
+    return { success: true, readIds: updatedReadIds };
+  } catch (err: any) {
+    console.error("Error marking all notifications as read:", err);
+    return { success: false, error: err.message || "সব পঠিত হিসেবে সংরক্ষণ ব্যর্থ।" };
+  }
+}
+
+/**
+ * Toggles or resets read status for a specific notification
+ */
+export async function toggleNotificationReadStatus(notificationId: string, isRead: boolean): Promise<{
+  success: boolean;
+  isRead: boolean;
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
+    if (!madrasaId) {
+      const adminClient = await createAdminClient();
+      const { data: firstM } = await adminClient
+        .from("madrasas")
+        .select("id")
+        .limit(1)
+        .single();
+      madrasaId = firstM?.id || null;
+    }
+
+    if (!madrasaId) return { success: false, isRead: false, error: "মাদরাসা পাওয়া যায়নি।" };
+
+    const meta = await getMadrasaMetadata(madrasaId);
+    let readIds: string[] = Array.isArray(meta.read_notification_ids) ? meta.read_notification_ids : [];
+
+    if (isRead) {
+      if (!readIds.includes(notificationId)) {
+        readIds.push(notificationId);
+      }
+    } else {
+      readIds = readIds.filter((id) => id !== notificationId);
+    }
+
+    meta.read_notification_ids = readIds;
+    await saveMadrasaMetadata(madrasaId, meta);
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/notifications");
+
+    return { success: true, isRead };
+  } catch (err: any) {
+    console.error("Error toggling read status:", err);
+    return { success: false, isRead, error: err.message };
   }
 }
 
@@ -273,6 +644,7 @@ export async function createSystemNotification(data: {
 
     await saveMadrasaMetadata(madrasaId, meta);
     revalidatePath("/dashboard");
+    revalidatePath("/dashboard/notifications");
     return { success: true, notification: newNotification };
   } catch (err) {
     console.error("createSystemNotification error:", err);
@@ -294,8 +666,10 @@ export async function clearSystemNotifications() {
     meta.system_notifications = [];
     await saveMadrasaMetadata(madrasaId, meta);
     revalidatePath("/dashboard");
+    revalidatePath("/dashboard/notifications");
     return { success: true };
   } catch (err) {
     return { error: "ক্লিয়ার করতে সমস্যা হয়েছে।" };
   }
 }
+

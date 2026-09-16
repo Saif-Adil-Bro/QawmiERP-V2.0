@@ -16,9 +16,15 @@ import {
   ChevronRight,
   ShieldAlert,
   Info,
+  Wallet,
+  BookOpen,
+  Package,
+  Layers,
 } from "lucide-react";
 import {
   getGlobalNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
   GlobalNotificationItem,
   NotificationStats,
   NotificationCategory,
@@ -37,11 +43,14 @@ export default function GlobalNotificationBell() {
     pendingLeaves: 0,
     pendingComplaints: 0,
     pendingAdmissions: 0,
+    pendingPayments: 0,
+    pendingDonations: 0,
+    pendingAlerts: 0,
   });
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load read notification IDs from localStorage
+  // Load read notification IDs from localStorage as initial fallback
   useEffect(() => {
     try {
       const stored = localStorage.getItem("qawmi_read_notification_ids");
@@ -57,10 +66,16 @@ export default function GlobalNotificationBell() {
   const loadNotifications = async () => {
     try {
       setLoading(true);
-      const res = await getGlobalNotifications(35);
+      const res = await getGlobalNotifications(45);
       if (res && res.notifications) {
         setNotifications(res.notifications);
         setStats(res.stats);
+        if (res.readIds && Array.isArray(res.readIds)) {
+          setReadIds(new Set(res.readIds));
+          try {
+            localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(res.readIds));
+          } catch {}
+        }
       }
     } catch (err) {
       console.warn("Failed to load notifications:", err);
@@ -72,8 +87,8 @@ export default function GlobalNotificationBell() {
   useEffect(() => {
     loadNotifications();
 
-    // Poll every 60 seconds
-    const interval = setInterval(loadNotifications, 60000);
+    // Poll every 45 seconds
+    const interval = setInterval(loadNotifications, 45000);
     return () => clearInterval(interval);
   }, []);
 
@@ -101,31 +116,43 @@ export default function GlobalNotificationBell() {
     };
   }, [isOpen]);
 
-  // Compute unread count considering local readIds
+  // Compute unread count considering persistent readIds
   const effectiveUnreadCount = notifications.filter((n) => {
     if (readIds.has(n.id)) return false;
     return n.status === "PENDING" || n.status === "UNREAD";
   }).length;
 
-  const handleMarkAllAsRead = () => {
-    const allIds = new Set(notifications.map((n) => n.id));
+  const handleMarkAllAsRead = async () => {
+    const allIds = new Set([...Array.from(readIds), ...notifications.map((n) => n.id)]);
     setReadIds(allIds);
     try {
       localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(Array.from(allIds)));
-    } catch {
-      // ignore
+    } catch {}
+
+    // Persist to database
+    try {
+      const res = await markAllNotificationsAsRead(activeTab === "ALL" ? undefined : activeTab);
+      if (res.readIds) {
+        setReadIds(new Set(res.readIds));
+      }
+    } catch (err) {
+      console.error("Error persisting mark all as read:", err);
     }
   };
 
-  const handleNotificationClick = (item: GlobalNotificationItem) => {
+  const handleNotificationClick = async (item: GlobalNotificationItem) => {
     const nextReadIds = new Set(readIds);
     nextReadIds.add(item.id);
     setReadIds(nextReadIds);
     try {
       localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(Array.from(nextReadIds)));
-    } catch {
-      // ignore
-    }
+    } catch {}
+
+    // Persist to server
+    try {
+      markNotificationAsRead(item.id);
+    } catch {}
+
     setIsOpen(false);
     router.push(item.link);
   };
@@ -133,6 +160,7 @@ export default function GlobalNotificationBell() {
   // Filter items based on active tab
   const filteredItems = notifications.filter((item) => {
     if (activeTab === "ALL") return true;
+    if (activeTab === "PAYMENT") return item.category === "PAYMENT" || item.category === "FINANCE";
     return item.category === activeTab;
   });
 
@@ -157,6 +185,13 @@ export default function GlobalNotificationBell() {
 
   const getCategoryIcon = (category: NotificationCategory, severity: string) => {
     switch (category) {
+      case "PAYMENT":
+      case "FINANCE":
+        return (
+          <div className="p-2 bg-emerald-100 text-emerald-800 rounded-xl shrink-0">
+            <Wallet className="w-4 h-4" />
+          </div>
+        );
       case "LEAVE":
         return (
           <div className="p-2 bg-amber-100 text-amber-800 rounded-xl shrink-0">
@@ -165,19 +200,32 @@ export default function GlobalNotificationBell() {
         );
       case "COMPLAINT":
         return (
-          <div className={`p-2 rounded-xl shrink-0 ${severity === "CRITICAL" ? "bg-red-100 text-red-800" : "bg-purple-100 text-purple-800"}`}>
+          <div className={`p-2 rounded-xl shrink-0 ${severity === "CRITICAL" ? "bg-rose-100 text-rose-800" : "bg-purple-100 text-purple-800"}`}>
             <MessageSquare className="w-4 h-4" />
           </div>
         );
       case "ADMISSION":
         return (
-          <div className="p-2 bg-emerald-100 text-emerald-800 rounded-xl shrink-0">
+          <div className="p-2 bg-indigo-100 text-indigo-800 rounded-xl shrink-0">
             <UserPlus className="w-4 h-4" />
           </div>
         );
-      case "ACADEMIC":
+      case "LIBRARY":
         return (
           <div className="p-2 bg-blue-100 text-blue-800 rounded-xl shrink-0">
+            <BookOpen className="w-4 h-4" />
+          </div>
+        );
+      case "INVENTORY":
+        return (
+          <div className="p-2 bg-orange-100 text-orange-800 rounded-xl shrink-0">
+            <Package className="w-4 h-4" />
+          </div>
+        );
+      case "ACADEMIC":
+      case "ATTENDANCE":
+        return (
+          <div className="p-2 bg-cyan-100 text-cyan-800 rounded-xl shrink-0">
             <Calendar className="w-4 h-4" />
           </div>
         );
@@ -276,6 +324,23 @@ export default function GlobalNotificationBell() {
               }`}
             >
               সব ({toBanglaNumber(notifications.length)})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("PAYMENT")}
+              className={`px-2.5 py-1 rounded-lg font-bold text-xs whitespace-nowrap transition flex items-center gap-1 ${
+                activeTab === "PAYMENT"
+                  ? "bg-emerald-600 text-white shadow-xs"
+                  : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200/60"
+              }`}
+            >
+              <span>পেমেন্ট ও ফি</span>
+              {stats.pendingPayments > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-200 text-emerald-950 font-black">
+                  {toBanglaNumber(stats.pendingPayments)}
+                </span>
+              )}
             </button>
 
             <button

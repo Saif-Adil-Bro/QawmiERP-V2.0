@@ -41,12 +41,17 @@ import {
   Laptop,
   Smartphone,
   Globe,
+  Package,
 } from "lucide-react";
 import {
   GlobalNotificationItem,
   NotificationStats,
   NotificationCategory,
   createSystemNotification,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  toggleNotificationReadStatus,
+  getGlobalNotifications,
 } from "@/app/actions/notifications";
 import {
   GlobalActivityLogItem,
@@ -475,16 +480,99 @@ export default function NotificationsClient({
 
   const getCategoryBadge = (category: NotificationCategory) => {
     switch (category) {
+      case "PAYMENT":
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-900 border border-emerald-200">অনলাইন পেমেন্ট</span>;
+      case "FINANCE":
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-teal-100 text-teal-900 border border-teal-200">ফি ও অনুদান</span>;
       case "LEAVE":
         return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-900 border border-amber-200">ছুটির আবেদন</span>;
       case "COMPLAINT":
         return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-100 text-rose-900 border border-rose-200">অভিযোগ ও পরামর্শ</span>;
       case "ADMISSION":
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-900 border border-emerald-200">ভর্তি আবেদন</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-100 text-indigo-900 border border-indigo-200">ভর্তি আবেদন</span>;
+      case "LIBRARY":
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-100 text-blue-900 border border-blue-200">গ্রন্থাগার রিটার্ন</span>;
+      case "INVENTORY":
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-orange-100 text-orange-900 border border-orange-200">ইনভেন্টরি মজুদ</span>;
+      case "ATTENDANCE":
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-100 text-cyan-900 border border-cyan-200">অনুপস্থিতি এলার্ট</span>;
       case "ACADEMIC":
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-100 text-blue-900 border border-blue-200">অ্যাকাডেমিক</span>;
+        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-100 text-purple-900 border border-purple-200">অ্যাকাডেমিক</span>;
       default:
         return <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200">সিস্টেম নোটিশ</span>;
+    }
+  };
+
+  const [isRefreshingNotifs, setIsRefreshingNotifs] = useState(false);
+
+  const handleRefreshNotifications = async () => {
+    try {
+      setIsRefreshingNotifs(true);
+      const res = await getGlobalNotifications(100);
+      if (res && res.notifications) {
+        setNotifications(res.notifications);
+        setStats(res.stats);
+        setFeedbackMsg("নোটিফিকেশন তালিকা সফলভাবে রিফ্রেশ হয়েছে!");
+        setTimeout(() => setFeedbackMsg(""), 3000);
+      }
+    } catch {
+      alert("নোটিফিকেশন রিফ্রেশ করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsRefreshingNotifs(false);
+    }
+  };
+
+  const handleToggleRead = async (item: GlobalNotificationItem) => {
+    const isCurrentlyRead = item.isRead || item.status === "RESOLVED";
+    const nextIsRead = !isCurrentlyRead;
+
+    // Optimistic UI update
+    setNotifications((prev) =>
+      prev.map((n) => {
+        if (n.id === item.id) {
+          return {
+            ...n,
+            isRead: nextIsRead,
+            status: nextIsRead ? "RESOLVED" : "PENDING",
+          };
+        }
+        return n;
+      })
+    );
+
+    setStats((prev) => ({
+      ...prev,
+      unread: Math.max(0, prev.unread + (nextIsRead ? -1 : 1)),
+    }));
+
+    try {
+      await toggleNotificationReadStatus(item.id, nextIsRead);
+    } catch (err) {
+      console.error("Error toggling read status:", err);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    // Optimistic UI update
+    setNotifications((prev) =>
+      prev.map((n) => ({
+        ...n,
+        isRead: true,
+        status: "RESOLVED",
+      }))
+    );
+
+    setStats((prev) => ({
+      ...prev,
+      unread: 0,
+    }));
+
+    try {
+      await markAllNotificationsAsRead();
+      setFeedbackMsg("সকল নোটিফিকেশন পঠিত হিসেবে চিহ্নিত করা হয়েছে!");
+      setTimeout(() => setFeedbackMsg(""), 3000);
+    } catch (err) {
+      console.error("Error marking all read:", err);
     }
   };
 
@@ -670,8 +758,28 @@ export default function NotificationsClient({
               <div className="text-2xl sm:text-3xl font-black text-slate-900">
                 {toBanglaNumber(stats.total)}
               </div>
-              <p className="text-[11px] text-slate-400">সর্বমোট নিবন্ধিত বিজ্ঞপ্তি</p>
+              <p className="text-[11px] text-slate-400">
+                অপঠিত: <strong className="text-rose-600 font-bold">{toBanglaNumber(stats.unread)}</strong> টি
+              </p>
             </div>
+
+            {/* Pending Payments */}
+            <Link
+              href="/dashboard/accounting/gateway"
+              className="bg-white p-4 sm:p-5 rounded-2xl border border-emerald-200/90 shadow-xs hover:border-emerald-400 transition space-y-1 group"
+            >
+              <div className="flex items-center justify-between text-emerald-800 text-xs font-bold">
+                <span>অনলাইন ফি ও পেমেন্ট</span>
+                <DollarSign className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition" />
+              </div>
+              <div className="text-2xl sm:text-3xl font-black text-emerald-700">
+                {toBanglaNumber(stats.pendingPayments || 0)}
+              </div>
+              <p className="text-[11px] text-emerald-800/80 flex items-center gap-1">
+                <span>পেমেন্ট গেটওয়ে চেক করুন</span>
+                <ChevronRight className="w-3 h-3" />
+              </p>
+            </Link>
 
             {/* Pending Leaves */}
             <Link
@@ -708,24 +816,6 @@ export default function NotificationsClient({
                 <ChevronRight className="w-3 h-3" />
               </p>
             </Link>
-
-            {/* Admissions */}
-            <Link
-              href="/dashboard/admissions"
-              className="bg-white p-4 sm:p-5 rounded-2xl border border-emerald-200/90 shadow-xs hover:border-emerald-400 transition space-y-1 group"
-            >
-              <div className="flex items-center justify-between text-emerald-800 text-xs font-bold">
-                <span>নতুন ভর্তি আবেদন</span>
-                <UserPlus className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition" />
-              </div>
-              <div className="text-2xl sm:text-3xl font-black text-emerald-700">
-                {toBanglaNumber(stats.pendingAdmissions)}
-              </div>
-              <p className="text-[11px] text-emerald-800/80 flex items-center gap-1">
-                <span>যাচাই করতে ক্লিক করুন</span>
-                <ChevronRight className="w-3 h-3" />
-              </p>
-            </Link>
           </div>
 
           {/* Filter and Search Bar */}
@@ -751,10 +841,15 @@ export default function NotificationsClient({
                   className="w-full p-2 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                 >
                   <option value="ALL">সকল ক্যাটাগরি ({toBanglaNumber(notifications.length)})</option>
+                  <option value="PAYMENT">অনলাইন ফি ও পেমেন্ট গেটওয়ে</option>
+                  <option value="FINANCE">ফি আদায় ও অনলাইন অনুদান</option>
                   <option value="LEAVE">ছুটির আবেদন (ছাত্র ও শিক্ষক)</option>
                   <option value="COMPLAINT">অভিভাবকের অভিযোগ ও পরামর্শ</option>
                   <option value="ADMISSION">অনলাইন ভর্তি আবেদন</option>
-                  <option value="SYSTEM">সিস্টেম বিজ্ঞপ্তি ও এলার্ট</option>
+                  <option value="LIBRARY">গ্রন্থাগার রিটার্ন মেয়াদোত্তীর্ণ</option>
+                  <option value="INVENTORY">ইনভেন্টরি মজুদ ঘাটতি সতর্কতা</option>
+                  <option value="ATTENDANCE">অনুপস্থিতি ও অ্যাকাডেমিক সতর্কতা</option>
+                  <option value="SYSTEM">সিস্টেম বিজ্ঞপ্তি ও নোটিশ</option>
                 </select>
               </div>
 
@@ -766,8 +861,8 @@ export default function NotificationsClient({
                   className="w-full p-2 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                 >
                   <option value="ALL">সকল স্ট্যাটাস</option>
-                  <option value="PENDING">অমীমাংসিত (Pending Review)</option>
-                  <option value="RESOLVED">নিষ্পন্ন / অনুমোদিত (Resolved)</option>
+                  <option value="PENDING">নতুন / অপঠিত (Unread)</option>
+                  <option value="RESOLVED">পঠিত / নিষ্পন্ন (Read / Resolved)</option>
                 </select>
               </div>
             </div>
@@ -775,86 +870,157 @@ export default function NotificationsClient({
 
           {/* Event Logs List */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-slate-200/80 bg-slate-50/70 flex items-center justify-between gap-2">
-              <span className="font-bold text-slate-800 text-sm">
-                বিজ্ঞপ্তি ও রিমাইন্ডার তালিকা ({toBanglaNumber(filteredNotifications.length)} টি প্রদর্শিত)
-              </span>
-              <span className="text-xs text-slate-500 font-medium">লাইভ সিংক সক্রিয়</span>
+            <div className="p-4 border-b border-slate-200/80 bg-slate-50/70 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-800 text-sm">
+                  বিজ্ঞপ্তি ও রিমাইন্ডার তালিকা ({toBanglaNumber(filteredNotifications.length)} টি প্রদর্শিত)
+                </span>
+                {stats.unread > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                    {toBanglaNumber(stats.unread)} টি অপঠিত
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 print:hidden">
+                <button
+                  type="button"
+                  onClick={handleRefreshNotifications}
+                  disabled={isRefreshingNotifs}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                  title="রিফ্রেশ করুন"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 ${isRefreshingNotifs ? "animate-spin text-emerald-600" : ""}`} />
+                  <span>রিফ্রেশ</span>
+                </button>
+
+                {stats.unread > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleMarkAllNotificationsRead}
+                    className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                    title="সব পঠিত হিসেবে চিহ্নিত করুন"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>সব পঠিত চিহ্নিত করুন</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="divide-y divide-slate-100">
               {filteredNotifications.length > 0 ? (
-                filteredNotifications.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-4 sm:p-5 hover:bg-slate-50/80 transition flex flex-col sm:flex-row sm:items-start justify-between gap-4"
-                  >
-                    <div className="flex items-start gap-3 sm:gap-4 min-w-0">
-                      <div className="shrink-0 mt-1">
-                        {item.category === "LEAVE" && (
-                          <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl">
-                            <Clock className="w-5 h-5" />
-                          </div>
-                        )}
-                        {item.category === "COMPLAINT" && (
-                          <div className="p-2.5 bg-rose-100 text-rose-800 rounded-xl">
-                            <MessageSquare className="w-5 h-5" />
-                          </div>
-                        )}
-                        {item.category === "ADMISSION" && (
-                          <div className="p-2.5 bg-emerald-100 text-emerald-800 rounded-xl">
-                            <UserPlus className="w-5 h-5" />
-                          </div>
-                        )}
-                        {item.category === "SYSTEM" && (
-                          <div className="p-2.5 bg-purple-100 text-purple-800 rounded-xl">
-                            <Bell className="w-5 h-5" />
-                          </div>
-                        )}
-                      </div>
+                filteredNotifications.map((item) => {
+                  const isUnread = !item.isRead && (item.status === "PENDING" || item.status === "UNREAD");
 
-                      <div className="space-y-1.5 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {getCategoryBadge(item.category)}
-                          <strong className="text-sm font-bold text-slate-900">
-                            {item.title}
-                          </strong>
-                          {item.status === "PENDING" ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                              অমীমাংসিত
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
-                              নিষ্পন্ন
-                            </span>
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-4 sm:p-5 hover:bg-slate-50/80 transition flex flex-col sm:flex-row sm:items-start justify-between gap-4 ${
+                        isUnread ? "bg-emerald-50/30" : ""
+                      }`}
+                    >
+                      <div className="flex items-start gap-3 sm:gap-4 min-w-0">
+                        <div className="shrink-0 mt-1">
+                          {(item.category === "PAYMENT" || item.category === "FINANCE") && (
+                            <div className="p-2.5 bg-emerald-100 text-emerald-800 rounded-xl">
+                              <DollarSign className="w-5 h-5" />
+                            </div>
+                          )}
+                          {item.category === "LEAVE" && (
+                            <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl">
+                              <Clock className="w-5 h-5" />
+                            </div>
+                          )}
+                          {item.category === "COMPLAINT" && (
+                            <div className="p-2.5 bg-rose-100 text-rose-800 rounded-xl">
+                              <MessageSquare className="w-5 h-5" />
+                            </div>
+                          )}
+                          {item.category === "ADMISSION" && (
+                            <div className="p-2.5 bg-indigo-100 text-indigo-800 rounded-xl">
+                              <UserPlus className="w-5 h-5" />
+                            </div>
+                          )}
+                          {item.category === "LIBRARY" && (
+                            <div className="p-2.5 bg-blue-100 text-blue-800 rounded-xl">
+                              <BookOpen className="w-5 h-5" />
+                            </div>
+                          )}
+                          {item.category === "INVENTORY" && (
+                            <div className="p-2.5 bg-orange-100 text-orange-800 rounded-xl">
+                              <Package className="w-5 h-5" />
+                            </div>
+                          )}
+                          {(item.category === "ATTENDANCE" || item.category === "ACADEMIC") && (
+                            <div className="p-2.5 bg-cyan-100 text-cyan-800 rounded-xl">
+                              <Calendar className="w-5 h-5" />
+                            </div>
+                          )}
+                          {item.category === "SYSTEM" && (
+                            <div className="p-2.5 bg-purple-100 text-purple-800 rounded-xl">
+                              <Bell className="w-5 h-5" />
+                            </div>
                           )}
                         </div>
 
-                        <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-normal">
-                          {item.description}
-                        </p>
+                        <div className="space-y-1.5 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {getCategoryBadge(item.category)}
+                            <strong className="text-sm font-bold text-slate-900">
+                              {item.title}
+                            </strong>
+                            {isUnread ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                অপঠিত / নতুন
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                পঠিত / নিষ্পন্ন
+                              </span>
+                            )}
+                          </div>
 
-                        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
-                          <span>মডিউল: <strong className="text-slate-600">{item.sourceModule}</strong></span>
-                          {item.senderName && (
-                            <span>প্রেরক: <strong className="text-slate-600">{item.senderName} ({item.senderRole || "ব্যবহারকারী"})</strong></span>
-                          )}
-                          <span>তারিখ ও সময়: <strong className="text-slate-600">{formatFullDate(item.timestamp)}</strong></span>
+                          <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-normal">
+                            {item.description}
+                          </p>
+
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+                            <span>মডিউল: <strong className="text-slate-600">{item.sourceModule}</strong></span>
+                            {item.senderName && (
+                              <span>প্রেরক: <strong className="text-slate-600">{item.senderName} ({item.senderRole || "ব্যবহারকারী"})</strong></span>
+                            )}
+                            <span>তারিখ ও সময়: <strong className="text-slate-600">{formatFullDate(item.timestamp)}</strong></span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="shrink-0 flex items-center sm:self-center gap-2 print:hidden">
-                      <Link
-                        href={item.link}
-                        className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs"
-                      >
-                        <span>কার্যক্রম গ্রহণ করুন</span>
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Link>
+                      <div className="shrink-0 flex items-center sm:self-center gap-2 print:hidden">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleRead(item)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1 cursor-pointer border ${
+                            isUnread
+                              ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"
+                              : "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200"
+                          }`}
+                          title={isUnread ? "পঠিত হিসেবে চিহ্নিত করুন" : "অপঠিত হিসেবে চিহ্নিত করুন"}
+                        >
+                          <CheckCheck className={`w-3.5 h-3.5 ${isUnread ? "text-slate-400" : "text-emerald-600"}`} />
+                          <span>{isUnread ? "পড়া হয়েছে" : "পঠিত"}</span>
+                        </button>
+
+                        <Link
+                          href={item.link}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                        >
+                          <span>কার্যক্রম গ্রহণ করুন</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </Link>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="p-12 text-center text-slate-400 space-y-2">
                   <CheckCircle2 className="w-10 h-10 mx-auto text-slate-300 mb-2" />
