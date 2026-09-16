@@ -6,6 +6,7 @@ import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName, isTransactionInFund } from "@/lib/fund-utils";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getFeeMetadata } from "./fee-management";
 
 // In-memory fallback cache for custom funds if database table is not yet created
 const customFundsStore: Map<string, FundItem[]> = new Map();
@@ -222,10 +223,12 @@ export async function getFunds(): Promise<FundItem[]> {
     }
 
     // Fetch dynamic live collections & expenses to calculate real-time balances for all funds
-    const [donationsRes, expensesRes, meta] = await Promise.all([
+    const [donationsRes, expensesRes, meta, feeMeta, dbFeesRes] = await Promise.all([
       adminClient.from("donations").select("id, amount, donation_type, donor_id, receipt_no, notes").eq("madrasa_id", finalMadrasaId),
       adminClient.from("expenses").select("id, amount, description, category, voucher_no").eq("madrasa_id", finalMadrasaId),
       getMadrasaMetadata(finalMadrasaId),
+      getFeeMetadata(finalMadrasaId),
+      adminClient.from("fees").select("*").eq("madrasa_id", finalMadrasaId),
     ]);
 
     const mahfils = meta.mahfils || [];
@@ -359,10 +362,73 @@ export async function getFunds(): Promise<FundItem[]> {
     }
 
     // Merge student fee payments into funds collection calculation (Dynamic Fund Routing)
-    const feePayments = (meta.payments || []).filter(
-      (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
-    );
-    for (const p of feePayments) {
+    const allMetaPayments = feeMeta.payments || [];
+    const dbFees = dbFeesRes.data || [];
+    const trackedDbFeeIds = new Set<string>();
+    const reversedOrVoidPaymentIds = new Set<string>();
+
+    for (const p of allMetaPayments) {
+      if (p.db_fee_id) trackedDbFeeIds.add(p.db_fee_id);
+      if (p.id) trackedDbFeeIds.add(p.id);
+      if (p.receipt_no) trackedDbFeeIds.add(p.receipt_no);
+
+      if (p.status === "REVERSED" || p.status === "VOID") {
+        if (p.db_fee_id) reversedOrVoidPaymentIds.add(p.db_fee_id);
+        if (p.id) reversedOrVoidPaymentIds.add(p.id);
+        if (p.receipt_no) reversedOrVoidPaymentIds.add(p.receipt_no);
+      }
+    }
+
+    const unifiedFeePayments: any[] = [];
+
+    // 1. Add valid completed payments from metadata
+    for (const p of allMetaPayments) {
+      if (p.status !== "REVERSED" && p.status !== "VOID") {
+        unifiedFeePayments.push(p);
+      }
+    }
+
+    // 2. Add dbFees that are not already covered in payments and not reversed
+    for (const f of dbFees) {
+      const receiptMatch = f.notes?.match(/\[রিসিট:\s*([^\]]+)\]/)?.[1];
+      const isTracked =
+        trackedDbFeeIds.has(f.id) ||
+        (receiptMatch && trackedDbFeeIds.has(receiptMatch)) ||
+        (f.receipt_no && trackedDbFeeIds.has(f.receipt_no));
+      const isReversed =
+        reversedOrVoidPaymentIds.has(f.id) ||
+        (receiptMatch && reversedOrVoidPaymentIds.has(receiptMatch)) ||
+        (f.receipt_no && reversedOrVoidPaymentIds.has(f.receipt_no));
+
+      if (!isTracked && !isReversed) {
+        const feeAmount = Number(f.amount) || 0;
+        const feeTypeName = f.fee_type || "মাসিক ফি";
+        const isFood =
+          feeTypeName.includes("বোর্ডিং") ||
+          feeTypeName.includes("খাবার") ||
+          feeTypeName.includes("খোরাকি") ||
+          feeTypeName.includes("hostel") ||
+          feeTypeName.includes("lillah");
+
+        unifiedFeePayments.push({
+          id: f.id,
+          receipt_no: f.receipt_no || receiptMatch || `MR-DB-${f.id.substring(0, 6)}`,
+          student_id: f.student_id,
+          fund_id: isFood ? "fund-lillah" : "fund-general",
+          fund_name: isFood ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড",
+          total_amount_received: feeAmount,
+          notes: f.notes || "",
+          allocations: [{
+            fee_type_name: feeTypeName,
+            allocated_amount: feeAmount,
+            fund_id: isFood ? "fund-lillah" : "fund-general",
+            fund_name: isFood ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড",
+          }],
+        });
+      }
+    }
+
+    for (const p of unifiedFeePayments) {
       if ((p.receipt_no && existingReceiptNos.has(p.receipt_no)) || existingIds.has(p.id)) continue;
       if (p.allocations && p.allocations.length > 0) {
         for (const alloc of p.allocations) {

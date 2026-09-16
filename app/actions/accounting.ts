@@ -906,11 +906,12 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
     const { getFunds } = await import("./zakat");
     const { getMadrasaMetadata } = await import("@/lib/sessions");
     const { isTransactionInFund } = await import("@/lib/fund-utils");
+    const { getUnifiedFeePayments } = await import("./fee-management");
 
-    const [funds, meta, feeMeta, { data: dbDonations }] = await Promise.all([
+    const [funds, meta, feePayments, { data: dbDonations }] = await Promise.all([
       getFunds(),
       getMadrasaMetadata(finalMadrasaId),
-      getFeeMetadata(finalMadrasaId),
+      getUnifiedFeePayments(finalMadrasaId),
       adminClient
         .from("donations")
         .select("*, donors(id, name, phone, address, donor_type)")
@@ -1109,11 +1110,11 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
     }
 
     // 6. Process Student Fee Payments
-    const feePayments = (feeMeta.payments || []).filter(
+    const validFeePayments = (feePayments || []).filter(
       (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
     );
 
-    for (const p of feePayments) {
+    for (const p of validFeePayments) {
       if ((p.receipt_no && existingReceiptNos.has(p.receipt_no)) || existingIds.has(p.id)) continue;
       const paymentDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
       const studentName = p.student_name || "শিক্ষার্থী";

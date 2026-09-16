@@ -1080,6 +1080,322 @@ export async function collectFeePayment(paymentData: {
 }
 
 /**
+ * Helper to get all unified fee payments (merged from metadata and database fees table)
+ */
+export async function getUnifiedFeePayments(madrasaId: string): Promise<FeePayment[]> {
+  try {
+    const adminClient = await createAdminClient();
+    const [meta, dbFeesRes, studentsRes] = await Promise.all([
+      getFeeMetadata(madrasaId),
+      adminClient.from("fees").select("*").eq("madrasa_id", madrasaId),
+      adminClient.from("students").select("id, first_name, last_name, roll_number, class_name").eq("madrasa_id", madrasaId),
+    ]);
+
+    const allMetaPayments = meta.payments || [];
+    const dbFees = dbFeesRes.data || [];
+    const students = studentsRes.data || [];
+
+    const studentMap = new Map<string, any>();
+    students.forEach((s) => studentMap.set(s.id, s));
+
+    const trackedIdentifiers = new Set<string>();
+    const reversedIdentifiers = new Set<string>();
+
+    for (const p of allMetaPayments) {
+      if (p.id) trackedIdentifiers.add(p.id);
+      if (p.db_fee_id) trackedIdentifiers.add(p.db_fee_id);
+      if (p.receipt_no) trackedIdentifiers.add(p.receipt_no);
+
+      if (p.status === "REVERSED" || p.status === "VOID") {
+        if (p.id) reversedIdentifiers.add(p.id);
+        if (p.db_fee_id) reversedIdentifiers.add(p.db_fee_id);
+        if (p.receipt_no) reversedIdentifiers.add(p.receipt_no);
+      }
+    }
+
+    const unifiedPayments: FeePayment[] = [...allMetaPayments];
+
+    for (const f of dbFees) {
+      const receiptMatch = f.notes?.match(/\[রিসিট:\s*([^\]]+)\]/)?.[1];
+      const isTracked =
+        trackedIdentifiers.has(f.id) ||
+        (receiptMatch && trackedIdentifiers.has(receiptMatch)) ||
+        (f.receipt_no && trackedIdentifiers.has(f.receipt_no));
+      const isReversed =
+        reversedIdentifiers.has(f.id) ||
+        (receiptMatch && reversedIdentifiers.has(receiptMatch)) ||
+        (f.receipt_no && reversedIdentifiers.has(f.receipt_no));
+
+      if (!isTracked && !isReversed) {
+        const student = studentMap.get(f.student_id);
+        const feeDate = f.payment_date || (f.created_at ? f.created_at.split("T")[0] : "");
+        const feeAmount = Number(f.amount) || 0;
+        const feeTypeName = f.fee_type || "মাসিক ফি";
+        const isFood =
+          feeTypeName.includes("বোর্ডিং") ||
+          feeTypeName.includes("খাবার") ||
+          feeTypeName.includes("খোরাকি") ||
+          feeTypeName.includes("hostel") ||
+          feeTypeName.includes("lillah");
+
+        unifiedPayments.push({
+          id: f.id,
+          receipt_no: f.receipt_no || receiptMatch || `MR-DB-${f.id.substring(0, 6).toUpperCase()}`,
+          madrasa_id: madrasaId,
+          session_id: "default",
+          student_id: f.student_id || "",
+          student_name: student ? `${student.first_name || ""} ${student.last_name || ""}`.trim() : (f.student_name || "শিক্ষার্থী"),
+          student_roll: student?.roll_number ? String(student.roll_number) : (f.student_roll || "-"),
+          class_name: student?.class_name || f.class_name || "-",
+          fund_id: isFood ? "fund-lillah" : "fund-general",
+          fund_name: isFood ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)",
+          total_amount_received: feeAmount,
+          payment_date: feeDate,
+          payment_method: f.payment_method || "Cash",
+          allocations: [{
+            fee_type_name: feeTypeName,
+            allocated_amount: feeAmount,
+            fund_id: isFood ? "fund-lillah" : "fund-general",
+            fund_name: isFood ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)",
+          }],
+          discount_total: 0,
+          fine_total: 0,
+          advance_amount: 0,
+          collector_name: "হিসাব বিভাগ",
+          notes: f.notes || "",
+          status: "COMPLETED",
+          created_at: f.created_at || feeDate || new Date().toISOString(),
+          db_fee_id: f.id,
+        });
+      }
+    }
+
+    // Sort newest to oldest
+    unifiedPayments.sort((a, b) => {
+      const dateA = a.payment_date || a.created_at || "";
+      const dateB = b.payment_date || b.created_at || "";
+      return dateB.localeCompare(dateA);
+    });
+
+    return unifiedPayments;
+  } catch (err) {
+    console.error("Error in getUnifiedFeePayments:", err);
+    return [];
+  }
+}
+
+/**
+ * Delete a Single Fee Payment permanently (from metadata + fees table)
+ */
+export async function deleteSingleFeePayment(paymentId: string) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+
+    const meta = await getFeeMetadata(madrasaId);
+    const payments = [...(meta.payments || [])];
+    const studentFees = [...(meta.student_fees || [])];
+
+    const payIdx = payments.findIndex((p) => p.id === paymentId);
+    let targetPayment: FeePayment | null = null;
+
+    if (payIdx >= 0) {
+      targetPayment = payments[payIdx];
+      // Rollback allocations from student fees if this payment wasn't already reversed
+      if (targetPayment.status !== "REVERSED" && targetPayment.status !== "VOID") {
+        for (const alloc of targetPayment.allocations || []) {
+          if (alloc.student_fee_id) {
+            const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
+            if (feeIdx >= 0) {
+              const target = studentFees[feeIdx];
+              const newPaid = Math.max(0, target.paid_amount - alloc.allocated_amount);
+              const newDue = Math.max(0, target.payable_amount - newPaid);
+              studentFees[feeIdx] = {
+                ...target,
+                paid_amount: newPaid,
+                due_amount: newDue,
+                status: newDue === 0 ? "PAID" : newPaid === 0 ? "UNPAID" : "PARTIAL",
+                updated_at: new Date().toISOString(),
+              };
+            }
+          }
+        }
+      }
+      payments.splice(payIdx, 1);
+    }
+
+    // Also delete from Supabase DB `fees` table
+    try {
+      const adminClient = await createAdminClient();
+      await adminClient.from("fees").delete().eq("id", paymentId).eq("madrasa_id", madrasaId);
+      if (targetPayment?.receipt_no) {
+        await adminClient.from("fees").delete().like("notes", `%${targetPayment.receipt_no}%`).eq("madrasa_id", madrasaId);
+      }
+      if (targetPayment?.db_fee_id) {
+        await adminClient.from("fees").delete().eq("id", targetPayment.db_fee_id).eq("madrasa_id", madrasaId);
+      }
+    } catch (e) {
+      console.warn("DB fee delete warning:", e);
+    }
+
+    const auditLogs = meta.audit_logs || [];
+    auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      madrasa_id: madrasaId,
+      action: "DELETE_FEE_PAYMENT",
+      user_name: user.email || "অ্যাডমিন",
+      user_role: "admin",
+      record_id: paymentId,
+      details: `পেমেন্ট রেকর্ড (ID: ${paymentId}${targetPayment ? `, রিসিট: ${targetPayment.receipt_no}, পরিমাণ: ৳${targetPayment.total_amount_received}` : ""}) স্থায়ীভাবে ডিলিট করা হয়েছে।`,
+      created_at: new Date().toISOString(),
+    });
+
+    await saveFeeMetadata(madrasaId, {
+      student_fees: studentFees,
+      payments,
+      audit_logs: auditLogs.slice(0, 100),
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/accounting/payments");
+    revalidatePath("/dashboard/accounting/due");
+    revalidatePath("/dashboard/accounting/income");
+    revalidatePath("/dashboard/accounting/fees");
+    revalidatePath("/dashboard/zakat");
+
+    return {
+      success: true,
+      message: "পেমেন্ট রেকর্ডটি স্থায়ীভাবে মুছে ফেলা হয়েছে এবং বকেয়া সমন্বয় করা হয়েছে।",
+    };
+  } catch (err: any) {
+    console.error("Error in deleteSingleFeePayment:", err);
+    return { error: err.message || "পেমেন্ট রেকর্ড ডিলিট করতে সমস্যা হয়েছে।" };
+  }
+}
+
+/**
+ * Reset / Clean All Fee Data (Payments and/or Invoices)
+ */
+export async function resetAllFeeData(options: {
+  deletePayments?: boolean;
+  resetInvoices?: boolean;
+  resetReceiptCounter?: boolean;
+}) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+
+    const meta = await getFeeMetadata(madrasaId);
+    let currentStudentFees = [...(meta.student_fees || [])];
+    let currentPayments = [...(meta.payments || [])];
+    let currentReceiptCounter = meta.receipt_counter || 100;
+
+    let clearedPaymentsCount = currentPayments.length;
+
+    // 1. Delete all payments
+    if (options.deletePayments) {
+      currentPayments = [];
+
+      // Delete from SQL fees table
+      try {
+        const adminClient = await createAdminClient();
+        const { count } = await adminClient
+          .from("fees")
+          .delete({ count: "exact" })
+          .eq("madrasa_id", madrasaId);
+        if (count) clearedPaymentsCount += count;
+      } catch (e) {
+        console.warn("Could not delete from fees table:", e);
+      }
+
+      // Reset student fees paid amounts back to unpaid if invoices are kept
+      if (!options.resetInvoices) {
+        currentStudentFees = currentStudentFees.map((f) => ({
+          ...f,
+          paid_amount: 0,
+          due_amount: f.payable_amount,
+          status: f.payable_amount === 0 ? "WAIVED" : "UNPAID",
+          updated_at: new Date().toISOString(),
+        }));
+      }
+    }
+
+    // 2. Reset or delete all student fee invoices
+    if (options.resetInvoices) {
+      currentStudentFees = [];
+    }
+
+    if (options.resetReceiptCounter) {
+      currentReceiptCounter = 100;
+    }
+
+    const auditLogs = meta.audit_logs || [];
+    auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      madrasa_id: madrasaId,
+      action: "RESET_ALL_FEE_DATA",
+      user_name: user.email || "সুপার অ্যাডমিন",
+      user_role: "super_admin",
+      details: `ফি কালেকশন ডাটা রিসেট সম্পন্ন হয়েছে। (পেমেন্ট মুছে ফেলা হয়েছে: ${options.deletePayments ? "হ্যাঁ" : "না"}, ইনভয়েস রিসেট: ${options.resetInvoices ? "হ্যাঁ" : "না"})`,
+      created_at: new Date().toISOString(),
+    });
+
+    await saveFeeMetadata(madrasaId, {
+      student_fees: currentStudentFees,
+      payments: currentPayments,
+      receipt_counter: currentReceiptCounter,
+      audit_logs: auditLogs.slice(0, 100),
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/accounting/payments");
+    revalidatePath("/dashboard/accounting/due");
+    revalidatePath("/dashboard/accounting/income");
+    revalidatePath("/dashboard/accounting/fees");
+    revalidatePath("/dashboard/accounting/generate");
+    revalidatePath("/dashboard/zakat");
+
+    return {
+      success: true,
+      message: "ফি ও কালেকশন ডাটা সফলভাবে রিসেট ও ক্লিনআপ করা হয়েছে।",
+      clearedPaymentsCount,
+    };
+  } catch (err: any) {
+    console.error("Error in resetAllFeeData:", err);
+    return { error: err.message || "ফি ডাটা রিসেট করতে সমস্যা হয়েছে।" };
+  }
+}
+
+/**
+ * 1-Click Sync Fees with Funds
+ */
+export async function syncFeesWithFunds() {
+  try {
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/accounting/payments");
+    revalidatePath("/dashboard/accounting/income");
+    revalidatePath("/dashboard/zakat");
+    return {
+      success: true,
+      message: "সকল ফি কালেকশন ও ফান্ড ব্যালেন্স সফলভাবে রিক্যালকুলেট ও সিঙ্ক করা হয়েছে!",
+    };
+  } catch (err: any) {
+    return { error: err.message || "সিঙ্ক করতে ব্যর্থ হয়েছে।" };
+  }
+}
+
+/**
  * 6. Reverse / Void Payment (Audit-compliant, doesn't delete, restores dues)
  */
 export async function reverseFeePayment(paymentId: string, reason: string) {

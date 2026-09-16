@@ -1,4 +1,4 @@
-import { getFeeMetadata } from "@/app/actions/fee-management";
+import { getFeeMetadata, getUnifiedFeePayments } from "@/app/actions/fee-management";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import PaymentsClient from "./PaymentsClient";
@@ -10,8 +10,10 @@ export default async function PaymentsHistoryPage() {
   const user = await getAuthUser(supabase);
   const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-  const meta = madrasaId ? await getFeeMetadata(madrasaId) : null;
-  const payments = meta?.payments || [];
+  const [meta, payments] = await Promise.all([
+    madrasaId ? getFeeMetadata(madrasaId) : null,
+    madrasaId ? getUnifiedFeePayments(madrasaId) : [],
+  ]);
   const auditLogs = meta?.audit_logs || [];
 
   return (
