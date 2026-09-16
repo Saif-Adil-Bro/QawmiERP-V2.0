@@ -26,6 +26,8 @@ import Link from "next/link";
 import DualMoneyReceipt from "@/components/accounting/DualMoneyReceipt";
 import StudentSearchSelector from "@/components/common/StudentSearchSelector";
 
+import { DEFAULT_FUNDS } from "@/lib/fund-utils";
+
 interface CollectPaymentClientProps {
   students: any[];
   madrasaInfo?: any;
@@ -42,27 +44,8 @@ export default function CollectPaymentClient({
   const currentYear = new Date().getFullYear();
   const todayStr = new Date().toISOString().split("T")[0];
 
-  const allFunds = [
-    { id: "general_fund", name: "সাধারণ ফান্ড" },
-    { id: "lillah_boarding_fund", name: "লিল্লাহ বোর্ডিং ফান্ড" },
-    { id: "zakat_fund", name: "যাকাত ফান্ড" },
-    { id: "masjid_fund", name: "মসজিদ ফান্ড" },
-    { id: "building_fund", name: "ভবন নির্মাণ ফান্ড" },
-    { id: "it_fund", name: "কম্পিউটার ও আইটি ফান্ড" },
-    { id: "health_fund", name: "চিকিৎসা ও সেবা ফান্ড" },
-    ...funds.filter(
-      (f) =>
-        ![
-          "general_fund",
-          "lillah_boarding_fund",
-          "zakat_fund",
-          "masjid_fund",
-          "building_fund",
-          "it_fund",
-          "health_fund",
-        ].includes(f.id)
-    ),
-  ];
+  // Only use actual active funds defined in the system
+  const allFunds = funds && funds.length > 0 ? funds : DEFAULT_FUNDS;
 
   const [studentId, setStudentId] = useState<string>(preselectedStudentId || "");
   const [studentProfile, setStudentProfile] = useState<any>(null);
@@ -78,7 +61,7 @@ export default function CollectPaymentClient({
   const [fineAmount, setFineAmount] = useState<number>(0);
   const [fineReason, setFineReason] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
-  const [selectedGlobalFund, setSelectedGlobalFund] = useState<string>("general_fund");
+  const [selectedGlobalFund, setSelectedGlobalFund] = useState<string>(allFunds[0]?.id || "fund-general");
 
   // Allocations & Fund Overrides
   const [allocations, setAllocations] = useState<{
@@ -94,10 +77,34 @@ export default function CollectPaymentClient({
 
   // Helper to determine initial fund for a fee
   const resolveInitialFundId = (fee: any) => {
-    if (fee.fund_id) return fee.fund_id;
+    if (fee.fund_id && allFunds.some((f: any) => f.id === fee.fund_id)) {
+      return fee.fund_id;
+    }
     const name = fee.fee_type_name || fee.name || "";
-    const isLillah = name.includes("বোর্ডিং") || name.includes("খাবার") || name.includes("খোরাকি");
-    return isLillah ? "lillah_boarding_fund" : "general_fund";
+    const isLillah =
+      name.includes("বোর্ডিং") ||
+      name.includes("খাবার") ||
+      name.includes("খোরাকি") ||
+      fee.category === "BOARDING";
+
+    if (isLillah) {
+      const lillahFund = allFunds.find(
+        (f: any) =>
+          f.id === "fund-lillah" ||
+          f.category === "Lillah" ||
+          f.name.includes("লিল্লাহ") ||
+          f.name.includes("বোর্ডিং")
+      );
+      if (lillahFund) return lillahFund.id;
+    }
+
+    const generalFund = allFunds.find(
+      (f: any) =>
+        f.id === "fund-general" ||
+        f.category === "General" ||
+        f.name.includes("সাধারণ")
+    );
+    return generalFund?.id || allFunds[0]?.id || "fund-general";
   };
 
   // Load student due profile whenever studentId changes

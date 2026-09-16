@@ -25,6 +25,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
+import { DEFAULT_FUNDS } from "@/lib/fund-utils";
+
 interface StructureClientProps {
   initialStructures: FeeStructure[];
   initialFeeTypes: FeeType[];
@@ -45,28 +47,8 @@ export default function StructureClient({
   const [selectedSessionId, setSelectedSessionId] = useState<string>("ALL");
   const [activeTab, setActiveTab] = useState<"structures" | "types">("structures");
 
-  // Comprehensive funds list
-  const allFunds = [
-    { id: "general_fund", name: "সাধারণ ফান্ড" },
-    { id: "lillah_boarding_fund", name: "লিল্লাহ বোর্ডিং ফান্ড" },
-    { id: "zakat_fund", name: "যাকাত ফান্ড" },
-    { id: "masjid_fund", name: "মসজিদ ফান্ড" },
-    { id: "building_fund", name: "ভবন নির্মাণ ফান্ড" },
-    { id: "it_fund", name: "কম্পিউটার ও আইটি ফান্ড" },
-    { id: "health_fund", name: "চিকিৎসা ও সেবা ফান্ড" },
-    ...funds.filter(
-      (f) =>
-        ![
-          "general_fund",
-          "lillah_boarding_fund",
-          "zakat_fund",
-          "masjid_fund",
-          "building_fund",
-          "it_fund",
-          "health_fund",
-        ].includes(f.id)
-    ),
-  ];
+  // Only use actual active funds defined in the system
+  const allFunds = funds && funds.length > 0 ? funds : DEFAULT_FUNDS;
 
   // Helper to get fund display name
   const getFundDisplay = (ft: FeeType) => {
@@ -80,7 +62,25 @@ export default function StructureClient({
       (ft.name || "").includes("খাবার") ||
       (ft.name || "").includes("খোরাকি") ||
       (ft.category === "BOARDING");
-    return isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+
+    if (isLillah) {
+      const lillahFund = allFunds.find(
+        (f) =>
+          f.id === "fund-lillah" ||
+          f.category === "Lillah" ||
+          f.name.includes("লিল্লাহ") ||
+          f.name.includes("বোর্ডিং")
+      );
+      if (lillahFund) return lillahFund.name;
+    }
+
+    const generalFund = allFunds.find(
+      (f) =>
+        f.id === "fund-general" ||
+        f.category === "General" ||
+        f.name.includes("সাধারণ")
+    );
+    return generalFund?.name || allFunds[0]?.name || "সাধারণ ফান্ড (General Fund)";
   };
 
   // Structure Modal State
@@ -112,8 +112,8 @@ export default function StructureClient({
     category: "ACADEMIC",
     frequency: "MONTHLY",
     default_amount: 1000,
-    fund_id: "general_fund",
-    fund_name: "সাধারণ ফান্ড",
+    fund_id: allFunds[0]?.id || "fund-general",
+    fund_name: allFunds[0]?.name || "সাধারণ ফান্ড (General Fund)",
     is_active: true,
   });
 
