@@ -7,7 +7,8 @@ import ReportingCharts from "./components/ReportingCharts";
 import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
-import { BookOpen, CheckSquare } from "lucide-react";
+import { getFunds } from "@/app/actions/zakat";
+import { BookOpen, CheckSquare, ArrowRight } from "lucide-react";
 
 
 
@@ -84,7 +85,8 @@ export default async function DashboardPage() {
         { data: attendanceAllData },
         { data: examResultsData },
         staffFullData,
-        madrasaMeta
+        madrasaMeta,
+        fundsData
 
       ] = await Promise.all([
         supabase.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
@@ -102,7 +104,8 @@ export default async function DashboardPage() {
         supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]).lte("date", today),
         supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
         getStaffMetadataFull(),
-        getMadrasaMetadata(profile.madrasa_id)
+        getMadrasaMetadata(profile.madrasa_id),
+        getFunds()
       ]);
 
       studentsCount = sCount || 0;
@@ -115,7 +118,10 @@ export default async function DashboardPage() {
 
       const feesSum = (feesData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       const donationsSum = (donationsData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-      totalIncome = feesSum + donationsSum;
+      
+      // Calculate definitive Total Income directly from funds source of truth
+      const fundsTotalCollected = (fundsData || []).reduce((sum: number, f: any) => sum + Number(f.total_collected || 0), 0);
+      totalIncome = fundsTotalCollected;
 
       expensesSum = (expensesData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       bazarSum = (bazarData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
@@ -393,9 +399,16 @@ export default async function DashboardPage() {
           <p className="text-sm text-rose-500 mt-1">অনুপস্থিত: {todayAbsent}</p>
         </Link>
         
-        <Link href="/dashboard/accounting" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
-          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট আয়</h3>
+        <Link href="/dashboard/accounting/income" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-400 hover:shadow-md transition block group">
+          <div className="flex items-center justify-between">
+            <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট আয় (ফান্ড কালেকশন)</h3>
+            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 group-hover:bg-emerald-100 transition">
+              <span>আয় হিস্ট্রি দেখুন</span>
+              <ArrowRight className="w-3 h-3" />
+            </span>
+          </div>
           <p className="text-3xl font-bold text-emerald-600 mt-2">৳ {totalIncome.toLocaleString('en-IN')}</p>
+          <p className="text-xs text-slate-400 mt-1 font-medium">সকল ফান্ডের সর্বমোট কালেকশন</p>
         </Link>
         <Link href="/dashboard/accounting/expenses" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
           <div className="flex items-center justify-between">

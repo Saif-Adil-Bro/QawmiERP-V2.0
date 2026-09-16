@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { parseExpenseFund } from "@/lib/fund-utils";
@@ -843,4 +843,382 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     netBalance,
     fundStats,
   };
+}
+
+export interface UnifiedIncomeTransaction {
+  id: string;
+  date: string;
+  receipt_no: string;
+  source_type: "STUDENT_FEE" | "DONATION" | "SUBSCRIPTION" | "MAHFIL" | "ONLINE" | "DONATION_BOX" | "LEATHER_SALE";
+  source_type_label: string;
+  source_name: string;
+  source_details?: string;
+  category: string;
+  fund_id: string;
+  fund_name: string;
+  payment_method: string;
+  amount: number;
+  notes?: string;
+  receipt_url?: string;
+}
+
+export interface UnifiedIncomeOverview {
+  totalIncome: number;
+  totalTransactions: number;
+  funds: any[];
+  sourceBreakdown: {
+    studentFees: number;
+    donations: number;
+    subscriptions: number;
+    mahfils: number;
+    onlineDonations: number;
+    donationBoxes: number;
+    leatherSales: number;
+  };
+  transactions: UnifiedIncomeTransaction[];
+}
+
+export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> {
+  try {
+    const adminClient = await createAdminClient();
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+
+    if (!finalMadrasaId) {
+      return {
+        totalIncome: 0,
+        totalTransactions: 0,
+        funds: DEFAULT_FUNDS,
+        sourceBreakdown: {
+          studentFees: 0,
+          donations: 0,
+          subscriptions: 0,
+          mahfils: 0,
+          onlineDonations: 0,
+          donationBoxes: 0,
+          leatherSales: 0,
+        },
+        transactions: [],
+      };
+    }
+
+    const { getFunds } = await import("./zakat");
+    const { getMadrasaMetadata } = await import("@/lib/sessions");
+    const { isTransactionInFund } = await import("@/lib/fund-utils");
+
+    const [funds, meta, feeMeta, { data: dbDonations }] = await Promise.all([
+      getFunds(),
+      getMadrasaMetadata(finalMadrasaId),
+      getFeeMetadata(finalMadrasaId),
+      adminClient
+        .from("donations")
+        .select("*, donors(id, name, phone, address, donor_type)")
+        .eq("madrasa_id", finalMadrasaId)
+        .order("donation_date", { ascending: false }),
+    ]);
+
+    const transactions: UnifiedIncomeTransaction[] = [];
+    const sourceBreakdown = {
+      studentFees: 0,
+      donations: 0,
+      subscriptions: 0,
+      mahfils: 0,
+      onlineDonations: 0,
+      donationBoxes: 0,
+      leatherSales: 0,
+    };
+
+    const existingReceiptNos = new Set<string>();
+    const existingIds = new Set<string>();
+
+    (dbDonations || []).forEach((d: any) => {
+      if (d.receipt_no) existingReceiptNos.add(d.receipt_no);
+      if (d.id) existingIds.add(d.id);
+    });
+
+    const mahfils = meta.mahfils || [];
+    const validMahfilVouchers = new Set<string>();
+    const validMahfilRecordIds = new Set<string>();
+    mahfils.forEach((m: any) => {
+      const allSt = m.settlements || (m.settlement ? [m.settlement] : []);
+      allSt.forEach((s: any) => {
+        if (s.accounting_voucher_no) validMahfilVouchers.add(s.accounting_voucher_no);
+        if (s.accounting_record_id) validMahfilRecordIds.add(s.accounting_record_id);
+        if (s.mahfil_txn_id) validMahfilRecordIds.add(s.mahfil_txn_id);
+      });
+    });
+
+    // 1. Process DB Donations
+    for (const d of dbDonations || []) {
+      const isMahfil = d.receipt_no?.startsWith("MHF-") || (d.notes && d.notes.includes("মাহফিল"));
+      if (isMahfil) {
+        const isValid = (d.receipt_no && validMahfilVouchers.has(d.receipt_no)) || validMahfilRecordIds.has(d.id);
+        if (!isValid) continue;
+      }
+
+      const amt = Number(d.amount || 0);
+      if (amt <= 0) continue;
+
+      const matched = funds.find((f: any) => isTransactionInFund(f, d.fund_id, d.donation_type, funds)) || funds[0];
+      const donorName = d.donors?.name || "সাধারণ শুভাকাঙ্ক্ষী";
+      const donorPhone = d.donors?.phone || "";
+
+      let sType: UnifiedIncomeTransaction["source_type"] = "DONATION";
+      let sLabel = "অনুদান ও যাকাত";
+
+      if (isMahfil) {
+        sType = "MAHFIL";
+        sLabel = "মাহফিল উদ্বৃত্ত";
+        sourceBreakdown.mahfils += amt;
+      } else {
+        sourceBreakdown.donations += amt;
+      }
+
+      transactions.push({
+        id: d.id,
+        date: d.donation_date || (d.created_at ? d.created_at.split("T")[0] : ""),
+        receipt_no: d.receipt_no || `ZR-${d.id.substring(0, 6)}`,
+        source_type: sType,
+        source_type_label: sLabel,
+        source_name: isMahfil ? "ইসলামি মহাসম্মেলন (মাহফিল)" : donorName,
+        source_details: donorPhone ? `মোবা: ${donorPhone}` : isMahfil ? "মাহফিল ফান্ড" : "সাধারণ শুভাকাঙ্ক্ষী",
+        category: d.donation_type || matched.name,
+        fund_id: matched.id,
+        fund_name: matched.name,
+        payment_method: d.payment_method || (d.notes?.includes("[Method:") ? d.notes.match(/\[Method:\s*([^\]]+)\]/)?.[1] : "Cash") || "Cash",
+        amount: amt,
+        notes: d.notes || "",
+        receipt_url: `/dashboard/zakat/collection/${d.id}/receipt`,
+      });
+    }
+
+    // 2. Process Subscription / Life Member payments
+    const subscriptionPayments = meta.donor_subscription_payments || [];
+    for (const sp of subscriptionPayments) {
+      if ((sp.receipt_no && existingReceiptNos.has(sp.receipt_no)) || existingIds.has(sp.id)) continue;
+      const amt = Number(sp.amount || 0);
+      if (amt <= 0) continue;
+
+      const targetFundName = sp.fund_name || "সাধারণ ফান্ড";
+      const matched = funds.find((f: any) => isTransactionInFund(f, undefined, targetFundName, funds)) || funds[0];
+      sourceBreakdown.subscriptions += amt;
+
+      transactions.push({
+        id: sp.id,
+        date: sp.payment_date || sp.date || (sp.created_at ? sp.created_at.split("T")[0] : ""),
+        receipt_no: sp.receipt_no || `LMP-${sp.id.substring(0, 6)}`,
+        source_type: "SUBSCRIPTION",
+        source_type_label: "আজীবন সদস্য / মাসিক চাঁদা",
+        source_name: sp.donor_name || "সম্মানিত সদস্য",
+        source_details: sp.phone ? `মোবা: ${sp.phone}` : "আজীবন সদস্য",
+        category: sp.member_type === "LIFE_MEMBER" ? "আজীবন সদস্য অনুদান" : "মাসিক চাঁদা",
+        fund_id: matched.id,
+        fund_name: matched.name,
+        payment_method: sp.payment_method || "Cash",
+        amount: amt,
+        notes: sp.notes || "",
+      });
+    }
+
+    // 3. Process Online Donations
+    const onlineDonations = meta.online_donations || [];
+    for (const od of onlineDonations) {
+      if ((od.receipt_no && existingReceiptNos.has(od.receipt_no)) || existingIds.has(od.id) || (od.trx_id && existingReceiptNos.has(od.trx_id))) continue;
+      if (od.status === "VERIFIED" || od.status === "COMPLETED" || od.status === "SUCCESS") {
+        const amt = Number(od.amount || 0);
+        if (amt <= 0) continue;
+
+        const targetFundName = od.fund_category || od.fund_name || od.purpose || "সাধারণ ফান্ড";
+        const matched = funds.find((f: any) => isTransactionInFund(f, undefined, targetFundName, funds)) || funds[0];
+        sourceBreakdown.onlineDonations += amt;
+
+        transactions.push({
+          id: od.id,
+          date: od.donation_date || (od.created_at ? od.created_at.split("T")[0] : ""),
+          receipt_no: od.receipt_no || od.trx_id || `ONL-${od.id.substring(0, 6)}`,
+          source_type: "ONLINE",
+          source_type_label: "অনলাইন গেটওয়ে",
+          source_name: od.donor_name || "অনলাইন শুভাকাঙ্ক্ষী",
+          source_details: od.phone ? `মোবা: ${od.phone} | TrxID: ${od.trx_id || "-"}` : `TrxID: ${od.trx_id || "-"}`,
+          category: od.purpose || targetFundName,
+          fund_id: matched.id,
+          fund_name: matched.name,
+          payment_method: od.payment_method || "Digital Gateway",
+          amount: amt,
+          notes: od.message || "",
+        });
+      }
+    }
+
+    // 4. Process Donation Box Collections
+    const boxLogs = meta.donation_box_logs || [];
+    for (const b of boxLogs) {
+      const recNo = b.receipt_no || b.id;
+      if (recNo && (existingReceiptNos.has(recNo) || existingIds.has(recNo))) continue;
+      const amt = Number(b.amount || 0);
+      if (amt <= 0) continue;
+
+      const targetFundName = b.fund_name || "সাধারণ ফান্ড";
+      const matched = funds.find((f: any) => isTransactionInFund(f, undefined, targetFundName, funds)) || funds[0];
+      sourceBreakdown.donationBoxes += amt;
+
+      transactions.push({
+        id: b.id,
+        date: b.collection_date || b.date || (b.created_at ? b.created_at.split("T")[0] : ""),
+        receipt_no: b.receipt_no || `BOX-${b.id.substring(0, 6)}`,
+        source_type: "DONATION_BOX",
+        source_type_label: "দানবাক্স কালেকশন",
+        source_name: b.box_name || b.location || "মাদরাসা দানবাক্স",
+        source_details: b.location ? `স্থান: ${b.location}` : "দানবাক্স",
+        category: "দানবাক্স হতে সংগৃহীত অর্থ",
+        fund_id: matched.id,
+        fund_name: matched.name,
+        payment_method: "Cash",
+        amount: amt,
+        notes: b.notes || "",
+      });
+    }
+
+    // 5. Process Qurbani Leather Records
+    const leatherRecords = meta.qurbani_leather_records || meta.leather_batches || [];
+    for (const lr of leatherRecords) {
+      const recNo = lr.receipt_no || lr.id;
+      if (recNo && (existingReceiptNos.has(recNo) || existingIds.has(recNo))) continue;
+      const inc = Number(lr.received_amount || lr.total_sale_price || lr.total_sale_amount || 0);
+      if (inc <= 0) continue;
+
+      const lillahFund = funds.find((f: any) => isTransactionInFund(f, undefined, "লিল্লাহ বোর্ডিং ফান্ড", funds)) || funds[0];
+      sourceBreakdown.leatherSales += inc;
+
+      transactions.push({
+        id: lr.id,
+        date: lr.sale_date || lr.collection_date || lr.date || (lr.created_at ? lr.created_at.split("T")[0] : ""),
+        receipt_no: lr.receipt_no || `LTH-${lr.id.substring(0, 6)}`,
+        source_type: "LEATHER_SALE",
+        source_type_label: "চামড়া বিক্রয়",
+        source_name: lr.buyer_name || "কুরবানির চামড়া বিক্রয়",
+        source_details: lr.quantity ? `মোট চামড়া: ${lr.quantity} টি` : "কুরবানির চামড়া বিক্রয়লব্ধ অর্থ",
+        category: "কুরবানির চামড়া বিক্রয় তহবিল",
+        fund_id: lillahFund.id,
+        fund_name: lillahFund.name,
+        payment_method: "Cash",
+        amount: inc,
+        notes: lr.notes || "",
+      });
+    }
+
+    // 6. Process Student Fee Payments
+    const feePayments = (feeMeta.payments || []).filter(
+      (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
+    );
+
+    for (const p of feePayments) {
+      if ((p.receipt_no && existingReceiptNos.has(p.receipt_no)) || existingIds.has(p.id)) continue;
+      const paymentDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+      const studentName = p.student_name || "শিক্ষার্থী";
+      const studentClass = p.class_name ? `শ্রেণি: ${p.class_name}` : "";
+      const studentRoll = p.student_roll ? `রোল: ${p.student_roll}` : "";
+      const studentInfo = [studentClass, studentRoll].filter(Boolean).join(" | ");
+
+      if (p.allocations && p.allocations.length > 0) {
+        for (const alloc of p.allocations) {
+          const amt = Number(alloc.allocated_amount || 0);
+          if (amt <= 0) continue;
+
+          const name = alloc.fee_type_name || "মাসিক বেতন";
+          const isLillah =
+            name.includes("বোর্ডিং") ||
+            name.includes("খাবার") ||
+            name.includes("খোরাকি") ||
+            name.includes("hostel") ||
+            name.includes("lillah");
+          const fallbackFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+          const targetFundId = alloc.fund_id || p.fund_id;
+          const targetFundName = alloc.fund_name || p.fund_name || fallbackFundName;
+
+          const matched = funds.find((f: any) => isTransactionInFund(f, targetFundId, targetFundName, funds)) || funds[0];
+          sourceBreakdown.studentFees += amt;
+
+          transactions.push({
+            id: `${p.id}_${alloc.fee_type_id || "alloc"}`,
+            date: paymentDate,
+            receipt_no: p.receipt_no || `MR-${p.id.substring(0, 6)}`,
+            source_type: "STUDENT_FEE",
+            source_type_label: "শিক্ষার্থী ফি",
+            source_name: studentName,
+            source_details: studentInfo || "মাদরাসা শিক্ষার্থী",
+            category: alloc.fee_type_name || "মাসিক বেতন",
+            fund_id: matched.id,
+            fund_name: matched.name,
+            payment_method: p.payment_method || "Cash",
+            amount: amt,
+            notes: p.notes || "",
+            receipt_url: `/dashboard/accounting/fees/${p.id}/receipt`,
+          });
+        }
+      } else {
+        const amt = Number(p.total_amount_received || 0);
+        if (amt > 0) {
+          const isLillah =
+            (p.notes || "").includes("বোর্ডিং") ||
+            (p.notes || "").includes("খাবার") ||
+            (p.notes || "").includes("খোরাকি");
+          const fallbackFundName = isLillah ? "লিল্লাহ বোর্ডিং ফান্ড" : "সাধারণ ফান্ড";
+          const targetFundId = p.fund_id;
+          const targetFundName = p.fund_name || fallbackFundName;
+
+          const matched = funds.find((f: any) => isTransactionInFund(f, targetFundId, targetFundName, funds)) || funds[0];
+          sourceBreakdown.studentFees += amt;
+
+          transactions.push({
+            id: p.id,
+            date: paymentDate,
+            receipt_no: p.receipt_no || `MR-${p.id.substring(0, 6)}`,
+            source_type: "STUDENT_FEE",
+            source_type_label: "শিক্ষার্থী ফি",
+            source_name: studentName,
+            source_details: studentInfo || "মাদরাসা শিক্ষার্থী",
+            category: "ছাত্র ফি আদায়",
+            fund_id: matched.id,
+            fund_name: matched.name,
+            payment_method: p.payment_method || "Cash",
+            amount: amt,
+            notes: p.notes || "",
+            receipt_url: `/dashboard/accounting/fees/${p.id}/receipt`,
+          });
+        }
+      }
+    }
+
+    // Sort transactions by date descending
+    transactions.sort((a, b) => new Date(b.date || "1970-01-01").getTime() - new Date(a.date || "1970-01-01").getTime());
+
+    const totalIncome = funds.reduce((sum: number, f: any) => sum + Number(f.total_collected || 0), 0);
+
+    return {
+      totalIncome,
+      totalTransactions: transactions.length,
+      funds,
+      sourceBreakdown,
+      transactions,
+    };
+  } catch (err) {
+    console.error("Error in getUnifiedIncomeHistory:", err);
+    return {
+      totalIncome: 0,
+      totalTransactions: 0,
+      funds: DEFAULT_FUNDS,
+      sourceBreakdown: {
+        studentFees: 0,
+        donations: 0,
+        subscriptions: 0,
+        mahfils: 0,
+        onlineDonations: 0,
+        donationBoxes: 0,
+        leatherSales: 0,
+      },
+      transactions: [],
+    };
+  }
 }
