@@ -80,7 +80,12 @@ export function ExecutiveSummaryModal({
         <head>
           <meta charset="utf-8" />
           <title>${data.madrasaInfo.name} - মাসিক নির্বাহী সামারি (${data.monthNameBn})</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Hind+Siliguri:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&family=Noto+Serif+Bengali:wght@400;600;700&family=Scheherazade+New:wght@400;700&display=swap" rel="stylesheet">
           <style>
+            @import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Hind+Siliguri:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&family=Noto+Serif+Bengali:wght@400;600;700&family=Scheherazade+New:wght@400;700&display=swap');
+
             @page {
               size: A4 portrait;
               margin: 10mm 12mm 10mm 12mm;
@@ -91,13 +96,14 @@ export function ExecutiveSummaryModal({
               print-color-adjust: exact !important;
             }
             body {
-              font-family: 'SolaimanLipi', 'Kalpurush', 'Noto Sans Bengali', 'Nikosh', sans-serif;
+              font-family: 'Hind Siliguri', 'Noto Sans Bengali', 'SolaimanLipi', 'Kalpurush', sans-serif;
               color: #0f172a;
               background: #ffffff;
               margin: 0;
               padding: 0;
               font-size: 12px;
-              line-height: 1.4;
+              line-height: 1.45;
+              -webkit-font-smoothing: antialiased;
             }
             .memo-container {
               width: 100%;
@@ -109,25 +115,29 @@ export function ExecutiveSummaryModal({
             }
             .arabic-bismillah {
               text-align: center;
-              font-size: 16px;
-              font-weight: bold;
-              font-family: 'Amiri', 'Traditional Arabic', serif;
-              margin-bottom: 2px;
+              font-size: 20px;
+              font-weight: 700;
+              font-family: 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'Traditional Arabic', serif;
+              margin-bottom: 4px;
               color: #15803d;
+              direction: rtl;
+              letter-spacing: 0.5px;
             }
             .header-title {
               text-align: center;
               font-size: 22px;
-              font-weight: 800;
+              font-weight: 700;
+              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
               margin: 0;
               color: #0f172a;
-              letter-spacing: -0.3px;
+              letter-spacing: -0.2px;
             }
             .header-sub {
               text-align: center;
               font-size: 11px;
               color: #475569;
               margin: 2px 0 8px 0;
+              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
             }
             .badge-bar {
               background: #f1f5f9;
@@ -137,9 +147,10 @@ export function ExecutiveSummaryModal({
               display: flex;
               justify-content: space-between;
               align-items: center;
-              font-weight: bold;
+              font-weight: 600;
               font-size: 12px;
               margin-bottom: 12px;
+              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
             }
             .kpi-grid {
               display: grid;
@@ -152,6 +163,7 @@ export function ExecutiveSummaryModal({
               background: #f8fafc;
               padding: 6px 8px;
               border-radius: 4px;
+              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
             }
             .kpi-title {
               font-size: 10px;
@@ -161,7 +173,7 @@ export function ExecutiveSummaryModal({
             }
             .kpi-value {
               font-size: 15px;
-              font-weight: 800;
+              font-weight: 700;
               margin: 0;
               color: #0f172a;
             }
@@ -172,10 +184,11 @@ export function ExecutiveSummaryModal({
             }
             .section-title {
               font-size: 12px;
-              font-weight: bold;
+              font-weight: 700;
+              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
               background: #0f172a;
               color: #ffffff;
-              padding: 3px 8px;
+              padding: 4px 8px;
               border-radius: 3px;
               margin: 10px 0 6px 0;
             }
@@ -184,6 +197,7 @@ export function ExecutiveSummaryModal({
               border-collapse: collapse;
               margin-bottom: 10px;
               font-size: 11px;
+              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
             }
             th, td {
               border: 1px solid #cbd5e1;
@@ -192,7 +206,7 @@ export function ExecutiveSummaryModal({
             }
             th {
               background: #f1f5f9;
-              font-weight: bold;
+              font-weight: 700;
               color: #1e293b;
             }
             .text-right {
@@ -202,7 +216,7 @@ export function ExecutiveSummaryModal({
               text-align: center;
             }
             .font-bold {
-              font-weight: bold;
+              font-weight: 700;
             }
             .text-green {
               color: #166534;
@@ -221,6 +235,7 @@ export function ExecutiveSummaryModal({
               border-radius: 4px;
               padding: 6px 8px;
               background: #ffffff;
+              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
             }
             .signatures-grid {
               display: grid;
@@ -228,12 +243,13 @@ export function ExecutiveSummaryModal({
               gap: 12px;
               margin-top: 24px;
               text-align: center;
+              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
             }
             .sig-line {
               border-top: 1px solid #0f172a;
               padding-top: 3px;
               font-size: 10px;
-              font-weight: bold;
+              font-weight: 700;
             }
             .sig-sub {
               font-size: 8px;
@@ -364,18 +380,38 @@ export function ExecutiveSummaryModal({
       `;
 
       const doc = printIframe.contentWindow?.document;
-      if (doc) {
+      const win = printIframe.contentWindow;
+      if (doc && win) {
         doc.open();
         doc.write(htmlContent);
         doc.close();
 
-        setTimeout(() => {
-          printIframe.contentWindow?.focus();
-          printIframe.contentWindow?.print();
-          setTimeout(() => {
-            document.body.removeChild(printIframe);
-          }, 1000);
-        }, 300);
+        const triggerPrint = () => {
+          try {
+            win.focus();
+            win.print();
+          } catch (e) {
+            console.warn("Print execution warning:", e);
+          } finally {
+            setTimeout(() => {
+              try {
+                if (document.body.contains(printIframe)) {
+                  document.body.removeChild(printIframe);
+                }
+              } catch {}
+            }, 1500);
+          }
+        };
+
+        if (doc.fonts && doc.fonts.ready) {
+          doc.fonts.ready.then(() => {
+            setTimeout(triggerPrint, 350);
+          }).catch(() => {
+            setTimeout(triggerPrint, 500);
+          });
+        } else {
+          setTimeout(triggerPrint, 500);
+        }
         return;
       }
     } catch (e) {
