@@ -299,3 +299,109 @@ html, body, input, textarea, select, button {
 #nprogress .peg {
   box-shadow: 0 0 15px #06b6d4, 0 0 8px #38bdf8, 0 0 25px #06b6d4 !important;
 }
+
+/* ==========================================================================
+   Qawmi Islamic Themes (Dark Oasis & Sepia Kitab Mode)
+   ========================================================================== */
+
+/* Islamic Oasis Dark Theme (Night/Tahajjud Mode) */
+html.theme-dark,
+html[data-theme="dark"],
+body.theme-dark {
+  background-color: #0b1120 !important;
+  color: #f1f5f9 !important;
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] .bg-slate-50,
+html[data-theme="dark"] .bg-gray-50 {
+  background-color: #0b1120 !important;
+}
+
+html[data-theme="dark"] .bg-white {
+  background-color: #131d31 !important;
+  color: #f1f5f9;
+}
+
+html[data-theme="dark"] .border,
+html[data-theme="dark"] .border-slate-100,
+html[data-theme="dark"] .border-slate-200,
+html[data-theme="dark"] .border-gray-200 {
+  border-color: #1e293b !important;
+}
+
+html[data-theme="dark"] .text-slate-800,
+html[data-theme="dark"] .text-slate-900,
+html[data-theme="dark"] .text-gray-900 {
+  color: #f8fafc !important;
+}
+
+html[data-theme="dark"] .text-slate-700,
+html[data-theme="dark"] .text-slate-600,
+html[data-theme="dark"] .text-gray-600 {
+  color: #cbd5e1 !important;
+}
+
+html[data-theme="dark"] .text-slate-500,
+html[data-theme="dark"] .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+/* Sepia Kitab Mode (Ancient Manuscript / Comfortable Mutala'ah) */
+html.theme-sepia,
+html[data-theme="sepia"],
+body.theme-sepia {
+  background-color: #f6f0e4 !important;
+  color: #382414 !important;
+}
+
+html[data-theme="sepia"] .bg-slate-50,
+html[data-theme="sepia"] .bg-gray-50 {
+  background-color: #f6f0e4 !important;
+}
+
+html[data-theme="sepia"] .bg-white {
+  background-color: #fcf8f2 !important;
+  color: #382414;
+}
+
+html[data-theme="sepia"] .border,
+html[data-theme="sepia"] .border-slate-100,
+html[data-theme="sepia"] .border-slate-200,
+html[data-theme="sepia"] .border-gray-200 {
+  border-color: #e5dac6 !important;
+}
+
+html[data-theme="sepia"] .text-slate-800,
+html[data-theme="sepia"] .text-slate-900,
+html[data-theme="sepia"] .text-gray-900 {
+  color: #2c1a0c !important;
+}
+
+html[data-theme="sepia"] .text-slate-700,
+html[data-theme="sepia"] .text-slate-600,
+html[data-theme="sepia"] .text-gray-600 {
+  color: #4a3320 !important;
+}
+
+html[data-theme="sepia"] .text-slate-500,
+html[data-theme="sepia"] .text-slate-400 {
+  color: #7c6248 !important;
+}
+
+html[data-theme="sepia"] input,
+html[data-theme="sepia"] textarea,
+html[data-theme="sepia"] select {
+  background-color: #fcf8f2 !important;
+  color: #2c1a0c !important;
+  border-color: #d8c8af !important;
+}
+

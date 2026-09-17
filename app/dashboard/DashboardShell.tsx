@@ -15,6 +15,10 @@ import {
   Shield,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
+  Scale,
+  Plus,
+  Sparkles,
 } from "lucide-react";
 import DashboardNav from "./DashboardNav";
 import { logout } from "@/app/actions/auth";
@@ -23,6 +27,11 @@ import SessionSelector from "@/components/sessions/SessionSelector";
 import ArchivedSessionBanner from "@/components/sessions/ArchivedSessionBanner";
 import { PermissionProvider, usePermissions } from "@/components/permissions/PermissionContext";
 import GlobalNotificationBell from "@/components/notifications/GlobalNotificationBell";
+import { ThemeProvider } from "@/components/common/ThemeContext";
+import { ThemeSwitcher } from "@/components/common/ThemeSwitcher";
+import { UniversalCommandPalette } from "@/components/common/UniversalCommandPalette";
+import { MobileActionSheet } from "@/components/common/MobileActionSheet";
+import { ExecutiveSummaryModal } from "@/components/dashboard/ExecutiveSummaryModal";
 
 function HeaderUserProfile() {
   const { profile, summary } = usePermissions();
@@ -51,13 +60,15 @@ function HeaderUserProfile() {
   const roleLabel = roleNameMap[roleId] || roleId;
 
   return (
-    <div className="flex items-center space-x-2 bg-slate-50 border border-slate-200/80 rounded-xl px-2.5 py-1">
+    <div className="flex items-center space-x-2 bg-slate-50 border border-slate-200/80 rounded-xl px-2.5 py-1 dark:bg-slate-800 dark:border-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:border-[#E8DFD1]">
       <div className="w-8 h-8 bg-emerald-600 text-white rounded-lg flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
         {initialChar}
       </div>
       <div className="hidden sm:flex flex-col text-left text-xs min-w-0">
-        <span className="font-bold text-slate-800 truncate max-w-[130px] leading-tight">{displayName}</span>
-        <span className="text-[10px] text-emerald-700 font-semibold truncate leading-tight flex items-center gap-1">
+        <span className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[130px] leading-tight sepia-mode:text-[#2C1A0C]">
+          {displayName}
+        </span>
+        <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold truncate leading-tight flex items-center gap-1">
           <Shield className="w-2.5 h-2.5 shrink-0" />
           {roleLabel}
         </span>
@@ -69,9 +80,11 @@ function HeaderUserProfile() {
 function MobileBottomNav({
   pathname,
   setSidebarOpen,
+  onOpenActionSheet,
 }: {
   pathname: string;
   setSidebarOpen: (open: boolean) => void;
+  onOpenActionSheet: () => void;
 }) {
   const { summary, hasPermission } = usePermissions();
   const roles = summary?.roles || [];
@@ -82,7 +95,6 @@ function MobileBottomNav({
     { href: "/dashboard", label: "হোম", icon: LayoutDashboard, exact: true, show: true },
     { href: "/dashboard/students", label: "ছাত্র", icon: Users, show: !summary || hasPermission("student.view") },
     { href: "/dashboard/attendance", label: "হাজিরা", icon: CheckSquare, show: !summary || hasPermission("attendance.view") },
-    { href: "/dashboard/classes", label: "জামাত", icon: BookOpen, show: !summary || hasPermission("academic.view") },
     { href: "/dashboard/accounting", label: "হিসাব", icon: Wallet, show: (!summary || hasPermission("finance.view") || hasPermission("fee.view")) && !isParentOrStudent },
   ];
 
@@ -105,8 +117,9 @@ function MobileBottomNav({
   const visibleItems = items.filter((i) => i.show);
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg print:hidden">
-      {visibleItems.map((item) => {
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg print:hidden dark:bg-slate-900/95 dark:border-slate-800 sepia-mode:bg-[#FCF8F2]/95 sepia-mode:border-[#E8DFD1]">
+      {/* First 2 items */}
+      {visibleItems.slice(0, 2).map((item) => {
         const active = item.exact
           ? pathname === item.href
           : pathname === item.href || pathname.startsWith(item.href + "/");
@@ -118,13 +131,13 @@ function MobileBottomNav({
             href={item.href}
             className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all ${
               active
-                ? "text-emerald-700 font-bold scale-105"
-                : "text-slate-500 hover:text-slate-800 font-medium"
+                ? "text-emerald-700 dark:text-emerald-400 font-bold scale-105"
+                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-medium"
             }`}
           >
             <div
               className={`p-1 rounded-lg ${
-                active ? "bg-emerald-50 text-emerald-700" : "text-slate-500"
+                active ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"
               }`}
             >
               <Icon className="w-5 h-5" />
@@ -133,15 +146,62 @@ function MobileBottomNav({
           </Link>
         );
       })}
+
+      {/* Center Floating Action Center Button */}
+      <button
+        type="button"
+        onClick={onOpenActionSheet}
+        className="flex flex-col items-center justify-center -mt-5"
+        title="কুইক অ্যাকশন সেন্টার"
+        aria-label="Quick Action Center"
+      >
+        <div className="w-12 h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg hover:bg-emerald-700 active:scale-95 transition-transform border-2 border-white dark:border-slate-900">
+          <Plus className="w-6 h-6" />
+        </div>
+        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 leading-tight mt-0.5">
+          অ্যাকশন
+        </span>
+      </button>
+
+      {/* Remaining items */}
+      {visibleItems.slice(2).map((item) => {
+        const active = item.exact
+          ? pathname === item.href
+          : pathname === item.href || pathname.startsWith(item.href + "/");
+        const Icon = item.icon;
+
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all ${
+              active
+                ? "text-emerald-700 dark:text-emerald-400 font-bold scale-105"
+                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-medium"
+            }`}
+          >
+            <div
+              className={`p-1 rounded-lg ${
+                active ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] leading-tight mt-0.5">{item.label}</span>
+          </Link>
+        );
+      })}
+
+      {/* All Menus */}
       <button
         type="button"
         onClick={() => setSidebarOpen(true)}
-        className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-slate-500 hover:text-slate-800 font-medium"
+        className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-medium"
       >
-        <div className="p-1 rounded-lg text-slate-500">
+        <div className="p-1 rounded-lg text-slate-500 dark:text-slate-400">
           <Menu className="w-5 h-5" />
         </div>
-        <span className="text-[10px] leading-tight mt-0.5">সব মেনু</span>
+        <span className="text-[10px] leading-tight mt-0.5">মেনু</span>
       </button>
     </nav>
   );
@@ -151,6 +211,9 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [mobileActionSheetOpen, setMobileActionSheetOpen] = useState(false);
+  const [executiveSummaryOpen, setExecutiveSummaryOpen] = useState(false);
   const pathname = usePathname();
 
   const handleLogout = async () => {
@@ -162,6 +225,18 @@ export default function DashboardShell({ children }: { children: React.ReactNode
       setLoggingOut(false);
     }
   };
+
+  // Global Keyboard listener for Ctrl+K / Cmd+K
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
 
   // Load saved preference for desktop sidebar
   useEffect(() => {
@@ -193,137 +268,187 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   }, [pathname]);
 
   return (
-    <PermissionProvider>
-      <SessionProvider>
-        {/* Fixed screen wrapper: h-screen overflow-hidden ensures fixed viewport on big screens */}
-        <div className="flex h-screen w-full bg-slate-50 print:bg-white print:h-auto overflow-hidden">
-          {/* Mobile Backdrop Overlay */}
-          {sidebarOpen && (
-            <div
-              className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-xs lg:hidden transition-opacity"
-              onClick={() => setSidebarOpen(false)}
-            />
-          )}
+    <ThemeProvider>
+      <PermissionProvider>
+        <SessionProvider>
+          {/* Universal Modals */}
+          <UniversalCommandPalette
+            isOpen={commandPaletteOpen}
+            onClose={() => setCommandPaletteOpen(false)}
+            onOpenExecutiveSummary={() => setExecutiveSummaryOpen(true)}
+          />
+          <MobileActionSheet
+            isOpen={mobileActionSheetOpen}
+            onClose={() => setMobileActionSheetOpen(false)}
+            onOpenSearch={() => setCommandPaletteOpen(true)}
+            onOpenExecutiveSummary={() => setExecutiveSummaryOpen(true)}
+          />
+          <ExecutiveSummaryModal
+            isOpen={executiveSummaryOpen}
+            onClose={() => setExecutiveSummaryOpen(false)}
+          />
 
-          {/* Sidebar Drawer: w-72 sm:w-80 on mobile/tablet, w-72 lg:w-80 (320px) on desktop for spacious layout */}
-          <aside
-            className={`fixed inset-y-0 left-0 z-50 w-72 sm:w-80 lg:w-80 bg-slate-900 text-slate-300 flex flex-col transition-all duration-200 ease-in-out lg:static print:hidden shrink-0 select-none ${
-              sidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
-            } ${
-              desktopSidebarOpen
-                ? "lg:translate-x-0 lg:w-80"
-                : "lg:-translate-x-full lg:w-0 lg:overflow-hidden"
-            }`}
-          >
-            {/* Sidebar Brand Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-800 shrink-0 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-                  <span className="bg-emerald-600 text-white p-1 rounded-lg text-sm font-black">Q</span>
-                  <span>QawmiERP</span>
-                </h2>
-                <p className="text-[11px] text-slate-400 mt-0.5 font-medium">মাদরাসা ম্যানেজমেন্ট সিস্টেম</p>
-              </div>
+          {/* Fixed screen wrapper: h-screen overflow-hidden ensures fixed viewport on big screens */}
+          <div className="flex h-screen w-full bg-slate-50 print:bg-white print:h-auto overflow-hidden dark:bg-slate-950 sepia-mode:bg-[#F6F0E4]">
+            {/* Mobile Backdrop Overlay */}
+            {sidebarOpen && (
+              <div
+                className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-xs lg:hidden transition-opacity"
+                onClick={() => setSidebarOpen(false)}
+              />
+            )}
 
-              <div className="flex items-center gap-1">
-                {/* Desktop Collapse Toggle */}
-                <button
-                  type="button"
-                  onClick={toggleDesktopSidebar}
-                  className="hidden lg:flex p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
-                  title="সাইডবার লুকান (Hide Sidebar)"
-                  aria-label="Collapse sidebar"
-                >
-                  <PanelLeftClose className="w-5 h-5" />
-                </button>
+            {/* Sidebar Drawer: w-72 sm:w-80 on mobile/tablet, w-72 lg:w-80 (320px) on desktop */}
+            <aside
+              className={`fixed inset-y-0 left-0 z-50 w-72 sm:w-80 lg:w-80 bg-slate-900 text-slate-300 flex flex-col transition-all duration-200 ease-in-out lg:static print:hidden shrink-0 select-none dark:bg-slate-950 dark:border-r dark:border-slate-800 ${
+                sidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
+              } ${
+                desktopSidebarOpen
+                  ? "lg:translate-x-0 lg:w-80"
+                  : "lg:-translate-x-full lg:w-0 lg:overflow-hidden"
+              }`}
+            >
+              {/* Sidebar Brand Header */}
+              <div className="p-4 sm:p-5 border-b border-slate-800 shrink-0 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+                    <span className="bg-emerald-600 text-white p-1 rounded-lg text-sm font-black">Q</span>
+                    <span>QawmiERP</span>
+                  </h2>
+                  <p className="text-[11px] text-slate-400 mt-0.5 font-medium">মাদরাসা ম্যানেজমেন্ট সিস্টেম</p>
+                </div>
 
-                {/* Mobile Close Button */}
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen(false)}
-                  className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
-                  aria-label="Close menu"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Dynamic Nav Menu with Independent Scroll */}
-            <div className="flex-1 overflow-y-auto overscroll-contain">
-              <DashboardNav />
-            </div>
-
-            {/* Logout Button */}
-            <div className="p-3.5 sm:p-4 border-t border-slate-800 shrink-0">
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl hover:bg-slate-800 text-rose-400 hover:text-rose-300 transition text-xs sm:text-sm font-semibold cursor-pointer disabled:opacity-50"
-              >
-                <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span>{loggingOut ? "লগআউট হচ্ছে..." : "লগআউট"}</span>
-              </button>
-            </div>
-          </aside>
-
-          {/* Main Content Area (Fixed layout, independent scrolling viewport) */}
-          <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:overflow-visible">
-            {/* Top Fixed Header */}
-            <header className="h-16 bg-white/95 backdrop-blur-xs border-b border-slate-200/80 flex items-center justify-between px-4 sm:px-6 lg:px-8 print:hidden shrink-0 gap-3 z-20">
-              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                {/* Mobile Hamburger Toggle */}
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen(true)}
-                  className="lg:hidden p-2 text-slate-700 hover:bg-slate-100 rounded-xl transition border border-slate-200"
-                  aria-label="Open menu"
-                >
-                  <Menu className="w-5 h-5" />
-                </button>
-
-                {/* Desktop Expand Button when sidebar is collapsed */}
-                {!desktopSidebarOpen && (
+                <div className="flex items-center gap-1">
+                  {/* Desktop Collapse Toggle */}
                   <button
                     type="button"
                     onClick={toggleDesktopSidebar}
-                    className="hidden lg:flex items-center gap-1.5 p-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200"
-                    title="সাইডবার খুলুন (Open Sidebar)"
-                    aria-label="Expand sidebar"
+                    className="hidden lg:flex p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+                    title="সাইডবার লুকান (Hide Sidebar)"
+                    aria-label="Collapse sidebar"
                   >
-                    <PanelLeftOpen className="w-5 h-5 text-emerald-600" />
-                    <span className="text-xs font-semibold text-slate-700">মেনু</span>
+                    <PanelLeftClose className="w-5 h-5" />
                   </button>
-                )}
 
-                <h1 className="text-base sm:text-lg font-bold text-slate-900 truncate">এডমিন পোর্টাল</h1>
+                  {/* Mobile Close Button */}
+                  <button
+                    type="button"
+                    onClick={() => setSidebarOpen(false)}
+                    className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+                    aria-label="Close menu"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
-                {/* Global Academic Session Selector */}
-                <SessionSelector />
-
-                {/* Global Notification Bell */}
-                <GlobalNotificationBell />
-
-                <HeaderUserProfile />
+              {/* Dynamic Nav Menu with Independent Scroll */}
+              <div className="flex-1 overflow-y-auto overscroll-contain">
+                <DashboardNav />
               </div>
-            </header>
 
-            {/* Archived Session Notice Banner */}
-            <ArchivedSessionBanner />
+              {/* Logout Button */}
+              <div className="p-3.5 sm:p-4 border-t border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl hover:bg-slate-800 text-rose-400 hover:text-rose-300 transition text-xs sm:text-sm font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <span>{loggingOut ? "লগআউট হচ্ছে..." : "লগআউট"}</span>
+                </button>
+              </div>
+            </aside>
 
-            {/* Page Content: Dedicated smooth scrolling main viewport */}
-            <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-20 lg:pb-8 print:p-0 print:overflow-visible">
-              {children}
-            </main>
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:overflow-visible">
+              {/* Top Fixed Header */}
+              <header className="h-16 bg-white/95 backdrop-blur-xs border-b border-slate-200/80 flex items-center justify-between px-3 sm:px-6 lg:px-8 print:hidden shrink-0 gap-2 sm:gap-3 z-20 dark:bg-slate-900/95 dark:border-slate-800 sepia-mode:bg-[#FCF8F2]/95 sepia-mode:border-[#E8DFD1]">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                  {/* Mobile Hamburger Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setSidebarOpen(true)}
+                    className="lg:hidden p-2 text-slate-700 hover:bg-slate-100 rounded-xl transition border border-slate-200 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800"
+                    aria-label="Open menu"
+                  >
+                    <Menu className="w-5 h-5" />
+                  </button>
 
-            {/* Mobile Bottom Navigation Bar */}
-            <MobileBottomNav pathname={pathname} setSidebarOpen={setSidebarOpen} />
+                  {/* Desktop Expand Button when sidebar is collapsed */}
+                  {!desktopSidebarOpen && (
+                    <button
+                      type="button"
+                      onClick={toggleDesktopSidebar}
+                      className="hidden lg:flex items-center gap-1.5 p-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800"
+                      title="সাইডবার খুলুন (Open Sidebar)"
+                      aria-label="Expand sidebar"
+                    >
+                      <PanelLeftOpen className="w-5 h-5 text-emerald-600" />
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">মেনু</span>
+                    </button>
+                  )}
+
+                  {/* Universal Command Bar Search Trigger */}
+                  <button
+                    type="button"
+                    onClick={() => setCommandPaletteOpen(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-100/90 hover:bg-slate-200/80 text-slate-600 rounded-xl text-xs font-medium transition border border-slate-200/80 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:border-[#E8DFD1] sepia-mode:text-[#5A3825]"
+                    title="কমান্ড প্যালেট (Ctrl + K)"
+                  >
+                    <Search className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span className="hidden sm:inline">খুঁজুন বা কমান্ড দিন...</span>
+                    <kbd className="hidden md:inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold text-slate-500 bg-white rounded border border-slate-300 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+                      Ctrl + K
+                    </kbd>
+                  </button>
+                </div>
+
+                <div className="flex items-center space-x-1.5 sm:space-x-2.5 shrink-0">
+                  {/* Executive Summary Button */}
+                  <button
+                    type="button"
+                    onClick={() => setExecutiveSummaryOpen(true)}
+                    className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold transition shadow-2xs dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 sepia-mode:bg-[#EFE6D8] sepia-mode:border-[#D5C9B3] sepia-mode:text-[#451A03]"
+                    title="এক ক্লিকে মাদরাসার সার্বিক মাসিক নির্বাহী সামারি"
+                  >
+                    <Scale className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
+                    <span>নির্বাহী সামারি</span>
+                  </button>
+
+                  {/* Islamic Theme Switcher */}
+                  <ThemeSwitcher />
+
+                  {/* Global Academic Session Selector */}
+                  <SessionSelector />
+
+                  {/* Global Notification Bell */}
+                  <GlobalNotificationBell />
+
+                  <HeaderUserProfile />
+                </div>
+              </header>
+
+              {/* Archived Session Notice Banner */}
+              <ArchivedSessionBanner />
+
+              {/* Page Content: Dedicated smooth scrolling main viewport */}
+              <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8 print:p-0 print:overflow-visible">
+                {children}
+              </main>
+
+              {/* Mobile Bottom Navigation Bar */}
+              <MobileBottomNav
+                pathname={pathname}
+                setSidebarOpen={setSidebarOpen}
+                onOpenActionSheet={() => setMobileActionSheetOpen(true)}
+              />
+            </div>
           </div>
-        </div>
-      </SessionProvider>
-    </PermissionProvider>
+        </SessionProvider>
+      </PermissionProvider>
+    </ThemeProvider>
   );
 }
+
