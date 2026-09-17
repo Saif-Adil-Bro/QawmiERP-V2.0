@@ -300,7 +300,7 @@ export function ExecutiveSummaryModal({
             <div class="arabic-bismillah">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</div>
             <h1 class="header-title">${data.madrasaInfo.name}</h1>
             <div class="header-sub">
-              ${data.madrasaInfo.address} | ফোন: ${data.madrasaInfo.phone} | রেজি: ${data.madrasaInfo.regNo}
+              ${[data.madrasaInfo.address, data.madrasaInfo.phone ? `ফোন: ${data.madrasaInfo.phone}` : '', data.madrasaInfo.regNo ? `রেজি: ${data.madrasaInfo.regNo}` : ''].filter(Boolean).join(' | ')}
             </div>
 
             <div class="badge-bar">
@@ -538,7 +538,11 @@ export function ExecutiveSummaryModal({
                   {data.madrasaInfo.name}
                 </h1>
                 <p className="text-xs text-slate-600 dark:text-slate-400 sepia-mode:text-[#7C6248] mt-0.5">
-                  {data.madrasaInfo.address} | ফোন: {data.madrasaInfo.phone} | রেজি: {data.madrasaInfo.regNo}
+                  {[
+                    data.madrasaInfo.address,
+                    data.madrasaInfo.phone ? `ফোন: ${data.madrasaInfo.phone}` : '',
+                    data.madrasaInfo.regNo ? `রেজি: ${data.madrasaInfo.regNo}` : ''
+                  ].filter(Boolean).join(' | ')}
                 </p>
                 <div className="inline-flex items-center gap-2 mt-2 px-3 py-1 bg-emerald-50 text-emerald-800 rounded-full border border-emerald-200 text-xs font-bold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
                   <Calendar className="w-3.5 h-3.5" />

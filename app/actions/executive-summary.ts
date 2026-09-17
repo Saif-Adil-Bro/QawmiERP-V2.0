@@ -584,9 +584,9 @@ export async function getMonthlyExecutiveSummary(
     madrasaInfo: {
       name: madrasaInfoRaw?.name || "কওমি মাদরাসা",
       address: madrasaInfoRaw?.address || "মাদরাসা প্রাঙ্গণ",
-      phone: madrasaInfoRaw?.phone || "০১৭০০-০০০০০০",
-      email: madrasaInfoRaw?.email || "info@madrasa.org",
-      regNo: madrasaInfoRaw?.reg_no || madrasaInfoRaw?.registration_no || "কওমি-রেজি-২০২৪",
+      phone: madrasaInfoRaw?.phone || "",
+      email: madrasaInfoRaw?.email || "",
+      regNo: madrasaInfoRaw?.reg_no || madrasaInfoRaw?.registration_no || "",
       principalName: madrasaInfoRaw?.principal_name || "মুহতামিম সাহেব",
       slogan: madrasaInfoRaw?.slogan || "ইলমে ওহীর আদর্শ শিক্ষাকেন্দ্র",
     },

@@ -64,10 +64,10 @@ export default function ReportCardsClient({
     : results.filter(r => r.id === selectedStudentId);
 
   const activeMadrasa = profileAndLogo?.madrasa || madrasaInfo;
-  const madrasaName = activeMadrasa?.name || "মাদরাসাতুল মুসলিমীন";
-  const madrasaAddress = activeMadrasa?.address || "ঢাকা, বাংলাদেশ";
-  const establishedYear = activeMadrasa?.established_year || "২০০২";
-  const regNo = activeMadrasa?.registration_no || activeMadrasa?.reg_no || "১২৪৫/বি";
+  const madrasaName = activeMadrasa?.name || "কওমি মাদ্রাসা";
+  const madrasaAddress = activeMadrasa?.address || "";
+  const establishedYear = activeMadrasa?.established_year || "";
+  const regNo = activeMadrasa?.registration_no || activeMadrasa?.reg_no || "";
   const logoUrl = profileAndLogo?.logoUrl || activeMadrasa?.logo_url;
   const principalSignUrl = profileAndLogo?.signatureUrl || activeMadrasa?.principal_signature_url;
   const principalName = profileAndLogo?.principalName || activeMadrasa?.principal_name || "মুহতামিম / প্রিন্সিপাল";
