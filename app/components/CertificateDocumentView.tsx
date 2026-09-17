@@ -82,6 +82,9 @@ export default function CertificateDocumentView({
           padding: 0 !important;
           overflow: hidden !important;
           background: #ffffff !important;
+          background-color: #ffffff !important;
+          color: #000000 !important;
+          color-scheme: light !important;
         }
         #temp-print-frame {
           display: block !important;
@@ -100,11 +103,15 @@ export default function CertificateDocumentView({
           page-break-after: avoid !important;
           break-after: avoid !important;
           background: #ffffff !important;
+          background-color: #ffffff !important;
+          color: #0f172a !important;
+          color-scheme: light !important;
           z-index: 99999999 !important;
         }
         #temp-print-frame * {
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
+          color-scheme: light !important;
         }
       }
     `;
@@ -218,12 +225,15 @@ export default function CertificateDocumentView({
         <div
           ref={printRef}
           id="printable-official-certificate"
-          className={`bg-white text-slate-900 mx-auto rounded-xl overflow-hidden print:p-0 print:border-none print:shadow-none shadow-lg border border-slate-200 ${fontClass}`}
+          className={`bg-white text-slate-900 mx-auto rounded-xl overflow-hidden print:p-0 print:border-none print:shadow-none shadow-lg border border-slate-200 print-clean print-strict-light force-light-mode is-printable-doc ${fontClass}`}
           style={{
             width: isLandscape ? "297mm" : "210mm",
             maxWidth: "100%",
             minHeight: isLandscape ? "210mm" : "297mm",
             boxSizing: "border-box",
+            backgroundColor: "#ffffff",
+            color: "#0f172a",
+            colorScheme: "light",
           }}
         >
         <div

@@ -819,8 +819,571 @@ body[data-theme="sepia"] {
 }
 
 /* ==========================================================================
-   Comprehensive Print System & Isolated Official Memo Printing
+   Comprehensive Print System & Isolated Official Memo & Certificate Printing
    ========================================================================== */
+
+/* ==========================================================================
+   DOCUMENT & PRINT IMMUNITY SYSTEM (Universal Light-Mode Lock)
+   Official Documents, Certificates, Admit Cards, Invoices, Vouchers, Marksheets,
+   Student Profiles, Application Forms & Academic Reports are 100% immune to
+   Dark Mode / Sepia Mode both on-screen in preview and during print / PDF export.
+   ========================================================================== */
+
+.print-clean,
+.printable-document,
+.print-document,
+.a4-sheet,
+.a4-document,
+.a4-page,
+.certificate-view,
+.certificate-card,
+#printable-official-certificate,
+#temp-print-frame,
+[data-printable],
+[data-print-paper],
+[data-document-paper],
+.printable-memo-document,
+.print-paper,
+.report-card,
+.admit-card,
+.id-card-sheet,
+.voucher-print,
+.invoice-print,
+.money-receipt,
+.print-preview-paper,
+.official-document-sheet,
+.print-strict-light,
+.force-light-mode,
+.is-printable-doc,
+.student-id-card-render {
+  color-scheme: light !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Reset all descendants inside document containers */
+.print-clean *,
+.printable-document *,
+.print-document *,
+.a4-sheet *,
+.a4-document *,
+.a4-page *,
+.certificate-view *,
+.certificate-card *,
+#printable-official-certificate *,
+#temp-print-frame *,
+[data-printable] *,
+[data-print-paper] *,
+[data-document-paper] *,
+.printable-memo-document *,
+.print-paper *,
+.report-card *,
+.admit-card *,
+.id-card-sheet *,
+.voucher-print *,
+.invoice-print *,
+.money-receipt *,
+.print-preview-paper *,
+.official-document-sheet *,
+.print-strict-light *,
+.force-light-mode *,
+.is-printable-doc *,
+.student-id-card-render * {
+  color-scheme: light !important;
+}
+
+/* Force standard light-mode backgrounds for containers & boxes inside documents */
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.bg-white, [class*="bg-white/"], [class*="bg-white"]) {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.bg-slate-50, .bg-gray-50, [class*="bg-slate-50/"], [class*="bg-gray-50/"]) {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.bg-slate-100, .bg-gray-100, [class*="bg-slate-100/"], [class*="bg-gray-100/"]) {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.bg-slate-200, .bg-gray-200) {
+  background-color: #e2e8f0 !important;
+}
+
+/* Force light-mode dark typography inside document papers */
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.text-slate-900, .text-gray-900, .text-black, .text-slate-800, .text-gray-800, .text-slate-700, .text-gray-700, .text-slate-600, .text-gray-600) {
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.text-slate-500, .text-gray-500, .text-slate-400, .text-gray-400) {
+  color: #64748b !important;
+}
+
+/* Force light-mode colored text (Emerald, Amber, Blue, Rose) */
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.text-emerald-700, .text-emerald-800, .text-emerald-900) {
+  color: #065f46 !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.text-amber-700, .text-amber-800, .text-amber-900) {
+  color: #78350f !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.text-blue-700, .text-blue-800, .text-blue-900) {
+  color: #1e40af !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.text-rose-700, .text-rose-800, .text-red-700) {
+  color: #9f1239 !important;
+}
+
+/* Force light-mode borders & table rules */
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) :is(.border, .border-slate-100, .border-slate-200, .border-slate-300, [class*="border-slate-200/"]) {
+  border-color: #cbd5e1 !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) table {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) thead {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) thead th {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .certificate-view,
+  .certificate-card,
+  #printable-official-certificate,
+  #temp-print-frame,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  .printable-memo-document,
+  .print-paper,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .print-strict-light,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render
+) tbody td {
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
 @media print {
   @page {
     size: A4 portrait;
@@ -831,6 +1394,7 @@ body[data-theme="sepia"] {
     background: #ffffff !important;
     background-color: #ffffff !important;
     color: #000000 !important;
+    color-scheme: light !important;
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
@@ -839,6 +1403,11 @@ body[data-theme="sepia"] {
     overflow: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+
+  /* Universal neutralizer of dark/sepia styles during printing */
+  * {
+    color-scheme: light !important;
   }
 
   /* When printing-modal is active, hide everything outside the printable container */

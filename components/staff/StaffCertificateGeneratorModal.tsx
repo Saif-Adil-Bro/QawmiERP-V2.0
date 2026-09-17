@@ -87,7 +87,7 @@ export default function StaffCertificateGeneratorModal({
   };
 
   const renderCertificateContent = () => (
-    <div className="w-full bg-white text-slate-900 flex flex-col justify-between p-8 sm:p-12 font-sans border border-slate-200">
+    <div className="w-full bg-white text-slate-900 flex flex-col justify-between p-8 sm:p-12 font-sans border border-slate-200 print-clean print-strict-light force-light-mode is-printable-doc" style={{ backgroundColor: "#ffffff", color: "#0f172a", colorScheme: "light" }}>
       {/* Document Header */}
       <div>
         <div className="text-center border-b-2 border-emerald-950 pb-4 mb-5 space-y-1">
