@@ -483,7 +483,10 @@ export function ExecutiveSummaryModal({
   const totalFundsReserve = data?.fundsBreakdown.reduce((s, f) => s + f.totalReserve, 0) || 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-150 modal-print-container">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-150 modal-print-container"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-auto max-h-[92vh] flex flex-col dark:bg-slate-900 dark:border-slate-800 sepia-mode:bg-[#FCF8F2] sepia-mode:border-[#E8DFD1] printable-memo-document"
         onClick={(e) => e.stopPropagation()}

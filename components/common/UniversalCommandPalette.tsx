@@ -326,13 +326,16 @@ export function UniversalCommandPalette({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-12 sm:pt-20 px-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center pt-3 sm:pt-20 px-2 sm:px-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[82vh] animate-in zoom-in-95 duration-150 dark:bg-slate-900 dark:border-slate-800 sepia-mode:bg-[#FCF8F2] sepia-mode:border-[#E8DFD1]"
+        className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[88vh] sm:max-h-[82vh] animate-in zoom-in-95 duration-150 dark:bg-slate-900 dark:border-slate-800 sepia-mode:bg-[#FCF8F2] sepia-mode:border-[#E8DFD1]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Search Input Bar */}
-        <div className="relative flex items-center border-b border-slate-100 px-4 py-3.5 dark:border-slate-800 sepia-mode:border-[#E8DFD1]">
+        <div className="relative flex items-center border-b border-slate-100 px-3 sm:px-4 py-3 sm:py-3.5 gap-2 dark:border-slate-800 sepia-mode:border-[#E8DFD1]">
           <Search className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 ml-1" />
           <input
             ref={inputRef}
@@ -340,10 +343,10 @@ export function UniversalCommandPalette({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleInputKeyDown}
-            placeholder="ছাত্রের নাম, রোল, রসিদ নং, কিতাব বা যেকোনো মেন্যুর নাম লিখুন..."
-            className="w-full pl-3 pr-10 text-sm sm:text-base font-medium text-slate-800 placeholder-slate-400 bg-transparent focus:outline-hidden dark:text-slate-100 sepia-mode:text-[#2C1A0C]"
+            placeholder="ছাত্রের নাম, রোল, রসিদ নং, কিতাব বা যেকোনো মেন্যু..."
+            className="w-full text-sm sm:text-base font-medium text-slate-800 placeholder-slate-400 bg-transparent focus:outline-hidden dark:text-slate-100 sepia-mode:text-[#2C1A0C]"
           />
-          {isSearching && <Loader2 className="w-4 h-4 text-emerald-600 animate-spin mr-2 shrink-0" />}
+          {isSearching && <Loader2 className="w-4 h-4 text-emerald-600 animate-spin shrink-0" />}
           {query && (
             <button
               type="button"
@@ -351,11 +354,25 @@ export function UniversalCommandPalette({
                 setQuery("");
                 inputRef.current?.focus();
               }}
-              className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:bg-slate-800 mr-1"
+              title="লেখা মুছুন"
+              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:bg-slate-800 shrink-0 transition"
             >
               <X className="w-4 h-4" />
             </button>
           )}
+
+          {/* Dedicated Close Button for Mobile & Desktop */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 text-xs font-semibold shrink-0 transition"
+            title="সার্চ উইন্ডো বন্ধ করুন"
+            aria-label="Close search"
+          >
+            <X className="w-4 h-4" />
+            <span className="text-[11px]">বন্ধ</span>
+          </button>
+
           <kbd className="hidden sm:inline-flex items-center gap-0.5 px-2 py-1 text-[11px] font-semibold text-slate-400 bg-slate-100 rounded-md border border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400">
             ESC
           </kbd>
@@ -445,9 +462,9 @@ export function UniversalCommandPalette({
           })}
         </div>
 
-        {/* Footer Hotkey Guide */}
-        <div className="bg-slate-50 px-4 py-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-400 sepia-mode:bg-[#F5EFE6] sepia-mode:border-[#E8DFD1]">
-          <div className="flex items-center gap-3">
+        {/* Footer Hotkey & Mobile Close Guide */}
+        <div className="bg-slate-50 px-3 sm:px-4 py-2 sm:py-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-400 sepia-mode:bg-[#F5EFE6] sepia-mode:border-[#E8DFD1]">
+          <div className="hidden sm:flex items-center gap-3">
             <span className="flex items-center gap-1">
               <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded-sm font-mono text-[10px] shadow-2xs dark:bg-slate-800 dark:border-slate-700">
                 ↑
@@ -464,8 +481,18 @@ export function UniversalCommandPalette({
               <span>যেতে চাপুন</span>
             </span>
           </div>
-          <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-            কওমি ইউনিভার্সাল কমান্ড প্যালেট
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="sm:hidden text-slate-500 hover:text-slate-800 dark:text-slate-400 font-medium flex items-center gap-1 py-1"
+          >
+            <X className="w-3.5 h-3.5" />
+            <span>বন্ধ করতে ট্যাপ করুন</span>
+          </button>
+
+          <span className="font-semibold text-emerald-700 dark:text-emerald-400 text-[10px] sm:text-[11px]">
+            কওমি ইউনিভার্সাল সার্চ
           </span>
         </div>
       </div>
