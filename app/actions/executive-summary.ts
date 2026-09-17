@@ -415,15 +415,32 @@ export async function getMonthlyExecutiveSummary(
     }
   });
 
-  // Calculate real student due amounts
+  // Calculate real student due amounts for distinct active enrolled students
+  const activeStudentIdSet = new Set(
+    students
+      .filter((s: any) => s.is_active !== false && s.status !== "ARCHIVED")
+      .map((s: any) => String(s.id))
+  );
+
   const studentFees = feeMeta.student_fees || [];
+  const distinctDueStudents = new Set<string>();
+
   studentFees.forEach((fee: any) => {
-    const due = Number(fee.due_amount || 0);
-    if (due > 0 && fee.status !== "PAID") {
+    const sId = String(fee.student_id || fee.studentId || "");
+    const due = Number(fee.due_amount || fee.due || 0);
+    const isStudentActive = activeStudentIdSet.size > 0 ? (sId ? activeStudentIdSet.has(sId) : true) : true;
+    
+    if (due > 0 && fee.status !== "PAID" && isStudentActive) {
       totalDueAmount += due;
-      studentsWithDueCount++;
+      if (sId) {
+        distinctDueStudents.add(sId);
+      }
     }
   });
+
+  studentsWithDueCount = distinctDueStudents.size > 0 
+    ? Math.min(distinctDueStudents.size, totalStudents) 
+    : 0;
 
   // B. Real Donations & Zakat in current month
   dbDonations.forEach((d: any) => {
@@ -553,21 +570,48 @@ export async function getMonthlyExecutiveSummary(
   const netBalance = totalIncome - totalExpense;
 
   // D. Construct Real Dynamic Funds Breakdown
-  const fundsBreakdown = fundsList.map((fund) => {
-    const mIncome = monthlyFundInflowMap.get(fund.id) || 0;
-    const mExpense = monthlyFundOutflowMap.get(fund.id) || 0;
-    const mBalance = mIncome - mExpense;
-    return {
-      fundId: fund.id,
-      fundName: fund.name,
-      code: fund.code,
-      category: fund.category,
-      income: mIncome,
-      expense: mExpense,
-      balance: mBalance,
-      totalReserve: Number(fund.current_balance || 0),
-    };
-  });
+  const CATEGORY_MAP_BN: Record<string, string> = {
+    general: "সাধারণ",
+    lillah: "লিল্লাহ",
+    zakat: "যাকাত",
+    fitra: "ফিতরা ও সদকা",
+    development: "উন্নয়ন ও অবকাঠামো",
+    education: "শিক্ষা ও এতিম কল্যাণ",
+    orphan: "এতিম কল্যাণ",
+    salary: "বেতন ও ভাতা",
+    bazar: "মেস/বোর্ডিং",
+    emergency: "জরুরি তহবিল",
+  };
+
+  const fundsBreakdown = fundsList
+    .filter((fund) => {
+      const isTest = fund.name.toLowerCase().includes("test") || (fund.code && fund.code.toLowerCase().includes("tst"));
+      const mIncome = monthlyFundInflowMap.get(fund.id) || 0;
+      const mExpense = monthlyFundOutflowMap.get(fund.id) || 0;
+      const reserve = Number(fund.current_balance || 0);
+      if (isTest && mIncome === 0 && mExpense === 0 && reserve === 0) {
+        return false;
+      }
+      return true;
+    })
+    .map((fund) => {
+      const mIncome = monthlyFundInflowMap.get(fund.id) || 0;
+      const mExpense = monthlyFundOutflowMap.get(fund.id) || 0;
+      const mBalance = mIncome - mExpense;
+      const rawCat = (fund.category || "general").toLowerCase().trim();
+      const bnCat = CATEGORY_MAP_BN[rawCat] || fund.category || "সাধারণ";
+
+      return {
+        fundId: fund.id,
+        fundName: fund.name,
+        code: fund.code,
+        category: bnCat,
+        income: mIncome,
+        expense: mExpense,
+        balance: mBalance,
+        totalReserve: Number(fund.current_balance || 0),
+      };
+    });
 
   // Calculate leaves in target month
   const leavesCount = (meta.leaves || []).filter((l: any) => {

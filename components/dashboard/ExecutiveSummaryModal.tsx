@@ -25,6 +25,16 @@ import {
 } from "lucide-react";
 import { getMonthlyExecutiveSummary, MonthlyExecutiveSummaryData } from "@/app/actions/executive-summary";
 
+const toBn = (val: number | string | undefined | null): string => {
+  if (val === undefined || val === null) return "০";
+  const enToBn: Record<string, string> = {
+    "0": "০", "1": "১", "2": "২", "3": "৩", "4": "৪",
+    "5": "৫", "6": "৬", "7": "৭", "8": "৮", "9": "৯"
+  };
+  const str = typeof val === "number" ? val.toLocaleString("en-IN") : String(val);
+  return str.replace(/[0-9]/g, (d) => enToBn[d] || d);
+};
+
 export function ExecutiveSummaryModal({
   isOpen,
   onClose,
@@ -312,26 +322,26 @@ export function ExecutiveSummaryModal({
             <div class="kpi-grid">
               <div class="kpi-box">
                 <div class="kpi-title">মোট শিক্ষার্থী ও শিক্ষক</div>
-                <div class="kpi-value">${m.totalStudents} ছাত্র</div>
-                <div class="kpi-sub">উস্তাদ: ${m.totalTeachers} জন | জামাত: ${m.activeClasses}টি</div>
+                <div class="kpi-value">${toBn(m.totalStudents)} ছাত্র</div>
+                <div class="kpi-sub">উস্তাদ: ${toBn(m.totalTeachers)} জন | জামাত: ${toBn(m.activeClasses)}টি</div>
               </div>
 
               <div class="kpi-box" style="background:#f0fdf4; border-color:#bbf7d0;">
                 <div class="kpi-title" style="color:#166534;">চলতি মাসের মোট আয়</div>
-                <div class="kpi-value" style="color:#15803d;">৳ ${m.totalIncome.toLocaleString("en-IN")}</div>
-                <div class="kpi-sub">ফি: ৳${m.feeCollection.toLocaleString("en-IN")} | অনুদান: ৳${(m.generalDonations + m.zakatCollection).toLocaleString("en-IN")}</div>
+                <div class="kpi-value" style="color:#15803d;">৳ ${toBn(m.totalIncome)}</div>
+                <div class="kpi-sub">ফি: ৳${toBn(m.feeCollection)} | অনুদান: ৳${toBn(m.generalDonations + m.zakatCollection)}</div>
               </div>
 
               <div class="kpi-box" style="background:#fef2f2; border-color:#fecaca;">
                 <div class="kpi-title" style="color:#991b1b;">চলতি মাসের মোট ব্যয়</div>
-                <div class="kpi-value" style="color:#dc2626;">৳ ${m.totalExpense.toLocaleString("en-IN")}</div>
-                <div class="kpi-sub">মেস বাজার: ৳${m.boardingBazarExpense.toLocaleString("en-IN")} | সাধারণ: ৳${m.generalExpenses.toLocaleString("en-IN")}</div>
+                <div class="kpi-value" style="color:#dc2626;">৳ ${toBn(m.totalExpense)}</div>
+                <div class="kpi-sub">মেস বাজার: ৳${toBn(m.boardingBazarExpense)} | সাধারণ: ৳${toBn(m.generalExpenses)}</div>
               </div>
 
               <div class="kpi-box" style="background:${m.netBalance >= 0 ? '#eff6ff' : '#fffbeb'}; border-color:${m.netBalance >= 0 ? '#bfdbfe' : '#fde68a'};">
                 <div class="kpi-title" style="color:${m.netBalance >= 0 ? '#1e40af' : '#92400e'};">মাসিক নিট স্থিতি</div>
-                <div class="kpi-value" style="color:${m.netBalance >= 0 ? '#2563eb' : '#d97706'};">৳ ${Math.abs(m.netBalance).toLocaleString("en-IN")} ${m.netBalance >= 0 ? '(উদ্বৃত্ত)' : '(ঘাটতি)'}</div>
-                <div class="kpi-sub">বকেয়া ফি: ৳${m.totalDueAmount.toLocaleString("en-IN")} (${m.studentsWithDueCount} জন)</div>
+                <div class="kpi-value" style="color:${m.netBalance >= 0 ? '#2563eb' : '#d97706'};">৳ ${toBn(Math.abs(m.netBalance))} ${m.netBalance >= 0 ? '(উদ্বৃত্ত)' : '(ঘাটতি)'}</div>
+                <div class="kpi-sub">বকেয়া ফি: ৳${toBn(m.totalDueAmount)} (${toBn(m.studentsWithDueCount)} জন)</div>
               </div>
             </div>
 
@@ -352,23 +362,23 @@ export function ExecutiveSummaryModal({
               <tbody>
                 ${data.fundsBreakdown.map((f, idx) => `
                   <tr>
-                    <td class="text-center">${idx + 1}</td>
+                    <td class="text-center">${toBn(idx + 1)}</td>
                     <td class="font-bold">${f.fundName} <span style="font-size:9px; color:#64748b;">[${f.code || 'FUND'}]</span></td>
                     <td>${f.category || 'সাধারণ'}</td>
-                    <td class="text-right text-green font-bold">৳ ${f.income.toLocaleString("en-IN")}</td>
-                    <td class="text-right text-red font-bold">৳ ${f.expense.toLocaleString("en-IN")}</td>
-                    <td class="text-right font-bold" style="color:${f.balance >= 0 ? '#1e293b' : '#b45309'};">৳ ${f.balance.toLocaleString("en-IN")}</td>
-                    <td class="text-right font-bold" style="color:#0f172a; background:#f8fafc;">৳ ${f.totalReserve.toLocaleString("en-IN")}</td>
+                    <td class="text-right text-green font-bold">৳ ${toBn(f.income)}</td>
+                    <td class="text-right text-red font-bold">৳ ${toBn(f.expense)}</td>
+                    <td class="text-right font-bold" style="color:${f.balance >= 0 ? '#1e293b' : '#b45309'};">৳ ${toBn(f.balance)}</td>
+                    <td class="text-right font-bold" style="color:#0f172a; background:#f8fafc;">৳ ${toBn(f.totalReserve)}</td>
                   </tr>
                 `).join('')}
               </tbody>
               <tfoot>
                 <tr style="background:#f1f5f9; font-weight:bold;">
                   <td colspan="3" class="text-right">সর্বমোট তহবিল হিসাব:</td>
-                  <td class="text-right text-green">৳ ${totalFundsIncome.toLocaleString("en-IN")}</td>
-                  <td class="text-right text-red">৳ ${totalFundsExpense.toLocaleString("en-IN")}</td>
-                  <td class="text-right" style="color:${totalFundsBalance >= 0 ? '#1e293b' : '#b45309'};">৳ ${totalFundsBalance.toLocaleString("en-IN")}</td>
-                  <td class="text-right" style="color:#0f172a; background:#e2e8f0;">৳ ${totalFundsReserve.toLocaleString("en-IN")}</td>
+                  <td class="text-right text-green">৳ ${toBn(totalFundsIncome)}</td>
+                  <td class="text-right text-red">৳ ${toBn(totalFundsExpense)}</td>
+                  <td class="text-right" style="color:${totalFundsBalance >= 0 ? '#1e293b' : '#b45309'};">৳ ${toBn(totalFundsBalance)}</td>
+                  <td class="text-right" style="color:#0f172a; background:#e2e8f0;">৳ ${toBn(totalFundsReserve)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -377,9 +387,9 @@ export function ExecutiveSummaryModal({
             <div class="section-title">২. শিক্ষা, হিফজুল কুরআন ও হাজিরা পর্যালোচনা</div>
             <div class="academic-grid">
               <div class="academic-card">
-                <div class="font-bold" style="font-size:11px; margin-bottom:4px; color:#1e293b;">• হাজিরা পর্যালোচনা (গড় ${m.attendanceRate}%)</div>
+                <div class="font-bold" style="font-size:11px; margin-bottom:4px; color:#1e293b;">• হাজিরা পর্যালোচনা (গড় ${toBn(m.attendanceRate)}%)</div>
                 <div style="font-size:10px; color:#334155; line-height:1.6;">
-                  মোট উপস্থিতি: <b>${m.totalPresents}</b> | অনুপস্থিতি: <b style="color:#b91c1c;">${m.totalAbsents}</b> | ছুটি: <b>${m.totalLeaves}</b><br/>
+                  মোট উপস্থিতি: <b>${toBn(m.totalPresents)}</b> | অনুপস্থিতি: <b style="color:#b91c1c;">${toBn(m.totalAbsents)}</b> | ছুটি: <b>${toBn(m.totalLeaves)}</b><br/>
                   সেরা উপস্থিত জামাত: <b>${m.topAttendanceClass}</b>
                 </div>
               </div>
@@ -387,8 +397,8 @@ export function ExecutiveSummaryModal({
               <div class="academic-card">
                 <div class="font-bold" style="font-size:11px; margin-bottom:4px; color:#1e293b;">• হিফজ ও কিতাব সিলেবাস অগ্রগতি</div>
                 <div style="font-size:10px; color:#334155; line-height:1.6;">
-                  হিফজ ছাত্র: <b>${m.hifzStudentsCount} জন</b> | খতম/হাফেজ: <b>${m.hifzKhatamCount} জন</b><br/>
-                  মোট মুখস্থ পারা: <b>${m.hifzParasCompletedTotal} পারা</b> | কিতাব সিলেবাস অগ্রগতি: <b>${m.syllabusCompletionRate}%</b>
+                  হিফজ ছাত্র: <b>${toBn(m.hifzStudentsCount)} জন</b> | খতম/হাফেজ: <b>${toBn(m.hifzKhatamCount)} জন</b><br/>
+                  মোট মুখস্থ পারা: <b>${toBn(m.hifzParasCompletedTotal)} পারা</b> | কিতাব সিলেবাস অগ্রগতি: <b>${toBn(m.syllabusCompletionRate)}%</b>
                 </div>
               </div>
             </div>
@@ -558,10 +568,10 @@ export function ExecutiveSummaryModal({
                     <span>মোট শিক্ষার্থী ও শিক্ষক</span>
                   </p>
                   <p className="text-xl font-bold text-slate-800 dark:text-slate-100 mt-1">
-                    {m?.totalStudents} <span className="text-xs font-normal text-slate-500">ছাত্র</span>
+                    {toBn(m?.totalStudents)} <span className="text-xs font-normal text-slate-500">ছাত্র</span>
                   </p>
                   <p className="text-[10px] text-slate-500 mt-0.5">
-                    উস্তাদ: {m?.totalTeachers} জন | জামাত: {m?.activeClasses}টি
+                    উস্তাদ: {toBn(m?.totalTeachers)} জন | জামাত: {toBn(m?.activeClasses)}টি
                   </p>
                 </div>
 
@@ -571,10 +581,10 @@ export function ExecutiveSummaryModal({
                     <span>চলতি মাসের মোট আয়</span>
                   </p>
                   <p className="text-xl font-bold text-emerald-700 dark:text-emerald-400 mt-1">
-                    ৳ {m?.totalIncome.toLocaleString("en-IN")}
+                    ৳ {toBn(m?.totalIncome)}
                   </p>
                   <p className="text-[10px] text-emerald-600 dark:text-emerald-400/80 mt-0.5 truncate">
-                    ফি: ৳{m?.feeCollection.toLocaleString("en-IN")} | অনুদান: ৳{((m?.generalDonations || 0) + (m?.zakatCollection || 0)).toLocaleString("en-IN")}
+                    ফি: ৳{toBn(m?.feeCollection)} | অনুদান: ৳{toBn((m?.generalDonations || 0) + (m?.zakatCollection || 0))}
                   </p>
                 </div>
 
@@ -584,10 +594,10 @@ export function ExecutiveSummaryModal({
                     <span>চলতি মাসের মোট ব্যয়</span>
                   </p>
                   <p className="text-xl font-bold text-rose-600 dark:text-rose-400 mt-1">
-                    ৳ {m?.totalExpense.toLocaleString("en-IN")}
+                    ৳ {toBn(m?.totalExpense)}
                   </p>
                   <p className="text-[10px] text-rose-600/80 dark:text-rose-400/80 mt-0.5 truncate">
-                    মেস বাজার: ৳{m?.boardingBazarExpense.toLocaleString("en-IN")} | সাধারণ: ৳{m?.generalExpenses.toLocaleString("en-IN")}
+                    মেস বাজার: ৳{toBn(m?.boardingBazarExpense)} | সাধারণ: ৳{toBn(m?.generalExpenses)}
                   </p>
                 </div>
 
@@ -607,10 +617,10 @@ export function ExecutiveSummaryModal({
                       (m?.netBalance || 0) >= 0 ? "text-blue-700 dark:text-blue-400" : "text-amber-700 dark:text-amber-400"
                     }`}
                   >
-                    ৳ {Math.abs(m?.netBalance || 0).toLocaleString("en-IN")}
+                    ৳ {toBn(Math.abs(m?.netBalance || 0))}
                   </p>
                   <p className="text-[10px] text-slate-500 mt-0.5">
-                    বকেয়া ফি: ৳{m?.totalDueAmount.toLocaleString("en-IN")} ({m?.studentsWithDueCount} জন)
+                    বকেয়া ফি: ৳{toBn(m?.totalDueAmount)} ({toBn(m?.studentsWithDueCount)} জন)
                   </p>
                 </div>
               </div>
@@ -623,7 +633,7 @@ export function ExecutiveSummaryModal({
                     <span>শরিয়াহ তহবিল ও ফান্ডভিত্তিক পূর্ণাঙ্গ মাসিক হিসাব খতিয়ান</span>
                   </h4>
                   <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-sm font-semibold">
-                    মোট {data.fundsBreakdown.length}টি ফান্ড
+                    মোট {toBn(data.fundsBreakdown.length)}টি ফান্ড
                   </span>
                 </div>
                 <div className="overflow-x-auto">
@@ -642,7 +652,7 @@ export function ExecutiveSummaryModal({
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {data.fundsBreakdown.map((f, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                          <td className="p-2.5 text-center text-slate-400 text-[11px]">{idx + 1}</td>
+                          <td className="p-2.5 text-center text-slate-400 text-[11px]">{toBn(idx + 1)}</td>
                           <td className="p-2.5 font-bold text-slate-800 dark:text-slate-200">
                             {f.fundName}
                             <span className="ml-1 text-[10px] font-normal text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-sm">
@@ -651,20 +661,20 @@ export function ExecutiveSummaryModal({
                           </td>
                           <td className="p-2.5 text-slate-600 dark:text-slate-400">{f.category || "সাধারণ"}</td>
                           <td className="p-2.5 text-right font-bold text-emerald-600">
-                            ৳ {f.income.toLocaleString("en-IN")}
+                            ৳ {toBn(f.income)}
                           </td>
                           <td className="p-2.5 text-right font-bold text-rose-600">
-                            ৳ {f.expense.toLocaleString("en-IN")}
+                            ৳ {toBn(f.expense)}
                           </td>
                           <td
                             className={`p-2.5 text-right font-bold ${
                               f.balance >= 0 ? "text-slate-800 dark:text-slate-100" : "text-amber-600"
                             }`}
                           >
-                            ৳ {f.balance.toLocaleString("en-IN")}
+                            ৳ {toBn(f.balance)}
                           </td>
                           <td className="p-2.5 text-right font-black text-slate-900 dark:text-white bg-slate-50/70 dark:bg-slate-800/30">
-                            ৳ {f.totalReserve.toLocaleString("en-IN")}
+                            ৳ {toBn(f.totalReserve)}
                           </td>
                         </tr>
                       ))}
@@ -673,16 +683,16 @@ export function ExecutiveSummaryModal({
                       <tr className="border-t-2 border-slate-300 bg-slate-100/80 font-bold text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white">
                         <td colSpan={3} className="p-2.5 text-right font-bold">সর্বমোট তহবিল হিসাব:</td>
                         <td className="p-2.5 text-right text-emerald-700 dark:text-emerald-400 font-black">
-                          ৳ {totalFundsIncome.toLocaleString("en-IN")}
+                          ৳ {toBn(totalFundsIncome)}
                         </td>
                         <td className="p-2.5 text-right text-rose-700 dark:text-rose-400 font-black">
-                          ৳ {totalFundsExpense.toLocaleString("en-IN")}
+                          ৳ {toBn(totalFundsExpense)}
                         </td>
                         <td className="p-2.5 text-right font-black">
-                          ৳ {totalFundsBalance.toLocaleString("en-IN")}
+                          ৳ {toBn(totalFundsBalance)}
                         </td>
                         <td className="p-2.5 text-right font-black bg-slate-200/80 dark:bg-slate-700">
-                          ৳ {totalFundsReserve.toLocaleString("en-IN")}
+                          ৳ {toBn(totalFundsReserve)}
                         </td>
                       </tr>
                     </tfoot>
@@ -700,7 +710,7 @@ export function ExecutiveSummaryModal({
                       <span>শিক্ষার্থী হাজিরা বিশ্লেষণ</span>
                     </h3>
                     <span className="text-xs font-bold text-emerald-600 px-2 py-0.5 bg-emerald-50 rounded-md">
-                      গড় {m?.attendanceRate}% উপস্থিতি
+                      গড় {toBn(m?.attendanceRate)}% উপস্থিতি
                     </span>
                   </div>
 
@@ -714,15 +724,15 @@ export function ExecutiveSummaryModal({
                   <div className="grid grid-cols-3 gap-2 text-center text-xs">
                     <div className="p-2 bg-slate-50 rounded-lg dark:bg-slate-800">
                       <p className="text-slate-400 text-[10px]">মোট উপস্থিতি</p>
-                      <p className="font-bold text-slate-800 dark:text-slate-200">{m?.totalPresents}</p>
+                      <p className="font-bold text-slate-800 dark:text-slate-200">{toBn(m?.totalPresents)}</p>
                     </div>
                     <div className="p-2 bg-slate-50 rounded-lg dark:bg-slate-800">
                       <p className="text-slate-400 text-[10px]">অনুপস্থিতি</p>
-                      <p className="font-bold text-rose-600">{m?.totalAbsents}</p>
+                      <p className="font-bold text-rose-600">{toBn(m?.totalAbsents)}</p>
                     </div>
                     <div className="p-2 bg-slate-50 rounded-lg dark:bg-slate-800">
                       <p className="text-slate-400 text-[10px]">ছুটি</p>
-                      <p className="font-bold text-slate-700 dark:text-slate-300">{m?.totalLeaves}</p>
+                      <p className="font-bold text-slate-700 dark:text-slate-300">{toBn(m?.totalLeaves)}</p>
                     </div>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-2">
@@ -738,7 +748,7 @@ export function ExecutiveSummaryModal({
                       <span>হিফজুল কুরআন ও কিতাব অগ্রগতি</span>
                     </h3>
                     <span className="text-xs font-bold text-amber-700 px-2 py-0.5 bg-amber-50 rounded-md">
-                      {m?.hifzStudentsCount} জন হিফজ ছাত্র
+                      {toBn(m?.hifzStudentsCount)} জন হিফজ ছাত্র
                     </span>
                   </div>
 
@@ -746,18 +756,18 @@ export function ExecutiveSummaryModal({
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-slate-600 dark:text-slate-400">খতম সম্পন্নকারী / হাফেজ:</span>
                       <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-sm">
-                        {m?.hifzKhatamCount} জন
+                        {toBn(m?.hifzKhatamCount)} জন
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-slate-600 dark:text-slate-400">মোট মুখস্থকৃত পারা:</span>
                       <span className="font-bold text-slate-800 dark:text-slate-200">
-                        {m?.hifzParasCompletedTotal} পারা
+                        {toBn(m?.hifzParasCompletedTotal)} পারা
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-slate-600 dark:text-slate-400">কিতাব সিলেবাস অগ্রগতি:</span>
-                      <span className="font-bold text-indigo-700">{m?.syllabusCompletionRate}%</span>
+                      <span className="font-bold text-indigo-700">{toBn(m?.syllabusCompletionRate)}%</span>
                     </div>
                   </div>
                 </div>
