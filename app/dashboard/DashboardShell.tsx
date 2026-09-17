@@ -19,6 +19,7 @@ import {
   Scale,
   Plus,
   Sparkles,
+  GraduationCap,
 } from "lucide-react";
 import DashboardNav from "./DashboardNav";
 import { logout } from "@/app/actions/auth";
@@ -94,6 +95,7 @@ function MobileBottomNav({
   let items = [
     { href: "/dashboard", label: "হোম", icon: LayoutDashboard, exact: true, show: true },
     { href: "/dashboard/students", label: "ছাত্র", icon: Users, show: !summary || hasPermission("student.view") },
+    { href: "/dashboard/exams", label: "পরীক্ষা", icon: GraduationCap, show: !summary || hasPermission("exam.view") },
     { href: "/dashboard/attendance", label: "হাজিরা", icon: CheckSquare, show: !summary || hasPermission("attendance.view") },
     { href: "/dashboard/accounting", label: "হিসাব", icon: Wallet, show: (!summary || hasPermission("finance.view") || hasPermission("fee.view")) && !isParentOrStudent },
   ];
@@ -102,6 +104,7 @@ function MobileBottomNav({
     items = [
       { href: "/portal", label: "পোর্টাল", icon: LayoutDashboard, exact: true, show: true },
       { href: "/portal/attendance", label: "হাজিরা", icon: CheckSquare, show: true },
+      { href: "/portal/exams", label: "পরীক্ষা", icon: GraduationCap, show: true },
       { href: "/portal/fees", label: "ফি সমূহ", icon: Wallet, show: true },
       { href: "/portal/certificates", label: "সনদপত্র", icon: BookOpen, show: true },
     ];
@@ -109,6 +112,7 @@ function MobileBottomNav({
     items = [
       { href: "/teacher-portal", label: "পোর্টাল", icon: LayoutDashboard, exact: true, show: true },
       { href: "/dashboard/students", label: "ছাত্র", icon: Users, show: hasPermission("student.view") },
+      { href: "/dashboard/exams", label: "পরীক্ষা", icon: GraduationCap, show: hasPermission("exam.view") },
       { href: "/dashboard/attendance", label: "হাজিরা", icon: CheckSquare, show: hasPermission("attendance.view") },
       { href: "/dashboard/hifz", label: "হিফজ", icon: BookOpen, show: hasPermission("hifz.view") },
     ];
@@ -117,92 +121,98 @@ function MobileBottomNav({
   const visibleItems = items.filter((i) => i.show);
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg print:hidden dark:bg-slate-900/95 dark:border-slate-800 sepia-mode:bg-[#FCF8F2]/95 sepia-mode:border-[#E8DFD1]">
-      {/* First 2 items */}
-      {visibleItems.slice(0, 2).map((item) => {
-        const active = item.exact
-          ? pathname === item.href
-          : pathname === item.href || pathname.startsWith(item.href + "/");
-        const Icon = item.icon;
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1.5 py-1 flex items-center justify-between shadow-lg print:hidden dark:bg-slate-900/95 dark:border-slate-800 sepia-mode:bg-[#FCF8F2]/95 sepia-mode:border-[#E8DFD1]">
+      {/* Left 3 items */}
+      <div className="flex items-center justify-around flex-1">
+        {visibleItems.slice(0, 3).map((item) => {
+          const active = item.exact
+            ? pathname === item.href
+            : pathname === item.href || pathname.startsWith(item.href + "/");
+          const Icon = item.icon;
 
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all ${
-              active
-                ? "text-emerald-700 dark:text-emerald-400 font-bold scale-105"
-                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-medium"
-            }`}
-          >
-            <div
-              className={`p-1 rounded-lg ${
-                active ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex flex-col items-center justify-center py-1 px-1.5 sm:px-2.5 rounded-xl transition-all ${
+                active
+                  ? "text-emerald-700 dark:text-emerald-400 font-bold scale-105"
+                  : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-medium"
               }`}
             >
-              <Icon className="w-5 h-5" />
-            </div>
-            <span className="text-[10px] leading-tight mt-0.5">{item.label}</span>
-          </Link>
-        );
-      })}
+              <div
+                className={`p-1 rounded-lg ${
+                  active ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+              <span className="text-[9px] sm:text-[10px] leading-tight mt-0.5">{item.label}</span>
+            </Link>
+          );
+        })}
+      </div>
 
       {/* Center Floating Action Center Button */}
-      <button
-        type="button"
-        onClick={onOpenActionSheet}
-        className="flex flex-col items-center justify-center -mt-5"
-        title="কুইক অ্যাকশন সেন্টার"
-        aria-label="Quick Action Center"
-      >
-        <div className="w-12 h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg hover:bg-emerald-700 active:scale-95 transition-transform border-2 border-white dark:border-slate-900">
-          <Plus className="w-6 h-6" />
-        </div>
-        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 leading-tight mt-0.5">
-          অ্যাকশন
-        </span>
-      </button>
+      <div className="flex flex-col items-center justify-center px-1">
+        <button
+          type="button"
+          onClick={onOpenActionSheet}
+          className="flex flex-col items-center justify-center -mt-5 group"
+          title="কুইক অ্যাকশন সেন্টার"
+          aria-label="Quick Action Center"
+        >
+          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg hover:bg-emerald-700 active:scale-95 transition-all border-2 border-white dark:border-slate-900 group-hover:scale-105 shadow-emerald-600/30">
+            <Plus className="w-5 h-5 sm:w-6 sm:h-6" />
+          </div>
+          <span className="text-[9px] sm:text-[10px] font-bold text-emerald-700 dark:text-emerald-400 leading-tight mt-0.5">
+            অ্যাকশন
+          </span>
+        </button>
+      </div>
 
-      {/* Remaining items */}
-      {visibleItems.slice(2).map((item) => {
-        const active = item.exact
-          ? pathname === item.href
-          : pathname === item.href || pathname.startsWith(item.href + "/");
-        const Icon = item.icon;
+      {/* Right 3 items (2 data items + 1 All Menus drawer) */}
+      <div className="flex items-center justify-around flex-1">
+        {visibleItems.slice(3).map((item) => {
+          const active = item.exact
+            ? pathname === item.href
+            : pathname === item.href || pathname.startsWith(item.href + "/");
+          const Icon = item.icon;
 
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition-all ${
-              active
-                ? "text-emerald-700 dark:text-emerald-400 font-bold scale-105"
-                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-medium"
-            }`}
-          >
-            <div
-              className={`p-1 rounded-lg ${
-                active ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex flex-col items-center justify-center py-1 px-1.5 sm:px-2.5 rounded-xl transition-all ${
+                active
+                  ? "text-emerald-700 dark:text-emerald-400 font-bold scale-105"
+                  : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-medium"
               }`}
             >
-              <Icon className="w-5 h-5" />
-            </div>
-            <span className="text-[10px] leading-tight mt-0.5">{item.label}</span>
-          </Link>
-        );
-      })}
+              <div
+                className={`p-1 rounded-lg ${
+                  active ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+              <span className="text-[9px] sm:text-[10px] leading-tight mt-0.5">{item.label}</span>
+            </Link>
+          );
+        })}
 
-      {/* All Menus */}
-      <button
-        type="button"
-        onClick={() => setSidebarOpen(true)}
-        className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-medium"
-      >
-        <div className="p-1 rounded-lg text-slate-500 dark:text-slate-400">
-          <Menu className="w-5 h-5" />
-        </div>
-        <span className="text-[10px] leading-tight mt-0.5">মেনু</span>
-      </button>
+        {/* All Menus */}
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="flex flex-col items-center justify-center py-1 px-1.5 sm:px-2.5 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-medium"
+        >
+          <div className="p-1 rounded-lg text-slate-500 dark:text-slate-400">
+            <Menu className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+          <span className="text-[9px] sm:text-[10px] leading-tight mt-0.5">মেনু</span>
+        </button>
+      </div>
     </nav>
   );
 }
