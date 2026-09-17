@@ -405,3 +405,84 @@ html[data-theme="sepia"] select {
   border-color: #d8c8af !important;
 }
 
+/* ==========================================================================
+   Comprehensive Print System & Isolated Official Memo Printing
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm 8mm 10mm;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* When printing-modal is active, hide everything outside the printable container */
+  body.printing-modal {
+    position: static !important;
+    overflow: visible !important;
+  }
+
+  body.printing-modal #app-shell-header,
+  body.printing-modal #app-shell-sidebar,
+  body.printing-modal #app-shell-main,
+  body.printing-modal #app-bottom-nav,
+  body.printing-modal #app-quick-actions-sheet,
+  body.printing-modal header,
+  body.printing-modal aside,
+  body.printing-modal nav,
+  body.printing-modal footer,
+  body.printing-modal .no-print,
+  body.printing-modal .print-hide {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Reset modal overlays to static page content */
+  body.printing-modal .modal-print-container {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  body.printing-modal .printable-memo-document {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}
+
+

@@ -1,10 +1,13 @@
 "use server";
 
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata } from "@/lib/sessions";
 import { getFeeMetadata } from "./fee-management";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getFunds } from "./zakat";
+import { isTransactionInFund, parseExpenseFund, FundItem } from "@/lib/fund-utils";
+import { getSyllabusDashboardData } from "./syllabus";
 
 export interface MonthlyExecutiveSummaryData {
   monthStr: string; // YYYY-MM
@@ -16,6 +19,8 @@ export interface MonthlyExecutiveSummaryData {
     phone: string;
     email: string;
     regNo: string;
+    principalName?: string;
+    slogan?: string;
   };
   metrics: {
     // Academic & Students
@@ -60,10 +65,14 @@ export interface MonthlyExecutiveSummaryData {
     earlyWarningAlertCount: number;
   };
   fundsBreakdown: {
+    fundId: string;
     fundName: string;
+    code: string;
+    category: string;
     income: number;
     expense: number;
     balance: number;
+    totalReserve: number;
   }[];
 }
 
@@ -90,36 +99,83 @@ export async function getMonthlyExecutiveSummary(
   const monthNameBn = `${MONTH_NAMES_BN[monthNumStr] || monthNumStr} ${yearStr}`;
 
   const supabase = await createClient();
+  const user = await getAuthUser(supabase);
   const adminClient = await createAdminClient();
-  const madrasaId = await getAuthMadrasaId(supabase);
+  const madrasaId = await getAuthMadrasaId(supabase, user);
 
-  const madrasaInfoRaw = await getMadrasaInfo(madrasaId);
-  const meta = await getMadrasaMetadata(madrasaId);
-  const feeMeta = await getFeeMetadata(madrasaId);
+  // 1. Fetch Madrasa info & metadata
+  const [madrasaInfoRaw, meta, feeMeta, allFundsList] = await Promise.all([
+    getMadrasaInfo(madrasaId),
+    getMadrasaMetadata(madrasaId),
+    getFeeMetadata(madrasaId),
+    getFunds(),
+  ]);
 
-  // 1. Fetch Students, Classes, Teachers
-  const [studentsRes, classesRes, staffRes, attendanceRes, expensesRes, donationsRes] = await Promise.all([
+  // 2. Concurrently fetch all core database entities
+  const [
+    studentsRes,
+    classesRes,
+    teachersRes,
+    staffRes,
+    attendanceRes,
+    expensesRes,
+    donationsRes,
+    dbFeesRes,
+    hifzLogsRes,
+  ] = await Promise.all([
     adminClient.from("students").select("id, class_id, is_active").eq("madrasa_id", madrasaId),
     adminClient.from("classes").select("id, name").eq("madrasa_id", madrasaId),
-    adminClient.from("staff").select("id, designation, role").eq("madrasa_id", madrasaId),
-    adminClient.from("attendance").select("status, date, class_id, student_id").eq("madrasa_id", madrasaId).gte("date", `${currentMonth}-01`).lte("date", `${currentMonth}-31`),
-    adminClient.from("expenses").select("amount, expense_date, category, description").eq("madrasa_id", madrasaId).gte("expense_date", `${currentMonth}-01`).lte("expense_date", `${currentMonth}-31`),
-    adminClient.from("donations").select("amount, donation_date, category, donor_name").eq("madrasa_id", madrasaId).gte("donation_date", `${currentMonth}-01`).lte("donation_date", `${currentMonth}-31`),
+    adminClient.from("teachers").select("id, first_name, last_name, is_active").eq("madrasa_id", madrasaId),
+    adminClient.from("staff").select("id, designation, role, is_active").eq("madrasa_id", madrasaId),
+    adminClient
+      .from("attendance")
+      .select("status, date, class_id, student_id")
+      .eq("madrasa_id", madrasaId)
+      .gte("date", `${currentMonth}-01`)
+      .lte("date", `${currentMonth}-31`),
+    adminClient
+      .from("expenses")
+      .select("id, amount, expense_date, category, description, voucher_no")
+      .eq("madrasa_id", madrasaId)
+      .gte("expense_date", `${currentMonth}-01`)
+      .lte("expense_date", `${currentMonth}-31`),
+    adminClient
+      .from("donations")
+      .select("id, amount, donation_date, category, donation_type, donor_name, donor_id, receipt_no, notes")
+      .eq("madrasa_id", madrasaId)
+      .gte("donation_date", `${currentMonth}-01`)
+      .lte("donation_date", `${currentMonth}-31`),
+    adminClient.from("fees").select("*").eq("madrasa_id", madrasaId),
+    adminClient.from("hifz_logs").select("student_id, sabak_para, saboki_para, amukhta_para, log_date").eq("madrasa_id", madrasaId),
   ]);
 
   const students = studentsRes.data || [];
   const classes = classesRes.data || [];
+  const teachers = teachersRes.data || [];
   const staff = staffRes.data || [];
   const attendance = attendanceRes.data || [];
   const dbExpenses = expensesRes.data || [];
   const dbDonations = donationsRes.data || [];
+  const dbFees = dbFeesRes.data || [];
+  const hifzLogs = hifzLogsRes.data || [];
 
-  const totalStudents = students.length;
+  // Active counts
+  const totalStudents = students.filter((s: any) => s.is_active !== false).length || students.length;
   const activeClasses = classes.length;
-  const totalTeachers = staff.filter((s: any) => (s.designation || "").includes("শিক্ষক") || (s.role || "").includes("teacher")).length || Math.min(staff.length, 12);
-  const totalStaff = staff.length;
+  
+  // Real Teacher count (from teachers table + teaching staff)
+  const teacherIdSet = new Set(teachers.map((t: any) => t.id));
+  staff.forEach((s: any) => {
+    const des = (s.designation || "").toLowerCase();
+    const role = (s.role || "").toLowerCase();
+    if (des.includes("শিক্ষক") || des.includes("মুহাদ্দিস") || des.includes("উস্তাদ") || des.includes("মুফতি") || role.includes("teacher")) {
+      teacherIdSet.add(s.id);
+    }
+  });
+  const totalTeachers = teacherIdSet.size || teachers.length;
+  const totalStaff = staff.length || teachers.length;
 
-  // 2. Attendance Calculations
+  // 3. Attendance Analytics for Target Month
   let totalPresents = 0;
   let totalAbsents = 0;
   let totalLeaves = 0;
@@ -128,25 +184,25 @@ export async function getMonthlyExecutiveSummary(
 
   attendance.forEach((a: any) => {
     if (a.date) uniqueDates.add(a.date);
-    if (a.status === "Present") totalPresents++;
-    else if (a.status === "Absent") totalAbsents++;
-    else if (a.status === "Leave") totalLeaves++;
+    if (a.status === "Present" || a.status === "উপস্থিত") totalPresents++;
+    else if (a.status === "Absent" || a.status === "অনুপস্থিত") totalAbsents++;
+    else if (a.status === "Leave" || a.status === "ছুটি") totalLeaves++;
 
     if (a.class_id) {
       if (!classAttendanceMap[a.class_id]) classAttendanceMap[a.class_id] = { present: 0, total: 0 };
       classAttendanceMap[a.class_id].total++;
-      if (a.status === "Present") classAttendanceMap[a.class_id].present++;
+      if (a.status === "Present" || a.status === "উপস্থিত") classAttendanceMap[a.class_id].present++;
     }
   });
 
   const totalAttendanceEntries = totalPresents + totalAbsents + totalLeaves;
-  const attendanceRate = totalAttendanceEntries > 0 ? Math.round((totalPresents / totalAttendanceEntries) * 100) : 94;
+  const attendanceRate = totalAttendanceEntries > 0 ? Math.round((totalPresents / totalAttendanceEntries) * 100) : 0;
 
-  let topAttendanceClass = "সব জামাত সন্তোষজনক";
+  let topAttendanceClass = totalAttendanceEntries > 0 ? "সকল জামাত স্বাভাবিক" : "হাজিরা এন্ট্রি নেই";
   let highestRatio = -1;
   Object.keys(classAttendanceMap).forEach((cId) => {
     const entry = classAttendanceMap[cId];
-    if (entry.total > 5) {
+    if (entry.total >= 1) {
       const ratio = entry.present / entry.total;
       if (ratio > highestRatio) {
         highestRatio = ratio;
@@ -156,19 +212,70 @@ export async function getMonthlyExecutiveSummary(
     }
   });
 
-  // 3. Hifz Metrics
-  const hifzRecords = meta.hifz_records || [];
-  const hifzStudentsCount = hifzRecords.length || (meta.hifz_students ? meta.hifz_students.length : 0);
+  // 4. Hifz & Academic Progress
+  const hifzClassIds = new Set(
+    classes.filter((c: any) => (c.name || "").includes("হিফজ") || (c.name || "").includes("তাহফিজ")).map((c: any) => c.id)
+  );
+  const hifzStudentIds = new Set<string>();
+  students.forEach((s: any) => {
+    if (s.class_id && hifzClassIds.has(s.class_id)) hifzStudentIds.add(s.id);
+  });
+  hifzLogs.forEach((l: any) => {
+    if (l.student_id) hifzStudentIds.add(l.student_id);
+  });
+  (meta.hifz_records || []).forEach((hr: any) => {
+    if (hr.student_id || hr.id) hifzStudentIds.add(hr.student_id || hr.id);
+  });
+
+  const hifzStudentsCount = hifzStudentIds.size;
   let hifzParasCompletedTotal = 0;
   let hifzKhatamCount = 0;
 
-  hifzRecords.forEach((h: any) => {
-    const para = Number(h.current_para || h.total_paras || 0);
-    hifzParasCompletedTotal += para;
-    if (para >= 30 || h.is_hafez) hifzKhatamCount++;
+  // Calculate max paras per student from logs or meta records
+  const studentMaxParaMap = new Map<string, number>();
+  (meta.hifz_records || []).forEach((h: any) => {
+    const p = Number(h.current_para || h.total_paras || 0);
+    const sId = h.student_id || h.id;
+    if (sId) {
+      studentMaxParaMap.set(sId, Math.max(studentMaxParaMap.get(sId) || 0, p));
+    }
+    if (h.is_hafez || p >= 30) hifzKhatamCount++;
   });
 
-  // 4. Financial Calculations for the Month
+  hifzLogs.forEach((l: any) => {
+    const p = Number(l.sabak_para || l.saboki_para || l.amukhta_para || 0);
+    if (l.student_id && p > 0) {
+      studentMaxParaMap.set(l.student_id, Math.max(studentMaxParaMap.get(l.student_id) || 0, p));
+    }
+  });
+
+  studentMaxParaMap.forEach((maxP) => {
+    hifzParasCompletedTotal += maxP;
+    if (maxP >= 30 && !hifzKhatamCount) hifzKhatamCount++;
+  });
+
+  // Calculate real syllabus completion rate
+  let syllabusCompletionRate = 0;
+  try {
+    const syllabusRes = await getSyllabusDashboardData();
+    if (syllabusRes && syllabusRes.success && syllabusRes.data) {
+      syllabusCompletionRate = Math.round(syllabusRes.data.overallProgress || 0);
+    }
+  } catch {
+    syllabusCompletionRate = 0;
+  }
+
+  // 5. 100% Dynamic Financial & Funds Calculations for Selected Month
+  const fundsList: FundItem[] = allFundsList && allFundsList.length > 0 ? allFundsList : [];
+  
+  // Track fund inflows and outflows for the month
+  const monthlyFundInflowMap = new Map<string, number>();
+  const monthlyFundOutflowMap = new Map<string, number>();
+  fundsList.forEach((f) => {
+    monthlyFundInflowMap.set(f.id, 0);
+    monthlyFundOutflowMap.set(f.id, 0);
+  });
+
   let feeCollection = 0;
   let zakatCollection = 0;
   let generalDonations = 0;
@@ -176,16 +283,45 @@ export async function getMonthlyExecutiveSummary(
   let totalDueAmount = 0;
   let studentsWithDueCount = 0;
 
-  // Fee payments for the month
-  const payments = feeMeta.payments || [];
-  payments.forEach((p: any) => {
+  // A. Student Fee Payments in current month
+  const allPayments = feeMeta.payments || [];
+  allPayments.forEach((p: any) => {
+    if (p.status === "REVERSED" || p.status === "VOID") return;
     const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
     if (pDate.startsWith(currentMonth)) {
-      feeCollection += Number(p.total_amount_received || 0);
+      const totalRec = Number(p.total_amount_received || 0);
+      feeCollection += totalRec;
+
+      if (p.allocations && p.allocations.length > 0) {
+        p.allocations.forEach((alloc: any) => {
+          const allocAmt = Number(alloc.allocated_amount || 0);
+          if (allocAmt > 0) {
+            const targetFund = fundsList.find((f) =>
+              isTransactionInFund(f, alloc.fund_id, alloc.fund_name || alloc.fee_type_name, fundsList)
+            ) || fundsList[0];
+            if (targetFund) {
+              monthlyFundInflowMap.set(
+                targetFund.id,
+                (monthlyFundInflowMap.get(targetFund.id) || 0) + allocAmt
+              );
+            }
+          }
+        });
+      } else {
+        const targetFund = fundsList.find((f) =>
+          isTransactionInFund(f, p.fund_id, p.fund_name, fundsList)
+        ) || fundsList[0];
+        if (targetFund) {
+          monthlyFundInflowMap.set(
+            targetFund.id,
+            (monthlyFundInflowMap.get(targetFund.id) || 0) + totalRec
+          );
+        }
+      }
     }
   });
 
-  // Dues calculation
+  // Calculate real student due amounts
   const studentFees = feeMeta.student_fees || [];
   studentFees.forEach((fee: any) => {
     const due = Number(fee.due_amount || 0);
@@ -195,14 +331,62 @@ export async function getMonthlyExecutiveSummary(
     }
   });
 
-  // Donations & Zakat
+  // B. Real Donations & Zakat in current month
   dbDonations.forEach((d: any) => {
     const amt = Number(d.amount || 0);
-    const cat = (d.category || "").toLowerCase();
-    if (cat.includes("zakat") || cat.includes("যাকাত") || cat.includes("lillah") || cat.includes("লিল্লাহ")) {
+    const cat = (d.category || d.donation_type || "").toLowerCase();
+    const isZakat = cat.includes("zakat") || cat.includes("যাকাত") || cat.includes("lillah") || cat.includes("লিল্লাহ") || cat.includes("fitra") || cat.includes("ফিতরা");
+    if (isZakat) {
       zakatCollection += amt;
     } else {
       generalDonations += amt;
+    }
+
+    const targetFund = fundsList.find((f) =>
+      isTransactionInFund(f, (d as any).fund_id, d.donation_type || d.category, fundsList)
+    ) || fundsList[0];
+
+    if (targetFund) {
+      monthlyFundInflowMap.set(
+        targetFund.id,
+        (monthlyFundInflowMap.get(targetFund.id) || 0) + amt
+      );
+    }
+  });
+
+  // Donor subscription payments in metadata
+  (meta.donor_subscription_payments || []).forEach((sp: any) => {
+    const spDate = sp.date || sp.created_at || "";
+    if (spDate.startsWith(currentMonth)) {
+      const amt = Number(sp.amount || 0);
+      generalDonations += amt;
+      const targetFund = fundsList.find((f) =>
+        isTransactionInFund(f, sp.fund_id, sp.fund_name, fundsList)
+      ) || fundsList[0];
+      if (targetFund) {
+        monthlyFundInflowMap.set(
+          targetFund.id,
+          (monthlyFundInflowMap.get(targetFund.id) || 0) + amt
+        );
+      }
+    }
+  });
+
+  // Online verified donations in metadata
+  (meta.online_donations || []).forEach((od: any) => {
+    const odDate = od.date || od.created_at || "";
+    if (odDate.startsWith(currentMonth) && (od.status === "VERIFIED" || od.status === "COMPLETED" || od.status === "SUCCESS")) {
+      const amt = Number(od.amount || 0);
+      generalDonations += amt;
+      const targetFund = fundsList.find((f) =>
+        isTransactionInFund(f, od.fund_id, od.fund_category || od.fund_name || od.purpose, fundsList)
+      ) || fundsList[0];
+      if (targetFund) {
+        monthlyFundInflowMap.set(
+          targetFund.id,
+          (monthlyFundInflowMap.get(targetFund.id) || 0) + amt
+        );
+      }
     }
   });
 
@@ -211,7 +395,15 @@ export async function getMonthlyExecutiveSummary(
     (m.receipt_books || []).forEach((b: any) => {
       (b.deposit_history || []).forEach((dep: any) => {
         if (dep.date && dep.date.startsWith(currentMonth)) {
-          mahfilCollection += Number(dep.amount || 0);
+          const amt = Number(dep.amount || 0);
+          mahfilCollection += amt;
+          const targetFund = fundsList.find((f) => isTransactionInFund(f, undefined, "সাধারণ ফান্ড", fundsList)) || fundsList[0];
+          if (targetFund) {
+            monthlyFundInflowMap.set(
+              targetFund.id,
+              (monthlyFundInflowMap.get(targetFund.id) || 0) + amt
+            );
+          }
         }
       });
     });
@@ -219,7 +411,7 @@ export async function getMonthlyExecutiveSummary(
 
   const totalIncome = feeCollection + zakatCollection + generalDonations + mahfilCollection;
 
-  // Expenses Calculation
+  // C. Expenses Calculations in current month
   let generalExpenses = 0;
   let boardingBazarExpense = 0;
 
@@ -227,44 +419,69 @@ export async function getMonthlyExecutiveSummary(
     const amt = Number(e.amount || 0);
     const cat = (e.category || "").toLowerCase();
     const desc = (e.description || "").toLowerCase();
-    if (cat.includes("বাজার") || cat.includes("বোর্ডিং") || cat.includes("খাবার") || desc.includes("বাজার")) {
+    const isBazar = cat.includes("বাজার") || cat.includes("বোর্ডিং") || cat.includes("খাবার") || desc.includes("বাজার") || desc.includes("খাবার");
+    
+    if (isBazar) {
       boardingBazarExpense += amt;
     } else {
       generalExpenses += amt;
     }
+
+    const parsed = parseExpenseFund(e.description);
+    const targetFund = fundsList.find((f) =>
+      isTransactionInFund(f, parsed.fundId, parsed.fundName || e.category, fundsList)
+    ) || (isBazar ? fundsList.find(f => f.code === "LIL" || f.name.includes("লিল্লাহ")) : fundsList[0]);
+
+    if (targetFund) {
+      monthlyFundOutflowMap.set(
+        targetFund.id,
+        (monthlyFundOutflowMap.get(targetFund.id) || 0) + amt
+      );
+    }
   });
 
-  // Add boarding meals bazar logs from metadata if any
+  // Boarding bazar logs from metadata
   (meta.boarding_bazar_logs || []).forEach((b: any) => {
     if (b.date && b.date.startsWith(currentMonth)) {
-      boardingBazarExpense += Number(b.amount || b.total_cost || 0);
+      const amt = Number(b.amount || b.total_cost || 0);
+      boardingBazarExpense += amt;
+      const lillahFund = fundsList.find(f => f.code === "LIL" || f.name.includes("লিল্লাহ")) || fundsList[0];
+      if (lillahFund) {
+        monthlyFundOutflowMap.set(
+          lillahFund.id,
+          (monthlyFundOutflowMap.get(lillahFund.id) || 0) + amt
+        );
+      }
     }
   });
 
   const totalExpense = generalExpenses + boardingBazarExpense;
   const netBalance = totalIncome - totalExpense;
 
-  // Fund Breakdown
-  const fundsBreakdown = [
-    {
-      fundName: "সাধারণ ও এতিমখানা তহবিল",
-      income: feeCollection + generalDonations,
-      expense: generalExpenses,
-      balance: feeCollection + generalDonations - generalExpenses,
-    },
-    {
-      fundName: "যাকাত, ফেতরা ও লিল্লাহ ফান্ড",
-      income: zakatCollection,
-      expense: Math.round(boardingBazarExpense * 0.7),
-      balance: zakatCollection - Math.round(boardingBazarExpense * 0.7),
-    },
-    {
-      fundName: "বোর্ডিং ও মেস ফান্ড",
-      income: Math.round(feeCollection * 0.4),
-      expense: boardingBazarExpense,
-      balance: Math.round(feeCollection * 0.4) - boardingBazarExpense,
-    },
-  ];
+  // D. Construct Real Dynamic Funds Breakdown
+  const fundsBreakdown = fundsList.map((fund) => {
+    const mIncome = monthlyFundInflowMap.get(fund.id) || 0;
+    const mExpense = monthlyFundOutflowMap.get(fund.id) || 0;
+    const mBalance = mIncome - mExpense;
+    return {
+      fundId: fund.id,
+      fundName: fund.name,
+      code: fund.code,
+      category: fund.category,
+      income: mIncome,
+      expense: mExpense,
+      balance: mBalance,
+      totalReserve: Number(fund.current_balance || 0),
+    };
+  });
+
+  // Calculate leaves in target month
+  const leavesCount = (meta.leaves || []).filter((l: any) => {
+    const d = l.start_date || l.date || "";
+    return d.startsWith(currentMonth);
+  }).length;
+
+  const earlyWarningAlertCount = (meta.early_warnings || []).length;
 
   return {
     monthStr: currentMonth,
@@ -275,7 +492,9 @@ export async function getMonthlyExecutiveSummary(
       address: madrasaInfoRaw?.address || "মাদরাসা প্রাঙ্গণ",
       phone: madrasaInfoRaw?.phone || "০১৭০০-০০০০০০",
       email: madrasaInfoRaw?.email || "info@madrasa.org",
-      regNo: madrasaInfoRaw?.reg_no || "কওমি-রেজি-২০২৪",
+      regNo: madrasaInfoRaw?.reg_no || madrasaInfoRaw?.registration_no || "কওমি-রেজি-২০২৪",
+      principalName: madrasaInfoRaw?.principal_name || "মুহতামিম সাহেব",
+      slogan: madrasaInfoRaw?.slogan || "ইলমে ওহীর আদর্শ শিক্ষাকেন্দ্র",
     },
     metrics: {
       totalStudents: totalStudents || 0,
@@ -284,7 +503,7 @@ export async function getMonthlyExecutiveSummary(
       totalStaff: totalStaff || 0,
 
       attendanceRate,
-      totalWorkingDays: uniqueDates.size || 24,
+      totalWorkingDays: uniqueDates.size || (attendance.length > 0 ? uniqueDates.size : 0),
       totalPresents,
       totalAbsents,
       totalLeaves,
@@ -293,7 +512,7 @@ export async function getMonthlyExecutiveSummary(
       hifzStudentsCount,
       hifzKhatamCount,
       hifzParasCompletedTotal,
-      syllabusCompletionRate: 88,
+      syllabusCompletionRate,
 
       totalIncome,
       feeCollection,
@@ -310,8 +529,8 @@ export async function getMonthlyExecutiveSummary(
       totalDueAmount,
       studentsWithDueCount,
 
-      leavesCount: (meta.leaves || []).length || 0,
-      earlyWarningAlertCount: (meta.early_warnings || []).length || 0,
+      leavesCount,
+      earlyWarningAlertCount,
     },
     fundsBreakdown,
   };
