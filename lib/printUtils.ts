@@ -54,6 +54,38 @@ export function printElementIsolated(
         <title>${pageTitle}</title>
         ${styleTags}
         <style>
+          @font-face {
+            font-family: 'SolaimanLipi';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: local('SolaimanLipi'), local('Solaiman Lipi'),
+                 url('/fonts/solaimanlipi.ttf') format('truetype');
+          }
+          @font-face {
+            font-family: 'SolaimanLipi';
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: local('SolaimanLipi Bold'), local('SolaimanLipi-Bold'),
+                 url('/fonts/solaimanlipi_bold.ttf') format('truetype');
+          }
+          @font-face {
+            font-family: 'Amiri';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: local('Amiri'),
+                 url('/fonts/amiri_regular.ttf') format('truetype');
+          }
+          @font-face {
+            font-family: 'Amiri';
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: local('Amiri Bold'),
+                 url('/fonts/amiri_regular.ttf') format('truetype');
+          }
           @page {
             size: A4 ${orientation};
             margin: 6mm;
@@ -69,6 +101,10 @@ export function printElementIsolated(
             background: #ffffff !important;
             color: #0f172a !important;
             font-family: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', ui-sans-serif, system-ui, sans-serif !important;
+          }
+          .arabic-text, .bismillah {
+            font-family: 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', serif !important;
+            direction: rtl;
           }
           .isolated-print-wrapper {
             width: 100% !important;

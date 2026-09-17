@@ -82,9 +82,45 @@ export function ExecutiveSummaryModal({
           <title>${data.madrasaInfo.name} - মাসিক নির্বাহী সামারি (${data.monthNameBn})</title>
           <link rel="preconnect" href="https://fonts.googleapis.com">
           <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-          <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Hind+Siliguri:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&family=Noto+Serif+Bengali:wght@400;600;700&family=Scheherazade+New:wght@400;700&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Hind+Siliguri:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
           <style>
-            @import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Hind+Siliguri:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&family=Noto+Serif+Bengali:wght@400;600;700&family=Scheherazade+New:wght@400;700&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Hind+Siliguri:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&display=swap');
+
+            @font-face {
+              font-family: 'SolaimanLipi';
+              font-style: normal;
+              font-weight: 400;
+              font-display: swap;
+              src: local('SolaimanLipi'), local('Solaiman Lipi'),
+                   url('/fonts/solaimanlipi.ttf') format('truetype');
+            }
+
+            @font-face {
+              font-family: 'SolaimanLipi';
+              font-style: normal;
+              font-weight: 700;
+              font-display: swap;
+              src: local('SolaimanLipi Bold'), local('SolaimanLipi-Bold'),
+                   url('/fonts/solaimanlipi_bold.ttf') format('truetype');
+            }
+
+            @font-face {
+              font-family: 'Amiri';
+              font-style: normal;
+              font-weight: 400;
+              font-display: swap;
+              src: local('Amiri'),
+                   url('/fonts/amiri_regular.ttf') format('truetype');
+            }
+
+            @font-face {
+              font-family: 'Amiri';
+              font-style: normal;
+              font-weight: 700;
+              font-display: swap;
+              src: local('Amiri Bold'),
+                   url('/fonts/amiri_regular.ttf') format('truetype');
+            }
 
             @page {
               size: A4 portrait;
@@ -96,7 +132,7 @@ export function ExecutiveSummaryModal({
               print-color-adjust: exact !important;
             }
             body {
-              font-family: 'Hind Siliguri', 'Noto Sans Bengali', 'SolaimanLipi', 'Kalpurush', sans-serif;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', 'Noto Sans Bengali', 'Kalpurush', sans-serif !important;
               color: #0f172a;
               background: #ffffff;
               margin: 0;
@@ -112,12 +148,13 @@ export function ExecutiveSummaryModal({
               border: 2px solid #0f172a;
               padding: 16px 20px;
               border-radius: 6px;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif;
             }
             .arabic-bismillah {
               text-align: center;
-              font-size: 20px;
+              font-size: 21px;
               font-weight: 700;
-              font-family: 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'Traditional Arabic', serif;
+              font-family: 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', serif !important;
               margin-bottom: 4px;
               color: #15803d;
               direction: rtl;
@@ -127,7 +164,7 @@ export function ExecutiveSummaryModal({
               text-align: center;
               font-size: 22px;
               font-weight: 700;
-              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
               margin: 0;
               color: #0f172a;
               letter-spacing: -0.2px;
@@ -137,7 +174,7 @@ export function ExecutiveSummaryModal({
               font-size: 11px;
               color: #475569;
               margin: 2px 0 8px 0;
-              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
             }
             .badge-bar {
               background: #f1f5f9;
@@ -150,7 +187,7 @@ export function ExecutiveSummaryModal({
               font-weight: 600;
               font-size: 12px;
               margin-bottom: 12px;
-              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
             }
             .kpi-grid {
               display: grid;
@@ -163,7 +200,7 @@ export function ExecutiveSummaryModal({
               background: #f8fafc;
               padding: 6px 8px;
               border-radius: 4px;
-              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
             }
             .kpi-title {
               font-size: 10px;
@@ -185,7 +222,7 @@ export function ExecutiveSummaryModal({
             .section-title {
               font-size: 12px;
               font-weight: 700;
-              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
               background: #0f172a;
               color: #ffffff;
               padding: 4px 8px;
@@ -197,12 +234,13 @@ export function ExecutiveSummaryModal({
               border-collapse: collapse;
               margin-bottom: 10px;
               font-size: 11px;
-              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
             }
             th, td {
               border: 1px solid #cbd5e1;
               padding: 5px 6px;
               text-align: left;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
             }
             th {
               background: #f1f5f9;
@@ -235,7 +273,7 @@ export function ExecutiveSummaryModal({
               border-radius: 4px;
               padding: 6px 8px;
               background: #ffffff;
-              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
             }
             .signatures-grid {
               display: grid;
@@ -243,7 +281,7 @@ export function ExecutiveSummaryModal({
               gap: 12px;
               margin-top: 24px;
               text-align: center;
-              font-family: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+              font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
             }
             .sig-line {
               border-top: 1px solid #0f172a;
