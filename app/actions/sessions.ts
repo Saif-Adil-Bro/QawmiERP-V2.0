@@ -8,6 +8,7 @@ import {
   AcademicSession,
   StudentEnrollment,
   getDefaultSessions,
+  deduplicateSessions,
   getMadrasaMetadata,
   saveMadrasaMetadata,
 } from "@/lib/sessions";
@@ -76,8 +77,21 @@ export async function getAcademicSessions(targetMadrasaId?: string): Promise<Aca
       return defaults;
     }
 
+    const rawCount = meta.sessions.length;
+    const deduplicated = deduplicateSessions(meta.sessions);
+
+    // If duplicate sessions were detected, automatically repair and persist clean list to database
+    if (deduplicated.length !== rawCount) {
+      meta.sessions = deduplicated;
+      try {
+        await saveMadrasaMetadata(madrasaId, meta);
+      } catch (saveErr) {
+        console.warn("Auto-repaired duplicate sessions save notice:", saveErr);
+      }
+    }
+
     // Sort: is_current first, then active, then by start_date descending
-    return meta.sessions.sort((a, b) => {
+    return deduplicated.sort((a, b) => {
       if (a.is_current) return -1;
       if (b.is_current) return 1;
       if (a.status === "ACTIVE" && b.status === "ARCHIVED") return -1;

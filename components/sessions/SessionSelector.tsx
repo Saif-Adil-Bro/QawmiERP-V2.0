@@ -55,33 +55,34 @@ export default function SessionSelector() {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-medium transition-all duration-150 shadow-2xs ${
+        className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-medium transition-all duration-150 shadow-2xs ${
           isArchivedSelected
-            ? "bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100"
+            ? "bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 sepia-mode:bg-[#EFE6D8] sepia-mode:text-[#451A03] sepia-mode:border-[#D5C9B3]"
             : isCurrentSelected
-            ? "bg-emerald-50 text-emerald-950 border-emerald-200 hover:bg-emerald-100/80"
-            : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100"
+            ? "bg-emerald-50 text-emerald-950 border-emerald-200 hover:bg-emerald-100/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 sepia-mode:bg-[#EAE2D2] sepia-mode:text-[#2C1A0C] sepia-mode:border-[#D5C9B3]"
+            : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:text-[#5A3825] sepia-mode:border-[#E8DFD1]"
         }`}
         title="শিক্ষাবর্ষ পরিবর্তন করুন"
+        aria-expanded={isOpen}
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
           <Calendar
-            className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${
+            className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
               isArchivedSelected
-                ? "text-amber-600"
+                ? "text-amber-600 dark:text-amber-400"
                 : isCurrentSelected
-                ? "text-emerald-600"
-                : "text-slate-500"
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-slate-500 dark:text-slate-400"
             }`}
           />
-          <span className="text-[11px] sm:text-xs text-slate-500 hidden md:inline">শিক্ষাবর্ষ:</span>
-          <span className="font-semibold truncate max-w-[130px] sm:max-w-[180px]">
+          <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 hidden lg:inline">শিক্ষাবর্ষ:</span>
+          <span className="font-semibold truncate max-w-[95px] xs:max-w-[130px] sm:max-w-[180px]">
             {selectedSession?.name || "১৪৪৭-৪৮ হিজরি"}
           </span>
         </div>
 
         {isArchivedSelected ? (
-          <span className="px-1.5 py-0.2 bg-amber-200 text-amber-900 text-[10px] font-bold rounded-md shrink-0">
+          <span className="px-1.5 py-0.2 bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200 text-[10px] font-bold rounded-md shrink-0">
             আর্কাইভ
           </span>
         ) : isCurrentSelected ? (
@@ -89,7 +90,7 @@ export default function SessionSelector() {
         ) : null}
 
         <ChevronDown
-          className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-150 ${
+          className={`w-3.5 h-3.5 text-slate-500 dark:text-slate-400 transition-transform duration-150 shrink-0 ${
             isOpen ? "rotate-180" : ""
           }`}
         />
@@ -97,16 +98,16 @@ export default function SessionSelector() {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
-          <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+        <div className="absolute right-0 mt-2 w-72 sm:w-80 max-w-[calc(100vw-1.5rem)] bg-white dark:bg-slate-900 sepia-mode:bg-[#FDFBF7] rounded-2xl shadow-xl border border-slate-200/90 dark:border-slate-800 sepia-mode:border-[#E8DFD1] py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+          <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800 sepia-mode:border-[#E8DFD1] flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold text-slate-800">শিক্ষাবর্ষ নির্বাচন করুন</p>
-              <p className="text-[10px] text-slate-500">ডাটা দেখার জন্য সেশন পরিবর্তন করুন</p>
+              <p className="text-xs font-bold text-slate-800 dark:text-slate-100 sepia-mode:text-[#2C1A0C]">শিক্ষাবর্ষ নির্বাচন করুন</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 sepia-mode:text-[#8C6D53]">ডাটা দেখার জন্য সেশন পরিবর্তন করুন</p>
             </div>
             <Link
               href="/dashboard/academic/sessions"
               onClick={() => setIsOpen(false)}
-              className="text-xs text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1 hover:underline"
+              className="text-xs text-emerald-700 dark:text-emerald-400 sepia-mode:text-amber-800 hover:text-emerald-800 font-semibold flex items-center gap-1 hover:underline"
             >
               <Settings className="w-3 h-3" />
               <span>পরিচালনা</span>
@@ -131,9 +132,9 @@ export default function SessionSelector() {
                   className={`w-full text-left px-3 py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-between transition-colors ${
                     isSelected
                       ? isArch
-                        ? "bg-amber-100/70 text-amber-950 font-semibold"
-                        : "bg-emerald-50 text-emerald-950 font-semibold"
-                      : "hover:bg-slate-50 text-slate-700"
+                        ? "bg-amber-100/70 text-amber-950 font-semibold dark:bg-amber-950/60 dark:text-amber-200 sepia-mode:bg-[#EFE6D8] sepia-mode:text-[#451A03]"
+                        : "bg-emerald-50 text-emerald-950 font-semibold dark:bg-emerald-950/60 dark:text-emerald-200 sepia-mode:bg-[#EAE2D2] sepia-mode:text-[#2C1A0C]"
+                      : "hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 sepia-mode:text-[#5A3825] sepia-mode:hover:bg-[#F5EFE6]"
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -142,8 +143,8 @@ export default function SessionSelector() {
                         isCurrent
                           ? "bg-emerald-600 text-white"
                           : isArch
-                          ? "bg-slate-200 text-slate-600"
-                          : "bg-slate-100 text-slate-600"
+                          ? "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                          : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
                       }`}
                     >
                       {isArch ? (
@@ -154,19 +155,19 @@ export default function SessionSelector() {
                     </div>
                     <div className="truncate">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-slate-900 truncate">{sess.name}</span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100 sepia-mode:text-[#2C1A0C] truncate">{sess.name}</span>
                         {isCurrent && (
                           <span className="px-1.5 py-0.2 bg-emerald-600 text-white text-[9px] font-bold rounded-sm uppercase tracking-wide">
                             বর্তমান
                           </span>
                         )}
                         {isArch && (
-                          <span className="px-1.5 py-0.2 bg-slate-200 text-slate-700 text-[9px] font-semibold rounded-sm">
+                          <span className="px-1.5 py-0.2 bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-[9px] font-semibold rounded-sm">
                             সংরক্ষিত
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 sepia-mode:text-[#8C6D53] mt-0.5">
                         {sess.academic_year} ইংরেজি • {sess.hijri_year}
                       </p>
                     </div>
@@ -187,14 +188,14 @@ export default function SessionSelector() {
           </div>
 
           {/* Quick Links Footer */}
-          <div className="pt-2 mt-1 border-t border-slate-100 px-3 space-y-1">
+          <div className="pt-2 mt-1 border-t border-slate-100 dark:border-slate-800 sepia-mode:border-[#E8DFD1] px-3 space-y-1">
             <Link
               href="/dashboard/students/promotion"
               onClick={() => setIsOpen(false)}
-              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-slate-700 hover:bg-slate-50 transition"
+              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-slate-700 dark:text-slate-300 sepia-mode:text-[#5A3825] hover:bg-slate-50 dark:hover:bg-slate-800 transition"
             >
-              <div className="flex items-center gap-2 text-emerald-800 font-medium">
-                <GraduationCap className="w-3.5 h-3.5 text-emerald-600" />
+              <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-400 font-medium">
+                <GraduationCap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 <span>শিক্ষার্থী প্রমোশন (শ্রেণি উন্নয়ন)</span>
               </div>
               <ArrowRight className="w-3 h-3 text-slate-400" />
@@ -203,9 +204,9 @@ export default function SessionSelector() {
             <Link
               href="/dashboard/academic/sessions"
               onClick={() => setIsOpen(false)}
-              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-slate-700 hover:bg-slate-50 transition"
+              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-slate-700 dark:text-slate-300 sepia-mode:text-[#5A3825] hover:bg-slate-50 dark:hover:bg-slate-800 transition"
             >
-              <div className="flex items-center gap-2 text-slate-600">
+              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
                 <Sparkles className="w-3.5 h-3.5 text-slate-400" />
                 <span>সকল শিক্ষাবর্ষ ও আর্কাইভ তালিকা</span>
               </div>

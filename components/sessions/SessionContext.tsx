@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { AcademicSession } from "@/lib/sessions";
+import { AcademicSession, deduplicateSessions } from "@/lib/sessions";
 import {
   getAcademicSessions,
   getCurrentSession,
@@ -62,11 +62,12 @@ export function SessionProvider({
         if (cached) {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setSessions(parsed);
-            if (cachedSelectedId && parsed.some((s: AcademicSession) => s.id === cachedSelectedId)) {
+            const cleanCached = deduplicateSessions(parsed);
+            setSessions(cleanCached);
+            if (cachedSelectedId && cleanCached.some((s: AcademicSession) => s.id === cachedSelectedId)) {
               setSelectedSessionId(cachedSelectedId);
             } else {
-              const curr = parsed.find((s: AcademicSession) => s.is_current) || parsed[0];
+              const curr = cleanCached.find((s: AcademicSession) => s.is_current) || cleanCached[0];
               if (curr) setSelectedSessionId(curr.id);
             }
             setIsLoading(false);
@@ -80,7 +81,8 @@ export function SessionProvider({
 
   const fetchSessions = useCallback(async () => {
     try {
-      const data = await getAcademicSessions();
+      const rawData = await getAcademicSessions();
+      const data = deduplicateSessions(rawData);
       setSessions(data);
       if (typeof window !== "undefined" && data.length > 0) {
         try {

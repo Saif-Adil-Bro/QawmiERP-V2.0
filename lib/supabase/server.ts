@@ -1,7 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
-import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { cache } from "react";
+import { createAdminClient } from "./admin";
+
+export { createAdminClient };
 
 export const createClient = cache(async () => {
   const cookieStore = await cookies();
@@ -46,25 +48,7 @@ export const createClient = cache(async () => {
 });
 
 // For Admin tasks like creating classes, subjects, users, bypassing RLS
-export const createAdminClient = cache(async () => {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)?.trim();
-
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error("Supabase credentials are not configured in environment variables.");
-  }
-
-  if (!supabaseUrl.startsWith("http")) {
-    throw new Error(`Invalid Supabase URL: ${supabaseUrl}. It must start with https://`);
-  }
-
-  return createSupabaseJsClient(supabaseUrl, serviceKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-});
+// Re-exported above from ./admin
 
 /**
  * Safely fetches the authenticated user without throwing on invalid or expired refresh tokens.

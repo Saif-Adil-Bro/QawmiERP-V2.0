@@ -61,12 +61,12 @@ function HeaderUserProfile() {
   const roleLabel = roleNameMap[roleId] || roleId;
 
   return (
-    <div className="flex items-center space-x-2 bg-slate-50 border border-slate-200/80 rounded-xl px-2.5 py-1 dark:bg-slate-800 dark:border-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:border-[#E8DFD1]">
-      <div className="w-8 h-8 bg-emerald-600 text-white rounded-lg flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+    <div className="flex items-center space-x-1.5 sm:space-x-2 bg-slate-50 border border-slate-200/80 rounded-xl p-1 sm:px-2.5 sm:py-1 dark:bg-slate-800 dark:border-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:border-[#E8DFD1]">
+      <div className="w-7 h-7 sm:w-8 sm:h-8 bg-emerald-600 text-white rounded-lg flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
         {initialChar}
       </div>
-      <div className="hidden sm:flex flex-col text-left text-xs min-w-0">
-        <span className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[130px] leading-tight sepia-mode:text-[#2C1A0C]">
+      <div className="hidden lg:flex flex-col text-left text-xs min-w-0">
+        <span className="font-bold text-slate-800 dark:text-slate-100 truncate max-w-[110px] leading-tight sepia-mode:text-[#2C1A0C]">
           {displayName}
         </span>
         <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold truncate leading-tight flex items-center gap-1">
@@ -373,13 +373,13 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:overflow-visible">
               {/* Top Fixed Header */}
-              <header className="h-16 bg-white/95 backdrop-blur-xs border-b border-slate-200/80 flex items-center justify-between px-3 sm:px-6 lg:px-8 print:hidden shrink-0 gap-2 sm:gap-3 z-20 dark:bg-slate-900/95 dark:border-slate-800 sepia-mode:bg-[#FCF8F2]/95 sepia-mode:border-[#E8DFD1]">
-                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <header className="h-16 bg-white/95 backdrop-blur-xs border-b border-slate-200/80 flex items-center justify-between px-2.5 sm:px-4 lg:px-8 print:hidden shrink-0 gap-1.5 sm:gap-3 z-20 dark:bg-slate-900/95 dark:border-slate-800 sepia-mode:bg-[#FCF8F2]/95 sepia-mode:border-[#E8DFD1]">
+                <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
                   {/* Mobile Hamburger Toggle */}
                   <button
                     type="button"
                     onClick={() => setSidebarOpen(true)}
-                    className="lg:hidden p-2 text-slate-700 hover:bg-slate-100 rounded-xl transition border border-slate-200 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800"
+                    className="lg:hidden p-2 text-slate-700 hover:bg-slate-100 rounded-xl transition border border-slate-200 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800 shrink-0"
                     aria-label="Open menu"
                   >
                     <Menu className="w-5 h-5" />
@@ -390,7 +390,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                     <button
                       type="button"
                       onClick={toggleDesktopSidebar}
-                      className="hidden lg:flex items-center gap-1.5 p-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800"
+                      className="hidden lg:flex items-center gap-1.5 p-2 text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800 shrink-0"
                       title="সাইডবার খুলুন (Open Sidebar)"
                       aria-label="Expand sidebar"
                     >
@@ -403,27 +403,27 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                   <button
                     type="button"
                     onClick={() => setCommandPaletteOpen(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-100/90 hover:bg-slate-200/80 text-slate-600 rounded-xl text-xs font-medium transition border border-slate-200/80 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:border-[#E8DFD1] sepia-mode:text-[#5A3825]"
-                    title="কমান্ড প্যালেট (Ctrl + K)"
+                    className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 bg-slate-100/90 hover:bg-slate-200/80 text-slate-600 rounded-xl text-xs font-medium transition border border-slate-200/80 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:border-[#E8DFD1] sepia-mode:text-[#5A3825] shrink-0"
+                    title="কমান্ড প্যালেট ও অনুসন্ধান (Ctrl + K)"
                   >
                     <Search className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span className="hidden sm:inline">খুঁজুন বা কমান্ড দিন...</span>
-                    <kbd className="hidden md:inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold text-slate-500 bg-white rounded border border-slate-300 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+                    <span className="hidden md:inline">খুঁজুন বা কমান্ড দিন...</span>
+                    <kbd className="hidden lg:inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold text-slate-500 bg-white rounded border border-slate-300 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
                       Ctrl + K
                     </kbd>
                   </button>
                 </div>
 
-                <div className="flex items-center space-x-1.5 sm:space-x-2.5 shrink-0">
-                  {/* Executive Summary Button */}
+                <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                  {/* Executive Summary Button (Visible on both Mobile & Desktop) */}
                   <button
                     type="button"
                     onClick={() => setExecutiveSummaryOpen(true)}
-                    className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold transition shadow-2xs dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 sepia-mode:bg-[#EFE6D8] sepia-mode:border-[#D5C9B3] sepia-mode:text-[#451A03]"
+                    className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold transition shadow-2xs dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 sepia-mode:bg-[#EFE6D8] sepia-mode:border-[#D5C9B3] sepia-mode:text-[#451A03] shrink-0"
                     title="এক ক্লিকে মাদরাসার সার্বিক মাসিক নির্বাহী সামারি"
                   >
-                    <Scale className="w-3.5 h-3.5 text-amber-700 dark:text-amber-400" />
-                    <span>নির্বাহী সামারি</span>
+                    <Scale className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-amber-700 dark:text-amber-400" />
+                    <span className="hidden sm:inline">নির্বাহী সামারি</span>
                   </button>
 
                   {/* Islamic Theme Switcher */}

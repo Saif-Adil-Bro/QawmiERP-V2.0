@@ -2,7 +2,7 @@
 
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
-import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
+import { getMadrasaMetadata, saveMadrasaMetadata, deduplicateSessions } from "@/lib/sessions";
 import { revalidatePath } from "next/cache";
 
 export type BackupModuleKey = 
@@ -1013,6 +1013,21 @@ export async function executeDataRestore({
     // Deep merge / replace incoming metadata into currentMeta
     for (const [key, val] of Object.entries(incomingMetadata)) {
       if (key === "backup_history") continue; // keep local restore audit history intact
+
+      // Special Deduplicated handling for academic sessions
+      if (key === "sessions" || key === "academic_sessions") {
+        const incomingSess = Array.isArray(val) ? val : [];
+        if (restoreMode === "replace") {
+          currentMeta.sessions = deduplicateSessions(incomingSess);
+        } else {
+          const combined = [...(Array.isArray(currentMeta.sessions) ? currentMeta.sessions : []), ...incomingSess];
+          currentMeta.sessions = deduplicateSessions(combined);
+        }
+        const count = (currentMeta.sessions || []).length;
+        restoredStats.sessions = count;
+        totalRestored += count;
+        continue;
+      }
 
       if (restoreMode === "replace") {
         currentMeta[key] = val;

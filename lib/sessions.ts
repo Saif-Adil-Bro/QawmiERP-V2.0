@@ -1,5 +1,4 @@
-import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
-import { getAuthMadrasaId } from "@/app/actions/students";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { AcademicHoliday, HOLIDAY_CATEGORIES } from "./holidays";
 
 export * from "./holidays";
@@ -83,6 +82,64 @@ export function getDefaultSessions(madrasaId: string): AcademicSession[] {
       updated_at: now,
     },
   ];
+}
+
+/**
+ * Deduplicate academic sessions list to prevent duplicate sessions from restore or multiple initializations
+ */
+export function deduplicateSessions(sessions: AcademicSession[]): AcademicSession[] {
+  if (!Array.isArray(sessions) || sessions.length <= 1) {
+    return Array.isArray(sessions) ? sessions : [];
+  }
+
+  const seenMap = new Map<string, AcademicSession>();
+
+  // Sort candidate sessions so active/current or more recently updated sessions take priority
+  const sorted = [...sessions].sort((a, b) => {
+    if (a.is_current && !b.is_current) return -1;
+    if (!a.is_current && b.is_current) return 1;
+    if (a.status === "ACTIVE" && b.status === "ARCHIVED") return -1;
+    if (a.status === "ARCHIVED" && b.status === "ACTIVE") return 1;
+    const dateA = a.updated_at || a.created_at || a.start_date || "";
+    const dateB = b.updated_at || b.created_at || b.start_date || "";
+    return dateB.localeCompare(dateA);
+  });
+
+  for (const s of sorted) {
+    if (!s) continue;
+    const normName = (s.name || "").trim().replace(/\s+/g, " ").toLowerCase();
+    const normHijri = (s.hijri_year || "").trim().replace(/\s+/g, " ").toLowerCase();
+    const normAcademic = (s.academic_year || "").trim().replace(/\s+/g, " ").toLowerCase();
+
+    const keyId = s.id ? `id:${s.id}` : "";
+    const keyName = normName ? `name:${normName}` : "";
+    const keyYears = (normHijri || normAcademic) ? `years:${normHijri}_${normAcademic}` : "";
+
+    if ((keyId && seenMap.has(keyId)) || (keyName && seenMap.has(keyName)) || (keyYears && seenMap.has(keyYears))) {
+      continue;
+    }
+
+    if (keyId) seenMap.set(keyId, s);
+    if (keyName) seenMap.set(keyName, s);
+    if (keyYears) seenMap.set(keyYears, s);
+  }
+
+  // Extract unique items preserving order
+  const uniqueList = Array.from(new Set(seenMap.values()));
+
+  // Ensure exactly one current session if any current sessions are flagged
+  let hasCurrent = false;
+  return uniqueList.map((s) => {
+    if (s.is_current) {
+      if (!hasCurrent) {
+        hasCurrent = true;
+        return s;
+      } else {
+        return { ...s, is_current: false };
+      }
+    }
+    return s;
+  });
 }
 
 export interface ExtendedStudentProfile {
