@@ -44,6 +44,9 @@ import {
   ShieldAlert,
   Search,
   Filter,
+  Trash2,
+  AlertOctagon,
+  RotateCcw,
 } from "lucide-react";
 import {
   BackupOverviewStats,
@@ -53,6 +56,8 @@ import {
   generateBackupExport,
   analyzeBackupFile,
   executeDataRestore,
+  executeMadrasaDataWipe,
+  WipeMadrasaOptions,
 } from "@/app/actions/backup";
 
 export interface ModuleDefinition {
@@ -324,7 +329,7 @@ export default function BackupClient({
   initialStats: BackupOverviewStats;
 }) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"export" | "restore" | "history">("export");
+  const [activeTab, setActiveTab] = useState<"export" | "restore" | "history" | "wipe">("export");
   const [stats] = useState<BackupOverviewStats>(initialStats);
 
   // Category and Search Filtering States
@@ -366,6 +371,23 @@ export default function BackupClient({
     message: string;
     restoredStats?: Record<string, number>;
     totalRestored?: number;
+    error?: string;
+  } | null>(null);
+
+  // Factory Reset / Data Wipe States
+  const [wipeScope, setWipeScope] = useState<"all" | "academics" | "finance">("all");
+  const [wipeConfirmationPhrase, setWipeConfirmationPhrase] = useState("");
+  const [wipeConfirmedCheckbox, setWipeConfirmedCheckbox] = useState(false);
+  const [autoDownloadPreWipe, setAutoDownloadPreWipe] = useState(true);
+  const [preserveTeachers, setPreserveTeachers] = useState(true);
+  const [preserveSessions, setPreserveSessions] = useState(true);
+  const [isWiping, setIsWiping] = useState(false);
+  const [wipeResult, setWipeResult] = useState<{
+    success: boolean;
+    message: string;
+    wipedStats?: Record<string, number>;
+    totalWiped?: number;
+    preWipeBackupJson?: string;
     error?: string;
   } | null>(null);
 
@@ -556,6 +578,80 @@ export default function BackupClient({
     }
   };
 
+  // Factory Reset / Data Wipe Execution Handler
+  const handleExecuteWipe = async () => {
+    const phrase = wipeConfirmationPhrase.trim().toUpperCase();
+    const validPhrases = ["DELETE ALL DATA", "মুছে ফেলুন", "DELETE", "WIPE", "RESET", "রিসেট"];
+    const isValid = validPhrases.some((vp) => phrase === vp.toUpperCase() || phrase === vp);
+
+    if (!isValid) {
+      alert("নিশ্চিতকরণ ঘরে সঠিকভাবে 'মুছে ফেলুন' অথবা 'DELETE' টাইপ করুন।");
+      return;
+    }
+
+    if (!wipeConfirmedCheckbox) {
+      alert("অনুগ্রহ করে নিশ্চিতকরণ চেকবক্সে টিক দিন।");
+      return;
+    }
+
+    const scopeLabel =
+      wipeScope === "all"
+        ? "মাদরাসার সম্পূর্ণ ডাটাবেজ (সকল শিক্ষার্থী, ক্লাস, পরীক্ষা, ফি, হিসাব ও অনুদান)"
+        : wipeScope === "academics"
+        ? "সকল শিক্ষার্থী, ভর্তি, ক্লাস, রুটিন, হিফজ ও পরীক্ষার ডাটা"
+        : "সকল ফি, পেমেন্ট, খরচ, যাকাত ও অনুদানের আর্থিক ডাটা";
+
+    const isDoubleConfirmed = window.confirm(
+      `⚠️ চূড়ান্ত সতর্কবার্তা!\n\nআপনি "${scopeLabel}" স্থায়ীভাবে মুছে ফেলতে যাচ্ছেন।\n\nআপনি কি নিশ্চিতভাবে এই ডাটা রিসেট করতে চান?`
+    );
+
+    if (!isDoubleConfirmed) return;
+
+    try {
+      setIsWiping(true);
+      setWipeResult(null);
+
+      const res = await executeMadrasaDataWipe({
+        scope: wipeScope,
+        confirmationPhrase: wipeConfirmationPhrase,
+        preserveTeachersAndStaff: preserveTeachers,
+        preserveSessions: preserveSessions,
+      });
+
+      setWipeResult(res);
+
+      if (res.success) {
+        // Auto trigger download of safety backup if requested
+        if (autoDownloadPreWipe && res.preWipeBackupJson) {
+          try {
+            const blob = new Blob([res.preWipeBackupJson], { type: "application/json;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.setAttribute("download", `qawmi_safety_backup_before_reset_${Date.now()}.json`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+          } catch (dErr) {
+            console.warn("Auto download safety backup error:", dErr);
+          }
+        }
+        setWipeConfirmationPhrase("");
+        setWipeConfirmedCheckbox(false);
+        router.refresh();
+      }
+    } catch (err: any) {
+      setWipeResult({
+        success: false,
+        message: "ডাটা মুছে ফেলতে অপ্রত্যাশিত ত্রুটি ঘটেছে।",
+        error: err?.message || String(err),
+      });
+    } finally {
+      setIsWiping(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-12 animate-fadeIn">
       {/* Top Banner & Header */}
@@ -724,6 +820,19 @@ export default function BackupClient({
         >
           <Clock className="w-4 h-4" />
           <span>অ্যাক্টিভিটি হিস্ট্রি লগ ({stats.history.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("wipe")}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition cursor-pointer ${
+            activeTab === "wipe"
+              ? "bg-rose-600 text-white shadow-sm"
+              : "text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+          }`}
+        >
+          <Trash2 className="w-4 h-4" />
+          <span>ডাটা মুছে ফেলা ও রিসেট</span>
         </button>
       </div>
 
@@ -1321,6 +1430,307 @@ export default function BackupClient({
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB 4: MADRASA DATA WIPE / FACTORY RESET */}
+      {activeTab === "wipe" && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Main Danger Container */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border-2 border-rose-200/90 shadow-sm space-y-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 -mr-16 -mt-16 w-80 h-80 bg-gradient-to-br from-rose-500/10 to-orange-500/10 rounded-full blur-3xl pointer-events-none" />
+
+            {/* Header & Danger Alert */}
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="p-3 bg-rose-600 text-white rounded-2xl shadow-md shadow-rose-600/20">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                    <span>মাদরাসার ডাটাবেজ মোছা ও ফ্যাক্টরি রিসেট</span>
+                    <span className="bg-rose-100 text-rose-800 text-xs px-2.5 py-0.5 rounded-full font-bold border border-rose-200">
+                      অ্যাডমিন ডেন্জার জোন
+                    </span>
+                  </h2>
+                  <p className="text-slate-600 text-xs sm:text-sm mt-1">
+                    নতুন শিক্ষাবর্ষ শুরুর জন্য বা ডেমো/টেস্ট ডাটা সম্পূর্ণ মুছে ফ্রেশ ডাটাবেজ হিসেবে শুরু করতে এই অপশনটি ব্যবহার করুন।
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3 text-rose-900 text-xs sm:text-sm leading-relaxed">
+                <AlertOctagon className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div>
+                  <strong>সতর্কতা:</strong> এটি একটি অপরিবর্তনযোগ্য (Irreversible) প্রক্রিয়া। ডাটা মুছে ফেলার পর আর পূর্বাবস্থায় ফিরিয়ে আনা যাবে না, যদি না আপনার কাছে পূর্বে ডাউনলোড করা কোনো ব্যাকআপ ফাইল থাকে। তবে সুরক্ষার জন্য <strong>ডাটা মোছার সাথে সাথে সিস্টেম স্বয়ংক্রিয়ভাবে সম্পূর্ণ ব্যাকআপ ডাউনলোড করে দিবে।</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Post-Wipe Result Card */}
+            {wipeResult && (
+              <div
+                className={`p-5 rounded-2xl border transition animate-fadeIn ${
+                  wipeResult.success
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                    : "bg-rose-50 border-rose-300 text-rose-900"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {wipeResult.success ? (
+                    <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertTriangle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+                  )}
+                  <div className="space-y-2 flex-1">
+                    <h4 className="font-bold text-base">
+                      {wipeResult.success ? "ডাটাবেজ সফলভাবে রিসেট হয়েছে" : "ডাটা মুছতে ব্যর্থ হয়েছে"}
+                    </h4>
+                    <p className="text-xs leading-relaxed">{wipeResult.message}</p>
+                    {wipeResult.error && (
+                      <p className="text-xs font-mono bg-rose-100/60 p-2 rounded-lg text-rose-800">
+                        {wipeResult.error}
+                      </p>
+                    )}
+
+                    {wipeResult.success && wipeResult.preWipeBackupJson && (
+                      <div className="pt-2 flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const blob = new Blob([wipeResult.preWipeBackupJson!], {
+                              type: "application/json;charset=utf-8;",
+                            });
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement("a");
+                            link.href = url;
+                            link.setAttribute(
+                              "download",
+                              `qawmi_safety_backup_before_reset_${Date.now()}.json`
+                            );
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(url);
+                          }}
+                          className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>মুছে ফেলার আগের সেফটি ব্যাকআপ ফাইলটি আবার ডাউনলোড করুন</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Scope Selection */}
+            <div className="space-y-3 pt-2">
+              <label className="block text-xs sm:text-sm font-bold text-slate-800">
+                ১. আপনি কোন ডাটা মুছে ফেলতে চান তা নির্বাচন করুন:
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                <button
+                  type="button"
+                  onClick={() => setWipeScope("all")}
+                  className={`p-4 rounded-2xl border text-left transition relative cursor-pointer ${
+                    wipeScope === "all"
+                      ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
+                      : "border-slate-200 hover:border-slate-300 bg-white"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                      <Trash2 className="w-4 h-4 text-rose-600" />
+                      <span>সম্পূর্ণ মাদরাসা রিসেট</span>
+                    </span>
+                    {wipeScope === "all" && (
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse" />
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                    ছাত্র, ভর্তি, ক্লাস, রুটিন, হিফজ, হাজিরা, পরীক্ষা, ফি, পেমেন্ট, খরচ, অনুদানসহ মাদরাসার সমস্ত অপারেশনাল ডাটা মুছে নতুন ফ্রেশ শুরু।
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setWipeScope("academics")}
+                  className={`p-4 rounded-2xl border text-left transition relative cursor-pointer ${
+                    wipeScope === "academics"
+                      ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
+                      : "border-slate-200 hover:border-slate-300 bg-white"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                      <GraduationCap className="w-4 h-4 text-blue-600" />
+                      <span>শুধুমাত্র শিক্ষা ও শিক্ষার্থী ডাটা</span>
+                    </span>
+                    {wipeScope === "academics" && (
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse" />
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                    ছাত্র, ভর্তি, জামাত, বিষয়, রুটিন, হিফজ ও পরীক্ষার সমস্ত ফলাফল মুছবে। হিসাব, ফি ও ডোনেশন ডাটা অপরিবর্তিত থাকবে।
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setWipeScope("finance")}
+                  className={`p-4 rounded-2xl border text-left transition relative cursor-pointer ${
+                    wipeScope === "finance"
+                      ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
+                      : "border-slate-200 hover:border-slate-300 bg-white"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                      <Wallet className="w-4 h-4 text-emerald-600" />
+                      <span>শুধুমাত্র আর্থিক ও হিসাব ডাটা</span>
+                    </span>
+                    {wipeScope === "finance" && (
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse" />
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                    ছাত্র ফি, রসিদ, দৈনিক ক্যাশবুক, খরচ, বাজার ভাউচার, যাকাত ও অনুদান খাতা মুছবে। ছাত্র ও ক্লাসের ডাটা অপরিবর্তিত থাকবে।
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* Safety Options */}
+            <div className="space-y-3 pt-2">
+              <label className="block text-xs sm:text-sm font-bold text-slate-800">
+                ২. সুরক্ষা ও প্রিজারভেশন অপশন:
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoDownloadPreWipe}
+                    onChange={(e) => setAutoDownloadPreWipe(e.target.checked)}
+                    className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-800 block">স্বয়ংক্রিয় ব্যাকআপ ডাউনলোড</span>
+                    <span className="text-slate-500">মোছার পূর্বে অটো ডাউনলোড হবে</span>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={preserveTeachers}
+                    onChange={(e) => setPreserveTeachers(e.target.checked)}
+                    className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-800 block">উস্তাদ ও স্টাফ অ্যাকাউন্ট অক্ষুণ্ণ রাখুন</span>
+                    <span className="text-slate-500">লগইন আইডি মুছে যাবে না</span>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={preserveSessions}
+                    onChange={(e) => setPreserveSessions(e.target.checked)}
+                    className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-800 block">বর্তমান শিক্ষাবর্ষ অক্ষুণ্ণ রাখুন</span>
+                    <span className="text-slate-500">অ্যাক্টিভ সেশন বহাল থাকবে</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Mandatory Confirmation Input */}
+            <div className="space-y-4 pt-4 border-t border-rose-100">
+              <label className="block text-xs sm:text-sm font-bold text-slate-900">
+                ৩. চূড়ান্ত নিরাপত্তা নিশ্চিতকরণ:
+              </label>
+
+              <label className="flex items-start gap-3 p-3.5 bg-rose-50/80 rounded-xl border border-rose-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={wipeConfirmedCheckbox}
+                  onChange={(e) => setWipeConfirmedCheckbox(e.target.checked)}
+                  className="mt-1 rounded text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
+                />
+                <span className="text-xs sm:text-sm text-rose-950 font-semibold leading-relaxed">
+                  আমি বুঝে-শুনে নিশ্চিত করছি যে আমি এই প্রতিষ্ঠানের ডাটা স্থায়ীভাবে মুছে ফেলতে চাই এবং এর দায়ভার গ্রহণ করছি।
+                </span>
+              </label>
+
+              <div className="space-y-1.5 max-w-md">
+                <label className="block text-xs font-semibold text-slate-700">
+                  নিশ্চিত করতে নিচে <strong>মুছে ফেলুন</strong> অথবা <strong>DELETE</strong> টাইপ করুন:
+                </label>
+                <input
+                  type="text"
+                  value={wipeConfirmationPhrase}
+                  onChange={(e) => setWipeConfirmationPhrase(e.target.value)}
+                  placeholder="মুছে ফেলুন অথবা DELETE"
+                  className="w-full px-4 py-2.5 text-sm border-2 border-rose-300 rounded-xl focus:border-rose-600 focus:ring-2 focus:ring-rose-500/20 outline-none font-bold text-rose-900 bg-white placeholder:font-normal placeholder:text-slate-400"
+                />
+              </div>
+
+              {/* Action Button */}
+              <div className="pt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleExecuteWipe}
+                  disabled={
+                    isWiping ||
+                    !wipeConfirmedCheckbox ||
+                    !(
+                      ["DELETE ALL DATA", "মুছে ফেলুন", "DELETE", "WIPE", "RESET", "রিসেট"].some(
+                        (vp) =>
+                          wipeConfirmationPhrase.trim().toUpperCase() === vp.toUpperCase() ||
+                          wipeConfirmationPhrase.trim() === vp
+                      )
+                    )
+                  }
+                  className="px-8 py-3.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-lg shadow-rose-600/25 transition flex items-center gap-2.5 text-sm cursor-pointer active:scale-95"
+                >
+                  {isWiping ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>ডাটাবেজ রিসেট হচ্ছে...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>
+                        {wipeScope === "all"
+                          ? "সম্পূর্ণ মাদরাসার ডাটা মুছে ফেলুন (Factory Reset)"
+                          : wipeScope === "academics"
+                          ? "শিক্ষা ও শিক্ষার্থী ডাটা মুছে ফেলুন"
+                          : "আর্থিক ও হিসাব ডাটা মুছে ফেলুন"}
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWipeConfirmationPhrase("");
+                    setWipeConfirmedCheckbox(false);
+                    setWipeResult(null);
+                  }}
+                  className="px-5 py-3 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                >
+                  বাতিল করুন
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1139,3 +1139,330 @@ export async function executeDataRestore({
     };
   }
 }
+
+export interface WipeMadrasaOptions {
+  scope: "all" | "academics" | "finance" | "custom";
+  confirmationPhrase: string;
+  selectedModules?: string[];
+  preserveTeachersAndStaff?: boolean;
+  preserveSessions?: boolean;
+}
+
+/**
+ * Enterprise-Grade Safe Madrasa Data Wipe / Factory Reset Engine
+ * Fully resets/erases selected or all operational data for this madrasa tenant.
+ */
+export async function executeMadrasaDataWipe(options: WipeMadrasaOptions): Promise<{
+  success: boolean;
+  message: string;
+  wipedStats?: Record<string, number>;
+  totalWiped?: number;
+  preWipeBackupJson?: string;
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) {
+      return { success: false, message: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে পুনরায় লগইন করুন।" };
+    }
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const admin = await createAdminClient();
+
+    // 1. Strict Passphrase Verification
+    const phrase = (options.confirmationPhrase || "").trim().toUpperCase();
+    const validPhrases = ["DELETE ALL DATA", "মুছে ফেলুন", "DELETE", "WIPE", "RESET", "রিসেট"];
+    const isValidPhrase = validPhrases.some((vp) => phrase === vp.toUpperCase() || phrase === vp);
+
+    if (!isValidPhrase) {
+      return {
+        success: false,
+        message: "নিশ্চিতকরণ টেক্সট মেলেনি। অনুগ্রহ করে 'মুছে ফেলুন' বা 'DELETE' সঠিকভাবে লিখুন।",
+      };
+    }
+
+    // 2. Automatically generate a pre-wipe safety backup payload first
+    let preWipeBackupJson = "";
+    try {
+      const backupRes = await generateBackupExport({ format: "formatted" });
+      if (backupRes.success && backupRes.backupJson) {
+        preWipeBackupJson = backupRes.backupJson;
+      }
+    } catch (bErr) {
+      console.warn("Auto pre-wipe backup capture warning:", bErr);
+    }
+
+    const currentMeta = await getMadrasaMetadata(madrasaId);
+    const wipedStats: Record<string, number> = {};
+    let totalWiped = 0;
+
+    // Helper to delete from database table
+    const deleteFromTable = async (tableName: string) => {
+      try {
+        const { count, error } = await admin
+          .from(tableName)
+          .delete({ count: "exact" })
+          .eq("madrasa_id", madrasaId);
+        if (!error && count) {
+          wipedStats[tableName] = count;
+          totalWiped += count;
+          return count;
+        }
+      } catch (delErr) {
+        console.warn(`Table wipe error on ${tableName}:`, delErr);
+      }
+      return 0;
+    };
+
+    const scope = options.scope || "all";
+    const wipeAcademics = scope === "all" || scope === "academics" || (scope === "custom" && options.selectedModules?.includes("academic"));
+    const wipeStudents = scope === "all" || scope === "academics" || (scope === "custom" && options.selectedModules?.includes("students"));
+    const wipeFinance = scope === "all" || scope === "finance" || (scope === "custom" && options.selectedModules?.includes("finance"));
+    const wipeHifzKitab = scope === "all" || scope === "academics" || (scope === "custom" && options.selectedModules?.includes("hifz_kitab"));
+    const wipeExams = scope === "all" || scope === "academics" || (scope === "custom" && options.selectedModules?.includes("exams"));
+    const wipeAttendance = scope === "all" || scope === "academics" || (scope === "custom" && options.selectedModules?.includes("attendance"));
+    const wipeDonations = scope === "all" || scope === "finance" || (scope === "custom" && options.selectedModules?.includes("zakat_donations"));
+    const wipeOther = scope === "all" || (scope === "custom" && options.selectedModules?.includes("inventory"));
+
+    // 3. Delete from Supabase Database Tables in safe dependency order (Leaf -> Parent)
+    if (wipeExams) {
+      await deleteFromTable("exam_results");
+      await deleteFromTable("exam_papers");
+      await deleteFromTable("question_bank");
+      await deleteFromTable("exam_routines");
+      await deleteFromTable("exam_subjects");
+      await deleteFromTable("exams");
+    }
+
+    if (wipeHifzKitab) {
+      await deleteFromTable("hifz_logs");
+      await deleteFromTable("kitab_logs");
+    }
+
+    if (wipeAttendance) {
+      await deleteFromTable("attendance");
+      await deleteFromTable("teacher_attendance");
+      await deleteFromTable("leaves");
+    }
+
+    if (wipeFinance) {
+      await deleteFromTable("bazar_expenses");
+      await deleteFromTable("expenses");
+      await deleteFromTable("fees");
+    }
+
+    if (wipeDonations) {
+      await deleteFromTable("donations");
+      await deleteFromTable("donors");
+      await deleteFromTable("zakat_funds");
+      await deleteFromTable("funds");
+    }
+
+    if (wipeStudents) {
+      await deleteFromTable("student_enrollments");
+      await deleteFromTable("meal_entries");
+      await deleteFromTable("book_issues");
+      await deleteFromTable("students");
+      await deleteFromTable("alumni");
+    }
+
+    if (wipeAcademics) {
+      await deleteFromTable("routines");
+      await deleteFromTable("teacher_subjects");
+      await deleteFromTable("class_subjects");
+      await deleteFromTable("subjects");
+      await deleteFromTable("classes");
+    }
+
+    if (wipeOther) {
+      await deleteFromTable("books");
+      await deleteFromTable("inventory_items");
+      await deleteFromTable("notices");
+      await deleteFromTable("sms_logs");
+      await deleteFromTable("sms_templates");
+      await deleteFromTable("gateways");
+    }
+
+    if (scope === "all" && !options.preserveTeachersAndStaff) {
+      await deleteFromTable("teachers");
+    }
+
+    // 4. Clean Metadata Keys
+    const metaKeysToWipe = new Set<string>();
+
+    if (wipeStudents) {
+      [
+        "admissions",
+        "student_profiles",
+        "student_enrollments",
+        "id_cards",
+        "id_card_templates",
+        "certificates",
+        "certificate_templates",
+        "student_leaves",
+        "alumni",
+      ].forEach((k) => metaKeysToWipe.add(k));
+    }
+
+    if (wipeAcademics) {
+      [
+        "syllabus",
+        "routines",
+        "exam_routines",
+        "academic_holidays",
+      ].forEach((k) => metaKeysToWipe.add(k));
+    }
+
+    if (wipeExams) {
+      [
+        "question_bank",
+        "exam_papers",
+        "published_exams",
+      ].forEach((k) => metaKeysToWipe.add(k));
+    }
+
+    if (wipeAttendance) {
+      [
+        "student_leaves",
+        "teacher_leaves",
+        "teacher_attendance",
+      ].forEach((k) => metaKeysToWipe.add(k));
+    }
+
+    if (wipeHifzKitab) {
+      [
+        "kitab_logs",
+      ].forEach((k) => metaKeysToWipe.add(k));
+    }
+
+    if (wipeFinance) {
+      [
+        "student_fees",
+        "payments",
+        "fee_structures",
+        "fee_types",
+        "discounts",
+        "receipt_counter",
+        "bazar_expenses",
+        "fee_alert_settings",
+      ].forEach((k) => metaKeysToWipe.add(k));
+    }
+
+    if (wipeDonations) {
+      [
+        "donors",
+        "donations",
+        "funds",
+        "zakat_funds",
+        "mahfils",
+        "life_members",
+        "subscription_payments",
+        "qurbani_leathers",
+        "donation_boxes",
+        "box_collections",
+        "online_donations",
+        "online_settings",
+      ].forEach((k) => metaKeysToWipe.add(k));
+    }
+
+    if (wipeOther) {
+      [
+        "meal_entries",
+        "book_issues",
+        "inventory",
+        "parent_feedbacks",
+        "parent_appointments",
+        "absence_alert_settings",
+        "sms_templates",
+        "sms_logs",
+        "gateways",
+      ].forEach((k) => metaKeysToWipe.add(k));
+    }
+
+    // Apply metadata deletion
+    metaKeysToWipe.forEach((key) => {
+      if (currentMeta[key] !== undefined) {
+        const count = countCollectionItems(currentMeta[key]);
+        if (count > 0) {
+          wipedStats[`meta_${key}`] = count;
+          totalWiped += count;
+        }
+        delete currentMeta[key];
+      }
+    });
+
+    // If full wipe requested and preserveSessions is false
+    if (scope === "all" && !options.preserveSessions) {
+      // Keep only default active session if present
+      if (Array.isArray(currentMeta.sessions) && currentMeta.sessions.length > 0) {
+        const activeSess = currentMeta.sessions.find((s: any) => s.is_current || s.is_active) || currentMeta.sessions[0];
+        currentMeta.sessions = [activeSess];
+      }
+    }
+
+    // 5. Append Safety Audit Log into History
+    const wipeAuditLog: BackupAuditEntry = {
+      id: "wipe_" + Date.now(),
+      type: "AUTO_SNAPSHOT",
+      timestamp: new Date().toISOString(),
+      actor_name: user?.user_metadata?.full_name || "সুপার এডমিন",
+      actor_email: user?.email || "admin@qawmi.edu",
+      modules: [scope.toUpperCase()],
+      total_records: totalWiped,
+      status: "SUCCESS",
+      note: `মাদরাসা ডাটা ফ্যাক্টরি রিসেট / ক্লিনিং সম্পন্ন হয়েছে (স্কোপ: ${scope}, মোট মোছা রেকর্ড: ${totalWiped}টি)।`,
+    };
+
+    const updatedHistory = [wipeAuditLog, ...(currentMeta.backup_history || [])].slice(0, 50);
+    currentMeta.backup_history = updatedHistory;
+
+    // Save cleaned metadata
+    await saveMadrasaMetadata(madrasaId, currentMeta);
+
+    // Record system Activity Log
+    try {
+      const { recordActivityLog } = await import("@/app/actions/activity-logs");
+      await recordActivityLog({
+        action_type: "DELETE",
+        module: "BACKUP",
+        title: "মাদরাসার ডাটাবেজ ফ্যাক্টরি রিসেট সম্পন্ন",
+        description: `এডমিনের নির্দেশে প্রতিষ্ঠানের ${scope === "all" ? "সম্পূর্ণ" : scope} ডাটাবেজ সফলভাবে রিসেট করা হয়েছে (মোট ${totalWiped}টি রেকর্ড অপসারিত)।`,
+        severity: "WARNING",
+        link: "/dashboard/settings/backup",
+      });
+    } catch (actErr) {
+      console.warn("Wipe activity log warning:", actErr);
+    }
+
+    // Revalidate paths
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/students");
+    revalidatePath("/dashboard/admissions");
+    revalidatePath("/dashboard/classes");
+    revalidatePath("/dashboard/hifz");
+    revalidatePath("/dashboard/kitab");
+    revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/exams");
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/zakat");
+    revalidatePath("/dashboard/fundraising");
+    revalidatePath("/dashboard/settings");
+    revalidatePath("/dashboard/settings/backup");
+
+    return {
+      success: true,
+      message: `মাদরাসার ${scope === "all" ? "সম্পূর্ণ" : scope} ডাটা সফলভাবে মুছে ফেলা হয়েছে (সর্বমোট ${totalWiped} টি রেকর্ড ডিলিট হয়েছে)।`,
+      wipedStats,
+      totalWiped,
+      preWipeBackupJson,
+    };
+  } catch (err: any) {
+    console.error("Exception in executeMadrasaDataWipe:", err);
+    return {
+      success: false,
+      message: "ডাটা মোছার প্রক্রিয়ায় অপ্রত্যাশিত ত্রুটি ঘটেছে।",
+      error: err?.message || String(err),
+    };
+  }
+}
