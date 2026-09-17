@@ -268,35 +268,34 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   }, [pathname]);
 
   return (
-    <ThemeProvider>
-      <PermissionProvider>
-        <SessionProvider>
-          {/* Universal Modals */}
-          <UniversalCommandPalette
-            isOpen={commandPaletteOpen}
-            onClose={() => setCommandPaletteOpen(false)}
-            onOpenExecutiveSummary={() => setExecutiveSummaryOpen(true)}
-          />
-          <MobileActionSheet
-            isOpen={mobileActionSheetOpen}
-            onClose={() => setMobileActionSheetOpen(false)}
-            onOpenSearch={() => setCommandPaletteOpen(true)}
-            onOpenExecutiveSummary={() => setExecutiveSummaryOpen(true)}
-          />
-          <ExecutiveSummaryModal
-            isOpen={executiveSummaryOpen}
-            onClose={() => setExecutiveSummaryOpen(false)}
-          />
+    <PermissionProvider>
+      <SessionProvider>
+        {/* Universal Modals */}
+        <UniversalCommandPalette
+          isOpen={commandPaletteOpen}
+          onClose={() => setCommandPaletteOpen(false)}
+          onOpenExecutiveSummary={() => setExecutiveSummaryOpen(true)}
+        />
+        <MobileActionSheet
+          isOpen={mobileActionSheetOpen}
+          onClose={() => setMobileActionSheetOpen(false)}
+          onOpenSearch={() => setCommandPaletteOpen(true)}
+          onOpenExecutiveSummary={() => setExecutiveSummaryOpen(true)}
+        />
+        <ExecutiveSummaryModal
+          isOpen={executiveSummaryOpen}
+          onClose={() => setExecutiveSummaryOpen(false)}
+        />
 
-          {/* Fixed screen wrapper: h-screen overflow-hidden ensures fixed viewport on big screens */}
-          <div className="flex h-screen w-full bg-slate-50 print:bg-white print:h-auto overflow-hidden dark:bg-slate-950 sepia-mode:bg-[#F6F0E4]">
-            {/* Mobile Backdrop Overlay */}
-            {sidebarOpen && (
-              <div
-                className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-xs lg:hidden transition-opacity"
-                onClick={() => setSidebarOpen(false)}
-              />
-            )}
+        {/* Fixed screen wrapper: h-screen overflow-hidden ensures fixed viewport on big screens */}
+        <div className="flex h-screen w-full bg-slate-50 print:bg-white print:h-auto overflow-hidden dark:bg-slate-950 sepia-mode:bg-[#F6F0E4]">
+          {/* Mobile Backdrop Overlay */}
+          {sidebarOpen && (
+            <div
+              className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-xs lg:hidden transition-opacity"
+              onClick={() => setSidebarOpen(false)}
+            />
+          )}
 
             {/* Sidebar Drawer: w-72 sm:w-80 on mobile/tablet, w-72 lg:w-80 (320px) on desktop */}
             <aside
@@ -448,7 +447,6 @@ export default function DashboardShell({ children }: { children: React.ReactNode
           </div>
         </SessionProvider>
       </PermissionProvider>
-    </ThemeProvider>
   );
 }
 

@@ -42,18 +42,37 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const applyTheme = (t: QawmiTheme) => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
-    root.classList.remove("theme-light", "theme-dark", "theme-sepia", "dark");
+    const body = document.body;
+
+    root.classList.remove("theme-light", "theme-dark", "theme-sepia", "dark", "sepia-mode");
     root.removeAttribute("data-theme");
+
+    if (body) {
+      body.classList.remove("theme-light", "theme-dark", "theme-sepia", "dark", "sepia-mode");
+      body.removeAttribute("data-theme");
+    }
 
     if (t === "dark") {
       root.classList.add("theme-dark", "dark");
       root.setAttribute("data-theme", "dark");
+      if (body) {
+        body.classList.add("theme-dark", "dark");
+        body.setAttribute("data-theme", "dark");
+      }
     } else if (t === "sepia") {
-      root.classList.add("theme-sepia");
+      root.classList.add("theme-sepia", "sepia-mode");
       root.setAttribute("data-theme", "sepia");
+      if (body) {
+        body.classList.add("theme-sepia", "sepia-mode");
+        body.setAttribute("data-theme", "sepia");
+      }
     } else {
       root.classList.add("theme-light");
       root.setAttribute("data-theme", "light");
+      if (body) {
+        body.classList.add("theme-light");
+        body.setAttribute("data-theme", "light");
+      }
     }
   };
 

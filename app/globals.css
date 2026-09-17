@@ -1,6 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Hind+Siliguri:wght@300;400;500;600;700&family=Scheherazade+New:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400..700&family=Noto+Sans+Arabic:wght@100..900&display=swap');
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+@custom-variant sepia (&:where(.theme-sepia, .theme-sepia *, [data-theme="sepia"], [data-theme="sepia"] *, .sepia-mode, .sepia-mode *));
+
 @theme {
   --font-sans: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', 'Noto Sans Arabic', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-solaiman: 'SolaimanLipi', 'Hind Siliguri', 'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', sans-serif;
@@ -301,108 +304,518 @@ html, body, input, textarea, select, button {
 }
 
 /* ==========================================================================
-   Qawmi Islamic Themes (Dark Oasis & Sepia Kitab Mode)
+   Qawmi Islamic Dynamic Themes (Dark Oasis & Sepia Kitab Mode)
    ========================================================================== */
 
-/* Islamic Oasis Dark Theme (Night/Tahajjud Mode) */
+/* --------------------------------------------------------------------------
+   1. ISLAMIC OASIS DARK THEME (Night/Tahajjud Mode)
+   -------------------------------------------------------------------------- */
+html.dark,
 html.theme-dark,
 html[data-theme="dark"],
-body.theme-dark {
+body.dark,
+body.theme-dark,
+body[data-theme="dark"] {
   background-color: #0b1120 !important;
   color: #f1f5f9 !important;
   color-scheme: dark;
 }
 
-html[data-theme="dark"] .bg-slate-50,
-html[data-theme="dark"] .bg-gray-50 {
-  background-color: #0b1120 !important;
-}
-
-html[data-theme="dark"] .bg-white {
+/* Base Surfaces & Containers */
+[data-theme="dark"] .bg-white,
+.dark .bg-white,
+.theme-dark .bg-white,
+[data-theme="dark"] [class*="bg-white/"],
+.dark [class*="bg-white/"],
+.theme-dark [class*="bg-white/"] {
   background-color: #131d31 !important;
   color: #f1f5f9;
 }
 
-html[data-theme="dark"] .border,
-html[data-theme="dark"] .border-slate-100,
-html[data-theme="dark"] .border-slate-200,
-html[data-theme="dark"] .border-gray-200 {
+[data-theme="dark"] .bg-slate-50,
+.dark .bg-slate-50,
+.theme-dark .bg-slate-50,
+[data-theme="dark"] .bg-gray-50,
+.dark .bg-gray-50,
+.theme-dark .bg-gray-50,
+[data-theme="dark"] [class*="bg-slate-50/"],
+.dark [class*="bg-slate-50/"],
+.theme-dark [class*="bg-slate-50/"] {
+  background-color: #0b1120 !important;
+}
+
+[data-theme="dark"] .bg-slate-100,
+.dark .bg-slate-100,
+.theme-dark .bg-slate-100,
+[data-theme="dark"] .bg-gray-100,
+.dark .bg-gray-100,
+.theme-dark .bg-gray-100,
+[data-theme="dark"] [class*="bg-slate-100/"],
+.dark [class*="bg-slate-100/"],
+.theme-dark [class*="bg-slate-100/"] {
+  background-color: #1e293b !important;
+}
+
+[data-theme="dark"] .bg-slate-200,
+.dark .bg-slate-200,
+.theme-dark .bg-slate-200,
+[data-theme="dark"] .bg-gray-200,
+.dark .bg-gray-200,
+.theme-dark .bg-gray-200 {
+  background-color: #334155 !important;
+}
+
+/* Borders & Dividers */
+[data-theme="dark"] .border,
+.dark .border,
+.theme-dark .border,
+[data-theme="dark"] .border-slate-100,
+.dark .border-slate-100,
+.theme-dark .border-slate-100,
+[data-theme="dark"] .border-slate-200,
+.dark .border-slate-200,
+.theme-dark .border-slate-200,
+[data-theme="dark"] .border-slate-300,
+.dark .border-slate-300,
+.theme-dark .border-slate-300,
+[data-theme="dark"] .border-gray-200,
+.dark .border-gray-200,
+.theme-dark .border-gray-200,
+[data-theme="dark"] [class*="border-slate-200/"],
+.dark [class*="border-slate-200/"],
+.theme-dark [class*="border-slate-200/"],
+[data-theme="dark"] .divide-slate-100 > * + *,
+.dark .divide-slate-100 > * + *,
+.theme-dark .divide-slate-100 > * + *,
+[data-theme="dark"] .divide-slate-200 > * + *,
+.dark .divide-slate-200 > * + *,
+.theme-dark .divide-slate-200 > * + * {
   border-color: #1e293b !important;
 }
 
-html[data-theme="dark"] .text-slate-800,
-html[data-theme="dark"] .text-slate-900,
-html[data-theme="dark"] .text-gray-900 {
+/* Typography Hierarchy */
+[data-theme="dark"] .text-slate-900,
+.dark .text-slate-900,
+.theme-dark .text-slate-900,
+[data-theme="dark"] .text-slate-800,
+.dark .text-slate-800,
+.theme-dark .text-slate-800,
+[data-theme="dark"] .text-gray-900,
+.dark .text-gray-900,
+.theme-dark .text-gray-900,
+[data-theme="dark"] .text-gray-800,
+.dark .text-gray-800,
+.theme-dark .text-gray-800,
+[data-theme="dark"] .text-black,
+.dark .text-black,
+.theme-dark .text-black {
   color: #f8fafc !important;
 }
 
-html[data-theme="dark"] .text-slate-700,
-html[data-theme="dark"] .text-slate-600,
-html[data-theme="dark"] .text-gray-600 {
+[data-theme="dark"] .text-slate-700,
+.dark .text-slate-700,
+.theme-dark .text-slate-700,
+[data-theme="dark"] .text-slate-600,
+.dark .text-slate-600,
+.theme-dark .text-slate-600,
+[data-theme="dark"] .text-gray-700,
+.dark .text-gray-700,
+.theme-dark .text-gray-700,
+[data-theme="dark"] .text-gray-600,
+.dark .text-gray-600,
+.theme-dark .text-gray-600 {
   color: #cbd5e1 !important;
 }
 
-html[data-theme="dark"] .text-slate-500,
-html[data-theme="dark"] .text-slate-400 {
+[data-theme="dark"] .text-slate-500,
+.dark .text-slate-500,
+.theme-dark .text-slate-500,
+[data-theme="dark"] .text-slate-400,
+.dark .text-slate-400,
+.theme-dark .text-slate-400,
+[data-theme="dark"] .text-gray-500,
+.dark .text-gray-500,
+.theme-dark .text-gray-500,
+[data-theme="dark"] .text-gray-400,
+.dark .text-gray-400,
+.theme-dark .text-gray-400 {
   color: #94a3b8 !important;
 }
 
-html[data-theme="dark"] input,
-html[data-theme="dark"] textarea,
-html[data-theme="dark"] select {
+/* Colored Text Adjustments for Dark Mode */
+[data-theme="dark"] .text-amber-700,
+.dark .text-amber-700,
+[data-theme="dark"] .text-amber-800,
+.dark .text-amber-800,
+[data-theme="dark"] .text-amber-900,
+.dark .text-amber-900 {
+  color: #fcd34d !important;
+}
+
+[data-theme="dark"] .text-emerald-700,
+.dark .text-emerald-700,
+[data-theme="dark"] .text-emerald-800,
+.dark .text-emerald-800,
+[data-theme="dark"] .text-emerald-900,
+.dark .text-emerald-900 {
+  color: #34d399 !important;
+}
+
+[data-theme="dark"] .text-blue-700,
+.dark .text-blue-700,
+[data-theme="dark"] .text-blue-800,
+.dark .text-blue-800 {
+  color: #60a5fa !important;
+}
+
+[data-theme="dark"] .text-rose-700,
+.dark .text-rose-700,
+[data-theme="dark"] .text-rose-800,
+.dark .text-rose-800,
+[data-theme="dark"] .text-red-700,
+.dark .text-red-700 {
+  color: #fb7185 !important;
+}
+
+[data-theme="dark"] .text-purple-700,
+.dark .text-purple-700,
+[data-theme="dark"] .text-indigo-700,
+.dark .text-indigo-700 {
+  color: #c084fc !important;
+}
+
+/* Tinted Badge / Pill Backgrounds in Dark Mode */
+[data-theme="dark"] .bg-emerald-50,
+.dark .bg-emerald-50,
+[data-theme="dark"] .bg-emerald-100,
+.dark .bg-emerald-100 {
+  background-color: rgba(6, 78, 59, 0.4) !important;
+  color: #6ee7b7 !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+[data-theme="dark"] .bg-amber-50,
+.dark .bg-amber-50,
+[data-theme="dark"] .bg-amber-100,
+.dark .bg-amber-100 {
+  background-color: rgba(120, 53, 15, 0.4) !important;
+  color: #fcd34d !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+[data-theme="dark"] .bg-blue-50,
+.dark .bg-blue-50,
+[data-theme="dark"] .bg-blue-100,
+.dark .bg-blue-100,
+[data-theme="dark"] .bg-sky-50,
+.dark .bg-sky-50 {
+  background-color: rgba(30, 58, 138, 0.4) !important;
+  color: #93c5fd !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+[data-theme="dark"] .bg-rose-50,
+.dark .bg-rose-50,
+[data-theme="dark"] .bg-rose-100,
+.dark .bg-rose-100,
+[data-theme="dark"] .bg-red-50,
+.dark .bg-red-50 {
+  background-color: rgba(136, 19, 55, 0.4) !important;
+  color: #fda4af !important;
+  border-color: rgba(244, 63, 94, 0.3) !important;
+}
+
+[data-theme="dark"] .bg-purple-50,
+.dark .bg-purple-50,
+[data-theme="dark"] .bg-purple-100,
+.dark .bg-purple-100,
+[data-theme="dark"] .bg-indigo-50,
+.dark .bg-indigo-50 {
+  background-color: rgba(88, 28, 135, 0.4) !important;
+  color: #d8b4fe !important;
+  border-color: rgba(168, 85, 247, 0.3) !important;
+}
+
+/* Interactive Form Elements */
+[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+.theme-dark input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+[data-theme="dark"] textarea,
+.dark textarea,
+.theme-dark textarea,
+[data-theme="dark"] select,
+.dark select,
+.theme-dark select {
   background-color: #0f172a !important;
   color: #f8fafc !important;
   border-color: #334155 !important;
 }
 
-/* Sepia Kitab Mode (Ancient Manuscript / Comfortable Mutala'ah) */
+[data-theme="dark"] input::placeholder,
+.dark input::placeholder,
+.theme-dark input::placeholder,
+[data-theme="dark"] textarea::placeholder,
+.dark textarea::placeholder,
+.theme-dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+[data-theme="dark"] select option,
+.dark select option,
+.theme-dark select option {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+}
+
+/* Tables in Dark Mode */
+[data-theme="dark"] table,
+.dark table,
+.theme-dark table {
+  background-color: #131d31 !important;
+  color: #f1f5f9 !important;
+}
+
+[data-theme="dark"] thead,
+.dark thead,
+.theme-dark thead,
+[data-theme="dark"] thead tr,
+.dark thead tr,
+.theme-dark thead tr,
+[data-theme="dark"] thead th,
+.dark thead th,
+.theme-dark thead th {
+  background-color: #0f172a !important;
+  color: #94a3b8 !important;
+  border-color: #1e293b !important;
+}
+
+[data-theme="dark"] tbody tr,
+.dark tbody tr,
+.theme-dark tbody tr,
+[data-theme="dark"] tbody td,
+.dark tbody td,
+.theme-dark tbody td {
+  border-color: #1e293b !important;
+}
+
+[data-theme="dark"] tbody tr:hover,
+.dark tbody tr:hover,
+.theme-dark tbody tr:hover,
+[data-theme="dark"] tbody tr:hover > td,
+.dark tbody tr:hover > td,
+.theme-dark tbody tr:hover > td {
+  background-color: #1e293b !important;
+}
+
+/* Hover States for Buttons & Lists */
+[data-theme="dark"] [class*="hover:bg-slate-50"]:hover,
+.dark [class*="hover:bg-slate-50"]:hover,
+.theme-dark [class*="hover:bg-slate-50"]:hover,
+[data-theme="dark"] [class*="hover:bg-slate-100"]:hover,
+.dark [class*="hover:bg-slate-100"]:hover,
+.theme-dark [class*="hover:bg-slate-100"]:hover,
+[data-theme="dark"] [class*="hover:bg-gray-50"]:hover,
+.dark [class*="hover:bg-gray-50"]:hover,
+.theme-dark [class*="hover:bg-gray-50"]:hover,
+[data-theme="dark"] [class*="hover:bg-gray-100"]:hover,
+.dark [class*="hover:bg-gray-100"]:hover,
+.theme-dark [class*="hover:bg-gray-100"]:hover,
+[data-theme="dark"] [class*="hover:bg-white"]:hover,
+.dark [class*="hover:bg-white"]:hover,
+.theme-dark [class*="hover:bg-white"]:hover {
+  background-color: #1e293b !important;
+}
+
+/* --------------------------------------------------------------------------
+   2. SEPIA KITAB MODE (Ancient Manuscript / Comfortable Mutala'ah)
+   -------------------------------------------------------------------------- */
 html.theme-sepia,
+html.sepia-mode,
 html[data-theme="sepia"],
-body.theme-sepia {
+body.theme-sepia,
+body.sepia-mode,
+body[data-theme="sepia"] {
   background-color: #f6f0e4 !important;
   color: #382414 !important;
+  color-scheme: light;
 }
 
-html[data-theme="sepia"] .bg-slate-50,
-html[data-theme="sepia"] .bg-gray-50 {
+[data-theme="sepia"] .bg-slate-50,
+.theme-sepia .bg-slate-50,
+.sepia-mode .bg-slate-50,
+[data-theme="sepia"] .bg-gray-50,
+.theme-sepia .bg-gray-50,
+.sepia-mode .bg-gray-50,
+[data-theme="sepia"] [class*="bg-slate-50/"],
+.theme-sepia [class*="bg-slate-50/"],
+.sepia-mode [class*="bg-slate-50/"] {
   background-color: #f6f0e4 !important;
 }
 
-html[data-theme="sepia"] .bg-white {
+[data-theme="sepia"] .bg-white,
+.theme-sepia .bg-white,
+.sepia-mode .bg-white,
+[data-theme="sepia"] [class*="bg-white/"],
+.theme-sepia [class*="bg-white/"],
+.sepia-mode [class*="bg-white/"] {
   background-color: #fcf8f2 !important;
   color: #382414;
 }
 
-html[data-theme="sepia"] .border,
-html[data-theme="sepia"] .border-slate-100,
-html[data-theme="sepia"] .border-slate-200,
-html[data-theme="sepia"] .border-gray-200 {
+[data-theme="sepia"] .bg-slate-100,
+.theme-sepia .bg-slate-100,
+.sepia-mode .bg-slate-100,
+[data-theme="sepia"] [class*="bg-slate-100/"],
+.theme-sepia [class*="bg-slate-100/"],
+.sepia-mode [class*="bg-slate-100/"] {
+  background-color: #ede4d4 !important;
+}
+
+[data-theme="sepia"] .bg-slate-200,
+.theme-sepia .bg-slate-200,
+.sepia-mode .bg-slate-200 {
+  background-color: #e0d5c1 !important;
+}
+
+[data-theme="sepia"] .border,
+.theme-sepia .border,
+.sepia-mode .border,
+[data-theme="sepia"] .border-slate-100,
+.theme-sepia .border-slate-100,
+.sepia-mode .border-slate-100,
+[data-theme="sepia"] .border-slate-200,
+.theme-sepia .border-slate-200,
+.sepia-mode .border-slate-200,
+[data-theme="sepia"] .border-gray-200,
+.theme-sepia .border-gray-200,
+.sepia-mode .border-gray-200,
+[data-theme="sepia"] [class*="border-slate-200/"],
+.theme-sepia [class*="border-slate-200/"],
+.sepia-mode [class*="border-slate-200/"],
+[data-theme="sepia"] .divide-slate-100 > * + *,
+.theme-sepia .divide-slate-100 > * + *,
+.sepia-mode .divide-slate-100 > * + *,
+[data-theme="sepia"] .divide-slate-200 > * + *,
+.theme-sepia .divide-slate-200 > * + *,
+.sepia-mode .divide-slate-200 > * + * {
   border-color: #e5dac6 !important;
 }
 
-html[data-theme="sepia"] .text-slate-800,
-html[data-theme="sepia"] .text-slate-900,
-html[data-theme="sepia"] .text-gray-900 {
+[data-theme="sepia"] .text-slate-900,
+.theme-sepia .text-slate-900,
+.sepia-mode .text-slate-900,
+[data-theme="sepia"] .text-slate-800,
+.theme-sepia .text-slate-800,
+.sepia-mode .text-slate-800,
+[data-theme="sepia"] .text-gray-900,
+.theme-sepia .text-gray-900,
+.sepia-mode .text-gray-900,
+[data-theme="sepia"] .text-black,
+.theme-sepia .text-black,
+.sepia-mode .text-black {
   color: #2c1a0c !important;
 }
 
-html[data-theme="sepia"] .text-slate-700,
-html[data-theme="sepia"] .text-slate-600,
-html[data-theme="sepia"] .text-gray-600 {
+[data-theme="sepia"] .text-slate-700,
+.theme-sepia .text-slate-700,
+.sepia-mode .text-slate-700,
+[data-theme="sepia"] .text-slate-600,
+.theme-sepia .text-slate-600,
+.sepia-mode .text-slate-600,
+[data-theme="sepia"] .text-gray-700,
+.theme-sepia .text-gray-700,
+.sepia-mode .text-gray-700,
+[data-theme="sepia"] .text-gray-600,
+.theme-sepia .text-gray-600,
+.sepia-mode .text-gray-600 {
   color: #4a3320 !important;
 }
 
-html[data-theme="sepia"] .text-slate-500,
-html[data-theme="sepia"] .text-slate-400 {
+[data-theme="sepia"] .text-slate-500,
+.theme-sepia .text-slate-500,
+.sepia-mode .text-slate-500,
+[data-theme="sepia"] .text-slate-400,
+.theme-sepia .text-slate-400,
+.sepia-mode .text-slate-400,
+[data-theme="sepia"] .text-gray-500,
+.theme-sepia .text-gray-500,
+.sepia-mode .text-gray-500,
+[data-theme="sepia"] .text-gray-400,
+.theme-sepia .text-gray-400,
+.sepia-mode .text-gray-400 {
   color: #7c6248 !important;
 }
 
-html[data-theme="sepia"] input,
-html[data-theme="sepia"] textarea,
-html[data-theme="sepia"] select {
+[data-theme="sepia"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+.theme-sepia input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+.sepia-mode input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+[data-theme="sepia"] textarea,
+.theme-sepia textarea,
+.sepia-mode textarea,
+[data-theme="sepia"] select,
+.theme-sepia select,
+.sepia-mode select {
   background-color: #fcf8f2 !important;
   color: #2c1a0c !important;
   border-color: #d8c8af !important;
+}
+
+[data-theme="sepia"] select option,
+.theme-sepia select option,
+.sepia-mode select option {
+  background-color: #fcf8f2 !important;
+  color: #2c1a0c !important;
+}
+
+[data-theme="sepia"] table,
+.theme-sepia table,
+.sepia-mode table {
+  background-color: #fcf8f2 !important;
+  color: #382414 !important;
+}
+
+[data-theme="sepia"] thead,
+.theme-sepia thead,
+.sepia-mode thead,
+[data-theme="sepia"] thead tr,
+.theme-sepia thead tr,
+.sepia-mode thead tr,
+[data-theme="sepia"] thead th,
+.theme-sepia thead th,
+.sepia-mode thead th {
+  background-color: #ede4d4 !important;
+  color: #5a3825 !important;
+  border-color: #e5dac6 !important;
+}
+
+[data-theme="sepia"] tbody tr,
+.theme-sepia tbody tr,
+.sepia-mode tbody tr,
+[data-theme="sepia"] tbody td,
+.theme-sepia tbody td,
+.sepia-mode tbody td {
+  border-color: #e5dac6 !important;
+}
+
+[data-theme="sepia"] tbody tr:hover,
+.theme-sepia tbody tr:hover,
+.sepia-mode tbody tr:hover,
+[data-theme="sepia"] tbody tr:hover > td,
+.theme-sepia tbody tr:hover > td,
+.sepia-mode tbody tr:hover > td {
+  background-color: #f3ecd9 !important;
+}
+
+[data-theme="sepia"] [class*="hover:bg-slate-50"]:hover,
+.theme-sepia [class*="hover:bg-slate-50"]:hover,
+.sepia-mode [class*="hover:bg-slate-50"]:hover,
+[data-theme="sepia"] [class*="hover:bg-slate-100"]:hover,
+.theme-sepia [class*="hover:bg-slate-100"]:hover,
+.sepia-mode [class*="hover:bg-slate-100"]:hover,
+[data-theme="sepia"] [class*="hover:bg-white"]:hover,
+.theme-sepia [class*="hover:bg-white"]:hover,
+.sepia-mode [class*="hover:bg-white"]:hover {
+  background-color: #f0e8da !important;
 }
 
 /* ==========================================================================
