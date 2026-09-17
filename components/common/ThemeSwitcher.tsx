@@ -54,10 +54,10 @@ export function ThemeSwitcher({ compact = false }: { compact?: boolean }) {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2 rounded-xl transition-all duration-200 border ${
+        className={`flex items-center gap-1.5 sm:gap-2 rounded-xl transition-all duration-200 border shrink-0 ${
           compact
             ? "p-2 bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
-            : "px-3 py-1.5 bg-slate-50/80 hover:bg-slate-100/90 border-slate-200/80 text-slate-700 text-xs font-semibold shadow-xs"
+            : "p-2 sm:px-3 sm:py-1.5 bg-slate-50/80 hover:bg-slate-100/90 border-slate-200/80 text-slate-700 text-xs font-semibold shadow-xs"
         } ${
           theme === "dark"
             ? "bg-slate-800! hover:bg-slate-700! border-slate-700! text-slate-200!"
@@ -65,7 +65,7 @@ export function ThemeSwitcher({ compact = false }: { compact?: boolean }) {
             ? "bg-[#F5EFE6]! hover:bg-[#EFE6D8]! border-[#E3D8C8]! text-[#5A3825]!"
             : ""
         }`}
-        title="থিম পরিবর্তন করুন (Theme)"
+        title={`থিম: ${currentTheme.label} (পরিবর্তন করতে ট্যাপ করুন)`}
         aria-expanded={isOpen}
       >
         <CurrentIcon className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 sepia-mode:text-amber-700" />
@@ -74,7 +74,7 @@ export function ThemeSwitcher({ compact = false }: { compact?: boolean }) {
             {currentTheme.label}
           </span>
         )}
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 opacity-60 ${isOpen ? "rotate-180" : ""}`} />
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 opacity-60 shrink-0 hidden sm:inline-block ${isOpen ? "rotate-180" : ""}`} />
       </button>
 
       {isOpen && (

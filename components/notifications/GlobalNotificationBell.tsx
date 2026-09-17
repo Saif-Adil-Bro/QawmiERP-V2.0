@@ -249,10 +249,10 @@ export default function GlobalNotificationBell() {
             loadNotifications();
           }
         }}
-        className={`relative p-2 sm:p-2.5 rounded-xl border transition flex items-center justify-center cursor-pointer ${
+        className={`relative p-2 rounded-xl border transition flex items-center justify-center cursor-pointer shrink-0 ${
           isOpen
-            ? "bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-500/20"
-            : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200/80 shadow-xs"
+            ? "bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-500/20 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-700"
+            : "bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200/80 shadow-xs dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:text-[#5A3825] sepia-mode:border-[#E8DFD1]"
         }`}
         aria-label="বিজ্ঞপ্তি ও আপডেট"
         title="বিজ্ঞপ্তি ও আপডেট"

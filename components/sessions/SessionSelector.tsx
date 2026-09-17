@@ -55,19 +55,19 @@ export default function SessionSelector() {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-xl border text-xs sm:text-sm font-medium transition-all duration-150 shadow-2xs ${
+        className={`flex items-center gap-1.5 sm:gap-2 p-2 sm:px-3 sm:py-1.5 rounded-xl border text-xs sm:text-sm font-medium transition-all duration-150 shadow-2xs shrink-0 ${
           isArchivedSelected
             ? "bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800 sepia-mode:bg-[#EFE6D8] sepia-mode:text-[#451A03] sepia-mode:border-[#D5C9B3]"
             : isCurrentSelected
             ? "bg-emerald-50 text-emerald-950 border-emerald-200 hover:bg-emerald-100/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 sepia-mode:bg-[#EAE2D2] sepia-mode:text-[#2C1A0C] sepia-mode:border-[#D5C9B3]"
             : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:text-[#5A3825] sepia-mode:border-[#E8DFD1]"
         }`}
-        title="শিক্ষাবর্ষ পরিবর্তন করুন"
+        title={`শিক্ষাবর্ষ: ${selectedSession?.name || "১৪৪৭-৪৮ হিজরি"} (পরিবর্তন করতে ট্যাপ করুন)`}
         aria-expanded={isOpen}
       >
         <div className="flex items-center gap-1.5 min-w-0">
           <Calendar
-            className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
+            className={`w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0 ${
               isArchivedSelected
                 ? "text-amber-600 dark:text-amber-400"
                 : isCurrentSelected
@@ -76,13 +76,13 @@ export default function SessionSelector() {
             }`}
           />
           <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 hidden lg:inline">শিক্ষাবর্ষ:</span>
-          <span className="font-semibold truncate max-w-[95px] xs:max-w-[130px] sm:max-w-[180px]">
+          <span className="font-semibold truncate hidden sm:inline max-w-[120px] md:max-w-[160px]">
             {selectedSession?.name || "১৪৪৭-৪৮ হিজরি"}
           </span>
         </div>
 
         {isArchivedSelected ? (
-          <span className="px-1.5 py-0.2 bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200 text-[10px] font-bold rounded-md shrink-0">
+          <span className="hidden sm:inline-block px-1.5 py-0.2 bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200 text-[10px] font-bold rounded-md shrink-0">
             আর্কাইভ
           </span>
         ) : isCurrentSelected ? (
@@ -90,7 +90,7 @@ export default function SessionSelector() {
         ) : null}
 
         <ChevronDown
-          className={`w-3.5 h-3.5 text-slate-500 dark:text-slate-400 transition-transform duration-150 shrink-0 ${
+          className={`w-3.5 h-3.5 text-slate-500 dark:text-slate-400 transition-transform duration-150 shrink-0 hidden sm:inline-block ${
             isOpen ? "rotate-180" : ""
           }`}
         />
