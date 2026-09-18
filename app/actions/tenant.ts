@@ -611,7 +611,7 @@ export async function checkPrefixAvailabilityAction(
 ): Promise<{ available: boolean; message?: string; suggested?: string }> {
   const cleanPrefix = (prefix || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
   if (!cleanPrefix || cleanPrefix.length < 2) {
-    return { available: false, message: "প্রিফিক্স ন্যূনতম ২-৪ অক্ষরের হতে হবে।" };
+    return { available: false, message: "প্রিফিক্স ন্যূনতম ২ বা ৩ অক্ষরের হতে হবে।" };
   }
 
   const allMadrasas = await getAllMadrasasWithPrefixes();

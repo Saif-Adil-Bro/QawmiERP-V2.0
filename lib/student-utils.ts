@@ -46,7 +46,7 @@ export function getActiveMadrasaPrefix(): string {
 
 /**
  * Resolves the student ID number prioritizing original/custom ID, admission number, or generated standard ID.
- * Always formats with the unified Madrasa prefix (e.g. "AHA480001") without hyphen.
+ * Always formats with the unified Madrasa prefix and hyphen (e.g. "AH-480001" or "AHH-480001").
  */
 export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPrefix?: string): string {
   if (!student) return "";
@@ -78,12 +78,18 @@ export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPre
     explicitId &&
     typeof explicitId === "string" &&
     explicitId.trim() !== "" &&
-    !explicitId.includes("-") &&
-    explicitId.length < 20
+    explicitId.length < 25
   ) {
     const cleanId = explicitId.trim().toUpperCase();
-    if (prefix && !cleanId.startsWith(prefix)) {
-      return `${prefix}${cleanId}`;
+    if (prefix) {
+      if (cleanId.startsWith(`${prefix}-`)) {
+        return cleanId;
+      }
+      if (cleanId.startsWith(prefix)) {
+        const remainder = cleanId.slice(prefix.length).replace(/^-+/, "");
+        return remainder ? `${prefix}-${remainder}` : cleanId;
+      }
+      return `${prefix}-${cleanId.replace(/^-+/, "")}`;
     }
     return cleanId;
   }

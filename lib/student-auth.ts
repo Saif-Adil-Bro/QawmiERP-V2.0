@@ -186,6 +186,7 @@ function searchStudentsList(
         numCode === digitsOnly ||
         fullId.toUpperCase() === enStr.toUpperCase() ||
         fullId.toUpperCase().replace(/\s+/g, "") === enStr.toUpperCase().replace(/\s+/g, "") ||
+        fullId.toUpperCase().replace(/[^A-Z0-9]/g, "") === enStr.toUpperCase().replace(/[^A-Z0-9]/g, "") ||
         (numCode.endsWith(digitsOnly) && digitsOnly.length >= 4)
       ) {
         return createResolvedTarget(s, numCode, mInfo);
@@ -258,6 +259,8 @@ export async function ensureStudentGuardianAuthUser(
 ): Promise<{ authUserId: string; email: string; canonicalEmail: string; isNew: boolean }> {
   const adminClient = await createAdminClient();
   const canonicalEmail = `student_${canonicalStudentId.toLowerCase()}@qawmi.app`;
+  const cleanIdForEmail = canonicalStudentId.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const unhyphenatedEmail = `student_${cleanIdForEmail}@qawmi.app`;
   const numOnly = canonicalStudentId.replace(/\D/g, "");
   const legacyEmail = `student_${numOnly}@qawmi.app`.toLowerCase();
 
@@ -272,6 +275,7 @@ export async function ensureStudentGuardianAuthUser(
     existingAuthUser = authList?.users?.find(
       (u) =>
         u.email?.toLowerCase() === canonicalEmail ||
+        u.email?.toLowerCase() === unhyphenatedEmail ||
         u.email?.toLowerCase() === legacyEmail
     );
   } catch (listErr) {

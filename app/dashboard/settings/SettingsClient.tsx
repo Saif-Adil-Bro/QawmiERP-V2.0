@@ -701,13 +701,13 @@ export default function SettingsClient({
                         value={prefix}
                         onChange={(e) => handlePrefixChange(e.target.value)}
                         className="w-full text-center font-mono text-base font-bold tracking-wider uppercase px-3 py-2 bg-white border-2 border-emerald-300 rounded-xl text-emerald-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none shadow-sm"
-                        placeholder="AHH"
+                        placeholder="AH"
                       />
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-white/80 px-3 py-2 rounded-xl border border-slate-200 shadow-sm">
                       <span className="text-slate-500">আইডি ফরম্যাট প্রিভিউ:</span>
                       <span className="font-mono font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                        {prefix || "AHH"}480001
+                        {prefix || "AH"}-480001
                       </span>
                     </div>
                   </div>
@@ -733,7 +733,7 @@ export default function SettingsClient({
                   )}
 
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    এই ৩ সংখ্যার/অক্ষরের প্রিফিক্স কোডটি আপনার মাদ্রাসার শিক্ষার্থী আইডি ও লগইনের জন্য ব্যবহৃত হবে (যেমন: <strong>{prefix || "AHH"}480001</strong>)। হাইফেন ছাড়াই সরাসরি প্রিফিক্স ও ৬-সংখ্যার কোড দিয়ে স্টুডেন্ট ও অভিভাবকরা লগইন করবেন। এটি সকল মাদ্রাসার মধ্যে স্বতন্ত্র ও ইউনিক রাখা আবশ্যক।
+                    এই ২ বা ৩ অক্ষরের প্রিফিক্স কোড এবং হাইফেন (-) আপনার মাদ্রাসার শিক্ষার্থী আইডি ও লগইনের জন্য ব্যবহৃত হবে (যেমন: <strong>{prefix || "AH"}-480001</strong>)। হাইফেনসহ (যেমন: {prefix || "AH"}-480001) কিংবা হাইফেন ছাড়া সরাসরি প্রিফিক্স ও কোড দিয়েও স্টুডেন্ট ও অভিভাবকরা অনায়াসে লগইন করতে পারবেন। এটি সকল মাদ্রাসার মধ্যে স্বতন্ত্র ও ইউনিক রাখা আবশ্যক।
                   </p>
                 </div>
 

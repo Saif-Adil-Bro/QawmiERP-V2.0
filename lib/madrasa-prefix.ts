@@ -57,19 +57,20 @@ const KEYWORD_MAP: Record<string, string> = {
 };
 
 /**
- * Generates an intelligent 3-letter uppercase English prefix from a Madrasa name.
+ * Generates an intelligent 2 or 3-letter uppercase English prefix from a Madrasa name.
  * e.g.,
- * "আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা" -> "AHH"
- * "মাদ্‌রাসাতুল মুসলিমীন" -> "MSM"
- * "কাতিয়ারচর দারুল উলুম" -> "KDU"
- * "Jamia Islamia" -> "JIS"
+ * "আলহাজ্ব আবুল হোসেন" -> "AH" / "AHH"
+ * "দারুল উলুম" -> "DU"
+ * "মাদ্‌রাসাতুল মুসলিমীন" -> "MSM" / "MM"
+ * "কাতিয়ারচর মাদ্রাসা" -> "KM"
+ * "Jamia Islamia" -> "JI" / "JIS"
  */
 export function generateSuggestedPrefix(
   madrasaName: string,
   existingPrefixes: string[] = []
 ): string {
   if (!madrasaName || !madrasaName.trim()) {
-    return findUniquePrefix("QWM", existingPrefixes);
+    return findUniquePrefix("QM", existingPrefixes);
   }
 
   const name = madrasaName.trim();
@@ -81,9 +82,9 @@ export function generateSuggestedPrefix(
 
   if (englishMatches && englishMatches.length > 0) {
     if (englishMatches.length === 1) {
-      basePrefix = englishMatches[0].slice(0, 3).toUpperCase();
+      basePrefix = englishMatches[0].slice(0, englishMatches[0].length >= 3 ? 3 : 2).toUpperCase();
     } else if (englishMatches.length === 2) {
-      basePrefix = (englishMatches[0].slice(0, 2) + englishMatches[1].slice(0, 1)).toUpperCase();
+      basePrefix = (englishMatches[0][0] + englishMatches[1][0]).toUpperCase();
     } else {
       basePrefix = englishMatches.slice(0, 3).map((w) => w[0].toUpperCase()).join("");
     }
@@ -122,18 +123,18 @@ export function generateSuggestedPrefix(
     if (combined.length >= 3) {
       basePrefix = combined.slice(0, 3);
     } else if (combined.length === 2) {
-      basePrefix = combined + "M";
+      basePrefix = combined;
     } else if (combined.length === 1) {
-      basePrefix = combined + "QM";
+      basePrefix = combined + "M";
     } else {
-      basePrefix = "QWM";
+      basePrefix = "QM";
     }
   }
 
-  // Ensure 3 letters uppercase
+  // Ensure 2 or 3 uppercase letters
   basePrefix = basePrefix.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
-  while (basePrefix.length < 3) {
-    basePrefix += "M";
+  if (basePrefix.length < 2) {
+    basePrefix = (basePrefix + "M").slice(0, 2);
   }
 
   return findUniquePrefix(basePrefix, existingPrefixes);
@@ -145,11 +146,25 @@ export function generateSuggestedPrefix(
 export function findUniquePrefix(base: string, existingPrefixes: string[]): string {
   const existingSet = new Set(existingPrefixes.map((p) => p.toUpperCase().trim()));
   let candidate = base.toUpperCase().slice(0, 3);
+  if (candidate.length < 2) {
+    candidate = (candidate + "M").slice(0, 2);
+  }
   if (!existingSet.has(candidate)) {
     return candidate;
   }
 
-  // Try digit suffixes e.g., AH1, AH2, ... AH9
+  // If candidate is 2 letters (e.g. "AH"), first try appending 3rd letter from English alphabet
+  if (candidate.length === 2) {
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    for (const l of letters) {
+      const test = `${candidate}${l}`;
+      if (!existingSet.has(test)) {
+        return test;
+      }
+    }
+  }
+
+  // Try digit suffixes on 2-letter base e.g., AH1, AH2, ... AH9
   const prefix2 = candidate.slice(0, 2);
   for (let i = 1; i <= 9; i++) {
     const test = `${prefix2}${i}`;
@@ -158,7 +173,7 @@ export function findUniquePrefix(base: string, existingPrefixes: string[]): stri
     }
   }
 
-  // Try single letter variations
+  // Try single letter variations for 3-letter candidate
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   for (const l of letters) {
     const test = `${prefix2}${l}`;
@@ -179,8 +194,9 @@ export function findUniquePrefix(base: string, existingPrefixes: string[]): stri
 }
 
 /**
- * Formats a student ID code with the madrasa prefix directly without any hyphen.
- * e.g., prefix "AHH" + code "480001" -> "AHH480001"
+ * Formats a student ID code with the madrasa prefix and a hyphen (-).
+ * e.g., prefix "AH" + code "480001" -> "AH-480001"
+ * e.g., prefix "AHH" + code "480001" -> "AHH-480001"
  */
 export function formatStudentIdWithPrefix(
   prefix: string | null | undefined,
@@ -192,16 +208,17 @@ export function formatStudentIdWithPrefix(
   if (!cleanPrefix) {
     return cleanCode;
   }
-  return `${cleanPrefix}${cleanCode}`;
+  return `${cleanPrefix}-${cleanCode}`;
 }
 
 /**
  * Parses user input during login or search to identify prefix and numeric code.
  * Handles inputs like:
- * - "AHH480001" -> { prefix: "AHH", numericCode: "480001" }
- * - "ahh480001" -> { prefix: "AHH", numericCode: "480001" }
- * - "AHH৪৮০০০১" -> { prefix: "AHH", numericCode: "480001" }
+ * - "AH-480001"  -> { prefix: "AH", numericCode: "480001" }
  * - "AHH-480001" -> { prefix: "AHH", numericCode: "480001" }
+ * - "AH480001"   -> { prefix: "AH", numericCode: "480001" }
+ * - "AHH480001"  -> { prefix: "AHH", numericCode: "480001" }
+ * - "AH-৪৮০০০১"  -> { prefix: "AH", numericCode: "480001" }
  * - "480001"     -> { prefix: null, numericCode: "480001" }
  */
 export function parseStudentIdentifier(identifier: string): {
@@ -212,9 +229,9 @@ export function parseStudentIdentifier(identifier: string): {
   const raw = (identifier || "").trim();
   const englishStr = banglaToEnglishDigits(raw);
 
-  // Match Letters Prefix + Number (with or without hyphen or space)
-  // e.g., "AHH480001", "AHH-480001", "MSM101", "AHH 480001"
-  const match = englishStr.match(/^([A-Za-z]{2,6})[-_\s]?(\d+)$/i) ||
+  // Match Letters Prefix (2 to 4 letters) + Number (with or without hyphen or space)
+  // e.g., "AH-480001", "AHH-480001", "AH480001", "AHH480001", "MSM101", "AH 480001"
+  const match = englishStr.match(/^([A-Za-z]{2,4})[-_\s]?(\d+)$/i) ||
                 englishStr.match(/^([A-Za-z0-9]{2,4})[-_\s]+(\d+)$/i);
   if (match) {
     const potentialPrefix = match[1].toUpperCase();
