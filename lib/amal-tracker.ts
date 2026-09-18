@@ -40,6 +40,8 @@ export interface AmalTrackerTemplate {
   showGradeEvaluation: boolean;
   showParentSign: boolean;
   showTeacherSign: boolean;
+  showImamSign?: boolean;
+  showImamDailySignRow?: boolean;
   isDefault?: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -138,6 +140,8 @@ export const WEEKLY_GENERAL_TEMPLATE: AmalTrackerTemplate = {
   showGradeEvaluation: true,
   showParentSign: true,
   showTeacherSign: true,
+  showImamSign: true,
+  showImamDailySignRow: true,
   isDefault: true,
 };
 
@@ -181,6 +185,8 @@ export const VACATION_15DAYS_TEMPLATE: AmalTrackerTemplate = {
   showGradeEvaluation: true,
   showParentSign: true,
   showTeacherSign: true,
+  showImamSign: true,
+  showImamDailySignRow: true,
   isDefault: true,
 };
 
@@ -228,6 +234,8 @@ export const RAMADAN_SPECIAL_TEMPLATE: AmalTrackerTemplate = {
   showGradeEvaluation: true,
   showParentSign: true,
   showTeacherSign: true,
+  showImamSign: true,
+  showImamDailySignRow: true,
   isDefault: true,
 };
 
@@ -270,6 +278,8 @@ export const HIFZ_HOME_TRACKER_TEMPLATE: AmalTrackerTemplate = {
   showGradeEvaluation: true,
   showParentSign: true,
   showTeacherSign: true,
+  showImamSign: true,
+  showImamDailySignRow: true,
   isDefault: true,
 };
 
@@ -312,6 +322,8 @@ export const KITAB_STUDY_TRACKER_TEMPLATE: AmalTrackerTemplate = {
   showGradeEvaluation: true,
   showParentSign: true,
   showTeacherSign: true,
+  showImamSign: true,
+  showImamDailySignRow: true,
   isDefault: true,
 };
 

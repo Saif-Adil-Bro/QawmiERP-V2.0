@@ -493,6 +493,52 @@ export default function AmalTrackerClient({
               </div>
             </div>
 
+            {/* Quick Optional Signature & Layout Toggles */}
+            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                <Settings2 className="w-3.5 h-3.5 text-indigo-600" />
+                <span>প্রিন্ট শিট অপশন (ঐচ্ছিক):</span>
+              </span>
+
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                {/* 5 Waqt Imam Jamat Daily Signature Row Toggle */}
+                <label className="flex items-center gap-1.5 bg-amber-50 text-amber-950 px-2.5 py-1 rounded-lg border border-amber-200 cursor-pointer hover:bg-amber-100 transition">
+                  <input
+                    type="checkbox"
+                    checked={activeTemplate.showImamDailySignRow !== false}
+                    onChange={(e) => {
+                      const updated = templates.map((t) =>
+                        t.id === activeTemplate.id
+                          ? { ...t, showImamDailySignRow: e.target.checked }
+                          : t
+                      );
+                      setTemplates(updated);
+                    }}
+                    className="w-3.5 h-3.5 text-amber-600 rounded focus:ring-0 cursor-pointer"
+                  />
+                  <span className="font-bold">ইমাম সাহেবের জামাত সত্যায়ন রো (টেবিল)</span>
+                </label>
+
+                {/* Imam Footer Signature Block Toggle */}
+                <label className="flex items-center gap-1.5 bg-amber-50 text-amber-950 px-2.5 py-1 rounded-lg border border-amber-200 cursor-pointer hover:bg-amber-100 transition">
+                  <input
+                    type="checkbox"
+                    checked={activeTemplate.showImamSign !== false}
+                    onChange={(e) => {
+                      const updated = templates.map((t) =>
+                        t.id === activeTemplate.id
+                          ? { ...t, showImamSign: e.target.checked }
+                          : t
+                      );
+                      setTemplates(updated);
+                    }}
+                    className="w-3.5 h-3.5 text-amber-600 rounded focus:ring-0 cursor-pointer"
+                  />
+                  <span className="font-bold">মসজিদের ইমামের স্বাক্ষর (ফুটার)</span>
+                </label>
+              </div>
+            </div>
+
             {/* If Single Student mode, show student picker */}
             {printMode === "single" && (
               <div className="pt-2 border-t border-slate-100 flex items-center gap-3">
@@ -965,6 +1011,74 @@ export default function AmalTrackerClient({
                   }
                   className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-xs leading-relaxed outline-none focus:ring-2 focus:ring-indigo-500/20"
                 />
+              </div>
+
+              {/* Template Feature Toggles & Signatures */}
+              <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <label className="block font-bold text-slate-800 text-xs">
+                  স্বাক্ষর ও শিট লেআউট কনফিগারেশন:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <label className="flex items-center gap-2 text-slate-800 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingTemplate.showImamDailySignRow !== false}
+                      onChange={(e) =>
+                        setEditingTemplate({
+                          ...editingTemplate,
+                          showImamDailySignRow: e.target.checked,
+                        })
+                      }
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                    <span>৫ ওয়াক্তের নিচে ইমামের জামাত সত্যায়ন রো</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-slate-800 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingTemplate.showImamSign !== false}
+                      onChange={(e) =>
+                        setEditingTemplate({
+                          ...editingTemplate,
+                          showImamSign: e.target.checked,
+                        })
+                      }
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                    <span>ফুটার সেকশনে ইমামের মূল স্বাক্ষর বক্স</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-slate-800 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingTemplate.showGradeEvaluation !== false}
+                      onChange={(e) =>
+                        setEditingTemplate({
+                          ...editingTemplate,
+                          showGradeEvaluation: e.target.checked,
+                        })
+                      }
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                    <span>অভিভাবক সামগ্রিক গ্রেড মূল্যায়ন স্কেল</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-slate-800 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingTemplate.showWatermark !== false}
+                      onChange={(e) =>
+                        setEditingTemplate({
+                          ...editingTemplate,
+                          showWatermark: e.target.checked,
+                        })
+                      }
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                    <span>পৃষ্ঠায় মাদরাসার হালকা জলছাপ (Watermark)</span>
+                  </label>
+                </div>
               </div>
 
               {/* Items List inside this Template */}

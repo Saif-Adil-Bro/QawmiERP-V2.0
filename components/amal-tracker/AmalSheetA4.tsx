@@ -298,6 +298,37 @@ export const AmalSheetA4: React.FC<AmalSheetA4Props> = ({
                         </tr>
                       );
                     })}
+
+                    {/* Dedicated Optional Imam Signature Row after 5 Daily Prayers Category */}
+                    {(category.id === "ibadat" || category.items.some((i) => i.id.includes("fajr") || i.id.includes("isha") || i.id.includes("namaz"))) &&
+                      template.showImamDailySignRow !== false && (
+                        <tr className="bg-amber-50/70 border-b-2 border-slate-800 text-slate-900">
+                          <td className="border border-slate-800 py-1 text-center text-[10px] text-amber-950 font-bold bg-amber-100/70">
+                            ★
+                          </td>
+                          <td className="border border-slate-800 py-1 px-2 text-left bg-amber-50/90">
+                            <div className="font-bold text-amber-950 text-[10.5px] leading-tight">
+                              ইমাম সাহেবের স্বাক্ষর / জামাত সত্যায়ন
+                            </div>
+                            <div className="text-[8.5px] text-amber-800 font-medium leading-tight">
+                              (প্রতিদিনের পাঁচ ওয়াক্ত নামাজ জামাতে আদায়ের স্বাক্ষর)
+                            </div>
+                          </td>
+                          {daysList.map((day) => (
+                            <td
+                              key={`imam-sign-${day.date}`}
+                              className="border border-slate-800 py-0.5 px-0.5 text-center align-middle bg-amber-50/50"
+                            >
+                              <div className="w-full h-4 sm:h-4.5 border border-dashed border-amber-900/60 rounded-xs flex items-center justify-center text-[7.5px] text-amber-900 font-serif">
+                                {/* Signature box */}
+                              </div>
+                            </td>
+                          ))}
+                          <td className="border border-slate-800 py-0.5 px-1 text-[8.5px] text-amber-900 text-center font-bold bg-amber-50/90">
+                            সীল / দস্তখত
+                          </td>
+                        </tr>
+                      )}
                   </React.Fragment>
                 );
               })}
@@ -337,26 +368,39 @@ export const AmalSheetA4: React.FC<AmalSheetA4Props> = ({
         </section>
 
         {/* SECTION 6: SIGNATURES BLOCK */}
-        <footer className="pt-4 border-t border-slate-800 mt-2">
-          <div className="grid grid-cols-3 text-center text-xs text-slate-900">
+        <footer className="pt-3.5 border-t border-slate-800 mt-2">
+          <div
+            className={`grid text-center text-xs text-slate-900 gap-2 ${
+              template.showImamSign !== false ? "grid-cols-4" : "grid-cols-3"
+            }`}
+          >
             {/* Guardian Sign */}
             <div className="space-y-1">
-              <div className="w-32 sm:w-40 border-b border-dashed border-slate-800 mx-auto" />
-              <p className="font-bold text-[11px]">অভিভাবকের স্বাক্ষর ও তারিখ</p>
-              <p className="text-[9px] text-slate-500">ফোন: ..............................</p>
+              <div className="w-full max-w-[120px] sm:max-w-[130px] border-b border-dashed border-slate-800 mx-auto" />
+              <p className="font-bold text-[10.5px]">অভিভাবকের স্বাক্ষর</p>
+              <p className="text-[9px] text-slate-500">ফোন: ....................</p>
             </div>
+
+            {/* Optional Imam Sign */}
+            {template.showImamSign !== false && (
+              <div className="space-y-1">
+                <div className="w-full max-w-[120px] sm:max-w-[130px] border-b border-dashed border-slate-800 mx-auto" />
+                <p className="font-bold text-[10.5px] text-amber-950">মসজিদের ইমামের স্বাক্ষর</p>
+                <p className="text-[9px] text-slate-500">মন্তব্য: ....................</p>
+              </div>
+            )}
 
             {/* Class Teacher Sign */}
             <div className="space-y-1">
-              <div className="w-32 sm:w-40 border-b border-dashed border-slate-800 mx-auto" />
-              <p className="font-bold text-[11px]">শ্রেণি শিক্ষকের স্বাক্ষর ও মন্তব্য</p>
-              <p className="text-[9px] text-slate-500">তারিখ: ..............................</p>
+              <div className="w-full max-w-[120px] sm:max-w-[130px] border-b border-dashed border-slate-800 mx-auto" />
+              <p className="font-bold text-[10.5px]">শ্রেণি শিক্ষকের স্বাক্ষর</p>
+              <p className="text-[9px] text-slate-500">তারিখ: ....................</p>
             </div>
 
             {/* Head / Nazim Sign */}
             <div className="space-y-1">
-              <div className="w-32 sm:w-40 border-b border-dashed border-slate-800 mx-auto" />
-              <p className="font-bold text-[11px]">নাযেমে তা‘লীমাত / মুহতামিম</p>
+              <div className="w-full max-w-[120px] sm:max-w-[130px] border-b border-dashed border-slate-800 mx-auto" />
+              <p className="font-bold text-[10.5px]">নাযেমে তা‘লীমাত / মুহতামিম</p>
               <p className="text-[9px] text-slate-500">সিলমোহর</p>
             </div>
           </div>
