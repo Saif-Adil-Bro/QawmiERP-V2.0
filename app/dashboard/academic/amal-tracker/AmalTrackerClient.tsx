@@ -10,6 +10,7 @@ import {
   RAMADAN_SPECIAL_TEMPLATE,
   HIFZ_HOME_TRACKER_TEMPLATE,
   KITAB_STUDY_TRACKER_TEMPLATE,
+  buildAmalStudentSnapshot,
 } from "@/lib/amal-tracker";
 import { AmalSheetA4 } from "@/components/amal-tracker/AmalSheetA4";
 import { toBanglaNumber } from "@/lib/numberToBangla";
@@ -113,10 +114,18 @@ export default function AmalTrackerClient({
   // Filtered Students based on selected class
   const filteredStudents = useMemo(() => {
     if (selectedClassId === "all") return students;
-    return students.filter(
-      (s: any) => String(s.class_id) === String(selectedClassId)
-    );
-  }, [students, selectedClassId]);
+    return students.filter((s: any) => {
+      const clsRel = Array.isArray(s.classes) ? s.classes[0] : s.classes;
+      const sClassId = s.class_id || s.classId || clsRel?.id;
+      const sClassName = clsRel?.name_bn || clsRel?.name || s.class_name;
+      const targetClass = classes.find((c: any) => String(c.id) === String(selectedClassId));
+
+      return (
+        String(sClassId) === String(selectedClassId) ||
+        (targetClass && sClassName && (targetClass.name === sClassName || targetClass.name_bn === sClassName))
+      );
+    });
+  }, [students, classes, selectedClassId]);
 
   // Prepared Student Snapshots for Generation
   const studentSnapshots: AmalStudentSnapshot[] = useMemo(() => {
@@ -127,18 +136,7 @@ export default function AmalTrackerClient({
     if (printMode === "single") {
       const found = students.find((s: any) => String(s.id) === String(selectedStudentId));
       if (found) {
-        const cls = classes.find((c: any) => String(c.id) === String(found.class_id));
-        return [
-          {
-            studentId: String(found.id),
-            studentName: found.name_bn || found.name || "",
-            studentRoll: String(found.roll_no || found.roll || ""),
-            studentIdCode: found.student_id_code || found.admission_no || "",
-            className: cls?.name_bn || cls?.name || found.class_name || "",
-            fatherName: found.father_name_bn || found.father_name || "",
-            guardianPhone: found.guardian_phone || found.phone || "",
-          },
-        ];
+        return [buildAmalStudentSnapshot(found, classes)];
       }
       return [{ studentId: "blank", studentName: "" }];
     }
@@ -148,18 +146,7 @@ export default function AmalTrackerClient({
       return [{ studentId: "blank", studentName: "" }];
     }
 
-    return filteredStudents.map((s: any) => {
-      const cls = classes.find((c: any) => String(c.id) === String(s.class_id));
-      return {
-        studentId: String(s.id),
-        studentName: s.name_bn || s.name || "",
-        studentRoll: String(s.roll_no || s.roll || ""),
-        studentIdCode: s.student_id_code || s.admission_no || "",
-        className: cls?.name_bn || cls?.name || s.class_name || "",
-        fatherName: s.father_name_bn || s.father_name || "",
-        guardianPhone: s.guardian_phone || s.phone || "",
-      };
-    });
+    return filteredStudents.map((s: any) => buildAmalStudentSnapshot(s, classes));
   }, [printMode, selectedStudentId, filteredStudents, students, classes]);
 
   // Current Student for Preview
@@ -517,11 +504,14 @@ export default function AmalTrackerClient({
                   onChange={(e) => setSelectedStudentId(e.target.value)}
                   className="max-w-md px-3 py-1.5 text-xs border border-slate-300 rounded-lg font-medium bg-white"
                 >
-                  {filteredStudents.map((s: any) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name_bn || s.name} (রোল: {toBanglaNumber(s.roll_no || s.roll || "০")})
-                    </option>
-                  ))}
+                  {filteredStudents.map((s: any) => {
+                    const snap = buildAmalStudentSnapshot(s, classes);
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {snap.studentName || `শিক্ষার্থী (${snap.studentRoll || s.id})`} {snap.className ? `[${snap.className}]` : ""} (রোল: {toBanglaNumber(snap.studentRoll || "০")})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             )}
@@ -1117,25 +1107,28 @@ export default function AmalTrackerClient({
                   onChange={(e) => {
                     const st = students.find((s: any) => String(s.id) === e.target.value);
                     if (st) {
-                      const cls = classes.find((c: any) => String(c.id) === String(st.class_id));
+                      const snap = buildAmalStudentSnapshot(st, classes);
                       setEvalForm({
                         ...evalForm,
-                        studentId: String(st.id),
-                        studentName: st.name_bn || st.name,
-                        studentRoll: String(st.roll_no || st.roll || ""),
-                        className: cls?.name_bn || cls?.name || "",
-                        parentPhone: st.guardian_phone || st.phone || "",
+                        studentId: snap.studentId,
+                        studentName: snap.studentName,
+                        studentRoll: snap.studentRoll,
+                        className: snap.className,
+                        parentPhone: snap.guardianPhone,
                       });
                     }
                   }}
                   className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl font-medium outline-none bg-slate-50"
                 >
                   <option value="">ছাত্র নির্বাচন করুন...</option>
-                  {students.map((st: any) => (
-                    <option key={st.id} value={st.id}>
-                      {st.name_bn || st.name} (রোল: {toBanglaNumber(st.roll_no || st.roll || "০")})
-                    </option>
-                  ))}
+                  {students.map((st: any) => {
+                    const snap = buildAmalStudentSnapshot(st, classes);
+                    return (
+                      <option key={st.id} value={st.id}>
+                        {snap.studentName || `শিক্ষার্থী (${st.id})`} {snap.className ? `(${snap.className})` : ""} - রোল: {toBanglaNumber(snap.studentRoll || "০")}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 

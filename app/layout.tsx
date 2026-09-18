@@ -22,6 +22,12 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
     return (
         <html lang="bn" suppressHydrationWarning>
             <head>
+                <link rel="preconnect" href="https://fonts.googleapis.com" />
+                <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+                <link
+                    href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Scheherazade+New:wght@400;500;600;700&family=Hind+Siliguri:wght@300;400;500;600;700&family=Noto+Naskh+Arabic:wght@400..700&family=Noto+Sans+Arabic:wght@100..900&display=swap"
+                    rel="stylesheet"
+                />
                 <script
                     dangerouslySetInnerHTML={{
                         __html: `

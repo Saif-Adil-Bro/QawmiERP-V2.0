@@ -361,3 +361,102 @@ export function generateAmalDateDays(startDateStr: string, totalDays: number): {
 
   return result;
 }
+
+/**
+ * Universal helper to extract student snapshot accurately from any Supabase student record
+ */
+export function buildAmalStudentSnapshot(s: any, classesList: any[] = []): AmalStudentSnapshot {
+  if (!s || s === "blank" || s.studentId === "blank") {
+    return {
+      studentId: "blank",
+      studentName: "",
+      studentRoll: "",
+      studentIdCode: "",
+      className: "",
+      fatherName: "",
+      guardianPhone: "",
+    };
+  }
+
+  // 1. Resolve Student Full Name
+  const nameParts = [s.first_name, s.last_name].filter(Boolean).map((t) => String(t).trim());
+  const fullName = nameParts.length > 0 ? nameParts.join(" ") : "";
+  const studentName =
+    fullName ||
+    s.full_name ||
+    s.name_bn ||
+    s.name ||
+    s.student_name ||
+    s.bangla_name ||
+    s.first_name ||
+    "";
+
+  // 2. Resolve Roll Number
+  const rawRoll = s.roll_number ?? s.roll_no ?? s.roll ?? s.student_roll ?? "";
+  const studentRoll =
+    rawRoll !== "" && rawRoll !== null && rawRoll !== undefined ? String(rawRoll).trim() : "";
+
+  // 3. Resolve Student ID / Admission Code
+  const rawIdCode =
+    s.student_id ||
+    s.student_id_number ||
+    s.student_id_code ||
+    s.registration_no ||
+    s.reg_no ||
+    s.admission_number ||
+    s.admission_no ||
+    s.id_code;
+  
+  const studentIdCode = rawIdCode
+    ? String(rawIdCode).trim()
+    : (s.id && typeof s.id === "string" && s.id.length < 15 ? s.id : (studentRoll ? `রোল-${studentRoll}` : ""));
+
+  // 4. Resolve Class / Jamat
+  const classObjFromRelation = Array.isArray(s.classes) ? s.classes[0] : s.classes;
+  const matchedClassObj = (classesList || []).find(
+    (c: any) => String(c.id) === String(s.class_id || s.classId || classObjFromRelation?.id)
+  );
+  const className =
+    classObjFromRelation?.name_bn ||
+    classObjFromRelation?.name ||
+    matchedClassObj?.name_bn ||
+    matchedClassObj?.name ||
+    s.class_name ||
+    s.className ||
+    "";
+
+  // 5. Resolve Father's Name / Guardian
+  const fatherName =
+    s.father_name ||
+    s.father_name_bn ||
+    s.guardian_name ||
+    s.parent_name ||
+    s.fatherName ||
+    "";
+
+  // 6. Resolve Guardian Phone / Contact
+  const rawPhone =
+    s.parent_phone ||
+    s.guardian_phone ||
+    s.phone ||
+    s.contact_number ||
+    s.mobile ||
+    s.phone_number ||
+    s.guardianPhone ||
+    s.guardian_mobile ||
+    "";
+  const guardianPhone =
+    rawPhone !== "" && rawPhone !== null && rawPhone !== undefined ? String(rawPhone).trim() : "";
+
+  return {
+    studentId: String(s.id || ""),
+    studentName: studentName.trim(),
+    studentRoll,
+    studentIdCode,
+    className: className.trim(),
+    fatherName: fatherName.trim(),
+    guardianPhone,
+    photoUrl: s.photo_url || s.photo || undefined,
+  };
+}
+
