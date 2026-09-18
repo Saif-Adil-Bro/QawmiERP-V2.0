@@ -89,28 +89,18 @@ export const AmalSheetA4: React.FC<AmalSheetA4Props> = ({
 
         {/* SECTION 1: HEADER & LOGO */}
         <header className="border-b border-slate-800 pb-2 text-center relative">
-          {/* Bismillah & Quranic Ayah / Slogan */}
-          <div className="flex items-center justify-between text-[11px] text-slate-700 mb-1 px-1">
-            <span
-              className="font-arabic font-amiri text-xs font-bold text-slate-900 tracking-wide"
-              style={{ fontFamily: "'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', serif" }}
-              dir="rtl"
-            >
-              بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
-            </span>
-            {template.arabicSlogan && (
+          {/* Optional Arabic Ayah / Slogan (Centered) */}
+          {template.arabicSlogan && (
+            <div className="text-center mb-1">
               <span
-                className="font-arabic font-amiri text-xs font-medium tracking-wide text-slate-800 hidden sm:inline"
+                className="font-arabic font-amiri text-xs font-medium tracking-wide text-slate-800 inline-block"
                 style={{ fontFamily: "'Amiri', 'Scheherazade New', 'Noto Naskh Arabic', serif" }}
                 dir="rtl"
               >
                 « {template.arabicSlogan} »
               </span>
-            )}
-            <span className="text-[10px] text-slate-600">
-              {template.durationDays === 7 ? "সাপ্তাহিক আমলনামা" : `${toBanglaNumber(template.durationDays)} দিনের কর্মসূচি`}
-            </span>
-          </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-center gap-3 sm:gap-4 my-1">
             {/* Logo */}
