@@ -136,6 +136,17 @@ const STATIC_QUICK_ACTIONS: QuickAction[] = [
     keywords: ["backup", "restore", "ডাটা", "ব্যাকআপ", "ডাউনলোড"],
   },
   {
+    id: "action-amal-tracker",
+    title: "বাড়ির কর্মসূচি ও আমল ট্র্যাকার (A4)",
+    subtitle: "সাপ্তাহিক ও ছুটির আমলনামা A4 প্রিন্ট ও অভিভাবক মূল্যায়ন",
+    href: "/dashboard/academic/amal-tracker",
+    icon: Sparkles,
+    category: "টুলস",
+    badge: "আমলনামা",
+    color: "text-emerald-600 bg-emerald-50",
+    keywords: ["amal", "amal tracker", "namaz", "routine", "আমল", "আমলনামা", "আমল ট্র্যাকার", "নামাজ", "ছুটির আমল", "বাড়ির পড়া"],
+  },
+  {
     id: "nav-students",
     title: "শিক্ষার্থী তালিকা ও প্রোফাইল",
     subtitle: "সকল শিক্ষার্থীর তথ্য ও ফাইল আর্কাইভ",

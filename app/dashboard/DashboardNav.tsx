@@ -158,6 +158,15 @@ const navGroups: NavGroup[] = [
         keywords: ["assignment", "assignments", "homework", "হোমওয়ার্ক", "অ্যাসাইনমেন্ট", "পড়া", "দৈনিক পড়া", "work", "task"],
       },
       {
+        name: "বাড়ির কর্মসূচি ও আমল ট্র্যাকার",
+        href: "/dashboard/academic/amal-tracker",
+        icon: ShieldCheck,
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "teacher", "education_secretary"],
+        badge: "আমলনামা A4",
+        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        keywords: ["amal", "amal tracker", "home routine", "ছুটির আমল", "আমলনামা", "আমল ট্র্যাকার", "নামাজ ট্র্যাকার", "কর্মসূচি", "রোজা"],
+      },
+      {
         name: "ক্লাস ও বিষয় রুটিন (Routine)",
         href: "/dashboard/academic/routine",
         icon: CalendarDays,
