@@ -501,6 +501,28 @@ export default function AmalTrackerClient({
               </span>
 
               <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                {/* Vertical Day/Date Direction Toggle */}
+                <label className="flex items-center gap-1.5 bg-blue-50 text-blue-950 px-2.5 py-1 rounded-lg border border-blue-200 cursor-pointer hover:bg-blue-100 transition">
+                  <input
+                    type="checkbox"
+                    checked={
+                      activeTemplate.dateHeaderMode === "vertical" ||
+                      (activeTemplate.dateHeaderMode !== "horizontal" && activeTemplate.durationDays > 7)
+                    }
+                    onChange={(e) => {
+                      const mode: "vertical" | "horizontal" = e.target.checked ? "vertical" : "horizontal";
+                      const updated = templates.map((t) =>
+                        t.id === activeTemplate.id
+                          ? { ...t, dateHeaderMode: mode }
+                          : t
+                      );
+                      setTemplates(updated);
+                    }}
+                    className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-0 cursor-pointer"
+                  />
+                  <span className="font-bold">বার ও তারিখ উল্লম্ব (নিচে থেকে উপরে ⬆)</span>
+                </label>
+
                 {/* 5 Waqt Imam Jamat Daily Signature Row Toggle */}
                 <label className="flex items-center gap-1.5 bg-amber-50 text-amber-950 px-2.5 py-1 rounded-lg border border-amber-200 cursor-pointer hover:bg-amber-100 transition">
                   <input
@@ -1077,6 +1099,24 @@ export default function AmalTrackerClient({
                       className="w-4 h-4 text-indigo-600 rounded"
                     />
                     <span>পৃষ্ঠায় মাদরাসার হালকা জলছাপ (Watermark)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-slate-800 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={
+                        editingTemplate.dateHeaderMode === "vertical" ||
+                        (editingTemplate.dateHeaderMode !== "horizontal" && editingTemplate.durationDays > 7)
+                      }
+                      onChange={(e) =>
+                        setEditingTemplate({
+                          ...editingTemplate,
+                          dateHeaderMode: e.target.checked ? "vertical" : "horizontal",
+                        })
+                      }
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                    <span>বার ও তারিখ উল্লম্ব লেআউট (নিচে থেকে উপরে ⬆)</span>
                   </label>
                 </div>
               </div>

@@ -203,28 +203,58 @@ export const AmalSheetA4: React.FC<AmalSheetA4Props> = ({
           <table className="w-full border-collapse border border-slate-800 text-center text-xs">
             <thead>
               <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-800">
-                <th className="border border-slate-800 py-1.5 px-1 w-7 text-[10px]">নং</th>
-                <th className="border border-slate-800 py-1.5 px-2 text-left text-[11px]">
-                  আমল ও বাড়ির কর্মসূচির বিবরণ
+                <th className="border border-slate-800 py-1 px-1 w-6 text-[10px] align-middle">নং</th>
+                <th className="border border-slate-800 py-1 px-2 text-left text-[10.5px] align-middle">
+                  আমল ও ছুটির কর্মসূচির বিবরণ
                 </th>
-                {daysList.map((day, idx) => (
-                  <th
-                    key={day.date}
-                    className="border border-slate-800 py-1 px-0.5 font-bold w-11 sm:w-12 text-[10px] bg-slate-50"
-                  >
-                    <div className="leading-tight">
-                      <span className="block font-black text-slate-900">
-                        {template.durationDays <= 7 ? day.dayBangla.slice(0, 3) : `${day.dayNumberBangla}ম দিন`}
-                      </span>
-                      {template.durationDays <= 7 && (
-                        <span className="text-[9px] text-slate-600 block font-normal">
-                          {day.formattedDateBangla.split(" ")[0]}
-                        </span>
+                {daysList.map((day) => {
+                  const isVertical =
+                    template.dateHeaderMode === "vertical" ||
+                    (template.dateHeaderMode !== "horizontal" && template.durationDays > 7);
+
+                  return (
+                    <th
+                      key={day.date}
+                      className={`border border-slate-800 font-bold bg-slate-50 text-slate-900 ${
+                        isVertical
+                          ? "p-0 align-bottom h-[68px]"
+                          : "py-1 px-0.5 w-11 sm:w-12 text-[10px] align-middle"
+                      }`}
+                      style={isVertical ? { verticalAlign: "bottom" } : undefined}
+                    >
+                      {isVertical ? (
+                        <div className="flex items-center justify-center w-full h-full py-1.5 px-0.5 overflow-hidden">
+                          <div
+                            className="[writing-mode:vertical-rl] rotate-180 whitespace-nowrap leading-none tracking-tight inline-flex items-center justify-center gap-1 select-none"
+                            style={{
+                              writingMode: "vertical-rl",
+                              transform: "rotate(180deg)",
+                              WebkitWritingMode: "vertical-rl",
+                              WebkitTransform: "rotate(180deg)",
+                            }}
+                          >
+                            <span className="font-black text-slate-950 text-[10px]">
+                              {day.dayBangla.replace("বার", "")}
+                            </span>
+                            <span className="text-[8.5px] font-bold text-slate-700">
+                              {day.dayDateMonthShort}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="leading-tight">
+                          <span className="block font-black text-slate-900 text-[10.5px]">
+                            {day.dayBangla.replace("বার", "")}
+                          </span>
+                          <span className="text-[9px] text-slate-600 block font-medium">
+                            {day.dayDateMonthShort || day.formattedDateBangla.split(" ")[0]}
+                          </span>
+                        </div>
                       )}
-                    </div>
-                  </th>
-                ))}
-                <th className="border border-slate-800 py-1.5 px-1 w-16 text-[10px]">
+                    </th>
+                  );
+                })}
+                <th className="border border-slate-800 py-1 px-1 w-14 text-[9.5px] align-middle">
                   অভিভাবকের মন্তব্য
                 </th>
               </tr>

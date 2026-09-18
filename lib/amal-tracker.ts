@@ -42,6 +42,7 @@ export interface AmalTrackerTemplate {
   showTeacherSign: boolean;
   showImamSign?: boolean;
   showImamDailySignRow?: boolean;
+  dateHeaderMode?: "vertical" | "horizontal" | "auto";
   isDefault?: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -339,16 +340,27 @@ export const ALL_DEFAULT_TEMPLATES: AmalTrackerTemplate[] = [
 export function generateAmalDateDays(startDateStr: string, totalDays: number): {
   date: string;
   dayBangla: string;
+  dayShortBangla: string;
+  dayMiniBangla: string;
   dayNumberBangla: string;
   formattedDateBangla: string;
+  dayDateOnlyBangla: string;
+  dayDateMonthShort: string;
+  dayDateNumericShort: string;
 }[] {
   const result = [];
   const start = startDateStr ? new Date(startDateStr) : new Date();
   
   const banglaDays = ["রবিবার", "সোমবার", "মঙ্গলবার", "বুধবার", "বৃহস্পতিবার", "শুক্রবার", "শনিবার"];
+  const shortBanglaDays = ["রবি", "সোম", "মঙ্গল", "বুধ", "বৃহস্পতি", "শুক্র", "শনি"];
+  const miniBanglaDays = ["রবি", "সোম", "মঙ্গল", "বুধ", "বৃহঃ", "শুক্র", "শনি"];
   const banglaMonths = [
     "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
     "জুলাই", "আগস্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর"
+  ];
+  const shortBanglaMonths = [
+    "জানু", "ফেব্রু", "মার্চ", "এপ্রিল", "মে", "জুন",
+    "জুলাই", "আগস্ট", "সেপ", "অক্টো", "নভে", "ডিসে"
   ];
 
   for (let i = 0; i < totalDays; i++) {
@@ -356,18 +368,29 @@ export function generateAmalDateDays(startDateStr: string, totalDays: number): {
     current.setDate(start.getDate() + i);
 
     const dayName = banglaDays[current.getDay()];
+    const shortDayName = shortBanglaDays[current.getDay()];
+    const miniDayName = miniBanglaDays[current.getDay()];
     const dayNum = current.getDate();
-    const monthName = banglaMonths[current.getMonth()];
-    const year = current.getFullYear();
+    const monthIndex = current.getMonth();
+    const monthName = banglaMonths[monthIndex];
+    const shortMonthName = shortBanglaMonths[monthIndex];
 
     const isoStr = current.toISOString().split("T")[0];
     const formatted = `${toBanglaNumber(dayNum)} ${monthName}`;
+    const dayDateMonthShort = `${toBanglaNumber(dayNum)} ${shortMonthName}`;
+    const dayDateNumericShort = `${toBanglaNumber(dayNum)}/${toBanglaNumber(monthIndex + 1)}`;
+    const dayDateOnlyBangla = toBanglaNumber(dayNum);
 
     result.push({
       date: isoStr,
       dayBangla: dayName,
+      dayShortBangla: shortDayName,
+      dayMiniBangla: miniDayName,
       dayNumberBangla: toBanglaNumber(i + 1),
       formattedDateBangla: formatted,
+      dayDateOnlyBangla,
+      dayDateMonthShort,
+      dayDateNumericShort,
     });
   }
 
