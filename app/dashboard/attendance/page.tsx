@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Users, GraduationCap, CalendarDays, FileBarChart, Sparkles, Sun, CheckCircle2 } from "lucide-react";
+import { Users, GraduationCap, CalendarDays, FileBarChart, Sparkles, Sun, CheckCircle2, Fingerprint } from "lucide-react";
 
 export default function AttendanceDashboardPage() {
   return (
@@ -8,14 +8,38 @@ export default function AttendanceDashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">হাজিরা ও ছুটি ব্যবস্থাপনা (Attendance & Leaves)</h1>
           <p className="text-slate-500 text-xs sm:text-sm">
-            শিক্ষার্থী ও স্টাফদের দৈনিক উপস্থিতি, মাসিক রিপোর্ট, সাপ্তাহিক বন্ধ ও শিক্ষাবর্ষের ছুটির তালিকা
+            শিক্ষার্থী ও স্টাফদের দৈনিক উপস্থিতি, ফিংগারপ্রিন্ট পাঞ্চ মেশিন, ছুটির দরখাস্ত, মাসিক রিপোর্ট ও অবকাশ
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4 sm:gap-5">
+        <Link href="/dashboard/attendance/devices" className="block">
+          <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-5 rounded-2xl border border-blue-500 shadow-md hover:shadow-xl hover:scale-[1.01] transition group cursor-pointer h-full flex flex-col justify-between text-white">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <div className="bg-white/20 text-white p-3 rounded-xl group-hover:scale-105 transition backdrop-blur-xs">
+                    <Fingerprint className="w-6 h-6" />
+                  </div>
+                  <h2 className="text-base font-bold text-white">বায়োমেট্রিক ডিভাইস ম্যানেজমেন্ট</h2>
+                </div>
+                <span className="text-[10px] bg-white text-blue-700 font-black px-2.5 py-0.5 rounded-full shadow-xs uppercase tracking-wider">
+                  অটোমেটেড
+                </span>
+              </div>
+              <p className="text-xs text-blue-100 leading-relaxed">
+                মাদরাসার ফিংগারপ্রিন্ট ও ফেস রিকগনিশন পাঞ্চ মেশিন কনফিগারেশন, আইডি ম্যাপিং ও অফলাইন ইউএসবি ফাইল আপলোড।
+              </p>
+            </div>
+            <div className="mt-4 pt-3 border-t border-white/20 text-xs font-bold text-white flex items-center gap-1 group-hover:translate-x-1 transition">
+              ডিভাইস পরিচালনা ও সিঙ্ক &rarr;
+            </div>
+          </div>
+        </Link>
+
         <Link href="/dashboard/attendance/leaves" className="block">
-          <div className="bg-linear-to-br from-blue-50/60 to-indigo-50/60 p-5 rounded-2xl border-2 border-blue-400/40 shadow-xs hover:shadow-md hover:border-blue-500 transition group cursor-pointer h-full flex flex-col justify-between ring-1 ring-blue-500/20">
+          <div className="bg-gradient-to-br from-blue-50/60 to-indigo-50/60 p-5 rounded-2xl border-2 border-blue-400/40 shadow-xs hover:shadow-md hover:border-blue-500 transition group cursor-pointer h-full flex flex-col justify-between ring-1 ring-blue-500/20">
             <div>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center space-x-3">
@@ -24,7 +48,7 @@ export default function AttendanceDashboardPage() {
                   </div>
                   <h2 className="text-base font-bold text-slate-900">ছুটির আবেদন ও অনুমোদন</h2>
                 </div>
-                <span className="text-[10px] bg-blue-600 text-white font-bold px-2 py-0.5 rounded-full animate-pulse">
+                <span className="text-[10px] bg-blue-600 text-white font-bold px-2 py-0.5 rounded-full">
                   নতুন
                 </span>
               </div>
@@ -45,10 +69,10 @@ export default function AttendanceDashboardPage() {
                 <div className="bg-blue-50 p-3 rounded-xl group-hover:bg-blue-100 transition text-blue-600">
                   <GraduationCap className="w-6 h-6" />
                 </div>
-                <h2 className="text-base font-bold text-slate-800">শিক্ষার্থী উপস্থিতি</h2>
+                <h2 className="text-base font-bold text-slate-800">শিক্ষার্থী উপস্থিতি (ম্যানুয়াল)</h2>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                জামাত ও শাখা অনুযায়ী শিক্ষার্থীদের দৈনিক উপস্থিতি ও অনুপস্তিতি এন্ট্রি করুন।
+                জামাত ও শাখা অনুযায়ী শিক্ষার্থীদের দৈনিক উপস্থিতি ও অনুপস্থিতি রোল ডেকে এন্ট্রি করুন।
               </p>
             </div>
             <div className="mt-4 pt-3 border-t border-slate-100 text-xs font-semibold text-blue-600 flex items-center gap-1 group-hover:translate-x-1 transition">
@@ -64,7 +88,7 @@ export default function AttendanceDashboardPage() {
                 <div className="bg-emerald-50 p-3 rounded-xl group-hover:bg-emerald-100 transition text-emerald-600">
                   <Users className="w-6 h-6" />
                 </div>
-                <h2 className="text-base font-bold text-slate-800">স্টাফ উপস্থিতি</h2>
+                <h2 className="text-base font-bold text-slate-800">স্টাফ উপস্থিতি (ম্যানুয়াল)</h2>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
                 শিক্ষক ও কর্মচারীদের আগমন, প্রস্থান ও দৈনিক ছুটির রেকর্ড সংরক্ষণ করুন।
@@ -107,7 +131,7 @@ export default function AttendanceDashboardPage() {
                 <div className="bg-purple-50 p-3 rounded-xl group-hover:bg-purple-100 transition text-purple-600">
                   <FileBarChart className="w-6 h-6" />
                 </div>
-                <h2 className="text-base font-bold text-slate-800">উপস্থিতি রিপোর্ট</h2>
+                <h2 className="text-base font-bold text-slate-800">উপস্থিতি রিপোর্ট ও পার্সেন্টেজ</h2>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
                 মাসিক ও বার্ষিক উপস্থিতির সারাংশ ও পার্সেন্টেজ রিপোর্ট ডাউনলোড করুন।

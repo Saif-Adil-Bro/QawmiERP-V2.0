@@ -37,6 +37,14 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async rewrites() {
+    return [
+      {
+        source: '/iclock/:path*',
+        destination: '/api/biometric/iclock/:path*',
+      },
+    ];
+  },
   async headers() {
     return [
       {

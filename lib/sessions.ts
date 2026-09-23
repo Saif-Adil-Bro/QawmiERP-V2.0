@@ -198,6 +198,9 @@ export interface MadrasaMetaWithSessions {
     note?: string;
   }>;
   weekend_days?: string[];
+  biometric_devices?: any[];
+  biometric_mappings?: any[];
+  biometric_logs?: any[];
   [key: string]: any;
 }
 
