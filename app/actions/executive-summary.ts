@@ -130,7 +130,7 @@ export async function getMonthlyExecutiveSummary(
     getStaffMetadataFull().catch(() => null),
   ]);
 
-  // 2. Fetch database records safely with verified valid date boundaries
+  // 2. Fetch database records safely with verified valid date boundaries and STRICT madrasa_id scoping
   const [
     attendanceRes,
     expensesRes,
@@ -143,30 +143,37 @@ export async function getMonthlyExecutiveSummary(
     adminClient
       .from("attendance")
       .select("status, date, class_id, student_id, madrasa_id")
+      .eq("madrasa_id", madrasaId)
       .gte("date", monthStartDate)
       .lte("date", monthEndDate),
     adminClient
       .from("expenses")
       .select("id, amount, expense_date, category, description, voucher_no, madrasa_id")
+      .eq("madrasa_id", madrasaId)
       .gte("expense_date", monthStartDate)
       .lte("expense_date", monthEndDate),
     adminClient
       .from("donations")
       .select("id, amount, donation_date, category, donation_type, donor_name, donor_id, receipt_no, notes, madrasa_id")
+      .eq("madrasa_id", madrasaId)
       .gte("donation_date", monthStartDate)
       .lte("donation_date", monthEndDate),
     adminClient
       .from("hifz_logs")
-      .select("student_id, sabak_para, saboki_para, amukhta_para, log_date, madrasa_id"),
+      .select("student_id, sabak_para, saboki_para, amukhta_para, log_date, madrasa_id")
+      .eq("madrasa_id", madrasaId),
     adminClient
       .from("teachers")
-      .select("id, first_name, last_name, is_active, madrasa_id"),
+      .select("id, first_name, last_name, is_active, madrasa_id")
+      .eq("madrasa_id", madrasaId),
     adminClient
       .from("students")
-      .select("id, class_id, is_active, first_name, last_name, madrasa_id, status"),
+      .select("id, class_id, is_active, first_name, last_name, madrasa_id, status")
+      .eq("madrasa_id", madrasaId),
     adminClient
       .from("classes")
-      .select("id, name, madrasa_id"),
+      .select("id, name, madrasa_id")
+      .eq("madrasa_id", madrasaId),
   ]);
 
   // 3. Resolve Full Dynamic Students List
@@ -175,9 +182,9 @@ export async function getMonthlyExecutiveSummary(
     students = dbStudentsRes.data;
   }
   if (students.length === 0) {
-    students = meta.student_records || meta.students || meta.admission_records || meta.hifz_records || [];
+    students = (meta.student_records || meta.students || meta.admission_records || []).filter((s: any) => s && s.id);
   }
-  const totalStudents = students.filter((s: any) => s.is_active !== false && s.status !== "ARCHIVED").length || students.length;
+  const totalStudents = students.filter((s: any) => s.is_active !== false && s.status !== "ARCHIVED").length;
 
   // 4. Resolve Full Dynamic Classes List
   let classes: any[] = classesListRaw || [];
@@ -228,11 +235,12 @@ export async function getMonthlyExecutiveSummary(
   let attendance: any[] = attendanceRes.data || [];
 
   // If selected month attendance is not yet recorded, retrieve recent attendance to provide realistic trends
-  if (attendance.length === 0) {
+  if (attendance.length === 0 && totalStudents > 0) {
     try {
       const { data: recentAtt } = await adminClient
         .from("attendance")
         .select("status, date, class_id, student_id")
+        .eq("madrasa_id", madrasaId)
         .order("date", { ascending: false })
         .limit(1000);
       if (recentAtt && recentAtt.length > 0) {
@@ -246,7 +254,9 @@ export async function getMonthlyExecutiveSummary(
 
   // Student-to-Class Map for fallback
   const studentClassMap = new Map<string, string>();
+  const currentStudentIdSet = new Set<string>();
   students.forEach((s: any) => {
+    if (s.id) currentStudentIdSet.add(String(s.id));
     const cId = s.class_id || s.classes?.id || s.classes?.name || s.class_name;
     if (s.id && cId) {
       studentClassMap.set(s.id, cId);
@@ -305,48 +315,60 @@ export async function getMonthlyExecutiveSummary(
       .map((c: any) => c.id)
   );
 
-  const hifzStudentIds = new Set<string>();
-  students.forEach((s: any) => {
-    const cName = (s.classes?.name || s.class_name || "").toLowerCase();
-    if ((s.class_id && hifzClassIds.has(s.class_id)) || cName.includes("হিফজ") || cName.includes("তাহফিজ")) {
-      hifzStudentIds.add(s.id);
-    }
-  });
-
-  (meta.hifz_records || []).forEach((hr: any) => {
-    if (hr.student_id || hr.id) hifzStudentIds.add(hr.student_id || hr.id);
-  });
-  hifzLogs.forEach((l: any) => {
-    if (l.student_id) hifzStudentIds.add(l.student_id);
-  });
-
-  const hifzStudentsCount = hifzStudentIds.size || (meta.hifz_records || []).length;
+  let hifzStudentsCount = 0;
   let hifzParasCompletedTotal = 0;
   let hifzKhatamCount = 0;
 
-  const studentMaxParaMap = new Map<string, number>();
-  (meta.hifz_records || []).forEach((h: any) => {
-    const p = Number(h.current_para || h.total_paras || h.memorized_paras || h.completed_paras || 0);
-    const sId = h.student_id || h.id;
-    if (sId) {
-      studentMaxParaMap.set(sId, Math.max(studentMaxParaMap.get(sId) || 0, p));
-    }
-    if (h.is_hafez || h.status === "Khatam" || h.status === "হাফেজ" || p >= 30) {
-      hifzKhatamCount++;
-    }
-  });
+  if (totalStudents > 0) {
+    const hifzStudentIds = new Set<string>();
+    students.forEach((s: any) => {
+      const cName = (s.classes?.name || s.class_name || "").toLowerCase();
+      if ((s.class_id && hifzClassIds.has(s.class_id)) || cName.includes("হিফজ") || cName.includes("তাহফিজ")) {
+        hifzStudentIds.add(s.id);
+      }
+    });
 
-  hifzLogs.forEach((l: any) => {
-    const p = Number(l.sabak_para || l.saboki_para || l.amukhta_para || 0);
-    if (l.student_id && p > 0) {
-      studentMaxParaMap.set(l.student_id, Math.max(studentMaxParaMap.get(l.student_id) || 0, p));
-    }
-  });
+    (meta.hifz_records || []).forEach((hr: any) => {
+      const sId = hr.student_id || hr.id;
+      if (sId && currentStudentIdSet.has(String(sId))) {
+        hifzStudentIds.add(String(sId));
+      }
+    });
 
-  studentMaxParaMap.forEach((maxP) => {
-    hifzParasCompletedTotal += maxP;
-    if (maxP >= 30 && hifzKhatamCount === 0) hifzKhatamCount++;
-  });
+    hifzLogs.forEach((l: any) => {
+      if (l.student_id && currentStudentIdSet.has(String(l.student_id))) {
+        hifzStudentIds.add(String(l.student_id));
+      }
+    });
+
+    hifzStudentsCount = hifzStudentIds.size;
+
+    const studentMaxParaMap = new Map<string, number>();
+    (meta.hifz_records || []).forEach((h: any) => {
+      const sId = h.student_id || h.id;
+      if (sId && currentStudentIdSet.has(String(sId))) {
+        const p = Number(h.current_para || h.total_paras || h.memorized_paras || h.completed_paras || 0);
+        studentMaxParaMap.set(String(sId), Math.max(studentMaxParaMap.get(String(sId)) || 0, p));
+        if (h.is_hafez || h.status === "Khatam" || h.status === "হাফেজ" || p >= 30) {
+          hifzKhatamCount++;
+        }
+      }
+    });
+
+    hifzLogs.forEach((l: any) => {
+      if (l.student_id && currentStudentIdSet.has(String(l.student_id))) {
+        const p = Number(l.sabak_para || l.saboki_para || l.amukhta_para || 0);
+        if (p > 0) {
+          studentMaxParaMap.set(String(l.student_id), Math.max(studentMaxParaMap.get(String(l.student_id)) || 0, p));
+        }
+      }
+    });
+
+    studentMaxParaMap.forEach((maxP) => {
+      hifzParasCompletedTotal += maxP;
+      if (maxP >= 30 && hifzKhatamCount === 0) hifzKhatamCount++;
+    });
+  }
 
   // Calculate real syllabus completion rate
   let syllabusCompletionRate = 0;

@@ -66,17 +66,8 @@ export async function getSyllabusDashboardData(overrideTeacherId?: string) {
 
     const activeHolidays = (meta.academic_holidays || []).filter((h) => !h.is_archived);
 
-    // 2. Fetch syllabuses; if empty, initialize default Qawmi templates
+    // 2. Fetch syllabuses (clean without auto-injecting mock data)
     let syllabuses: Syllabus[] = (meta as any)?.syllabuses || [];
-    if (syllabuses.length === 0) {
-      syllabuses = getDefaultSyllabuses(
-        madrasaId,
-        classes || [],
-        subjects || [],
-        teachers || []
-      );
-      await saveMadrasaSyllabuses(madrasaId, syllabuses);
-    }
 
     // 3. Daily class records
     const dailyClasses: DailyClassRecord[] = (meta as any)?.daily_classes || [];
@@ -666,3 +657,58 @@ export async function deleteDailyClassRecordAction(recordId: string) {
     return { success: false, error: err.message || "রেকর্ড মোছা ব্যর্থ হয়েছে" };
   }
 }
+
+/**
+ * Initializes standard Qawmi syllabus templates on explicit user request with 0% progress
+ */
+export async function initializeQawmiTemplatesAction() {
+  try {
+    const { madrasaId } = await resolveContext();
+    const admin = await createAdminClient();
+
+    const [
+      { data: classes },
+      { data: subjects },
+      { data: teachers },
+    ] = await Promise.all([
+      admin.from("classes").select("id, name").eq("madrasa_id", madrasaId).order("name"),
+      admin.from("subjects").select("id, name, code").eq("madrasa_id", madrasaId).order("name"),
+      admin.from("teachers").select("id, first_name, last_name, phone").eq("madrasa_id", madrasaId),
+    ]);
+
+    const templates = getDefaultSyllabuses(
+      madrasaId,
+      classes || [],
+      subjects || [],
+      teachers || []
+    );
+
+    await saveMadrasaSyllabuses(madrasaId, templates);
+
+    revalidatePath("/dashboard/academic/syllabus");
+    revalidatePath("/teacher-portal/syllabus");
+
+    return { success: true, message: "কওমি স্ট্যান্ডার্ড সিলেবাস টেমপ্লেট সফলভাবে যুক্ত করা হয়েছে।" };
+  } catch (err: any) {
+    console.error("Error in initializeQawmiTemplatesAction:", err);
+    return { success: false, error: err.message || "টেমপ্লেট লোড ব্যর্থ হয়েছে।" };
+  }
+}
+
+/**
+ * Clears all syllabuses for the current madrasa
+ */
+export async function clearAllSyllabusesAction() {
+  try {
+    const { madrasaId } = await resolveContext();
+    await saveMadrasaSyllabuses(madrasaId, []);
+
+    revalidatePath("/dashboard/academic/syllabus");
+    revalidatePath("/teacher-portal/syllabus");
+
+    return { success: true, message: "সকল সিলেবাস ডাটা সফলভাবে রিসেট করা হয়েছে।" };
+  } catch (err: any) {
+    return { success: false, error: err.message || "সিলেবাস রিসেট ব্যর্থ হয়েছে।" };
+  }
+}
+

@@ -48,6 +48,8 @@ import {
   deleteSyllabusAction,
   deleteDailyClassRecordAction,
   getSyllabusDashboardData,
+  initializeQawmiTemplatesAction,
+  clearAllSyllabusesAction,
 } from "@/app/actions/syllabus";
 
 interface Props {
@@ -113,6 +115,36 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
   const [selectedPrintSyllabus, setSelectedPrintSyllabus] = useState<Syllabus | null>(null);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleInitializeTemplates = async () => {
+    if (!confirm("কওমি স্ট্যান্ডার্ড প্রাথমিক সিলেবাস টেমপ্লেট যুক্ত করতে চান? (সকল পাঠ ০% প্রগ্রেস থেকে শুরু হবে)")) return;
+    setIsRefreshing(true);
+    try {
+      const res = await initializeQawmiTemplatesAction();
+      if (res.success) {
+        await refreshData();
+      } else {
+        alert(res.error || "টেমপ্লেট লোড ব্যর্থ হয়েছে।");
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleClearAllSyllabuses = async () => {
+    if (!confirm("আপনি কি নিশ্চিত যে সকল সিলেবাস মুছে ফেলে একদম খালি করতে চান?")) return;
+    setIsRefreshing(true);
+    try {
+      const res = await clearAllSyllabusesAction();
+      if (res.success) {
+        await refreshData();
+      } else {
+        alert(res.error || "রিসেট ব্যর্থ হয়েছে।");
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Interactive Book Syllabus Planner State
   const [calcBookName, setCalcBookName] = useState("নূরুল ঈযাহ (ফিকহ)");
@@ -268,6 +300,17 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
             <Sparkles className="w-4 h-4 text-emerald-600" />
             <span>আজকের ক্লাস রেকর্ড করুন</span>
           </button>
+
+          {data.allSyllabuses.length > 0 && (
+            <button
+              onClick={handleClearAllSyllabuses}
+              disabled={isRefreshing}
+              className="p-2 text-slate-400 hover:text-rose-600 border border-slate-200 hover:bg-rose-50 rounded-xl transition-colors disabled:opacity-50"
+              title="সকল সিলেবাস ডাটা রিসেট ও খালি করুন"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
 
           <button
             onClick={() => {
@@ -644,18 +687,36 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
           </div>
 
           {filteredMetrics.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-xl border border-dashed border-slate-200">
-              <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-              <p className="text-slate-500 text-sm font-semibold">কোনো সিলেবাস পাওয়া যায়নি।</p>
-              <button
-                onClick={() => {
-                  setEditingSyllabus(null);
-                  setIsFormOpen(true);
-                }}
-                className="mt-3 px-4 py-2 text-xs font-bold bg-emerald-600 text-white rounded-lg"
-              >
-                + নতুন সিলেবাস তৈরি করুন
-              </button>
+            <div className="text-center py-12 px-4 bg-white rounded-2xl border border-dashed border-slate-300 space-y-4">
+              <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
+                <BookOpen className="w-7 h-7" />
+              </div>
+              <div className="max-w-md mx-auto space-y-1">
+                <h3 className="text-base font-bold text-slate-800">এখনও কোনো সিলেবাস যুক্ত করা হয়নি</h3>
+                <p className="text-xs text-slate-500">
+                  আপনার মাদরাসার বিভিন্ন জামাত ও বিষয়ের জন্য সিলেবাস তৈরি করুন অথবা আদর্শ কওমি সিলেবাস টেমপ্লেট লোড করে পাঠদান শুরু করুন।
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    setEditingSyllabus(null);
+                    setIsFormOpen(true);
+                  }}
+                  className="px-4 py-2.5 text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs transition active:scale-95 flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ নতুন সিলেবাস তৈরি করুন</span>
+                </button>
+
+                <button
+                  onClick={handleInitializeTemplates}
+                  className="px-4 py-2.5 text-xs sm:text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition border border-slate-200 flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4 text-emerald-600" />
+                  <span>কওমি স্ট্যান্ডার্ড টেমপ্লেট লোড করুন</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
