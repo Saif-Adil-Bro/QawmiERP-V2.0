@@ -34,6 +34,7 @@ import {
   FolderMinus,
   Sparkles,
   Database,
+  Printer,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/PermissionContext";
 
@@ -65,7 +66,7 @@ interface DirectNavItem {
   roles?: string[];
 }
 
-// Direct top-level item (Dashboard)
+// Direct top-level item (Dashboard & Print Hub)
 const directTopItems: DirectNavItem[] = [
   {
     name: "ড্যাশবোর্ড (Dashboard)",
@@ -73,6 +74,22 @@ const directTopItems: DirectNavItem[] = [
     icon: LayoutDashboard,
     exact: true,
     permission: "dashboard.view",
+  },
+  {
+    name: "প্রিন্ট ও ফরম হাব (Print Hub)",
+    href: "/dashboard/print-hub",
+    icon: Printer,
+    roles: [
+      "super_admin",
+      "muhtamim",
+      "naib_muhtamim",
+      "admin",
+      "office_staff",
+      "teacher",
+      "education_secretary",
+      "accountant",
+      "exam_manager",
+    ],
   },
 ];
 
@@ -132,6 +149,15 @@ const navGroups: NavGroup[] = [
     title: "একাডেমিক ও পাঠদান",
     icon: BookOpen,
     items: [
+      {
+        name: "প্রিন্ট ও ফরম হাব (ভর্তি, রসিদ, শিট)",
+        href: "/dashboard/print-hub",
+        icon: Printer,
+        badge: "প্রিন্ট হাব",
+        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "teacher", "education_secretary", "accountant"],
+        keywords: ["print", "hub", "form", "receipt", "sheet", "ভর্তি ফরম", "মানি রিসিট", "প্রিন্ট", "খালি শিট", "মূল্যায়ন শিট"],
+      },
       {
         name: "জামাত ও শাখা (Classes)",
         href: "/dashboard/classes",

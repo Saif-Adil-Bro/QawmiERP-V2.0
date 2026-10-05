@@ -556,6 +556,14 @@ export default function AdmissionsClient({
 
         <div className="flex flex-wrap items-center gap-2">
           <Link
+            href="/dashboard/print-hub"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs sm:text-sm font-bold shadow-xs transition"
+          >
+            <Printer className="w-4 h-4 text-emerald-700" />
+            <span>খালি ভর্তি ফরম ও মূল্যায়ন শিট</span>
+          </Link>
+
+          <Link
             href="/admission"
             target="_blank"
             className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition"

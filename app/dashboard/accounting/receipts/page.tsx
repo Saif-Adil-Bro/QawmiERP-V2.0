@@ -24,6 +24,16 @@ export default async function ReceiptsPage(props: {
             <p className="text-slate-500 text-sm">সকল ফি ও জমার রিসিট ট্র্যাকিং</p>
           </div>
         </div>
+
+        <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard/print-hub"
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs sm:text-sm font-bold shadow-2xs transition"
+          >
+            <Printer className="w-4 h-4 text-emerald-700" />
+            <span>খালি মানি রিসিট প্রিন্ট করুন</span>
+          </Link>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
