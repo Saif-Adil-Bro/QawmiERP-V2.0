@@ -552,6 +552,50 @@ export default function SessionsClient({
               </div>
             )}
 
+            {/* Quick Session Presets */}
+            <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
+                ⚡ কুইক সেশন টেমপ্লেট নির্বাচন করুন:
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormName("১৪৪৮-৪৯ হিজরি");
+                    setFormAcademicYear("২০২৭-২৮");
+                    setFormHijriYear("১৪৪৮-৪৯");
+                    setFormStartDate("2027-04-15");
+                    setFormEndDate("2028-04-05");
+                    setFormDescription("কওমি শিক্ষাবর্ষ (শাওয়াল ১৪৪৮ - রমজান ১৪৪৯)");
+                  }}
+                  className="text-left p-2.5 bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-xl transition cursor-pointer text-xs"
+                >
+                  <div className="font-bold text-emerald-800 flex items-center gap-1">
+                    <span>🌙 কওমি হিজরি সেশন</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">শাওয়াল থেকে রমজান (১৪৪৮-৪৯)</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormName("২০২৭ শিক্ষাবর্ষ (জানুয়ারি-ডিসেম্বর)");
+                    setFormAcademicYear("২০২৭");
+                    setFormHijriYear("১৪৪৮-৪৯");
+                    setFormStartDate("2027-01-01");
+                    setFormEndDate("2027-12-31");
+                    setFormDescription("ইংরেজি শিক্ষাবর্ষ (জানুয়ারি - ডিসেম্বর ২০২৭)");
+                  }}
+                  className="text-left p-2.5 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-xl transition cursor-pointer text-xs"
+                >
+                  <div className="font-bold text-indigo-800 flex items-center gap-1">
+                    <span>📅 ইংরেজি / জেনারেল সেশন</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">জানুয়ারি থেকে ডিসেম্বর (২০২৭)</div>
+                </button>
+              </div>
+            </div>
+
             <form onSubmit={handleCreateSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">

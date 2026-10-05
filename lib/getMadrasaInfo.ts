@@ -20,6 +20,7 @@ export async function getMadrasaInfo(specificMadrasaId?: string) {
     eiin_code: "",
     slogan: "",
     website: "",
+    id_year_format: "hijri" as "hijri" | "gregorian" | "auto",
     metadata: {} as Record<string, any>,
   };
 
@@ -129,6 +130,7 @@ export async function getMadrasaInfo(specificMadrasaId?: string) {
           eiin_code: meta.eiin_code || "",
           slogan: meta.slogan || "",
           website: meta.website || "",
+          id_year_format: meta.id_year_format || "hijri",
           metadata: meta,
         };
       }

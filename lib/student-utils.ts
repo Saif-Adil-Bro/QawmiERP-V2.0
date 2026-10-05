@@ -5,7 +5,10 @@ import { extractMadrasaPrefix, formatStudentIdWithPrefix } from "./madrasa-prefi
  * Single source of truth for student ID resolution across the entire system.
  */
 
+export type IdYearFormat = "hijri" | "gregorian" | "auto";
+
 let cachedClientMadrasaPrefix: string = "";
+let cachedClientIdYearFormat: IdYearFormat = "hijri";
 
 /**
  * Register or update the active madrasa prefix globally in memory & localStorage.
@@ -45,10 +48,46 @@ export function getActiveMadrasaPrefix(): string {
 }
 
 /**
- * Resolves the student ID number prioritizing original/custom ID, admission number, or generated standard ID.
- * Always formats with the unified Madrasa prefix and hyphen (e.g. "AH-480001" or "AHH-480001").
+ * Register or update the active student ID year format ("hijri" | "gregorian" | "auto")
  */
-export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPrefix?: string): string {
+export function setActiveIdYearFormat(format: IdYearFormat | string | null | undefined) {
+  if (format && (format === "hijri" || format === "gregorian" || format === "auto")) {
+    cachedClientIdYearFormat = format as IdYearFormat;
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("active_id_year_format", format);
+      } catch {}
+    }
+  }
+}
+
+/**
+ * Retrieve current active student ID year format
+ */
+export function getActiveIdYearFormat(): IdYearFormat {
+  if (cachedClientIdYearFormat) return cachedClientIdYearFormat;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("active_id_year_format");
+      if (stored === "hijri" || stored === "gregorian" || stored === "auto") {
+        cachedClientIdYearFormat = stored as IdYearFormat;
+        return cachedClientIdYearFormat;
+      }
+    } catch {}
+  }
+  return "hijri";
+}
+
+/**
+ * Resolves the student ID number prioritizing original/custom ID, admission number, or generated standard ID.
+ * Always formats with the unified Madrasa prefix and hyphen (e.g. "AH-480001" or "AHH-260001").
+ */
+export function getStudentIdNumber(
+  student: any,
+  allStudents?: any[],
+  madrasaPrefix?: string,
+  options?: { idYearFormat?: IdYearFormat | string }
+): string {
   if (!student) return "";
 
   const prefix = (
@@ -94,29 +133,70 @@ export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPre
     return cleanId;
   }
 
-  // 2. Use student's custom created_at if exists, otherwise fallback to current date
+  // 2. Resolve Year Format (hijri vs gregorian vs auto)
+  const resolvedFormat: IdYearFormat = (
+    options?.idYearFormat ||
+    student.id_year_format ||
+    student.madrasa?.id_year_format ||
+    student.madrasas?.id_year_format ||
+    student.madrasa?.metadata?.id_year_format ||
+    student.metadata?.id_year_format ||
+    getActiveIdYearFormat() ||
+    "hijri"
+  ) as IdYearFormat;
+
+  if (resolvedFormat && typeof window !== "undefined") {
+    setActiveIdYearFormat(resolvedFormat);
+  }
+
+  // Use student's custom created_at if exists, otherwise fallback to current date
   const dateObj = student.created_at ? new Date(student.created_at) : new Date();
+  const gregYear = dateObj.getFullYear(); // e.g. 2026
 
   // Calculate Hijri Year using Intl API (reliable and standard)
   let hijriYear = 1448;
   try {
-    const formatter = new Intl.DateTimeFormat('en-US-u-ca-islamic', { year: 'numeric' });
+    const formatter = new Intl.DateTimeFormat("en-US-u-ca-islamic", { year: "numeric" });
     const hijriYearStr = formatter.format(dateObj); // e.g. "1448 AH"
-    hijriYear = parseInt(hijriYearStr.replace(/[^0-9]/g, ''), 10);
+    hijriYear = parseInt(hijriYearStr.replace(/[^0-9]/g, ""), 10);
   } catch (e) {
     // Gregorian to Hijri approximation fallback: (Gregorian Year - 622) * 1.0307 + 1
-    const gregYear = dateObj.getFullYear();
     hijriYear = Math.floor((gregYear - 622) * 1.0307) + 1;
   }
 
-  const firstTwoDigits = String(hijriYear).slice(-2); // e.g., "48"
+  // Determine effective 2-digit year code
+  let firstTwoDigits = String(hijriYear).slice(-2); // default e.g. "48"
+
+  if (resolvedFormat === "gregorian") {
+    firstTwoDigits = String(gregYear).slice(-2); // e.g. "26"
+  } else if (resolvedFormat === "auto") {
+    // Check if session or metadata indicates an English January-December session
+    const sessionName = String(
+      student.session?.name ||
+      student.session_name ||
+      student.academic_session ||
+      student.classes?.session_name ||
+      ""
+    );
+    const isExplicitEnglish =
+      (sessionName.includes("202") || sessionName.includes("২০২")) &&
+      !sessionName.includes("হিজরি") &&
+      !sessionName.includes("144") &&
+      !sessionName.includes("১৪৪");
+
+    if (isExplicitEnglish) {
+      firstTwoDigits = String(gregYear).slice(-2); // "26"
+    } else {
+      firstTwoDigits = String(hijriYear).slice(-2); // "48"
+    }
+  }
 
   // If no students array is provided, check if student has a roll number to construct a deterministic ID
   if (!allStudents || allStudents.length === 0) {
     if (student.roll_number) {
-      const cleanRoll = String(student.roll_number).replace(/[^0-9]/g, '');
+      const cleanRoll = String(student.roll_number).replace(/[^0-9]/g, "");
       if (cleanRoll) {
-        const code = `${firstTwoDigits}${cleanRoll.padStart(4, '0')}`;
+        const code = `${firstTwoDigits}${cleanRoll.padStart(4, "0")}`;
         return formatStudentIdWithPrefix(prefix, code);
       }
     }
@@ -124,18 +204,20 @@ export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPre
     return formatStudentIdWithPrefix(prefix, code);
   }
 
-  // Group and sort students of the same Hijri year
+  // Group and sort students of the same target year code
   const sameYearStudents = allStudents
-    .filter(s => {
+    .filter((s) => {
       const sDate = s.created_at ? new Date(s.created_at) : new Date();
+      if (resolvedFormat === "gregorian") {
+        return sDate.getFullYear() === gregYear;
+      }
       let sHijriYear = 1448;
       try {
-        const formatter = new Intl.DateTimeFormat('en-US-u-ca-islamic', { year: 'numeric' });
+        const formatter = new Intl.DateTimeFormat("en-US-u-ca-islamic", { year: "numeric" });
         const sHijriYearStr = formatter.format(sDate);
-        sHijriYear = parseInt(sHijriYearStr.replace(/[^0-9]/g, ''), 10);
+        sHijriYear = parseInt(sHijriYearStr.replace(/[^0-9]/g, ""), 10);
       } catch (e) {
-        const gregYear = sDate.getFullYear();
-        sHijriYear = Math.floor((gregYear - 622) * 1.0307) + 1;
+        sHijriYear = Math.floor((sDate.getFullYear() - 622) * 1.0307) + 1;
       }
       return sHijriYear === hijriYear;
     })
@@ -146,28 +228,33 @@ export function getStudentIdNumber(student: any, allStudents?: any[], madrasaPre
     });
 
   // Find index of current student in the sorted list of same-year students
-  const index = sameYearStudents.findIndex(s => s.id === student.id);
-  const sequenceNum = index !== -1 ? index + 1 : (parseInt(student.roll_number, 10) || sameYearStudents.length + 1);
-  const sequenceStr = String(sequenceNum).padStart(4, '0'); // Pad with leading zeros to make 4 digits
+  const index = sameYearStudents.findIndex((s) => s.id === student.id);
+  const sequenceNum =
+    index !== -1 ? index + 1 : parseInt(student.roll_number, 10) || sameYearStudents.length + 1;
+  const sequenceStr = String(sequenceNum).padStart(4, "0"); // Pad with leading zeros to make 4 digits
   const code = `${firstTwoDigits}${sequenceStr}`;
 
   return formatStudentIdWithPrefix(prefix, code);
 }
 
 /**
- * Returns formatted student ID in English alphanumeric format (e.g., AHA480001) as required globally
+ * Returns formatted student ID in English alphanumeric format (e.g., AHA480001 or AHA260001) as required globally
  */
-export function resolveStudentIdBn(student: any, allStudents?: any[], madrasaPrefix?: string): string {
-  return getStudentIdNumber(student, allStudents, madrasaPrefix);
+export function resolveStudentIdBn(
+  student: any,
+  allStudents?: any[],
+  madrasaPrefix?: string,
+  options?: { idYearFormat?: IdYearFormat | string }
+): string {
+  return getStudentIdNumber(student, allStudents, madrasaPrefix, options);
 }
 
 /**
  * Converts any number or numeric string from English digits to Bengali digits.
- * e.g., 480001 -> ৪৮০০০১
+ * e.g., 480001 -> ৪৮০০০১, 260001 -> ২৬০০০১
  */
 export function convertToBanglaNumber(num: string | number | null | undefined): string {
   if (num === null || num === undefined) return "";
   const banglaDigits = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
   return String(num).replace(/[0-9]/g, (digit) => banglaDigits[parseInt(digit, 10)]);
 }
-

@@ -69,6 +69,13 @@ export default function SettingsClient({
   const [email, setEmail] = useState(madrasa.contact_email || "");
   const [website, setWebsite] = useState(madrasa.website || "");
 
+  // Student ID Year Format State
+  const initialIdYearFormat =
+    madrasa.metadata?.id_year_format ||
+    (madrasa as any).id_year_format ||
+    "hijri";
+  const [idYearFormat, setIdYearFormat] = useState<"hijri" | "gregorian" | "auto">(initialIdYearFormat);
+
   // Weekly Holidays State
   const initialWeekend = Array.isArray(madrasa.weekend_days) && madrasa.weekend_days.length > 0
     ? madrasa.weekend_days
@@ -350,6 +357,7 @@ export default function SettingsClient({
       formData.append("phone", phone);
       formData.append("email", email);
       formData.append("website", website);
+      formData.append("idYearFormat", idYearFormat);
       formData.append("weekendDays", JSON.stringify(weekendDays));
 
       // Logo handling: prefer lightweight URL to avoid server action body overflow
@@ -733,8 +741,112 @@ export default function SettingsClient({
                   )}
 
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    এই ২ বা ৩ অক্ষরের প্রিফিক্স কোড এবং হাইফেন (-) আপনার মাদ্রাসার শিক্ষার্থী আইডি ও লগইনের জন্য ব্যবহৃত হবে (যেমন: <strong>{prefix || "AH"}-480001</strong>)। হাইফেনসহ (যেমন: {prefix || "AH"}-480001) কিংবা হাইফেন ছাড়া সরাসরি প্রিফিক্স ও কোড দিয়েও স্টুডেন্ট ও অভিভাবকরা অনায়াসে লগইন করতে পারবেন। এটি সকল মাদ্রাসার মধ্যে স্বতন্ত্র ও ইউনিক রাখা আবশ্যক।
+                    এই ২ বা ৩ অক্ষরের প্রিফিক্স কোড এবং হাইফেন (-) আপনার মাদ্রাসার শিক্ষার্থী আইডি ও লগইনের জন্য ব্যবহৃত হবে (যেমন: <strong>{prefix || "AH"}-{idYearFormat === "gregorian" ? "26" : "48"}0001</strong>)। হাইফেনসহ (যেমন: {prefix || "AH"}-{idYearFormat === "gregorian" ? "26" : "48"}0001) কিংবা হাইফেন ছাড়া সরাসরি প্রিফিক্স ও কোড দিয়েও স্টুডেন্ট ও অভিভাবকরা অনায়াসে লগইন করতে পারবেন। এটি সকল মাদ্রাসার মধ্যে স্বতন্ত্র ও ইউনিক রাখা আবশ্যক।
                   </p>
+                </div>
+
+                {/* Student ID Year Format Card */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/90 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-emerald-700" />
+                      <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                        স্টুডেন্ট আইডি বর্ষ নির্ধারণ পদ্ধতি (Student ID Year Format)
+                      </label>
+                    </div>
+                    <div className="text-[11px] font-mono font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-lg border border-emerald-200">
+                      লাইভ প্রিভিউ: {prefix || "AH"}-{idYearFormat === "gregorian" ? "26" : "48"}0001
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                    {/* Option 1: Hijri */}
+                    <label
+                      className={`relative flex flex-col p-3 rounded-xl border cursor-pointer transition ${
+                        idYearFormat === "hijri"
+                          ? "bg-emerald-50/80 border-emerald-500 ring-1 ring-emerald-500 text-emerald-950"
+                          : "bg-white border-slate-200 hover:border-slate-300 text-slate-700"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="idYearFormat"
+                        value="hijri"
+                        checked={idYearFormat === "hijri"}
+                        onChange={() => setIdYearFormat("hijri")}
+                        className="sr-only"
+                      />
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold flex items-center gap-1.5">
+                          <span>🌙 হিজরি সন (ডিফল্ট)</span>
+                        </span>
+                        {idYearFormat === "hijri" && (
+                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-snug">
+                        যেমন: ১৪৪৮ হিজরির জন্য <strong>{prefix || "AH"}-480001</strong> (কওমি শাওয়াল-টু-শাবান সেশনের জন্য আদর্শ)।
+                      </p>
+                    </label>
+
+                    {/* Option 2: Gregorian / English */}
+                    <label
+                      className={`relative flex flex-col p-3 rounded-xl border cursor-pointer transition ${
+                        idYearFormat === "gregorian"
+                          ? "bg-emerald-50/80 border-emerald-500 ring-1 ring-emerald-500 text-emerald-950"
+                          : "bg-white border-slate-200 hover:border-slate-300 text-slate-700"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="idYearFormat"
+                        value="gregorian"
+                        checked={idYearFormat === "gregorian"}
+                        onChange={() => setIdYearFormat("gregorian")}
+                        className="sr-only"
+                      />
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold flex items-center gap-1.5">
+                          <span>📅 ইংরেজি / খ্রিষ্টাব্দ</span>
+                        </span>
+                        {idYearFormat === "gregorian" && (
+                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-snug">
+                        যেমন: ২০২৬ সনের জন্য <strong>{prefix || "AH"}-260001</strong> (জানুয়ারি-ডিসেম্বর সেশনের জন্য আদর্শ)।
+                      </p>
+                    </label>
+
+                    {/* Option 3: Auto */}
+                    <label
+                      className={`relative flex flex-col p-3 rounded-xl border cursor-pointer transition ${
+                        idYearFormat === "auto"
+                          ? "bg-emerald-50/80 border-emerald-500 ring-1 ring-emerald-500 text-emerald-950"
+                          : "bg-white border-slate-200 hover:border-slate-300 text-slate-700"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="idYearFormat"
+                        value="auto"
+                        checked={idYearFormat === "auto"}
+                        onChange={() => setIdYearFormat("auto")}
+                        className="sr-only"
+                      />
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold flex items-center gap-1.5">
+                          <span>⚙️ সেশন অনুযায়ী স্বয়ংক্রিয়</span>
+                        </span>
+                        {idYearFormat === "auto" && (
+                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-snug">
+                        সক্রিয় শিক্ষাবর্ষের নাম অনুযায়ী স্বয়ংক্রিয়ভাবে হিজরি বা ইংরেজি সন নির্ধারণ করবে।
+                      </p>
+                    </label>
+                  </div>
                 </div>
 
                 {/* Grid: Established Year & Registration No */}

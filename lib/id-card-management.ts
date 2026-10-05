@@ -225,56 +225,65 @@ export function generateVerificationToken(): string {
 }
 
 /**
- * Normalizes any student ID, roll number, or legacy card string into standard 6-digit student ID (e.g. 480001)
+ * Normalizes any student ID, roll number, or legacy card string into standard 6-digit student ID (e.g. 480001 or 260001)
  */
-export function normalizeStudentIdCode(rawInput?: any, fallbackCounter = 1): string {
+export function normalizeStudentIdCode(rawInput?: any, fallbackCounter = 1, defaultYearPrefix = "48"): string {
+  const cleanPrefix = String(defaultYearPrefix || "48").replace(/\D/g, "").slice(-2) || "48";
+  const baseNumber = parseInt(cleanPrefix, 10) * 10000;
+
   if (rawInput === undefined || rawInput === null) {
     const cnt = typeof fallbackCounter === "number" && fallbackCounter > 0 ? fallbackCounter : 1;
-    return String(480000 + cnt);
+    return String(baseNumber + cnt);
   }
 
   const str = String(rawInput).trim();
   if (!str) {
     const cnt = typeof fallbackCounter === "number" && fallbackCounter > 0 ? fallbackCounter : 1;
-    return String(480000 + cnt);
+    return String(baseNumber + cnt);
   }
 
-  // Strip prefixes like QM-, CERT-, STU-, ID-, etc.
-  const clean = str.replace(/^(QM-|CERT-|STU-|ID-)/i, "").trim();
+  // Strip prefixes like QM-, CERT-, STU-, ID-, AHH-, AH-, etc.
+  const clean = str.replace(/^([A-Za-z0-9]+-)/i, "").trim();
 
-  // If already exactly a 6-digit number starting with 480 (e.g. 480001, 480011)
-  if (/^480\d+$/.test(clean)) {
+  // If already a valid 6-digit number (e.g. 480001, 260001, etc.)
+  if (/^\d{6}$/.test(clean)) {
     return clean;
   }
 
-  // If format is like "26-000111" or "2026-000011" (old year-sequence format)
-  const yearSeqMatch = clean.match(/^(?:\d{2,4}-)?0*(\d+)$/);
-  if (yearSeqMatch && yearSeqMatch[1]) {
-    const num = parseInt(yearSeqMatch[1], 10);
+  // If format is like "26-000111" or "48-000011" or "2026-000011" (year-sequence format)
+  const yearSeqMatch = clean.match(/^(?:(\d{2,4})-)?0*(\d+)$/);
+  if (yearSeqMatch && yearSeqMatch[2]) {
+    const matchedYear = yearSeqMatch[1] ? yearSeqMatch[1].slice(-2) : cleanPrefix;
+    const num = parseInt(yearSeqMatch[2], 10);
     if (!isNaN(num)) {
-      if (num >= 480000) return String(num);
-      if (num > 0) return String(480000 + num);
+      const yearBase = parseInt(matchedYear, 10) * 10000;
+      if (num >= 100000) return String(num);
+      if (num > 0) return String(yearBase + (num % 10000));
     }
   }
 
   // Extract all digits if any
   const digitsOnly = clean.replace(/\D/g, "");
   if (digitsOnly) {
+    if (digitsOnly.length === 6) {
+      return digitsOnly;
+    }
     const num = parseInt(digitsOnly, 10);
     if (!isNaN(num)) {
-      if (num >= 480000) return String(num);
-      if (num > 0) return String(480000 + num);
+      if (num >= 100000 && num <= 999999) return String(num);
+      if (num > 0) return String(baseNumber + (num % 10000));
     }
   }
 
   const cnt = typeof fallbackCounter === "number" && fallbackCounter > 0 ? fallbackCounter : 1;
-  return String(480000 + cnt);
+  return String(baseNumber + cnt);
 }
 
 /**
- * Generate formatted Card Number (e.g. QM-480001)
+ * Generate formatted Card Number (e.g. QM-480001 or QM-260001)
  */
-export function formatCardNumber(yearShort: string, counter: number, studentIdCode?: string): string {
-  const stdCode = normalizeStudentIdCode(studentIdCode, counter);
-  return `QM-${stdCode}`;
+export function formatCardNumber(yearShort: string, counter: number, studentIdCode?: string, madrasaPrefix?: string): string {
+  const prefix = (madrasaPrefix || "QM").trim().toUpperCase().replace(/[^A-Z0-9]/g, "") || "QM";
+  const stdCode = normalizeStudentIdCode(studentIdCode, counter, yearShort);
+  return `${prefix}-${stdCode}`;
 }

@@ -169,6 +169,7 @@ export async function getMadrasaDetails() {
     website: meta.website || "",
     logo_url: meta.logo_url || logoData?.publicUrl || "",
     weekend_days: data.weekend_days || meta.weekend_days || ["Friday"],
+    id_year_format: meta.id_year_format || "hijri",
     metadata: meta,
   };
 }
@@ -241,6 +242,7 @@ export async function updateMadrasaDetails(formData: FormData) {
     const eiinCode = (formData.get("eiinCode") as string)?.trim() || "";
     const slogan = (formData.get("slogan") as string)?.trim() || "";
     const website = (formData.get("website") as string)?.trim() || "";
+    const idYearFormat = (formData.get("idYearFormat") as string)?.trim() || "hijri";
     const weekendDaysRaw = formData.get("weekendDays") as string;
     let weekendDays: string[] = ["Friday"];
     if (weekendDaysRaw) {
@@ -539,6 +541,7 @@ export async function updateMadrasaDetails(formData: FormData) {
       website: website,
       logo_url: finalLogoUrl,
       weekend_days: weekendDays,
+      id_year_format: idYearFormat,
     };
 
     // 4. Update madrasas table
