@@ -7,6 +7,7 @@ import {
   BiometricPunchLog,
   BIOMETRIC_BRANDS_LIST,
   generateDeviceToken,
+  getDeviceConnectionStatus,
 } from "@/lib/biometric";
 import {
   getBiometricDevices,
@@ -213,12 +214,12 @@ export default function BiometricDevicesClient() {
   const handleTestConnection = async (dev: BiometricDevice) => {
     startTransition(async () => {
       const res = await testBiometricDeviceConnection(dev.id);
-      if (res.success) {
+      if (res.isOnline) {
         showToast("success", res.message);
-        loadAllData();
       } else {
-        showToast("error", "কানেকশন টেস্ট ব্যর্থ হয়েছে");
+        showToast("info", res.message);
       }
+      loadAllData();
     });
   };
 
@@ -419,8 +420,20 @@ export default function BiometricDevicesClient() {
             <p className="text-[11px] sm:text-xs font-semibold text-slate-500">মোট সংযুক্ত ডিভাইস</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-900">
               {toBanglaNumber(devices.length)}{" "}
-              <span className="text-xs font-medium text-emerald-600">
-                ({toBanglaNumber(devices.filter((d) => d.status === "active").length)} সক্রিয়)
+              <span className="text-xs font-medium text-slate-500">
+                (
+                <span className="text-emerald-600 font-bold">
+                  {toBanglaNumber(devices.filter((d) => getDeviceConnectionStatus(d).status === "online").length)} লাইভ
+                </span>
+                {devices.filter((d) => getDeviceConnectionStatus(d).status === "waiting").length > 0 && (
+                  <>
+                    ,{" "}
+                    <span className="text-amber-600 font-bold">
+                      {toBanglaNumber(devices.filter((d) => getDeviceConnectionStatus(d).status === "waiting").length)} অপেক্ষমাণ
+                    </span>
+                  </>
+                )}
+                )
               </span>
             </h3>
           </div>
@@ -560,6 +573,7 @@ export default function BiometricDevicesClient() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {devices.map((device) => {
                 const brand = BIOMETRIC_BRANDS_LIST.find((b) => b.id === device.device_model);
+                const conn = getDeviceConnectionStatus(device);
 
                 return (
                   <div
@@ -568,23 +582,24 @@ export default function BiometricDevicesClient() {
                   >
                     <div className="p-5 space-y-4">
                       {/* Top status bar */}
-                      <div className="flex items-center justify-between">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                            device.status === "active"
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              : "bg-slate-100 text-slate-600 border border-slate-200"
-                          }`}
-                        >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span
-                            className={`w-2 h-2 rounded-full ${
-                              device.status === "active" ? "bg-emerald-500" : "bg-slate-400"
-                            }`}
-                          />
-                          <span>{device.status === "active" ? "সক্রিয় (Online)" : "নিষ্ক্রিয়"}</span>
-                        </span>
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${conn.badgeClass}`}
+                            title={conn.lastSeenText}
+                          >
+                            <span className={`w-2 h-2 rounded-full ${conn.dotClass}`} />
+                            <span>{conn.label}</span>
+                          </span>
 
-                        <span className="text-[11px] font-semibold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100">
+                          {device.status === "offline" && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                              নিষ্ক্রিয়
+                            </span>
+                          )}
+                        </div>
+
+                        <span className="text-[11px] font-semibold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100 shrink-0">
                           {device.target_audience === "students"
                             ? "শুধু ছাত্র"
                             : device.target_audience === "teachers"
@@ -623,6 +638,20 @@ export default function BiometricDevicesClient() {
                             <span className="text-slate-800">{device.location}</span>
                           </div>
                         )}
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-slate-500">সর্বশেষ সংযোগ:</span>
+                          <span
+                            className={`font-semibold ${
+                              conn.status === "online"
+                                ? "text-emerald-700"
+                                : conn.status === "waiting"
+                                ? "text-amber-700"
+                                : "text-slate-600"
+                            }`}
+                          >
+                            {conn.lastSeenText}
+                          </span>
+                        </div>
                         <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
                           <span className="font-semibold text-slate-500">মোট পাঞ্চ রেকর্ড:</span>
                           <span className="font-bold text-blue-600">

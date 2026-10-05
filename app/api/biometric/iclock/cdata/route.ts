@@ -13,6 +13,36 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const sn = searchParams.get("SN") || "";
 
+  // If SN is provided, record heartbeat ping in madrasa metadata
+  if (sn) {
+    try {
+      const adminClient = await createAdminClient();
+      const { data: madrasas } = await adminClient
+        .from("madrasas")
+        .select("id, registration_no");
+
+      for (const m of madrasas || []) {
+        if (!m.registration_no || !m.registration_no.startsWith("{")) continue;
+        try {
+          const meta = JSON.parse(m.registration_no);
+          const devices: BiometricDevice[] = meta.biometric_devices || [];
+          const idx = devices.findIndex((d) => d.serial_number === sn);
+          if (idx !== -1) {
+            const now = new Date().toISOString();
+            devices[idx].last_ping_at = now;
+            meta.biometric_devices = devices;
+            await saveMadrasaMetadata(m.id, meta);
+            break;
+          }
+        } catch {
+          continue;
+        }
+      }
+    } catch (e) {
+      console.error("Error updating heartbeat ping in GET /iclock/cdata:", e);
+    }
+  }
+
   // Handshake response expected by ZKTeco firmware
   const responseBody = [
     `GET OPTION FROM: ${sn}`,

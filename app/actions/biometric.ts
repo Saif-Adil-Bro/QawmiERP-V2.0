@@ -10,6 +10,7 @@ import {
   BiometricPunchLog,
   generateDeviceToken,
   parseBiometricPunchFile,
+  getDeviceConnectionStatus,
 } from "@/lib/biometric";
 
 /**
@@ -164,38 +165,46 @@ export async function deleteBiometricDevice(deviceId: string): Promise<{ success
  */
 export async function testBiometricDeviceConnection(
   deviceId: string
-): Promise<{ success: boolean; message: string; lastPing: string }> {
+): Promise<{ success: boolean; isOnline: boolean; message: string; lastPing: string }> {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
-  if (!user) return { success: false, message: "অননুমোদিত অ্যাক্সেস", lastPing: "" };
+  if (!user) return { success: false, isOnline: false, message: "অননুমোদিত অ্যাক্সেস", lastPing: "" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { success: false, message: "মাদরাসা পাওয়া যায়নি", lastPing: "" };
+  if (!finalMadrasaId) return { success: false, isOnline: false, message: "মাদরাসা পাওয়া যায়নি", lastPing: "" };
 
   const meta = await getMadrasaMetadata(finalMadrasaId);
-  const now = new Date().toISOString();
+  const devices: BiometricDevice[] = meta.biometric_devices || [];
+  const targetDevice = devices.find((d) => d.id === deviceId);
 
-  let targetDeviceName = "ডিভাইস";
-  if (meta.biometric_devices) {
-    meta.biometric_devices = meta.biometric_devices.map((d: BiometricDevice) => {
-      if (d.id === deviceId) {
-        targetDeviceName = d.name;
-        return {
-          ...d,
-          last_ping_at: now,
-          status: "active" as const,
-        };
-      }
-      return d;
-    });
-    await saveMadrasaMetadata(finalMadrasaId, meta);
+  if (!targetDevice) {
+    return { success: false, isOnline: false, message: "ডিভাইসটি পাওয়া যায়নি", lastPing: "" };
   }
 
-  return {
-    success: true,
-    message: `"${targetDeviceName}" এর সাথে ক্লাউড সার্ভার কমিউনিকেশন ও পুশ গেটওয়ে সফলভাবে সংযুক্ত আছে।`,
-    lastPing: now,
-  };
+  const conn = getDeviceConnectionStatus(targetDevice);
+
+  if (conn.status === "online") {
+    return {
+      success: true,
+      isOnline: true,
+      message: `"${targetDevice.name}" সফলভাবে লাইভ অনলাইন আছে (${conn.lastSeenText})। ক্লাউড গেটওয়ে সক্রিয়।`,
+      lastPing: targetDevice.last_ping_at || targetDevice.last_sync_at || "",
+    };
+  } else if (conn.status === "waiting") {
+    return {
+      success: false,
+      isOnline: false,
+      message: `"${targetDevice.name}" এখনও সার্ভারের সাথে কোনো ডাটা বা পিং পাঠায়নি (অফলাইন / কানেকশন অপেক্ষমাণ)। অনুগ্রহ করে মেশিনের ক্লাউড বা ADMS সেটিংসে সার্ভার পুশ URL ও সিরিয়াল নম্বর সঠিক আছে কিনা যাচাই করুন এবং মেশিনে একটি টেস্ট পাঞ্চ দিন।`,
+      lastPing: "",
+    };
+  } else {
+    return {
+      success: false,
+      isOnline: false,
+      message: `"${targetDevice.name}" অফলাইন আছে (সর্বশেষ দেখা: ${conn.lastSeenText})। অনুগ্রহ করে মেশিনের পাওয়ার ও ইন্টারনেট সংযোগ চেক করুন।`,
+      lastPing: targetDevice.last_ping_at || targetDevice.last_sync_at || "",
+    };
+  }
 }
 
 /**
@@ -726,11 +735,21 @@ export async function getBiometricOverviewStats() {
     const todayLogs = logs.filter((l) => l.punch_date === todayStr);
 
     const activeDevices = devices.filter((d) => d.status === "active").length;
+    const onlineDevices = devices.filter((d) => {
+      const conn = getDeviceConnectionStatus(d);
+      return d.status === "active" && conn.status === "online";
+    }).length;
+    const waitingDevices = devices.filter((d) => {
+      const conn = getDeviceConnectionStatus(d);
+      return d.status === "active" && conn.status === "waiting";
+    }).length;
     const totalPunchesToday = todayLogs.length;
 
     return {
       totalDevices: devices.length,
       activeDevices,
+      onlineDevices,
+      waitingDevices,
       totalMappings: mappings.length,
       studentMappings: mappings.filter((m) => m.user_type === "student").length,
       teacherMappings: mappings.filter((m) => m.user_type === "teacher").length,

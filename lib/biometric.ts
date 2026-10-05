@@ -226,3 +226,69 @@ export const BIOMETRIC_BRANDS_LIST: { id: BiometricBrand; label: string; descrip
     description: "যেকোনো স্ট্যান্ডার্ড ক্লাউড পুশ সমর্থিত পাঞ্চ মেশিন বা কাস্টম গেটওয়ে।",
   },
 ];
+
+/**
+ * Determine the real-time connectivity status of a biometric device
+ */
+export function getDeviceConnectionStatus(device: BiometricDevice): {
+  status: "online" | "waiting" | "offline";
+  label: string;
+  badgeClass: string;
+  dotClass: string;
+  lastSeenText: string;
+} {
+  const lastActive = device.last_ping_at || device.last_sync_at;
+
+  if (!lastActive) {
+    return {
+      status: "waiting",
+      label: "কানেক্ট হয়নি (অপেক্ষমাণ)",
+      badgeClass: "bg-amber-50 text-amber-700 border-amber-200",
+      dotClass: "bg-amber-500 animate-pulse",
+      lastSeenText: "ডিভাইস থেকে এখনও কোনো পিং বা পাঞ্চ আসেনি",
+    };
+  }
+
+  const lastTime = new Date(lastActive).getTime();
+  const now = Date.now();
+  const diffMinutes = Math.floor((now - lastTime) / (1000 * 60));
+
+  if (isNaN(diffMinutes) || diffMinutes < 0) {
+    return {
+      status: "waiting",
+      label: "কানেক্ট হয়নি (অপেক্ষমাণ)",
+      badgeClass: "bg-amber-50 text-amber-700 border-amber-200",
+      dotClass: "bg-amber-500 animate-pulse",
+      lastSeenText: "ডিভাইস থেকে এখনও কোনো পিং বা পাঞ্চ আসেনি",
+    };
+  }
+
+  if (diffMinutes <= 15) {
+    return {
+      status: "online",
+      label: "অনলাইন (Live)",
+      badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      dotClass: "bg-emerald-500 shadow-sm shadow-emerald-500/50",
+      lastSeenText: diffMinutes <= 1 ? "এইমাত্র সক্রিয়" : `${toBanglaNumber(diffMinutes)} মিনিট আগে`,
+    };
+  } else if (diffMinutes <= 60 * 24) {
+    const hours = Math.floor(diffMinutes / 60);
+    return {
+      status: "offline",
+      label: "অফলাইন",
+      badgeClass: "bg-slate-100 text-slate-600 border-slate-200",
+      dotClass: "bg-slate-400",
+      lastSeenText: hours <= 1 ? "১ ঘণ্টা আগে" : `${toBanglaNumber(hours)} ঘণ্টা আগে`,
+    };
+  } else {
+    const days = Math.floor(diffMinutes / (60 * 24));
+    return {
+      status: "offline",
+      label: "অফলাইন",
+      badgeClass: "bg-slate-100 text-slate-600 border-slate-200",
+      dotClass: "bg-slate-400",
+      lastSeenText: `${toBanglaNumber(days)} দিন আগে`,
+    };
+  }
+}
+
