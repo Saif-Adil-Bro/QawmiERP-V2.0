@@ -28,6 +28,7 @@ import CustomTableSheetBuilder from "@/components/print-hub/CustomTableSheetBuil
 import PresetMadrasaSheets from "@/components/print-hub/PresetMadrasaSheets";
 import { printElementIsolated } from "@/lib/printUtils";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { sortStudentsByRoll } from "@/lib/student-utils";
 
 interface PrintHubClientProps {
   madrasaInfo: any;
@@ -71,26 +72,30 @@ export default function PrintHubClient({
   const [presetClassId, setPresetClassId] = useState("");
   const [presetMonth, setPresetMonth] = useState("মুহাররম / মে");
 
-  // Filtered Students for Examiner Sheet
+  // Filtered and sorted Students for Examiner Sheet (ascending by Roll 1, 2, 3...)
   const examinerStudents = examinerClassId
-    ? allStudents.filter(
-        (s) =>
-          s.class_id === examinerClassId ||
-          s.classes?.id === examinerClassId ||
-          s.classes?.name === examinerClassId
+    ? sortStudentsByRoll(
+        allStudents.filter(
+          (s) =>
+            s.class_id === examinerClassId ||
+            s.classes?.id === examinerClassId ||
+            s.classes?.name === examinerClassId
+        )
       )
     : [];
 
   const examinerClassName =
     classes.find((c) => c.id === examinerClassId)?.name || "সকল জামাত / উন্মুক্ত";
 
-  // Filtered Students for Preset Sheets
+  // Filtered and sorted Students for Preset Sheets (ascending by Roll 1, 2, 3...)
   const presetStudents = presetClassId
-    ? allStudents.filter(
-        (s) =>
-          s.class_id === presetClassId ||
-          s.classes?.id === presetClassId ||
-          s.classes?.name === presetClassId
+    ? sortStudentsByRoll(
+        allStudents.filter(
+          (s) =>
+            s.class_id === presetClassId ||
+            s.classes?.id === presetClassId ||
+            s.classes?.name === presetClassId
+        )
       )
     : [];
 

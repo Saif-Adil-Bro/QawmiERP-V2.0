@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { printElementIsolated } from "@/lib/printUtils";
+import { sortStudentsByRoll } from "@/lib/student-utils";
 
 export interface CustomColumn {
   id: string;
@@ -255,15 +256,17 @@ export default function CustomTableSheetBuilder({
     ]);
   };
 
-  // Import Students from Selected Class
+  // Import Students from Selected Class (Ascending by Roll Number 1, 2, 3...)
   const handleImportStudents = () => {
     if (!selectedClassForImport) return;
-    const classStudents = allStudents.filter(
+    const rawClassStudents = allStudents.filter(
       (s) =>
         s.class_id === selectedClassForImport ||
         s.classes?.id === selectedClassForImport ||
         s.classes?.name === selectedClassForImport
     );
+
+    const classStudents = sortStudentsByRoll(rawClassStudents);
 
     if (classStudents.length === 0) {
       alert("এই জামাতে কোনো নিবন্ধিত শিক্ষার্থী পাওয়া যায়নি।");
@@ -674,47 +677,47 @@ export default function CustomTableSheetBuilder({
       <div className="bg-slate-100 p-4 sm:p-8 rounded-2xl border border-slate-300 shadow-inner overflow-x-auto">
         <div
           id="custom-table-sheet-printable"
-          className={`bg-white text-slate-900 border border-slate-400 p-6 sm:p-8 rounded-xl shadow-md mx-auto ${
+          className={`bg-white text-slate-900 border border-slate-400 p-4 sm:p-5 print:border-none print:p-0 print:m-0 rounded-xl shadow-md mx-auto ${
             orientation === "landscape" ? "max-w-[297mm]" : "max-w-[210mm]"
           } text-xs`}
         >
           {/* Header */}
-          <div className="text-center border-b-2 border-slate-800 pb-3 mb-3 space-y-1">
-            <p className="text-[11px] font-serif text-slate-600">
+          <div className="text-center border-b-2 border-slate-800 pb-2 mb-2 space-y-0.5">
+            <p className="text-[10px] font-serif text-slate-600 mb-0.5">
               بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
             </p>
 
-            <div className="flex items-center justify-center gap-3">
+            <div className="flex items-center justify-center gap-2.5">
               {logoUrl && (
                 <img
                   src={logoUrl}
                   alt="Logo"
-                  className="w-12 h-12 object-contain"
+                  className="w-10 h-10 object-contain"
                   onError={(e) => {
                     e.currentTarget.style.display = "none";
                   }}
                 />
               )}
               <div>
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-tight">
+                <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight leading-tight">
                   {mName}
                 </h1>
-                {mAddress && <p className="text-[11px] text-slate-600">{mAddress}</p>}
+                {mAddress && <p className="text-[10px] text-slate-600">{mAddress}</p>}
               </div>
             </div>
 
-            <div className="pt-1.5">
-              <span className="inline-block bg-slate-900 text-white px-4 py-0.5 rounded text-xs font-bold uppercase tracking-wider print:bg-black">
+            <div className="pt-1">
+              <span className="inline-block bg-slate-900 text-white px-3.5 py-0.5 rounded text-xs font-bold uppercase tracking-wider print:bg-black">
                 {docTitle}
               </span>
             </div>
 
             {docSubtitle && (
-              <p className="text-xs font-semibold text-slate-700 pt-0.5">{docSubtitle}</p>
+              <p className="text-[11px] font-semibold text-slate-700 pt-0.5">{docSubtitle}</p>
             )}
 
             {/* Meta Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-semibold text-slate-700 pt-2 border-t border-slate-200 mt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] font-semibold text-slate-700 pt-1.5 border-t border-slate-200 mt-1.5">
               <div className="text-left">
                 জামাত: <span className="text-slate-900 font-bold">{className || "............................"}</span>
               </div>
@@ -730,7 +733,7 @@ export default function CustomTableSheetBuilder({
             </div>
 
             {roomNumber && (
-              <div className="text-right text-[10px] text-slate-500 pt-0.5">
+              <div className="text-right text-[9px] text-slate-500 pt-0.5">
                 কক্ষ নং / স্থান: <span className="font-semibold text-slate-800">{roomNumber}</span> • মোট ছাত্র/সারি: <span className="font-bold text-slate-900">{toBanglaNumber(rows.length)} জন</span>
               </div>
             )}
@@ -738,13 +741,13 @@ export default function CustomTableSheetBuilder({
 
           {/* Main Custom Table */}
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-[11px] border-collapse border-2 border-slate-800">
+            <table className="w-full text-left text-[10px] border-collapse border-2 border-slate-800">
               <thead className="bg-slate-100 font-bold text-slate-900">
                 <tr>
                   {columns.map((col) => (
                     <th
                       key={col.id}
-                      className={`border border-slate-400 p-2 text-${col.align} ${getColWidthClass(
+                      className={`border border-slate-400 p-1 text-${col.align} ${getColWidthClass(
                         col.width
                       )}`}
                     >
@@ -765,7 +768,7 @@ export default function CustomTableSheetBuilder({
                         return (
                           <td
                             key={col.id}
-                            className="border border-slate-400 p-1.5 text-center font-mono font-medium text-slate-600"
+                            className="border border-slate-400 p-1 text-center font-mono font-medium text-slate-600"
                           >
                             {toBanglaNumber(rIdx + 1)}
                           </td>
@@ -777,7 +780,7 @@ export default function CustomTableSheetBuilder({
                         return (
                           <td
                             key={col.id}
-                            className="border border-slate-400 p-1 text-center font-mono font-bold text-slate-900"
+                            className="border border-slate-400 p-0.5 text-center font-mono font-bold text-slate-900"
                           >
                             <input
                               type="text"
@@ -795,14 +798,14 @@ export default function CustomTableSheetBuilder({
                         return (
                           <td
                             key={col.id}
-                            className="border border-slate-400 p-1 font-bold text-slate-900"
+                            className="border border-slate-400 p-0.5 font-bold text-slate-900"
                           >
                             <input
                               type="text"
                               value={row.label || ""}
                               onChange={(e) => handleUpdateRow(row.id, { label: e.target.value })}
                               placeholder="নাম/বিবরণ লিখুন..."
-                              className="w-full bg-transparent border-none p-0.5 text-xs font-bold text-slate-900 focus:outline-none focus:bg-emerald-50 focus:ring-1 focus:ring-emerald-400 rounded placeholder:text-slate-300 print:placeholder:text-transparent"
+                              className="w-full bg-transparent border-none p-0.5 text-[11px] font-bold text-slate-900 focus:outline-none focus:bg-emerald-50 focus:ring-1 focus:ring-emerald-400 rounded placeholder:text-slate-300 print:placeholder:text-transparent"
                             />
                           </td>
                         );
@@ -813,7 +816,7 @@ export default function CustomTableSheetBuilder({
                         return (
                           <td
                             key={col.id}
-                            className="border border-slate-400 p-1.5 text-center"
+                            className="border border-slate-400 p-1 text-center"
                           >
                             <div className="w-3.5 h-3.5 border border-slate-400 rounded mx-auto" />
                           </td>
@@ -825,7 +828,7 @@ export default function CustomTableSheetBuilder({
                         return (
                           <td
                             key={col.id}
-                            className="border border-slate-400 p-1.5 text-center"
+                            className="border border-slate-400 p-1 text-center"
                           >
                             <div className="w-16 border-b border-dotted border-slate-400 mx-auto" />
                           </td>
@@ -836,7 +839,7 @@ export default function CustomTableSheetBuilder({
                       return (
                         <td
                           key={col.id}
-                          className="border border-slate-400 p-1.5 text-center font-mono"
+                          className="border border-slate-400 p-1 text-center font-mono"
                         >
                           {/* Blank for manual handwriting */}
                         </td>
@@ -850,22 +853,22 @@ export default function CustomTableSheetBuilder({
 
           {/* Notes / Instructions if any */}
           {notesText && (
-            <div className="mt-3 p-2 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-600">
+            <div className="mt-2 p-1.5 bg-slate-50 border border-slate-200 rounded text-[9px] text-slate-600">
               <span className="font-bold text-slate-800">বিশেষ দ্রষ্টব্য: </span>
               {notesText}
             </div>
           )}
 
           {/* Footer Signatures */}
-          <div className="pt-8 flex items-center justify-between text-xs text-slate-800 font-semibold">
+          <div className="pt-5 flex items-center justify-between text-xs text-slate-800 font-semibold">
             <div className="text-center w-36">
-              <div className="border-t border-slate-500 pt-1">{sig1}</div>
+              <div className="border-t border-slate-500 pt-0.5">{sig1}</div>
             </div>
             <div className="text-center w-40">
-              <div className="border-t border-slate-500 pt-1">{sig2}</div>
+              <div className="border-t border-slate-500 pt-0.5">{sig2}</div>
             </div>
             <div className="text-center w-36">
-              <div className="border-t border-slate-500 pt-1 font-bold text-slate-900">{sig3}</div>
+              <div className="border-t border-slate-500 pt-0.5 font-bold text-slate-900">{sig3}</div>
             </div>
           </div>
         </div>

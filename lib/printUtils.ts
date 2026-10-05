@@ -87,8 +87,8 @@ export function printElementIsolated(
                  url('/fonts/amiri_regular.ttf') format('truetype');
           }
           @page {
-            size: A4 ${orientation};
-            margin: 6mm;
+            size: auto;
+            margin: 4mm 5mm;
           }
           *, *::before, *::after {
             -webkit-print-color-adjust: exact !important;
@@ -114,18 +114,24 @@ export function printElementIsolated(
             background: #ffffff !important;
           }
           .receipt-card {
-            border: 1.5px solid #475569 !important;
-            border-radius: 8px !important;
-            padding: 14px 18px !important;
+            border: 1.2px solid #475569 !important;
+            border-radius: 6px !important;
+            padding: 10px 14px !important;
             background: #ffffff !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
-            margin-bottom: 6px !important;
+            margin-bottom: 2px !important;
           }
           .cut-separator {
-            margin: 8px 0 !important;
+            margin: 4px 0 !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+          }
+          @media print {
+            .page-break-avoid {
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
           }
         </style>
       </head>

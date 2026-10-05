@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { sortStudentsByRoll } from "@/lib/student-utils";
 
 export interface EvaluationColumn {
   id: string;
@@ -52,18 +53,21 @@ export default function ExaminerEvaluationSheet({
     { id: "oral", label: "মৌখিক (৩০)", maxMarks: 30, width: "w-16", align: "center" },
     { id: "tilawat", label: "তিলাওয়াত (২০)", maxMarks: 20, width: "w-16", align: "center" },
     { id: "total", label: "মোট (১০০)", maxMarks: 100, width: "w-16", align: "center" },
-    { id: "remarks", label: "পরীক্ষকের মন্তব্য ও স্বাক্ষর", width: "w-32", align: "center" },
+    { id: "remarks", label: "মন্তব্য ও স্বাক্ষর", width: "w-32", align: "center" },
   ];
 
   const activeColumns = columns && columns.length > 0 ? columns : defaultColumns;
 
+  // Sort students ascending by roll number (1, 2, 3...)
+  const sortedStudents = sortStudentsByRoll(students || []);
+
   // Generate display rows based on provided students or blank rows
   const displayRows =
-    students && students.length > 0
-      ? students.map((s, idx) => ({
+    sortedStudents && sortedStudents.length > 0
+      ? sortedStudents.map((s: any, idx: number) => ({
           sl: toBanglaNumber(idx + 1),
-          roll: s.roll ? toBanglaNumber(s.roll) : toBanglaNumber(idx + 1),
-          name: s.name,
+          roll: s.roll || s.roll_number ? toBanglaNumber(s.roll || s.roll_number) : toBanglaNumber(idx + 1),
+          name: s.name || `${s.first_name || ""} ${s.last_name || ""}`.trim() || `ছাত্র ${idx + 1}`,
           father: s.father_name || "",
         }))
       : Array.from({ length: blankRowCount }).map((_, idx) => ({
@@ -74,40 +78,40 @@ export default function ExaminerEvaluationSheet({
         }));
 
   return (
-    <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-5 sm:p-7 border border-slate-300 print:border-none print:p-0 print:m-0 text-xs">
+    <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-4 sm:p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-xs">
       {/* Header */}
-      <div className="text-center border-b-2 border-slate-800 pb-3 mb-3 space-y-1">
-        <p className="text-[11px] font-serif text-slate-600">
+      <div className="text-center border-b-2 border-slate-800 pb-2 mb-2 space-y-0.5">
+        <p className="text-[10px] font-serif text-slate-600">
           بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
         </p>
 
-        <div className="flex items-center justify-center gap-3">
+        <div className="flex items-center justify-center gap-2.5">
           {logoUrl && (
             <img
               src={logoUrl}
               alt="Logo"
-              className="w-12 h-12 object-contain"
+              className="w-10 h-10 object-contain"
               onError={(e) => {
                 e.currentTarget.style.display = "none";
               }}
             />
           )}
           <div>
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-tight">
+            <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight leading-tight">
               {mName}
             </h1>
-            {mAddress && <p className="text-[11px] text-slate-600">{mAddress}</p>}
+            {mAddress && <p className="text-[10px] text-slate-600">{mAddress}</p>}
           </div>
         </div>
 
-        <div className="pt-1.5">
-          <span className="inline-block bg-slate-900 text-white px-4 py-0.5 rounded text-xs font-bold uppercase tracking-wider print:bg-black">
+        <div className="pt-1">
+          <span className="inline-block bg-slate-900 text-white px-3.5 py-0.5 rounded text-xs font-bold uppercase tracking-wider print:bg-black">
             {examTitle}
           </span>
         </div>
 
         {/* Sub-meta Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-semibold text-slate-700 pt-2 border-t border-slate-200 mt-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px] font-semibold text-slate-700 pt-1.5 border-t border-slate-200 mt-1.5">
           <div className="text-left">
             জামাত: <span className="text-slate-900 font-bold">{className}</span>
           </div>
@@ -122,7 +126,7 @@ export default function ExaminerEvaluationSheet({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-0.5">
+        <div className="grid grid-cols-2 gap-1.5 text-[10px] text-slate-600 pt-0.5">
           <div className="text-left">
             পরীক্ষক / ওস্তাদের নাম: <span className="font-semibold text-slate-900">{examinerName || "................................................"}</span>
           </div>
@@ -134,13 +138,13 @@ export default function ExaminerEvaluationSheet({
 
       {/* Main Examination Table */}
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-[11px] border-collapse border-2 border-slate-800">
+        <table className="w-full text-left text-[10px] border-collapse border-2 border-slate-800">
           <thead className="bg-slate-100 font-bold text-slate-900">
             <tr>
               {activeColumns.map((col) => (
                 <th
                   key={col.id}
-                  className={`border border-slate-400 p-2 text-${col.align || "center"} ${col.width || ""}`}
+                  className={`border border-slate-400 p-1 text-${col.align || "center"} ${col.width || ""}`}
                 >
                   {col.label}
                 </th>
@@ -158,7 +162,7 @@ export default function ExaminerEvaluationSheet({
                     return (
                       <td
                         key={col.id}
-                        className="border border-slate-400 p-1.5 text-center font-mono font-medium text-slate-600"
+                        className="border border-slate-400 p-1 text-center font-mono font-medium text-slate-600"
                       >
                         {row.sl}
                       </td>
@@ -168,7 +172,7 @@ export default function ExaminerEvaluationSheet({
                     return (
                       <td
                         key={col.id}
-                        className="border border-slate-400 p-1.5 text-center font-mono font-bold text-slate-900"
+                        className="border border-slate-400 p-1 text-center font-mono font-bold text-slate-900"
                       >
                         {row.roll}
                       </td>
@@ -178,7 +182,7 @@ export default function ExaminerEvaluationSheet({
                     return (
                       <td
                         key={col.id}
-                        className="border border-slate-400 p-1.5 font-bold text-slate-900"
+                        className="border border-slate-400 p-1 font-bold text-slate-900"
                       >
                         {row.name}
                       </td>
@@ -188,7 +192,7 @@ export default function ExaminerEvaluationSheet({
                     return (
                       <td
                         key={col.id}
-                        className="border border-slate-400 p-1.5 text-slate-700"
+                        className="border border-slate-400 p-1 text-slate-700"
                       >
                         {row.father}
                       </td>
@@ -197,7 +201,7 @@ export default function ExaminerEvaluationSheet({
                   return (
                     <td
                       key={col.id}
-                      className="border border-slate-400 p-1.5 text-center font-mono"
+                      className="border border-slate-400 p-1 text-center font-mono"
                     >
                       {/* Blank cell for handwriting */}
                     </td>
@@ -210,16 +214,16 @@ export default function ExaminerEvaluationSheet({
       </div>
 
       {/* Footer Signatures */}
-      <div className="pt-8 flex items-center justify-between text-xs text-slate-800 font-semibold">
+      <div className="pt-5 flex items-center justify-between text-xs text-slate-800 font-semibold">
         <div className="text-center w-36">
-          <div className="border-t border-slate-500 pt-1">পরীক্ষকের স্বাক্ষর</div>
-          <p className="text-[10px] text-slate-500 font-normal">তারিখ সহ</p>
+          <div className="border-t border-slate-500 pt-0.5">পরীক্ষকের স্বাক্ষর</div>
+          <p className="text-[9px] text-slate-500 font-normal">তারিখ সহ</p>
         </div>
         <div className="text-center w-40">
-          <div className="border-t border-slate-500 pt-1">নাজেমে তা'লীমাত (শিক্ষা সচিব)</div>
+          <div className="border-t border-slate-500 pt-0.5">নাজেমে তা'লীমাত (শিক্ষা সচিব)</div>
         </div>
         <div className="text-center w-36">
-          <div className="border-t border-slate-500 pt-1 font-bold text-slate-900">মুহতামিম / প্রিন্সিপাল</div>
+          <div className="border-t border-slate-500 pt-0.5 font-bold text-slate-900">মুহতামিম / প্রিন্সিপাল</div>
         </div>
       </div>
     </div>

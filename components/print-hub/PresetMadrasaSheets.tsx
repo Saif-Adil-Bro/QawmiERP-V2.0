@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { sortStudentsByRoll } from "@/lib/student-utils";
 import { Scissors } from "lucide-react";
 
 interface PresetMadrasaSheetsProps {
@@ -24,12 +25,15 @@ export default function PresetMadrasaSheets({
   const mPhone = madrasaInfo?.phone || madrasaInfo?.contact_phone || "";
   const logoUrl = madrasaInfo?.logo_url || "";
 
+  // Sort students ascending by roll number (1, 2, 3...)
+  const sortedStudents = sortStudentsByRoll(students || []);
+
   // 1. MONTHLY ATTENDANCE GRID SHEET (Landscape A4)
   if (sheetType === "attendance_monthly") {
     const days = Array.from({ length: 31 }, (_, i) => i + 1);
     const rows =
-      students && students.length > 0
-        ? students.map((s, idx) => ({
+      sortedStudents && sortedStudents.length > 0
+        ? sortedStudents.map((s, idx) => ({
             roll: s.roll_number ? toBanglaNumber(s.roll_number) : toBanglaNumber(idx + 1),
             name: `${s.first_name || ""} ${s.last_name || ""}`.trim() || `ছাত্র ${idx + 1}`,
           }))
@@ -199,8 +203,8 @@ export default function PresetMadrasaSheets({
   // 3. HIFZ DAILY EVALUATION & DIARY SHEET (হিফজ দৈনিক সবক ও আমুক্তা ট্র্যাকার)
   if (sheetType === "hifz_tracker") {
     const rows =
-      students && students.length > 0
-        ? students.map((s, idx) => ({
+      sortedStudents && sortedStudents.length > 0
+        ? sortedStudents.map((s, idx) => ({
             roll: s.roll_number ? toBanglaNumber(s.roll_number) : toBanglaNumber(idx + 1),
             name: `${s.first_name || ""} ${s.last_name || ""}`.trim() || `ছাত্র ${idx + 1}`,
           }))
@@ -210,50 +214,50 @@ export default function PresetMadrasaSheets({
           }));
 
     return (
-      <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-xs">
-        <div className="text-center border-b-2 border-slate-800 pb-2 mb-3 space-y-1">
+      <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-4 sm:p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-xs">
+        <div className="text-center border-b-2 border-slate-800 pb-2 mb-2 space-y-0.5">
           <p className="text-[10px] font-serif text-slate-500">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
-          <h1 className="text-xl font-black text-slate-900">{mName}</h1>
+          <h1 className="text-lg sm:text-xl font-black text-slate-900">{mName}</h1>
           <div className="pt-1">
-            <span className="inline-block bg-amber-900 text-white px-4 py-0.5 rounded text-xs font-bold uppercase print:bg-black">
+            <span className="inline-block bg-amber-900 text-white px-3.5 py-0.5 rounded text-xs font-bold uppercase print:bg-black">
               হিফজুল কুরআন বিভাগ — দৈনিক সবক, আমুক্তা ও সবকপারা মূল্যায়ন শিট
             </span>
           </div>
-          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700 pt-2 border-t mt-2">
+          <div className="flex items-center justify-between text-[10px] font-semibold text-slate-700 pt-1.5 border-t mt-1.5">
             <div>হিফজ গ্রুপ: <span className="text-slate-900 font-bold">{className || "সকল ছাত্র"}</span></div>
             <div>তারিখ: <span>...../...../২০২৬</span></div>
             <div>উস্তাদের নাম: <span>................................................</span></div>
           </div>
         </div>
 
-        <table className="w-full text-left text-[11px] border-collapse border-2 border-slate-800">
+        <table className="w-full text-left text-[10px] border-collapse border-2 border-slate-800">
           <thead className="bg-amber-50/80 font-bold text-slate-900">
             <tr>
-              <th className="border border-slate-400 p-1.5 text-center w-10">রোল</th>
-              <th className="border border-slate-400 p-1.5 w-44">শিক্ষার্থীর নাম</th>
-              <th className="border border-slate-400 p-1.5 text-center w-24">সবক (পারা/পৃষ্ঠা)</th>
-              <th className="border border-slate-400 p-1.5 text-center w-24">সবকপারা</th>
-              <th className="border border-slate-400 p-1.5 text-center w-24">আমুক্তা</th>
-              <th className="border border-slate-400 p-1.5 text-center w-20">তাজবীদ মান</th>
-              <th className="border border-slate-400 p-1.5 text-center">উস্তাদের স্বাক্ষর ও মন্তব্য</th>
+              <th className="border border-slate-400 p-1 text-center w-10">রোল</th>
+              <th className="border border-slate-400 p-1 w-44">শিক্ষার্থীর নাম</th>
+              <th className="border border-slate-400 p-1 text-center w-24">সবক (পারা/পৃষ্ঠা)</th>
+              <th className="border border-slate-400 p-1 text-center w-24">সবকপারা</th>
+              <th className="border border-slate-400 p-1 text-center w-24">আমুক্তা</th>
+              <th className="border border-slate-400 p-1 text-center w-20">তাজবীদ মান</th>
+              <th className="border border-slate-400 p-1 text-center">উস্তাদের স্বাক্ষর ও মন্তব্য</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r, idx) => (
               <tr key={idx} className={idx % 2 === 1 ? "bg-slate-50/60" : "bg-white"}>
-                <td className="border border-slate-400 p-1.5 text-center font-mono font-bold text-slate-800">{r.roll}</td>
-                <td className="border border-slate-400 p-1.5 font-semibold text-slate-900">{r.name}</td>
-                <td className="border border-slate-400 p-1.5 text-center"></td>
-                <td className="border border-slate-400 p-1.5 text-center"></td>
-                <td className="border border-slate-400 p-1.5 text-center"></td>
-                <td className="border border-slate-400 p-1.5 text-center"></td>
-                <td className="border border-slate-400 p-1.5 text-center"></td>
+                <td className="border border-slate-400 p-1 text-center font-mono font-bold text-slate-800">{r.roll}</td>
+                <td className="border border-slate-400 p-1 font-semibold text-slate-900">{r.name}</td>
+                <td className="border border-slate-400 p-1 text-center"></td>
+                <td className="border border-slate-400 p-1 text-center"></td>
+                <td className="border border-slate-400 p-1 text-center"></td>
+                <td className="border border-slate-400 p-1 text-center"></td>
+                <td className="border border-slate-400 p-1 text-center"></td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        <div className="pt-8 flex items-center justify-between text-xs font-semibold text-slate-800">
+        <div className="pt-5 flex items-center justify-between text-[11px] font-semibold text-slate-800">
           <div>হিফজ শিক্ষক: ................................................</div>
           <div>হিফজ সুপারভাইজার: ................................................</div>
           <div>মুহতামিম: ................................................</div>
@@ -265,10 +269,16 @@ export default function PresetMadrasaSheets({
   // 4. HOSTEL / BOARDING MEAL BLANK REGISTER
   if (sheetType === "hostel_meal") {
     const days = Array.from({ length: 31 }, (_, i) => i + 1);
-    const rows = Array.from({ length: 25 }).map((_, idx) => ({
-      roll: toBanglaNumber(idx + 1),
-      name: "",
-    }));
+    const rows =
+      sortedStudents && sortedStudents.length > 0
+        ? sortedStudents.map((s, idx) => ({
+            roll: s.roll_number ? toBanglaNumber(s.roll_number) : toBanglaNumber(idx + 1),
+            name: `${s.first_name || ""} ${s.last_name || ""}`.trim() || `ছাত্র ${idx + 1}`,
+          }))
+        : Array.from({ length: 25 }).map((_, idx) => ({
+            roll: toBanglaNumber(idx + 1),
+            name: "",
+          }));
 
     return (
       <div className="bg-white text-slate-900 w-full max-w-[297mm] mx-auto p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-[10px]">

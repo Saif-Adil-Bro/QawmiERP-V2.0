@@ -258,3 +258,40 @@ export function convertToBanglaNumber(num: string | number | null | undefined): 
   const banglaDigits = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
   return String(num).replace(/[0-9]/g, (digit) => banglaDigits[parseInt(digit, 10)]);
 }
+
+/**
+ * Accurately sorts an array of student objects ascending by roll number (1, 2, 3 ... 10, 11).
+ * Seamlessly handles Bengali digits (১, ২, ৩ ...), English digits (1, 2, 3 ...), and alphanumeric rolls.
+ */
+export function sortStudentsByRoll<T extends Record<string, any>>(list: T[]): T[] {
+  if (!Array.isArray(list) || list.length <= 1) return list ? [...list] : [];
+
+  return [...list].sort((a, b) => {
+    const rawA = a?.roll_number ?? a?.roll ?? a?.subLabel ?? a?.student_roll ?? a?.assigned_permanent_roll ?? "";
+    const rawB = b?.roll_number ?? b?.roll ?? b?.subLabel ?? b?.student_roll ?? b?.assigned_permanent_roll ?? "";
+
+    const strA = String(rawA).trim();
+    const strB = String(rawB).trim();
+
+    // Convert Bengali digits to standard integer
+    const numA = parseInt(
+      strA.replace(/[০-৯]/g, (d) => "০১২৩৪৫৬৭৮৯".indexOf(d).toString()).replace(/[^0-9]/g, ""),
+      10
+    );
+    const numB = parseInt(
+      strB.replace(/[০-৯]/g, (d) => "০১২৩৪৫৬৭৮৯".indexOf(d).toString()).replace(/[^0-9]/g, ""),
+      10
+    );
+
+    const hasNumA = !isNaN(numA) && numA > 0;
+    const hasNumB = !isNaN(numB) && numB > 0;
+
+    if (hasNumA && hasNumB) {
+      return numA - numB;
+    }
+    if (hasNumA) return -1;
+    if (hasNumB) return 1;
+
+    return strA.localeCompare(strB, "bn");
+  });
+}
