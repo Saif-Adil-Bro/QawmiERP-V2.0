@@ -40,15 +40,28 @@ export async function getMadrasaUsers() {
     if (!madrasaId) return { error: "কোন মাদরাসা পাওয়া যায়নি", users: [] };
 
     const adminClient = await createAdminClient();
-    const { data: users, error } = await adminClient
+    let { data: users, error } = await adminClient
       .from("users")
       .select("*")
-      .eq("madrasa_id", madrasaId)
+      .or(`madrasa_id.eq.${madrasaId},madrasa_id.is.null`)
       .order("created_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching users:", error);
       return { error: error.message, users: [] };
+    }
+
+    // Auto-repair any null madrasa_id records for this tenant
+    const nullMadrasaUsers = (users || []).filter((u: any) => !u.madrasa_id);
+    if (nullMadrasaUsers.length > 0) {
+      try {
+        await adminClient
+          .from("users")
+          .update({ madrasa_id: madrasaId })
+          .in("id", nullMadrasaUsers.map((u: any) => u.id));
+      } catch (repairErr) {
+        console.warn("User madrasa_id repair warning:", repairErr);
+      }
     }
 
     return { users: users || [], error: null };

@@ -34,6 +34,7 @@ import {
   updateUserAccount,
   resetUserPassword,
   deleteUserAccount,
+  getMadrasaUsers,
   MadrasaUser,
 } from "@/app/actions/users";
 import { syncAllStudentLoginsAction } from "@/app/actions/auth";
@@ -419,13 +420,16 @@ export default function UserManagementClient({
         return;
       }
 
+      // Immediately fetch fresh users list to update state instantly
+      const freshUsers = await getMadrasaUsers();
+      if (freshUsers.users) {
+        setUsersList(freshUsers.users);
+      }
+
       showToast(
         "success",
         `আলহামদুলিল্লাহ! সর্বমোট ${res.total} জন শিক্ষার্থীর অভিভাবক লগইন সিঙ্ক সম্পন্ন হয়েছে (${res.created} নতুন তৈরি, ${res.existing} বিদ্যমান)। ডিফল্ট পাসওয়ার্ড: 123456`
       );
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
     } catch (e: any) {
       showToast("error", e?.message || "সিঙ্ক এরর হয়েছে।");
     } finally {

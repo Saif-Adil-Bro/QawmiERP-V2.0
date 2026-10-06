@@ -255,7 +255,8 @@ function createResolvedTarget(
 export async function ensureStudentGuardianAuthUser(
   student: any,
   canonicalStudentId: string,
-  defaultPassword = "123456"
+  defaultPassword = "123456",
+  explicitMadrasaId?: string
 ): Promise<{ authUserId: string; email: string; canonicalEmail: string; isNew: boolean }> {
   const adminClient = await createAdminClient();
   const canonicalEmail = `student_${canonicalStudentId.toLowerCase()}@qawmi.app`;
@@ -266,7 +267,7 @@ export async function ensureStudentGuardianAuthUser(
 
   const studentFullName = `${student.first_name || ""} ${student.last_name || ""}`.trim();
   const guardianFullName = studentFullName ? `${studentFullName} (অভিভাবক)` : `শিক্ষার্থী ${canonicalStudentId} (অভিভাবক)`;
-  const madrasaId = student.madrasa_id || "";
+  const madrasaId = student.madrasa_id || explicitMadrasaId || "";
 
   // 1. Check if user already exists in Supabase Auth user list
   let existingAuthUser: any = null;
@@ -302,7 +303,7 @@ export async function ensureStudentGuardianAuthUser(
       }
     }
 
-    // Ensure users table is synchronized
+    // Ensure users table is synchronized with proper madrasa_id
     await adminClient.from("users").upsert({
       id: existingAuthUser.id,
       madrasa_id: madrasaId || null,
@@ -346,6 +347,12 @@ export async function ensureStudentGuardianAuthUser(
         password: defaultPassword,
         email_confirm: true,
       });
+      await adminClient.from("users").update({
+        madrasa_id: madrasaId || null,
+        full_name: guardianFullName,
+        email: canonicalEmail,
+        role: "parent",
+      }).eq("id", existingUserRow.id);
     } catch (e) {
       // ignore
     }
@@ -393,12 +400,16 @@ export async function ensureStudentGuardianAuthUser(
 
   // 5. Update student parent_id and student_id code if needed
   try {
+    const updatePayload: any = {
+      parent_id: newUserId,
+      student_id: canonicalStudentId,
+    };
+    if (madrasaId && !student.madrasa_id) {
+      updatePayload.madrasa_id = madrasaId;
+    }
     await adminClient
       .from("students")
-      .update({
-        parent_id: newUserId,
-        student_id: canonicalStudentId,
-      })
+      .update(updatePayload)
       .eq("id", student.id);
   } catch (updateErr) {
     // optional
@@ -459,11 +470,14 @@ export async function syncAllStudentsDefaultLogins(madrasaId?: string): Promise<
 
   for (let idx = 0; idx < students.length; idx++) {
     const s = students[idx];
-    const prefix = (s.madrasa_id && madrasaPrefixMap.get(s.madrasa_id)) || "AHH";
+    const prefix =
+      (s.madrasa_id && madrasaPrefixMap.get(s.madrasa_id)) ||
+      (madrasaId && madrasaPrefixMap.get(madrasaId)) ||
+      "AHM";
     const code = resolveCanonicalStudentCode(s, idx + 1, prefix);
 
     try {
-      const res = await ensureStudentGuardianAuthUser(s, code, "123456");
+      const res = await ensureStudentGuardianAuthUser(s, code, "123456", madrasaId || s.madrasa_id);
       if (res.isNew) createdCount++;
       else existingCount++;
 
