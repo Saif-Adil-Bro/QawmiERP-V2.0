@@ -66,7 +66,7 @@ interface DirectNavItem {
   roles?: string[];
 }
 
-// Direct top-level item (Dashboard & Print Hub)
+// Direct top-level item (Dashboard)
 const directTopItems: DirectNavItem[] = [
   {
     name: "ড্যাশবোর্ড (Dashboard)",
@@ -74,22 +74,6 @@ const directTopItems: DirectNavItem[] = [
     icon: LayoutDashboard,
     exact: true,
     permission: "dashboard.view",
-  },
-  {
-    name: "প্রিন্ট ও ফরম হাব (Print Hub)",
-    href: "/dashboard/print-hub",
-    icon: Printer,
-    roles: [
-      "super_admin",
-      "muhtamim",
-      "naib_muhtamim",
-      "admin",
-      "office_staff",
-      "teacher",
-      "education_secretary",
-      "accountant",
-      "exam_manager",
-    ],
   },
 ];
 
@@ -145,18 +129,40 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    id: "staff",
+    title: "শিক্ষক ও স্টাফ (HR)",
+    icon: Users,
+    items: [
+      {
+        name: "শিক্ষক ও স্টাফ তালিকা",
+        href: "/dashboard/staff",
+        icon: Users,
+        permission: "staff.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "hr_manager", "education_secretary"],
+        keywords: ["staff", "teacher", "hr", "উস্তাদ", "শিক্ষক", "স্টাফ"],
+      },
+      {
+        name: "নতুন শিক্ষক ও স্টাফ যোগ",
+        href: "/dashboard/teachers/new",
+        icon: UserCheck,
+        permission: "staff.edit",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "hr_manager"],
+        keywords: ["teacher add", "new staff", "নতুন শিক্ষক", "নিয়োগ"],
+      },
+    ],
+  },
+  {
     id: "academic",
     title: "একাডেমিক ও পাঠদান",
     icon: BookOpen,
     items: [
       {
-        name: "প্রিন্ট ও ফরম হাব (ভর্তি, রসিদ, শিট)",
-        href: "/dashboard/print-hub",
-        icon: Printer,
-        badge: "প্রিন্ট হাব",
-        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "teacher", "education_secretary", "accountant"],
-        keywords: ["print", "hub", "form", "receipt", "sheet", "ভর্তি ফরম", "মানি রিসিট", "প্রিন্ট", "খালি শিট", "মূল্যায়ন শিট"],
+        name: "শিক্ষাবর্ষ ও সেশন (Sessions)",
+        href: "/dashboard/academic/sessions",
+        icon: CalendarDays,
+        permission: "academic.manage",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "education_secretary"],
+        keywords: ["session", "academic year", "শিক্ষাবর্ষ", "সেশন"],
       },
       {
         name: "জামাত ও শাখা (Classes)",
@@ -175,24 +181,6 @@ const navGroups: NavGroup[] = [
         keywords: ["subject", "kitab", "bishoy", "কিতাব", "বিষয়"],
       },
       {
-        name: "দৈনিক পড়া ও অ্যাসাইনমেন্ট (Assignments)",
-        href: "/dashboard/assignments",
-        icon: FileText,
-        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "teacher", "education_secretary"],
-        badge: "অ্যাসাইনমেন্ট",
-        badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
-        keywords: ["assignment", "assignments", "homework", "হোমওয়ার্ক", "অ্যাসাইনমেন্ট", "পড়া", "দৈনিক পড়া", "work", "task"],
-      },
-      {
-        name: "বাড়ির কর্মসূচি ও আমল ট্র্যাকার",
-        href: "/dashboard/academic/amal-tracker",
-        icon: ShieldCheck,
-        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "teacher", "education_secretary"],
-        badge: "আমলনামা A4",
-        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-        keywords: ["amal", "amal tracker", "home routine", "ছুটির আমল", "আমলনামা", "আমল ট্র্যাকার", "নামাজ ট্র্যাকার", "কর্মসূচি", "রোজা"],
-      },
-      {
         name: "ক্লাস ও বিষয় রুটিন (Routine)",
         href: "/dashboard/academic/routine",
         icon: CalendarDays,
@@ -201,14 +189,13 @@ const navGroups: NavGroup[] = [
         keywords: ["routine", "schedule", "ক্লাস রুটিন", "সময়সূচি"],
       },
       {
-        name: "সিলেবাস ও অগ্রগতি গোয়েন্দা ট্র্যাকার",
-        href: "/dashboard/academic/syllabus",
-        icon: Sparkles,
-        permission: "academic.view",
-        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "education_secretary", "teacher"],
-        badge: "ইন্টেলিজেন্স",
-        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-        keywords: ["syllabus", "progress", "revision", "forecast", "সিলেবাস", "অগ্রগতি", "রিভিশন", "কর্মদিবস", "পড়া"],
+        name: "দৈনিক পড়া ও অ্যাসাইনমেন্ট (Assignments)",
+        href: "/dashboard/assignments",
+        icon: FileText,
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "teacher", "education_secretary"],
+        badge: "অ্যাসাইনমেন্ট",
+        badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+        keywords: ["assignment", "assignments", "homework", "হোমওয়ার্ক", "অ্যাসাইনমেন্ট", "পড়া", "দৈনিক পড়া", "work", "task"],
       },
       {
         name: "কিতাব ও দারস ট্র্যাকিং",
@@ -219,12 +206,14 @@ const navGroups: NavGroup[] = [
         keywords: ["dars", "kitab tracking", "দরস", "দারস"],
       },
       {
-        name: "শিক্ষাবর্ষ ও সেশন (Sessions)",
-        href: "/dashboard/academic/sessions",
-        icon: CalendarDays,
-        permission: "academic.manage",
-        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "education_secretary"],
-        keywords: ["session", "academic year", "শিক্ষাবর্ষ", "সেশন"],
+        name: "সিলেবাস ও অগ্রগতি গোয়েন্দা ট্র্যাকার",
+        href: "/dashboard/academic/syllabus",
+        icon: Sparkles,
+        permission: "academic.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "education_secretary", "teacher"],
+        badge: "ইন্টেলিজেন্স",
+        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        keywords: ["syllabus", "progress", "revision", "forecast", "সিলেবাস", "অগ্রগতি", "রিভিশন", "কর্মদিবস", "পড়া"],
       },
     ],
   },
@@ -265,6 +254,15 @@ const navGroups: NavGroup[] = [
         permission: "attendance.view",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "education_secretary", "teacher", "attendance_manager"],
         keywords: ["attendance report", "sheet", "হাজিরা রিপোর্ট"],
+      },
+      {
+        name: "বাড়ির কর্মসূচি ও আমল ট্র্যাকার",
+        href: "/dashboard/academic/amal-tracker",
+        icon: ShieldCheck,
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "teacher", "education_secretary"],
+        badge: "আমলনামা A4",
+        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        keywords: ["amal", "amal tracker", "home routine", "ছুটির আমল", "আমলনামা", "আমল ট্র্যাকার", "নামাজ ট্র্যাকার", "কর্মসূচি", "রোজা"],
       },
       {
         name: "ছুটি অনুমোদন ও দরখাস্ত (Leaves)",
@@ -450,17 +448,9 @@ const navGroups: NavGroup[] = [
   },
   {
     id: "admin_assets",
-    title: "প্রশাসন ও হোস্টেল",
+    title: "হোস্টেল ও সম্পত্তি",
     icon: Briefcase,
     items: [
-      {
-        name: "শিক্ষক ও স্টাফ (HR)",
-        href: "/dashboard/staff",
-        icon: Users,
-        permission: "staff.view",
-        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "hr_manager", "education_secretary"],
-        keywords: ["staff", "teacher", "hr", "উস্তাদ", "শিক্ষক", "স্টাফ"],
-      },
       {
         name: "বোর্ডিং ও মিল ব্যবস্থাপনা",
         href: "/dashboard/boarding",
@@ -522,6 +512,43 @@ const navGroups: NavGroup[] = [
         permission: "notification.view",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "teacher"],
         keywords: ["communication", "sms", "বার্তা", "মেসেজ"],
+      },
+    ],
+  },
+  {
+    id: "print_hub",
+    title: "প্রিন্ট ও ফরম হাব",
+    icon: Printer,
+    items: [
+      {
+        name: "ভর্তি ফরম, মানি রিসিট ও শিট প্রিন্ট",
+        href: "/dashboard/print-hub",
+        icon: Printer,
+        badge: "প্রিন্ট হাব",
+        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        roles: [
+          "super_admin",
+          "muhtamim",
+          "naib_muhtamim",
+          "admin",
+          "office_staff",
+          "teacher",
+          "education_secretary",
+          "accountant",
+          "exam_manager",
+        ],
+        keywords: [
+          "print",
+          "hub",
+          "form",
+          "receipt",
+          "sheet",
+          "ভর্তি ফরম",
+          "মানি রিসিট",
+          "প্রিন্ট",
+          "খালি শিট",
+          "মূল্যায়ন শিট",
+        ],
       },
     ],
   },
