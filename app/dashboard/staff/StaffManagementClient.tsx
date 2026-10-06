@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   StaffMember,
   StaffCategory,
@@ -45,11 +45,11 @@ interface StaffManagementClientProps {
   };
 }
 
+export type StaffTabType = "dashboard" | "list" | "profile" | "payroll" | "leave" | "reports";
+
 export default function StaffManagementClient({ initialData }: StaffManagementClientProps) {
   const [data, setData] = useState(initialData);
-  const [currentTab, setCurrentTab] = useState<"dashboard" | "list" | "profile" | "payroll" | "leave" | "reports">(
-    "dashboard"
-  );
+  const [currentTab, setCurrentTab] = useState<StaffTabType>("dashboard");
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
 
   // Modals
@@ -57,6 +57,60 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Tab switching with browser history support (Back button navigation)
+  const changeTab = useCallback(
+    (tab: StaffTabType, staffId: string | null = null, pushToHistory = true) => {
+      setCurrentTab(tab);
+      setSelectedStaffId(staffId);
+
+      if (typeof window !== "undefined" && pushToHistory) {
+        const url = new URL(window.location.href);
+        if (tab === "dashboard") {
+          url.searchParams.delete("tab");
+          url.searchParams.delete("id");
+        } else {
+          url.searchParams.set("tab", tab);
+          if (staffId && tab === "profile") {
+            url.searchParams.set("id", staffId);
+          } else {
+            url.searchParams.delete("id");
+          }
+        }
+        window.history.pushState({ tab, staffId }, "", url.toString());
+      }
+    },
+    []
+  );
+
+  // Sync with browser back/forward buttons (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const url = new URL(window.location.href);
+      const tabParam = url.searchParams.get("tab") as StaffTabType | null;
+      const idParam = url.searchParams.get("id");
+
+      if (tabParam && ["dashboard", "list", "profile", "payroll", "leave", "reports"].includes(tabParam)) {
+        setCurrentTab(tabParam);
+        setSelectedStaffId(idParam || null);
+      } else {
+        setCurrentTab("dashboard");
+        setSelectedStaffId(null);
+      }
+    };
+
+    // Check initial search params on mount
+    const url = new URL(window.location.href);
+    const initialTab = url.searchParams.get("tab") as StaffTabType | null;
+    const initialId = url.searchParams.get("id");
+    if (initialTab && ["dashboard", "list", "profile", "payroll", "leave", "reports"].includes(initialTab)) {
+      setCurrentTab(initialTab);
+      if (initialId) setSelectedStaffId(initialId);
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   const refreshData = async () => {
     setIsRefreshing(true);
@@ -119,8 +173,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
   recentLogs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   const handleSelectStaff = (staffId: string) => {
-    setSelectedStaffId(staffId);
-    setCurrentTab("profile");
+    changeTab("profile", staffId);
   };
 
   return (
@@ -131,7 +184,12 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
             <span>ড্যাশবোর্ড</span>
             <ChevronRight className="w-3 h-3 text-slate-400" />
-            <span className="font-semibold text-emerald-800">শিক্ষক ও স্টাফ</span>
+            <span
+              onClick={() => changeTab("dashboard")}
+              className="font-semibold text-emerald-800 cursor-pointer hover:underline"
+            >
+              শিক্ষক ও স্টাফ
+            </span>
             {currentTab === "profile" && selectedStaff && (
               <>
                 <ChevronRight className="w-3 h-3 text-slate-400" />
@@ -152,10 +210,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
         <div className="flex flex-wrap items-center gap-2">
           {currentTab === "profile" && (
             <button
-              onClick={() => {
-                setSelectedStaffId(null);
-                setCurrentTab("list");
-              }}
+              onClick={() => changeTab("list")}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
@@ -184,10 +239,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
       {/* Main Navigation Tabs */}
       <div className="flex items-center gap-1 bg-white p-1.5 rounded-2xl shadow-xs border border-slate-200/80 overflow-x-auto text-xs font-semibold">
         <button
-          onClick={() => {
-            setSelectedStaffId(null);
-            setCurrentTab("dashboard");
-          }}
+          onClick={() => changeTab("dashboard")}
           className={`px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
             currentTab === "dashboard" ? "bg-emerald-700 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
           }`}
@@ -197,10 +249,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
         </button>
 
         <button
-          onClick={() => {
-            setSelectedStaffId(null);
-            setCurrentTab("list");
-          }}
+          onClick={() => changeTab("list")}
           className={`px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
             currentTab === "list" ? "bg-emerald-700 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
           }`}
@@ -210,10 +259,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
         </button>
 
         <button
-          onClick={() => {
-            setSelectedStaffId(null);
-            setCurrentTab("payroll");
-          }}
+          onClick={() => changeTab("payroll")}
           className={`px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
             currentTab === "payroll" ? "bg-emerald-700 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
           }`}
@@ -223,10 +269,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
         </button>
 
         <button
-          onClick={() => {
-            setSelectedStaffId(null);
-            setCurrentTab("leave");
-          }}
+          onClick={() => changeTab("leave")}
           className={`px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
             currentTab === "leave" ? "bg-emerald-700 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
           }`}
@@ -236,10 +279,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
         </button>
 
         <button
-          onClick={() => {
-            setSelectedStaffId(null);
-            setCurrentTab("reports");
-          }}
+          onClick={() => changeTab("reports")}
           className={`px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
             currentTab === "reports" ? "bg-emerald-700 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
           }`}
@@ -273,7 +313,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           expiringDocumentsCount={expiringDocsCount}
           madrasaInfo={data.madrasa_info}
           onAddStaff={() => setShowAddModal(true)}
-          onNavigateTab={(tab) => setCurrentTab(tab as any)}
+          onNavigateTab={(tab) => changeTab(tab as StaffTabType)}
         />
       )}
 
@@ -300,8 +340,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           madrasaInfo={data.madrasa_info}
           onRefresh={refreshData}
           onDeleted={() => {
-            setSelectedStaffId(null);
-            setCurrentTab("list");
+            changeTab("list", null);
             refreshData();
           }}
         />
@@ -311,6 +350,8 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
         <StaffPayrollView
           salaryRecords={data.salary_records}
           staffList={data.staff_members}
+          madrasaInfo={data.madrasa_info}
+          madrasaName={data.madrasa_info?.name}
           onRefresh={refreshData}
         />
       )}

@@ -95,18 +95,56 @@ async function syncAndGetStaffMembers(
     }
     staffByTeacherId.set(s.id, s);
     if (s.legacy_id) staffByTeacherId.set(s.legacy_id, s);
-    if (s.staff_id_code) staffByStaffCode.add(s.staff_id_code);
   });
 
-  // Calculate current max serial
-  let serialCounter = meta.staff_id_serial_counter || existingStaff.length || 0;
+  const prefix = meta.staff_id_prefix || "STF";
   const currentYear = new Date().getFullYear();
+
+  // Deduplicate and ensure clean unique serials for all existing staff
+  const assignedCodes = new Set<string>();
+  let maxFoundSerial = 0;
+
+  existingStaff.forEach((s) => {
+    if (s.staff_id_code) {
+      const match = s.staff_id_code.match(/(\d{4})$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxFoundSerial) {
+          maxFoundSerial = num;
+        }
+      }
+    }
+  });
+
+  existingStaff.forEach((s, idx) => {
+    if (!s.staff_id_code || assignedCodes.has(s.staff_id_code)) {
+      let nextSerial = idx + 1;
+      let nextCode = formatStaffIdCode(prefix, currentYear, nextSerial);
+      while (assignedCodes.has(nextCode)) {
+        nextSerial++;
+        nextCode = formatStaffIdCode(prefix, currentYear, nextSerial);
+      }
+      s.staff_id_code = nextCode;
+      if (s.employment) s.employment.staff_id_code = nextCode;
+      if (s.id_card) s.id_card.card_number = `QM-${nextCode}`;
+      if (nextSerial > maxFoundSerial) maxFoundSerial = nextSerial;
+      isModified = true;
+    }
+    assignedCodes.add(s.staff_id_code);
+  });
+
+  let serialCounter = Math.max(meta.staff_id_serial_counter || 0, maxFoundSerial, existingStaff.length);
 
   for (let i = 0; i < teachers.length; i++) {
     const t = teachers[i];
     if (!staffByTeacherId.has(t.id)) {
       serialCounter++;
-      const code = formatStaffIdCode(meta.staff_id_prefix || "STF", currentYear, serialCounter);
+      let code = formatStaffIdCode(prefix, currentYear, serialCounter);
+      while (assignedCodes.has(code)) {
+        serialCounter++;
+        code = formatStaffIdCode(prefix, currentYear, serialCounter);
+      }
+      assignedCodes.add(code);
 
       const newStaff: StaffMember = {
         id: t.id,
@@ -426,13 +464,17 @@ export async function createStaffMember(payload: {
     const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
     let existingStaff: StaffMember[] = meta.staff_members || [];
 
-    // Increment serial and generate unique Staff ID
+    // Increment serial and generate unique Staff ID without collisions
     const currentYear = new Date().getFullYear();
-    const serial = (meta.staff_id_serial_counter || existingStaff.length || 0) + 1;
-    meta.staff_id_serial_counter = serial;
-
     const prefix = meta.staff_id_prefix || "STF";
-    const staffIdCode = formatStaffIdCode(prefix, currentYear, serial);
+    const existingCodes = new Set(existingStaff.map((s) => s.staff_id_code).filter(Boolean));
+    let serial = (meta.staff_id_serial_counter || existingStaff.length || 0) + 1;
+    let staffIdCode = formatStaffIdCode(prefix, currentYear, serial);
+    while (existingCodes.has(staffIdCode)) {
+      serial++;
+      staffIdCode = formatStaffIdCode(prefix, currentYear, serial);
+    }
+    meta.staff_id_serial_counter = serial;
     const newStaffId = crypto.randomUUID();
 
     let authUserId: string | null = null;
