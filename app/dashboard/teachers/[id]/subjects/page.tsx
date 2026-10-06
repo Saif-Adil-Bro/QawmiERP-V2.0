@@ -57,7 +57,7 @@ export default async function TeacherSubjectsPage(props: { params: Promise<{ id:
       {/* Header */}
       <div className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
         <Link
-          href="/dashboard/teachers"
+          href="/dashboard/staff"
           className="p-2.5 hover:bg-slate-100 text-slate-600 hover:text-slate-900 rounded-xl transition-colors border border-slate-200"
           title="শিক্ষক তালিকায় ফিরে যান"
         >

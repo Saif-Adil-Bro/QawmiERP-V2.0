@@ -32,9 +32,11 @@ import {
   ShieldCheck,
   MoreVertical,
   BookOpen,
+  Trash2,
 } from "lucide-react";
 import StaffIdCardModal from "./StaffIdCardModal";
 import StaffCertificateGeneratorModal from "./StaffCertificateGeneratorModal";
+import StaffDeleteConfirmationModal from "./StaffDeleteConfirmationModal";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
 interface StaffListViewProps {
@@ -47,6 +49,7 @@ interface StaffListViewProps {
   onSelectStaff: (staffId: string) => void;
   onAddStaff: () => void;
   onEditStaff: (staff: StaffMember) => void;
+  onRefresh?: () => void;
 }
 
 export default function StaffListView({
@@ -59,6 +62,7 @@ export default function StaffListView({
   onSelectStaff,
   onAddStaff,
   onEditStaff,
+  onRefresh,
 }: StaffListViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
@@ -66,9 +70,10 @@ export default function StaffListView({
   const [selectedDepartment, setSelectedDepartment] = useState<string>("ALL");
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
 
-  // Selected ID card modal
+  // Selected ID card modal & delete modal
   const [idCardStaff, setIdCardStaff] = useState<StaffMember | null>(null);
   const [certStaff, setCertStaff] = useState<StaffMember | null>(null);
+  const [deleteTargetStaff, setDeleteTargetStaff] = useState<StaffMember | null>(null);
 
   // Counts for teachers vs general staff
   const teacherCount = useMemo(() => {
@@ -444,6 +449,13 @@ export default function StaffListView({
                           <BookOpen className="w-4 h-4" />
                         </Link>
                       )}
+                      <button
+                        onClick={() => setDeleteTargetStaff(staff)}
+                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                        title="স্টাফ/শিক্ষক ডিলিট করুন"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
 
                     <button
@@ -580,6 +592,13 @@ export default function StaffListView({
                               </Link>
                             )}
                             <button
+                              onClick={() => setDeleteTargetStaff(staff)}
+                              className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                              title="ডিলিট করুন"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
                               onClick={() => onSelectStaff(staff.id)}
                               className="px-2.5 py-1 bg-slate-900 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition"
                             >
@@ -617,6 +636,18 @@ export default function StaffListView({
           madrasaPhone={madrasaInfo?.phone}
           madrasaAddress={madrasaInfo?.address}
           onClose={() => setCertStaff(null)}
+        />
+      )}
+
+      {deleteTargetStaff && (
+        <StaffDeleteConfirmationModal
+          staff={deleteTargetStaff}
+          isOpen={!!deleteTargetStaff}
+          onClose={() => setDeleteTargetStaff(null)}
+          onDeleted={() => {
+            setDeleteTargetStaff(null);
+            if (onRefresh) onRefresh();
+          }}
         />
       )}
     </div>

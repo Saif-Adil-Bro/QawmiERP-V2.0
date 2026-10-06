@@ -137,18 +137,8 @@ export async function updateTeacher(prevState: any, formData: FormData) {
   return { success: true };
 }
 
+import { deleteStaffMember } from "./staff";
+
 export async function deleteTeacher(id: string) {
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("teachers")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    console.error("Error deleting teacher:", error);
-    return { error: error.message };
-  }
-
-  revalidatePath("/dashboard/teachers");
-  return { success: true };
+  return await deleteStaffMember(id);
 }

@@ -57,6 +57,7 @@ import {
 import StaffFormModal from "./StaffFormModal";
 import StaffIdCardModal from "./StaffIdCardModal";
 import StaffCertificateGeneratorModal from "./StaffCertificateGeneratorModal";
+import StaffDeleteConfirmationModal from "./StaffDeleteConfirmationModal";
 import ImageUploader from "@/components/ImageUploader";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
@@ -68,6 +69,7 @@ interface StaffProfileViewProps {
   madrasaInfo?: any;
   madrasaName?: string;
   onRefresh: () => void;
+  onDeleted?: () => void;
 }
 
 export default function StaffProfileView({
@@ -78,6 +80,7 @@ export default function StaffProfileView({
   madrasaInfo,
   madrasaName = "মাদরাসা",
   onRefresh,
+  onDeleted,
 }: StaffProfileViewProps) {
   const [activeTab, setActiveTab] = useState<
     | "overview"
@@ -96,6 +99,7 @@ export default function StaffProfileView({
   const [showEditModal, setShowEditModal] = useState(false);
   const [showIdCardModal, setShowIdCardModal] = useState(false);
   const [showCertModal, setShowCertModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // Promotion / Transfer / Status modals
   const [showPromoteModal, setShowPromoteModal] = useState(false);
@@ -412,6 +416,15 @@ export default function StaffProfileView({
                 <span>জামাত ও কিতাব বণ্টন</span>
               </Link>
             )}
+
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-rose-200"
+              title="স্থায়ীভাবে ডিলিট করুন"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>মুছে ফেলুন</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1269,6 +1282,21 @@ export default function StaffProfileView({
             </form>
           </div>
         </div>
+      )}
+      {showDeleteModal && (
+        <StaffDeleteConfirmationModal
+          staff={staff}
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onDeleted={() => {
+            setShowDeleteModal(false);
+            if (onDeleted) {
+              onDeleted();
+            } else {
+              onRefresh();
+            }
+          }}
+        />
       )}
     </div>
   );

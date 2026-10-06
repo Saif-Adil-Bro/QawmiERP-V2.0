@@ -287,6 +287,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           onSelectStaff={handleSelectStaff}
           onAddStaff={() => setShowAddModal(true)}
           onEditStaff={(staff) => setEditingStaff(staff)}
+          onRefresh={refreshData}
         />
       )}
 
@@ -298,6 +299,11 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           designations={data.designations}
           madrasaInfo={data.madrasa_info}
           onRefresh={refreshData}
+          onDeleted={() => {
+            setSelectedStaffId(null);
+            setCurrentTab("list");
+            refreshData();
+          }}
         />
       )}
 

@@ -1661,3 +1661,89 @@ export async function deleteStaffCategory(catId: string) {
   }
 }
 
+/**
+ * Permanently delete a teacher or staff member from both metadata and SQL tables with full safety checks
+ */
+export async function deleteStaffMember(staffId: string) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
+
+    const adminClient = await createAdminClient();
+
+    // 1. Fetch metadata
+    const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
+    const staffMembers = meta.staff_members || [];
+
+    const targetStaff = staffMembers.find((s) => s.id === staffId || (s as any).legacy_id === staffId);
+    const targetEmail = targetStaff?.contact?.email?.trim();
+
+    // 2. Remove from staff_members array in metadata
+    meta.staff_members = staffMembers.filter((s) => s.id !== staffId && (s as any).legacy_id !== staffId);
+
+    // Clean up associated leave requests or salary records
+    if (meta.staff_leave_requests) {
+      meta.staff_leave_requests = meta.staff_leave_requests.filter((l) => l.staff_id !== staffId);
+    }
+    if (meta.staff_salary_records) {
+      meta.staff_salary_records = meta.staff_salary_records.filter((r) => r.staff_id !== staffId);
+    }
+
+    // Add Audit Log
+    const auditLogs = meta.staff_audit_logs || [];
+    auditLogs.unshift({
+      id: `log_${Date.now()}`,
+      action: "DELETE_STAFF",
+      details: `${targetStaff?.personal?.full_name_bn || targetStaff?.personal?.first_name || "স্টাফ"} সদস্যকে ডাটাবেজ থেকে মুছে ফেলা হয়েছে।`,
+      user_email: user.email || "অ্যাডমিন",
+      created_at: new Date().toISOString(),
+    });
+    meta.staff_audit_logs = auditLogs.slice(0, 50);
+
+    await saveMadrasaMetadata(madrasaId, meta);
+
+    // 3. Delete from SQL `teachers` table
+    try {
+      await adminClient
+        .from("teachers")
+        .delete()
+        .eq("id", staffId);
+
+      if (targetEmail) {
+        await adminClient
+          .from("teachers")
+          .delete()
+          .eq("email", targetEmail)
+          .eq("madrasa_id", madrasaId);
+      }
+    } catch (sqlErr) {
+      console.warn("SQL teachers table delete error:", sqlErr);
+    }
+
+    // 4. Delete from `teacher_subjects` table
+    try {
+      await adminClient
+        .from("teacher_subjects")
+        .delete()
+        .eq("teacher_id", staffId);
+    } catch (subErr) {
+      console.warn("Teacher subjects delete error:", subErr);
+    }
+
+    revalidatePath("/dashboard/staff");
+    revalidatePath("/dashboard/teachers");
+
+    return {
+      success: true,
+      message: `${targetStaff?.personal?.full_name_bn || targetStaff?.personal?.first_name || "শিক্ষক/স্টাফ"} সদস্যকে সফলভাবে মুছে ফেলা হয়েছে।`,
+    };
+  } catch (err: any) {
+    console.error("Catch in deleteStaffMember:", err);
+    return { error: err.message || "স্টাফ সদস্য মুছে ফেলতে সমস্যা হয়েছে।" };
+  }
+}
+
