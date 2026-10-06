@@ -50,6 +50,7 @@ export default function PrintHubClient({
   const [admissionSession, setAdmissionSession] = useState("১৪৪৭-৪৮ হিজরি (২০২৬-২৭ খ্রি.)");
   const [admissionFormNo, setAdmissionFormNo] = useState("");
   const [admissionCategory, setAdmissionCategory] = useState<"all" | "general" | "hifz" | "kitab">("all");
+  const [admissionPaperSize, setAdmissionPaperSize] = useState<"a4" | "letter">("a4");
 
   // Tab 2: Money Receipt States
   const [receiptLayout, setReceiptLayout] = useState<"dual" | "student" | "office">("dual");
@@ -106,11 +107,13 @@ export default function PrintHubClient({
   const handlePrintCurrent = () => {
     let title = "মাদরাসা প্রিন্ট ডকুমেন্ট";
     let orientation: "portrait" | "landscape" = "portrait";
+    let pageSize: "A4" | "Letter" | "auto" = "auto";
 
     if (activeTab === "admission") {
       title = "মাদরাসা ভর্তি আবেদন ফরম";
       orientation = "portrait";
-      printElementIsolated("blank-admission-form-printable", title, orientation);
+      pageSize = admissionPaperSize === "a4" ? "A4" : "Letter";
+      printElementIsolated("blank-admission-form-printable", title, orientation, pageSize);
     } else if (activeTab === "receipt") {
       title = "মাদরাসা মানি রিসিট";
       orientation = "portrait";
@@ -253,6 +256,32 @@ export default function PrintHubClient({
           {/* Controls */}
           <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4 print:hidden">
             <div className="flex flex-wrap items-center gap-3 text-xs">
+              {/* Paper Size Selector */}
+              <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setAdmissionPaperSize("a4")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    admissionPaperSize === "a4"
+                      ? "bg-white text-emerald-950 shadow-2xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  📄 A4 সাইজ (পূর্ণ পাতা)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdmissionPaperSize("letter")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    admissionPaperSize === "letter"
+                      ? "bg-white text-emerald-950 shadow-2xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  📃 লেটার সাইজ (Letter)
+                </button>
+              </div>
+
               <div>
                 <label className="block text-slate-600 font-semibold mb-1">শিক্ষাবর্ষ</label>
                 <input
@@ -278,22 +307,23 @@ export default function PrintHubClient({
               <button
                 type="button"
                 onClick={handlePrintCurrent}
-                className="flex items-center gap-2 px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer"
+                className="flex items-center gap-2 px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer active:scale-98"
               >
                 <Printer className="w-4 h-4" />
-                <span>ভর্তি ফরম প্রিন্ট করুন</span>
+                <span>ভর্তি ফরম প্রিন্ট করুন ({admissionPaperSize === "a4" ? "A4" : "Letter"})</span>
               </button>
             </div>
           </div>
 
           {/* Printable Container */}
-          <div className="bg-slate-100 p-4 sm:p-8 rounded-2xl border border-slate-300 shadow-inner overflow-x-auto">
-            <div id="blank-admission-form-printable" className="bg-white rounded-xl shadow-md p-2">
+          <div className="bg-slate-100 p-4 sm:p-8 rounded-2xl border border-slate-300 shadow-inner overflow-x-auto flex justify-center">
+            <div id="blank-admission-form-printable" className="bg-white rounded-xl shadow-md p-1 sm:p-2 w-full max-w-[216mm]">
               <BlankAdmissionForm
                 madrasaInfo={madrasaInfo}
                 customSession={admissionSession}
                 customFormNo={admissionFormNo}
                 formType={admissionCategory}
+                paperSize={admissionPaperSize}
               />
             </div>
           </div>

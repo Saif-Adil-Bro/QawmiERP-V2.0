@@ -6,7 +6,8 @@
 export function printElementIsolated(
   elementId: string,
   pageTitle = "মানি রিসিট ও ভাউচার মেমো",
-  orientation: "portrait" | "landscape" = "portrait"
+  orientation: "portrait" | "landscape" = "portrait",
+  pageSize: "A4" | "Letter" | "auto" = "auto"
 ) {
   if (typeof window === "undefined") return;
 
@@ -44,6 +45,11 @@ export function printElementIsolated(
     const styleTags = Array.from(document.querySelectorAll("link[rel='stylesheet'], style"))
       .map((el) => el.outerHTML)
       .join("\n");
+
+    const pageSizeDeclaration =
+      pageSize !== "auto"
+        ? `size: ${pageSize} ${orientation};`
+        : `size: auto;`;
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -87,7 +93,7 @@ export function printElementIsolated(
                  url('/fonts/amiri_regular.ttf') format('truetype');
           }
           @page {
-            size: auto;
+            ${pageSizeDeclaration}
             margin: 4mm 5mm;
           }
           *, *::before, *::after {
