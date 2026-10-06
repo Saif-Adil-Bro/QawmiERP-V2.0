@@ -21,6 +21,7 @@ export function banglaToEnglishDigits(str: string | number | null | undefined): 
 
 /**
  * Resolves the numeric 6-digit portion of student ID (e.g., 480001).
+ * Uses deterministic sequence index (480001..489999) to avoid cross-class roll collisions.
  */
 export function resolveCanonicalStudentNumericCode(student: any, fallbackIndex = 1): string {
   if (!student) return `480${String(fallbackIndex).padStart(3, "0")}`;
@@ -29,31 +30,18 @@ export function resolveCanonicalStudentNumericCode(student: any, fallbackIndex =
   const explicit = student.student_id || student.admission_no || student.custom_id || student.registration_no;
   if (explicit && typeof explicit === "string" && !explicit.includes("-") && explicit.length < 15) {
     const cleanExplicit = banglaToEnglishDigits(explicit).replace(/\D/g, "");
-    if (cleanExplicit.length >= 5) {
+    if (cleanExplicit.length >= 5 && cleanExplicit.startsWith("48")) {
       return cleanExplicit;
     }
   }
 
-  // 2. Derive from roll number (e.g., Roll 1 -> 480001, Roll 15 -> 480015)
-  const rollStr = banglaToEnglishDigits(student.roll_number || "").replace(/\D/g, "");
-  if (rollStr) {
-    const rollNum = parseInt(rollStr, 10);
-    if (!isNaN(rollNum) && rollNum > 0) {
-      if (rollNum >= 480000 && rollNum <= 489999) {
-        return String(rollNum);
-      }
-      return `480${String(rollNum).padStart(3, "0")}`;
-    }
-  }
-
-  // 3. Fallback counter
+  // 2. Deterministic 6-digit sequence: 480001 to 489999
   const idx = typeof fallbackIndex === "number" && fallbackIndex > 0 ? fallbackIndex : 1;
   return `480${String(idx).padStart(3, "0")}`;
 }
 
 /**
- * Resolves a full canonical student ID with Madrasa Prefix (e.g., AHH480001).
- * Directly attaches prefix without any hyphens.
+ * Resolves a full canonical student ID with Madrasa Prefix (e.g., AHM480001 or AHH480001).
  */
 export function resolveCanonicalStudentCode(
   student: any,
@@ -61,15 +49,18 @@ export function resolveCanonicalStudentCode(
   madrasaPrefix?: string
 ): string {
   const numCode = resolveCanonicalStudentNumericCode(student, fallbackIndex);
-  const prefix = madrasaPrefix || (student?.madrasas ? extractMadrasaPrefix(student.madrasas) : "");
-  return formatStudentIdWithPrefix(prefix, numCode);
+  const prefix = (madrasaPrefix || (student?.madrasas ? extractMadrasaPrefix(student.madrasas) : "") || "AHM")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  return `${prefix}${numCode}`;
 }
 
 export interface ResolvedStudentTarget {
   student: any;
-  canonicalStudentId: string; // e.g. "AHH480001"
+  canonicalStudentId: string; // e.g. "AHM480001"
   numericStudentId: string;   // e.g. "480001"
-  portalEmail: string;        // e.g. "student_ahh480001@qawmi.app"
+  portalEmail: string;        // e.g. "student_ahm480001@qawmi.app"
   legacyPortalEmail: string;  // e.g. "student_480001@qawmi.app"
   madrasaId: string;
   madrasaPrefix: string;
@@ -78,12 +69,11 @@ export interface ResolvedStudentTarget {
 
 /**
  * Searches for a student by any identifier with multi-tenant prefix support:
- * - Prefixed ID without hyphen (e.g., "AHH480001", "MSM480001", "ahh480001", "AHH৪৮০০০১", "AHH 480001")
- * - 6-digit student ID (e.g., "480001", "480015", "৪৮০০০১")
- * - Prefixed ID with hyphen (e.g., "AHH-480001", "QM-480001", "STU-480001")
- * - Roll number (e.g., "1", "01", "১", "12", "১২")
+ * - 6-digit sequential ID (e.g., "480001", "480034", "৪৮০০০১")
+ * - Prefixed ID without hyphen (e.g., "AHM480001", "AHH480001", "ahm480001")
+ * - Prefixed ID with hyphen (e.g., "AHM-480001", "AHH-480001")
  * - Parent phone number (e.g., "01600989555", "+8801600989555")
- * - Student internal email (e.g., "student_480001@qawmi.app", "student_ahh480001@qawmi.app")
+ * - Student internal email (e.g., "student_480001@qawmi.app", "student_ahm480001@qawmi.app")
  */
 export async function findStudentByIdentifier(identifier: string): Promise<ResolvedStudentTarget | null> {
   if (!identifier) return null;
@@ -109,7 +99,7 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
     }
   });
 
-  // Parse input to see if user entered an explicit prefix (e.g. AHH480001)
+  // Parse input to see if user entered an explicit prefix (e.g. AHM480001 or AHH480001)
   const parsed = parseStudentIdentifier(targetCodeFromEmail || enStr);
   const explicitPrefix = parsed.prefix;
 
@@ -122,11 +112,11 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
     targetMadrasaId = targetMadrasaInfo.id;
   }
 
-  // Query students (filtered by madrasa if target identified, or all)
+  // Query all students deterministically sorted
   let studentQuery = adminClient
     .from("students")
     .select("*, classes(id, name)")
-    .order("roll_number", { ascending: true });
+    .order("created_at", { ascending: true });
 
   if (targetMadrasaId) {
     studentQuery = studentQuery.eq("madrasa_id", targetMadrasaId);
@@ -135,10 +125,6 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
   const { data: matchedStudents, error } = await studentQuery;
 
   if (error || !matchedStudents || matchedStudents.length === 0) {
-    // If user specified an explicit madrasa prefix, do not fall back to other madrasas
-    if (targetMadrasaId) {
-      return null;
-    }
     return null;
   }
 
@@ -149,98 +135,99 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
  * Helper to match student in a candidate list
  */
 function searchStudentsList(
-  students: any[],
-  parsed: { prefix: string | null; numericCode: string },
+  matchedStudents: any[],
+  parsed: { prefix: string | null; numericCode: string; originalInput: string },
   raw: string,
   enStr: string,
   targetCodeFromEmail: string | null,
   madrasaMap: Map<string, { id: string; name: string; prefix: string }>
 ): ResolvedStudentTarget | null {
-  const digitsOnly = parsed.numericCode.replace(/\D/g, "");
+  const normDigits = (val: any) => banglaToEnglishDigits(val).replace(/\D/g, "");
 
-  // Strategy 1: Match by portal email target code (e.g., student_ahh480001@qawmi.app or student_480001@qawmi.app)
-  if (targetCodeFromEmail) {
-    for (let idx = 0; idx < students.length; idx++) {
-      const s = students[idx];
-      const mInfo = madrasaMap.get(s.madrasa_id) || { id: s.madrasa_id, name: "", prefix: "AHH" };
-      const numCode = resolveCanonicalStudentNumericCode(s, idx + 1);
-      const fullId = formatStudentIdWithPrefix(mInfo.prefix, numCode);
+  let found: any = null;
+  let foundIndex = 1;
+
+  // Check 1: Direct match by sequential 6-digit code (e.g., 480001 -> index 1)
+  if (parsed.numericCode && parsed.numericCode.startsWith("48") && parsed.numericCode.length >= 5) {
+    const seqNum = parseInt(parsed.numericCode.slice(2), 10);
+    if (!isNaN(seqNum) && seqNum >= 1 && seqNum <= matchedStudents.length) {
+      found = matchedStudents[seqNum - 1];
+      foundIndex = seqNum;
+    }
+  }
+
+  // Check 2: Match by plain sequence number (e.g., "1" to "34")
+  if (!found && parsed.numericCode && /^[0-9]+$/.test(parsed.numericCode)) {
+    const directNum = parseInt(parsed.numericCode, 10);
+    if (directNum >= 1 && directNum <= matchedStudents.length) {
+      found = matchedStudents[directNum - 1];
+      foundIndex = directNum;
+    }
+  }
+
+  // Check 2: Match by target code in portal email (e.g., "student_ahm480005@qawmi.app" or "student_ahm-480005@qawmi.app")
+  if (!found && targetCodeFromEmail) {
+    const cleanEmailCode = targetCodeFromEmail.toLowerCase().replace(/[^a-z0-9]/g, "");
+    matchedStudents.forEach((s, idx) => {
+      if (found) return;
+      const num = `480${String(idx + 1).padStart(3, "0")}`;
+      const pre = ((s.madrasa_id && madrasaMap.get(s.madrasa_id)?.prefix) || "ahm").toLowerCase();
       if (
-        numCode.toLowerCase() === targetCodeFromEmail.toLowerCase() ||
-        fullId.toLowerCase() === targetCodeFromEmail.toLowerCase()
+        cleanEmailCode === `${pre}${num}` ||
+        cleanEmailCode === num ||
+        cleanEmailCode === `${pre}-${num}` ||
+        cleanEmailCode.endsWith(num)
       ) {
-        return createResolvedTarget(s, numCode, mInfo);
+        found = s;
+        foundIndex = idx + 1;
       }
+    });
+  }
+
+  // Check 3: Match by Parent Phone number
+  if (!found && enStr.length >= 10 && /^\+?[0-9]+$/.test(enStr)) {
+    const cleanPhone = enStr.replace(/\D/g, "").slice(-10);
+    matchedStudents.forEach((s, idx) => {
+      if (found) return;
+      const pPhone = normDigits(s.parent_phone || s.phone || "").slice(-10);
+      if (pPhone && pPhone === cleanPhone) {
+        found = s;
+        foundIndex = idx + 1;
+      }
+    });
+  }
+
+  // Check 4: Match by Roll number if single student or first match
+  if (!found && /^[0-9]+$/.test(enStr) && enStr.length <= 4) {
+    const targetRoll = parseInt(enStr, 10);
+    const rollMatch = matchedStudents.find((s) => parseInt(normDigits(s.roll_number || ""), 10) === targetRoll);
+    if (rollMatch) {
+      foundIndex = matchedStudents.indexOf(rollMatch) + 1;
+      found = rollMatch;
     }
   }
 
-  // Strategy 2: Direct match by 6-digit student ID or prefixed code (e.g. 480001, AHH480001, MSM480001)
-  if (digitsOnly.length >= 4) {
-    for (let idx = 0; idx < students.length; idx++) {
-      const s = students[idx];
-      const mInfo = madrasaMap.get(s.madrasa_id) || { id: s.madrasa_id, name: "", prefix: "AHH" };
-      const numCode = resolveCanonicalStudentNumericCode(s, idx + 1);
-      const fullId = formatStudentIdWithPrefix(mInfo.prefix, numCode);
+  if (!found) return null;
 
-      if (
-        numCode === digitsOnly ||
-        fullId.toUpperCase() === enStr.toUpperCase() ||
-        fullId.toUpperCase().replace(/\s+/g, "") === enStr.toUpperCase().replace(/\s+/g, "") ||
-        fullId.toUpperCase().replace(/[^A-Z0-9]/g, "") === enStr.toUpperCase().replace(/[^A-Z0-9]/g, "") ||
-        (numCode.endsWith(digitsOnly) && digitsOnly.length >= 4)
-      ) {
-        return createResolvedTarget(s, numCode, mInfo);
-      }
-    }
-  }
+  const madrasaInfo =
+    (found.madrasa_id && madrasaMap.get(found.madrasa_id)) || {
+      id: found.madrasa_id || "",
+      name: "মাদরাসা",
+      prefix: "AHM",
+    };
 
-  // Strategy 3: Match by roll number (e.g. Roll 1 -> 480001, Roll 9 -> 480009)
-  if (digitsOnly.length >= 1 && digitsOnly.length <= 3) {
-    const targetRoll = parseInt(digitsOnly, 10);
-    for (let idx = 0; idx < students.length; idx++) {
-      const s = students[idx];
-      const sRollStr = banglaToEnglishDigits(s.roll_number || "").replace(/\D/g, "");
-      const sRollNum = parseInt(sRollStr, 10);
-      if (sRollNum === targetRoll) {
-        const mInfo = madrasaMap.get(s.madrasa_id) || { id: s.madrasa_id, name: "", prefix: "AHH" };
-        const numCode = resolveCanonicalStudentNumericCode(s, idx + 1);
-        return createResolvedTarget(s, numCode, mInfo);
-      }
-    }
-  }
+  const canonicalStudentId = resolveCanonicalStudentCode(found, foundIndex, madrasaInfo.prefix);
+  const numCode = resolveCanonicalStudentNumericCode(found, foundIndex);
+  const canonicalEmail = `student_${canonicalStudentId.toLowerCase()}@qawmi.app`;
+  const legacyEmail = `student_${numCode}@qawmi.app`.toLowerCase();
 
-  // Strategy 4: Match by parent phone number (last 10 digits)
-  if (digitsOnly.length >= 6) {
-    const last10 = digitsOnly.slice(-10);
-    for (let idx = 0; idx < students.length; idx++) {
-      const s = students[idx];
-      const phoneClean = (s.parent_phone || s.phone || "").replace(/\D/g, "");
-      if (phoneClean.endsWith(last10) || last10.endsWith(phoneClean)) {
-        const mInfo = madrasaMap.get(s.madrasa_id) || { id: s.madrasa_id, name: "", prefix: "AHH" };
-        const numCode = resolveCanonicalStudentNumericCode(s, idx + 1);
-        return createResolvedTarget(s, numCode, mInfo);
-      }
-    }
-  }
-
-  return null;
-}
-
-function createResolvedTarget(
-  student: any,
-  numCode: string,
-  madrasaInfo: { id: string; name: string; prefix: string }
-): ResolvedStudentTarget {
-  const fullId = formatStudentIdWithPrefix(madrasaInfo.prefix, numCode);
-  const canonicalEmail = `student_${fullId.toLowerCase()}@qawmi.app`;
-  const legacyEmail = `student_${numCode.toLowerCase()}@qawmi.app`;
   return {
-    student,
-    canonicalStudentId: fullId,
+    student: found,
+    canonicalStudentId,
     numericStudentId: numCode,
     portalEmail: canonicalEmail,
     legacyPortalEmail: legacyEmail,
-    madrasaId: student.madrasa_id || madrasaInfo.id || "",
+    madrasaId: found.madrasa_id || madrasaInfo.id || "",
     madrasaPrefix: madrasaInfo.prefix,
     madrasaName: madrasaInfo.name,
   };
@@ -248,8 +235,7 @@ function createResolvedTarget(
 
 /**
  * Ensures a Supabase Auth user and users record exists for the given student.
- * Supports canonical prefixed email (e.g. student_ahh480001@qawmi.app)
- * and smoothly migrates legacy non-prefixed accounts.
+ * Note: public.users schema only has: id, madrasa_id, role, full_name, phone, email, created_at.
  * Default password is "123456".
  */
 export async function ensureStudentGuardianAuthUser(
@@ -259,105 +245,55 @@ export async function ensureStudentGuardianAuthUser(
   explicitMadrasaId?: string
 ): Promise<{ authUserId: string; email: string; canonicalEmail: string; isNew: boolean }> {
   const adminClient = await createAdminClient();
-  const canonicalEmail = `student_${canonicalStudentId.toLowerCase()}@qawmi.app`;
-  const cleanIdForEmail = canonicalStudentId.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const unhyphenatedEmail = `student_${cleanIdForEmail}@qawmi.app`;
-  const numOnly = canonicalStudentId.replace(/\D/g, "");
-  const legacyEmail = `student_${numOnly}@qawmi.app`.toLowerCase();
-
+  const cleanIdNoHyphen = canonicalStudentId.replace(/[^A-Za-z0-9]/g, "");
+  const canonicalEmail = `student_${cleanIdNoHyphen.toLowerCase()}@qawmi.app`;
+  const altHyphenEmail = `student_${canonicalStudentId.toLowerCase()}@qawmi.app`;
+  
   const studentFullName = `${student.first_name || ""} ${student.last_name || ""}`.trim();
-  const guardianFullName = studentFullName ? `${studentFullName} (অভিভাবক)` : `শিক্ষার্থী ${canonicalStudentId} (অভিভাবক)`;
+  const guardianFullName = studentFullName ? `${studentFullName} (অভিভাবক)` : `শিক্ষার্থী ${cleanIdNoHyphen} (অভিভাবক)`;
   const madrasaId = student.madrasa_id || explicitMadrasaId || "";
 
-  // 1. Check if user already exists in Supabase Auth user list
-  let existingAuthUser: any = null;
-  try {
-    const { data: authList } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
-    existingAuthUser = authList?.users?.find(
-      (u) =>
-        u.email?.toLowerCase() === canonicalEmail ||
-        u.email?.toLowerCase() === unhyphenatedEmail ||
-        u.email?.toLowerCase() === legacyEmail
-    );
-  } catch (listErr) {
-    console.warn("Auth list users error:", listErr);
-  }
-
-  if (existingAuthUser) {
-    // If the account has the legacy email without prefix, update it to canonical prefixed email
-    if (existingAuthUser.email?.toLowerCase() !== canonicalEmail) {
-      try {
-        await adminClient.auth.admin.updateUserById(existingAuthUser.id, {
-          email: canonicalEmail,
-          email_confirm: true,
-          user_metadata: {
-            ...(existingAuthUser.user_metadata || {}),
-            role: "parent",
-            student_id: student.id,
-            student_id_code: canonicalStudentId,
-            madrasa_id: madrasaId,
-          },
-        });
-      } catch (updateAuthErr) {
-        console.warn("Auth email update warning:", updateAuthErr);
-      }
-    }
-
-    // Ensure users table is synchronized with proper madrasa_id and student_id
-    await adminClient.from("users").upsert({
-      id: existingAuthUser.id,
-      madrasa_id: madrasaId || null,
-      full_name: guardianFullName,
-      email: canonicalEmail,
-      phone: student.parent_phone || null,
-      role: "parent",
-      student_id: student.id,
-    });
-
-    // If default password is expected and password might need resetting
-    if (defaultPassword === "123456" && (existingAuthUser.user_metadata?.is_default_password !== false)) {
-      try {
-        await adminClient.auth.admin.updateUserById(existingAuthUser.id, {
-          password: defaultPassword,
-        });
-      } catch (e) {
-        // silent
-      }
-    }
-
-    return {
-      authUserId: existingAuthUser.id,
-      email: canonicalEmail,
-      canonicalEmail,
-      isNew: false,
-    };
-  }
-
-  // 2. Check in public.users table as secondary check
+  // 1. Check if public.users already has an account with this canonical or hyphenated email
   const { data: existingUserRow } = await adminClient
     .from("users")
-    .select("id, email, role")
-    .or(`email.eq.${canonicalEmail},email.eq.${legacyEmail}`)
+    .select("id, email, full_name, role, madrasa_id")
+    .or(`email.eq.${canonicalEmail},email.eq.${altHyphenEmail}`)
     .maybeSingle();
 
+  // If existing record found in public.users: sync & update
   if (existingUserRow?.id) {
-    // Attempt to set password and ensure email matches
     try {
       await adminClient.auth.admin.updateUserById(existingUserRow.id, {
         email: canonicalEmail,
         password: defaultPassword,
         email_confirm: true,
+        user_metadata: {
+          role: "parent",
+          full_name: guardianFullName,
+          phone: student.parent_phone || "",
+          student_id: student.id,
+          student_id_code: cleanIdNoHyphen,
+          student_name: studentFullName,
+          roll_number: student.roll_number || "",
+          class_name: student.class_name || student.classes?.name || "",
+          madrasa_id: madrasaId,
+        },
       });
-      await adminClient.from("users").update({
+    } catch (authErr) {
+      // ignore
+    }
+
+    await adminClient
+      .from("users")
+      .update({
         madrasa_id: madrasaId || null,
         full_name: guardianFullName,
         email: canonicalEmail,
+        phone: student.parent_phone || null,
         role: "parent",
-        student_id: student.id,
-      }).eq("id", existingUserRow.id);
-    } catch (e) {
-      // ignore
-    }
+      })
+      .eq("id", existingUserRow.id);
+
     return {
       authUserId: existingUserRow.id,
       email: canonicalEmail,
@@ -366,64 +302,95 @@ export async function ensureStudentGuardianAuthUser(
     };
   }
 
-  // 3. Create fresh Supabase Auth user with default password (123456)
-  const { data: newAuthData, error: createAuthError } = await adminClient.auth.admin.createUser({
-    email: canonicalEmail,
-    password: defaultPassword,
-    email_confirm: true,
-    user_metadata: {
-      role: "parent",
-      full_name: guardianFullName,
-      phone: student.parent_phone || "",
-      student_id: student.id,
-      student_id_code: canonicalStudentId,
-      madrasa_id: madrasaId,
-      is_default_password: true,
-      default_password_hint: "123456",
-    },
-  });
-
-  if (createAuthError) {
-    console.error("Failed to create default guardian auth user:", createAuthError);
-    throw new Error(`অভিভাবক অ্যাকাউন্ট তৈরিতে সমস্যা: ${createAuthError.message}`);
-  }
-
-  const newUserId = newAuthData.user.id;
-
-  // 4. Upsert into public.users table
-  await adminClient.from("users").upsert({
-    id: newUserId,
-    madrasa_id: madrasaId || null,
-    full_name: guardianFullName,
-    email: canonicalEmail,
-    phone: student.parent_phone || null,
-    role: "parent",
-    student_id: student.id,
-  });
-
-  // 5. Update student parent_id and student_id code if needed
+  // 2. Otherwise, create or find Supabase Auth User
+  let authUserId = "";
   try {
-    const updatePayload: any = {
-      parent_id: newUserId,
-      student_id: canonicalStudentId,
-    };
-    if (madrasaId && !student.madrasa_id) {
-      updatePayload.madrasa_id = madrasaId;
+    const { data: newAuthData, error: createAuthError } = await adminClient.auth.admin.createUser({
+      email: canonicalEmail,
+      password: defaultPassword,
+      email_confirm: true,
+      user_metadata: {
+        role: "parent",
+        full_name: guardianFullName,
+        phone: student.parent_phone || "",
+        student_id: student.id,
+        student_id_code: cleanIdNoHyphen,
+        student_name: studentFullName,
+        roll_number: student.roll_number || "",
+        class_name: student.class_name || student.classes?.name || "",
+        madrasa_id: madrasaId,
+        is_default_password: true,
+        default_password_hint: "123456",
+      },
+    });
+
+    if (createAuthError) {
+      // If email already registered in Supabase Auth, fetch existing Auth User
+      if (
+        createAuthError.message?.toLowerCase().includes("already registered") ||
+        createAuthError.message?.toLowerCase().includes("exists")
+      ) {
+        const { data: userList } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
+        const existingAuth = userList?.users?.find(
+          (u) =>
+            u.email?.toLowerCase() === canonicalEmail.toLowerCase() ||
+            u.email?.toLowerCase() === altHyphenEmail.toLowerCase()
+        );
+        if (existingAuth) {
+          authUserId = existingAuth.id;
+          try {
+            await adminClient.auth.admin.updateUserById(existingAuth.id, {
+              email: canonicalEmail,
+              password: defaultPassword,
+              email_confirm: true,
+              user_metadata: {
+                role: "parent",
+                full_name: guardianFullName,
+                phone: student.parent_phone || "",
+                student_id: student.id,
+                student_id_code: cleanIdNoHyphen,
+                student_name: studentFullName,
+                roll_number: student.roll_number || "",
+                class_name: student.class_name || student.classes?.name || "",
+                madrasa_id: madrasaId,
+              },
+            });
+          } catch {}
+        }
+      } else {
+        throw new Error(createAuthError.message);
+      }
+    } else if (newAuthData?.user) {
+      authUserId = newAuthData.user.id;
     }
-    await adminClient
-      .from("students")
-      .update(updatePayload)
-      .eq("id", student.id);
-  } catch (updateErr) {
-    // optional
+  } catch (err: any) {
+    console.error("Auth user create/update failed for student", student.id, err);
   }
 
-  return {
-    authUserId: newUserId,
-    email: canonicalEmail,
-    canonicalEmail,
-    isNew: true,
-  };
+  if (authUserId) {
+    // 3. Upsert into public.users table (ONLY valid columns)
+    const { error: upsertError } = await adminClient.from("users").upsert({
+      id: authUserId,
+      madrasa_id: madrasaId || null,
+      full_name: guardianFullName,
+      email: canonicalEmail,
+      phone: student.parent_phone || null,
+      role: "parent",
+    });
+
+    if (upsertError) {
+      console.error("DB users table upsert failed:", upsertError);
+    }
+
+    return {
+      authUserId,
+      email: canonicalEmail,
+      canonicalEmail,
+      isNew: true,
+    };
+  }
+
+  throw new Error(`শিক্ষার্থী ${studentFullName} এর জন্য লগইন তৈরি করা যায়নি`);
 }
 
 export type SyncStudentLoginsResult =
@@ -441,7 +408,8 @@ export type SyncStudentLoginsResult =
 
 /**
  * Bulk syncs all students' default guardian logins in the madrasa.
- * Ensures every student ID (e.g. AHH480001, AHH480002) has its prefix and default password (123456) ready.
+ * Ensures every single student (1 to 34) has a unique student ID (e.g. AHM480001 to AHM480034)
+ * and active parent account in both Supabase Auth and public.users table.
  */
 export async function syncAllStudentsDefaultLogins(madrasaId?: string): Promise<SyncStudentLoginsResult> {
   const adminClient = await createAdminClient();
@@ -456,11 +424,10 @@ export async function syncAllStudentsDefaultLogins(madrasaId?: string): Promise<
   let query = adminClient
     .from("students")
     .select("*, classes(id, name)")
-    .order("created_at", { ascending: true })
-    .order("roll_number", { ascending: true });
+    .order("created_at", { ascending: true });
 
   if (madrasaId) {
-    query = query.eq("madrasa_id", madrasaId);
+    query = query.or(`madrasa_id.eq.${madrasaId},madrasa_id.is.null`);
   }
 
   const { data: students, error } = await query;
@@ -471,25 +438,22 @@ export async function syncAllStudentsDefaultLogins(madrasaId?: string): Promise<
   let createdCount = 0;
   let existingCount = 0;
   const results: Array<{ id: string; name: string; studentId: string; email: string; isNew: boolean }> = [];
-  const usedCodes = new Set<string>();
 
   for (let idx = 0; idx < students.length; idx++) {
     const s = students[idx];
-    const prefix =
+    const prefix = (
       (s.madrasa_id && madrasaPrefixMap.get(s.madrasa_id)) ||
       (madrasaId && madrasaPrefixMap.get(madrasaId)) ||
-      "AHM";
+      "AHM"
+    )
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
 
-    // 1. Resolve canonical ID ensuring uniqueness per student
-    let code = resolveCanonicalStudentCode(s, idx + 1, prefix);
-
-    // If duplicate roll caused ID collision with an earlier student, use deterministic sequential counter
-    if (usedCodes.has(code.toUpperCase())) {
-      const yearPrefix = code.replace(/\D/g, "").slice(0, 2) || "48";
-      const uniqueNum = `${yearPrefix}${String(idx + 1).padStart(4, "0")}`;
-      code = formatStudentIdWithPrefix(prefix, uniqueNum);
-    }
-    usedCodes.add(code.toUpperCase());
+    // Deterministic 1-to-N sequential code: AHM480001 to AHM480034
+    const seqNum = idx + 1;
+    const numCode = `480${String(seqNum).padStart(3, "0")}`;
+    const code = `${prefix}${numCode}`;
 
     try {
       const res = await ensureStudentGuardianAuthUser(s, code, "123456", madrasaId || s.madrasa_id);
@@ -510,7 +474,7 @@ export async function syncAllStudentsDefaultLogins(madrasaId?: string): Promise<
 
   return {
     success: true,
-    total: students.length,
+    total: results.length,
     created: createdCount,
     existing: existingCount,
     students: results,

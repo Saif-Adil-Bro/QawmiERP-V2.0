@@ -91,9 +91,9 @@ export async function getLinkableProfiles() {
         .order("first_name"),
       supabase
         .from("students")
-        .select("id, first_name, last_name, roll_number, student_id, phone, parent_phone, father_name, class_name, classes(name)")
+        .select("id, first_name, last_name, roll_number, parent_phone, father_name, class_name, classes(name)")
         .eq("madrasa_id", madrasaId)
-        .order("first_name"),
+        .order("created_at", { ascending: true }),
     ]);
 
     return {
