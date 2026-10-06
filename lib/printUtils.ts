@@ -133,6 +133,55 @@ export function printElementIsolated(
             page-break-inside: avoid !important;
             break-inside: avoid !important;
           }
+
+          /* Admission Form Print Specific Styles */
+          .admission-print-container {
+            width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            height: 276mm !important;
+            min-height: 276mm !important;
+            max-height: 276mm !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          .admission-print-container.is-letter {
+            height: 260mm !important;
+            min-height: 260mm !important;
+            max-height: 260mm !important;
+          }
+          .admission-card-block {
+            border: 1px solid #475569 !important;
+            border-radius: 4px !important;
+            overflow: hidden !important;
+            background: #ffffff !important;
+            margin-bottom: 4px !important;
+          }
+          .admission-card-title {
+            background-color: #ecfdf5 !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+            padding: 2.5px 8px !important;
+            font-weight: 700 !important;
+            font-size: 11px !important;
+            color: #064e3b !important;
+          }
+          .admission-card-body {
+            padding: 5px 8px !important;
+          }
+          .admission-dotted-line {
+            border-bottom: 1px dotted #475569 !important;
+            min-height: 16px !important;
+            display: inline-block !important;
+            flex: 1 !important;
+          }
+
           @media print {
             .page-break-avoid {
               page-break-inside: avoid !important;
