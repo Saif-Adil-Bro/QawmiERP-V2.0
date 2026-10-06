@@ -303,7 +303,7 @@ export async function ensureStudentGuardianAuthUser(
       }
     }
 
-    // Ensure users table is synchronized with proper madrasa_id
+    // Ensure users table is synchronized with proper madrasa_id and student_id
     await adminClient.from("users").upsert({
       id: existingAuthUser.id,
       madrasa_id: madrasaId || null,
@@ -311,6 +311,7 @@ export async function ensureStudentGuardianAuthUser(
       email: canonicalEmail,
       phone: student.parent_phone || null,
       role: "parent",
+      student_id: student.id,
     });
 
     // If default password is expected and password might need resetting
@@ -352,6 +353,7 @@ export async function ensureStudentGuardianAuthUser(
         full_name: guardianFullName,
         email: canonicalEmail,
         role: "parent",
+        student_id: student.id,
       }).eq("id", existingUserRow.id);
     } catch (e) {
       // ignore
@@ -396,6 +398,7 @@ export async function ensureStudentGuardianAuthUser(
     email: canonicalEmail,
     phone: student.parent_phone || null,
     role: "parent",
+    student_id: student.id,
   });
 
   // 5. Update student parent_id and student_id code if needed
@@ -453,6 +456,7 @@ export async function syncAllStudentsDefaultLogins(madrasaId?: string): Promise<
   let query = adminClient
     .from("students")
     .select("*, classes(id, name)")
+    .order("created_at", { ascending: true })
     .order("roll_number", { ascending: true });
 
   if (madrasaId) {
@@ -467,6 +471,7 @@ export async function syncAllStudentsDefaultLogins(madrasaId?: string): Promise<
   let createdCount = 0;
   let existingCount = 0;
   const results: Array<{ id: string; name: string; studentId: string; email: string; isNew: boolean }> = [];
+  const usedCodes = new Set<string>();
 
   for (let idx = 0; idx < students.length; idx++) {
     const s = students[idx];
@@ -474,7 +479,17 @@ export async function syncAllStudentsDefaultLogins(madrasaId?: string): Promise<
       (s.madrasa_id && madrasaPrefixMap.get(s.madrasa_id)) ||
       (madrasaId && madrasaPrefixMap.get(madrasaId)) ||
       "AHM";
-    const code = resolveCanonicalStudentCode(s, idx + 1, prefix);
+
+    // 1. Resolve canonical ID ensuring uniqueness per student
+    let code = resolveCanonicalStudentCode(s, idx + 1, prefix);
+
+    // If duplicate roll caused ID collision with an earlier student, use deterministic sequential counter
+    if (usedCodes.has(code.toUpperCase())) {
+      const yearPrefix = code.replace(/\D/g, "").slice(0, 2) || "48";
+      const uniqueNum = `${yearPrefix}${String(idx + 1).padStart(4, "0")}`;
+      code = formatStudentIdWithPrefix(prefix, uniqueNum);
+    }
+    usedCodes.add(code.toUpperCase());
 
     try {
       const res = await ensureStudentGuardianAuthUser(s, code, "123456", madrasaId || s.madrasa_id);
