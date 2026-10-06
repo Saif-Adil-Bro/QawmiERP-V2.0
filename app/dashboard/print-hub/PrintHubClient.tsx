@@ -50,7 +50,8 @@ export default function PrintHubClient({
   const [admissionSession, setAdmissionSession] = useState("১৪৪৭-৪৮ হিজরি (২০২৬-২৭ খ্রি.)");
   const [admissionFormNo, setAdmissionFormNo] = useState("");
   const [admissionCategory, setAdmissionCategory] = useState<"all" | "general" | "hifz" | "kitab">("all");
-  const [admissionPaperSize, setAdmissionPaperSize] = useState<"a4" | "letter">("a4");
+  const [admissionPaperSize, setAdmissionPaperSize] = useState<"a4" | "letter">("letter");
+  const [admissionShowHeader, setAdmissionShowHeader] = useState(true);
 
   // Tab 2: Money Receipt States
   const [receiptLayout, setReceiptLayout] = useState<"dual" | "student" | "office">("dual");
@@ -260,17 +261,6 @@ export default function PrintHubClient({
               <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setAdmissionPaperSize("a4")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    admissionPaperSize === "a4"
-                      ? "bg-white text-emerald-950 shadow-2xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  📄 A4 সাইজ (পূর্ণ পাতা)
-                </button>
-                <button
-                  type="button"
                   onClick={() => setAdmissionPaperSize("letter")}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                     admissionPaperSize === "letter"
@@ -279,6 +269,43 @@ export default function PrintHubClient({
                   }`}
                 >
                   📃 লেটার সাইজ (Letter)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdmissionPaperSize("a4")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    admissionPaperSize === "a4"
+                      ? "bg-white text-emerald-950 shadow-2xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  📄 A4 সাইজ
+                </button>
+              </div>
+
+              {/* Header / Pad Option */}
+              <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setAdmissionShowHeader(true)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    admissionShowHeader
+                      ? "bg-white text-emerald-950 shadow-2xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  🏢 প্যাড হেডার সহ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdmissionShowHeader(false)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    !admissionShowHeader
+                      ? "bg-white text-emerald-950 shadow-2xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  📄 প্যাড ছাড়া (ছাপানো প্যাড)
                 </button>
               </div>
 
@@ -324,6 +351,7 @@ export default function PrintHubClient({
                 customFormNo={admissionFormNo}
                 formType={admissionCategory}
                 paperSize={admissionPaperSize}
+                showHeader={admissionShowHeader}
               />
             </div>
           </div>
