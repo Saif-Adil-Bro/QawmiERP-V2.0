@@ -2,6 +2,8 @@
 
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
+import { isTeachingStaff } from "@/lib/staff-management";
 
 // Helper to parse sequence and actual description from a stored description text
 function parseClassDescription(description: string | null): { sequence: number; actualDescription: string } {
@@ -10,7 +12,7 @@ function parseClassDescription(description: string | null): { sequence: number; 
   if (match) {
     return {
       sequence: parseInt(match[1], 10),
-      actualDescription: match[2] || ""
+      actualDescription: match[2] || "",
     };
   }
   return { sequence: 0, actualDescription: description };
@@ -22,64 +24,233 @@ function formatClassDescription(sequence: number, actualDescription: string | nu
   return `[seq:${sequence}] ${cleanDesc}`;
 }
 
-export async function getClasses() {
+export interface AvailableTeacher {
+  id: string;
+  name: string;
+  staff_id_code?: string;
+  designation?: string;
+  phone?: string;
+  email?: string;
+}
+
+export interface EnrichedClassItem {
+  id: string;
+  name: string;
+  description: string | null;
+  sequence: number;
+  madrasa_id?: string;
+  created_at?: string;
+  class_teacher_id?: string | null;
+  class_teacher_name?: string | null;
+  class_teacher_code?: string | null;
+  class_teacher_designation?: string | null;
+  class_teacher_phone?: string | null;
+}
+
+/**
+ * Fetch all available teachers for class in-charge assignment
+ */
+export async function getTeachersForClassAssignment(): Promise<AvailableTeacher[]> {
   try {
     const supabase = await createClient();
+    const adminClient = await createAdminClient();
+    let madrasaId = "";
+
+    try {
+      const user = await getAuthUser(supabase);
+      if (user) {
+        const { getAuthMadrasaId } = await import("./students");
+        madrasaId = (await getAuthMadrasaId(supabase, user)) || "";
+      }
+    } catch (e) {
+      console.warn("Could not get user madrasa:", e);
+    }
+
+    if (!madrasaId) {
+      const { data: anyMadrasa } = await adminClient.from("madrasas").select("id").limit(1).single();
+      madrasaId = anyMadrasa?.id || "";
+    }
+
+    const teachersList: AvailableTeacher[] = [];
+    const seenIds = new Set<string>();
+
+    // 1. Fetch from Madrasa Metadata (Staff Management)
+    if (madrasaId) {
+      const meta = (await getMadrasaMetadata(madrasaId)) as any;
+      const staffMembers = meta?.staff_members || [];
+
+      staffMembers.forEach((s: any) => {
+        if (isTeachingStaff(s) || s.employment?.category_id === "cat-teaching" || s.employment?.category_id === "cat_teaching") {
+          const name = s.personal?.full_name_bn || `${s.personal?.first_name || ""} ${s.personal?.last_name || ""}`.trim() || "শিক্ষক";
+          teachersList.push({
+            id: s.id,
+            name,
+            staff_id_code: s.staff_id_code || s.employment?.staff_id_code || "",
+            designation: s.employment?.designation || "মুদাররিস",
+            phone: s.contact?.phone || "",
+            email: s.contact?.email || "",
+          });
+          seenIds.add(s.id);
+          if (s.legacy_id) seenIds.add(s.legacy_id);
+        }
+      });
+    }
+
+    // 2. Fetch from SQL `teachers` table as well
+    const { data: dbTeachers } = await adminClient
+      .from("teachers")
+      .select("id, first_name, last_name, designation, phone, email")
+      .eq("madrasa_id", madrasaId);
+
+    (dbTeachers || []).forEach((t) => {
+      if (!seenIds.has(t.id)) {
+        const name = `${t.first_name || ""} ${t.last_name || ""}`.trim() || "শিক্ষক";
+        teachersList.push({
+          id: t.id,
+          name,
+          designation: t.designation || "মুদাররিস",
+          phone: t.phone || "",
+          email: t.email || "",
+        });
+        seenIds.add(t.id);
+      }
+    });
+
+    return teachersList;
+  } catch (err) {
+    console.error("Error in getTeachersForClassAssignment:", err);
+    return [];
+  }
+}
+
+export async function getClasses(): Promise<EnrichedClassItem[]> {
+  try {
+    const supabase = await createClient();
+    const adminClient = await createAdminClient();
+    let madrasaId = "";
+
+    try {
+      const user = await getAuthUser(supabase);
+      if (user) {
+        const { getAuthMadrasaId } = await import("./students");
+        madrasaId = (await getAuthMadrasaId(supabase, user)) || "";
+      }
+    } catch (e) {
+      console.warn("Could not get user madrasa:", e);
+    }
+
+    if (!madrasaId) {
+      const { data: anyMadrasa } = await adminClient.from("madrasas").select("id").limit(1).single();
+      madrasaId = anyMadrasa?.id || "";
+    }
+
+    let rawData: any[] = [];
     const { data: userData, error: userError } = await supabase
       .from("classes")
       .select("*")
       .order("name");
 
     if (!userError && userData && userData.length > 0) {
-      return processClassesData(userData);
+      rawData = userData;
+    } else {
+      const { data: adminData } = await adminClient
+        .from("classes")
+        .select("*")
+        .order("name");
+      rawData = adminData || [];
     }
 
-    // Fallback to adminClient if user client returns empty or fails
-    const adminClient = await createAdminClient();
-    const { data: adminData, error: adminError } = await adminClient
-      .from("classes")
-      .select("*")
-      .order("name");
+    // Load metadata to attach class teachers
+    let meta: any = null;
+    let classTeacherMap: Record<string, any> = {};
+    const teachersMap = new Map<string, AvailableTeacher>();
 
-    if (!adminError && adminData && adminData.length > 0) {
-      return processClassesData(adminData);
+    if (madrasaId) {
+      meta = await getMadrasaMetadata(madrasaId);
+      classTeacherMap = meta?.class_teachers || {};
+
+      const teachers = await getTeachersForClassAssignment();
+      teachers.forEach((t) => {
+        teachersMap.set(t.id, t);
+      });
     }
 
-    if (userData) {
-      return processClassesData(userData);
-    }
+    const processed = rawData.map((cls) => {
+      const { sequence, actualDescription } = parseClassDescription(cls.description);
+      const assignment = classTeacherMap[cls.id];
+      const teacher = assignment?.teacher_id ? teachersMap.get(assignment.teacher_id) : null;
 
-    return [];
+      return {
+        ...cls,
+        sequence,
+        description: actualDescription,
+        class_teacher_id: teacher?.id || assignment?.teacher_id || null,
+        class_teacher_name: teacher?.name || assignment?.teacher_name || null,
+        class_teacher_code: teacher?.staff_id_code || assignment?.teacher_code || null,
+        class_teacher_designation: teacher?.designation || assignment?.teacher_designation || null,
+        class_teacher_phone: teacher?.phone || assignment?.teacher_phone || null,
+      };
+    });
+
+    processed.sort((a, b) => {
+      if (a.sequence !== b.sequence) {
+        return a.sequence - b.sequence;
+      }
+      return (a.name || "").localeCompare(b.name || "");
+    });
+
+    return processed;
   } catch (err) {
     console.error("Exception in getClasses:", err);
-    try {
-      const supabase = await createClient();
-      const { data } = await supabase.from("classes").select("*").order("name");
-      return processClassesData(data || []);
-    } catch {
-      return [];
-    }
+    return [];
   }
 }
 
-function processClassesData(data: any[]) {
-  const classesWithSeq = (data || []).map(cls => {
-    const { sequence, actualDescription } = parseClassDescription(cls.description);
-    return {
-      ...cls,
-      sequence,
-      description: actualDescription,
-    };
-  });
+/**
+ * Assign or change a class's Jimmadar / Class Teacher
+ */
+export async function assignClassTeacher(classId: string, teacherId: string | null) {
+  try {
+    const supabase = await createClient();
+    const adminClient = await createAdminClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অনুমতি নেই। অনুগ্রহ করে লগইন করুন।" };
 
-  classesWithSeq.sort((a, b) => {
-    if (a.sequence !== b.sequence) {
-      return a.sequence - b.sequence;
+    const { getAuthMadrasaId } = await import("./students");
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
+
+    const meta = ((await getMadrasaMetadata(madrasaId)) as any) || {};
+    if (!meta.class_teachers) meta.class_teachers = {};
+
+    if (!teacherId || teacherId === "NONE") {
+      delete meta.class_teachers[classId];
+    } else {
+      const teachers = await getTeachersForClassAssignment();
+      const teacher = teachers.find((t) => t.id === teacherId);
+
+      meta.class_teachers[classId] = {
+        teacher_id: teacherId,
+        teacher_name: teacher?.name || "শ্রেণি শিক্ষক",
+        teacher_code: teacher?.staff_id_code || "",
+        teacher_designation: teacher?.designation || "মুদাররিস",
+        teacher_phone: teacher?.phone || "",
+        assigned_at: new Date().toISOString(),
+        assigned_by: user.email || "অ্যাডমিন",
+      };
     }
-    return (a.name || "").localeCompare(b.name || "");
-  });
 
-  return classesWithSeq;
+    await saveMadrasaMetadata(madrasaId, meta);
+
+    revalidatePath("/dashboard/classes");
+    revalidatePath("/dashboard/academic");
+    revalidatePath("/dashboard/staff");
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error assigning class teacher:", err);
+    return { error: err.message || "শ্রেণি শিক্ষক নির্ধারণে ত্রুটি হয়েছে।" };
+  }
 }
 
 export async function createClass(prevState: any, formData: FormData) {
@@ -110,6 +281,7 @@ export async function createClass(prevState: any, formData: FormData) {
     const name = (formData.get("name") as string)?.trim();
     const description = (formData.get("description") as string)?.trim();
     const sequenceVal = formData.get("sequence") ? parseInt(formData.get("sequence") as string, 10) : 0;
+    const classTeacherId = (formData.get("class_teacher_id") as string)?.trim();
 
     if (!name) {
       return { error: "জামাতের নাম আবশ্যক।" };
@@ -117,29 +289,39 @@ export async function createClass(prevState: any, formData: FormData) {
 
     const formattedDescription = formatClassDescription(sequenceVal, description);
 
-    // Try insert via user authenticated client first
-    const { error: userError } = await supabase.from("classes").insert({
-      madrasa_id: madrasaId,
-      name,
-      description: formattedDescription,
-    });
+    // Insert class
+    const { data: newClassData, error: userError } = await supabase
+      .from("classes")
+      .insert({
+        madrasa_id: madrasaId,
+        name,
+        description: formattedDescription,
+      })
+      .select("id")
+      .single();
 
-    if (!userError) {
-      revalidatePath("/dashboard/classes");
-      revalidatePath("/dashboard/academic");
-      return { success: true };
+    let createdClassId = newClassData?.id;
+
+    if (userError || !createdClassId) {
+      const { data: adminCreated, error: adminError } = await adminClient
+        .from("classes")
+        .insert({
+          madrasa_id: madrasaId,
+          name,
+          description: formattedDescription,
+        })
+        .select("id")
+        .single();
+
+      if (adminError) {
+        return { error: userError?.message || adminError.message };
+      }
+      createdClassId = adminCreated?.id;
     }
 
-    // Fallback to adminClient if user insert fails
-    const { error: adminError } = await adminClient.from("classes").insert({
-      madrasa_id: madrasaId,
-      name,
-      description: formattedDescription,
-    });
-
-    if (adminError) {
-      console.error("Create class error:", userError || adminError);
-      return { error: userError?.message || adminError.message };
+    // If a class teacher is selected, record in metadata
+    if (createdClassId && classTeacherId && classTeacherId !== "NONE") {
+      await assignClassTeacher(createdClassId, classTeacherId);
     }
 
     revalidatePath("/dashboard/classes");
@@ -150,7 +332,13 @@ export async function createClass(prevState: any, formData: FormData) {
   }
 }
 
-export async function updateClass(classId: string, name: string, description: string, sequence?: number) {
+export async function updateClass(
+  classId: string,
+  name: string,
+  description: string,
+  sequence?: number,
+  classTeacherId?: string | null
+) {
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -171,22 +359,23 @@ export async function updateClass(classId: string, name: string, description: st
       })
       .eq("id", classId);
 
-    if (!userError) {
-      revalidatePath("/dashboard/classes");
-      revalidatePath("/dashboard/academic");
-      return { success: true };
+    if (userError) {
+      const { error: adminError } = await adminClient
+        .from("classes")
+        .update({
+          name: trimmedName,
+          description: formattedDescription,
+        })
+        .eq("id", classId);
+
+      if (adminError) {
+        return { error: userError?.message || adminError.message };
+      }
     }
 
-    const { error: adminError } = await adminClient
-      .from("classes")
-      .update({
-        name: trimmedName,
-        description: formattedDescription,
-      })
-      .eq("id", classId);
-
-    if (adminError) {
-      return { error: userError?.message || adminError.message };
+    // Update class teacher if provided
+    if (classTeacherId !== undefined) {
+      await assignClassTeacher(classId, classTeacherId);
     }
 
     revalidatePath("/dashboard/classes");
@@ -207,19 +396,33 @@ export async function deleteClass(classId: string) {
       .delete()
       .eq("id", classId);
 
-    if (!userError) {
-      revalidatePath("/dashboard/classes");
-      revalidatePath("/dashboard/academic");
-      return { success: true };
+    if (userError) {
+      const { error: adminError } = await adminClient
+        .from("classes")
+        .delete()
+        .eq("id", classId);
+
+      if (adminError) {
+        return { error: userError?.message || adminError.message };
+      }
     }
 
-    const { error: adminError } = await adminClient
-      .from("classes")
-      .delete()
-      .eq("id", classId);
-
-    if (adminError) {
-      return { error: userError?.message || adminError.message };
+    // Clean up class teacher from metadata
+    try {
+      const user = await getAuthUser(supabase);
+      if (user) {
+        const { getAuthMadrasaId } = await import("./students");
+        const madrasaId = await getAuthMadrasaId(supabase, user);
+        if (madrasaId) {
+          const meta = ((await getMadrasaMetadata(madrasaId)) as any) || {};
+          if (meta.class_teachers && meta.class_teachers[classId]) {
+            delete meta.class_teachers[classId];
+            await saveMadrasaMetadata(madrasaId, meta);
+          }
+        }
+      }
+    } catch (cleanErr) {
+      console.warn("Class metadata delete warning:", cleanErr);
     }
 
     revalidatePath("/dashboard/classes");

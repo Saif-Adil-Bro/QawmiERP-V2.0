@@ -26,6 +26,7 @@ interface ClassSubjectsManagerProps {
   classId: string;
   className: string;
   classDescription: string | null;
+  classTeacherName?: string | null;
   initialAllSubjects: SubjectItem[];
   initialAssignedSubjects: AssignedSubjectItem[];
 }
@@ -34,6 +35,7 @@ export default function ClassSubjectsManager({
   classId,
   className,
   classDescription,
+  classTeacherName,
   initialAllSubjects,
   initialAssignedSubjects,
 }: ClassSubjectsManagerProps) {
@@ -161,6 +163,11 @@ export default function ClassSubjectsManager({
               <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
                 {className}
               </span>
+              {classTeacherName && (
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-teal-100 text-teal-900 border border-teal-300 flex items-center gap-1">
+                  👨‍🏫 শ্রেণি জিম্মাদার: {classTeacherName}
+                </span>
+              )}
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
               {classDescription ? `${classDescription} • ` : ""}এই জামাতের জন্য নির্ধারিত বিষয়সমূহ নির্বাচন ও রুটিনে ব্যবহারের জন্য প্রস্তুত করুন।

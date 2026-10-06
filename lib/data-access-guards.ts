@@ -322,6 +322,22 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
       });
     }
 
+    // Check metadata class_teachers assignments
+    if (madrasaId) {
+      try {
+        const { getMadrasaMetadata } = await import("@/lib/sessions");
+        const meta = await getMadrasaMetadata(madrasaId) as any;
+        const classTeachers = meta?.class_teachers || {};
+        for (const [clsId, ct] of Object.entries<any>(classTeachers)) {
+          if (ct?.teacher_id && (ct.teacher_id === teacherDbId || (userProfile?.teacher_id && ct.teacher_id === userProfile.teacher_id))) {
+            classIdsSet.add(clsId);
+          }
+        }
+      } catch (e) {
+        console.warn("Could not check metadata class teachers for guard:", e);
+      }
+    }
+
     const allowedClassIds = Array.from(classIdsSet);
 
     // Get all students belonging to these assigned classes
