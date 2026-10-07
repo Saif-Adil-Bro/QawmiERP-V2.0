@@ -23,6 +23,7 @@ import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
 import { getTeacherAcademicSchedule } from "@/app/actions/teacher_subjects";
 import { formatTimeString } from "@/lib/routine-helper";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
+import CurrentClassLiveBanner from "@/components/routine/CurrentClassLiveBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -234,6 +235,15 @@ export default async function TeacherPortalOverview() {
           </div>
         </div>
       </div>
+
+      {/* Real-time Current Class Live Banner */}
+      {teacherSchedule.routines && teacherSchedule.routines.length > 0 && (
+        <CurrentClassLiveBanner
+          routines={teacherSchedule.routines}
+          isTeacherView={true}
+          teacherName={teacherName}
+        />
+      )}
 
       {/* Today's Teaching Schedule Card (আজকের পাঠদান রুটিন) */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4">

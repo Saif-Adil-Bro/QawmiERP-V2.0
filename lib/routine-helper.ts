@@ -169,3 +169,109 @@ export function formatTimeString(timeStr?: string): string {
   }
   return trimmed;
 }
+
+export function timeStringToMinutes(timeStr?: string): number {
+  if (!timeStr) return -1;
+  const trimmed = String(timeStr).trim();
+  if (!trimmed) return -1;
+
+  // Handle 12-hour AM/PM format (e.g. "08:30 AM", "02:15 PM")
+  const ampmMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+  if (ampmMatch) {
+    let hours = parseInt(ampmMatch[1], 10);
+    const minutes = parseInt(ampmMatch[2], 10);
+    const ampm = ampmMatch[3]?.toUpperCase();
+
+    if (ampm === "PM" && hours < 12) hours += 12;
+    if (ampm === "AM" && hours === 12) hours = 0;
+    return hours * 60 + minutes;
+  }
+
+  // Handle 24-hour format (e.g. "08:30:00", "14:15")
+  const parts = trimmed.split(":");
+  if (parts.length >= 2) {
+    const hours = parseInt(parts[0], 10);
+    const minutes = parseInt(parts[1], 10);
+    if (!isNaN(hours) && !isNaN(minutes)) {
+      return hours * 60 + minutes;
+    }
+  }
+  return -1;
+}
+
+export function getTodayDayKeys(now: Date = new Date()): { english: string; bangla: string } {
+  const dayNamesEnglish = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const english = dayNamesEnglish[now.getDay()];
+  const bangla = DAY_TRANSLATIONS[english] || english;
+  return { english, bangla };
+}
+
+export interface RoutineLiveStatus {
+  todayEnglish: string;
+  todayBangla: string;
+  nowMinutes: number;
+  todayClasses: any[];
+  currentClass: any | null;
+  nextClass: any | null;
+  isToday: (dayStr: string) => boolean;
+  isCurrent: (routine: any) => boolean;
+  isNext: (routine: any) => boolean;
+}
+
+export function getRoutineLiveStatus(routines: any[], now: Date = new Date()): RoutineLiveStatus {
+  const { english: todayEnglish, bangla: todayBangla } = getTodayDayKeys(now);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const isToday = (dayStr: string) => {
+    return dayStr === todayEnglish || dayStr === todayBangla || DAY_TRANSLATIONS[dayStr] === todayBangla;
+  };
+
+  const todayClasses = (routines || []).filter((r) => isToday(r.day_of_week));
+
+  // Sort today's classes chronologically
+  const sortedToday = [...todayClasses].sort((a, b) => {
+    const startA = timeStringToMinutes(a.start_time);
+    const startB = timeStringToMinutes(b.start_time);
+    return startA - startB;
+  });
+
+  let currentClass: any | null = null;
+  let nextClass: any | null = null;
+
+  for (const r of sortedToday) {
+    const startM = timeStringToMinutes(r.start_time);
+    const endM = timeStringToMinutes(r.end_time);
+
+    if (startM >= 0 && endM >= 0) {
+      if (nowMinutes >= startM && nowMinutes <= endM) {
+        currentClass = r;
+      } else if (nowMinutes < startM && !nextClass) {
+        nextClass = r;
+      }
+    }
+  }
+
+  const isCurrent = (routine: any) => {
+    if (!routine || !isToday(routine.day_of_week)) return false;
+    const startM = timeStringToMinutes(routine.start_time);
+    const endM = timeStringToMinutes(routine.end_time);
+    return startM >= 0 && endM >= 0 && nowMinutes >= startM && nowMinutes <= endM;
+  };
+
+  const isNext = (routine: any) => {
+    return nextClass && nextClass.id === routine.id;
+  };
+
+  return {
+    todayEnglish,
+    todayBangla,
+    nowMinutes,
+    todayClasses: sortedToday,
+    currentClass,
+    nextClass,
+    isToday,
+    isCurrent,
+    isNext,
+  };
+}
+

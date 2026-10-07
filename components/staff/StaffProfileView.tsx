@@ -33,7 +33,9 @@ import {
   formatTimeString,
   DAY_KEYS,
   DAY_TRANSLATIONS,
+  getRoutineLiveStatus,
 } from "@/lib/routine-helper";
+import CurrentClassLiveBanner from "@/components/routine/CurrentClassLiveBanner";
 import {
   User,
   Phone,
@@ -69,6 +71,7 @@ import {
   RefreshCw,
   AlertCircle,
   ExternalLink,
+  Radio,
 } from "lucide-react";
 import StaffFormModal from "./StaffFormModal";
 import StaffIdCardModal from "./StaffIdCardModal";
@@ -1188,27 +1191,52 @@ export default function StaffProfileView({
               </Link>
             </div>
 
+            {/* Real-time Current Class Live Banner */}
+            {academicData?.routines && academicData.routines.length > 0 && (
+              <CurrentClassLiveBanner
+                routines={academicData.routines}
+                isTeacherView={false}
+                teacherName={staff.personal.first_name}
+              />
+            )}
+
             {academicData?.routines && academicData.routines.length > 0 ? (
-              <div className="space-y-4">
+              <div className="space-y-4 pt-2">
                 {DAY_KEYS.map((dayKey) => {
                   const dayBangla = DAY_TRANSLATIONS[dayKey] || dayKey;
                   const dayRoutines = (academicData.routines || []).filter(
                     (r) => r.day_of_week === dayKey || r.day_of_week === dayBangla
                   );
 
+                  const liveStatus = getRoutineLiveStatus(academicData.routines);
+                  const isTodayDay = liveStatus.isToday(dayKey);
+
                   return (
                     <div
                       key={dayKey}
-                      className="border border-slate-200/90 rounded-2xl overflow-hidden bg-slate-50/40"
+                      className={`rounded-2xl overflow-hidden transition ${
+                        isTodayDay
+                          ? "border-2 border-indigo-500 bg-indigo-50/30 shadow-xs"
+                          : "border border-slate-200/90 bg-slate-50/40"
+                      }`}
                     >
-                      <div className="bg-slate-100/90 px-4 py-2.5 flex items-center justify-between border-b border-slate-200">
+                      <div className={`px-4 py-2.5 flex items-center justify-between border-b ${
+                        isTodayDay
+                          ? "bg-gradient-to-r from-indigo-900 to-slate-900 text-white border-indigo-700"
+                          : "bg-slate-100/90 text-slate-900 border-slate-200"
+                      }`}>
                         <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-slate-600" />
-                          <span className="text-xs sm:text-sm font-black text-slate-900">{dayBangla}</span>
+                          <Calendar className={`w-4 h-4 ${isTodayDay ? "text-amber-300" : "text-slate-600"}`} />
+                          <span className="text-xs sm:text-sm font-black">{dayBangla}</span>
+                          {isTodayDay && (
+                            <span className="text-[10px] font-black px-2 py-0.5 bg-amber-400 text-slate-950 rounded-full uppercase tracking-wider">
+                              আজকের বার
+                            </span>
+                          )}
                         </div>
                         <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
                           dayRoutines.length > 0
-                            ? "bg-indigo-100 text-indigo-900 border border-indigo-200"
+                            ? (isTodayDay ? "bg-white/20 text-white" : "bg-indigo-100 text-indigo-900 border border-indigo-200")
                             : "bg-slate-200/70 text-slate-500"
                         }`}>
                           {dayRoutines.length > 0 ? `${toBanglaNumber(dayRoutines.length)} টি ক্লাস` : "ছুটি / অফ-পিরিয়ড"}
@@ -1223,16 +1251,35 @@ export default function StaffProfileView({
                             {dayRoutines.map((routine) => {
                               const startTimeFormatted = formatTimeString(routine.start_time);
                               const endTimeFormatted = formatTimeString(routine.end_time);
+                              const isCurrentLive = liveStatus.isCurrent(routine);
 
                               return (
                                 <div
                                   key={routine.id}
-                                  className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2 hover:border-indigo-300 transition"
+                                  className={`p-3.5 rounded-xl transition space-y-2 ${
+                                    isCurrentLive
+                                      ? "bg-rose-50/90 border-2 border-rose-500 shadow-md ring-2 ring-rose-400/30"
+                                      : "bg-white border border-slate-200 shadow-2xs hover:border-indigo-300"
+                                  }`}
                                 >
                                   <div className="flex items-center justify-between gap-1">
-                                    <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100 flex items-center gap-1 font-mono">
-                                      <Clock className="w-3 h-3 text-indigo-600" />
-                                      {toBanglaNumber(startTimeFormatted)} - {toBanglaNumber(endTimeFormatted)}
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md font-mono flex items-center gap-1 ${
+                                      isCurrentLive
+                                        ? "bg-rose-600 text-white"
+                                        : "bg-indigo-50 text-indigo-700 border border-indigo-100"
+                                    }`}>
+                                      {isCurrentLive ? (
+                                        <>
+                                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                                          <Radio className="w-3 h-3" />
+                                          <span>চলমান ({toBanglaNumber(startTimeFormatted)} - {toBanglaNumber(endTimeFormatted)})</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Clock className="w-3 h-3 text-indigo-600" />
+                                          {toBanglaNumber(startTimeFormatted)} - {toBanglaNumber(endTimeFormatted)}
+                                        </>
+                                      )}
                                     </span>
                                     <span className="text-[10px] font-black px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded-md">
                                       {routine.class_name}
@@ -1240,7 +1287,9 @@ export default function StaffProfileView({
                                   </div>
 
                                   <div>
-                                    <h5 className="text-xs sm:text-sm font-black text-slate-900">
+                                    <h5 className={`text-xs sm:text-sm font-black ${
+                                      isCurrentLive ? "text-rose-950" : "text-slate-900"
+                                    }`}>
                                       {routine.display_title || routine.subject_name}
                                     </h5>
                                     <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-1">
