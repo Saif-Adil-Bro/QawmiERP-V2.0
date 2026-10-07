@@ -103,7 +103,12 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
     const url = new URL(window.location.href);
     const initialTab = url.searchParams.get("tab") as StaffTabType | null;
     const initialId = url.searchParams.get("id");
-    if (initialTab && ["dashboard", "list", "profile", "payroll", "leave", "reports"].includes(initialTab)) {
+    const initialAction = url.searchParams.get("action");
+
+    if (initialAction === "new") {
+      setShowAddModal(true);
+      setCurrentTab("list");
+    } else if (initialTab && ["dashboard", "list", "profile", "payroll", "leave", "reports"].includes(initialTab)) {
       setCurrentTab(initialTab);
       if (initialId) setSelectedStaffId(initialId);
     }

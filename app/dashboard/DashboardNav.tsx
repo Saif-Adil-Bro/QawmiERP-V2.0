@@ -143,7 +143,7 @@ const navGroups: NavGroup[] = [
       },
       {
         name: "নতুন শিক্ষক ও স্টাফ যোগ",
-        href: "/dashboard/teachers/new",
+        href: "/dashboard/staff?action=new",
         icon: UserCheck,
         permission: "staff.edit",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "hr_manager"],
