@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   StaffMember,
   StaffCategory,
@@ -83,14 +84,47 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
     []
   );
 
+  const searchParams = useSearchParams();
+
+  // React to URL searchParams changes dynamically
+  useEffect(() => {
+    if (!searchParams) return;
+    const action = searchParams.get("action");
+    const tabParam = searchParams.get("tab") as StaffTabType | null;
+    const idParam = searchParams.get("id");
+
+    if (action === "new") {
+      setShowAddModal(true);
+      setCurrentTab("list");
+    } else if (tabParam && ["dashboard", "list", "profile", "payroll", "leave", "reports"].includes(tabParam)) {
+      setCurrentTab(tabParam);
+      if (idParam) setSelectedStaffId(idParam);
+    }
+  }, [searchParams]);
+
+  // Listen to global open-add-staff-modal event
+  useEffect(() => {
+    const handleOpenAdd = () => {
+      setShowAddModal(true);
+      setCurrentTab("list");
+    };
+
+    window.addEventListener("open-add-staff-modal", handleOpenAdd);
+    return () => window.removeEventListener("open-add-staff-modal", handleOpenAdd);
+  }, []);
+
   // Sync with browser back/forward buttons (popstate)
   useEffect(() => {
     const handlePopState = () => {
       const url = new URL(window.location.href);
       const tabParam = url.searchParams.get("tab") as StaffTabType | null;
       const idParam = url.searchParams.get("id");
+      const actionParam = url.searchParams.get("action");
 
-      if (tabParam && ["dashboard", "list", "profile", "payroll", "leave", "reports"].includes(tabParam)) {
+      if (actionParam === "new") {
+        setShowAddModal(true);
+        setCurrentTab("list");
+      } else if (tabParam && ["dashboard", "list", "profile", "payroll", "leave", "reports"].includes(tabParam)) {
         setCurrentTab(tabParam);
         setSelectedStaffId(idParam || null);
       } else {
@@ -98,20 +132,6 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
         setSelectedStaffId(null);
       }
     };
-
-    // Check initial search params on mount
-    const url = new URL(window.location.href);
-    const initialTab = url.searchParams.get("tab") as StaffTabType | null;
-    const initialId = url.searchParams.get("id");
-    const initialAction = url.searchParams.get("action");
-
-    if (initialAction === "new") {
-      setShowAddModal(true);
-      setCurrentTab("list");
-    } else if (initialTab && ["dashboard", "list", "profile", "payroll", "leave", "reports"].includes(initialTab)) {
-      setCurrentTab(initialTab);
-      if (initialId) setSelectedStaffId(initialId);
-    }
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -384,9 +404,25 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           categories={data.categories}
           departments={data.departments}
           designations={data.designations}
-          onClose={() => setShowAddModal(false)}
+          onClose={() => {
+            setShowAddModal(false);
+            if (typeof window !== "undefined") {
+              const url = new URL(window.location.href);
+              if (url.searchParams.get("action") === "new") {
+                url.searchParams.delete("action");
+                window.history.replaceState({}, "", url.toString());
+              }
+            }
+          }}
           onSuccess={() => {
             setShowAddModal(false);
+            if (typeof window !== "undefined") {
+              const url = new URL(window.location.href);
+              if (url.searchParams.get("action") === "new") {
+                url.searchParams.delete("action");
+                window.history.replaceState({}, "", url.toString());
+              }
+            }
             refreshData();
           }}
         />

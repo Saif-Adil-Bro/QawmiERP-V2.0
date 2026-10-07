@@ -854,7 +854,14 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
                       <Link
                         key={item.href}
                         href={item.href}
-                        onClick={onItemClick}
+                        onClick={() => {
+                          if (onItemClick) onItemClick();
+                          if (item.href.includes("action=new")) {
+                            if (typeof window !== "undefined") {
+                              window.dispatchEvent(new CustomEvent("open-add-staff-modal"));
+                            }
+                          }
+                        }}
                         className={`flex items-center space-x-2.5 px-2.5 py-1.5 rounded-lg text-xs transition-all duration-150 group ${
                           active
                             ? "bg-emerald-600 text-white font-bold shadow-xs"
