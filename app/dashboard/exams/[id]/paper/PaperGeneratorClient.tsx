@@ -861,12 +861,20 @@ export default function PaperGeneratorClient({
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          .print\:hidden {
+          header, nav, aside, .print\:hidden {
             display: none !important;
+          }
+          body * {
+            visibility: hidden;
+          }
+          #exam-paper-print-view, #exam-paper-print-view * {
+            visibility: visible;
           }
           #exam-paper-print-view {
             display: block !important;
-            position: static !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
             width: 100% !important;
             max-width: 100% !important;
             background: white !important;

@@ -5,6 +5,7 @@ import { saveQuestion, deleteQuestion, updateQuestion } from "@/app/actions/ques
 import { Plus, Trash2, Loader2, Save, Printer, FileText, Type, X, Globe, Building2, BookOpen, Clock, Award, Check, Pencil, CheckSquare, RotateCcw, ArrowUp, ArrowDown, CheckCircle2, Sparkles, Scroll, Scale, HelpCircle, Columns, Layers, FileSpreadsheet, Tag, Gauge, ListChecks } from "lucide-react";
 import SpecializedQuestionView, { getQuestionTypeBadge, getDifficultyBadge } from "@/components/exams/SpecializedQuestionView";
 import BulkImportModal from "@/components/exams/BulkImportModal";
+import QuestionWordEditorModal from "@/components/exams/QuestionWordEditorModal";
 
 // Helper function to detect Arabic script in text
 function isArabicText(text: string): boolean {
@@ -45,6 +46,75 @@ export default function QuestionBankClient({
 
   // Bulk Import Modal state
   const [showBulkModal, setShowBulkModal] = useState(false);
+
+  // Word-style Editor Modal state
+  const [isWordEditorOpen, setIsWordEditorOpen] = useState(false);
+  const [wordEditorContent, setWordEditorContent] = useState<string | undefined>(undefined);
+
+  // Helper to build HTML from selected or filtered questions for Word Editor
+  const buildQuestionsHtmlForWordEditor = (questionsToFormat: any[]) => {
+    if (!questionsToFormat || questionsToFormat.length === 0) return undefined;
+    
+    let html = `
+      <div class="section-ribbon" style="background-color: #f1f5f9; padding: 3px 6px; font-weight: 800; font-size: 13px; color: #0f172a; border-left: 3px solid #0284c7; margin-bottom: 6px;">
+        ক-বিভাগ: মূল প্রশ্নাবলি (মান: ${toBengaliNumerals(questionsToFormat.reduce((acc, curr) => acc + (Number(curr.marks) || 10), 0))})
+      </div>
+    `;
+
+    questionsToFormat.forEach((q, idx) => {
+      const qNum = toBengaliNumerals(idx + 1);
+      const marks = q.marks ? `[${toBengaliNumerals(q.marks)}]` : "";
+      const isRTL = isArabicText(q.question_text);
+
+      html += `
+        <p style="margin: 4px 0 6px 0; line-height: 1.5; font-size: 13px; text-align: ${isRTL ? "right" : "left"}; font-family: ${isRTL ? "'Amiri', serif" : "inherit"};" ${isRTL ? 'dir="rtl"' : ""}>
+          <strong>${qNum}. </strong> ${q.question_text} ${marks ? `<span style="float: ${isRTL ? "left" : "right"}; font-weight: bold; color: #0f172a;">${marks}</span>` : ""}
+        </p>
+      `;
+
+      if (q.options) {
+        let opts = q.options;
+        if (typeof opts === "string") {
+          try { opts = JSON.parse(opts); } catch (e) { opts = {}; }
+        }
+        if (opts.irab_text) {
+          html += `
+            <div style="font-family: 'Amiri', serif; font-size: 16px; text-align: right; background-color: #f8fafc; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; margin: 4px 0 6px 0;" dir="rtl">
+              « ${opts.irab_text} »
+            </div>
+          `;
+        }
+        if (opts.sub_questions && Array.isArray(opts.sub_questions) && opts.sub_questions.length > 0) {
+          opts.sub_questions.forEach((sq: any, sIdx: number) => {
+            const sText = typeof sq === "string" ? sq : sq.text;
+            const sMarks = typeof sq === "object" && sq.marks ? ` [${toBengaliNumerals(sq.marks)}]` : "";
+            const subLabels = ["(ক)", "(খ)", "(গ)", "(ঘ)", "(ঙ)"];
+            html += `<p style="margin: 2px 0 2px 14px; font-size: 12.5px;">${subLabels[sIdx] || `(${sIdx+1})`} ${sText}${sMarks}</p>`;
+          });
+        }
+        if (opts.mcq_options && Array.isArray(opts.mcq_options) && opts.mcq_options.length > 0) {
+          html += `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 3px 0 6px 14px; font-size: 12px;">`;
+          opts.mcq_options.forEach((opt: string, optIdx: number) => {
+            const optLabels = ["(ক)", "(খ)", "(গ)", "(ঘ)"];
+            html += `<div>${optLabels[optIdx] || `(${optIdx + 1})`} ${opt}</div>`;
+          });
+          html += `</div>`;
+        }
+      }
+    });
+
+    return html;
+  };
+
+  const handleOpenWordEditor = () => {
+    if (selectedQuestions.length > 0) {
+      const generatedHtml = buildQuestionsHtmlForWordEditor(selectedQuestions);
+      setWordEditorContent(generatedHtml);
+    } else {
+      setWordEditorContent(undefined);
+    }
+    setIsWordEditorOpen(true);
+  };
 
   // Paper preview modal state & Header customization
   const [showPaperModal, setShowPaperModal] = useState(false);
@@ -685,6 +755,15 @@ export default function QuestionBankClient({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
+              onClick={handleOpenWordEditor}
+              className="bg-blue-50 border border-blue-200 text-blue-700 px-3.5 py-2 rounded-lg hover:bg-blue-100 transition flex items-center gap-2 text-xs sm:text-sm font-semibold shadow-xs cursor-pointer"
+              title="এমএস ওয়ার্ডের মতো লাইট টেক্সট এডিটরে কাস্টম প্রশ্নপত্র লিখুন ও পেজ সাজান"
+            >
+              <FileText className="w-4 h-4 text-blue-600" />
+              <span>ওয়ার্ড স্টাইল এডিটর {selectedQuestions.length > 0 ? `(${toBengaliNumerals(selectedQuestions.length)})` : ""}</span>
+            </button>
+            <button
               onClick={() => setShowBulkModal(true)}
               className="bg-purple-600 text-white px-3.5 py-2 rounded-lg hover:bg-purple-700 transition flex items-center gap-2 text-xs sm:text-sm font-semibold shadow-xs cursor-pointer"
             >
@@ -725,7 +804,18 @@ export default function QuestionBankClient({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedQuestions.length > 0 && (
+            <button
+              type="button"
+              onClick={handleOpenWordEditor}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+              title="সিলেক্টেড প্রশ্নগুলো নিয়ে ওয়ার্ড স্টাইল এডিটরে কাস্টমাইজ করুন"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>ওয়ার্ড এডিটরে সাজান ({toBengaliNumerals(selectedQuestions.length)})</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={handleSelectAllFiltered}
@@ -1957,6 +2047,18 @@ export default function QuestionBankClient({
           window.location.reload();
         }}
       />
+
+      {/* Word-Style Rich Document Editor Modal */}
+      {isWordEditorOpen && (
+        <QuestionWordEditorModal
+          initialContent={wordEditorContent}
+          examTitle={paperTitle || "বার্ষিক পরীক্ষা - ২০২৬"}
+          subjectName={paperSubjectName || subjects.find(s => s.id === subjectFilter)?.name || "কুরআন ও হাদিস"}
+          className={paperClassName || classes.find(c => c.id === classFilter)?.name || "জামাতে তাইসির"}
+          madrasaName={customMadrasaName}
+          onClose={() => setIsWordEditorOpen(false)}
+        />
+      )}
 
       {/* Global Print Media Rules for Flawless Output */}
       <style jsx global>{`

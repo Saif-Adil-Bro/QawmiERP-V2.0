@@ -25,7 +25,7 @@ export default async function ExamSetupPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center space-x-4 print:hidden">
         <Link
           href="/dashboard/exams"
           className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition"
