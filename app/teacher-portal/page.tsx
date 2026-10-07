@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import {
   GraduationCap,
   Calendar,
@@ -13,54 +13,106 @@ import {
   Sparkles,
   ArrowRight,
   TrendingUp,
+  ShieldCheck,
+  MapPin,
+  Coffee,
 } from "lucide-react";
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
+import { getTeacherAcademicSchedule } from "@/app/actions/teacher_subjects";
+import { formatTimeString } from "@/lib/routine-helper";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
 
 export const dynamic = "force-dynamic";
 
 export default async function TeacherPortalOverview() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const adminClient = await createAdminClient();
+  const user = await getAuthUser(supabase);
 
   if (!user) return null;
 
-  const { data: userData } = await supabase
+  const { data: userData } = await adminClient
     .from("users")
-    .select("madrasa_id, full_name")
+    .select("madrasa_id, full_name, role")
     .eq("id", user.id)
-    .single();
-  const madrasaId = userData?.madrasa_id;
+    .maybeSingle();
+
+  let madrasaId = userData?.madrasa_id;
+  if (!madrasaId) {
+    const { data: anyM } = await adminClient.from("madrasas").select("id").limit(1).single();
+    madrasaId = anyM?.id || "";
+  }
 
   // Find teacher record
-  const { data: teacher } = await supabase
+  let teacherId = "";
+  let teacherName = userData?.full_name || "মুহতারাম উস্তাদ";
+  let designation = "মুদাররিস";
+
+  const { data: teacher } = await adminClient
     .from("teachers")
     .select("id, first_name, last_name, designation, phone")
     .eq("madrasa_id", madrasaId)
-    .or(`email.eq.${user.email},phone.eq.${userData?.full_name || ""}`)
+    .or(`email.eq.${user.email},auth_user_id.eq.${user.id}`)
     .maybeSingle();
 
-  const teacherName = teacher ? `${teacher.first_name} ${teacher.last_name}` : userData?.full_name || "মুহতারাম উস্তাদ";
-  const designation = teacher?.designation || "সিনিয়র শিক্ষক ও মুহাদ্দিস";
+  if (teacher) {
+    teacherId = teacher.id;
+    teacherName = `${teacher.first_name || ""} ${teacher.last_name || ""}`.trim() || teacherName;
+    designation = teacher.designation || designation;
+  }
 
-  // Fetch classes, students, and early-warning alerts
+  // Fallback to staff metadata if needed
+  if (!teacherId) {
+    const { getMadrasaMetadata } = await import("@/lib/sessions");
+    const meta = (await getMadrasaMetadata(madrasaId)) as any;
+    const staffMembers = meta?.staff_members || [];
+    const staff = staffMembers.find((s: any) => 
+      (user.email && s.contact?.email?.toLowerCase() === user.email.toLowerCase()) ||
+      (s.personal?.first_name && userData?.full_name?.includes(s.personal.first_name))
+    );
+    if (staff) {
+      teacherId = staff.id;
+      teacherName = staff.personal?.full_name_bn || `${staff.personal?.first_name || ""} ${staff.personal?.last_name || ""}`.trim() || teacherName;
+      designation = staff.employment?.designation || designation;
+    }
+  }
+
   const todayStr = new Date().toISOString().split("T")[0];
 
-  const [classesRes, studentsRes, todayAttendanceRes, todayHifzRes, noticesRes, earlyWarningData] = await Promise.all([
-    supabase.from("classes").select("id, name").eq("madrasa_id", madrasaId),
-    supabase.from("students").select("id").eq("madrasa_id", madrasaId),
-    supabase.from("attendance").select("id").eq("madrasa_id", madrasaId).eq("date", todayStr),
-    supabase.from("hifz_logs").select("id").eq("madrasa_id", madrasaId).eq("log_date", todayStr),
-    supabase.from("notices").select("*").eq("madrasa_id", madrasaId).order("created_at", { ascending: false }).limit(3),
+  const [classesRes, studentsRes, todayAttendanceRes, todayHifzRes, noticesRes, earlyWarningData, teacherSchedule] = await Promise.all([
+    adminClient.from("classes").select("id, name").eq("madrasa_id", madrasaId),
+    adminClient.from("students").select("id").eq("madrasa_id", madrasaId),
+    adminClient.from("attendance").select("id").eq("madrasa_id", madrasaId).eq("date", todayStr),
+    adminClient.from("hifz_logs").select("id").eq("madrasa_id", madrasaId).eq("log_date", todayStr),
+    adminClient.from("notices").select("*").eq("madrasa_id", madrasaId).order("created_at", { ascending: false }).limit(3),
     getEarlyWarningAlerts(),
+    getTeacherAcademicSchedule(teacherId || user.id),
   ]);
 
   const totalClasses = classesRes.data?.length || 0;
   const totalStudents = studentsRes.data?.length || 0;
   const todayAttendanceCount = todayAttendanceRes.data?.length || 0;
   const todayHifzCount = todayHifzRes.data?.length || 0;
+
+  // Compute Today's classes from weekly routine
+  const dayNamesEnglish = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const todayEnglish = dayNamesEnglish[new Date().getDay()];
+  const todayBanglaMap: Record<string, string> = {
+    Saturday: "শনিবার",
+    Sunday: "রবিবার",
+    Monday: "সোমবার",
+    Tuesday: "মঙ্গলবার",
+    Wednesday: "বুধবার",
+    Thursday: "বৃহস্পতিবার",
+    Friday: "শুক্রবার",
+  };
+  const todayBangla = todayBanglaMap[todayEnglish] || todayEnglish;
+
+  const todayClasses = teacherSchedule.routines.filter(
+    (r) => r.day_of_week === todayEnglish || r.day_of_week === todayBangla
+  );
 
   return (
     <div className="space-y-6">
@@ -88,14 +140,51 @@ export default async function TeacherPortalOverview() {
             <span>হাজিরা গ্রহণ করুন</span>
           </Link>
           <Link
-            href="/teacher-portal/hifz"
+            href="/teacher-portal/routine"
             className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs sm:text-sm font-bold backdrop-blur-xs border border-white/20 transition flex items-center gap-2"
           >
-            <BookOpen className="w-4 h-4 text-emerald-300" />
-            <span>হিফজ সবক এন্ট্রি</span>
+            <CalendarDays className="w-4 h-4 text-emerald-300" />
+            <span>আমার ক্লাস রুটিন</span>
           </Link>
         </div>
       </div>
+
+      {/* In-Charge Classes Announcement Card */}
+      {teacherSchedule.inChargeClasses.length > 0 && (
+        <div className="bg-gradient-to-r from-teal-900 via-slate-900 to-emerald-900 text-white p-5 rounded-2xl border border-teal-700/50 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 bg-teal-500/20 text-teal-300 rounded-2xl border border-teal-400/30">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="text-[10px] font-bold px-2 py-0.5 bg-teal-400 text-teal-950 rounded-full uppercase tracking-wider">
+                শ্রেণি জিম্মাদারি দায়িত্ব
+              </span>
+              <h3 className="text-base sm:text-lg font-black mt-1">
+                {teacherSchedule.inChargeClasses.map(c => c.class_name).join(", ")}
+              </h3>
+              <p className="text-xs text-teal-100/80 mt-0.5">
+                আপনি উপরোক্ত জামাতের প্রধান জিম্মাদার শিক্ষক। ছাত্র উপস্থিতি, পাঠদান শৃঙ্খলা ও সার্বিক তত্ত্বাবধান পরিচালনা করুন।
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href="/teacher-portal/students"
+              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl border border-white/20 transition"
+            >
+              শিক্ষার্থী তালিকা
+            </Link>
+            <Link
+              href="/teacher-portal/attendance"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition"
+            >
+              হাজিরা নিন
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* KPI Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -104,18 +193,22 @@ export default async function TeacherPortalOverview() {
             <BookOpen className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-slate-500 uppercase">মোট জামাত / শ্রেণি</p>
-            <p className="text-xl sm:text-2xl font-bold text-slate-900">{toBanglaNumber(totalClasses)} টি</p>
+            <p className="text-[11px] font-semibold text-slate-500 uppercase">বরাদ্দকৃত কিতাব</p>
+            <p className="text-xl sm:text-2xl font-bold text-slate-900">
+              {toBanglaNumber(teacherSchedule.assignedSubjects.length)} টি
+            </p>
           </div>
         </div>
 
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
-          <div className="p-3 bg-blue-50 text-blue-700 rounded-xl">
-            <Users className="w-5 h-5" />
+          <div className="p-3 bg-indigo-50 text-indigo-700 rounded-xl">
+            <Clock className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-slate-500 uppercase">মোট শিক্ষার্থী</p>
-            <p className="text-xl sm:text-2xl font-bold text-slate-900">{toBanglaNumber(totalStudents)} জন</p>
+            <p className="text-[11px] font-semibold text-slate-500 uppercase">আজকের ক্লাস</p>
+            <p className="text-xl sm:text-2xl font-bold text-indigo-700">
+              {toBanglaNumber(todayClasses.length)} টি
+            </p>
           </div>
         </div>
 
@@ -140,6 +233,74 @@ export default async function TeacherPortalOverview() {
             <p className="text-xl sm:text-2xl font-bold text-slate-900">{toBanglaNumber(todayHifzCount)} টি</p>
           </div>
         </div>
+      </div>
+
+      {/* Today's Teaching Schedule Card (আজকের পাঠদান রুটিন) */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2.5">
+            <Clock className="w-5 h-5 text-indigo-600" />
+            <div>
+              <h3 className="font-bold text-slate-900 text-base">
+                আজকের পাঠদান রুটিন ও সময়সূচি ({todayBangla})
+              </h3>
+              <p className="text-xs text-slate-500">
+                আজকের নির্ধারিত ক্লাস, সময় ও ক্লাসরুম নম্বর
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href="/teacher-portal/routine"
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 self-start sm:self-auto"
+          >
+            <span>সম্পূর্ণ সপ্তাহের রুটিন দেখুন</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        {todayClasses.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {todayClasses.map((r, idx) => {
+              const start = formatTimeString(r.start_time);
+              const end = formatTimeString(r.end_time);
+
+              return (
+                <div
+                  key={r.id || idx}
+                  className="p-4 bg-slate-50 hover:bg-indigo-50/50 rounded-xl border border-slate-200 hover:border-indigo-300 transition space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-md font-mono flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-indigo-600" />
+                      {toBanglaNumber(start)} - {toBanglaNumber(end)}
+                    </span>
+                    <span className="text-[10px] font-black px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded-md">
+                      {r.class_name}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h5 className="font-black text-slate-900 text-sm">{r.display_title || r.subject_name}</h5>
+                    <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-1">
+                      <span>জামাত: <strong>{r.class_name}</strong></span>
+                      {r.clean_room && (
+                        <span className="text-slate-400">| 📍 {r.clean_room}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="py-6 text-center text-slate-500 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
+            আজকে ({todayBangla}) আপনার কোনো নির্ধারিত ক্লাস নেই। সম্পূর্ণ রুটিন দেখতে{" "}
+            <Link href="/teacher-portal/routine" className="font-bold text-indigo-600 underline">
+              এখানে ক্লিক করুন
+            </Link>।
+          </div>
+        )}
       </div>
 
       {/* Early Warning System Alert Widget */}

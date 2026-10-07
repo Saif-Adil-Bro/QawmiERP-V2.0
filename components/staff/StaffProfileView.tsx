@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   StaffMember,
@@ -25,6 +25,15 @@ import {
   deleteStaffDocument,
   generateStaffIdCard,
 } from "@/app/actions/staff";
+import {
+  getTeacherAcademicSchedule,
+  TeacherAcademicSchedule,
+} from "@/app/actions/teacher_subjects";
+import {
+  formatTimeString,
+  DAY_KEYS,
+  DAY_TRANSLATIONS,
+} from "@/lib/routine-helper";
 import {
   User,
   Phone,
@@ -53,6 +62,13 @@ import {
   FileBadge,
   Building,
   BookOpen,
+  CalendarDays,
+  GraduationCap,
+  School,
+  Sparkles,
+  RefreshCw,
+  AlertCircle,
+  ExternalLink,
 } from "lucide-react";
 import StaffFormModal from "./StaffFormModal";
 import StaffIdCardModal from "./StaffIdCardModal";
@@ -100,6 +116,33 @@ export default function StaffProfileView({
   const [showIdCardModal, setShowIdCardModal] = useState(false);
   const [showCertModal, setShowCertModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  // Academic schedule & assigned classes state
+  const [academicData, setAcademicData] = useState<TeacherAcademicSchedule | null>(null);
+  const [isLoadingAcademic, setIsLoadingAcademic] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadAcademicSchedule() {
+      setIsLoadingAcademic(true);
+      try {
+        const data = await getTeacherAcademicSchedule(staff.id);
+        if (isMounted) {
+          setAcademicData(data);
+        }
+      } catch (err) {
+        console.error("Error fetching teacher academic schedule:", err);
+      } finally {
+        if (isMounted) {
+          setIsLoadingAcademic(false);
+        }
+      }
+    }
+    loadAcademicSchedule();
+    return () => {
+      isMounted = false;
+    };
+  }, [staff.id]);
 
   // Promotion / Transfer / Status modals
   const [showPromoteModal, setShowPromoteModal] = useState(false);
@@ -935,13 +978,315 @@ export default function StaffProfileView({
         </div>
       )}
 
-      {/* TAB 6: RESPONSIBILITIES & SUBJECTS */}
+      {/* TAB 6: RESPONSIBILITIES, ASSIGNED SUBJECTS & WEEKLY ROUTINE */}
       {activeTab === "responsibilities" && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 space-y-4">
+        <div className="space-y-6 animate-fade-in">
+          {/* Top Academic Summary Banner */}
+          <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-xs border border-slate-200/80 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-50 text-emerald-800 rounded-2xl border border-emerald-200">
+                  <CalendarDays className="w-6 h-6 text-emerald-700" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
+                    <span>পাঠদান, বিষয় বণ্টন ও সাপ্তাহিক ক্লাস রুটিন</span>
+                    {isLoadingAcademic && <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    উস্তাদের দায়িত্বপ্রাপ্ত জামাত, কিতাব এবং মাদরাসা রুটিন অনুযায়ী সাপ্তাহিক পাঠদানের পূর্ণাঙ্গ সময়সূচি
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  href={`/dashboard/teachers/${staff.id}/subjects`}
+                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>জামাত ও কিতাব বণ্টন</span>
+                </Link>
+
+                <Link
+                  href="/dashboard/academic/routine"
+                  className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-indigo-200"
+                >
+                  <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>রুটিন নির্মাতা</span>
+                </Link>
+              </div>
+            </div>
+
+            {/* Academic Stats Counters */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              <div className="p-4 bg-teal-50/60 border border-teal-200 rounded-2xl flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-teal-800">শ্রেণি জিম্মাদারি</p>
+                  <p className="text-lg font-black text-teal-950">
+                    {toBanglaNumber(academicData?.inChargeClasses.length || 0)} টি জামাত
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-2xl flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-emerald-800">বরাদ্দকৃত বিষয় / কিতাব</p>
+                  <p className="text-lg font-black text-emerald-950">
+                    {toBanglaNumber(academicData?.assignedSubjects.length || 0)} টি কিতাব
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-2xl flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-indigo-800">সাপ্তাহিক পাঠদান পিরিয়ড</p>
+                  <p className="text-lg font-black text-indigo-950">
+                    {toBanglaNumber(academicData?.routines.length || 0)} টি ক্লাস / ঘণ্টা
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 1: Class In-Charge Roles (শ্রেণি জিম্মাদারি) */}
+          <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-xs border border-slate-200/80 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-teal-700" />
+                <span>শ্রেণি জিম্মাদারি দায়িত্ব (Class In-Charge)</span>
+              </h3>
+              <Link
+                href="/dashboard/classes"
+                className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1"
+              >
+                <span>জামাত ব্যবস্থাপনা</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            {academicData?.inChargeClasses && academicData.inChargeClasses.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {academicData.inChargeClasses.map((cls) => (
+                  <div
+                    key={cls.class_id}
+                    className="p-4 bg-gradient-to-br from-teal-50 to-emerald-50/40 border border-teal-200 rounded-2xl space-y-2 shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="px-2.5 py-0.5 bg-teal-700 text-white rounded-full text-[10px] font-bold">
+                        শ্রেণি জিম্মাদার শিক্ষক
+                      </span>
+                    </div>
+                    <h4 className="text-base font-black text-slate-900">{cls.class_name}</h4>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      এই জামাতের সার্বিক পরিচালনা, উপস্থিতি, শৃঙ্খলা ও ছাত্র তদারকির প্রধান জিম্মাদার।
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 flex items-center justify-between">
+                <span>বর্তমানে কোনো শ্রেণির প্রধান জিম্মাদার হিসেবে নিযুক্ত নন।</span>
+                <Link
+                  href="/dashboard/classes"
+                  className="text-xs font-bold text-teal-700 hover:underline"
+                >
+                  জিম্মাদার শিক্ষক নিযুক্ত করুন →
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* Section 2: Assigned Subjects & Classes (বরাদ্দকৃত জামাত ও কিতাবসমূহ) */}
+          <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-xs border border-slate-200/80 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-emerald-700" />
+                <span>বরাদ্দকৃত জামাত ও কিতাব/বিষয়সমূহ (Assigned Subjects)</span>
+              </h3>
+              <Link
+                href={`/dashboard/teachers/${staff.id}/subjects`}
+                className="text-xs font-bold text-emerald-700 hover:text-emerald-900 flex items-center gap-1"
+              >
+                <span>কিতাব বণ্টন পরিবর্তন</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            {academicData?.assignedSubjects && academicData.assignedSubjects.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {academicData.assignedSubjects.map((sub) => (
+                  <div
+                    key={sub.id}
+                    className="p-4 bg-slate-50/80 hover:bg-emerald-50/40 border border-slate-200 hover:border-emerald-300 rounded-2xl transition space-y-2 shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-900 rounded-full text-[10px] font-bold border border-emerald-200">
+                        {sub.class_name}
+                      </span>
+                      {sub.subject_code && (
+                        <span className="text-[10px] font-mono text-slate-400">
+                          {sub.subject_code}
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="text-sm font-black text-slate-900">{sub.subject_name}</h4>
+                    <p className="text-[11px] text-slate-500">
+                      জামাত: <strong className="text-slate-700">{sub.class_name}</strong>
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-6 text-center bg-slate-50 border border-dashed border-slate-300 rounded-2xl space-y-3">
+                <BookOpen className="w-8 h-8 text-slate-300 mx-auto" />
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-700">কোনো জামাত বা কিতাব বরাদ্দ করা হয়নি</h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    এই শিক্ষকের জন্য এখনো কোনো শ্রেণি ও বিষয়/কিতাব নির্ধারণ করা হয়নি।
+                  </p>
+                </div>
+                <Link
+                  href={`/dashboard/teachers/${staff.id}/subjects`}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>জামাত ও কিতাব বরাদ্দ করুন</span>
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* Section 3: Weekly Class Routine & Schedule (সাপ্তাহিক ক্লাস রুটিন ও সময়সূচি) */}
+          <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-xs border border-slate-200/80 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-indigo-700" />
+                  <span>সাপ্তাহিক পাঠদান রুটিন ও সময়সূচি (Weekly Class Schedule)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  রুটিন অনুযায়ী সপ্তাহের কোন বারে কখন কোন জামাতের কোন বিষয়ে পাঠদান করবেন
+                </p>
+              </div>
+
+              <Link
+                href="/dashboard/academic/routine"
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 self-start sm:self-auto"
+              >
+                <span>মাদরাসা রুটিন ব্যবস্থাপনা</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            {academicData?.routines && academicData.routines.length > 0 ? (
+              <div className="space-y-4">
+                {DAY_KEYS.map((dayKey) => {
+                  const dayBangla = DAY_TRANSLATIONS[dayKey] || dayKey;
+                  const dayRoutines = (academicData.routines || []).filter(
+                    (r) => r.day_of_week === dayKey || r.day_of_week === dayBangla
+                  );
+
+                  return (
+                    <div
+                      key={dayKey}
+                      className="border border-slate-200/90 rounded-2xl overflow-hidden bg-slate-50/40"
+                    >
+                      <div className="bg-slate-100/90 px-4 py-2.5 flex items-center justify-between border-b border-slate-200">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-slate-600" />
+                          <span className="text-xs sm:text-sm font-black text-slate-900">{dayBangla}</span>
+                        </div>
+                        <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                          dayRoutines.length > 0
+                            ? "bg-indigo-100 text-indigo-900 border border-indigo-200"
+                            : "bg-slate-200/70 text-slate-500"
+                        }`}>
+                          {dayRoutines.length > 0 ? `${toBanglaNumber(dayRoutines.length)} টি ক্লাস` : "ছুটি / অফ-পিরিয়ড"}
+                        </span>
+                      </div>
+
+                      <div className="p-3 sm:p-4">
+                        {dayRoutines.length === 0 ? (
+                          <p className="text-xs text-slate-400 italic py-1">এই বারে কোনো ক্লাস নির্ধারিত নেই।</p>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {dayRoutines.map((routine) => {
+                              const startTimeFormatted = formatTimeString(routine.start_time);
+                              const endTimeFormatted = formatTimeString(routine.end_time);
+
+                              return (
+                                <div
+                                  key={routine.id}
+                                  className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2 hover:border-indigo-300 transition"
+                                >
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100 flex items-center gap-1 font-mono">
+                                      <Clock className="w-3 h-3 text-indigo-600" />
+                                      {toBanglaNumber(startTimeFormatted)} - {toBanglaNumber(endTimeFormatted)}
+                                    </span>
+                                    <span className="text-[10px] font-black px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded-md">
+                                      {routine.class_name}
+                                    </span>
+                                  </div>
+
+                                  <div>
+                                    <h5 className="text-xs sm:text-sm font-black text-slate-900">
+                                      {routine.display_title || routine.subject_name}
+                                    </h5>
+                                    <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-1">
+                                      <span>জামাত: {routine.class_name}</span>
+                                      {routine.clean_room && (
+                                        <span className="text-slate-400">| 📍 {routine.clean_room}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-2xl space-y-3">
+                <Clock className="w-10 h-10 text-slate-300 mx-auto" />
+                <div className="max-w-md mx-auto">
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-700">
+                    রুটিনে কোনো সময়সূচি বা ক্লাস পাওয়া যায়নি
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                    এই উস্তাদের জন্য এখনো সাপ্তাহিক ক্লাস রুটিন এন্ট্রি করা হয়নি অথবা রুটিনে উস্তাদের নাম নির্বাচন করা হয়নি। মাদরাসার রুটিন ম্যানেজারে গিয়ে ক্লাস ও সময়সূচি নির্ধারণ করুন।
+                  </p>
+                </div>
+                <Link
+                  href="/dashboard/academic/routine"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>রুটিন নির্ধারণ করুন</span>
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* Section 4: Other Assigned Institutional Roles */}
+          <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-xs border border-slate-200/80 space-y-4">
             <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
               <Layers className="w-4 h-4 text-emerald-700" />
-              <span>নিযুক্ত অতিরিক্ত দায়িত্বসমূহ (Assigned Roles & Responsibilities)</span>
+              <span>নিযুক্ত অতিরিক্ত প্রাতিষ্ঠানিক দায়িত্বসমূহ (Assigned Roles & Responsibilities)</span>
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
