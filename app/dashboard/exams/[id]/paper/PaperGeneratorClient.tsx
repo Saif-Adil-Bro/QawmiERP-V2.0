@@ -13,6 +13,7 @@ import SpecializedQuestionView, { getQuestionTypeBadge } from "@/components/exam
 import AutoPaperBlueprintModal from "@/components/exams/AutoPaperBlueprintModal";
 import QuestionSwapModal from "@/components/exams/QuestionSwapModal";
 import CloneFromPastModal from "@/components/exams/CloneFromPastModal";
+import QuestionWordEditorModal from "@/components/exams/QuestionWordEditorModal";
 import { 
   AutoPaperBlueprint, 
   BUILT_IN_BLUEPRINTS, 
@@ -103,6 +104,9 @@ export default function PaperGeneratorClient({
     }
   ]);
   const [activeSectionId, setActiveSectionId] = useState<string>("sec-1");
+
+  // Word-style Editor Modal state
+  const [isWordEditorOpen, setIsWordEditorOpen] = useState(false);
 
   // Fallback for unsectioned mode
   const [unsectionedQuestions, setUnsectionedQuestions] = useState<any[]>([]);
@@ -920,6 +924,15 @@ export default function PaperGeneratorClient({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            <button
+              type="button"
+              onClick={() => setIsWordEditorOpen(true)}
+              className="flex items-center space-x-2 px-3.5 py-2.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-100 transition flex-1 md:flex-none justify-center cursor-pointer font-semibold text-sm shadow-2xs"
+              title="এমএস ওয়ার্ডের মতো লাইট টেক্সট এডিটরে কাস্টম প্রশ্নপত্র লিখুন ও পেজ সাজান"
+            >
+              <FileText className="w-4 h-4 text-blue-600" />
+              <span>ওয়ার্ড স্টাইল এডিটর</span>
+            </button>
             <button
               type="button"
               onClick={() => setIsCloneFromPastModalOpen(true)}
@@ -2424,6 +2437,17 @@ export default function PaperGeneratorClient({
         subjects={subjects}
         onApplyPastPaper={handleApplyPastPaper}
       />
+
+      {/* Word-Style Rich Document Editor Modal */}
+      {isWordEditorOpen && (
+        <QuestionWordEditorModal
+          examTitle={paperTitle || examName}
+          subjectName={subjects.find(s => s.id === subjectId)?.name || "কুরআন ও হাদিস"}
+          className={classes.find(c => c.id === classId)?.name || "জামাতে তাইসির"}
+          madrasaName={customMadrasaName}
+          onClose={() => setIsWordEditorOpen(false)}
+        />
+      )}
     </div>
   );
 }
