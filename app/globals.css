@@ -207,11 +207,29 @@ html, body, input, textarea, select, button {
     page-break-inside: avoid !important;
   }
   /* Single-page fit container */
-  .print-single-page {
+  .print-single-page, .amal-single-page {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
-    max-height: 100% !important;
+    max-height: 278mm !important;
     box-sizing: border-box !important;
+  }
+  .amal-single-page {
+    width: 100% !important;
+    max-width: 202mm !important;
+    height: 278mm !important;
+    min-height: 270mm !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    background: #ffffff !important;
+  }
+  .amal-single-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
   /* A4 ID Card Sheet: 6 cards per page (2 columns x 3 rows) */
   .a4-id-card-sheet {

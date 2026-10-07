@@ -152,9 +152,32 @@ export default function AmalTrackerClient({
   // Current Student for Preview
   const currentPreviewStudent = studentSnapshots[currentStudentIndex] || studentSnapshots[0];
 
-  // Print Handler (Triggers Native High-Resolution A4 Browser Print)
+  // Print Handler (Triggers Isolated High-Resolution A4 Browser Print)
   const handlePrint = () => {
-    window.print();
+    const printableElement = document.getElementById("amal-tracker-printable-area");
+    if (!printableElement) {
+      window.print();
+      return;
+    }
+
+    const existing = document.getElementById("temp-print-frame");
+    if (existing) existing.remove();
+
+    const clone = printableElement.cloneNode(true) as HTMLElement;
+    clone.id = "temp-print-frame";
+    clone.classList.remove("hidden");
+    clone.classList.add("block");
+    document.body.appendChild(clone);
+    document.body.classList.add("is-printing-now");
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove("is-printing-now");
+        const temp = document.getElementById("temp-print-frame");
+        if (temp) temp.remove();
+      }, 500);
+    }, 150);
   };
 
   // Open Template Modal for Editing or New
@@ -689,10 +712,60 @@ export default function AmalTrackerClient({
               </div>
             </div>
 
-            {/* HIDDEN PRINT-ONLY CONTAINER: Renders ALL students for physical printer / PDF */}
-            <div className="hidden print:block w-full">
+            {/* HIDDEN PRINT-ONLY CONTAINER WITH TAILORED AMAL TRACKER PRINT CSS */}
+            <div id="amal-tracker-printable-area" className="hidden">
+              <style dangerouslySetInnerHTML={{
+                __html: `
+                  @media print {
+                    @page {
+                      size: A4 portrait;
+                      margin: 3mm 4mm 3mm 4mm !important;
+                    }
+                    *, *::before, *::after {
+                      -webkit-print-color-adjust: exact !important;
+                      print-color-adjust: exact !important;
+                      box-sizing: border-box !important;
+                      box-shadow: none !important;
+                    }
+                    body {
+                      background: #ffffff !important;
+                      color: #0f172a !important;
+                      margin: 0 !important;
+                      padding: 0 !important;
+                    }
+                    #temp-print-frame {
+                      width: 100% !important;
+                      max-width: 100% !important;
+                      margin: 0 auto !important;
+                      padding: 0 !important;
+                    }
+                    .amal-single-page {
+                      width: 100% !important;
+                      max-width: 202mm !important;
+                      height: 278mm !important;
+                      max-height: 278mm !important;
+                      min-height: 270mm !important;
+                      padding: 0 !important;
+                      margin: 0 auto !important;
+                      display: flex !important;
+                      flex-direction: column !important;
+                      justify-content: space-between !important;
+                      page-break-inside: avoid !important;
+                      break-inside: avoid !important;
+                      page-break-after: always !important;
+                      break-after: page !important;
+                      box-sizing: border-box !important;
+                      background: #ffffff !important;
+                    }
+                    .amal-single-page:last-child {
+                      page-break-after: auto !important;
+                      break-after: auto !important;
+                    }
+                  }
+                `
+              }} />
               {studentSnapshots.map((snap, idx) => (
-                <div key={snap.studentId + idx} className="print-page-break">
+                <div key={snap.studentId + idx} className="amal-sheet-print-wrapper">
                   <AmalSheetA4
                     template={activeTemplate}
                     student={snap}
