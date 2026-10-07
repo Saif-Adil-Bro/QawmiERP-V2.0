@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
-  FileText, Printer, Download, Save, X, RotateCcw, RotateCw,
+  FileText, Printer, Save, X, RotateCcw, RotateCw,
   Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter,
   AlignRight, AlignJustify, List, ListOrdered, Table, Plus, Trash2,
   Columns, Sparkles, LayoutTemplate, Palette, Eye, ZoomIn, ZoomOut,
   Maximize2, Minimize2, Check, ArrowLeftRight, HelpCircle, Subscript,
-  Superscript, Type, Eraser, Scissors, Copy, SplitSquareVertical
+  Superscript, Type, Eraser, Scissors, Copy, SplitSquareVertical,
+  CornerDownLeft, CornerRightDown, Heading1, Heading2, Heading3,
+  Sliders, ArrowDown, MoveDown, Info
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
@@ -24,7 +26,8 @@ interface QuestionWordEditorModalProps {
 export type PageSize = "A4" | "Letter" | "Legal";
 export type PageOrientation = "portrait" | "landscape";
 export type ColumnCount = 1 | 2 | 3;
-export type MarginSize = "narrow" | "normal" | "moderate";
+export type MarginSize = "tight" | "narrow" | "normal" | "moderate";
+export type ColumnFillMode = "full_height" | "free_flow" | "balance";
 
 export default function QuestionWordEditorModal({
   initialContent,
@@ -35,9 +38,10 @@ export default function QuestionWordEditorModal({
   onSave,
   onClose,
 }: QuestionWordEditorModalProps) {
+  const headerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
 
-  // Active Ribbon Tab: home (formatting), layout (page & columns), insert (tables & marks), view (preview & print)
+  // Active Ribbon Tab
   const [activeRibbonTab, setActiveRibbonTab] = useState<"home" | "layout" | "insert" | "view">("home");
 
   // Page Format Settings
@@ -45,12 +49,20 @@ export default function QuestionWordEditorModal({
   const [orientation, setOrientation] = useState<PageOrientation>("portrait");
   const [columns, setColumns] = useState<ColumnCount>(2);
   const [hasColumnDivider, setHasColumnDivider] = useState(true);
-  const [marginSize, setMarginSize] = useState<MarginSize>("normal");
-  const [borderStyle, setBorderStyle] = useState<"simple" | "double" | "none">("double");
+  const [columnFillMode, setColumnFillMode] = useState<ColumnFillMode>("full_height");
+  const [marginSize, setMarginSize] = useState<MarginSize>("tight");
+  const [customBottomMarginMm, setCustomBottomMarginMm] = useState<number>(6);
+  const [borderStyle, setBorderStyle] = useState<"double" | "simple" | "none">("double");
   const [selectedFont, setSelectedFont] = useState("SolaimanLipi");
-  const [fontSizePt, setFontSizePt] = useState<string>("14");
+  const [fontSizePt, setFontSizePt] = useState<string>("13");
   const [zoomLevel, setZoomLevel] = useState<number>(95);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showHeader, setShowHeader] = useState(true);
+
+  // Undo / Redo History Stack State
+  const [historyStack, setHistoryStack] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const isUndoRedoAction = useRef(false);
 
   // Table Grid Insert Dimensions
   const [tableRows, setTableRows] = useState(3);
@@ -61,97 +73,162 @@ export default function QuestionWordEditorModal({
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
 
-  // Default Template if initialContent is empty
-  const defaultExamTemplate = `
-    <div style="text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px;">
-      <div style="font-family: 'Amiri', 'Traditional Arabic', serif; font-size: 16px; color: #064e3b; margin-bottom: 4px;" dir="rtl">
-        بِسْمِ اللَّهِ الرَّحْمٰনِ الرَّحِيمِ
+  // Default Full-Width Top Header Template
+  const defaultHeaderTemplate = `
+    <div style="text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 5px; margin-bottom: 6px;">
+      <div style="font-family: 'Amiri', 'Traditional Arabic', serif; font-size: 15px; color: #064e3b; margin-bottom: 2px;" dir="rtl">
+        بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ
       </div>
-      <h1 style="font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; line-height: 1.2;">
+      <h1 style="font-size: 19px; font-weight: 800; color: #0f172a; margin: 0; line-height: 1.2;">
         ${madrasaName}
       </h1>
-      <div style="font-size: 14px; font-weight: 700; color: #334155; margin-top: 2px;">
+      <div style="font-size: 13px; font-weight: 700; color: #334155; margin-top: 2px;">
         ${examTitle}
       </div>
-      <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; color: #1e293b; border-top: 1px dashed #64748b; margin-top: 6px; padding-top: 4px;">
+      <div style="display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; color: #1e293b; border-top: 1px dashed #64748b; margin-top: 3px; padding-top: 2px;">
         <span>জামাত: ${targetClassName}</span>
         <span>বিষয়: ${subjectName}</span>
         <span>সময়: ২ ঘণ্টা ৩০ মিনিট</span>
         <span>পূর্ণমান: ১০০</span>
       </div>
     </div>
-
-    <div style="font-size: 12px; font-style: italic; color: #475569; margin-bottom: 10px; border-left: 3px solid #059669; padding-left: 6px;">
+    <div style="font-size: 10.5px; font-style: italic; color: #475569; margin-bottom: 6px; border-left: 3px solid #059669; padding-left: 5px;">
       [বিশেষ দ্রষ্টব্য: সকল প্রশ্নের উত্তর দেওয়া আবশ্যক। ডান পাশের সংখ্যা প্রশ্নের পূর্ণমান জ্ঞাপক।]
-    </div>
-
-    <div style="margin-bottom: 12px;">
-      <div style="background-color: #f1f5f9; padding: 4px 8px; font-weight: 800; font-size: 14px; color: #0f172a; border-left: 4px solid #0284c7; margin-bottom: 8px;">
-        ক-বিভাগ: কুরআন ও হাদিস (মান: ৫০)
-      </div>
-
-      <p style="margin-bottom: 6px; line-height: 1.6;">
-        <strong>১. </strong> নিম্নের আয়াতুল কারিমার সহিহ তরজমা ও প্রাসঙ্গিক শানে নুযুল বিস্তারিত আলোচনা করো: <span style="float: right; font-weight: bold; color: #0f172a;">[১০]</span>
-      </p>
-      <div style="font-family: 'Amiri', serif; font-size: 17px; text-align: right; background-color: #f8fafc; padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 4px; margin: 6px 0;" dir="rtl">
-        « إِنَّ الدِّينَ عِندَ اللَّهِ الْإِسْلَامُ ۗ وَمَا اخْتَلَفَ الَّذِينَ أُوتُوا الْكِتَابَ إِلَّا مِن بَعْدِ مَا جَاءَهُمُ الْعِلْمُ »
-      </div>
-
-      <p style="margin-bottom: 6px; line-height: 1.6;">
-        <strong>২. </strong> যেকোনো পাঁচটি হাদিসের অর্থ ও সংক্ষিপ্ত ব্যাখ্যা লিখ: <span style="float: right; font-weight: bold; color: #0f172a;">[১০]</span>
-      </p>
-      <p style="margin-bottom: 4px; padding-left: 16px;">(ক) طلب العلم فريضة على كل مسلم</p>
-      <p style="margin-bottom: 4px; padding-left: 16px;">(খ) خيركم من تعلم القرآن وعلمه</p>
-      <p style="margin-bottom: 4px; padding-left: 16px;">(গ) الدين النصيحة</p>
-    </div>
-
-    <div style="margin-bottom: 12px;">
-      <div style="background-color: #f1f5f9; padding: 4px 8px; font-weight: 800; font-size: 14px; color: #0f172a; border-left: 4px solid #059669; margin-bottom: 8px;">
-        খ-বিভাগ: ফিকহ ও ফতোয়া (মান: ৫০)
-      </div>
-
-      <p style="margin-bottom: 6px; line-height: 1.6;">
-        <strong>৩. </strong> সালাতের আরকান ও আহকামের বিবরণ দিয়ে তালিকাটি পূর্ণ করো: <span style="float: right; font-weight: bold; color: #0f172a;">[১০]</span>
-      </p>
-
-      <table style="width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; text-align: center;">
-        <thead>
-          <tr style="background-color: #e2e8f0; font-weight: bold;">
-            <th style="border: 1px solid #475569; padding: 4px;">নং</th>
-            <th style="border: 1px solid #475569; padding: 4px;">নামাজের আহকাম (বাইরের ফরজ)</th>
-            <th style="border: 1px solid #475569; padding: 4px;">নামাজের আরকান (ভিতরের ফরজ)</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style="border: 1px solid #475569; padding: 4px;">১</td>
-            <td style="border: 1px solid #475569; padding: 4px;">শরীর পাক হওয়া</td>
-            <td style="border: 1px solid #475569; padding: 4px;">তাকবীরে তাহরীমা</td>
-          </tr>
-          <tr>
-            <td style="border: 1px solid #475569; padding: 4px;">২</td>
-            <td style="border: 1px solid #475569; padding: 4px;">কাপড় পাক হওয়া</td>
-            <td style="border: 1px solid #475569; padding: 4px;">কিয়াম (দাঁড়ানো)</td>
-          </tr>
-        </tbody>
-      </table>
     </div>
   `;
 
-  // Initialize Content
+  // Default Questions Body Template
+  const defaultQuestionsBodyTemplate = `
+    <div style="background-color: #f1f5f9; padding: 3px 6px; font-weight: 800; font-size: 13px; color: #0f172a; border-left: 3px solid #0284c7; margin-bottom: 6px;">
+      ক-বিভাগ: কুরআন ও হাদিস (মান: ৫০)
+    </div>
+
+    <p style="margin: 4px 0 6px 0; line-height: 1.5; font-size: 13px;">
+      <strong>১. </strong> নিম্নের আয়াতুল কারিমার সহিহ তরজমা ও প্রাসঙ্গিক শানে নুযুল বিস্তারিত আলোচনা করো: <span style="float: right; font-weight: bold; color: #0f172a;">[১০]</span>
+    </p>
+    <div style="font-family: 'Amiri', serif; font-size: 16px; text-align: right; background-color: #f8fafc; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; margin: 4px 0 6px 0;" dir="rtl">
+      « إِنَّ الدِّينَ عِندَ اللَّهِ الْإِسْلَامُ ۗ وَمَا اخْتَلَفَ الَّذِينَ أُوتُوا الْكِتَابَ إِلَّا مِن بَعْدِ مَا جَاءَهُمُ الْعِلْمُ »
+    </div>
+
+    <p style="margin: 4px 0 6px 0; line-height: 1.5; font-size: 13px;">
+      <strong>২. </strong> যেকোনো পাঁচটি হাদিসের অর্থ ও সংক্ষিপ্ত ব্যাখ্যা লিখ: <span style="float: right; font-weight: bold; color: #0f172a;">[১০]</span>
+    </p>
+    <p style="margin: 2px 0 2px 14px; font-size: 12.5px;">(ক) طلب العلم فريضة على كل مسلم</p>
+    <p style="margin: 2px 0 2px 14px; font-size: 12.5px;">(খ) خيركم من تعلم القرآن وعلمه</p>
+    <p style="margin: 2px 0 2px 14px; font-size: 12.5px;">(গ) الدين النصيحة</p>
+
+    <div style="background-color: #f1f5f9; padding: 3px 6px; font-weight: 800; font-size: 13px; color: #0f172a; border-left: 3px solid #059669; margin: 8px 0 6px 0;">
+      খ-বিভাগ: ফিকহ ও ফতোয়া (মান: ৫০)
+    </div>
+
+    <p style="margin: 4px 0 6px 0; line-height: 1.5; font-size: 13px;">
+      <strong>৩. </strong> সালাতের আরকান ও আহকামের বিবরণ দিয়ে নিচের তালিকাটি পূর্ণ করো: <span style="float: right; font-weight: bold; color: #0f172a;">[১০]</span>
+    </p>
+
+    <table style="width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 11.5px; text-align: center;">
+      <thead>
+        <tr style="background-color: #e2e8f0; font-weight: bold;">
+          <th style="border: 1px solid #475569; padding: 3px;">নং</th>
+          <th style="border: 1px solid #475569; padding: 3px;">নামাজের আহকাম</th>
+          <th style="border: 1px solid #475569; padding: 3px;">নামাজের আরকান</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="border: 1px solid #475569; padding: 3px;">১</td>
+          <td style="border: 1px solid #475569; padding: 3px;">শরীর পাক হওয়া</td>
+          <td style="border: 1px solid #475569; padding: 3px;">তাকবীরে তাহরীমা</td>
+        </tr>
+        <tr>
+          <td style="border: 1px solid #475569; padding: 3px;">২</td>
+          <td style="border: 1px solid #475569; padding: 3px;">কাপড় পাক হওয়া</td>
+          <td style="border: 1px solid #475569; padding: 3px;">কিয়াম (দাঁড়ানো)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="margin: 4px 0 6px 0; line-height: 1.5; font-size: 13px;">
+      <strong>৪. </strong> অজু ভঙ্গের কারণ কয়টি ও কি কি? বিস্তারিত লিপিবদ্ধ করো। <span style="float: right; font-weight: bold; color: #0f172a;">[১০]</span>
+    </p>
+    <p style="margin: 4px 0 6px 0; line-height: 1.5; font-size: 13px;">
+      <strong>৫. </strong> সংক্ষেপে উত্তর দাও: (ক) তায়াম্মুমের ফরজ কয়টি? (খ) আজানের বাক্যসমূহ লিখ। <span style="float: right; font-weight: bold; color: #0f172a;">[১০]</span>
+    </p>
+  `;
+
+  // Push snapshot to undo stack
+  const saveSnapshot = useCallback(() => {
+    if (isUndoRedoAction.current) return;
+    const currentHtml = editorRef.current?.innerHTML || "";
+    setHistoryStack((prev) => {
+      const sliced = prev.slice(0, historyIndex + 1);
+      if (sliced.length > 0 && sliced[sliced.length - 1] === currentHtml) {
+        return prev;
+      }
+      return [...sliced, currentHtml].slice(-30); // keep last 30 states
+    });
+    setHistoryIndex((prev) => Math.min(prev + 1, 29));
+  }, [historyIndex]);
+
+  // Initialize Content & History
   useEffect(() => {
+    if (headerRef.current) {
+      headerRef.current.innerHTML = defaultHeaderTemplate;
+    }
     if (editorRef.current) {
-      editorRef.current.innerHTML = initialContent || defaultExamTemplate;
+      const content = initialContent || defaultQuestionsBodyTemplate;
+      editorRef.current.innerHTML = content;
+      setHistoryStack([content]);
+      setHistoryIndex(0);
       updateStats();
     }
   }, []);
 
   const updateStats = () => {
-    if (!editorRef.current) return;
-    const text = editorRef.current.innerText || "";
-    setCharCount(text.length);
-    const words = text.trim().split(/\s+/).filter(Boolean);
+    const headText = headerRef.current?.innerText || "";
+    const bodyText = editorRef.current?.innerText || "";
+    const fullText = headText + " " + bodyText;
+    setCharCount(fullText.length);
+    const words = fullText.trim().split(/\s+/).filter(Boolean);
     setWordCount(words.length);
+  };
+
+  const handleEditorInput = () => {
+    updateStats();
+    saveSnapshot();
+  };
+
+  // Perform Undo
+  const handleUndo = () => {
+    if (historyIndex > 0 && editorRef.current) {
+      isUndoRedoAction.current = true;
+      const targetIndex = historyIndex - 1;
+      editorRef.current.innerHTML = historyStack[targetIndex] || "";
+      setHistoryIndex(targetIndex);
+      updateStats();
+      setTimeout(() => {
+        isUndoRedoAction.current = false;
+      }, 50);
+    } else {
+      document.execCommand("undo");
+      updateStats();
+    }
+  };
+
+  // Perform Redo
+  const handleRedo = () => {
+    if (historyIndex < historyStack.length - 1 && editorRef.current) {
+      isUndoRedoAction.current = true;
+      const targetIndex = historyIndex + 1;
+      editorRef.current.innerHTML = historyStack[targetIndex] || "";
+      setHistoryIndex(targetIndex);
+      updateStats();
+      setTimeout(() => {
+        isUndoRedoAction.current = false;
+      }, 50);
+    } else {
+      document.execCommand("redo");
+      updateStats();
+    }
   };
 
   // Execute standard formatting commands
@@ -160,6 +237,7 @@ export default function QuestionWordEditorModal({
     if (editorRef.current) {
       editorRef.current.focus();
       updateStats();
+      saveSnapshot();
     }
   };
 
@@ -186,41 +264,172 @@ export default function QuestionWordEditorModal({
           sel.addRange(range);
         }
       } else {
-        execCmd("insertHTML", html);
+        document.execCommand("insertHTML", false, html);
       }
     } else {
-      execCmd("insertHTML", html);
+      document.execCommand("insertHTML", false, html);
     }
     updateStats();
+    saveSnapshot();
+  };
+
+  // Insert a 100% Fresh, Clean Paragraph (Unformatted New Line) that breaks out of any container
+  const insertFreshParagraph = (prefixText = "") => {
+    if (!editorRef.current) return;
+
+    const sel = window.getSelection();
+    const pTag = document.createElement("p");
+    pTag.style.margin = "4px 0 6px 0";
+    pTag.style.lineHeight = "1.5";
+    pTag.style.fontSize = "inherit";
+    pTag.style.color = "#0f172a";
+    pTag.style.textAlign = "left";
+    pTag.style.backgroundColor = "transparent";
+    pTag.style.border = "none";
+    pTag.style.padding = "0";
+
+    if (prefixText) {
+      pTag.innerHTML = `${prefixText}&nbsp;`;
+    } else {
+      pTag.innerHTML = "<br>";
+    }
+
+    if (sel && sel.rangeCount > 0 && sel.anchorNode) {
+      const range = sel.getRangeAt(0);
+      let currentNode: Node | null = sel.anchorNode;
+
+      // Find highest container block inside editorRef
+      let blockNode: HTMLElement | null = null;
+      while (currentNode && currentNode !== editorRef.current) {
+        if (
+          currentNode.nodeType === Node.ELEMENT_NODE &&
+          (currentNode as HTMLElement).tagName.match(/^(DIV|H1|H2|H3|H4|TABLE|BLOCKQUOTE|SECTION|P|LI|UL|OL)$/i)
+        ) {
+          blockNode = currentNode as HTMLElement;
+        }
+        currentNode = currentNode.parentNode;
+      }
+
+      if (blockNode && blockNode.parentNode) {
+        // Insert clean paragraph right after the current block container
+        blockNode.parentNode.insertBefore(pTag, blockNode.nextSibling);
+        
+        // Move selection cursor to the new clean paragraph
+        const newRange = document.createRange();
+        newRange.selectNodeContents(pTag);
+        newRange.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+        editorRef.current.focus();
+        updateStats();
+        saveSnapshot();
+        return;
+      }
+    }
+
+    // Fallback if no block found: append or insert
+    editorRef.current.appendChild(pTag);
+    const newRange = document.createRange();
+    newRange.selectNodeContents(pTag);
+    newRange.collapse(false);
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+    }
+    editorRef.current.focus();
+    updateStats();
+    saveSnapshot();
+  };
+
+  // KeyDown Handler: Fix Enter Key & keyboard shortcuts
+  const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Undo / Redo Keyboard shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z)
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        handleRedo();
+      } else {
+        handleUndo();
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+      e.preventDefault();
+      handleRedo();
+      return;
+    }
+
+    // Enter Key Handler: Break out cleanly and create fresh clean paragraph
+    if (e.key === "Enter" && !e.shiftKey) {
+      const sel = window.getSelection();
+      if (sel && sel.anchorNode && editorRef.current) {
+        let node: Node | null = sel.anchorNode;
+        let isInsideStyledBlock = false;
+        let blockToBreakOutOf: HTMLElement | null = null;
+
+        while (node && node !== editorRef.current) {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node as HTMLElement;
+            // Check if inside styled div, heading, blockquote, ribbon, or table
+            if (
+              el.tagName.match(/^(H1|H2|H3|H4|BLOCKQUOTE)$/i) ||
+              el.style.backgroundColor ||
+              el.style.border ||
+              el.classList.contains("section-ribbon") ||
+              el.getAttribute("dir") === "rtl"
+            ) {
+              isInsideStyledBlock = true;
+              blockToBreakOutOf = el;
+              break;
+            }
+          }
+          node = node.parentNode;
+        }
+
+        if (isInsideStyledBlock && blockToBreakOutOf) {
+          e.preventDefault();
+          insertFreshParagraph();
+          return;
+        }
+      }
+    }
   };
 
   // Insert Table
   const handleInsertTable = () => {
-    let tableHtml = `<table style="width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 13px; text-align: left;">
+    let tableHtml = `<table style="width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 12px; text-align: left;">
       <thead>
         <tr style="background-color: #f1f5f9; font-weight: bold;">`;
     for (let c = 1; c <= tableCols; c++) {
-      tableHtml += `<th style="border: 1px solid #475569; padding: 5px 8px;">হেডার ${toBanglaNumber(c)}</th>`;
+      tableHtml += `<th style="border: 1px solid #475569; padding: 4px 6px;">হেডার ${toBanglaNumber(c)}</th>`;
     }
     tableHtml += `</tr></thead><tbody>`;
     for (let r = 1; r <= tableRows; r++) {
       tableHtml += `<tr>`;
       for (let c = 1; c <= tableCols; c++) {
-        tableHtml += `<td style="border: 1px solid #475569; padding: 5px 8px;">তথ্য</td>`;
+        tableHtml += `<td style="border: 1px solid #475569; padding: 4px 6px;">তথ্য</td>`;
       }
       tableHtml += `</tr>`;
     }
-    tableHtml += `</tbody></table><p><br></p>`;
+    tableHtml += `</tbody></table><p style="margin: 4px 0;"><br></p>`;
     insertHTML(tableHtml);
     setIsTableMenuOpen(false);
   };
 
-  // Handle Save
+  // Handle Save Document
   const handleSaveDocument = () => {
-    if (!editorRef.current) return;
-    const content = editorRef.current.innerHTML;
+    const head = headerRef.current?.innerHTML || "";
+    const body = editorRef.current?.innerHTML || "";
+    const fullHtml = `
+      <div class="exam-paper-saved-doc">
+        ${showHeader ? `<div class="exam-paper-header">${head}</div>` : ""}
+        <div class="exam-paper-body" style="column-count: ${columns}; column-gap: 20px;">
+          ${body}
+        </div>
+      </div>
+    `;
     if (onSave) {
-      onSave(content);
+      onSave(fullHtml);
     }
     alert("প্রশ্নপত্রের ডকুমেন্ট সফলভাবে সংরক্ষণ করা হয়েছে!");
   };
@@ -254,14 +463,31 @@ export default function QuestionWordEditorModal({
   };
 
   // Margin CSS mapping
-  const marginPaddingMap: Record<MarginSize, string> = {
-    narrow: "10mm",
-    normal: "14mm",
-    moderate: "18mm",
+  const marginPaddingMap: Record<MarginSize, { top: string; right: string; bottom: string; left: string }> = {
+    tight: { top: "4mm", right: "6mm", bottom: `${customBottomMarginMm}mm`, left: "6mm" },
+    narrow: { top: "6mm", right: "8mm", bottom: `${customBottomMarginMm}mm`, left: "8mm" },
+    normal: { top: "10mm", right: "12mm", bottom: `${customBottomMarginMm}mm`, left: "12mm" },
+    moderate: { top: "14mm", right: "16mm", bottom: `${customBottomMarginMm}mm`, left: "16mm" },
   };
 
+  // Page Dimension Calculations for exact A4/Letter full-height reach
+  const pageHeightMm = orientation === "portrait"
+    ? (pageSize === "Letter" ? 279.4 : pageSize === "Legal" ? 355.6 : 297)
+    : (pageSize === "Letter" ? 215.9 : pageSize === "Legal" ? 215.9 : 210);
+
+  const pageWidthMm = orientation === "portrait"
+    ? (pageSize === "Letter" ? 215.9 : pageSize === "Legal" ? 215.9 : 210)
+    : (pageSize === "Letter" ? 279.4 : pageSize === "Legal" ? 355.6 : 297);
+
+  // Available column height inside the page without dead space
+  const currentMargin = marginPaddingMap[marginSize];
+  const topMarginVal = parseInt(currentMargin.top) || 6;
+  const bottomMarginVal = customBottomMarginMm || 6;
+  const headerEstimateMm = showHeader ? 32 : 0;
+  const targetAvailableHeightMm = Math.max(140, pageHeightMm - topMarginVal - bottomMarginVal - headerEstimateMm - 4);
+
   return (
-    <div className={`fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex flex-col ${isFullscreen ? "p-0" : "p-2 sm:p-4"}`}>
+    <div className={`fixed inset-0 z-50 bg-slate-900/85 backdrop-blur-xs flex flex-col ${isFullscreen ? "p-0" : "p-2 sm:p-4"}`}>
       <div className={`bg-slate-100 rounded-2xl shadow-2xl border border-slate-700 flex flex-col w-full h-full overflow-hidden`}>
         
         {/* TOP TITLEBAR */}
@@ -274,8 +500,8 @@ export default function QuestionWordEditorModal({
             <div>
               <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>প্রশ্নপত্র লাইট টেক্সট ও ডকুমেন্ট এডিটর</span>
-                <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
-                  {pageSize} • {columns} কলাম • {orientation === "portrait" ? "লম্বালম্বি" : "আড়াআড়ি"}
+                <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700 font-sans">
+                  {pageSize} • {columns} কলাম • {columnFillMode === "full_height" ? "নিচ পর্যন্ত পূর্ণ (Full Reach)" : "ফ্রি ফ্লো"}
                 </span>
               </h2>
             </div>
@@ -303,7 +529,7 @@ export default function QuestionWordEditorModal({
             <button
               type="button"
               onClick={() => setIsFullscreen(!isFullscreen)}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
               title={isFullscreen ? "ছোট করুন" : "ফুলস্ক্রিন"}
             >
               {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -312,7 +538,7 @@ export default function QuestionWordEditorModal({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
+              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
               title="বন্ধ করুন"
             >
               <X className="w-5 h-5" />
@@ -342,7 +568,7 @@ export default function QuestionWordEditorModal({
                 : "text-slate-400 hover:text-white hover:bg-slate-700/50"
             }`}
           >
-            পেজ ও কলাম লেআউট
+            পেজ ও কলাম লেআউট (মার্জিন ফিক্স)
           </button>
           <button
             type="button"
@@ -364,18 +590,55 @@ export default function QuestionWordEditorModal({
                 : "text-slate-400 hover:text-white hover:bg-slate-700/50"
             }`}
           >
-            ভিউ ও প্রিন্ট সেটিংস
+            ভিউ ও প্রিভিউ
           </button>
         </div>
 
         {/* RIBBON TOOLBAR ACTIONS */}
-        <div className="bg-slate-200/90 border-b border-slate-300 p-2 text-xs flex flex-wrap items-center gap-x-3 gap-y-1.5 shrink-0 select-none shadow-2xs">
+        <div className="bg-slate-200/90 border-b border-slate-300 p-2 text-xs flex flex-wrap items-center gap-x-2.5 gap-y-1.5 shrink-0 select-none shadow-2xs">
           
-          {/* TAB 1: HOME (Typography & Formatting) */}
+          {/* TAB 1: HOME (Undo, Redo, Fresh New Line, Typography & Formatting) */}
           {activeRibbonTab === "home" && (
             <div className="flex flex-wrap items-center gap-1.5 w-full">
+              
+              {/* Undo / Redo Group */}
+              <div className="flex items-center bg-white rounded-lg border border-slate-300 p-0.5 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={historyIndex <= 0}
+                  className="px-2 py-1.5 hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent rounded text-slate-800 font-bold transition cursor-pointer flex items-center gap-1"
+                  title="পূর্বাবস্থায় ফিরুন (Undo - Ctrl+Z)"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="text-[11px]">আন্ডো</span>
+                </button>
+                <div className="w-px h-4 bg-slate-200" />
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={historyIndex >= historyStack.length - 1}
+                  className="px-2 py-1.5 hover:bg-blue-50 disabled:opacity-40 disabled:hover:bg-transparent rounded text-slate-800 font-bold transition cursor-pointer flex items-center gap-1"
+                  title="পুনরায় করুন (Redo - Ctrl+Y)"
+                >
+                  <RotateCw className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="text-[11px]">রিডো</span>
+                </button>
+              </div>
+
+              {/* Dedicated Fresh Clean New Line Action */}
+              <button
+                type="button"
+                onClick={() => insertFreshParagraph()}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+                title="কোনো ব্যাকগ্রাউন্ড/বর্ডার ছাড়াই একেবারে নতুন ও ফ্রেশ সাধারণ লাইন তৈরি করুন"
+              >
+                <CornerDownLeft className="w-3.5 h-3.5" />
+                <span>নতুন ফ্রেশ লাইন (Enter)</span>
+              </button>
+
               {/* Heading Selector */}
-              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-300">
+              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-300 shadow-2xs">
                 <select
                   onChange={(e) => {
                     const tag = e.target.value;
@@ -396,7 +659,7 @@ export default function QuestionWordEditorModal({
               </div>
 
               {/* Font Family Selector */}
-              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-300">
+              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-300 shadow-2xs">
                 <select
                   value={selectedFont}
                   onChange={(e) => {
@@ -416,20 +679,22 @@ export default function QuestionWordEditorModal({
               </div>
 
               {/* Font Size Selector */}
-              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-300">
+              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-300 shadow-2xs">
                 <span className="text-[11px] text-slate-500 font-semibold px-1">সাইজ:</span>
                 <select
                   value={fontSizePt}
                   onChange={(e) => {
                     setFontSizePt(e.target.value);
-                    execCmd("fontSize", e.target.value === "18" ? "5" : e.target.value === "24" ? "6" : e.target.value === "12" ? "2" : "3");
+                    execCmd("fontSize", e.target.value === "16" ? "4" : e.target.value === "18" ? "5" : e.target.value === "24" ? "6" : e.target.value === "11" ? "2" : "3");
                   }}
                   className="bg-transparent font-bold text-slate-800 text-xs outline-none cursor-pointer"
                   title="ফন্ট সাইজ"
                 >
-                  <option value="10">১০ pt</option>
+                  <option value="10">১০ pt (খুব ছোট)</option>
+                  <option value="11">১১ pt (ছোট)</option>
                   <option value="12">১২ pt</option>
-                  <option value="14">১৪ pt (স্ট্যান্ডার্ড)</option>
+                  <option value="13">১৩ pt (স্ট্যান্ডার্ড)</option>
+                  <option value="14">১৪ pt</option>
                   <option value="16">১৬ pt</option>
                   <option value="18">১৮ pt (বড়)</option>
                   <option value="24">২৪ pt</option>
@@ -437,11 +702,11 @@ export default function QuestionWordEditorModal({
               </div>
 
               {/* Basic Styles (B, I, U, S) */}
-              <div className="flex items-center bg-white rounded-lg border border-slate-300 p-0.5">
+              <div className="flex items-center bg-white rounded-lg border border-slate-300 p-0.5 shadow-2xs">
                 <button
                   type="button"
                   onClick={() => execCmd("bold")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 font-bold transition"
+                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 font-bold transition cursor-pointer"
                   title="বোল্ড (Ctrl+B)"
                 >
                   <Bold className="w-3.5 h-3.5" />
@@ -449,7 +714,7 @@ export default function QuestionWordEditorModal({
                 <button
                   type="button"
                   onClick={() => execCmd("italic")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
+                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition cursor-pointer"
                   title="ইটালিক (Ctrl+I)"
                 >
                   <Italic className="w-3.5 h-3.5" />
@@ -457,7 +722,7 @@ export default function QuestionWordEditorModal({
                 <button
                   type="button"
                   onClick={() => execCmd("underline")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
+                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition cursor-pointer"
                   title="আন্ডারলাইন (Ctrl+U)"
                 >
                   <Underline className="w-3.5 h-3.5" />
@@ -465,31 +730,15 @@ export default function QuestionWordEditorModal({
                 <button
                   type="button"
                   onClick={() => execCmd("strikeThrough")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
+                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition cursor-pointer"
                   title="কাটা দাগ (Strikethrough)"
                 >
                   <Strikethrough className="w-3.5 h-3.5" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => execCmd("subscript")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
-                  title="সাবস্ক্রিপ্ট"
-                >
-                  <Subscript className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => execCmd("superscript")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
-                  title="সুপারস্ক্রিপ্ট"
-                >
-                  <Superscript className="w-3.5 h-3.5" />
-                </button>
               </div>
 
               {/* Text Color & Highlight */}
-              <div className="flex items-center bg-white rounded-lg border border-slate-300 p-0.5">
+              <div className="flex items-center bg-white rounded-lg border border-slate-300 p-0.5 shadow-2xs">
                 <label className="p-1 hover:bg-slate-100 rounded cursor-pointer flex items-center gap-0.5" title="টেক্সট কালার">
                   <span className="font-bold text-[11px] text-slate-700">A</span>
                   <input
@@ -510,11 +759,11 @@ export default function QuestionWordEditorModal({
               </div>
 
               {/* Text Alignment */}
-              <div className="flex items-center bg-white rounded-lg border border-slate-300 p-0.5">
+              <div className="flex items-center bg-white rounded-lg border border-slate-300 p-0.5 shadow-2xs">
                 <button
                   type="button"
                   onClick={() => execCmd("justifyLeft")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
+                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition cursor-pointer"
                   title="বামে সারিবদ্ধ (Align Left)"
                 >
                   <AlignLeft className="w-3.5 h-3.5" />
@@ -522,7 +771,7 @@ export default function QuestionWordEditorModal({
                 <button
                   type="button"
                   onClick={() => execCmd("justifyCenter")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
+                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition cursor-pointer"
                   title="মাঝখানে (Center)"
                 >
                   <AlignCenter className="w-3.5 h-3.5" />
@@ -530,7 +779,7 @@ export default function QuestionWordEditorModal({
                 <button
                   type="button"
                   onClick={() => execCmd("justifyRight")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
+                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition cursor-pointer"
                   title="ডানে সারিবদ্ধ (Align Right)"
                 >
                   <AlignRight className="w-3.5 h-3.5" />
@@ -538,15 +787,15 @@ export default function QuestionWordEditorModal({
                 <button
                   type="button"
                   onClick={() => execCmd("justifyFull")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
+                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition cursor-pointer"
                   title="দুইপাশে সমান (Justify)"
                 >
                   <AlignJustify className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              {/* Text Direction Control (RTL / LTR / Mixed Smart Direction) */}
-              <div className="flex items-center gap-1 bg-white rounded-lg border border-slate-300 p-0.5">
+              {/* Text Direction Control (RTL / LTR) */}
+              <div className="flex items-center gap-1 bg-white rounded-lg border border-slate-300 p-0.5 shadow-2xs">
                 <button
                   type="button"
                   onClick={() => {
@@ -557,10 +806,11 @@ export default function QuestionWordEditorModal({
                         parent.setAttribute("dir", "rtl");
                         parent.style.textAlign = "right";
                         parent.style.fontFamily = "'Amiri', 'Traditional Arabic', serif";
+                        saveSnapshot();
                       }
                     }
                   }}
-                  className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 font-bold rounded text-[11px] transition font-amiri"
+                  className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 font-bold rounded text-[11px] transition font-amiri cursor-pointer"
                   title="আরবি টেক্সট ডিরেকশন (RTL - ডান দিক থেকে)"
                 >
                   عربي (RTL ➔)
@@ -575,10 +825,11 @@ export default function QuestionWordEditorModal({
                         parent.setAttribute("dir", "ltr");
                         parent.style.textAlign = "left";
                         parent.style.fontFamily = "'SolaimanLipi', sans-serif";
+                        saveSnapshot();
                       }
                     }
                   }}
-                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded text-[11px] transition"
+                  className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded text-[11px] transition cursor-pointer"
                   title="বাংলা / ইংরেজি টেক্সট ডিরেকশন (LTR - বাম দিক থেকে)"
                 >
                   বাংলা/Eng (➔ LTR)
@@ -586,11 +837,11 @@ export default function QuestionWordEditorModal({
               </div>
 
               {/* Lists */}
-              <div className="flex items-center bg-white rounded-lg border border-slate-300 p-0.5">
+              <div className="flex items-center bg-white rounded-lg border border-slate-300 p-0.5 shadow-2xs">
                 <button
                   type="button"
                   onClick={() => execCmd("insertUnorderedList")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
+                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition cursor-pointer"
                   title="বুলেট পয়েন্ট তালিকা"
                 >
                   <List className="w-3.5 h-3.5" />
@@ -598,7 +849,7 @@ export default function QuestionWordEditorModal({
                 <button
                   type="button"
                   onClick={() => execCmd("insertOrderedList")}
-                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition"
+                  className="p-1.5 hover:bg-slate-100 rounded text-slate-800 transition cursor-pointer"
                   title="ক্রমিক নম্বর তালিকা"
                 >
                   <ListOrdered className="w-3.5 h-3.5" />
@@ -609,7 +860,7 @@ export default function QuestionWordEditorModal({
               <button
                 type="button"
                 onClick={() => execCmd("removeFormat")}
-                className="p-1.5 bg-white hover:bg-rose-50 text-rose-600 rounded-lg border border-slate-300 transition"
+                className="p-1.5 bg-white hover:bg-rose-50 text-rose-600 rounded-lg border border-slate-300 transition cursor-pointer shadow-2xs"
                 title="ফরম্যাট ক্লিয়ার করুন"
               >
                 <Eraser className="w-3.5 h-3.5" />
@@ -617,59 +868,59 @@ export default function QuestionWordEditorModal({
             </div>
           )}
 
-          {/* TAB 2: PAGE LAYOUT & COLUMNS */}
+          {/* TAB 2: PAGE LAYOUT & COLUMNS (FIXING BOTTOM MARGIN & COLUMN BREAK) */}
           {activeRibbonTab === "layout" && (
-            <div className="flex flex-wrap items-center gap-3 w-full">
+            <div className="flex flex-wrap items-center gap-2.5 w-full">
               {/* Paper Size */}
-              <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-300">
-                <span className="font-bold text-slate-700">পেজের সাইজ:</span>
+              <div className="flex items-center gap-1 bg-white p-1.5 rounded-lg border border-slate-300 shadow-2xs">
+                <span className="font-bold text-slate-700">সাইজ:</span>
                 <select
                   value={pageSize}
                   onChange={(e) => setPageSize(e.target.value as PageSize)}
                   className="font-bold text-slate-900 outline-none cursor-pointer bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5"
                 >
-                  <option value="A4">A4 (210 × 297 মিমি) - স্ট্যান্ডার্ড</option>
-                  <option value="Letter">Letter (8.5 × 11 ইঞ্চি)</option>
-                  <option value="Legal">Legal (8.5 × 14 ইঞ্চি)</option>
+                  <option value="A4">A4 (২১০ × ২৯৭ মিমি)</option>
+                  <option value="Letter">Letter (৮.৫ × ১১ ইঞ্চি)</option>
+                  <option value="Legal">Legal (৮.৫ × ১৪ ইঞ্চি)</option>
                 </select>
               </div>
 
               {/* Page Orientation */}
-              <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-300">
+              <div className="flex items-center gap-1 bg-white p-1.5 rounded-lg border border-slate-300 shadow-2xs">
                 <span className="font-bold text-slate-700">ওরিয়েন্টেশন:</span>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => setOrientation("portrait")}
-                    className={`px-2.5 py-1 rounded font-bold transition ${
+                    className={`px-2 py-0.5 rounded font-bold transition cursor-pointer ${
                       orientation === "portrait" ? "bg-blue-600 text-white shadow-2xs" : "bg-slate-100 text-slate-700"
                     }`}
                   >
-                    লম্বালম্বি (Portrait)
+                    লম্বালম্বি
                   </button>
                   <button
                     type="button"
                     onClick={() => setOrientation("landscape")}
-                    className={`px-2.5 py-1 rounded font-bold transition ${
+                    className={`px-2 py-0.5 rounded font-bold transition cursor-pointer ${
                       orientation === "landscape" ? "bg-blue-600 text-white shadow-2xs" : "bg-slate-100 text-slate-700"
                     }`}
                   >
-                    আড়াআড়ি (Landscape)
+                    আড়াআড়ি
                   </button>
                 </div>
               </div>
 
               {/* Column Count Selection (1, 2, 3 Columns) */}
-              <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-300">
+              <div className="flex items-center gap-1 bg-white p-1.5 rounded-lg border border-slate-300 shadow-2xs">
                 <span className="font-bold text-slate-700 flex items-center gap-1">
                   <Columns className="w-3.5 h-3.5 text-blue-600" />
-                  <span>কলাম সংখ্যা:</span>
+                  <span>কলাম:</span>
                 </span>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => setColumns(1)}
-                    className={`px-2 py-1 rounded font-bold transition ${
+                    className={`px-2 py-0.5 rounded font-bold transition cursor-pointer ${
                       columns === 1 ? "bg-blue-600 text-white shadow-2xs" : "bg-slate-100 text-slate-700"
                     }`}
                   >
@@ -678,7 +929,7 @@ export default function QuestionWordEditorModal({
                   <button
                     type="button"
                     onClick={() => setColumns(2)}
-                    className={`px-2 py-1 rounded font-bold transition ${
+                    className={`px-2 py-0.5 rounded font-bold transition cursor-pointer ${
                       columns === 2 ? "bg-blue-600 text-white shadow-2xs" : "bg-slate-100 text-slate-700"
                     }`}
                   >
@@ -687,7 +938,7 @@ export default function QuestionWordEditorModal({
                   <button
                     type="button"
                     onClick={() => setColumns(3)}
-                    className={`px-2 py-1 rounded font-bold transition ${
+                    className={`px-2 py-0.5 rounded font-bold transition cursor-pointer ${
                       columns === 3 ? "bg-blue-600 text-white shadow-2xs" : "bg-slate-100 text-slate-700"
                     }`}
                   >
@@ -696,58 +947,129 @@ export default function QuestionWordEditorModal({
                 </div>
               </div>
 
+              {/* Column Height Flow Mode (Full Height vs Free Flow vs Balanced) */}
+              {columns > 1 && (
+                <div className="flex items-center gap-1 bg-white p-1.5 rounded-lg border border-slate-300 shadow-2xs">
+                  <span className="font-bold text-slate-700">কলাম ফ্লো:</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setColumnFillMode("full_height")}
+                      className={`px-2.5 py-0.5 rounded font-bold text-xs transition cursor-pointer flex items-center gap-1 ${
+                        columnFillMode === "full_height" ? "bg-emerald-600 text-white shadow-xs" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                      title="১ম কলাম পেজের একেবারে নিচ পর্যন্ত পূর্ণ হবে, কোনো খালি স্পেস থাকবে না"
+                    >
+                      <ArrowDown className="w-3 h-3" />
+                      <span>নিচ পর্যন্ত পূর্ণ (Full Reach)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setColumnFillMode("free_flow")}
+                      className={`px-2.5 py-0.5 rounded font-bold text-xs transition cursor-pointer ${
+                        columnFillMode === "free_flow" ? "bg-emerald-600 text-white shadow-xs" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                      title="স্বাভাবিক ফ্রি-ফ্লো যেখানে টেক্সট আটকে থাকে না"
+                    >
+                      ফ্রি-ফ্লো (Auto)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setColumnFillMode("balance")}
+                      className={`px-2.5 py-0.5 rounded font-bold text-xs transition cursor-pointer ${
+                        columnFillMode === "balance" ? "bg-emerald-600 text-white shadow-xs" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                      title="উভয় কলাম সমান উচ্চতায় ব্যালান্স থাকবে"
+                    >
+                      ব্যালান্স (Equal)
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Column Divider Line Toggle */}
               {columns > 1 && (
-                <label className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-300 cursor-pointer">
+                <label className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-300 cursor-pointer shadow-2xs">
                   <input
                     type="checkbox"
                     checked={hasColumnDivider}
                     onChange={(e) => setHasColumnDivider(e.target.checked)}
                     className="w-3.5 h-3.5 text-blue-600 rounded"
                   />
-                  <span className="font-bold text-slate-800">কলামের মাঝে দাগ (Divider Line)</span>
+                  <span className="font-bold text-slate-800">মাঝে দাগ</span>
                 </label>
               )}
 
               {/* Margins */}
-              <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-300">
+              <div className="flex items-center gap-1 bg-white p-1.5 rounded-lg border border-slate-300 shadow-2xs">
                 <span className="font-bold text-slate-700">মার্জিন:</span>
                 <select
                   value={marginSize}
                   onChange={(e) => setMarginSize(e.target.value as MarginSize)}
-                  className="font-bold text-slate-900 outline-none cursor-pointer bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5"
+                  className="font-bold text-slate-900 outline-none cursor-pointer bg-slate-50 border border-slate-200 rounded px-1 py-0.5"
                 >
-                  <option value="narrow">সংকীর্ণ (Narrow - ১০ মিমি)</option>
-                  <option value="normal">স্ট্যান্ডার্ড (Normal - ১৪ মিমি)</option>
-                  <option value="moderate">প্রশস্ত (Moderate - ১৮ মিমি)</option>
+                  <option value="tight">জিরো/টাইট (৪ মিমি - সর্বোচ্চ জায়গা)</option>
+                  <option value="narrow">সংকীর্ণ (৬ মিমি - রিকমেন্ডেড)</option>
+                  <option value="normal">স্ট্যান্ডার্ড (১০ মিমি)</option>
+                  <option value="moderate">প্রশস্ত (১৪ মিমি)</option>
                 </select>
               </div>
 
+              {/* Bottom Margin Fine Tuning Slider */}
+              <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-300 shadow-2xs">
+                <span className="font-bold text-slate-700 flex items-center gap-1" title="পেজের নিচের মার্জিন পরিবর্তন করুন">
+                  <MoveDown className="w-3.5 h-3.5 text-blue-600" />
+                  <span>নিচের মার্জিন:</span>
+                </span>
+                <input
+                  type="range"
+                  min={2}
+                  max={25}
+                  value={customBottomMarginMm}
+                  onChange={(e) => setCustomBottomMarginMm(parseInt(e.target.value))}
+                  className="w-16 accent-blue-600 cursor-pointer"
+                />
+                <span className="text-[11px] font-mono font-bold text-blue-800 bg-blue-50 px-1 rounded">
+                  {customBottomMarginMm}mm
+                </span>
+              </div>
+
               {/* Page Frame Border Style */}
-              <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-300">
-                <span className="font-bold text-slate-700">চারপাশের বর্ডার:</span>
+              <div className="flex items-center gap-1 bg-white p-1.5 rounded-lg border border-slate-300 shadow-2xs">
+                <span className="font-bold text-slate-700">বর্ডার:</span>
                 <select
                   value={borderStyle}
                   onChange={(e) => setBorderStyle(e.target.value as any)}
-                  className="font-bold text-slate-900 outline-none cursor-pointer bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5"
+                  className="font-bold text-slate-900 outline-none cursor-pointer bg-slate-50 border border-slate-200 rounded px-1 py-0.5"
                 >
-                  <option value="double">ইসলামিক ডাবল বর্ডার (❖ কর্নার)</option>
-                  <option value="simple">একক লাইন বর্ডার (Simple)</option>
-                  <option value="none">কোনো বর্ডার নয় (None)</option>
+                  <option value="double">ইসলামিক ডাবল (❖ কর্নার)</option>
+                  <option value="simple">একক লাইন বর্ডার</option>
+                  <option value="none">বর্ডার ছাড়া</option>
                 </select>
               </div>
+
+              {/* Toggle Full-Width Header */}
+              <label className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-300 cursor-pointer shadow-2xs">
+                <input
+                  type="checkbox"
+                  checked={showHeader}
+                  onChange={(e) => setShowHeader(e.target.checked)}
+                  className="w-3.5 h-3.5 text-blue-600 rounded"
+                />
+                <span className="font-bold text-slate-800">ফুল-উইডথ হেডার</span>
+              </label>
             </div>
           )}
 
           {/* TAB 3: INSERT & TABLE BUILDER */}
           {activeRibbonTab === "insert" && (
-            <div className="flex flex-wrap items-center gap-2.5 w-full">
+            <div className="flex flex-wrap items-center gap-2 w-full">
               {/* Insert Table Menu Popover */}
               <div className="relative">
                 <button
                   type="button"
                   onClick={() => setIsTableMenuOpen(!isTableMenuOpen)}
-                  className="px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-900 font-bold rounded-lg border border-slate-300 flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
+                  className="px-3 py-1 bg-white hover:bg-blue-50 text-blue-900 font-bold rounded-lg border border-slate-300 flex items-center gap-1.5 transition shadow-2xs cursor-pointer"
                 >
                   <Table className="w-3.5 h-3.5 text-blue-600" />
                   <span>টেবিল যোগ করুন ({tableRows}×{tableCols})</span>
@@ -795,14 +1117,14 @@ export default function QuestionWordEditorModal({
               </div>
 
               {/* Quick Question Tokens Insertion */}
-              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-300">
-                <span className="text-[11px] font-bold text-slate-500 px-1">প্রশ্ন নম্বর:</span>
-                {["১. ", "২. ", "৩. ", "(ক) ", "(খ) ", "(গ) ", "(১) ", "(২) "].map((token) => (
+              <div className="flex items-center gap-0.5 bg-white p-1 rounded-lg border border-slate-300 shadow-2xs">
+                <span className="text-[11px] font-bold text-slate-500 px-1">প্রশ্ন নং:</span>
+                {["১. ", "২. ", "৩. ", "৪. ", "৫. ", "(ক) ", "(খ) ", "(গ) "].map((token) => (
                   <button
                     key={token}
                     type="button"
-                    onClick={() => insertHTML(`<strong>${token}</strong> `)}
-                    className="px-1.5 py-0.5 bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold rounded text-[11px] transition"
+                    onClick={() => insertFreshParagraph(`<strong>${token}</strong> `)}
+                    className="px-1.5 py-0.5 bg-slate-100 hover:bg-blue-100 text-slate-800 font-bold rounded text-[11px] transition cursor-pointer"
                   >
                     {token.trim()}
                   </button>
@@ -810,14 +1132,14 @@ export default function QuestionWordEditorModal({
               </div>
 
               {/* Quick Marks Bracket Insertion */}
-              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-300">
-                <span className="text-[11px] font-bold text-slate-500 px-1">নম্বর ব্র্যাকেট:</span>
+              <div className="flex items-center gap-0.5 bg-white p-1 rounded-lg border border-slate-300 shadow-2xs">
+                <span className="text-[11px] font-bold text-slate-500 px-1">নম্বর:</span>
                 {["[১০]", "[৫+৫=১০]", "(৫×২=১০)", "[২০]", "[৫০]"].map((mark) => (
                   <button
                     key={mark}
                     type="button"
                     onClick={() => insertHTML(` <span style="float: right; font-weight: bold; color: #0f172a;">${mark}</span>`)}
-                    className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 font-bold rounded text-[11px] transition"
+                    className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 font-bold rounded text-[11px] transition cursor-pointer"
                   >
                     {mark}
                   </button>
@@ -827,18 +1149,28 @@ export default function QuestionWordEditorModal({
               {/* Bismillah Calligraphy Ribbon */}
               <button
                 type="button"
-                onClick={() => insertHTML(`<div style="text-align: center; font-family: 'Amiri', serif; font-size: 16px; color: #064e3b; margin: 6px 0;" dir="rtl">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>`)}
-                className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 font-bold rounded-lg border border-emerald-300 text-xs transition font-amiri"
+                onClick={() => insertHTML(`<div style="text-align: center; font-family: 'Amiri', serif; font-size: 15px; color: #064e3b; margin: 4px 0;" dir="rtl">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>`)}
+                className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 font-bold rounded-lg border border-emerald-300 text-xs transition font-amiri cursor-pointer"
                 title="বিসমিল্লাহির রাহমানির রাহিম"
               >
                 بِسْمِ اللَّهِ
+              </button>
+
+              {/* Section Header Ribbon */}
+              <button
+                type="button"
+                onClick={() => insertHTML(`<div class="section-ribbon" style="background-color: #f1f5f9; padding: 3px 6px; font-weight: 800; font-size: 13px; color: #0f172a; border-left: 3px solid #0284c7; margin: 6px 0 4px 0;">ক-বিভাগ: নতুন বিভাগ (মান: ৫০)</div>`)}
+                className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold rounded-lg border border-blue-300 text-xs transition cursor-pointer"
+                title="নতুন বিভাগ শিরোনাম ফিতা"
+              >
+                + বিভাগ ফিতা
               </button>
 
               {/* Blank Fill in the blanks Line */}
               <button
                 type="button"
                 onClick={() => insertHTML(` .................................................... `)}
-                className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-300 text-xs transition"
+                className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-300 text-xs transition cursor-pointer"
                 title="শূন্যস্থান পূরণ ডট লাইন"
               >
                 শূন্যস্থান (......)
@@ -847,8 +1179,8 @@ export default function QuestionWordEditorModal({
               {/* Horizontal Divider Line */}
               <button
                 type="button"
-                onClick={() => insertHTML(`<hr style="border: none; border-top: 1px solid #cbd5e1; margin: 12px 0;" />`)}
-                className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-300 text-xs transition"
+                onClick={() => insertHTML(`<hr style="border: none; border-top: 1px solid #cbd5e1; margin: 8px 0;" />`)}
+                className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-lg border border-slate-300 text-xs transition cursor-pointer"
                 title="বিভাজক লাইন"
               >
                 বিভাজক রেখা
@@ -860,12 +1192,12 @@ export default function QuestionWordEditorModal({
           {activeRibbonTab === "view" && (
             <div className="flex flex-wrap items-center gap-3 w-full">
               {/* Zoom Controls */}
-              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-300">
+              <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-slate-300 shadow-2xs">
                 <span className="font-bold text-slate-700 px-1">প্রিভিউ জুম:</span>
                 <button
                   type="button"
                   onClick={() => setZoomLevel((z) => Math.max(50, z - 10))}
-                  className="p-1 hover:bg-slate-100 rounded text-slate-700 transition"
+                  className="p-1 hover:bg-slate-100 rounded text-slate-700 transition cursor-pointer"
                   title="জুম আউট"
                 >
                   <ZoomOut className="w-3.5 h-3.5" />
@@ -874,7 +1206,7 @@ export default function QuestionWordEditorModal({
                 <button
                   type="button"
                   onClick={() => setZoomLevel((z) => Math.min(150, z + 10))}
-                  className="p-1 hover:bg-slate-100 rounded text-slate-700 transition"
+                  className="p-1 hover:bg-slate-100 rounded text-slate-700 transition cursor-pointer"
                   title="জুম ইন"
                 >
                   <ZoomIn className="w-3.5 h-3.5" />
@@ -882,14 +1214,14 @@ export default function QuestionWordEditorModal({
                 <button
                   type="button"
                   onClick={() => setZoomLevel(95)}
-                  className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-slate-200 rounded font-bold"
+                  className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-slate-200 rounded font-bold cursor-pointer"
                 >
                   রিসেট (১০০%)
                 </button>
               </div>
 
               {/* Stats Summary */}
-              <div className="text-xs text-slate-600 bg-white px-3 py-1 rounded-lg border border-slate-300 flex items-center gap-3">
+              <div className="text-xs text-slate-600 bg-white px-3 py-1 rounded-lg border border-slate-300 flex items-center gap-3 shadow-2xs">
                 <span>মোট শব্দ: <strong className="text-slate-900">{toBanglaNumber(wordCount)}</strong></span>
                 <span>মোট অক্ষর: <strong className="text-slate-900">{toBanglaNumber(charCount)}</strong></span>
               </div>
@@ -898,7 +1230,15 @@ export default function QuestionWordEditorModal({
         </div>
 
         {/* MAIN CANVAS SCROLL AREA (Realistic MS Word Sheet Container) */}
-        <div className="flex-1 overflow-auto p-4 sm:p-8 bg-slate-300/80 flex justify-center items-start">
+        <div 
+          className="flex-1 overflow-auto p-3 sm:p-6 bg-slate-300/80 flex justify-center items-start"
+          onClick={(e) => {
+            // Click outside body focuses the editor at bottom
+            if (e.target === e.currentTarget && editorRef.current) {
+              editorRef.current.focus();
+            }
+          }}
+        >
           <div
             style={{
               transform: `scale(${zoomLevel / 100})`,
@@ -917,14 +1257,15 @@ export default function QuestionWordEditorModal({
                   : ""
               }`}
               style={{
-                width: orientation === "portrait" 
-                  ? (pageSize === "Letter" ? "215.9mm" : pageSize === "Legal" ? "215.9mm" : "210mm")
-                  : (pageSize === "Letter" ? "279.4mm" : pageSize === "Legal" ? "355.6mm" : "297mm"),
-                minHeight: orientation === "portrait"
-                  ? (pageSize === "Letter" ? "279.4mm" : pageSize === "Legal" ? "355.6mm" : "297mm")
-                  : (pageSize === "Letter" ? "215.9mm" : pageSize === "Legal" ? "215.9mm" : "210mm"),
-                padding: marginPaddingMap[marginSize],
+                width: `${pageWidthMm}mm`,
+                minHeight: `${pageHeightMm}mm`,
+                paddingTop: currentMargin.top,
+                paddingRight: currentMargin.right,
+                paddingBottom: currentMargin.bottom,
+                paddingLeft: currentMargin.left,
                 boxSizing: "border-box",
+                display: "flex",
+                flexDirection: "column",
                 fontFamily: selectedFont === "Amiri" 
                   ? "'Amiri', 'Traditional Arabic', serif" 
                   : selectedFont === "Scheherazade New" 
@@ -942,17 +1283,32 @@ export default function QuestionWordEditorModal({
                 </>
               )}
 
-              {/* MULTI-COLUMN WYSIWYG EDITABLE CANVAS */}
+              {/* 1. FULL-WIDTH TOP HEADER (Spans 100% width across all columns) */}
+              {showHeader && (
+                <div
+                  ref={headerRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onInput={updateStats}
+                  className="w-full shrink-0 outline-none text-slate-900 border-b border-transparent hover:border-blue-200 transition pb-1 mb-1.5"
+                />
+              )}
+
+              {/* 2. MULTI-COLUMN QUESTIONS BODY (Reaches 100% down to the bottom margin) */}
               <div
                 ref={editorRef}
                 contentEditable
                 suppressContentEditableWarning
-                onInput={updateStats}
-                className="w-full h-full min-h-[600px] outline-none text-slate-900 leading-relaxed question-paper-editor-content"
+                onInput={handleEditorInput}
+                onKeyDown={handleEditorKeyDown}
+                className="w-full flex-1 outline-none text-slate-900 leading-relaxed question-paper-editor-content"
                 style={{
                   columnCount: columns,
-                  columnGap: "24px",
-                  columnRule: hasColumnDivider && columns > 1 ? "1.5px solid #cbd5e1" : "none",
+                  columnGap: "20px",
+                  columnRule: hasColumnDivider && columns > 1 ? "1.2px solid #cbd5e1" : "none",
+                  columnFill: columnFillMode === "full_height" ? "auto" : columnFillMode === "free_flow" ? "auto" : "balance",
+                  height: columnFillMode === "full_height" ? `${targetAvailableHeightMm}mm` : "auto",
+                  minHeight: columnFillMode === "full_height" ? `${targetAvailableHeightMm}mm` : "160mm",
                   fontSize: `${fontSizePt}pt`,
                 }}
               />
@@ -963,14 +1319,19 @@ export default function QuestionWordEditorModal({
         {/* BOTTOM STATUS BAR */}
         <div className="bg-slate-900 text-slate-400 px-4 py-1.5 flex items-center justify-between text-[11px] border-t border-slate-800 shrink-0 font-mono">
           <div className="flex items-center gap-3">
-            <span>পৃষ্ঠা ফরম্যাট: <strong>{pageSize}</strong> ({orientation})</span>
-            <span>কলাম: <strong>{columns} কলাম</strong></span>
+            <span>পৃষ্ঠা: <strong>{pageSize}</strong> ({orientation === "portrait" ? "লম্বালম্বি" : "আড়াআড়ি"})</span>
+            <span>কলাম: <strong>{columns} কলাম</strong> ({columnFillMode === "full_height" ? "নিচ পর্যন্ত পূর্ণ" : columnFillMode === "free_flow" ? "ফ্রি ফ্লো" : "ব্যালান্স"})</span>
             <span>ফন্ট: <strong>{selectedFont}</strong> ({fontSizePt}pt)</span>
+            <span>নিচের মার্জিন: <strong>{customBottomMarginMm}mm</strong></span>
           </div>
           <div className="flex items-center gap-3">
+            <span className="text-slate-300 font-sans flex items-center gap-1">
+              <RotateCcw className="w-3 h-3 text-blue-400" />
+              <span>আন্ডো (Ctrl+Z) / রিডো (Ctrl+Y) সক্রিয়</span>
+            </span>
             <span>শব্দ: {toBanglaNumber(wordCount)}</span>
             <span>অক্ষর: {toBanglaNumber(charCount)}</span>
-            <span className="text-emerald-400 font-sans">✓ ড্রাফট প্রস্তুত</span>
+            <span className="text-emerald-400 font-sans font-bold">✓ প্রস্তুত</span>
           </div>
         </div>
 
@@ -982,7 +1343,7 @@ export default function QuestionWordEditorModal({
           @media print {
             @page {
               size: ${pageSize} ${orientation};
-              margin: 4mm 5mm 4mm 5mm !important;
+              margin: ${currentMargin.top} ${currentMargin.right} ${currentMargin.bottom} ${currentMargin.left} !important;
             }
             *, *::before, *::after {
               -webkit-print-color-adjust: exact !important;
@@ -1005,8 +1366,10 @@ export default function QuestionWordEditorModal({
             }
             .question-paper-editor-content {
               column-count: ${columns} !important;
-              column-gap: 24px !important;
-              column-rule: ${hasColumnDivider && columns > 1 ? "1.5px solid #94a3b8" : "none"} !important;
+              column-gap: 20px !important;
+              column-rule: ${hasColumnDivider && columns > 1 ? "1.2px solid #64748b" : "none"} !important;
+              column-fill: ${columnFillMode === "full_height" ? "auto" : columnFillMode === "free_flow" ? "auto" : "balance"} !important;
+              height: ${columnFillMode === "full_height" ? `${targetAvailableHeightMm + 8}mm` : "auto"} !important;
             }
           }
         `
