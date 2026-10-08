@@ -11,7 +11,15 @@ import {
   DEFAULT_EXAM_INSTRUCTIONS,
   normalizePhoneNumber,
 } from "@/lib/admissions";
+import { resolveMadrasaForAdmission, MadrasaAdmissionInfo } from "@/lib/madrasa-resolver";
 import { revalidatePath } from "next/cache";
+
+/**
+ * Public action: Resolve madrasa profile for admission page (?madrasa=xxx)
+ */
+export async function getMadrasaAdmissionProfile(identifier?: string | null) {
+  return await resolveMadrasaForAdmission(identifier);
+}
 
 /**
  * Fetch all admission applications with optional filters
@@ -135,38 +143,59 @@ export async function getAdmissionById(identifier: string) {
 /**
  * Public search for applicant status and admit card
  */
-export async function searchAdmissionPublic(query: string) {
+export async function searchAdmissionPublic(query: string, targetMadrasaId?: string) {
   try {
     const adminClient = await createAdminClient();
-    const { data: firstMadrasa } = await adminClient
-      .from("madrasas")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .single();
+    let madrasaId = targetMadrasaId;
 
-    const madrasaId = firstMadrasa?.id || "default_madrasa_id";
-    const meta = await getMadrasaMetadata(madrasaId);
-    const list: AdmissionApplication[] = meta.admissions || getDefaultAdmissionsSeed(madrasaId);
+    if (!madrasaId) {
+      const resolved = await resolveMadrasaForAdmission(null);
+      madrasaId = resolved.selectedMadrasa.id;
+    }
+
+    const safeMadrasaId = madrasaId || "default_madrasa_id";
+    const meta = await getMadrasaMetadata(safeMadrasaId);
+    let list: AdmissionApplication[] = meta.admissions || getDefaultAdmissionsSeed(safeMadrasaId);
 
     const q = query.trim().toLowerCase();
     const normalizedQPhone = normalizePhoneNumber(q);
 
-    const results = list.filter((item) => {
-      const appNo = (item.application_no || "").toLowerCase();
-      const rollNo = (item.roll_number || "").toLowerCase();
-      const rawPhone = item.guardian_phone || "";
-      const normItemPhone = normalizePhoneNumber(rawPhone);
-      const nameBn = (item.applicant_name_bn || "").toLowerCase();
+    const filterList = (items: AdmissionApplication[]) => {
+      return items.filter((item) => {
+        const appNo = (item.application_no || "").toLowerCase();
+        const rollNo = (item.roll_number || "").toLowerCase();
+        const rawPhone = item.guardian_phone || "";
+        const normItemPhone = normalizePhoneNumber(rawPhone);
+        const nameBn = (item.applicant_name_bn || "").toLowerCase();
 
-      return (
-        appNo === q ||
-        rollNo === q ||
-        (normalizedQPhone && normItemPhone.includes(normalizedQPhone)) ||
-        rawPhone.trim() === q ||
-        (q.length >= 3 && nameBn.includes(q))
-      );
-    });
+        return (
+          appNo === q ||
+          rollNo === q ||
+          (normalizedQPhone && normItemPhone.includes(normalizedQPhone)) ||
+          rawPhone.trim() === q ||
+          (q.length >= 3 && nameBn.includes(q))
+        );
+      });
+    };
+
+    let results = filterList(list);
+
+    // If not found in primary/target madrasa, search across all other madrasas as fallback
+    if (results.length === 0) {
+      const { data: allMadrasas } = await adminClient.from("madrasas").select("id");
+      if (allMadrasas) {
+        for (const m of allMadrasas) {
+          if (m.id !== safeMadrasaId) {
+            const otherMeta = await getMadrasaMetadata(m.id);
+            const otherList: AdmissionApplication[] = otherMeta.admissions || [];
+            const otherMatches = filterList(otherList);
+            if (otherMatches.length > 0) {
+              results = [...results, ...otherMatches];
+            }
+          }
+        }
+      }
+    }
 
     return results;
   } catch (err) {
@@ -213,29 +242,27 @@ export async function submitAdmissionApplication(formData: {
   exam_time?: string;
   venue?: string;
   room_no?: string;
+  madrasa_id?: string;
 }) {
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
     const adminClient = await createAdminClient();
 
-    let madrasaId: string | null = null;
-    if (user) {
-      madrasaId = await getAuthMadrasaId(supabase, user);
-    }
-    if (!madrasaId) {
-      const { data: firstMadrasa } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .single();
-      madrasaId = firstMadrasa?.id || "default_madrasa_id";
+    let safeMadrasaId: string | null = formData.madrasa_id || null;
+
+    if (!safeMadrasaId && user) {
+      safeMadrasaId = await getAuthMadrasaId(supabase, user);
     }
 
-    const safeMadrasaId = madrasaId || "default_madrasa_id";
-    const meta = await getMadrasaMetadata(safeMadrasaId);
-    const currentList: AdmissionApplication[] = meta.admissions || getDefaultAdmissionsSeed(safeMadrasaId);
+    if (!safeMadrasaId) {
+      const resolved = await resolveMadrasaForAdmission(null);
+      safeMadrasaId = resolved.selectedMadrasa.id;
+    }
+
+    const finalMadrasaId = safeMadrasaId || "default_madrasa_id";
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const currentList: AdmissionApplication[] = meta.admissions || getDefaultAdmissionsSeed(finalMadrasaId);
 
     const seq = currentList.length + 1;
     const year = 2026;
@@ -248,7 +275,7 @@ export async function submitAdmissionApplication(formData: {
 
     const newApplication: AdmissionApplication = {
       id: `adm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      madrasa_id: safeMadrasaId,
+      madrasa_id: finalMadrasaId,
       application_no,
       roll_number,
       session_name: formData.session_name || "১৪৪৭-৪৮ হিজরি (২০২৬-২৭)",
@@ -296,7 +323,7 @@ export async function submitAdmissionApplication(formData: {
     };
 
     meta.admissions = [newApplication, ...currentList];
-    const saved = await saveMadrasaMetadata(safeMadrasaId, meta);
+    const saved = await saveMadrasaMetadata(finalMadrasaId, meta);
 
     if (!saved) {
       return { error: "তথ্য সংরক্ষণ করা যায়নি, পুনরায় চেষ্টা করুন।" };

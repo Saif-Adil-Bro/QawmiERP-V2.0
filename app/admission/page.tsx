@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   GraduationCap,
   FileText,
@@ -29,16 +30,31 @@ import {
   LogIn,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-import { submitAdmissionApplication, searchAdmissionPublic } from "@/app/actions/admissions";
+import {
+  submitAdmissionApplication,
+  searchAdmissionPublic,
+  getMadrasaAdmissionProfile,
+} from "@/app/actions/admissions";
 import { getClasses } from "@/app/actions/students";
 import { calculateBanglaAge, ADMISSION_STATUS_MAP, curateClassList } from "@/lib/admissions";
 
-export default function PublicAdmissionPage() {
+function PublicAdmissionContent() {
+  const searchParams = useSearchParams();
+  const madrasaParam =
+    searchParams.get("madrasa") ||
+    searchParams.get("madrasa_id") ||
+    searchParams.get("m");
+
   const [activeTab, setActiveTab] = useState<"apply" | "search">("apply");
   const [classes, setClasses] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionSuccess, setSubmissionSuccess] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Madrasa State
+  const [currentMadrasa, setCurrentMadrasa] = useState<any>(null);
+  const [availableMadrasas, setAvailableMadrasas] = useState<any[]>([]);
+  const [isLoadingMadrasa, setIsLoadingMadrasa] = useState(true);
 
   // Search State
   const [searchQuery, setSearchQuery] = useState("");
@@ -84,24 +100,69 @@ export default function PublicAdmissionPage() {
   });
 
   useEffect(() => {
-    getClasses().then((data) => {
-      const clsList = curateClassList(data || []);
-      setClasses(clsList);
-      if (clsList.length > 0 && !formData.target_class_id) {
-        const firstCls = clsList[0];
-        const isHifz = firstCls.name.includes("হিফজ") || firstCls.name.includes("নাজেরা");
-        const isKitab = firstCls.name.includes("মিযান") || firstCls.name.includes("কিতাব") || firstCls.name.includes("সানাবিয়া") || firstCls.name.includes("দাওরা");
-        const cat = isHifz ? "hifz" : isKitab ? "kitab" : "general";
+    let isMounted = true;
+    setIsLoadingMadrasa(true);
 
-        setFormData((prev) => ({
-          ...prev,
-          target_class_id: firstCls.id,
-          target_class_name: firstCls.name,
-          department_category: cat,
-        }));
-      }
+    getMadrasaAdmissionProfile(madrasaParam).then((res) => {
+      if (!isMounted) return;
+      setCurrentMadrasa(res.selectedMadrasa);
+      setAvailableMadrasas(res.availableMadrasas || []);
+      setIsLoadingMadrasa(false);
+
+      // Fetch classes specifically for the resolved madrasa
+      getClasses(res.selectedMadrasa?.id).then((data) => {
+        if (!isMounted) return;
+        const clsList = curateClassList(data || []);
+        setClasses(clsList);
+        if (clsList.length > 0) {
+          const firstCls = clsList[0];
+          const isHifz = firstCls.name.includes("হিফজ") || firstCls.name.includes("নাজেরা");
+          const isKitab =
+            firstCls.name.includes("মিযান") ||
+            firstCls.name.includes("কিতাব") ||
+            firstCls.name.includes("সানাবিয়া") ||
+            firstCls.name.includes("দাওরা");
+          const cat = isHifz ? "hifz" : isKitab ? "kitab" : "general";
+
+          setFormData((prev) => ({
+            ...prev,
+            target_class_id: firstCls.id,
+            target_class_name: firstCls.name,
+            department_category: cat,
+          }));
+        }
+      });
     });
-  }, []);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [madrasaParam]);
+
+  const handleMadrasaChange = (selectedId: string) => {
+    const found = availableMadrasas.find((m) => m.id === selectedId);
+    if (found) {
+      setCurrentMadrasa({ ...found, isSpecificMatch: true });
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set("madrasa", found.prefix || found.short_code || found.id);
+        window.history.replaceState({}, "", url.toString());
+      } catch {}
+
+      getClasses(found.id).then((data) => {
+        const clsList = curateClassList(data || []);
+        setClasses(clsList);
+        if (clsList.length > 0) {
+          const firstCls = clsList[0];
+          setFormData((prev) => ({
+            ...prev,
+            target_class_id: firstCls.id,
+            target_class_name: firstCls.name,
+          }));
+        }
+      });
+    }
+  };
 
   const handleClassChange = (classId: string) => {
     const selected = classes.find((c) => c.id === classId);
@@ -185,6 +246,7 @@ export default function PublicAdmissionPage() {
 
     const res = await submitAdmissionApplication({
       ...formData,
+      madrasa_id: currentMadrasa?.id,
       status: "PENDING", // By default stays in pending review
     });
     setIsSubmitting(false);
@@ -200,7 +262,7 @@ export default function PublicAdmissionPage() {
     e.preventDefault();
     if (!searchQuery.trim()) return;
     setIsSearching(true);
-    const results = await searchAdmissionPublic(searchQuery);
+    const results = await searchAdmissionPublic(searchQuery, currentMadrasa?.id);
     setSearchResults(results);
     setHasSearched(true);
     setIsSearching(false);
@@ -236,6 +298,70 @@ export default function PublicAdmissionPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+        {/* Active Madrasa Branding Card */}
+        <div className="bg-white rounded-2xl border border-emerald-200/90 shadow-xs p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-800 text-white flex items-center justify-center font-bold text-xl shadow-md shrink-0 overflow-hidden">
+              {currentMadrasa?.logo_url ? (
+                <img
+                  src={currentMadrasa.logo_url}
+                  alt={currentMadrasa.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <Building className="w-6 h-6 sm:w-7 sm:h-7" />
+              )}
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                    currentMadrasa?.isSpecificMatch
+                      ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                      : "bg-slate-100 text-slate-700 border-slate-200"
+                  }`}
+                >
+                  {currentMadrasa?.isSpecificMatch ? "✓ নির্ধারিত অফিসিয়াল ভর্তি লিংক" : "নির্বাচিত মাদরাসা"}
+                </span>
+                {currentMadrasa?.prefix && (
+                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                    কোড: {currentMadrasa.prefix}
+                  </span>
+                )}
+              </div>
+              <h2 className="text-lg sm:text-xl md:text-2xl font-black text-slate-900 tracking-tight">
+                {currentMadrasa?.name || "মাদরাসা ভর্তি পোর্টাল"}
+              </h2>
+              <p className="text-xs text-slate-600 flex items-center gap-2 flex-wrap">
+                {currentMadrasa?.address && <span>{currentMadrasa.address}</span>}
+                {currentMadrasa?.phone && (
+                  <span>
+                    • হেল্পলাইন: <strong className="text-slate-800">{currentMadrasa.phone}</strong>
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Madrasa Switcher if multiple available */}
+          {availableMadrasas.length > 1 && (
+            <div className="shrink-0 flex items-center gap-2 bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2 text-xs">
+              <span className="text-slate-500 font-medium">মাদরাসা পরিবর্তন:</span>
+              <select
+                value={currentMadrasa?.id || ""}
+                onChange={(e) => handleMadrasaChange(e.target.value)}
+                className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 font-bold text-slate-800 cursor-pointer text-xs focus:ring-1 focus:ring-emerald-500 max-w-[200px] truncate"
+              >
+                {availableMadrasas.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.prefix})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
         {/* Navigation Tabs */}
         <div className="flex bg-slate-200/80 p-1 rounded-xl max-w-md mx-auto">
           <button
@@ -275,9 +401,11 @@ export default function PublicAdmissionPage() {
                   <CheckCircle2 className="w-10 h-10" />
                 </div>
                 <div className="space-y-2 max-w-md mx-auto">
-                  <h2 className="text-2xl font-bold text-slate-900">ভর্তি আবেদন সফলভাবে গৃহীত হয়েছে!</h2>
+                  <h2 className="text-2xl font-bold text-slate-900">
+                    {currentMadrasa?.name || "মাদরাসা"}-এ ভর্তি আবেদন সফলভাবে গৃহীত হয়েছে!
+                  </h2>
                   <p className="text-slate-600 text-sm">
-                    আলহামদুলিল্লাহ, আপনার আবেদনটি নিবন্ধিত হয়েছে। মাদরাসা কর্তৃপক্ষ তথ্য পর্যালোচনা করে পরীক্ষার সময়সূচি চূড়ান্ত করবে।
+                    আলহামদুলিল্লাহ, আপনার আবেদনটি নিবন্ধিত হয়েছে। এটি আবেদন জমার প্রাপ্তিস্বীকার স্লিপ। মাদরাসা কর্তৃপক্ষ তথ্য পর্যালোচনা করে পরীক্ষার সময়সূচি চূড়ান্ত করবে।
                   </p>
                 </div>
 
@@ -314,7 +442,7 @@ export default function PublicAdmissionPage() {
                     <span>ভর্তি পরীক্ষার প্রবেশপত্র সংক্রান্ত তথ্য:</span>
                   </p>
                   <p className="leading-relaxed">
-                    আপনার আবেদনটি বর্তমানে মাদরাসা কর্তৃপক্ষের পর্যালোচনায় রয়েছে। কর্তৃপক্ষ পরীক্ষার নির্ধারিত <strong>তারিখ, সময় ও কক্ষ নম্বর</strong> চূড়ান্ত করার পর প্রবেশপত্র উন্মুক্ত করা হবে। আপনার আবেদন নম্বর <span className="font-mono font-bold text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded">{submissionSuccess.application_no}</span> টি সংরক্ষণ করুন।
+                    আপনার আবেদনটি বর্তমানে মাদরাসা কর্তৃপক্ষের পর্যালোচনায় রয়েছে। কর্তৃপক্ষ পরীক্ষার নির্ধারিত <strong>তারিখ, সময় ও কক্ষ নম্বর</strong> চূড়ান্ত করার পর অফিসিয়াল প্রবেশপত্র উন্মুক্ত করা হবে। আপনার আবেদন নম্বর <span className="font-mono font-bold text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded">{submissionSuccess.application_no}</span> টি সংরক্ষণ করুন।
                   </p>
                 </div>
 
@@ -322,10 +450,11 @@ export default function PublicAdmissionPage() {
                   <button
                     type="button"
                     onClick={() => window.print()}
+                    title="আবেদন দাখিলের প্রাপ্তিস্বীকার স্লিপ প্রিন্ট করুন"
                     className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition cursor-pointer"
                   >
                     <Printer className="w-4 h-4" />
-                    <span>আবেদন স্লিপ প্রিন্ট করুন</span>
+                    <span>আবেদন স্লিপ (প্রাপ্তিস্বীকার) প্রিন্ট করুন</span>
                   </button>
 
                   <button
@@ -334,7 +463,7 @@ export default function PublicAdmissionPage() {
                       setActiveTab("search");
                       setSearchQuery(submissionSuccess.application_no);
                       setIsSearching(true);
-                      searchAdmissionPublic(submissionSuccess.application_no).then((res) => {
+                      searchAdmissionPublic(submissionSuccess.application_no, currentMadrasa?.id).then((res) => {
                         setSearchResults(res);
                         setHasSearched(true);
                         setIsSearching(false);
@@ -1013,6 +1142,23 @@ export default function PublicAdmissionPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function PublicAdmissionPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8 text-slate-500">
+          <div className="text-center space-y-3">
+            <div className="w-10 h-10 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-sm font-semibold">ভর্তি পোর্টাল লোড হচ্ছে...</p>
+          </div>
+        </div>
+      }
+    >
+      <PublicAdmissionContent />
+    </Suspense>
   );
 }
 

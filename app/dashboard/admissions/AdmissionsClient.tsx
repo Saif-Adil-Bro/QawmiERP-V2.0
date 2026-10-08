@@ -26,6 +26,8 @@ import {
   Phone,
   Calendar,
   Layers,
+  Copy,
+  Check,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { AdmissionApplication, ADMISSION_STATUS_MAP, EvaluationSubject, curateClassList } from "@/lib/admissions";
@@ -45,14 +47,17 @@ import { getNextClassRoll } from "@/app/actions/students";
 interface AdmissionsClientProps {
   initialApplications: AdmissionApplication[];
   classes: any[];
+  madrasaInfo?: any;
 }
 
 export default function AdmissionsClient({
   initialApplications,
   classes,
+  madrasaInfo,
 }: AdmissionsClientProps) {
   const curatedClasses = curateClassList(classes || []);
   const [applications, setApplications] = useState<AdmissionApplication[]>(initialApplications);
+  const [isCopied, setIsCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "evaluation" | "confirmed">("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [classFilter, setClassFilter] = useState("all");
@@ -605,6 +610,76 @@ export default function AdmissionsClient({
           </button>
         </div>
       </div>
+
+      {/* Madrasa-Specific Shareable Admission Link Hub */}
+      {(() => {
+        const madrasaIdentifier =
+          madrasaInfo?.prefix ||
+          madrasaInfo?.short_code ||
+          (madrasaInfo?.id ? madrasaInfo.id.slice(0, 8) : "");
+
+        const shareableUrl =
+          typeof window !== "undefined"
+            ? `${window.location.origin}/admission${madrasaIdentifier ? `?madrasa=${encodeURIComponent(madrasaIdentifier)}` : ""}`
+            : `/admission?madrasa=${madrasaIdentifier}`;
+
+        const handleCopyLink = () => {
+          if (typeof navigator !== "undefined" && navigator.clipboard) {
+            navigator.clipboard.writeText(shareableUrl);
+            setIsCopied(true);
+            showNotification("success", "মাদরাসার নিজস্ব ভর্তি লিংক কপি করা হয়েছে!");
+            setTimeout(() => setIsCopied(false), 3000);
+          }
+        };
+
+        return (
+          <div className="bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 text-xs font-bold">
+                    মাদরাসার নিজস্ব ভর্তি লিংক
+                  </span>
+                  {madrasaIdentifier && (
+                    <span className="text-xs font-mono font-bold bg-white/10 px-2 py-0.5 rounded text-emerald-100">
+                      প্যারামিটার: ?madrasa={madrasaIdentifier}
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-base sm:text-lg font-bold text-white">
+                  {madrasaInfo?.name || "আপনার মাদরাসা"}-এর শেয়ারযোগ্য অনলাইন ভর্তি লিংক
+                </h3>
+                <p className="text-xs text-emerald-100/80 leading-relaxed max-w-2xl">
+                  অভিভাবকদের এই লিংকটি শেয়ার করুন (ফেসবুক, হোয়াটসঅ্যাপ বা এসএমএস-এ)। এই লিংকের মাধ্যমে সাবমিট করা সকল আবেদন সরাসরি আপনার মাদরাসার এই ড্যাশবোর্ডে জমা হবে।
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
+                <div className="bg-emerald-950/70 border border-emerald-600/50 rounded-xl px-3 py-2 text-xs font-mono text-emerald-200 select-all max-w-[220px] sm:max-w-xs md:max-w-sm truncate">
+                  {shareableUrl}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-400 hover:bg-emerald-300 text-emerald-950 font-bold rounded-xl text-xs transition shadow-sm cursor-pointer"
+                >
+                  {isCopied ? <Check className="w-4 h-4 text-emerald-950" /> : <Copy className="w-4 h-4 text-emerald-950" />}
+                  <span>{isCopied ? "কপি হয়েছে!" : "লিংক কপি করুন"}</span>
+                </button>
+                <a
+                  href={shareableUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs border border-white/20 transition cursor-pointer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>ওপেন করুন</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Stats Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

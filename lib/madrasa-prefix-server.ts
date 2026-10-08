@@ -1,9 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/server";
-import { extractMadrasaPrefix, generateSuggestedPrefix } from "./madrasa-prefix";
+import { extractMadrasaPrefix, generateSuggestedPrefix, findUniquePrefix } from "./madrasa-prefix";
 
 /**
  * Fetches all existing prefixes across all madrasas in the database.
- * SERVER-ONLY function.
+ * SERVER-ONLY function. Guarantees 100% uniqueness across all madrasas.
  */
 export async function getAllMadrasasWithPrefixes(): Promise<
   Array<{ id: string; name: string; prefix: string; raw: any }>
@@ -23,12 +23,15 @@ export async function getAllMadrasasWithPrefixes(): Promise<
     let p = extractMadrasaPrefix(m);
     if (!p) {
       p = generateSuggestedPrefix(m.name, assignedPrefixes);
+    } else if (assignedPrefixes.includes(p.toUpperCase())) {
+      // If manually extracted prefix was already claimed, resolve to next unique variant
+      p = findUniquePrefix(p, assignedPrefixes);
     }
-    assignedPrefixes.push(p);
+    assignedPrefixes.push(p.toUpperCase());
     results.push({
       id: m.id,
       name: m.name,
-      prefix: p,
+      prefix: p.toUpperCase(),
       raw: m,
     });
   }

@@ -73,13 +73,17 @@ export async function getStudents() {
   }
 }
 
-export async function getClasses() {
+export async function getClasses(targetMadrasaId?: string) {
   try {
     const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
     const scope = await getUserDataAccessScope();
 
     const supabase = await createClient();
     let query = supabase.from("classes").select("*").order("name");
+
+    if (targetMadrasaId) {
+      query = query.eq("madrasa_id", targetMadrasaId);
+    }
 
     if (!scope.isUnrestricted && scope.userRole === "teacher") {
       if (scope.allowedClassIds.length === 0) {
@@ -94,12 +98,24 @@ export async function getClasses() {
       try {
         const adminClient = await createAdminClient();
         let adminQuery = adminClient.from("classes").select("*").order("name");
+        if (targetMadrasaId) {
+          adminQuery = adminQuery.eq("madrasa_id", targetMadrasaId);
+        }
         if (!scope.isUnrestricted && scope.userRole === "teacher") {
           if (scope.allowedClassIds.length === 0) return [];
           adminQuery = adminQuery.in("id", scope.allowedClassIds);
         }
         const { data: adminData } = await adminQuery;
-        return adminData || [];
+        if (adminData && adminData.length > 0) {
+          return adminData;
+        }
+
+        // If targetMadrasaId had no specific classes, fallback to any classes
+        if (targetMadrasaId) {
+          const { data: anyClasses } = await adminClient.from("classes").select("*").order("name");
+          if (anyClasses && anyClasses.length > 0) return anyClasses;
+        }
+        return [];
       } catch {
         return [];
       }
