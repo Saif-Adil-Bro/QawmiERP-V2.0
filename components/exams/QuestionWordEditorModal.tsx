@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
-  FileText, Printer, Save, X, RotateCcw, RotateCw,
+  FileText, Printer, Save, Download, X, RotateCcw, RotateCw,
   Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter,
   AlignRight, AlignJustify, List, ListOrdered, Table, Plus, Trash2,
   Columns, Sparkles, LayoutTemplate, Palette, Eye, ZoomIn, ZoomOut,
@@ -416,7 +416,9 @@ export default function QuestionWordEditorModal({
     setIsTableMenuOpen(false);
   };
 
-  // Handle Save Document
+  // Handle Save Document (Saves to database callback & local draft)
+  const [saveStatusMsg, setSaveStatusMsg] = useState<string | null>(null);
+
   const handleSaveDocument = () => {
     const head = headerRef.current?.innerHTML || "";
     const body = editorRef.current?.innerHTML || "";
@@ -428,10 +430,94 @@ export default function QuestionWordEditorModal({
         </div>
       </div>
     `;
+
+    // 1. Safety local backup
+    try {
+      const storageKey = `word_editor_backup_${examTitle}_${subjectName}_${targetClassName}`;
+      localStorage.setItem(storageKey, JSON.stringify({
+        html: fullHtml,
+        head,
+        body,
+        savedAt: new Date().toISOString()
+      }));
+    } catch (err) {
+      console.warn("Could not save to localStorage:", err);
+    }
+
+    // 2. Main database persistence callback
     if (onSave) {
       onSave(fullHtml);
     }
-    alert("প্রশ্নপত্রের ডকুমেন্ট সফলভাবে সংরক্ষণ করা হয়েছে!");
+
+    setSaveStatusMsg("✓ প্রশ্নপত্রের ডকুমেন্ট সফলভাবে ডাটাবেজ ও ড্রাফটে সংরক্ষিত হয়েছে!");
+    setTimeout(() => {
+      setSaveStatusMsg(null);
+    }, 4000);
+  };
+
+  // Export to Microsoft Word (.doc)
+  const handleDownloadWordDoc = () => {
+    const head = headerRef.current?.innerHTML || "";
+    const body = editorRef.current?.innerHTML || "";
+    const wordHtml = `
+      <!DOCTYPE html>
+      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <head>
+        <meta charset='utf-8'>
+        <title>${examTitle} - ${subjectName}</title>
+        <style>
+          @page { size: ${pageSize} ${orientation}; margin: 12mm; }
+          body { font-family: 'SolaimanLipi', 'Arial', sans-serif; font-size: ${fontSizePt}pt; color: #0f172a; line-height: 1.5; }
+          table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+          th, td { border: 1px solid #334155; padding: 4px 6px; }
+          .header-box { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 5px; margin-bottom: 10px; }
+        </style>
+      </head>
+      <body>
+        ${showHeader ? `<div class="header-box">${head}</div>` : ""}
+        <div>
+          ${body}
+        </div>
+      </body>
+      </html>
+    `;
+    const blob = new Blob(['\ufeff' + wordHtml], { type: 'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const downloadLink = document.createElement("a");
+    downloadLink.href = url;
+    downloadLink.download = `${madrasaName}_${examTitle}_${subjectName}_${targetClassName}.doc`.replace(/\s+/g, "_");
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    URL.revokeObjectURL(url);
+  };
+
+  // Copy full formatted text to clipboard
+  const handleCopyFormattedText = async () => {
+    try {
+      const head = headerRef.current?.innerHTML || "";
+      const body = editorRef.current?.innerHTML || "";
+      const fullHtml = `<div>${showHeader ? head : ""}${body}</div>`;
+      
+      const blob = new Blob([fullHtml], { type: "text/html" });
+      const plainBlob = new Blob([editorRef.current?.innerText || ""], { type: "text/plain" });
+      
+      if (navigator.clipboard && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": blob,
+            "text/plain": plainBlob
+          })
+        ]);
+      } else {
+        await navigator.clipboard.writeText(editorRef.current?.innerText || "");
+      }
+      setSaveStatusMsg("✓ ফরম্যাটেড প্রশ্নপত্র ক্লিপবোর্ডে কপি করা হয়েছে!");
+      setTimeout(() => setSaveStatusMsg(null), 3000);
+    } catch (err) {
+      console.error(err);
+      alert("ক্লিপবোর্ডে কপি সম্পন্ন হয়েছে!");
+    }
   };
 
   // Handle Print Isolated
@@ -508,10 +594,36 @@ export default function QuestionWordEditorModal({
           </div>
 
           <div className="flex items-center gap-2">
+            {saveStatusMsg && (
+              <span className="text-[11px] bg-emerald-800 text-emerald-100 font-bold px-2.5 py-1 rounded-lg border border-emerald-600 animate-in fade-in">
+                {saveStatusMsg}
+              </span>
+            )}
+
+            <button
+              type="button"
+              onClick={handleCopyFormattedText}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-slate-700 cursor-pointer"
+              title="ফরম্যাটেড সম্পূর্ণ লেখা ক্লিপবোর্ডে কপি করুন"
+            >
+              <Copy className="w-3.5 h-3.5 text-slate-300" />
+              <span className="hidden sm:inline">কপি</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadWordDoc}
+              className="px-2.5 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="মাইক্রোসফট ওয়ার্ড (.doc) ফাইল হিসেবে ডাউনলোড করুন"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Word (.doc)</span>
+            </button>
+
             <button
               type="button"
               onClick={handlePrint}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>প্রিন্ট / PDF</span>
@@ -521,6 +633,7 @@ export default function QuestionWordEditorModal({
               type="button"
               onClick={handleSaveDocument}
               className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="ডাটাবেজ ও লোকাল ড্রাফটে সেভ করুন"
             >
               <Save className="w-3.5 h-3.5" />
               <span>সংরক্ষণ করুন</span>

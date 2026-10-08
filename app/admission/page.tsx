@@ -308,27 +308,46 @@ export default function PublicAdmissionPage() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl max-w-lg mx-auto text-xs text-amber-800 text-left space-y-1">
-                  <p className="font-bold flex items-center gap-1.5">
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl max-w-lg mx-auto text-xs text-amber-800 text-left space-y-1.5">
+                  <p className="font-bold flex items-center gap-1.5 text-amber-900">
                     <Clock className="w-4 h-4 text-amber-600" />
-                    <span>পরবর্তী করণীয়:</span>
+                    <span>ভর্তি পরীক্ষার প্রবেশপত্র সংক্রান্ত তথ্য:</span>
                   </p>
-                  <p>
-                    আপনার আবেদন নম্বর <span className="font-mono font-bold text-amber-900">{submissionSuccess.application_no}</span> টি সংরক্ষণ করুন। মাদরাসা অফিস থেকে আবেদন অনুমোদিত হলে আপনি &quot;প্রবেশপত্র খুঁজুন&quot; ট্যাব থেকে প্রবেশপত্র প্রিন্ট করতে পারবেন।
+                  <p className="leading-relaxed">
+                    আপনার আবেদনটি বর্তমানে মাদরাসা কর্তৃপক্ষের পর্যালোচনায় রয়েছে। কর্তৃপক্ষ পরীক্ষার নির্ধারিত <strong>তারিখ, সময় ও কক্ষ নম্বর</strong> চূড়ান্ত করার পর প্রবেশপত্র উন্মুক্ত করা হবে। আপনার আবেদন নম্বর <span className="font-mono font-bold text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded">{submissionSuccess.application_no}</span> টি সংরক্ষণ করুন।
                   </p>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                  <Link
-                    href={`/admission/card/${submissionSuccess.application?.id}`}
-                    target="_blank"
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md transition"
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition cursor-pointer"
                   >
                     <Printer className="w-4 h-4" />
-                    <span>প্রবেশপত্র ভিউ / প্রিন্ট</span>
-                  </Link>
+                    <span>আবেদন স্লিপ প্রিন্ট করুন</span>
+                  </button>
 
                   <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab("search");
+                      setSearchQuery(submissionSuccess.application_no);
+                      setIsSearching(true);
+                      searchAdmissionPublic(submissionSuccess.application_no).then((res) => {
+                        setSearchResults(res);
+                        setHasSearched(true);
+                        setIsSearching(false);
+                      });
+                    }}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition cursor-pointer"
+                  >
+                    <Search className="w-4 h-4" />
+                    <span>স্ট্যাটাস ও প্রবেশপত্র চেক করুন</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => {
                       setSubmissionSuccess(null);
                       setPhotoPreview("");

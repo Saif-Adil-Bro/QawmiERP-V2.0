@@ -2453,6 +2453,25 @@ export default function PaperGeneratorClient({
           subjectName={subjects.find(s => s.id === subjectId)?.name || "কুরআন ও হাদিস"}
           className={classes.find(c => c.id === classId)?.name || "জামাতে তাইসির"}
           madrasaName={customMadrasaName}
+          onSave={async (htmlContent) => {
+            if (examId && classId && subjectId) {
+              await saveExamPaper({
+                exam_id: examId,
+                class_id: classId,
+                subject_id: subjectId,
+                title: paperTitle || examName,
+                total_marks: totalMarks || 100,
+                exam_time: examTime,
+                exam_name: examName,
+                questions: {
+                  custom_word_html: htmlContent,
+                  sections: sections,
+                  is_custom_word_mode: true,
+                  updated_at: new Date().toISOString()
+                }
+              });
+            }
+          }}
           onClose={() => setIsWordEditorOpen(false)}
         />
       )}

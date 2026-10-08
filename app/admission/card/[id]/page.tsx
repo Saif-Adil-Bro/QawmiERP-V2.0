@@ -3,7 +3,7 @@ import { getAdmissionById } from "@/app/actions/admissions";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, ShieldCheck, GraduationCap, Award, FileText, LogIn, ArrowRight, UserCheck, BookOpen } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ShieldCheck, GraduationCap, Award, FileText, LogIn, ArrowRight, UserCheck, BookOpen, Clock, AlertCircle, XCircle } from "lucide-react";
 import PrintButton from "@/components/common/PrintButton";
 
 export default async function AdmitCardPrintPage({
@@ -83,6 +83,111 @@ export default async function AdmitCardPrintPage({
                 ভর্তি পেজে ফিরে যান
               </Link>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Guard: If rejected
+  if (admission.status === "REJECTED") {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-900 p-4 sm:p-8 flex flex-col items-center justify-center">
+        <div className="w-full max-w-xl bg-white border border-rose-200 rounded-3xl shadow-xl p-6 sm:p-8 space-y-6 text-center">
+          <div className="space-y-1 border-b pb-4">
+            <p className="text-xs font-serif text-slate-500">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900">{madrasa.name || "মাদরাসা"}</h1>
+          </div>
+
+          <div className="flex flex-col items-center space-y-2">
+            <div className="w-16 h-16 bg-rose-100 text-rose-700 rounded-2xl flex items-center justify-center">
+              <XCircle className="w-9 h-9" />
+            </div>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-100 text-rose-800 rounded-full text-xs font-bold">
+              <span>আবেদনটি বাতিল করা হয়েছে</span>
+            </span>
+            <h2 className="text-lg font-bold text-slate-900">{admission.applicant_name_bn}</h2>
+            <p className="text-xs text-slate-500 font-mono">আবেদন নম্বর: {admission.application_no}</p>
+          </div>
+
+          <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-4 text-left text-xs text-rose-900 space-y-1">
+            <p className="font-bold">দুঃখিত, এই সেশনের জন্য আবেদনটি গৃহীত হয়নি।</p>
+            <p className="text-slate-600">বিস্তারিত তথ্যের জন্য মাদরাসা অফিসে সরাসরি যোগাযোগ করার জন্য অনুরোধ করা হলো।</p>
+          </div>
+
+          <Link
+            href="/admission"
+            className="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>ভর্তি পোর্টালে ফেরত যান</span>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Guard: If PENDING or no exam schedule has been set yet
+  const isPendingSchedule =
+    admission.status === "PENDING" ||
+    (!admission.exam_schedule?.exam_date &&
+      admission.status !== "ADMIT_ISSUED" &&
+      admission.status !== "MERIT_SELECTED");
+
+  if (isPendingSchedule) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 via-amber-50/20 to-slate-100 text-slate-900 p-4 sm:p-8 flex flex-col items-center justify-center">
+        <div className="w-full max-w-xl bg-white border border-amber-300 rounded-3xl shadow-xl p-6 sm:p-8 space-y-6 text-center">
+          {/* Madrasa Header */}
+          <div className="space-y-1 border-b border-slate-100 pb-4">
+            <p className="text-xs font-serif text-slate-500">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
+            <h1 className="text-xl sm:text-2xl font-black text-emerald-950">{madrasa.name || "মাদরাসা"}</h1>
+            {madrasa.address && <p className="text-xs text-slate-500">{madrasa.address}</p>}
+          </div>
+
+          {/* Pending Schedule Notice Badge */}
+          <div className="flex flex-col items-center space-y-2">
+            <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center shadow-xs ring-8 ring-amber-50">
+              <Clock className="w-9 h-9" />
+            </div>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-900 rounded-full text-xs font-bold border border-amber-300">
+              <AlertCircle className="w-4 h-4 text-amber-700" />
+              <span>পরীক্ষার সময়সূচি ও প্রবেশপত্র প্রক্রিয়াধীন</span>
+            </span>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900">
+              {admission.applicant_name_bn}
+            </h2>
+            <div className="flex items-center justify-center gap-3 text-xs font-mono font-bold text-slate-700 pt-1">
+              <span>আবেদন নম্বর: <strong className="text-emerald-800">{admission.application_no}</strong></span>
+              <span>•</span>
+              <span>সম্ভাব্য রোল: <strong className="text-slate-900">{admission.roll_number}</strong></span>
+            </div>
+          </div>
+
+          {/* Message Box */}
+          <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 text-left space-y-2.5">
+            <div className="flex items-center gap-2 text-amber-950 font-bold text-xs sm:text-sm">
+              <Clock className="w-4 h-4 text-amber-700" />
+              <span>প্রবেশপত্র এখনো ইস্যু করা হয়নি</span>
+            </div>
+            <p className="text-xs text-amber-900 leading-relaxed">
+              আপনার ভর্তি আবেদনটি সফলভাবে গৃহীত হয়েছে। মাদরাসা কর্তৃপক্ষ বর্তমানে আবেদনসমূহ পর্যালোচনা করছে। কর্তৃপক্ষের পক্ষ থেকে ভর্তি পরীক্ষার নির্ধারিত <strong>তারিখ, সময়, কেন্দ্র ও কক্ষ নম্বর</strong> চূড়ান্ত করার পরই এই পেজে প্রবেশপত্র প্রদর্শিত হবে।
+            </p>
+            <div className="pt-2 text-[11px] text-amber-900 border-t border-amber-200/60 flex items-center justify-between">
+              <span>আবেদনকৃত জামাত: <strong>{admission.target_class_name}</strong></span>
+              <span>যোগাযোগ: <strong>{madrasa.phone || "মাদরাসা অফিস"}</strong></span>
+            </div>
+          </div>
+
+          {/* Action CTAs */}
+          <div className="space-y-3 pt-2">
+            <Link
+              href="/admission"
+              className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>ভর্তি পোর্টালে ফেরত যান</span>
+            </Link>
           </div>
         </div>
       </div>
