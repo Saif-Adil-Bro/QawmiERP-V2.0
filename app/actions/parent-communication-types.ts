@@ -40,6 +40,11 @@ export interface AbsentStudentInfo {
   date: string;
   customMessage: string;
   whatsappUrl?: string;
+  // Granular absence tracking metrics
+  consecutiveDays: number;
+  monthlyAbsenceCount: number;
+  isThresholdMet: boolean;
+  thresholdReason?: string;
 }
 
 export interface AbsenceAlertSettings {
@@ -48,6 +53,13 @@ export interface AbsenceAlertSettings {
   preferredChannel: "sms" | "whatsapp" | "both";
   template: string;
   fajrTalimOnly: boolean;
+  // Granular Alert Controls
+  absenceThresholdDays: number; // e.g. 1, 2, 3, or more days/instances
+  triggerType: "daily" | "consecutive" | "total_in_month"; // daily, consecutive days, total in month
+  autoSendWhatsApp: boolean;
+  whatsappNotificationMode: "all" | "threshold_only"; // all absent vs only threshold met
+  consecutiveTemplate?: string; // special alert when consecutive threshold reached
+  excludeExcusedLeaves: boolean;
 }
 
 export interface FeeAlertStudentInfo {
@@ -75,6 +87,13 @@ export const DEFAULT_ABSENCE_SETTINGS: AbsenceAlertSettings = {
   fajrTalimOnly: false,
   template:
     "আসসালামু আলাইকুম। সম্মানিত অভিভাবক, আপনার সন্তান [ছাত্রের নাম] (রোল: [রোল], জামাত: [জামাত]) আজকের সকালের তালিম/ক্লাসে উপস্থিত হয়নি। বিষয়টি জরুরিভাবে অবগত হোন। - [মাদরাসা]",
+  absenceThresholdDays: 1,
+  triggerType: "daily",
+  autoSendWhatsApp: true,
+  whatsappNotificationMode: "all",
+  consecutiveTemplate:
+    "আসসালামু আলাইকুম। সম্মানিত অভিভাবক, আপনার সন্তান [ছাত্রের নাম] (রোল: [রোল], জামাত: [জামাত]) টানা [অনুপস্থিতির দিন] দিন যাবৎ মাদরাসায় অনুপস্থিত রয়েছে। জরুরি ভিত্তিতে মাদরাসা অফিসে যোগাযোগ করার জন্য বিশেষভাবে অনুরোধ করা হচ্ছে। - [মাদরাসা]",
+  excludeExcusedLeaves: true,
 };
 
 export const DEFAULT_FEE_ALERT_TEMPLATE =

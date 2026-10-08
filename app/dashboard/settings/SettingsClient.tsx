@@ -1580,6 +1580,41 @@ export default function SettingsClient({
                 </div>
               </div>
 
+              {/* Section 6: Automated WhatsApp & Absence Alert Thresholds */}
+              <div className="space-y-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-600" />
+                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                      ৬. স্বয়ংক্রিয় হোয়াটসঅ্যাপ ও অনুপস্থিতি নোটিফিকেশন ইঞ্জিন
+                    </h2>
+                  </div>
+                  <span className="text-xs text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-medium border border-emerald-200">
+                    গ্র্যানুলার কন্ট্রোল সক্রিয়
+                  </span>
+                </div>
+
+                <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 rounded-2xl border border-emerald-200/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                      <span>টানা অনুপস্থিতি বা নির্দিষ্ট সংখ্যক দিন অনুপস্থিতির WhatsApp অ্যালার্ট রুলস</span>
+                      <span className="text-[11px] px-2 py-0.5 bg-emerald-600 text-white rounded-full font-bold">১-ক্লিক নোটিফিকেশন</span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
+                      শিক্ষার্থীরা কত দিন বা কতবার অনুপস্থিত হলে অভিভাবকদের স্বয়ংক্রিয় ১-ক্লিক হোয়াটসঅ্যাপ সতর্কবার্তা যাবে তা নির্ধারণ করুন। টানা অনুপস্থিতির দিন (যেমন টানা ২ বা ৩ দিন), চলতি মাসে মোট অনুপস্থিতির সংখ্যা, কিংবা প্রতিদিনের সকালের তালিমে ইনস্ট্যান্ট নোটিফিকেশন রুলস কাস্টমাইজ করুন।
+                    </p>
+                  </div>
+
+                  <Link
+                    href="/dashboard/communication/absence-alerts"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-sm transition whitespace-nowrap self-start md:self-center"
+                  >
+                    <span>অ্যালার্ট সেটিংস ও কনসোল খুলুন</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+              </div>
+
               {/* Submit Buttons */}
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-5 border-t border-slate-200">
                 <div className="text-xs text-slate-500 flex items-center gap-1.5">

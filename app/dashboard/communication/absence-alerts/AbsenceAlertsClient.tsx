@@ -21,11 +21,16 @@ import {
   RefreshCw,
   ExternalLink,
   ChevronDown,
+  Sliders,
+  Flame,
+  ShieldAlert,
+  Info,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-import type {
-  AbsentStudentInfo,
-  AbsenceAlertSettings,
+import {
+  type AbsentStudentInfo,
+  type AbsenceAlertSettings,
+  DEFAULT_ABSENCE_SETTINGS,
 } from "@/app/actions/parent-communication-types";
 import {
   getAbsenceAlertData,
@@ -51,20 +56,14 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
   const [selectedDate, setSelectedDate] = useState(initialData.date || new Date().toISOString().split("T")[0]);
   const [selectedClass, setSelectedClass] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterMode, setFilterMode] = useState<"all" | "threshold_only" | "non_threshold">("all");
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>(
     initialData.absentStudents.map((s) => s.id)
   );
 
-  // Settings
+  // Settings with Granular Absence Thresholds
   const [settings, setSettings] = useState<AbsenceAlertSettings>(
-    initialData.settings || {
-      isAutoEnabled: true,
-      scheduleTime: "08:00",
-      preferredChannel: "both",
-      template:
-        "আসসালামু আলাইকুম। সম্মানিত অভিভাবক, আপনার সন্তান [ছাত্রের নাম] (রোল: [রোল], জামাত: [জামাত]) আজকের সকালের তালিম/ক্লাসে উপস্থিত হয়নি। বিষয়টি জরুরিভাবে অবগত হোন। - [মাদরাসা]",
-      fajrTalimOnly: false,
-    }
+    initialData.settings || DEFAULT_ABSENCE_SETTINGS
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -86,8 +85,11 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
     setIsRefreshing(false);
   };
 
-  // Filter students by search
+  // Filter students by search & threshold
   const filteredStudents = data.absentStudents.filter((s) => {
+    if (filterMode === "threshold_only" && !s.isThresholdMet) return false;
+    if (filterMode === "non_threshold" && s.isThresholdMet) return false;
+
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -98,6 +100,34 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
     );
   });
 
+  const thresholdStudentsCount = data.absentStudents.filter((s) => s.isThresholdMet).length;
+
+  // Preset Handlers for Granular Control
+  const applyPreset = (preset: "strict" | "standard" | "critical") => {
+    if (preset === "strict") {
+      setSettings((prev) => ({
+        ...prev,
+        absenceThresholdDays: 1,
+        triggerType: "daily",
+        whatsappNotificationMode: "all",
+      }));
+    } else if (preset === "standard") {
+      setSettings((prev) => ({
+        ...prev,
+        absenceThresholdDays: 2,
+        triggerType: "consecutive",
+        whatsappNotificationMode: "threshold_only",
+      }));
+    } else if (preset === "critical") {
+      setSettings((prev) => ({
+        ...prev,
+        absenceThresholdDays: 3,
+        triggerType: "consecutive",
+        whatsappNotificationMode: "threshold_only",
+      }));
+    }
+  };
+
   // Select / Deselect All
   const handleToggleSelectAll = () => {
     if (selectedStudentIds.length === filteredStudents.length) {
@@ -105,6 +135,11 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
     } else {
       setSelectedStudentIds(filteredStudents.map((s) => s.id));
     }
+  };
+
+  const handleSelectThresholdOnly = () => {
+    const thresholdIds = data.absentStudents.filter((s) => s.isThresholdMet).map((s) => s.id);
+    setSelectedStudentIds(thresholdIds);
   };
 
   const handleToggleStudent = (id: string) => {
@@ -231,23 +266,199 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
         </div>
       )}
 
-      {/* Settings Panel (Collapsible) */}
+      {/* Granular Settings Panel (Collapsible) */}
       {isSettingsOpen && (
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <Settings className="w-5 h-5 text-emerald-600" />
-              স্বয়ংক্রিয় সকাল ৮টার নোটিফিকেশন সেটিংস
-            </h3>
-            <span className="text-xs text-slate-400">প্রতিদিনের সকালের তালিমে কার্যকর</span>
+        <div className="bg-white p-6 sm:p-7 rounded-2xl border border-slate-200 shadow-xl space-y-6 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold mb-1">
+                <Sliders className="w-3.5 h-3.5 text-emerald-600" />
+                গ্র্যানুলার নোটিফিকেশন রুলস
+              </div>
+              <h3 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-emerald-600" />
+                স্বয়ংক্রিয় হোয়াটসঅ্যাপ ও অনুপস্থিতি অ্যালার্ট সেটিংস
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                কত দিন বা কতবার অনুপস্থিতির পর স্বয়ংক্রিয় WhatsApp নোটিফিকেশন পাঠানো হবে তা পুঙ্খানুপুঙ্খভাবে নিয়ন্ত্রণ করুন।
+              </p>
+            </div>
+
+            {/* Quick Presets */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-500">দ্রুত প্রিসেট:</span>
+              <button
+                type="button"
+                onClick={() => applyPreset("strict")}
+                className="px-2.5 py-1 text-xs rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 font-semibold text-slate-700 transition"
+                title="১ম দিনের অনুপস্থিতিতেই অ্যালার্ট"
+              >
+                ⚡ ১ম দিন থেকেই
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset("standard")}
+                className="px-2.5 py-1 text-xs rounded-lg border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 font-semibold text-slate-700 transition"
+                title="টানা ২ দিন অনুপস্থিতিতে অ্যালার্ট"
+              >
+                🎯 টানা ২ দিন
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset("critical")}
+                className="px-2.5 py-1 text-xs rounded-lg border border-slate-200 hover:border-rose-500 hover:bg-rose-50 font-semibold text-slate-700 transition"
+                title="টানা ৩ দিন অনুপস্থিতিতে কড়া অ্যালার্ট"
+              >
+                🚨 টানা ৩ দিন (জরুরি)
+              </button>
+            </div>
           </div>
 
-          <form onSubmit={handleSaveSettings} className="space-y-4 text-xs sm:text-sm">
+          <form onSubmit={handleSaveSettings} className="space-y-6 text-xs sm:text-sm">
+            {/* Row 1: Granular Threshold Control */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-slate-50 to-emerald-50/30 border border-slate-200 space-y-4">
+              <div className="flex items-center gap-2">
+                <Flame className="w-4 h-4 text-emerald-600" />
+                <h4 className="font-bold text-slate-800 text-sm sm:text-base">
+                  ১. অনুপস্থিতি থ্রেশহোল্ড নির্ধারণ (Absence Threshold & Trigger Rules)
+                </h4>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* Threshold Number of Days */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5">
+                    কত দিন / কতবার অনুপস্থিত হলে অ্যালার্ট সক্রিয় হবে?
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={settings.absenceThresholdDays || 1}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          absenceThresholdDays: Math.max(1, parseInt(e.target.value) || 1),
+                        })
+                      }
+                      className="w-24 px-3 py-2 rounded-xl border border-slate-300 font-bold text-slate-900 text-base text-center focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {[1, 2, 3, 5, 7].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setSettings({ ...settings, absenceThresholdDays: num })}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                            (settings.absenceThresholdDays || 1) === num
+                              ? "bg-emerald-600 text-white shadow-sm"
+                              : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          {toBanglaNumber(num)} দিন
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    যেমন: ২ নির্ধারণ করলে টানা ২ দিন বা মাসে ২ দিন অনুপস্থিত হলেই হোয়াটসঅ্যাপ বার্তা যাবে।
+                  </p>
+                </div>
+
+                {/* Trigger Type Selection */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1.5">
+                    অ্যালার্ট ট্রিগারের হিসাবের নিয়ম (Trigger Condition)
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSettings({ ...settings, triggerType: "consecutive" })}
+                      className={`p-2.5 rounded-xl border text-left transition ${
+                        settings.triggerType === "consecutive"
+                          ? "border-emerald-600 bg-emerald-50/80 text-emerald-900 font-bold shadow-sm"
+                          : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+                      }`}
+                    >
+                      <div className="font-bold text-xs">🔥 টানা অনুপস্থিতি</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">টানা নির্দিষ্ট দিন না আসলে</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSettings({ ...settings, triggerType: "total_in_month" })}
+                      className={`p-2.5 rounded-xl border text-left transition ${
+                        settings.triggerType === "total_in_month"
+                          ? "border-emerald-600 bg-emerald-50/80 text-emerald-900 font-bold shadow-sm"
+                          : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+                      }`}
+                    >
+                      <div className="font-bold text-xs">📅 চলতি মাসে মোট</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">মাসে মোট দিন সংখ্যা ছুঁলে</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSettings({ ...settings, triggerType: "daily" })}
+                      className={`p-2.5 rounded-xl border text-left transition ${
+                        settings.triggerType === "daily"
+                          ? "border-emerald-600 bg-emerald-50/80 text-emerald-900 font-bold shadow-sm"
+                          : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+                      }`}
+                    >
+                      <div className="font-bold text-xs">⚡ প্রতিদিন তাৎক্ষণিক</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">১ম দিন থেকেই প্রতিটি দিনে</div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 1.2: Targeting & Exclusions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-slate-200/60">
+                <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200">
+                  <div>
+                    <div className="font-bold text-slate-800 text-xs">হোয়াটসঅ্যাপ নোটিফিকেশন টার্গেটিং</div>
+                    <div className="text-[11px] text-slate-500">শুধুমাত্র থ্রেশহোল্ড পূরণকারী ছাত্র নাকি সবাইকে?</div>
+                  </div>
+                  <select
+                    value={settings.whatsappNotificationMode || "all"}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        whatsappNotificationMode: e.target.value as any,
+                      })
+                    }
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-200 font-bold text-xs bg-slate-50"
+                  >
+                    <option value="threshold_only">🚨 শুধুমাত্র থ্রেশহোল্ড পূরণকারী</option>
+                    <option value="all">👥 সকল অনুপস্থিত শিক্ষার্থী</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200">
+                  <div>
+                    <div className="font-bold text-slate-800 text-xs">অনুমোদিত ছুটি বাদ রাখুন (Leave Exclusion)</div>
+                    <div className="text-[11px] text-slate-500">ছুটি মঞ্জুর করা থাকলে টানা গণনা ভেঙে যাবে না</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settings.excludeExcusedLeaves ?? true}
+                    onChange={(e) =>
+                      setSettings({ ...settings, excludeExcusedLeaves: e.target.checked })
+                    }
+                    className="w-4 h-4 text-emerald-600 rounded"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: General Dispatch Timing & Delivery Channel */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
                 <div>
-                  <div className="font-bold text-slate-800">স্বয়ংক্রিয় অ্যালার্ট সিস্টেম</div>
-                  <div className="text-[11px] text-slate-500">অনুপস্থিত হলে স্বয়ংক্রিয় বার্তা ড্রাফট</div>
+                  <div className="font-bold text-slate-800">স্বয়ংক্রিয় নোটিফিকেশন ইঞ্জিন</div>
+                  <div className="text-[11px] text-slate-500">হাজিরা নেওয়া শেষে স্বয়ংক্রিয় লিঙ্ক তৈরি</div>
                 </div>
                 <input
                   type="checkbox"
@@ -281,40 +492,59 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
               </div>
             </div>
 
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                মেসেজ টেমপ্লেট (ভ্যারিয়েবল: [ছাত্রের নাম], [রোল], [জামাত], [মাদরাসা])
-              </label>
-              <textarea
-                rows={3}
-                value={settings.template}
-                onChange={(e) => setSettings({ ...settings, template: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 font-medium leading-relaxed"
-              />
+            {/* Row 3: Message Templates */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  সাধারণ দৈনিক বার্তা টেমপ্লেট
+                </label>
+                <textarea
+                  rows={3}
+                  value={settings.template}
+                  onChange={(e) => setSettings({ ...settings, template: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 font-medium leading-relaxed text-xs"
+                  placeholder="ভ্যারিয়েবল: [ছাত্রের নাম], [রোল], [জামাত], [মাদরাসা]"
+                />
+                <span className="text-[10px] text-slate-400">ভ্যারিয়েবল: [ছাত্রের নাম], [রোল], [জামাত], [মাদরাসা]</span>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  টানা / দীর্ঘমেয়াদী অনুপস্থিতির বিশেষ সতর্কবার্তা টেমপ্লেট
+                </label>
+                <textarea
+                  rows={3}
+                  value={settings.consecutiveTemplate || ""}
+                  onChange={(e) => setSettings({ ...settings, consecutiveTemplate: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 font-medium leading-relaxed text-xs"
+                  placeholder="ভ্যারিয়েবল: [ছাত্রের নাম], [রোল], [জামাত], [মাদরাসা], [অনুপস্থিতির দিন]"
+                />
+                <span className="text-[10px] text-slate-400">ভ্যারিয়েবল: [অনুপস্থিতির দিন], [ছাত্রের নাম], [রোল], [জামাত], [মাদরাসা]</span>
+              </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setIsSettingsOpen(false)}
-                className="px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 font-bold"
+                className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-bold"
               >
                 বাতিল
               </button>
               <button
                 type="submit"
                 disabled={isSavingSettings}
-                className="px-5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold transition disabled:opacity-50"
+                className="px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold transition shadow-md disabled:opacity-50 flex items-center gap-2"
               >
-                {isSavingSettings ? "সংরক্ষণ হচ্ছে..." : "সেটিংস সংরক্ষণ করুন"}
+                {isSavingSettings ? "সংরক্ষণ হচ্ছে..." : "গ্র্যানুলার সেটিংস সংরক্ষণ করুন"}
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* Summary KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Summary KPI Cards with Granular Threshold Insight */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="text-xs font-semibold text-slate-500">মোট শিক্ষার্থী</div>
           <div className="text-2xl font-bold text-slate-800 mt-1">{toBanglaNumber(data.totalStudents)}</div>
@@ -332,14 +562,23 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
 
         <div className="bg-white p-4 rounded-xl border border-rose-200 bg-rose-50/20 shadow-sm">
           <div className="text-xs font-semibold text-rose-600 flex items-center justify-between">
-            <span>অনুপস্থিত ছাত্র</span>
+            <span>মোট অনুপস্থিত</span>
             <AlertCircle className="w-4 h-4 text-rose-500" />
           </div>
           <div className="text-2xl font-bold text-rose-700 mt-1">{toBanglaNumber(data.absentCount)}</div>
-          <div className="text-[11px] text-rose-600 mt-0.5">নোটিফিকেশন পাঠানো আবশ্যক</div>
+          <div className="text-[11px] text-rose-600 mt-0.5">আজকের তালিকায় অনুপস্থিত</div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white p-4 rounded-xl border border-rose-300 bg-gradient-to-br from-rose-50 to-amber-50 shadow-sm">
+          <div className="text-xs font-semibold text-rose-800 flex items-center justify-between">
+            <span>🚨 থ্রেশহোল্ড পূর্ণ</span>
+            <Flame className="w-4 h-4 text-rose-600" />
+          </div>
+          <div className="text-2xl font-bold text-rose-900 mt-1">{toBanglaNumber(thresholdStudentsCount)}</div>
+          <div className="text-[11px] text-rose-700 mt-0.5 font-medium">WhatsApp সতর্কবার্তা যোগ্য</div>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm col-span-2 lg:col-span-1">
           <div className="text-xs font-semibold text-indigo-600 flex items-center justify-between">
             <span>নির্বাচিত</span>
             <Check className="w-4 h-4 text-indigo-500" />
@@ -349,57 +588,111 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
         </div>
       </div>
 
-      {/* Date & Class Controls */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <input
-              type="date"
-              value={selectedDate}
+      {/* Date, Class, Search & Granular Threshold Filters */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-slate-400" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => {
+                  setSelectedDate(e.target.value);
+                  handleRefreshData(e.target.value, selectedClass);
+                }}
+                className="px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <select
+              value={selectedClass}
               onChange={(e) => {
-                setSelectedDate(e.target.value);
-                handleRefreshData(e.target.value, selectedClass);
+                setSelectedClass(e.target.value);
+                handleRefreshData(selectedDate, e.target.value);
               }}
-              className="px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-500"
-            />
+              className="px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-semibold bg-slate-50 focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="ALL">সকল জামাত</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+
+            <button
+              onClick={() => handleRefreshData()}
+              disabled={isRefreshing}
+              className="p-2 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition"
+              title="রিফ্রেশ করুন"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            </button>
           </div>
 
-          <select
-            value={selectedClass}
-            onChange={(e) => {
-              setSelectedClass(e.target.value);
-              handleRefreshData(selectedDate, e.target.value);
-            }}
-            className="px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-semibold bg-slate-50 focus:ring-2 focus:ring-emerald-500"
-          >
-            <option value="ALL">সকল জামাত</option>
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-
-          <button
-            onClick={() => handleRefreshData()}
-            disabled={isRefreshing}
-            className="p-2 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition"
-            title="রিফ্রেশ করুন"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
-          </button>
+          <div className="relative min-w-[240px]">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="ছাত্রের নাম বা মোবাইল নম্বর খুঁজুন..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
         </div>
 
-        <div className="relative min-w-[240px]">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="ছাত্রের নাম বা মোবাইল নম্বর খুঁজুন..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm rounded-lg border border-slate-200 focus:ring-2 focus:ring-emerald-500"
-          />
+        {/* Filter Tabs for Granular Absence Control */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="font-bold text-slate-500 mr-1">ফিল্টার:</span>
+            <button
+              type="button"
+              onClick={() => setFilterMode("all")}
+              className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                filterMode === "all"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              সকল অনুপস্থিত ({toBanglaNumber(data.absentStudents.length)})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterMode("threshold_only")}
+              className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1 ${
+                filterMode === "threshold_only"
+                  ? "bg-rose-600 text-white shadow-sm"
+                  : "bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200"
+              }`}
+            >
+              <Flame className="w-3.5 h-3.5" />
+              🚨 থ্রেশহোল্ড উত্তীর্ণ ({toBanglaNumber(thresholdStudentsCount)})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterMode("non_threshold")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition ${
+                filterMode === "non_threshold"
+                  ? "bg-emerald-700 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              সাধারণ অনুপস্থিত ({toBanglaNumber(data.absentStudents.length - thresholdStudentsCount)})
+            </button>
+          </div>
+
+          {thresholdStudentsCount > 0 && (
+            <button
+              type="button"
+              onClick={handleSelectThresholdOnly}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 font-bold hover:bg-rose-100 transition"
+            >
+              <Flame className="w-3.5 h-3.5 text-rose-600" />
+              থ্রেশহোল্ড পূরণকারীদের একসাথে নির্বাচন করুন
+            </button>
+          )}
         </div>
       </div>
 
@@ -408,15 +701,15 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-sm">
           <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
           <h3 className="text-lg font-bold text-slate-800">
-            {selectedDate} তারিখে কোনো অনুপস্থিত শিক্ষার্থী নেই!
+            {selectedDate} তারিখে কোনো অনুপস্থিত শিক্ষার্থী পাওয়া যায়নি!
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            আলহামদুলিল্লাহ, সকল শিক্ষার্থী উপস্থিত রয়েছে অথবা আজকের দিনের হাজিরা এন্ট্রি সম্পন্ন হয়নি।
+            আলহামদুলিল্লাহ, সকল শিক্ষার্থী উপস্থিত রয়েছে অথবা ফিল্টারের শর্ত অনুযায়ী কোনো ছাত্র পাওয়া যায়নি।
           </p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+          <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <input
                 type="checkbox"
@@ -430,7 +723,7 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
             </div>
 
             <span className="text-xs text-slate-500 font-medium">
-              সরাসরি WhatsApp বা এসএমএস গেটওয়ে ব্যবহার করুন
+              সরাসরি WhatsApp ১-ক্লিক অথবা এসএমএস গেটওয়ে ব্যবহার করুন
             </span>
           </div>
 
@@ -442,7 +735,11 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
                 <div
                   key={student.id}
                   className={`p-4 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                    isSelected ? "bg-emerald-50/30" : "hover:bg-slate-50"
+                    student.isThresholdMet
+                      ? "bg-rose-50/30 hover:bg-rose-50/50"
+                      : isSelected
+                      ? "bg-emerald-50/30"
+                      : "hover:bg-slate-50"
                   }`}
                 >
                   <div className="flex items-start gap-3 flex-1">
@@ -453,17 +750,35 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
                       className="w-4 h-4 text-emerald-600 rounded mt-1"
                     />
 
-                    <div>
-                      <div className="flex items-center gap-2">
+                    <div className="space-y-1.5 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h4 className="text-sm sm:text-base font-bold text-slate-900">
                           {student.full_name}
                         </h4>
                         <span className="text-xs px-2 py-0.5 rounded font-bold bg-rose-100 text-rose-800">
                           অনুপস্থিত
                         </span>
+
+                        {/* Granular Threshold Badges */}
+                        {student.isThresholdMet && (
+                          <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-rose-600 text-white shadow-sm flex items-center gap-1">
+                            <Flame className="w-3 h-3 text-amber-200" />
+                            {student.thresholdReason || "অ্যালার্ট থ্রেশহোল্ড সক্রিয়"}
+                          </span>
+                        )}
+
+                        {student.consecutiveDays > 1 && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                            টানা {toBanglaNumber(student.consecutiveDays)} দিন
+                          </span>
+                        )}
+
+                        <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700">
+                          মাসে মোট {toBanglaNumber(student.monthlyAbsenceCount)} বার
+                        </span>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1 font-medium">
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 font-medium">
                         <span>রোল: <b className="text-slate-700">{toBanglaNumber(student.roll_number || "১")}</b></span>
                         <span>•</span>
                         <span>জামাত: <b className="text-slate-700">{student.class_name}</b></span>
@@ -477,7 +792,7 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
                         <span className="font-mono text-slate-700 font-semibold">{student.parent_phone}</span>
                       </div>
 
-                      <div className="text-[11px] text-slate-400 mt-2 bg-slate-50 p-2 rounded-lg border border-slate-100 italic">
+                      <div className="text-[11px] text-slate-500 bg-white p-2.5 rounded-lg border border-slate-200/80 leading-relaxed font-sans shadow-2xs">
                         &quot;{student.customMessage}&quot;
                       </div>
                     </div>
@@ -490,7 +805,11 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
                         href={student.whatsappUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition"
+                        className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-white font-bold text-xs shadow-sm transition ${
+                          student.isThresholdMet
+                            ? "bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-400/50"
+                            : "bg-emerald-600 hover:bg-emerald-700"
+                        }`}
                         title="সরাসরি অভিভাবকের হোয়াটসঅ্যাপে পাঠান"
                       >
                         <MessageCircle className="w-4 h-4" />

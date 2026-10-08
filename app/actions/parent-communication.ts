@@ -353,9 +353,36 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
     // Settings
     const settings = await getAbsenceAlertSettings();
 
+    // 3. Fetch past 30 days attendance to compute consecutive absences and monthly count
+    const targetDateObj = new Date(date);
+    const thirtyDaysAgo = new Date(targetDateObj);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 35);
+    const startDateStr = thirtyDaysAgo.toISOString().split("T")[0];
+    const currentMonthPrefix = date.substring(0, 7); // "YYYY-MM"
+
+    const { data: pastAttList } = await adminClient
+      .from("attendance")
+      .select("student_id, date, status")
+      .eq("madrasa_id", madrasaId)
+      .gte("date", startDateStr)
+      .lte("date", date)
+      .order("date", { ascending: false });
+
+    const studentHistoryMap = new Map<string, Array<{ date: string; status: string }>>();
+    if (pastAttList) {
+      for (const item of pastAttList) {
+        if (!studentHistoryMap.has(item.student_id)) {
+          studentHistoryMap.set(item.student_id, []);
+        }
+        studentHistoryMap.get(item.student_id)!.push({ date: item.date, status: item.status });
+      }
+    }
+
     const absentStudents: AbsentStudentInfo[] = [];
     let presentCount = 0;
     let absentCount = 0;
+
+    const thresholdDays = Math.max(1, settings.absenceThresholdDays || 1);
 
     for (const s of students) {
       const status = attMap.get(s.id) || "Present"; // Default present if not logged
@@ -367,12 +394,64 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
         const rollStr = toBanglaNumber(s.roll_number ?? "১");
         const classNameStr = s.class_name || "সাধারণ জামাত";
 
-        // Render template
-        let msg = settings.template
-          .replace(/\[ছাত্রের নাম\]/g, fullName)
-          .replace(/\[রোল\]/g, rollStr)
-          .replace(/\[জামাত\]/g, classNameStr)
-          .replace(/\[মাদরাসা\]/g, madrasaName);
+        // Calculate consecutive absence days leading up to target date
+        const history = studentHistoryMap.get(s.id) || [];
+        history.sort((a, b) => b.date.localeCompare(a.date));
+
+        let consecutiveDays = 0;
+        for (const h of history) {
+          if (h.date > date) continue;
+          if (h.status === "Absent" || h.status === "Late") {
+            consecutiveDays++;
+          } else if (h.status === "Leave" && settings.excludeExcusedLeaves) {
+            continue; // Excused leave does not break streak if configured
+          } else {
+            break; // Present breaks streak
+          }
+        }
+        if (consecutiveDays === 0) consecutiveDays = 1;
+
+        // Calculate monthly absence count in current month
+        const monthlyAbsenceCount = Math.max(
+          consecutiveDays,
+          history.filter(
+            (h) => h.date.startsWith(currentMonthPrefix) && (h.status === "Absent" || h.status === "Late")
+          ).length
+        );
+
+        // Determine threshold matching
+        let isThresholdMet = false;
+        let thresholdReason = "";
+
+        if (settings.triggerType === "daily") {
+          isThresholdMet = consecutiveDays >= thresholdDays;
+          thresholdReason = consecutiveDays > 1 
+            ? `টানা ${toBanglaNumber(consecutiveDays)} দিন অনুপস্থিত` 
+            : "দৈনিক অনুপস্থিতি";
+        } else if (settings.triggerType === "consecutive") {
+          isThresholdMet = consecutiveDays >= thresholdDays;
+          thresholdReason = `টানা ${toBanglaNumber(consecutiveDays)} দিন অনুপস্থিত (থ্রেশহোল্ড: ${toBanglaNumber(thresholdDays)} দিন)`;
+        } else if (settings.triggerType === "total_in_month") {
+          isThresholdMet = monthlyAbsenceCount >= thresholdDays;
+          thresholdReason = `মাসে মোট ${toBanglaNumber(monthlyAbsenceCount)} বার অনুপস্থিত (থ্রেশহোল্ড: ${toBanglaNumber(thresholdDays)} বার)`;
+        } else {
+          isThresholdMet = true;
+          thresholdReason = "অনুপস্থিতি";
+        }
+
+        // Render template - choose consecutive template if consecutive >= 2 and configured
+        let msg = (consecutiveDays >= 2 && settings.consecutiveTemplate)
+          ? settings.consecutiveTemplate
+              .replace(/\[ছাত্রের নাম\]/g, fullName)
+              .replace(/\[রোল\]/g, rollStr)
+              .replace(/\[জামাত\]/g, classNameStr)
+              .replace(/\[মাদরাসা\]/g, madrasaName)
+              .replace(/\[অনুপস্থিতির দিন\]/g, toBanglaNumber(consecutiveDays))
+          : settings.template
+              .replace(/\[ছাত্রের নাম\]/g, fullName)
+              .replace(/\[রোল\]/g, rollStr)
+              .replace(/\[জামাত\]/g, classNameStr)
+              .replace(/\[মাদরাসা\]/g, madrasaName);
 
         const cleanPhone = normalizePhoneNumber(s.parent_phone || "", false);
         const intlPhone = normalizePhoneNumber(s.parent_phone || "", true); // 8801...
@@ -396,6 +475,10 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
           date,
           customMessage: msg,
           whatsappUrl,
+          consecutiveDays,
+          monthlyAbsenceCount,
+          isThresholdMet,
+          thresholdReason,
         });
       }
     }
