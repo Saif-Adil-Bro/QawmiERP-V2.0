@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import PrintButton from "@/app/components/PrintButton";
 import {
   IdCard,
@@ -657,6 +658,14 @@ export default function IdCardClient({
             <History className="w-4 h-4 text-purple-400" />
             <span>অডিট লগ ও ইতিহাস</span>
           </button>
+
+          <Link
+            href="/dashboard/academic/verification"
+            className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 text-slate-600 hover:bg-slate-100 hover:text-emerald-700 whitespace-nowrap cursor-pointer"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>অনলাইন যাচাইকরণ ও সিকিউরিটি লগ</span>
+          </Link>
         </div>
 
         {activeTab === "cards" && (

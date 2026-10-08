@@ -26,6 +26,7 @@ import BlankMoneyReceipt from "@/components/print-hub/BlankMoneyReceipt";
 import ExaminerEvaluationSheet from "@/components/print-hub/ExaminerEvaluationSheet";
 import CustomTableSheetBuilder from "@/components/print-hub/CustomTableSheetBuilder";
 import PresetMadrasaSheets from "@/components/print-hub/PresetMadrasaSheets";
+import LetterpadNoticeBuilder from "@/components/print-hub/LetterpadNoticeBuilder";
 import { printElementIsolated } from "@/lib/printUtils";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { sortStudentsByRoll } from "@/lib/student-utils";
@@ -36,7 +37,7 @@ interface PrintHubClientProps {
   allStudents: any[];
 }
 
-type TabType = "admission" | "receipt" | "examiner" | "custom_builder" | "preset_sheets";
+type TabType = "admission" | "receipt" | "examiner" | "custom_builder" | "preset_sheets" | "letterpad_notice";
 
 export default function PrintHubClient({
   madrasaInfo,
@@ -130,6 +131,10 @@ export default function PrintHubClient({
           ? "landscape"
           : "portrait";
       printElementIsolated("preset-sheets-printable", title, orientation);
+    } else if (activeTab === "letterpad_notice") {
+      title = "মাদরাসা লেটারপ্যাড নোটিশ ও ফরম";
+      orientation = "portrait";
+      printElementIsolated("letterpad-notice-printable", title, orientation, "A4");
     }
   };
 
@@ -150,7 +155,7 @@ export default function PrintHubClient({
             <span>প্রিন্ট ও ফরম হাব (Print Module Hub)</span>
           </h1>
           <p className="text-xs sm:text-sm text-slate-600">
-            মাদরাসার খালি ভর্তি ফরম, মানি রিসিট, পরীক্ষক মূল্যায়ন শিট ও কাস্টম ডায়নামিক টেবিল প্রিন্ট করুন
+            মাদরাসার খালি ভর্তি ফরম, মানি রিসিট, পরীক্ষক মূল্যায়ন শিট, লেটারপ্যাডে কাস্টম নোটিশ ও ডায়নামিক টেবিল প্রিন্ট করুন
           </p>
         </div>
 
@@ -248,6 +253,19 @@ export default function PrintHubClient({
         >
           <Layers className="w-4 h-4 text-emerald-600" />
           <span>৫. প্রিসেট মাদরাসা ফরম ও শিট</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("letterpad_notice")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition cursor-pointer ${
+            activeTab === "letterpad_notice"
+              ? "bg-white text-emerald-900 shadow-xs"
+              : "text-slate-600 hover:text-slate-900 hover:bg-white/60"
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-emerald-600" />
+          <span>৬. লেটারপ্যাড নোটিশ ও কাস্টম ফরম</span>
         </button>
       </div>
 
@@ -687,6 +705,11 @@ export default function PrintHubClient({
             </div>
           </div>
         </div>
+      )}
+
+      {/* TAB 6: LETTERPAD NOTICE & CUSTOM FORM BUILDER */}
+      {activeTab === "letterpad_notice" && (
+        <LetterpadNoticeBuilder madrasaInfo={madrasaInfo} />
       )}
     </div>
   );

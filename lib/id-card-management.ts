@@ -30,6 +30,16 @@ export interface StudentIDCard {
   issued_by: string;
   status_reason?: string;
   snapshot: IDCardSnapshot;
+
+  // Verification security tracking
+  verification_count?: number;
+  last_verified_at?: string;
+  verification_logs?: {
+    verified_at: string;
+    status: string;
+    ip_or_device?: string;
+  }[];
+
   created_at: string;
   updated_at: string;
 }

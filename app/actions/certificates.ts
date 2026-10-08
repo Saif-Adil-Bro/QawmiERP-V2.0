@@ -594,6 +594,39 @@ export async function verifyCertificateByToken(tokenOrNumber: string) {
         const found = certs.find((c) => c.verification_token === q || c.certificate_number === q);
 
         if (found) {
+          // Track verification count & timestamp for security auditing
+          const nowIso = new Date().toISOString();
+          found.verification_count = (found.verification_count || 0) + 1;
+          found.last_verified_at = nowIso;
+          const currentLogs = found.verification_logs || [];
+          found.verification_logs = [
+            { verified_at: nowIso, status: found.status },
+            ...currentLogs.slice(0, 49),
+          ];
+
+          // Record in central verification audit logs in madrasa metadata
+          const centralLogs: any[] = (meta as any).verification_logs || [];
+          const newCentralLog = {
+            id: `vlog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            madrasa_id: m.id,
+            doc_type: "CERTIFICATE",
+            doc_number: found.certificate_number,
+            doc_title: found.certificate_type_title || "অফিশিয়াল সনদপত্র",
+            student_name: found.snapshot.student_name,
+            student_id_code: found.snapshot.student_id_code,
+            class_name: found.snapshot.class_name,
+            roll_number: found.snapshot.roll_number,
+            verified_at: nowIso,
+            status: found.status,
+            verification_count: found.verification_count,
+          };
+          (meta as any).verification_logs = [newCentralLog, ...centralLogs.slice(0, 199)];
+
+          // Asynchronously persist updated metadata
+          saveMadrasaMetadata(m.id, meta as any).catch((e) =>
+            console.error("Failed to save verification log to metadata:", e)
+          );
+
           const isRevoked = found.status === "REVOKED" || found.status === "VOIDED";
           const isReissued = found.status === "REISSUED";
           const isPending = found.status === "PENDING_APPROVAL" || found.status === "DRAFT";
@@ -606,6 +639,8 @@ export async function verifyCertificateByToken(tokenOrNumber: string) {
               certificateNumber: found.certificate_number,
               studentName: found.snapshot.student_name,
               madrasaName: found.snapshot.madrasa_name,
+              verificationCount: found.verification_count,
+              lastVerifiedAt: found.last_verified_at,
             };
           }
 
@@ -617,6 +652,8 @@ export async function verifyCertificateByToken(tokenOrNumber: string) {
               certificateNumber: found.certificate_number,
               studentName: found.snapshot.student_name,
               madrasaName: found.snapshot.madrasa_name,
+              verificationCount: found.verification_count,
+              lastVerifiedAt: found.last_verified_at,
             };
           }
 
@@ -628,6 +665,8 @@ export async function verifyCertificateByToken(tokenOrNumber: string) {
               certificateNumber: found.certificate_number,
               studentName: found.snapshot.student_name,
               madrasaName: found.snapshot.madrasa_name,
+              verificationCount: found.verification_count,
+              lastVerifiedAt: found.last_verified_at,
             };
           }
 
@@ -642,6 +681,8 @@ export async function verifyCertificateByToken(tokenOrNumber: string) {
                 certificateNumber: found.certificate_number,
                 studentName: found.snapshot.student_name,
                 madrasaName: found.snapshot.madrasa_name,
+                verificationCount: found.verification_count,
+                lastVerifiedAt: found.last_verified_at,
               };
             }
           }
@@ -665,7 +706,9 @@ export async function verifyCertificateByToken(tokenOrNumber: string) {
               madrasaAddress: found.snapshot.madrasa_address,
               photoUrl: found.snapshot.photo_url,
             },
-            verifiedAt: new Date().toISOString(),
+            verificationCount: found.verification_count,
+            lastVerifiedAt: found.last_verified_at,
+            verifiedAt: nowIso,
           };
         }
       } catch (err) {

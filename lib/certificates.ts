@@ -85,6 +85,16 @@ export interface StudentCertificate {
   issued_by: string;
   approved_by?: string;
   snapshot: CertificateSnapshot;
+  
+  // Verification security tracking
+  verification_count?: number;
+  last_verified_at?: string;
+  verification_logs?: {
+    verified_at: string;
+    status: string;
+    ip_or_device?: string;
+  }[];
+
   created_at: string;
   updated_at: string;
 }

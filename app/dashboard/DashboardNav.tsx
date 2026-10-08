@@ -313,6 +313,16 @@ const navGroups: NavGroup[] = [
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "exam_manager", "admin", "office_staff"],
         keywords: ["certificate", "marksheet", "সনদ", "নম্বরপত্র", "মার্কশিট"],
       },
+      {
+        name: "অনলাইন যাচাইকরণ ও সিকিউরিটি লগ",
+        href: "/dashboard/academic/verification",
+        icon: ShieldCheck,
+        permission: "certificate.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "exam_manager", "admin", "office_staff"],
+        badge: "সিকিউরিটি",
+        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        keywords: ["verification", "verify", "audit", "log", "security", "যাচাইকরণ", "সনদ যাচাই", "আইডি যাচাই", "লগ", "নিরাপত্তা"],
+      },
     ],
   },
   {

@@ -820,6 +820,8 @@ export async function verifyStudentIdCard(verificationId: string) {
     }
 
     let foundCard: StudentIDCard | null = null;
+    let foundMadrasaId = "";
+    let foundMadrasaMeta: any = null;
     let foundMadrasaName = "QawmiERP Madrasa";
     let foundMadrasaAddress = "";
 
@@ -828,9 +830,11 @@ export async function verifyStudentIdCard(verificationId: string) {
         try {
           const parsed = JSON.parse(m.registration_no);
           const cards: StudentIDCard[] = parsed.id_cards || [];
-          const matched = cards.find((c) => c.verification_id === verificationId);
+          const matched = cards.find((c) => c.verification_id === verificationId || c.card_number === verificationId);
           if (matched) {
             foundCard = matched;
+            foundMadrasaId = m.id;
+            foundMadrasaMeta = parsed;
             foundMadrasaName = m.name || "মাদরাসা";
             foundMadrasaAddress = m.address || "";
             break;
@@ -845,6 +849,38 @@ export async function verifyStudentIdCard(verificationId: string) {
         status: "INVALID",
         reason: "এই কিউআর কোডের বিপরিতে কোনো ভ্যালিড শিক্ষার্থী আইডি কার্ড পাওয়া যায়নি।",
       };
+    }
+
+    // Track verification count & timestamp for security auditing
+    const nowIso = new Date().toISOString();
+    foundCard.verification_count = (foundCard.verification_count || 0) + 1;
+    foundCard.last_verified_at = nowIso;
+    const currentLogs = foundCard.verification_logs || [];
+    foundCard.verification_logs = [
+      { verified_at: nowIso, status: foundCard.status },
+      ...currentLogs.slice(0, 49),
+    ];
+
+    if (foundMadrasaId && foundMadrasaMeta) {
+      const centralLogs: any[] = foundMadrasaMeta.verification_logs || [];
+      const newCentralLog = {
+        id: `vlog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        madrasa_id: foundMadrasaId,
+        doc_type: "ID_CARD",
+        doc_number: foundCard.card_number,
+        doc_title: "স্টুডেন্ট ডিজিটাল আইডি কার্ড",
+        student_name: foundCard.snapshot.student_name,
+        student_id_code: foundCard.student_number || foundCard.card_number,
+        class_name: foundCard.snapshot.class_name,
+        roll_number: foundCard.snapshot.roll_number,
+        verified_at: nowIso,
+        status: foundCard.status,
+        verification_count: foundCard.verification_count,
+      };
+      foundMadrasaMeta.verification_logs = [newCentralLog, ...centralLogs.slice(0, 199)];
+      saveMadrasaMetadata(foundMadrasaId, foundMadrasaMeta).catch((e) =>
+        console.error("Failed to save ID card verification log:", e)
+      );
     }
 
     // Expiry check
@@ -867,6 +903,8 @@ export async function verifyStudentIdCard(verificationId: string) {
         cardNumber: foundCard.card_number,
         studentName: foundCard.snapshot.student_name,
         madrasaName: foundMadrasaName,
+        verificationCount: foundCard.verification_count,
+        lastVerifiedAt: foundCard.last_verified_at,
       };
     }
 
@@ -900,7 +938,9 @@ export async function verifyStudentIdCard(verificationId: string) {
         madrasaName: foundMadrasaName,
         madrasaAddress: foundMadrasaAddress,
       },
-      verifiedAt: new Date().toISOString(),
+      verificationCount: foundCard.verification_count,
+      lastVerifiedAt: foundCard.last_verified_at,
+      verifiedAt: nowIso,
     };
   } catch (err: any) {
     console.error("Error verifying QR card:", err);

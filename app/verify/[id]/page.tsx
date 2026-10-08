@@ -1,6 +1,7 @@
 import { verifyStudentIdCard } from "@/app/actions/id-card-management";
-import { CheckCircle2, XCircle, ShieldCheck, AlertTriangle, Building2, Calendar, UserCheck } from "lucide-react";
+import { CheckCircle2, XCircle, ShieldCheck, AlertTriangle, Building2, Calendar, UserCheck, History } from "lucide-react";
 import Link from "next/link";
+import { toBanglaNumber } from "@/lib/numberToBangla";
 
 export const metadata = {
   title: "শিক্ষার্থী আইডি কার্ড যাচাইকরণ | QawmiERP Verification",
@@ -100,8 +101,23 @@ export default async function VerifyStudentIdPage({
                 </div>
               </div>
 
-              <div className="text-center text-[11px] text-slate-400">
-                যাচাইকরণের সময়: {new Date(result.verifiedAt || Date.now()).toLocaleString("bn-BD")}
+              {/* Security Verification Tracker Badge */}
+              <div className="bg-slate-900 text-slate-100 rounded-2xl p-4 border border-slate-800 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold flex items-center gap-1.5 text-emerald-400">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>সিকিউরিটি ও ভেরিফিকেশন ট্র্যাকার</span>
+                  </span>
+                  <span className="bg-emerald-500/20 text-emerald-300 font-mono font-bold px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+                    মোট {toBanglaNumber(result.verificationCount || 1)} বার যাচাইকৃত
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-slate-800">
+                  <span>সর্বশেষ যাচাইয়ের সময়:</span>
+                  <span className="font-mono text-slate-200">
+                    {new Date(result.verifiedAt || Date.now()).toLocaleString("bn-BD")}
+                  </span>
+                </div>
               </div>
             </div>
           ) : (

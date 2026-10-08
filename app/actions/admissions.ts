@@ -140,10 +140,17 @@ export async function getAdmissionById(identifier: string) {
   }
 }
 
+export interface AdmissionSearchResult {
+  applications: AdmissionApplication[];
+  foundInOtherMadrasa?: boolean;
+  otherMadrasaName?: string;
+  searchedMadrasaName?: string;
+}
+
 /**
  * Public search for applicant status and admit card
  */
-export async function searchAdmissionPublic(query: string, targetMadrasaId?: string) {
+export async function searchAdmissionPublic(query: string, targetMadrasaId?: string): Promise<AdmissionSearchResult> {
   try {
     const adminClient = await createAdminClient();
     let madrasaId = targetMadrasaId;
@@ -178,11 +185,14 @@ export async function searchAdmissionPublic(query: string, targetMadrasaId?: str
       });
     };
 
+    // Strictly search ONLY in the selected/target madrasa (Global fallback disabled)
     let results = filterList(list);
+    let foundInOtherMadrasa = false;
+    let otherMadrasaName = "";
 
-    // If not found in primary/target madrasa, search across all other madrasas as fallback
+    // If not found in the selected madrasa, check if it exists in any other madrasa to inform the user
     if (results.length === 0) {
-      const { data: allMadrasas } = await adminClient.from("madrasas").select("id");
+      const { data: allMadrasas } = await adminClient.from("madrasas").select("id, name");
       if (allMadrasas) {
         for (const m of allMadrasas) {
           if (m.id !== safeMadrasaId) {
@@ -190,17 +200,26 @@ export async function searchAdmissionPublic(query: string, targetMadrasaId?: str
             const otherList: AdmissionApplication[] = otherMeta.admissions || [];
             const otherMatches = filterList(otherList);
             if (otherMatches.length > 0) {
-              results = [...results, ...otherMatches];
+              foundInOtherMadrasa = true;
+              otherMadrasaName = m.name;
+              break;
             }
           }
         }
       }
     }
 
-    return results;
+    return {
+      applications: results,
+      foundInOtherMadrasa,
+      otherMadrasaName,
+      searchedMadrasaName: meta.name || "",
+    };
   } catch (err) {
     console.error("Error in searchAdmissionPublic:", err);
-    return [];
+    return {
+      applications: [],
+    };
   }
 }
 

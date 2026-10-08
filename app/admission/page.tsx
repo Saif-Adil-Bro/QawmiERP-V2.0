@@ -60,6 +60,7 @@ function PublicAdmissionContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchOtherInfo, setSearchOtherInfo] = useState<{ foundInOtherMadrasa?: boolean; otherMadrasaName?: string } | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
   // File Upload State
@@ -262,8 +263,13 @@ function PublicAdmissionContent() {
     e.preventDefault();
     if (!searchQuery.trim()) return;
     setIsSearching(true);
-    const results = await searchAdmissionPublic(searchQuery, currentMadrasa?.id);
-    setSearchResults(results);
+    const res = await searchAdmissionPublic(searchQuery, currentMadrasa?.id);
+    setSearchResults(res.applications || []);
+    setSearchOtherInfo(
+      res.foundInOtherMadrasa
+        ? { foundInOtherMadrasa: true, otherMadrasaName: res.otherMadrasaName }
+        : null
+    );
     setHasSearched(true);
     setIsSearching(false);
   };
@@ -464,7 +470,12 @@ function PublicAdmissionContent() {
                       setSearchQuery(submissionSuccess.application_no);
                       setIsSearching(true);
                       searchAdmissionPublic(submissionSuccess.application_no, currentMadrasa?.id).then((res) => {
-                        setSearchResults(res);
+                        setSearchResults(res.applications || []);
+                        setSearchOtherInfo(
+                          res.foundInOtherMadrasa
+                            ? { foundInOtherMadrasa: true, otherMadrasaName: res.otherMadrasaName }
+                            : null
+                        );
                         setHasSearched(true);
                         setIsSearching(false);
                       });
@@ -997,12 +1008,24 @@ function PublicAdmissionContent() {
             {hasSearched && (
               <div className="space-y-4 pt-4">
                 {searchResults.length === 0 ? (
-                  <div className="text-center py-12 text-slate-500 space-y-2">
-                    <AlertCircle className="w-8 h-8 text-slate-400 mx-auto" />
-                    <p className="text-sm font-semibold">কোনো আবেদন পাওয়া যায়নি</p>
-                    <p className="text-xs text-slate-400">
-                      দয়া করে আবেদন নম্বর বা মোবাইল নম্বরটি সঠিক ফরম্যাটে লিখে পুনরায় অনুসন্ধান করুন।
-                    </p>
+                  <div className="text-center py-12 px-4 max-w-lg mx-auto space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto shadow-xs">
+                      <AlertCircle className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm sm:text-base font-bold text-slate-900">
+                        এই মাদরাসায় এই আবেদন নম্বরটি পাওয়া যায়নি।
+                      </p>
+                      <p className="text-xs sm:text-sm text-slate-600">
+                        অনুগ্রহ করে আপনার মাদরাসার লিংক বা আবেদন নম্বর যাচাই করুন।
+                      </p>
+                    </div>
+
+                    {searchOtherInfo?.foundInOtherMadrasa && searchOtherInfo?.otherMadrasaName && (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-medium text-left">
+                        ℹ️ <strong>পরামর্শ:</strong> আপনার দেওয়া তথ্যটি অন্য একটি প্রতিষ্ঠান (<strong>{searchOtherInfo.otherMadrasaName}</strong>)-এর তালিকায় পাওয়া গেছে। আপনি যদি ওই মাদরাসায় আবেদন করে থাকেন, তবে অনুগ্রহ করে তাদের নিজস্ব নির্ধারিত ভর্তি লিংক ব্যবহার করে প্রবেশপত্র বা ফলাফল অনুসন্ধান করুন।
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
