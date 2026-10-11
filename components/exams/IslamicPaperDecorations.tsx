@@ -183,7 +183,7 @@ export function MadrasaPaperHeader({
         <img
           src={logoUrl}
           alt="Madrasa Monogram"
-          className={`${sizeClasses[logoSize]} object-contain shrink-0 mx-auto rounded-full border border-black/20 p-0.5`}
+          className={`${sizeClasses[logoSize]} object-cover shrink-0 mx-auto rounded-full border border-black/30`}
         />
       );
     }

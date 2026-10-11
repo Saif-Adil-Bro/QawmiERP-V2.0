@@ -55,7 +55,7 @@ export default function BlankAdmissionForm({
                   <img
                     src={logoUrl}
                     alt="Logo"
-                    className="w-13 h-13 object-contain"
+                    className="w-13 h-13 object-cover rounded-full border border-slate-200"
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
                     }}

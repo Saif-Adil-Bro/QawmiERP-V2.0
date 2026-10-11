@@ -1774,13 +1774,13 @@ export default function StudentsListClient({
               {/* Official Madrasa Header */}
               <div className="text-center pb-4 border-b-2 border-slate-800 space-y-1">
                 {madrasaInfo.logo_url && (
-                  <div className="w-14 h-14 mx-auto relative mb-1.5">
+                  <div className="w-14 h-14 mx-auto relative mb-1.5 rounded-full overflow-hidden">
                     <Image
                       src={madrasaInfo.logo_url}
                       alt={madrasaInfo.name}
                       fill
                       sizes="56px"
-                      className="object-contain"
+                      className="object-cover rounded-full"
                     />
                   </div>
                 )}

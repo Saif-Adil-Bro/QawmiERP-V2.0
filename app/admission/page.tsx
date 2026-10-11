@@ -307,12 +307,12 @@ function PublicAdmissionContent() {
         {/* Active Madrasa Branding Card */}
         <div className="bg-white rounded-2xl border border-emerald-200/90 shadow-xs p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
-            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-800 text-white flex items-center justify-center font-bold text-xl shadow-md shrink-0 overflow-hidden">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-emerald-600 to-teal-800 text-white flex items-center justify-center font-bold text-xl shadow-md shrink-0 overflow-hidden border-2 border-emerald-500/60">
               {currentMadrasa?.logo_url ? (
                 <img
                   src={currentMadrasa.logo_url}
                   alt={currentMadrasa.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover rounded-full"
                 />
               ) : (
                 <Building className="w-6 h-6 sm:w-7 sm:h-7" />

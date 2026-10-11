@@ -289,7 +289,7 @@ export default function PublicDonateClient({
               <img
                 src={madrasaInfo.logo_url}
                 alt={madrasaTitle}
-                className="w-12 h-12 object-contain"
+                className="w-12 h-12 object-cover rounded-full border border-emerald-300 shadow-xs"
               />
             )}
             <h1 className="text-2xl sm:text-3xl font-black text-slate-900 font-serif">

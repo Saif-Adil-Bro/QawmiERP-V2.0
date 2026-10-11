@@ -126,7 +126,7 @@ export default function BazarVoucherPrint({
                 <img 
                   src={madrasaInfo.logo_url} 
                   alt="Madrasa Logo" 
-                  className="w-12 h-12 sm:w-14 sm:h-14 object-contain rounded-md shrink-0 print:block" 
+                  className="w-12 h-12 sm:w-14 sm:h-14 object-cover rounded-full shrink-0 print:block border border-slate-700/40" 
                   onError={(e) => { e.currentTarget.style.display = "none"; }} 
                 />
               ) : (

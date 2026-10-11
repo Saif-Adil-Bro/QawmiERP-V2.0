@@ -79,7 +79,7 @@ export default function StaffDashboardView({
               <img
                 src={madrasaInfo.logo_url}
                 alt="Madrasa Logo"
-                className="w-12 h-12 rounded-full object-contain bg-white/90 p-0.5 shadow-xs border border-emerald-300/40 shrink-0"
+                className="w-12 h-12 rounded-full object-cover bg-white shadow-xs border border-emerald-300/40 shrink-0"
               />
             ) : (
               <div className="w-12 h-12 rounded-2xl bg-emerald-700/60 border border-emerald-400/40 flex items-center justify-center text-emerald-100 font-bold shrink-0">

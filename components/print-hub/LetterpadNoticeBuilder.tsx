@@ -708,7 +708,7 @@ export default function LetterpadNoticeBuilder({ madrasaInfo }: LetterpadNoticeB
                     <img
                       src={logoUrl}
                       alt=""
-                      className="w-14 h-14 object-contain shrink-0 print:grayscale-0"
+                      className="w-14 h-14 object-cover rounded-full shrink-0 border border-slate-200 print:grayscale-0"
                     />
                   )}
                   <div className="space-y-0.5">

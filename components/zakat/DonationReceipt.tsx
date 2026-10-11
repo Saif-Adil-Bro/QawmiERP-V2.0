@@ -131,7 +131,7 @@ export default function DonationReceipt({
                 <img 
                   src={madrasaLogoUrl} 
                   alt="Madrasa Logo" 
-                  className="w-14 h-14 object-contain rounded-md shrink-0 border border-slate-200 bg-white p-0.5" 
+                  className="w-14 h-14 object-cover rounded-full shrink-0 border border-slate-200 bg-white" 
                   onError={(e) => { e.currentTarget.style.display = "none"; }} 
                 />
               ) : (

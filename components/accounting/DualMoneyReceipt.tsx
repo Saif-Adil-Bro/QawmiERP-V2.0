@@ -151,7 +151,7 @@ export default function DualMoneyReceipt({
                 <img 
                   src={madrasaInfo.logo_url} 
                   alt="Madrasa Logo" 
-                  className="w-13 h-13 sm:w-14 sm:h-14 object-contain rounded-md shrink-0" 
+                  className="w-13 h-13 sm:w-14 sm:h-14 object-cover rounded-full shrink-0 border border-slate-200" 
                   onError={(e) => { e.currentTarget.style.display = 'none'; }} 
                 />
               ) : (

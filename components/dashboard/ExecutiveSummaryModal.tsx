@@ -22,6 +22,8 @@ import {
   Coins,
   Receipt,
   GraduationCap,
+  Briefcase,
+  UserCheck,
 } from "lucide-react";
 import { getMonthlyExecutiveSummary, MonthlyExecutiveSummaryData } from "@/app/actions/executive-summary";
 
@@ -83,6 +85,19 @@ export function ExecutiveSummaryModal({
       const totalFundsExpense = data.fundsBreakdown.reduce((s, f) => s + f.expense, 0);
       const totalFundsBalance = data.fundsBreakdown.reduce((s, f) => s + f.balance, 0);
       const totalFundsReserve = data.fundsBreakdown.reduce((s, f) => s + f.totalReserve, 0);
+
+      const classWiseRows = (data.classWiseAttendance || [])
+        .filter(c => c.totalStudents > 0 || c.totalEntries > 0)
+        .map(c => `
+          <tr>
+            <td style="font-weight:600;">${c.className}</td>
+            <td class="text-center">${toBn(c.totalStudents)} জন</td>
+            <td class="text-center" style="color:#047857; font-weight:600;">${toBn(c.presents)}</td>
+            <td class="text-center" style="color:#b91c1c;">${toBn(c.absents)}</td>
+            <td class="text-center" style="color:#475569;">${toBn(c.leaves)}</td>
+            <td class="text-center" style="font-weight:700; color:${c.attendanceRate >= 80 ? '#047857' : c.attendanceRate >= 60 ? '#b45309' : '#b91c1c'};">${toBn(c.attendanceRate)}%</td>
+          </tr>
+        `).join("");
 
       const htmlContent = `
         <!DOCTYPE html>
@@ -385,12 +400,41 @@ export function ExecutiveSummaryModal({
 
             <!-- Academic & Attendance Section -->
             <div class="section-title">২. শিক্ষা, হিফজুল কুরআন ও হাজিরা পর্যালোচনা</div>
+            
+            <!-- Class-wise Attendance Breakdown Table -->
+            <table class="financial-table" style="margin-bottom:8px;">
+              <thead>
+                <tr>
+                  <th style="width:26%;">জামাত / শ্রেণি</th>
+                  <th class="text-center" style="width:14%;">মোট ছাত্র</th>
+                  <th class="text-center" style="width:15%;">উপস্থিতি</th>
+                  <th class="text-center" style="width:15%;">অনুপস্থিতি</th>
+                  <th class="text-center" style="width:15%;">ছুটি</th>
+                  <th class="text-center" style="width:15%;">গড় হার (%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${classWiseRows || `<tr><td colspan="6" class="text-center" style="color:#64748b; padding:6px;">এই মাসে কোনো জামাতের হাজিরা রেকর্ড নেই</td></tr>`}
+              </tbody>
+              <tfoot>
+                <tr style="background:#f1f5f9; font-weight:700;">
+                  <td>সর্বমোট / গড়</td>
+                  <td class="text-center">${toBn(m.totalStudents)} জন</td>
+                  <td class="text-center" style="color:#047857;">${toBn(m.totalPresents)}</td>
+                  <td class="text-center" style="color:#b91c1c;">${toBn(m.totalAbsents)}</td>
+                  <td class="text-center">${toBn(m.totalLeaves)}</td>
+                  <td class="text-center" style="color:#0f172a;">${toBn(m.attendanceRate)}%</td>
+                </tr>
+              </tfoot>
+            </table>
+
             <div class="academic-grid">
               <div class="academic-card">
-                <div class="font-bold" style="font-size:11px; margin-bottom:4px; color:#1e293b;">• হাজিরা পর্যালোচনা (গড় ${toBn(m.attendanceRate)}%)</div>
+                <div class="font-bold" style="font-size:11px; margin-bottom:4px; color:#1e293b;">• শিক্ষক ও স্টাফদের হাজিরা পর্যালোচনা</div>
                 <div style="font-size:10px; color:#334155; line-height:1.6;">
-                  মোট উপস্থিতি: <b>${toBn(m.totalPresents)}</b> | অনুপস্থিতি: <b style="color:#b91c1c;">${toBn(m.totalAbsents)}</b> | ছুটি: <b>${toBn(m.totalLeaves)}</b><br/>
-                  সেরা উপস্থিত জামাত: <b>${m.topAttendanceClass}</b>
+                  মোট শিক্ষক-স্টাফ: <b>${toBn(data.staffAttendance?.totalStaffCount || m.totalStaff)} জন</b> | কার্যদিবস: <b>${toBn(data.staffAttendance?.totalWorkingDays || 0)} দিন</b><br/>
+                  উপস্থিতি: <b style="color:#047857;">${toBn(data.staffAttendance?.totalPresents || 0)}</b> | অনুপস্থিতি: <b style="color:#b91c1c;">${toBn(data.staffAttendance?.totalAbsents || 0)}</b> | ছুটি: <b>${toBn(data.staffAttendance?.totalLeaves || 0)}</b><br/>
+                  গড় উপস্থিতি: <b>${toBn(data.staffAttendance?.attendanceRate || 0)}%</b>
                 </div>
               </div>
 
@@ -704,73 +748,163 @@ export function ExecutiveSummaryModal({
               </div>
 
               {/* Attendance & Hifz Progress Metrics */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Attendance Summary */}
-                <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-slate-800/60 dark:border-slate-700 sepia-mode:bg-[#FDFBF7] sepia-mode:border-[#E8DFD1]">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>শিক্ষার্থী হাজিরা বিশ্লেষণ</span>
-                    </h3>
-                    <span className="text-xs font-bold text-emerald-600 px-2 py-0.5 bg-emerald-50 rounded-md">
-                      গড় {toBn(m?.attendanceRate)}% উপস্থিতি
-                    </span>
-                  </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Student Attendance Summary & Class-wise Breakdown */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-slate-800/60 dark:border-slate-700 sepia-mode:bg-[#FDFBF7] sepia-mode:border-[#E8DFD1] flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span>শিক্ষার্থী হাজিরা বিশ্লেষণ</span>
+                      </h3>
+                      <span className="text-xs font-bold text-emerald-600 px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-md">
+                        গড় {toBn(m?.attendanceRate)}% উপস্থিতি
+                      </span>
+                    </div>
 
-                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden dark:bg-slate-700 mb-3">
-                    <div
-                      className="bg-emerald-600 h-2.5 rounded-full transition-all"
-                      style={{ width: `${m?.attendanceRate}%` }}
-                    />
-                  </div>
+                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden dark:bg-slate-700 mb-3">
+                      <div
+                        className="bg-emerald-600 h-2.5 rounded-full transition-all"
+                        style={{ width: `${m?.attendanceRate}%` }}
+                      />
+                    </div>
 
-                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="p-2 bg-slate-50 rounded-lg dark:bg-slate-800">
-                      <p className="text-slate-400 text-[10px]">মোট উপস্থিতি</p>
-                      <p className="font-bold text-slate-800 dark:text-slate-200">{toBn(m?.totalPresents)}</p>
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs mb-3">
+                      <div className="p-2 bg-slate-50 rounded-lg dark:bg-slate-800">
+                        <p className="text-slate-400 text-[10px]">মোট উপস্থিতি</p>
+                        <p className="font-bold text-emerald-700 dark:text-emerald-400">{toBn(m?.totalPresents)}</p>
+                      </div>
+                      <div className="p-2 bg-slate-50 rounded-lg dark:bg-slate-800">
+                        <p className="text-slate-400 text-[10px]">অনুপস্থিতি</p>
+                        <p className="font-bold text-rose-600">{toBn(m?.totalAbsents)}</p>
+                      </div>
+                      <div className="p-2 bg-slate-50 rounded-lg dark:bg-slate-800">
+                        <p className="text-slate-400 text-[10px]">ছুটি</p>
+                        <p className="font-bold text-slate-700 dark:text-slate-300">{toBn(m?.totalLeaves)}</p>
+                      </div>
                     </div>
-                    <div className="p-2 bg-slate-50 rounded-lg dark:bg-slate-800">
-                      <p className="text-slate-400 text-[10px]">অনুপস্থিতি</p>
-                      <p className="font-bold text-rose-600">{toBn(m?.totalAbsents)}</p>
-                    </div>
-                    <div className="p-2 bg-slate-50 rounded-lg dark:bg-slate-800">
-                      <p className="text-slate-400 text-[10px]">ছুটি</p>
-                      <p className="font-bold text-slate-700 dark:text-slate-300">{toBn(m?.totalLeaves)}</p>
+
+                    {/* Class-wise Attendance Mini-Table */}
+                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                          জামাতভিত্তিক উপস্থিতির হার
+                        </h4>
+                        <span className="text-[10px] text-slate-500">
+                          সেরা: <strong className="text-emerald-700 dark:text-emerald-400">{m?.topAttendanceClass}</strong>
+                        </span>
+                      </div>
+                      <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                        {(data.classWiseAttendance || [])
+                          .filter((c) => c.totalStudents > 0 || c.totalEntries > 0)
+                          .map((c) => (
+                            <div
+                              key={c.classId || c.className}
+                              className="p-2 rounded-lg bg-slate-50/80 dark:bg-slate-800/80 text-xs border border-slate-100 dark:border-slate-700/50 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors"
+                            >
+                              <div className="flex items-center justify-between text-[11px] mb-1">
+                                <span className="font-bold text-slate-800 dark:text-slate-200">
+                                  {c.className}
+                                  <span className="text-[10px] font-normal text-slate-400 ml-1.5">
+                                    (মোট {toBn(c.totalStudents)} জন)
+                                  </span>
+                                </span>
+                                <span className="font-bold text-slate-700 dark:text-slate-300">
+                                  {toBn(c.presents)}/{toBn(c.totalEntries)} ({toBn(c.attendanceRate)}%)
+                                </span>
+                              </div>
+                              <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className={`h-1.5 rounded-full ${
+                                    c.attendanceRate >= 80
+                                      ? "bg-emerald-600"
+                                      : c.attendanceRate >= 60
+                                      ? "bg-amber-500"
+                                      : "bg-rose-500"
+                                  }`}
+                                  style={{ width: `${c.attendanceRate}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        {(data.classWiseAttendance || []).filter((c) => c.totalStudents > 0 || c.totalEntries > 0).length === 0 && (
+                          <p className="text-center text-[11px] text-slate-400 py-3">এই মাসে কোনো জামাতের হাজিরা রেকর্ড নেই</p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-2">
-                    সেরা উপস্থিত জামাত: <span className="font-semibold text-slate-700 dark:text-slate-300">{m?.topAttendanceClass}</span>
-                  </p>
                 </div>
 
-                {/* Hifz & Academic Progress */}
-                <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-slate-800/60 dark:border-slate-700 sepia-mode:bg-[#FDFBF7] sepia-mode:border-[#E8DFD1]">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                      <BookOpen className="w-4 h-4 text-amber-600" />
-                      <span>হিফজুল কুরআন ও কিতাব অগ্রগতি</span>
-                    </h3>
-                    <span className="text-xs font-bold text-amber-700 px-2 py-0.5 bg-amber-50 rounded-md">
-                      {toBn(m?.hifzStudentsCount)} জন হিফজ ছাত্র
-                    </span>
+                {/* Right Column: Staff Attendance & Hifz Progress */}
+                <div className="space-y-4 flex flex-col justify-between">
+                  {/* Staff / Teacher Attendance Card */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-slate-800/60 dark:border-slate-700 sepia-mode:bg-[#FDFBF7] sepia-mode:border-[#E8DFD1]">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <Briefcase className="w-4 h-4 text-indigo-600" />
+                        <span>শিক্ষক ও স্টাফদের হাজিরা পর্যালোচনা</span>
+                      </h3>
+                      <span className="text-xs font-bold text-indigo-600 px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-md">
+                        গড় {toBn(data.staffAttendance?.attendanceRate || 0)}% উপস্থিতি
+                      </span>
+                    </div>
+
+                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden dark:bg-slate-700 mb-3">
+                      <div
+                        className="bg-indigo-600 h-2.5 rounded-full transition-all"
+                        style={{ width: `${data.staffAttendance?.attendanceRate || 0}%` }}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-1.5 text-center text-xs">
+                      <div className="p-1.5 bg-slate-50 rounded-lg dark:bg-slate-800">
+                        <p className="text-slate-400 text-[9px]">মোট স্টাফ</p>
+                        <p className="font-bold text-slate-800 dark:text-slate-200">{toBn(data.staffAttendance?.totalStaffCount || m?.totalStaff)}</p>
+                      </div>
+                      <div className="p-1.5 bg-slate-50 rounded-lg dark:bg-slate-800">
+                        <p className="text-slate-400 text-[9px]">উপস্থিতি</p>
+                        <p className="font-bold text-emerald-700 dark:text-emerald-400">{toBn(data.staffAttendance?.totalPresents || 0)}</p>
+                      </div>
+                      <div className="p-1.5 bg-slate-50 rounded-lg dark:bg-slate-800">
+                        <p className="text-slate-400 text-[9px]">অনুপস্থিতি</p>
+                        <p className="font-bold text-rose-600">{toBn(data.staffAttendance?.totalAbsents || 0)}</p>
+                      </div>
+                      <div className="p-1.5 bg-slate-50 rounded-lg dark:bg-slate-800">
+                        <p className="text-slate-400 text-[9px]">ছুটি</p>
+                        <p className="font-bold text-slate-700 dark:text-slate-300">{toBn(data.staffAttendance?.totalLeaves || 0)}</p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="space-y-2 mt-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-600 dark:text-slate-400">খতম সম্পন্নকারী / হাফেজ:</span>
-                      <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-sm">
-                        {toBn(m?.hifzKhatamCount)} জন
+                  {/* Hifz & Academic Progress */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-white dark:bg-slate-800/60 dark:border-slate-700 sepia-mode:bg-[#FDFBF7] sepia-mode:border-[#E8DFD1]">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <BookOpen className="w-4 h-4 text-amber-600" />
+                        <span>হিফজুল কুরআন ও কিতাব অগ্রগতি</span>
+                      </h3>
+                      <span className="text-xs font-bold text-amber-700 px-2 py-0.5 bg-amber-50 rounded-md">
+                        {toBn(m?.hifzStudentsCount)} জন হিফজ ছাত্র
                       </span>
                     </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-600 dark:text-slate-400">মোট মুখস্থকৃত পারা:</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">
-                        {toBn(m?.hifzParasCompletedTotal)} পারা
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-600 dark:text-slate-400">কিতাব সিলেবাস অগ্রগতি:</span>
-                      <span className="font-bold text-indigo-700">{toBn(m?.syllabusCompletionRate)}%</span>
+
+                    <div className="space-y-2 mt-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-600 dark:text-slate-400">খতম সম্পন্নকারী / হাফেজ:</span>
+                        <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-sm">
+                          {toBn(m?.hifzKhatamCount)} জন
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-600 dark:text-slate-400">মোট মুখস্থকৃত পারা:</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                          {toBn(m?.hifzParasCompletedTotal)} পারা
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-600 dark:text-slate-400">কিতাব সিলেবাস অগ্রগতি:</span>
+                        <span className="font-bold text-indigo-700">{toBn(m?.syllabusCompletionRate)}%</span>
+                      </div>
                     </div>
                   </div>
                 </div>

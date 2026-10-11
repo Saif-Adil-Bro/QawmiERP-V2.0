@@ -88,6 +88,49 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Auto-process and trim logos to eliminate unwanted padding/gaps
+    if (uploadType === "logo" && (fileBuffer || cleanBase64)) {
+      try {
+        const sharp = (await import("sharp")).default;
+        const inputBuf = fileBuffer || Buffer.from(cleanBase64, "base64");
+        
+        // 1. Trim outer white/transparent padding
+        const trimmed = await sharp(inputBuf)
+          .trim({ threshold: 15 })
+          .toBuffer();
+
+        const meta = await sharp(trimmed).metadata();
+        const side = Math.max(meta.width || 512, meta.height || 512, 512);
+
+        // 2. Square canvas edge-to-edge with cover fit
+        const square = await sharp(trimmed)
+          .resize(side, side, { fit: "cover" })
+          .toBuffer();
+
+        // 3. Circular mask to guarantee outer corners are transparent so it fills circular seals 100%
+        const r = side / 2;
+        const circleMask = await sharp(
+          Buffer.from(`<svg width="${side}" height="${side}"><circle cx="${r}" cy="${r}" r="${r}" fill="#fff" /></svg>`)
+        )
+          .resize(side, side)
+          .png()
+          .toBuffer();
+
+        const processed = await sharp(square)
+          .composite([{ input: circleMask, blend: "dest-in" }])
+          .png({ quality: 95 })
+          .toBuffer();
+
+        fileBuffer = processed;
+        cleanBase64 = processed.toString("base64");
+        mimeType = "image/png";
+        rawDataUrl = `data:image/png;base64,${cleanBase64}`;
+        originalFilename = originalFilename.replace(/\.[^/.]+$/, "") + ".png";
+      } catch (procErr) {
+        console.warn("Logo auto-trim error in upload-image:", procErr);
+      }
+    }
+
     // Helper functions for providers
     const tryUploadIili = async (): Promise<string | null> => {
       const freeimageKey = process.env.FREEIMAGE_API_KEY || "6d207e02198a847aa98d0a2a901485a5";

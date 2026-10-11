@@ -162,7 +162,7 @@ export default function StaffReportsView({
               <img
                 src={mLogo}
                 alt="Madrasa Logo"
-                className="w-12 h-12 object-contain rounded-full border border-slate-200 p-0.5"
+                className="w-12 h-12 object-cover rounded-full border border-slate-300"
               />
             )}
             <div>

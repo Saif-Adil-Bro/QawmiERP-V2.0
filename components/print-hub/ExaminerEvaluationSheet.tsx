@@ -90,7 +90,7 @@ export default function ExaminerEvaluationSheet({
             <img
               src={logoUrl}
               alt="Logo"
-              className="w-10 h-10 object-contain"
+              className="w-10 h-10 object-cover rounded-full border border-slate-200"
               onError={(e) => {
                 e.currentTarget.style.display = "none";
               }}

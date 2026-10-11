@@ -463,7 +463,7 @@ export default function FundLedgerModal({
                   <img
                     src={madrasaInfo.logo_url}
                     alt={madrasaInfo.name || "লোগো"}
-                    className="w-16 h-16 object-contain rounded-lg"
+                    className="w-16 h-16 object-cover rounded-full border border-slate-200"
                     referrerPolicy="no-referrer"
                   />
                 ) : (

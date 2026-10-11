@@ -162,7 +162,7 @@ export default function ExpenseVoucher({
                 <img
                   src={madrasaInfo.logo_url}
                   alt={madrasaName}
-                  className="w-16 h-16 object-contain rounded-full border border-slate-200 shrink-0"
+                  className="w-16 h-16 object-cover rounded-full border border-slate-200 shrink-0"
                 />
               ) : (
                 <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white flex flex-col items-center justify-center p-1 text-center shadow-xs shrink-0">

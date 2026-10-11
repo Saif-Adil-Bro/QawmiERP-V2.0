@@ -457,12 +457,12 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
               
               {/* Left Column: Logo & Established */}
               <div className="flex items-center space-x-3 print:space-x-2 shrink-0">
-                <div className={`w-16 h-16 print:w-10 print:h-10 rounded-full border-2 ${currentTheme.border} p-1 bg-white flex items-center justify-center shadow-sm relative shrink-0`}>
+                <div className={`w-16 h-16 print:w-10 print:h-10 rounded-full border-2 ${currentTheme.border} bg-white flex items-center justify-center shadow-sm relative shrink-0 overflow-hidden`}>
                   {resolvedLogoUrl ? (
                     <img 
                       src={resolvedLogoUrl} 
                       alt="Logo" 
-                      className="w-full h-full object-contain"
+                      className="w-full h-full object-cover rounded-full"
                       referrerPolicy="no-referrer"
                     />
                   ) : (

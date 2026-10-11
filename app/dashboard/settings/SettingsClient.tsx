@@ -511,12 +511,12 @@ export default function SettingsClient({
             <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-emerald-600 via-teal-500 to-indigo-600"></div>
             
             <div className="text-center pt-2">
-              <div className="relative w-24 h-24 mx-auto bg-slate-50 rounded-2xl border-2 border-slate-200/80 flex items-center justify-center overflow-hidden mb-3 shadow-inner group">
+              <div className="relative w-24 h-24 mx-auto bg-slate-50 rounded-full border-2 border-emerald-500/80 flex items-center justify-center overflow-hidden mb-3 shadow-md group">
                 {logoPreview ? (
                   <img
                     src={logoPreview}
                     alt="Madrasa Logo"
-                    className="w-full h-full object-contain p-2"
+                    className="w-full h-full object-cover rounded-full"
                   />
                 ) : (
                   <Building2 className="w-10 h-10 text-slate-300" />

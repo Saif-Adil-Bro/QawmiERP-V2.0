@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import sharp from "sharp";
 
-// Default fallback SVG Favicon (Elegant Islamic Madrasa Crescent & Book Motif)
+// Default fallback SVG Favicon (Edge-to-edge Islamic Madrasa Emblem)
 const DEFAULT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <defs>
     <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -9,15 +10,16 @@ const DEFAULT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
       <stop offset="100%" stop-color="#064e3b" />
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="16" fill="url(#grad)" />
-  <circle cx="32" cy="32" r="24" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6"/>
+  <!-- Full edge-to-edge circle (no gap) -->
+  <circle cx="32" cy="32" r="32" fill="url(#grad)" />
+  <circle cx="32" cy="32" r="29.5" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3 2" opacity="0.85"/>
   <!-- Islamic Dome / Arch -->
-  <path d="M32 12 C24 20, 22 28, 22 36 L42 36 C42 28, 40 20, 32 12 Z" fill="#ffffff" opacity="0.95"/>
+  <path d="M32 9 C22 19, 19 29, 19 39 L45 39 C45 29, 42 19, 32 9 Z" fill="#ffffff" opacity="0.95"/>
   <!-- Crescent Star -->
-  <path d="M32 17 C34 17, 35 15, 35 13 C33 13.5, 31 15, 32 17 Z" fill="#fbbf24"/>
+  <path d="M32 14 C34.5 14, 36 12, 36 9.5 C33.5 10, 31 11.5, 32 14 Z" fill="#fbbf24"/>
   <!-- Open Quran / Book -->
-  <path d="M20 40 C26 38, 30 41, 32 43 C34 41, 38 38, 44 40 L44 49 C38 47, 34 50, 32 52 C30 50, 26 47, 20 49 Z" fill="#fbbf24"/>
-  <path d="M32 43 L32 52" stroke="#064e3b" stroke-width="1.5"/>
+  <path d="M16 43 C23 40, 28 44, 32 46 C36 44, 41 40, 48 43 L48 53 C41 50, 36 54, 32 56 C28 54, 23 50, 16 53 Z" fill="#fbbf24"/>
+  <path d="M32 46 L32 56" stroke="#064e3b" stroke-width="1.5"/>
 </svg>`;
 
 export async function GET() {
@@ -31,21 +33,50 @@ export async function GET() {
         });
 
         if (response.ok) {
-          const contentType = response.headers.get("content-type") || "image/png";
-          const arrayBuffer = await response.arrayBuffer();
+          const rawBuffer = Buffer.from(await response.arrayBuffer());
 
-          return new NextResponse(arrayBuffer, {
+          // Process with sharp:
+          // 1. Trim outer padding (removes any margin/gap around the logo)
+          // 2. Resize to 256x256 square with cover fit (edge-to-edge full bleed)
+          // 3. Composite with circular mask so transparent corners outside the circle match any background/browser
+          let processedBuffer: Buffer;
+          try {
+            const trimmed = await sharp(rawBuffer)
+              .trim({ threshold: 15 })
+              .resize(256, 256, { fit: "cover" })
+              .toBuffer();
+
+            const circleMask = await sharp(
+              Buffer.from(
+                '<svg width="256" height="256"><circle cx="128" cy="128" r="128" fill="#fff" /></svg>'
+              )
+            )
+              .resize(256, 256)
+              .png()
+              .toBuffer();
+
+            processedBuffer = await sharp(trimmed)
+              .composite([{ input: circleMask, blend: "dest-in" }])
+              .png({ quality: 95 })
+              .toBuffer();
+          } catch (sharpErr) {
+            console.warn("Sharp favicon crop fallback:", sharpErr);
+            processedBuffer = await sharp(rawBuffer)
+              .resize(256, 256, { fit: "cover" })
+              .png()
+              .toBuffer();
+          }
+
+          return new NextResponse(new Uint8Array(processedBuffer), {
             status: 200,
             headers: {
-              "Content-Type": contentType,
+              "Content-Type": "image/png",
               "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
             },
           });
         }
       } catch (fetchErr) {
-        console.warn("Failed to stream madrasa logo image for favicon, falling back to redirect or SVG:", fetchErr);
-        // Fallback: Redirect directly to logo URL
-        return NextResponse.redirect(madrasa.logo_url);
+        console.warn("Failed to stream madrasa logo image for favicon:", fetchErr);
       }
     }
 

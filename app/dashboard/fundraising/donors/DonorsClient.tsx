@@ -786,7 +786,7 @@ export default function DonorsClient({
             <div className="relative z-10 space-y-2">
               <div className="text-sm font-serif font-bold text-slate-700">بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ</div>
               {madrasaInfo?.logo_url ? (
-                <img src={madrasaInfo.logo_url} alt="Logo" className="w-16 h-16 object-contain mx-auto" />
+                <img src={madrasaInfo.logo_url} alt="Logo" className="w-16 h-16 object-cover rounded-full mx-auto border border-amber-300 shadow-xs" />
               ) : (
                 <Award className="w-14 h-14 text-amber-600 mx-auto" />
               )}

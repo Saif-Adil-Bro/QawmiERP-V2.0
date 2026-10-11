@@ -1506,7 +1506,7 @@ export default function IdCardClient({
                         <img
                           src={editableMadrasaInfo.logo_url}
                           alt="Logo Preview"
-                          className="w-9 h-9 object-contain rounded-lg border p-1 bg-white shrink-0"
+                          className="w-9 h-9 object-cover rounded-full border border-slate-200 shrink-0"
                         />
                       )}
                     </div>

@@ -46,7 +46,7 @@ export default function BlankMoneyReceipt({
                 <img
                   src={logoUrl}
                   alt="Madrasa Logo"
-                  className="w-10 h-10 sm:w-12 sm:h-12 object-contain rounded-md shrink-0"
+                  className="w-10 h-10 sm:w-12 sm:h-12 object-cover rounded-full shrink-0 border border-slate-200"
                   onError={(e) => {
                     e.currentTarget.style.display = "none";
                   }}

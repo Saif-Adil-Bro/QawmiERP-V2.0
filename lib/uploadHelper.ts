@@ -71,9 +71,13 @@ async function compressImageFile(
         return;
       }
 
-      // Fill clean background
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, width, height);
+      // Fill white background only for non-PNG images; keep transparent for PNG logos and signatures
+      if (file.type !== "image/png" && !file.name.toLowerCase().endsWith(".png")) {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, width, height);
+      } else {
+        ctx.clearRect(0, 0, width, height);
+      }
       ctx.drawImage(img, 0, 0, width, height);
 
       const mimeType = file.type === "image/png" ? "image/png" : "image/jpeg";

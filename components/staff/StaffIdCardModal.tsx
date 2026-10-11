@@ -149,7 +149,7 @@ export default function StaffIdCardModal({
             <img
               src={mLogo}
               alt="Madrasa Logo"
-              className="w-7 h-7 rounded-full object-contain bg-white/90 p-0.5 shadow-xs shrink-0"
+              className="w-7 h-7 rounded-full object-cover bg-white shadow-xs border border-white/60 shrink-0"
             />
           ) : (
             <div className="w-6 h-6 rounded-full bg-emerald-700/80 border border-emerald-400/50 flex items-center justify-center text-emerald-100 text-[10px] font-bold shrink-0">

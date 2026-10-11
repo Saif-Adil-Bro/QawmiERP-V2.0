@@ -431,7 +431,7 @@ export default function StudentIdCardTemplate({
                     <img
                       src={madrasaInfo.logo_url}
                       alt="Logo"
-                      className="w-4 h-4 object-contain rounded-full bg-white/10 p-0.5 border border-amber-300/40"
+                      className="w-4 h-4 object-cover rounded-full border border-amber-300/60 shrink-0"
                     />
                   ) : (
                     <div className="w-4 h-4 rounded-full bg-white/20 border border-amber-400/60 flex items-center justify-center text-[7px] font-bold text-amber-300">
@@ -616,7 +616,7 @@ export default function StudentIdCardTemplate({
                     <img
                       src={madrasaInfo.logo_url}
                       alt="Logo"
-                      className="w-4 h-4 object-contain rounded-full bg-slate-100 p-0.5 border border-slate-300"
+                      className="w-4 h-4 object-cover rounded-full border border-slate-300 shrink-0"
                     />
                   ) : null}
                   <h3
@@ -757,7 +757,7 @@ export default function StudentIdCardTemplate({
                     <img
                       src={madrasaInfo.logo_url}
                       alt="Logo"
-                      className="w-4 h-4 object-contain rounded-full bg-white/10 p-0.5 border border-amber-300/40"
+                      className="w-4 h-4 object-cover rounded-full border border-amber-300/60 shrink-0"
                     />
                   ) : null}
                   <h3

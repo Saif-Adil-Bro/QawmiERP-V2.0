@@ -10,11 +10,15 @@ export const metadata: Metadata = {
   description: 'SaaS-based Qawmi Madrasa Management System',
   icons: {
     icon: [
-      { url: '/api/favicon', type: 'image/png' },
-      { url: '/api/favicon', type: 'image/svg+xml' },
+      { url: '/api/favicon', sizes: '32x32', type: 'image/png' },
+      { url: '/api/favicon', sizes: '192x192', type: 'image/png' },
+      { url: '/api/favicon', sizes: '512x512', type: 'image/png' },
+      { url: '/favicon.ico', sizes: 'any' },
     ],
     shortcut: '/api/favicon',
-    apple: '/api/favicon',
+    apple: [
+      { url: '/api/favicon', sizes: '180x180', type: 'image/png' },
+    ],
   },
 };
 
