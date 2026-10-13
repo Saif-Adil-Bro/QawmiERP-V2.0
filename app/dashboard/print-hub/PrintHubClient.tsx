@@ -20,6 +20,7 @@ import {
   HelpCircle,
   Copy,
   Scissors,
+  Camera,
 } from "lucide-react";
 import BlankAdmissionForm from "@/components/print-hub/BlankAdmissionForm";
 import BlankMoneyReceipt from "@/components/print-hub/BlankMoneyReceipt";
@@ -27,6 +28,7 @@ import ExaminerEvaluationSheet from "@/components/print-hub/ExaminerEvaluationSh
 import CustomTableSheetBuilder from "@/components/print-hub/CustomTableSheetBuilder";
 import PresetMadrasaSheets from "@/components/print-hub/PresetMadrasaSheets";
 import LetterpadNoticeBuilder from "@/components/print-hub/LetterpadNoticeBuilder";
+import { AIQuestionScannerModal } from "@/components/ai/AIQuestionScannerModal";
 import { printElementIsolated } from "@/lib/printUtils";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { sortStudentsByRoll } from "@/lib/student-utils";
@@ -46,6 +48,7 @@ export default function PrintHubClient({
 }: PrintHubClientProps) {
   const [activeTab, setActiveTab] = useState<TabType>("admission");
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
+  const [aiScannerOpen, setAiScannerOpen] = useState(false);
 
   // Tab 1: Admission Form States
   const [admissionSession, setAdmissionSession] = useState("১৪৪৭-৪৮ হিজরি (২০২৬-২৭ খ্রি.)");
@@ -266,6 +269,15 @@ export default function PrintHubClient({
         >
           <Sparkles className="w-4 h-4 text-emerald-600" />
           <span>৬. লেটারপ্যাড নোটিশ ও কাস্টম ফরম</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAiScannerOpen(true)}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition cursor-pointer bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 hover:bg-amber-100 shadow-xs"
+        >
+          <Camera className="w-4 h-4 text-amber-600 animate-pulse" />
+          <span>৭. এআই প্রশ্ন স্ক্যানার (AI OCR)</span>
         </button>
       </div>
 
@@ -710,6 +722,14 @@ export default function PrintHubClient({
       {/* TAB 6: LETTERPAD NOTICE & CUSTOM FORM BUILDER */}
       {activeTab === "letterpad_notice" && (
         <LetterpadNoticeBuilder madrasaInfo={madrasaInfo} />
+      )}
+
+      {aiScannerOpen && (
+        <AIQuestionScannerModal
+          isOpen={aiScannerOpen}
+          onClose={() => setAiScannerOpen(false)}
+          initialMadrasaName={madrasaInfo?.name}
+        />
       )}
     </div>
   );

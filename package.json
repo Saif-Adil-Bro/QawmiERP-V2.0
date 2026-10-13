@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0-alpha.5",
-    "@google/genai": "^2.4.0",
+    "@google/genai": "^2.29.0",
     "@hookform/resolvers": "^5.2.1",
     "@radix-ui/react-dialog": "^1.1.4",
     "@radix-ui/react-dropdown-menu": "^2.1.4",

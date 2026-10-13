@@ -11,6 +11,7 @@ import {
   CalendarDays,
   Users,
   Bell,
+  Sparkles,
 } from "lucide-react";
 
 interface TeacherNavProps {
@@ -28,6 +29,7 @@ export default function TeacherNav({ onItemClick }: TeacherNavProps) {
     { href: "/teacher-portal/hifz", label: "হিফজ সবক ও আমুখতা", icon: BookOpen },
     { href: "/teacher-portal/kitab", label: "কিতাবাত ও পাঠ ডায়েরি", icon: FileText },
     { href: "/teacher-portal/exams", label: "পরীক্ষার নম্বর এন্ট্রি", icon: ClipboardList },
+    { href: "/teacher-portal/question-scanner", label: "এআই প্রশ্ন স্ক্যানার", icon: Sparkles },
     { href: "/teacher-portal/routine", label: "আমার ক্লাস রুটিন", icon: CalendarDays },
     { href: "/teacher-portal/students", label: "শিক্ষার্থী ও যোগাযোগ", icon: Users },
     { href: "/teacher-portal/notices", label: "মাদরাসা নোটিশ বোর্ড", icon: Bell },

@@ -31,6 +31,7 @@ import {
   Loader2,
   ChevronRight,
   TrendingUp,
+  Camera,
 } from "lucide-react";
 import { searchUniversalCommand, UniversalSearchResultItem } from "@/app/actions/universal-search";
 

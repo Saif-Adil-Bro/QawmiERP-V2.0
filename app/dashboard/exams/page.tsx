@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getExams } from "@/app/actions/exams";
-import { Plus, FileText, FileSignature } from "lucide-react";
+import { Plus, FileText, FileSignature, Sparkles } from "lucide-react";
 import ExamListClient from "./ExamListClient";
 
 export default async function ExamsPage() {
@@ -14,6 +14,13 @@ export default async function ExamsPage() {
           <p className="text-slate-500 text-sm">মাদরাসার সকল পরীক্ষার তালিকা, তথ্য সম্পাদনা ও ফলাফল ব্যবস্থাপনা</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/dashboard/exams/ai-scanner"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl transition flex items-center space-x-2 text-sm font-bold shadow-sm"
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>এআই প্রশ্ন স্ক্যানার (AI OCR)</span>
+          </Link>
           <Link
             href="/dashboard/exams/archives"
             className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl hover:bg-indigo-100 transition flex items-center space-x-2 border border-indigo-200 text-sm font-semibold shadow-2xs"
