@@ -134,7 +134,23 @@ export function parseRawTextToQuestionPaper(
     generalInstructions,
     questions,
     rawSummary: `Tesseract OCR স্ক্যানকৃত প্রশ্নপত্র (${questions.length}টি প্রশ্ন শনাক্ত)`,
+    rawText: rawText,
+    engineUsed: "tesseract" as const,
   };
+}
+
+/**
+ * Translates Tesseract internal status to clear Bengali instructions
+ */
+export function getBengaliStatusText(status: string): string {
+  const lower = status.toLowerCase();
+  if (lower.includes("loading tesseract core")) return "Tesseract ওসিআর কোর ইঞ্জিন প্রস্তুত হচ্ছে...";
+  if (lower.includes("initializing tesseract")) return "ইঞ্জিন ইনিশিয়ালাইজ হচ্ছে...";
+  if (lower.includes("loading language traineddata")) return "বাংলা ও প্রয়োজনীয় ভাষার ডিকশনারি লোড হচ্ছে...";
+  if (lower.includes("loaded language traineddata")) return "ভাষার ডিকশনারি লোড সম্পন্ন হয়েছে...";
+  if (lower.includes("initializing api")) return "ওসিআর এপিআই প্রস্তুত হচ্ছে...";
+  if (lower.includes("recognizing text")) return "ছবি থেকে বাংলা ও ইংরেজি টেক্সট রিকগনাইজ করা হচ্ছে...";
+  return status || "প্রসেসিং হচ্ছে...";
 }
 
 /**
@@ -142,14 +158,14 @@ export function parseRawTextToQuestionPaper(
  */
 export async function runTesseractOCR(
   imageSource: string | File,
-  languages: string = "ben+eng+ara",
+  languages: string = "ben+eng",
   onProgress?: (progress: OCRProgress) => void
 ): Promise<{ text: string; confidence: number }> {
   const worker = await createWorker(languages, 1, {
     logger: (m) => {
       if (onProgress && m) {
         onProgress({
-          status: m.status || "প্রসেসিং...",
+          status: getBengaliStatusText(m.status || "প্রসেসিং..."),
           progress: typeof m.progress === "number" ? Math.round(m.progress * 100) : 0,
         });
       }

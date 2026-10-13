@@ -20,15 +20,18 @@ export default function AIScannerPage() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-slate-100 flex flex-wrap items-center gap-2">
               <span>এআই প্রশ্নপত্র ও টেবিল স্ক্যানার</span>
               <span className="text-[11px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Gemini Vision</span>
               </span>
+              <span className="text-[11px] bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <span>Tesseract.js (১০০% ফ্রি)</span>
+              </span>
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              হাতে লেখা বা প্রিন্ট করা প্রশ্নের ছবি দিয়ে স্বয়ংক্রিয়ভাবে টেক্সট, টেবিল ও মার্কস সহ এডিটেবল প্রশ্ন তৈরি করুন
+              হাতে লেখা বা প্রিন্ট করা প্রশ্নের ছবি দিয়ে বিনামূল্যে অফলাইনে (Tesseract.js) অথবা গুগল এআই দিয়ে স্বয়ংক্রিয়ভাবে প্রশ্নপত্র তৈরি করুন
             </p>
           </div>
         </div>
