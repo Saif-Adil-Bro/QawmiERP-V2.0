@@ -15,13 +15,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    // Prefer server-configured environment variable, fallback to client-supplied key if hosting lacks env vars
+    const customKeyFromHeader = req.headers.get("x-gemini-api-key");
+    const apiKey = (process.env.GEMINI_API_KEY || customKeyFromHeader || body.customApiKey || "").trim();
+
     if (!apiKey) {
       return NextResponse.json(
-        { error: "জেমিনি এআই কনফিগারেশন অনুপস্থিত (GEMINI_API_KEY পাওয়া যায়নি)।" },
+        {
+          error: "জেমিনি এআই কনফিগারেশন অনুপস্থিত (GEMINI_API_KEY পাওয়া যায়নি)।",
+          isMissingApiKey: true,
+          details: "সার্ভার এনভায়রনমেন্টে GEMINI_API_KEY কনফিগার করা হয়নি। Railway ড্যাশবোর্ডের Variables ট্যাবে GEMINI_API_KEY যোগ করুন অথবা স্ক্যানার পেজে সরাসরি আপনার ফ্রি গুগল এআই কি প্রদান করুন।"
+        },
         { status: 500 }
       );
     }
+
 
     // Clean base64 data string
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-z0-9+.-]+;base64,/, "").trim();

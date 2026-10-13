@@ -21,6 +21,12 @@ import {
   Minimize2,
   Download,
   BookOpen,
+  Key,
+  ExternalLink,
+  HelpCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 export interface QuestionTable {
@@ -157,6 +163,13 @@ export function AIQuestionScannerModal({
   const [scanStep, setScanStep] = useState<number>(0);
   const [scanError, setScanError] = useState<string | null>(null);
 
+  // Custom Gemini API Key configuration for hosted environments (e.g. Railway)
+  const [customApiKey, setCustomApiKey] = useState<string>("");
+  const [apiKeyInput, setApiKeyInput] = useState<string>("");
+  const [showApiKeyConfig, setShowApiKeyConfig] = useState(false);
+  const [apiKeySaveSuccess, setApiKeySaveSuccess] = useState(false);
+  const [showRailwayGuide, setShowRailwayGuide] = useState(false);
+
   const [questionData, setQuestionData] = useState<QuestionPaperData | null>(null);
   const [copied, setCopied] = useState(false);
   const [showOriginalPhoto, setShowOriginalPhoto] = useState(true);
@@ -167,6 +180,16 @@ export function AIQuestionScannerModal({
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    try {
+      const stored = localStorage.getItem("madrasa_gemini_api_key");
+      if (stored) {
+        setCustomApiKey(stored);
+        setApiKeyInput(stored);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
     fetch("/api/madrasa-info")
       .then((res) => res.json())
       .then((data) => {
@@ -175,6 +198,23 @@ export function AIQuestionScannerModal({
       })
       .catch(() => {});
   }, []);
+
+  const handleSaveApiKey = (newKey?: string) => {
+    const val = (newKey !== undefined ? newKey : apiKeyInput).trim();
+    setCustomApiKey(val);
+    try {
+      if (val) {
+        localStorage.setItem("madrasa_gemini_api_key", val);
+      } else {
+        localStorage.removeItem("madrasa_gemini_api_key");
+      }
+    } catch {}
+    setApiKeySaveSuccess(true);
+    setTimeout(() => setApiKeySaveSuccess(false), 2500);
+    if (val) {
+      setScanError(null);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -216,11 +256,15 @@ export function AIQuestionScannerModal({
     try {
       const response = await fetch("/api/gemini/scan-question", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(customApiKey ? { "x-gemini-api-key": customApiKey } : {}),
+        },
         body: JSON.stringify({
           imageBase64,
           mimeType: imageFile?.type || "image/jpeg",
           madrasaName,
+          customApiKey: customApiKey || undefined,
         }),
       });
 
@@ -647,9 +691,24 @@ export function AIQuestionScannerModal({
               </button>
             </div>
 
+            {/* API Key Settings Button */}
+            <button
+              onClick={() => setShowApiKeyConfig(!showApiKeyConfig)}
+              className={`px-2.5 py-1.5 rounded-lg font-semibold text-xs transition-all flex items-center gap-1.5 ml-1 ${
+                customApiKey
+                  ? "bg-emerald-800/80 hover:bg-emerald-800 text-emerald-100 border border-emerald-400/40"
+                  : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/30"
+              }`}
+              title="Gemini API Key কনফিগারেশন"
+            >
+              <Key className="w-3.5 h-3.5 text-amber-300" />
+              <span className="hidden md:inline">{customApiKey ? "API Key সক্রিয়" : "API Key সেটআপ"}</span>
+              <span className="md:hidden">Key</span>
+            </button>
+
             <button
               onClick={onClose}
-              className="p-1.5 rounded-xl hover:bg-white/20 text-white transition-colors ml-2"
+              className="p-1.5 rounded-xl hover:bg-white/20 text-white transition-colors ml-1"
               title="বন্ধ করুন"
             >
               <X className="w-5 h-5" />
@@ -662,6 +721,128 @@ export function AIQuestionScannerModal({
           {/* ================= TAB 1: UPLOAD & SCAN ================= */}
           {activeTab === "scan" && (
             <div className="max-w-3xl mx-auto space-y-6">
+              {/* API Key Configuration Panel */}
+              {(showApiKeyConfig || (scanError && scanError.includes("GEMINI_API_KEY"))) && (
+                <div className="p-4 sm:p-5 bg-amber-50/90 dark:bg-amber-950/40 border-2 border-amber-400/80 dark:border-amber-700 rounded-2xl shadow-sm space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200 flex items-center justify-center shrink-0">
+                        <Key className="w-4 h-4 text-amber-700 dark:text-amber-300" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs sm:text-sm font-bold text-amber-900 dark:text-amber-100">
+                          গুগল জেমিনি (Gemini) API Key কনফিগারেশন
+                        </h4>
+                        <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                          রেলওয়ে (Railway) বা লাইভ সার্ভারে GEMINI_API_KEY ভ্যারিয়েবল অনুপস্থিত থাকলে নিচের বক্সে সরাসরি এপিআই কি দিন।
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowApiKeyConfig(false)}
+                      className="text-amber-700 hover:text-amber-900 dark:text-amber-300 p-1"
+                      title="লুকান"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Key Input Field */}
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                        আপনার Gemini API Key পেস্ট করুন:
+                      </span>
+                      <a
+                        href="https://aistudio.google.com/app/apikey"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1 font-bold"
+                      >
+                        <span>ফ্রি API Key তৈরি করুন</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="password"
+                        value={apiKeyInput}
+                        onChange={(e) => setApiKeyInput(e.target.value)}
+                        placeholder="AIzaSy... (গুগল এআই স্টুডিও API Key)"
+                        className="flex-1 px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-inner"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleSaveApiKey()}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 shrink-0"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>সংরক্ষণ করুন</span>
+                        </button>
+                        {customApiKey && (
+                          <button
+                            onClick={() => {
+                              setApiKeyInput("");
+                              handleSaveApiKey("");
+                            }}
+                            className="px-3 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-rose-100 text-slate-700 hover:text-rose-600 rounded-xl text-xs font-semibold transition-all shrink-0"
+                            title="মুছে ফেলুন"
+                          >
+                            রিমুভ
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {apiKeySaveSuccess && (
+                      <div className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>API Key সফলভাবে ব্রাউজারে সংরক্ষিত হয়েছে! এখন নিশ্চিন্তে স্ক্যান করতে পারবেন।</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Railway Permanent Setup Guide Accordion */}
+                  <div className="pt-2 border-t border-amber-200 dark:border-amber-800">
+                    <button
+                      onClick={() => setShowRailwayGuide(!showRailwayGuide)}
+                      className="w-full flex items-center justify-between text-left text-[11px] font-bold text-amber-800 dark:text-amber-200 hover:underline py-1"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <HelpCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>রেলওয়ে (Railway.app)-তে স্থায়ীভাবে GEMINI_API_KEY সেট করার সহজ নিয়ম (সব শিক্ষক/ডিভাইসের জন্য)</span>
+                      </span>
+                      {showRailwayGuide ? <ChevronUp className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
+                    </button>
+
+                    {showRailwayGuide && (
+                      <div className="mt-2 p-3 bg-white dark:bg-slate-900 rounded-xl border border-amber-200 dark:border-amber-800 text-[11px] text-slate-700 dark:text-slate-300 space-y-1.5 leading-relaxed">
+                        <p className="font-semibold text-slate-900 dark:text-slate-100">
+                          রেলওয়ে ড্যাশবোর্ডে ভ্যারিয়েবল সেট করার ৩টি ধাপ:
+                        </p>
+                        <ol className="list-decimal list-inside space-y-1 pl-1">
+                          <li>
+                            <b>railway.app</b> ড্যাশবোর্ডে লগইন করে আপনার মাদরাসা অ্যাপ সার্ভিসটিতে ক্লিক করুন।
+                          </li>
+                          <li>উপরের মেনু থেকে <b>Variables</b> ট্যাবে যান।</li>
+                          <li>
+                            <b>+ New Variable</b> বাটনে চাপ দিন।
+                          </li>
+                          <li>
+                            Name লিখুন: <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-rose-600 font-mono font-bold">GEMINI_API_KEY</code>
+                          </li>
+                          <li>
+                            Value বক্সে আপনার গুগল এআই স্টুডিও API Key পেস্ট করুন।
+                          </li>
+                          <li>
+                            <b>Add</b> দিলে রেলওয়ে নিজে থেকেই সার্ভার আপডেট করে সক্রিয় করে দেবে।
+                          </li>
+                        </ol>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Dropzone Card */}
               <div
                 onDragOver={(e) => e.preventDefault()}
@@ -778,9 +959,27 @@ export function AIQuestionScannerModal({
                   </div>
 
                   {scanError && (
-                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{scanError}</span>
+                    <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          <span className="font-bold">{scanError}</span>
+                        </div>
+                        {scanError.includes("GEMINI_API_KEY") && (
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKeyConfig(true)}
+                            className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[11px] font-bold shrink-0 transition-colors shadow-xs"
+                          >
+                            Key বসান
+                          </button>
+                        )}
+                      </div>
+                      {scanError.includes("GEMINI_API_KEY") && (
+                        <p className="text-[11px] text-rose-600/90 pl-6 leading-relaxed">
+                          রেলওয়ে বা সার্ভারে এপিআই কি মিসিং থাকায় এই মেসেজটি এসেছে। উপরের <b>"গুগল জেমিনি API Key কনফিগারেশন"</b> বাক্সে আপনার ফ্রি Key পেস্ট করে সংরক্ষণ করলেই তাৎক্ষণিক স্ক্যান কাজ করবে।
+                        </p>
+                      )}
                     </div>
                   )}
 
