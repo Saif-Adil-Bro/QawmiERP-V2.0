@@ -8,6 +8,43 @@ import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFeeMetadata } from "./fee-management";
 
+const classifyAuditFund = (typeStr?: string, notesStr?: string): "general" | "lillah" | "zakat" | "building" => {
+  const combined = `${typeStr || ""} ${notesStr || ""}`.toLowerCase();
+  if (
+    combined.includes("zakat") ||
+    combined.includes("যাকাত") ||
+    combined.includes("fitra") ||
+    combined.includes("sadqah") ||
+    combined.includes("ফিতরা") ||
+    combined.includes("সদকা")
+  ) {
+    return "zakat";
+  }
+  if (
+    combined.includes("lillah") ||
+    combined.includes("লিল্লাহ") ||
+    combined.includes("orphan") ||
+    combined.includes("এতিম") ||
+    combined.includes("খাবার") ||
+    combined.includes("খোরাকি") ||
+    combined.includes("বোর্ডিং") ||
+    combined.includes("leather") ||
+    combined.includes("চামড়া")
+  ) {
+    return "lillah";
+  }
+  if (
+    combined.includes("building") ||
+    combined.includes("মসজিদ") ||
+    combined.includes("উন্নয়ন") ||
+    combined.includes("নির্মাণ") ||
+    combined.includes("dev")
+  ) {
+    return "building";
+  }
+  return "general";
+};
+
 export interface FundAuditSummary {
   fundId: string;
   fundName: string;
@@ -234,43 +271,7 @@ export async function getAnnualAuditStatement(
       }
     });
 
-    // Helper to classify donation or fund to 4 audit pillars
-    function classifyAuditFund(typeStr?: string, notesStr?: string): "general" | "lillah" | "zakat" | "building" {
-      const combined = `${typeStr || ""} ${notesStr || ""}`.toLowerCase();
-      if (
-        combined.includes("zakat") ||
-        combined.includes("যাকাত") ||
-        combined.includes("fitra") ||
-        combined.includes("sadqah") ||
-        combined.includes("ফিতরা") ||
-        combined.includes("সদকা")
-      ) {
-        return "zakat";
-      }
-      if (
-        combined.includes("lillah") ||
-        combined.includes("লিল্লাহ") ||
-        combined.includes("orphan") ||
-        combined.includes("এতিম") ||
-        combined.includes("খাবার") ||
-        combined.includes("খোরাকি") ||
-        combined.includes("বোর্ডিং") ||
-        combined.includes("leather") ||
-        combined.includes("চামড়া")
-      ) {
-        return "lillah";
-      }
-      if (
-        combined.includes("building") ||
-        combined.includes("মসজিদ") ||
-        combined.includes("উন্নয়ন") ||
-        combined.includes("নির্মাণ") ||
-        combined.includes("dev")
-      ) {
-        return "building";
-      }
-      return "general";
-    }
+
 
     (priorDonationsRes.data || []).forEach((d: any) => {
       const amt = Number(d.amount || 0);
@@ -402,49 +403,11 @@ export async function getAnnualAuditStatement(
     }
   };
 
-  function isDateInRange(dStr?: string): boolean {
+  const isDateInRange = (dStr?: string): boolean => {
     if (!dStr) return false;
     const cleanDate = dStr.includes("T") ? dStr.split("T")[0] : dStr.trim();
     return cleanDate >= startDate && cleanDate <= endDate;
-  }
-
-  // Helper to classify donation or fund to 4 audit pillars
-  function classifyAuditFund(typeStr?: string, notesStr?: string): "general" | "lillah" | "zakat" | "building" {
-    const combined = `${typeStr || ""} ${notesStr || ""}`.toLowerCase();
-    if (
-      combined.includes("zakat") ||
-      combined.includes("যাকাত") ||
-      combined.includes("fitra") ||
-      combined.includes("sadqah") ||
-      combined.includes("ফিতরা") ||
-      combined.includes("সদকা")
-    ) {
-      return "zakat";
-    }
-    if (
-      combined.includes("lillah") ||
-      combined.includes("লিল্লাহ") ||
-      combined.includes("orphan") ||
-      combined.includes("এতিম") ||
-      combined.includes("খাবার") ||
-      combined.includes("খোরাকি") ||
-      combined.includes("বোর্ডিং") ||
-      combined.includes("leather") ||
-      combined.includes("চামড়া")
-    ) {
-      return "lillah";
-    }
-    if (
-      combined.includes("building") ||
-      combined.includes("মসজিদ") ||
-      combined.includes("উন্নয়ন") ||
-      combined.includes("নির্মাণ") ||
-      combined.includes("dev")
-    ) {
-      return "building";
-    }
-    return "general";
-  }
+  };
 
   // Track database donation IDs/receipts to avoid double-counting metadata streams
   const trackedDonationKeys = new Set<string>();
