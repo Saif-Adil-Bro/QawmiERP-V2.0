@@ -18,6 +18,7 @@ import {
   getFeeMetadata,
   saveFeeMetadata,
   getStudentFeeProfile,
+  generateNextReceiptNumber,
 } from "./fee-management";
 import { FeePayment, PaymentAllocation } from "@/lib/fee-management";
 
@@ -404,16 +405,46 @@ export async function verifyAndCompleteOnlinePayment(params: {
       };
     }
 
+    // 0. Strict Gateway Verification
+    const config = await getPaymentGatewayConfig();
+    const isGatewaySimulated = Boolean(params.is_simulated);
+
+    if (isGatewaySimulated) {
+      // Security check: Simulation is ONLY allowed in Test/Sandbox environment for authenticated administrators
+      const supabase = await createClient();
+      const user = await getAuthUser(supabase);
+      if (!user) {
+        return { error: "অননুমোদিত টেস্ট পেমেন্ট। সিমুলেশন শুধুমাত্র লগইন করা অ্যাডমিনদের জন্য অনুমোদিত।" };
+      }
+      if (config.environment === "LIVE") {
+        return { error: "লাইভ প্রোডাকশন সিস্টেমে টেস্ট পেমেন্ট সিমুলেশন কঠোরভাবে নিষিদ্ধ।" };
+      }
+    } else if (targetTxn.provider === "SSLCOMMERZ") {
+      const valId = params.gateway_ref || params.bank_tran_id;
+      if (!valId) {
+        return { error: "SSLCommerz ভ্যালিডেশন আইডি (val_id) অনুপস্থিত। পেমেন্ট সম্পন্ন করা সম্ভব নয়।" };
+      }
+      const validation = await validateSSLCommerzTransaction(valId, config);
+      if (!validation.is_valid || validation.status !== "VALID") {
+        return { error: validation.error_message || "SSLCommerz গেটওয়ে থেকে পেমেন্ট ভ্যালিডেশন সম্পন্ন হয়নি।" };
+      }
+      if (validation.tran_id && validation.tran_id !== targetTxn.transaction_id) {
+        return { error: "গেটওয়ের ট্রানজেকশন আইডি এবং মাদরাসার ট্রানজেকশন আইডি মেলেনি।" };
+      }
+      if (validation.amount && Math.abs(validation.amount - targetTxn.total_payable) > 2) {
+        return { error: "পরিশোধিত টাকার পরিমাণ এবং দাবিকৃত ফি এর মিল নেই।" };
+      }
+    }
+
     const madrasaId = targetMadrasa.id;
     const now = new Date().toISOString();
 
-    // 1. Get Fee Metadata
-    const feeMeta = await getFeeMetadata(madrasaId);
+    // 1. Generate Atomic Unique Serial Receipt Number from relational table
     const currentYear = new Date().getFullYear();
-    const newCounter = (feeMeta.receipt_counter || 100) + 1;
-    const receiptNo = `MR-${currentYear}-${String(newCounter).padStart(5, "0")}`;
+    const receiptNo = await generateNextReceiptNumber(adminClient, madrasaId, currentYear);
 
     // 2. Update Student Fees
+    const feeMeta = await getFeeMetadata(madrasaId);
     const studentFees = [...(feeMeta.student_fees || [])];
     const finalAllocations: PaymentAllocation[] = [];
 
@@ -509,11 +540,10 @@ export async function verifyAndCompleteOnlinePayment(params: {
       newPayment.db_fee_id = dbFee.id;
     }
 
-    // 6. Save fee metadata
+    // 6. Save fee metadata and relational records
     await saveFeeMetadata(madrasaId, {
       student_fees: studentFees,
       payments: payments.slice(0, 500),
-      receipt_counter: newCounter,
     });
 
     // 7. Save online transactions into madrasa metadata

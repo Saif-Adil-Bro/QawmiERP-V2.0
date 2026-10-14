@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useTransition, useEffect } from "react";
-import { X, Landmark, Save, Loader2, Plus, Trash2, Layers, AlignLeft, List } from "lucide-react";
+import { X, Landmark, Save, Loader2, Plus, Trash2, Layers, AlignLeft, List, AlertTriangle } from "lucide-react";
 import { FundItem } from "@/lib/fund-utils";
 import { updateExpense } from "@/app/actions/accounting";
 import { ExpenseItem } from "./ExpenseVoucher";
@@ -36,9 +36,13 @@ export default function EditExpenseModal({
   const [itemRows, setItemRows] = useState<ItemRow[]>([]);
   const [simpleAmount, setSimpleAmount] = useState<string>("");
   const [simpleDescription, setSimpleDescription] = useState<string>("");
+  const [editFundId, setEditFundId] = useState<string>("");
+  const [editCategory, setEditCategory] = useState<string>("");
 
   useEffect(() => {
     if (expense) {
+      setEditFundId(expense.fund_id || "fund-general");
+      setEditCategory(expense.category || "");
       const parsed = parseExpenseItems(expense.description, expense.amount);
       if (parsed.length > 1 || (parsed.length === 1 && parsed[0].amount !== null && parsed[0].name !== "মাদরাসার প্রাতিষ্ঠানিক প্রয়োজনে ব্যয় নির্বাহ করা হয়েছে।")) {
         setEntryMode("itemized");
@@ -171,7 +175,8 @@ export default function EditExpenseModal({
             </label>
             <select
               name="fund_id"
-              defaultValue={initialFundId}
+              value={editFundId}
+              onChange={(e) => setEditFundId(e.target.value)}
               required
               className="w-full px-3 py-2 border border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 text-sm font-semibold bg-emerald-50/40 text-slate-900"
             >
@@ -189,7 +194,8 @@ export default function EditExpenseModal({
               <label className="text-xs font-medium text-slate-700">খরচের খাত (Category) *</label>
               <select
                 name="category"
-                defaultValue={expense.category}
+                value={editCategory}
+                onChange={(e) => setEditCategory(e.target.value)}
                 required
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 text-sm bg-white"
               >
@@ -212,6 +218,22 @@ export default function EditExpenseModal({
               />
             </div>
           </div>
+
+          {/* Shariah Fund Advisory Warning */}
+          {((editFundId === "fund-zakat" || funds.find(f => f.id === editFundId)?.name?.includes("যাকাত")) &&
+            ["Salary", "Utility", "Maintenance", "Other"].includes(editCategory)) && (
+            <div className="p-3 bg-amber-50/90 border-2 border-amber-300 rounded-xl text-amber-950 text-xs flex items-start gap-2.5 shadow-xs">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <p className="font-bold text-amber-900">
+                  সতর্কতা: শরয়ী বিধান অনুযায়ী যাকাত ফান্ডের অর্থ শুধুমাত্র উপযুক্ত গোরাবা ও এতিম ছাত্রদের খোরাকি এবং আবাসিক কল্যাণে ব্যয় করা যাবে।
+                </p>
+                <p className="text-amber-800 text-[11px] leading-relaxed">
+                  শিক্ষক বা কর্মচারীদের বেতন, ভবন নির্মাণ, উন্নয়ন কাজ বা বিদ্যুৎ ও গ্যাস বিলের মতো সাধারণ প্রাতিষ্ঠানিক পরিচালনা ব্যয় সাধারণ ফান্ড থেকে নির্বাহ করার বিধান রয়েছে।
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Mode Switcher */}
           <div className="pt-2 border-t border-slate-100">

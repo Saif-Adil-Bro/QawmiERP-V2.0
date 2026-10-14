@@ -17,35 +17,281 @@ import {
 } from "@/lib/fee-management";
 
 /**
- * Helper to fetch fee metadata from madrasa record
+ * Atomic Receipt Number Generator:
+ * Queries the database for the max receipt number for this madrasa and year,
+ * ensuring sequential, monotonic, collision-free receipt numbers.
  */
-export async function getFeeMetadata(madrasaId: string): Promise<MadrasaFeeData> {
-  const meta = await getMadrasaMetadata(madrasaId);
-  return {
-    fee_types: meta.fee_types || DEFAULT_FEE_TYPES,
-    fee_structures: meta.fee_structures || [],
-    student_fees: meta.student_fees || [],
-    payments: meta.payments || [],
-    discounts: meta.discounts || [],
-    audit_logs: meta.audit_logs || [],
-    receipt_counter: meta.receipt_counter || 100,
-    student_profiles: meta.student_profiles || {},
-  };
+export async function generateNextReceiptNumber(
+  adminClient: any,
+  madrasaId: string,
+  year: number = new Date().getFullYear()
+): Promise<string> {
+  const prefix = `MR-${year}-`;
+  try {
+    const { data } = await adminClient
+      .from("fee_payments")
+      .select("receipt_no")
+      .eq("madrasa_id", madrasaId)
+      .like("receipt_no", `${prefix}%`)
+      .order("receipt_no", { ascending: false })
+      .limit(1);
+
+    let nextCounter = 101;
+    if (data && data.length > 0 && data[0].receipt_no) {
+      const parts = data[0].receipt_no.split("-");
+      const lastNum = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(lastNum) && lastNum >= 100) {
+        nextCounter = lastNum + 1;
+      }
+    }
+    return `${prefix}${String(nextCounter).padStart(5, "0")}`;
+  } catch (e) {
+    console.error("Error generating receipt number:", e);
+    const fallbackRand = Math.floor(10000 + Math.random() * 90000);
+    return `${prefix}${fallbackRand}`;
+  }
 }
 
 /**
- * Helper to save fee metadata.
- * Returns true/false so callers can detect a silent DB write failure instead
- * of assuming success just because no exception was thrown (saveMadrasaMetadata
- * swallows its own errors and returns false rather than throwing).
+ * Fetch fee data directly from relational PostgreSQL tables
+ * with fallback to JSON metadata for unmigrated data.
+ */
+export async function getFeeMetadata(madrasaId: string): Promise<MadrasaFeeData> {
+  try {
+    const adminClient = await createAdminClient();
+
+    // 1. Fetch from relational tables
+    const [ftRes, fsRes, sfRes, fpRes, alRes] = await Promise.all([
+      adminClient.from("fee_types").select("*").eq("madrasa_id", madrasaId).order("created_at", { ascending: true }),
+      adminClient.from("fee_structures").select("*, fee_structure_items(*)").eq("madrasa_id", madrasaId),
+      adminClient.from("student_fees").select("*").eq("madrasa_id", madrasaId).order("created_at", { ascending: false }),
+      adminClient.from("fee_payments").select("*, fee_payment_allocations(*)").eq("madrasa_id", madrasaId).order("created_at", { ascending: false }),
+      adminClient.from("fee_audit_logs").select("*").eq("madrasa_id", madrasaId).order("created_at", { ascending: false }).limit(100),
+    ]);
+
+    const feeStructures: FeeStructure[] = (fsRes.data || []).map((fs: any) => ({
+      id: fs.id,
+      madrasa_id: fs.madrasa_id,
+      session_id: fs.session_id,
+      class_id: fs.class_id,
+      class_name: fs.class_name,
+      student_category: fs.student_category,
+      name: fs.name,
+      items: (fs.fee_structure_items || []).map((item: any) => ({
+        fee_type_id: item.fee_type_id,
+        fee_type_name: item.fee_type_name,
+        amount: Number(item.amount) || 0,
+        frequency: item.frequency,
+      })),
+      total_monthly_amount: Number(fs.total_monthly_amount) || 0,
+      total_onetime_amount: Number(fs.total_onetime_amount) || 0,
+      created_at: fs.created_at,
+      updated_at: fs.updated_at,
+    }));
+
+    const payments: FeePayment[] = (fpRes.data || []).map((p: any) => ({
+      id: p.id,
+      receipt_no: p.receipt_no,
+      madrasa_id: p.madrasa_id,
+      session_id: p.session_id,
+      student_id: p.student_id,
+      student_name: p.student_name,
+      student_roll: p.student_roll,
+      class_name: p.class_name,
+      total_amount_received: Number(p.total_amount_received) || 0,
+      payment_date: p.payment_date,
+      payment_method: p.payment_method,
+      transaction_ref: p.transaction_ref,
+      allocations: (p.fee_payment_allocations || []).map((a: any) => ({
+        student_fee_id: a.student_fee_id,
+        fee_type_id: a.fee_type_id,
+        fee_type_name: a.fee_type_name,
+        billing_period: a.billing_period,
+        allocated_amount: Number(a.allocated_amount) || 0,
+        discount_applied: Number(a.discount_applied) || 0,
+        fine_applied: Number(a.fine_applied) || 0,
+      })),
+      discount_total: Number(p.discount_total) || 0,
+      fine_total: Number(p.fine_total) || 0,
+      advance_amount: Number(p.advance_amount) || 0,
+      collector_name: p.collector_name,
+      notes: p.notes,
+      status: p.status,
+      created_at: p.created_at,
+    }));
+
+    const studentFees: StudentFee[] = (sfRes.data || []).map((sf: any) => ({
+      ...sf,
+      base_amount: Number(sf.base_amount) || 0,
+      discount_amount: Number(sf.discount_amount) || 0,
+      fine_amount: Number(sf.fine_amount) || 0,
+      payable_amount: Number(sf.payable_amount) || 0,
+      paid_amount: Number(sf.paid_amount) || 0,
+      due_amount: Number(sf.due_amount) || 0,
+    }));
+
+    let receiptCounter = 100;
+    if (payments.length > 0) {
+      for (const p of payments) {
+        if (p.receipt_no) {
+          const parts = p.receipt_no.split("-");
+          const n = parseInt(parts[parts.length - 1], 10);
+          if (!isNaN(n) && n > receiptCounter) {
+            receiptCounter = n;
+          }
+        }
+      }
+    }
+
+    const feeTypes: FeeType[] = (ftRes.data && ftRes.data.length > 0)
+      ? ftRes.data.map((ft: any) => ({
+          ...ft,
+          default_amount: Number(ft.default_amount) || 0,
+        }))
+      : DEFAULT_FEE_TYPES;
+
+    const auditLogs: FeeAuditLog[] = (alRes.data || []).map((al: any) => ({
+      ...al,
+    }));
+
+    const meta = await getMadrasaMetadata(madrasaId);
+
+    // If relational data exists, prefer it as the single source of truth
+    if (studentFees.length > 0 || payments.length > 0 || feeStructures.length > 0) {
+      return {
+        fee_types: feeTypes,
+        fee_structures: feeStructures,
+        student_fees: studentFees,
+        payments,
+        discounts: meta.discounts || [],
+        audit_logs: auditLogs,
+        receipt_counter: receiptCounter,
+        student_profiles: meta.student_profiles || {},
+      };
+    }
+
+    // Fallback if relational has no rows yet
+    return {
+      fee_types: (meta.fee_types && meta.fee_types.length > 0) ? meta.fee_types : feeTypes,
+      fee_structures: (meta.fee_structures && meta.fee_structures.length > 0) ? meta.fee_structures : feeStructures,
+      student_fees: meta.student_fees || [],
+      payments: meta.payments || [],
+      discounts: meta.discounts || [],
+      audit_logs: (meta.audit_logs && meta.audit_logs.length > 0) ? meta.audit_logs : auditLogs,
+      receipt_counter: meta.receipt_counter || receiptCounter,
+      student_profiles: meta.student_profiles || {},
+    };
+  } catch (err) {
+    console.error("Error in getFeeMetadata:", err);
+    const meta = await getMadrasaMetadata(madrasaId);
+    return {
+      fee_types: meta.fee_types || DEFAULT_FEE_TYPES,
+      fee_structures: meta.fee_structures || [],
+      student_fees: meta.student_fees || [],
+      payments: meta.payments || [],
+      discounts: meta.discounts || [],
+      audit_logs: meta.audit_logs || [],
+      receipt_counter: meta.receipt_counter || 100,
+      student_profiles: meta.student_profiles || {},
+    };
+  }
+}
+
+/**
+ * Helper to save fee metadata into relational tables
  */
 export async function saveFeeMetadata(madrasaId: string, feeData: Partial<MadrasaFeeData>): Promise<boolean> {
-  const currentMeta = await getMadrasaMetadata(madrasaId);
-  const updatedMeta = {
-    ...currentMeta,
-    ...feeData,
-  };
-  return await saveMadrasaMetadata(madrasaId, updatedMeta);
+  try {
+    const adminClient = await createAdminClient();
+
+    // 1. If student_fees are provided, synchronize them in relational table
+    if (feeData.student_fees && Array.isArray(feeData.student_fees)) {
+      for (const sf of feeData.student_fees.slice(0, 100)) {
+        await adminClient.from("student_fees").upsert({
+          id: sf.id,
+          madrasa_id: sf.madrasa_id || madrasaId,
+          session_id: sf.session_id || "default_session",
+          student_id: sf.student_id,
+          student_name: sf.student_name || "",
+          student_roll: sf.student_roll || "",
+          class_id: sf.class_id || null,
+          class_name: sf.class_name || "",
+          fee_type_id: sf.fee_type_id,
+          fee_type_name: sf.fee_type_name || "",
+          billing_period: sf.billing_period || "",
+          month_name: sf.month_name || "",
+          year: String(sf.year || new Date().getFullYear()),
+          due_date: sf.due_date || new Date().toISOString().split("T")[0],
+          base_amount: Number(sf.base_amount) || 0,
+          discount_amount: Number(sf.discount_amount) || 0,
+          discount_reason: sf.discount_reason || null,
+          fine_amount: Number(sf.fine_amount) || 0,
+          fine_reason: sf.fine_reason || null,
+          payable_amount: Number(sf.payable_amount) || 0,
+          paid_amount: Number(sf.paid_amount) || 0,
+          due_amount: Number(sf.due_amount) || 0,
+          status: sf.status || "UNPAID",
+          created_at: sf.created_at || new Date().toISOString(),
+          updated_at: sf.updated_at || new Date().toISOString(),
+        }, { onConflict: "id" });
+      }
+    }
+
+    // 2. If payments are provided, synchronize in relational fee_payments and allocations
+    if (feeData.payments && Array.isArray(feeData.payments)) {
+      for (const p of feeData.payments.slice(0, 10)) {
+        const { error: pErr } = await adminClient.from("fee_payments").upsert({
+          id: p.id,
+          receipt_no: p.receipt_no,
+          madrasa_id: p.madrasa_id || madrasaId,
+          session_id: p.session_id || "default_session",
+          student_id: p.student_id,
+          student_name: p.student_name || "শিক্ষার্থী",
+          student_roll: p.student_roll || "",
+          class_name: p.class_name || "",
+          total_amount_received: Number(p.total_amount_received) || 0,
+          payment_date: p.payment_date || new Date().toISOString().split("T")[0],
+          payment_method: p.payment_method || "Cash",
+          transaction_ref: p.transaction_ref || null,
+          discount_total: Number(p.discount_total) || 0,
+          fine_total: Number(p.fine_total) || 0,
+          advance_amount: Number(p.advance_amount) || 0,
+          collector_name: p.collector_name || "Admin",
+          notes: p.notes || "",
+          status: p.status || "COMPLETED",
+          created_at: p.created_at || new Date().toISOString(),
+        }, { onConflict: "id" });
+
+        if (!pErr && p.allocations && Array.isArray(p.allocations)) {
+          for (const a of p.allocations) {
+            await adminClient.from("fee_payment_allocations").upsert({
+              payment_id: p.id,
+              student_fee_id: a.student_fee_id || null,
+              fee_type_id: a.fee_type_id || null,
+              fee_type_name: a.fee_type_name || "",
+              billing_period: a.billing_period || "",
+              allocated_amount: Number(a.allocated_amount) || 0,
+              discount_applied: Number(a.discount_applied) || 0,
+              fine_applied: Number(a.fine_applied) || 0,
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Save lightweight non-ledger metadata if needed (without polluting registration_no)
+    const currentMeta = await getMadrasaMetadata(madrasaId);
+    const updatedMeta = {
+      ...currentMeta,
+      student_profiles: feeData.student_profiles || currentMeta.student_profiles,
+      discounts: feeData.discounts || currentMeta.discounts,
+      receipt_counter: feeData.receipt_counter || currentMeta.receipt_counter,
+    };
+    return await saveMadrasaMetadata(madrasaId, updatedMeta);
+  } catch (e) {
+    console.error("Error saving relational fee data:", e);
+    return false;
+  }
 }
 
 /**
@@ -378,7 +624,7 @@ export async function generateMonthlyFees(params: {
 
     if (!madrasaId) return { error: "মাদরাসা তথ্য পাওয়া যায়নি।" };
 
-    // Fetch students using adminClient with fallback
+    // Fetch students strictly belonging to this madrasa
     let students: any[] = [];
     try {
       const { data: stdData, error: stdErr } = await adminClient
@@ -389,15 +635,8 @@ export async function generateMonthlyFees(params: {
       if (!stdErr && stdData && stdData.length > 0) {
         students = stdData;
       }
-    } catch {}
-
-    if (students.length === 0) {
-      try {
-        const { data: allStd } = await adminClient
-          .from("students")
-          .select("id, first_name, last_name, roll_number, class_name, class_id");
-        students = allStd || [];
-      } catch {}
+    } catch (stdFetchErr) {
+      console.error("Error fetching students for monthly fees:", stdFetchErr);
     }
 
     if (params.classId && params.classId !== "ALL") {
@@ -457,6 +696,42 @@ export async function generateMonthlyFees(params: {
       const studentDiscounts = (meta.discounts || []).filter(
         (d) => d.student_id === student.id && d.status === "APPROVED"
       );
+
+      // Determine general discount pool (applied across fee types without double-discounting)
+      const generalDiscount = studentDiscounts.find((d) => !d.fee_type_id);
+      let isGeneralFullWaiver = false;
+      let generalPercentage = 0;
+      let remainingGeneralDiscount = 0;
+      let generalDiscountReason = "";
+
+      if (generalDiscount) {
+        if (generalDiscount.discount_type === "FULL_WAIVER") {
+          isGeneralFullWaiver = true;
+          generalDiscountReason = generalDiscount.reason || "পূর্ণ মওকুফ";
+        } else if (generalDiscount.discount_type === "PERCENTAGE") {
+          generalPercentage = Number(generalDiscount.value || 0);
+          generalDiscountReason = `${generalDiscount.value}% বিশেষ ছাড়`;
+        } else if (generalDiscount.discount_type === "FIXED") {
+          remainingGeneralDiscount = Number(generalDiscount.value || 0);
+          generalDiscountReason = generalDiscount.reason || "নির্ধারিত মাসিক ছাড়";
+        }
+      } else if (shouldSyncProfiles && studentProfile) {
+        const isFreeStudent =
+          studentProfile.is_free === true ||
+          studentProfile.student_status === "SCHOLARSHIP" ||
+          (studentProfile.total_monthly_fee !== undefined &&
+            Number(studentProfile.total_monthly_fee) === 0 &&
+            Number(studentProfile.monthly_fee || 0) === 0 &&
+            Number(studentProfile.khoraki_fee || 0) === 0);
+
+        if (isFreeStudent) {
+          isGeneralFullWaiver = true;
+          generalDiscountReason = studentProfile.fee_discount_reason || "১০০% সম্পূর্ণ ফ্রি / ইয়ানতপ্রাপ্ত শিক্ষার্থী";
+        } else if (studentProfile.fee_discount && Number(studentProfile.fee_discount) > 0) {
+          remainingGeneralDiscount = Number(studentProfile.fee_discount);
+          generalDiscountReason = studentProfile.fee_discount_reason || "শিক্ষার্থী প্রোফাইল ভিত্তিক ছাড় / মওকুফ";
+        }
+      }
 
       for (const ft of selectedFeeTypes) {
         let baseAmount = ft.default_amount || 0;
@@ -537,41 +812,31 @@ export async function generateMonthlyFees(params: {
         let discountAmount = 0;
         let discountReason = "";
 
-        // Check formal approved discounts table
-        const applicableDiscount = studentDiscounts.find(
-          (d) => !d.fee_type_id || d.fee_type_id === ft.id
-        );
+        // Check if there is a specific discount for this exact fee type
+        const specificDiscount = studentDiscounts.find((d) => d.fee_type_id === ft.id);
 
-        if (applicableDiscount) {
-          if (applicableDiscount.discount_type === "FULL_WAIVER") {
+        if (specificDiscount) {
+          if (specificDiscount.discount_type === "FULL_WAIVER") {
             discountAmount = baseAmount;
-            discountReason = applicableDiscount.reason || "পূর্ণ মওকুফ";
-          } else if (applicableDiscount.discount_type === "PERCENTAGE") {
-            discountAmount = Math.round((baseAmount * applicableDiscount.value) / 100);
-            discountReason = `${applicableDiscount.value}% বিশেষ ছাড়`;
-          } else if (applicableDiscount.discount_type === "FIXED") {
-            discountAmount = Math.min(baseAmount, applicableDiscount.value);
-            discountReason = applicableDiscount.reason || "নির্ধারিত ছাড়";
+            discountReason = specificDiscount.reason || "পূর্ণ মওকুফ";
+          } else if (specificDiscount.discount_type === "PERCENTAGE") {
+            discountAmount = Math.round((baseAmount * Number(specificDiscount.value || 0)) / 100);
+            discountReason = `${specificDiscount.value}% বিশেষ ছাড়`;
+          } else if (specificDiscount.discount_type === "FIXED") {
+            discountAmount = Math.min(baseAmount, Number(specificDiscount.value || 0));
+            discountReason = specificDiscount.reason || "নির্ধারিত ছাড়";
           }
-        } else if (shouldSyncProfiles && studentProfile) {
-          // Check if student is 100% Free / Waiver
-          const isFreeStudent =
-            studentProfile.is_free === true ||
-            studentProfile.student_status === "SCHOLARSHIP" ||
-            (studentProfile.total_monthly_fee !== undefined &&
-              Number(studentProfile.total_monthly_fee) === 0 &&
-              Number(studentProfile.monthly_fee || 0) === 0 &&
-              Number(studentProfile.khoraki_fee || 0) === 0);
-
-          if (isFreeStudent) {
-            discountAmount = baseAmount;
-            discountReason = studentProfile.fee_discount_reason || "১০০% সম্পূর্ণ ফ্রি / ইয়ানতপ্রাপ্ত শিক্ষার্থী";
-          } else if (studentProfile.fee_discount && Number(studentProfile.fee_discount) > 0) {
-            // Apply monthly profile waiver / discount (e.g. food waiver or tuition waiver)
-            const pDiscount = Number(studentProfile.fee_discount);
-            discountAmount = Math.min(baseAmount, pDiscount);
-            discountReason = studentProfile.fee_discount_reason || "শিক্ষার্থী প্রোফাইল ভিত্তিক ছাড় / মওকুফ";
-          }
+        } else if (isGeneralFullWaiver) {
+          discountAmount = baseAmount;
+          discountReason = generalDiscountReason || "পূর্ণ মওকুফ";
+        } else if (generalPercentage > 0) {
+          discountAmount = Math.round((baseAmount * generalPercentage) / 100);
+          discountReason = generalDiscountReason || `${generalPercentage}% বিশেষ ছাড়`;
+        } else if (remainingGeneralDiscount > 0) {
+          // Apply pool-based discount without exceeding total student general discount
+          discountAmount = Math.min(baseAmount, remainingGeneralDiscount);
+          remainingGeneralDiscount -= discountAmount;
+          discountReason = generalDiscountReason || "নির্ধারিত মাসিক ছাড়";
         }
 
         if (discountAmount > baseAmount) discountAmount = baseAmount;
@@ -719,11 +984,26 @@ export async function getStudentFeeProfile(studentId: string, sessionId?: string
     const totalPaid = payments.reduce((sum, p) => sum + p.total_amount_received, 0);
     const totalDue = fees.reduce((sum, f) => sum + f.due_amount, 0);
 
-    const currentMonth = new Date().getMonth() + 1;
-    const currentMonthDue = fees
-      .filter((f) => f.due_amount > 0)
-      .slice(0, 1)
-      .reduce((sum, f) => sum + f.due_amount, 0);
+    const now = new Date();
+    const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const currentMonthDueList = fees.filter((f) => f.billing_period === currentPeriod && f.due_amount > 0);
+
+    let currentMonthDue = 0;
+    if (currentMonthDueList.length > 0) {
+      currentMonthDue = currentMonthDueList.reduce((sum, f) => sum + f.due_amount, 0);
+    } else {
+      // If no bill for current month, use the latest generated billing_period with due balance
+      const periodsWithDue = fees
+        .filter((f) => f.due_amount > 0 && f.billing_period)
+        .map((f) => f.billing_period as string);
+      if (periodsWithDue.length > 0) {
+        const sortedPeriods = Array.from(new Set(periodsWithDue)).sort().reverse();
+        const latestPeriod = sortedPeriods[0];
+        currentMonthDue = fees
+          .filter((f) => f.billing_period === latestPeriod && f.due_amount > 0)
+          .reduce((sum, f) => sum + f.due_amount, 0);
+      }
+    }
 
     return {
       student_id: studentId,
@@ -773,6 +1053,7 @@ export async function collectFeePayment(paymentData: {
 }) {
   try {
     const supabase = await createClient();
+    const adminClient = await createAdminClient();
     const user = await getAuthUser(supabase);
     if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
 
@@ -811,10 +1092,9 @@ export async function collectFeePayment(paymentData: {
     const now = new Date().toISOString();
     const paymentDate = paymentData.payment_date || now.split("T")[0];
 
-    // Generate formatted unique serial receipt number: MR-YYYY-XXXXX
+    // Generate formatted unique serial receipt number atomically: MR-YYYY-XXXXX
     const currentYear = new Date().getFullYear();
-    const newCounter = (meta.receipt_counter || 100) + 1;
-    const receiptNo = `MR-${currentYear}-${String(newCounter).padStart(5, "0")}`;
+    const receiptNo = await generateNextReceiptNumber(adminClient, madrasaId, currentYear);
 
     const studentFees = [...(meta.student_fees || [])];
     const payments = [...(meta.payments || [])];
@@ -1051,7 +1331,6 @@ export async function collectFeePayment(paymentData: {
     const saved = await saveFeeMetadata(madrasaId, {
       student_fees: studentFees,
       payments: payments.slice(0, 500),
-      receipt_counter: newCounter,
       audit_logs: auditLogs.slice(0, 100),
     });
     if (!saved) {

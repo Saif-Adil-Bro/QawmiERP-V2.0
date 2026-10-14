@@ -4,7 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { createExpense, ExpenseActionState } from "@/app/actions/accounting";
 import { getFunds } from "@/app/actions/zakat";
 import { FundItem, DEFAULT_FUNDS } from "@/lib/fund-utils";
-import { Landmark, FileText, CheckCircle2, ArrowRight, List, Plus, Trash2, Layers, AlignLeft } from "lucide-react";
+import { Landmark, FileText, CheckCircle2, ArrowRight, List, Plus, Trash2, Layers, AlignLeft, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import ExpenseVoucher, { ExpenseItem, MadrasaInfo } from "@/components/accounting/ExpenseVoucher";
 import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
@@ -32,6 +32,7 @@ export default function AddExpenseForm() {
   ]);
   const [simpleAmount, setSimpleAmount] = useState<string>("");
   const [simpleDescription, setSimpleDescription] = useState<string>("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("");
 
   useEffect(() => {
     async function loadInitialData() {
@@ -171,6 +172,8 @@ export default function AddExpenseForm() {
                 id="category"
                 name="category"
                 required
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
                 className="w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white text-sm"
               >
                 <option value="">নির্বাচন করুন</option>
@@ -196,6 +199,22 @@ export default function AddExpenseForm() {
               />
             </div>
           </div>
+
+          {/* Shariah Fund Advisory Warning */}
+          {((selectedFundId === "fund-zakat" || selectedFund?.name?.includes("যাকাত")) && 
+            ["Salary", "Utility", "Maintenance", "Other"].includes(selectedCategory)) && (
+            <div className="p-4 bg-amber-50/90 border-2 border-amber-300 rounded-xl text-amber-950 text-xs sm:text-sm flex items-start gap-3 shadow-xs animate-in fade-in duration-200">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold text-amber-900 text-sm">
+                  সতর্কতা: শরয়ী বিধান অনুযায়ী যাকাত ফান্ডের অর্থ শুধুমাত্র উপযুক্ত গোরাবা ও এতিম ছাত্রদের খোরাকি এবং আবাসিক কল্যাণে ব্যয় করা যাবে।
+                </p>
+                <p className="text-amber-800 text-xs leading-relaxed">
+                  শিক্ষক বা কর্মচারীদের বেতন, ভবন নির্মাণ, উন্নয়ন কাজ বা বিদ্যুৎ ও গ্যাস বিলের মতো সাধারণ প্রাতিষ্ঠানিক পরিচালনা ব্যয় সাধারণ ফান্ড (General Fund) থেকে নির্বাহ করার বিধান রয়েছে।
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Mode Switcher: Itemized breakdown vs Simple text */}
           <div className="pt-2 border-t border-slate-100">

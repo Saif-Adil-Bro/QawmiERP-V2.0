@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getStaffMetadataFull } from "@/app/actions/staff";
 import { getMadrasaMetadata } from "@/lib/sessions";
+import { getFeeMetadata } from "@/app/actions/fee-management";
 import ReportingCharts from "./components/ReportingCharts";
 import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
@@ -86,7 +87,8 @@ export default async function DashboardPage() {
         { data: examResultsData },
         staffFullData,
         madrasaMeta,
-        fundsData
+        fundsData,
+        feeMetaData
 
       ] = await Promise.all([
         supabase.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
@@ -105,7 +107,8 @@ export default async function DashboardPage() {
         supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
         getStaffMetadataFull(),
         getMadrasaMetadata(profile.madrasa_id),
-        getFunds()
+        getFunds(),
+        getFeeMetadata(profile.madrasa_id),
       ]);
 
       studentsCount = sCount || 0;
@@ -162,10 +165,16 @@ export default async function DashboardPage() {
       // Include all Madrasa Metadata Live Collections ONLY if not already tracked in DB tables
       const meta = madrasaMeta || {};
 
-      // 1. Fee management payments from metadata (untracked in fees table)
-      (meta.payments || []).forEach((p: any) => {
+      // 1. Fee management payments from relational tables (with metadata fallback)
+      const feePaymentsList = (feeMetaData?.payments && feeMetaData.payments.length > 0)
+        ? feeMetaData.payments
+        : (meta.payments || []);
+
+      feePaymentsList.forEach((p: any) => {
         if (
-          p.status === "COMPLETED" &&
+          (p.status === "COMPLETED" || !p.status || p.status === "SUCCESS") &&
+          p.status !== "REVERSED" &&
+          p.status !== "VOID" &&
           !trackedFeeKeys.has(p.id) &&
           !trackedFeeKeys.has(p.db_fee_id) &&
           !trackedFeeKeys.has(p.receipt_no)

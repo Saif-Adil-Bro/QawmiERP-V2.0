@@ -202,6 +202,14 @@ const KNOWN_DB_TABLES = [
   "question_bank",
   "exam_papers",
   "fees",
+  "fee_types",
+  "fee_structures",
+  "fee_structure_items",
+  "student_fees",
+  "fee_payments",
+  "fee_payment_allocations",
+  "fee_discount_waivers",
+  "fee_audit_logs",
   "expenses",
   "bazar_expenses",
   "donors",
@@ -1250,6 +1258,14 @@ export async function executeMadrasaDataWipe(options: WipeMadrasaOptions): Promi
       await deleteFromTable("bazar_expenses");
       await deleteFromTable("expenses");
       await deleteFromTable("fees");
+      await deleteFromTable("fee_payment_allocations");
+      await deleteFromTable("fee_payments");
+      await deleteFromTable("fee_discount_waivers");
+      await deleteFromTable("fee_audit_logs");
+      await deleteFromTable("student_fees");
+      await deleteFromTable("fee_structure_items");
+      await deleteFromTable("fee_structures");
+      await deleteFromTable("fee_types");
     }
 
     if (wipeDonations) {

@@ -150,13 +150,14 @@ export async function deleteFee(feeId: string) {
     const studentFees = [...(meta.student_fees || [])];
 
     const payIdx = payments.findIndex((p) => p.id === feeId || p.receipt_no === feeId);
+    let removedPayment: any = null;
 
     if (payIdx >= 0) {
-      const payment = payments[payIdx];
+      removedPayment = payments[payIdx];
       const now = new Date().toISOString();
 
       // Roll back paid amounts and restore due balances in student_fees
-      for (const alloc of payment.allocations || []) {
+      for (const alloc of removedPayment.allocations || []) {
         if (alloc.student_fee_id) {
           const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
           if (feeIdx >= 0) {
@@ -170,6 +171,15 @@ export async function deleteFee(feeId: string) {
               status: newPaid === 0 ? "UNPAID" : "PARTIAL",
               updated_at: now,
             };
+            // Also update in relational student_fees table
+            try {
+              await supabase.from("student_fees").update({
+                paid_amount: newPaid,
+                due_amount: newDue,
+                status: newPaid === 0 ? "UNPAID" : "PARTIAL",
+                updated_at: now,
+              }).eq("id", target.id).eq("madrasa_id", finalMadrasaId);
+            } catch {}
           }
         }
       }
@@ -186,7 +196,7 @@ export async function deleteFee(feeId: string) {
         user_name: user.email || "অ্যাডমিন",
         user_role: "admin",
         record_id: feeId,
-        details: `রিসিট নং ${payment.receipt_no} (পরিমাণ: ৳${payment.total_amount_received}) ফি তালিকা থেকে ডিলিট করা হয়েছে এবং বকেয়া পুনর্স্থাপন করা হয়েছে।`,
+        details: `রিসিট নং ${removedPayment.receipt_no} (পরিমাণ: ৳${removedPayment.total_amount_received}) ফি তালিকা থেকে ডিলিট করা হয়েছে এবং বকেয়া পুনর্স্থাপন করা হয়েছে।`,
         created_at: now,
       });
 
@@ -195,27 +205,38 @@ export async function deleteFee(feeId: string) {
         payments,
         audit_logs: auditLogs.slice(0, 100),
       });
+
+      // Remove from relational fee_payments and allocations
+      try {
+        await supabase.from("fee_payments").delete().eq("id", removedPayment.id).eq("madrasa_id", finalMadrasaId);
+        if (removedPayment.receipt_no) {
+          await supabase.from("fee_payments").delete().eq("receipt_no", removedPayment.receipt_no).eq("madrasa_id", finalMadrasaId);
+        }
+      } catch {}
     } else {
       // Also check if this is an unpaid fee invoice in student_fees
       const feeIdx = studentFees.findIndex((f) => f.id === feeId);
       if (feeIdx >= 0) {
+        const removedFee = studentFees[feeIdx];
         studentFees.splice(feeIdx, 1);
         await saveFeeMetadata(finalMadrasaId, {
           student_fees: studentFees,
         });
+        try {
+          await supabase.from("student_fees").delete().eq("id", removedFee.id).eq("madrasa_id", finalMadrasaId);
+        } catch {}
       }
     }
 
-    // Attempt clean up in legacy fees table if present
+    // Clean up in legacy fees table if present
     try {
       await supabase.from("fees").delete().eq("id", feeId).eq("madrasa_id", finalMadrasaId);
-      if (payIdx >= 0) {
-        const payment = payments[payIdx];
-        if (payment?.db_fee_id) {
-          await supabase.from("fees").delete().eq("id", payment.db_fee_id).eq("madrasa_id", finalMadrasaId);
+      if (removedPayment) {
+        if (removedPayment.db_fee_id) {
+          await supabase.from("fees").delete().eq("id", removedPayment.db_fee_id).eq("madrasa_id", finalMadrasaId);
         }
-        if (payment?.receipt_no) {
-          await supabase.from("fees").delete().like("notes", `%${payment.receipt_no}%`).eq("madrasa_id", finalMadrasaId);
+        if (removedPayment.receipt_no) {
+          await supabase.from("fees").delete().like("notes", `%${removedPayment.receipt_no}%`).eq("madrasa_id", finalMadrasaId);
         }
       }
     } catch {}
@@ -298,6 +319,40 @@ export type ExpenseActionState = {
   };
 };
 
+export async function getNextExpenseVoucherNo(expenseDate?: string): Promise<string> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const d = expenseDate ? new Date(expenseDate) : new Date();
+    const yy = String(d.getFullYear()).slice(-2);
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const currentPrefix = `EXP-${yy}${mm}-`;
+
+    if (!user) return `${currentPrefix}001`;
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) return `${currentPrefix}001`;
+
+    const startOfMonth = `${d.getFullYear()}-${mm}-01`;
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const endOfMonth = `${d.getFullYear()}-${mm}-${String(lastDay).padStart(2, "0")}`;
+
+    const { count } = await supabase
+      .from("expenses")
+      .select("id", { count: "exact", head: true })
+      .eq("madrasa_id", finalMadrasaId)
+      .gte("expense_date", startOfMonth)
+      .lte("expense_date", endOfMonth);
+
+    const nextSeq = String((count || 0) + 1).padStart(3, "0");
+    return `${currentPrefix}${nextSeq}`;
+  } catch {
+    const d = expenseDate ? new Date(expenseDate) : new Date();
+    const yy = String(d.getFullYear()).slice(-2);
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    return `EXP-${yy}${mm}-001`;
+  }
+}
+
 export async function createExpense(prevState: ExpenseActionState, formData: FormData): Promise<ExpenseActionState> {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
@@ -317,9 +372,27 @@ export async function createExpense(prevState: ExpenseActionState, formData: For
     return { error: "ক্যাটাগরি, পরিমাণ এবং তারিখ আবশ্যক।" };
   }
 
+  // Generate sequential voucher number based on monthly expense count (e.g. EXP-YYMM-001)
+  const d = new Date(expenseDate);
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const startOfMonth = `${d.getFullYear()}-${mm}-01`;
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  const endOfMonth = `${d.getFullYear()}-${mm}-${String(lastDay).padStart(2, "0")}`;
+
+  const { count: expCount } = await supabase
+    .from("expenses")
+    .select("id", { count: "exact", head: true })
+    .eq("madrasa_id", finalMadrasaId)
+    .gte("expense_date", startOfMonth)
+    .lte("expense_date", endOfMonth);
+
+  const nextSeq = String((expCount || 0) + 1).padStart(3, "0");
+  const voucherNo = `EXP-${yy}${mm}-${nextSeq}`;
+
   const cleanDesc = (description || "").trim();
-  // Store fund metadata seamlessly inside description for guaranteed backwards/forward compatibility
-  const wrappedDescription = `[FUND: ${fundId} | ${fundName}]\n${cleanDesc}`.trim();
+  // Store fund & voucher metadata seamlessly inside description for guaranteed backwards/forward compatibility
+  const wrappedDescription = `[FUND: ${fundId} | ${fundName}][VOUCHER: ${voucherNo}]\n${cleanDesc}`.trim();
 
   // Try direct column insertion if fund_id exists in schema, fallback to metadata wrapper
   const recordWithFundCol: any = {
@@ -330,6 +403,7 @@ export async function createExpense(prevState: ExpenseActionState, formData: For
     description: wrappedDescription,
     fund_id: fundId,
     fund_name: fundName,
+    voucher_no: voucherNo,
   };
 
   const fallbackRecord: any = {
@@ -358,16 +432,14 @@ export async function createExpense(prevState: ExpenseActionState, formData: For
       console.error("Error creating expense:", retryError);
       return { error: retryError.message };
     }
-    createdId = retryData?.id || `EXP-${Date.now()}`;
+    createdId = retryData?.id || voucherNo;
   } else {
-    createdId = directData?.id || `EXP-${Date.now()}`;
+    createdId = directData?.id || voucherNo;
   }
 
   revalidatePath("/dashboard/accounting/expenses");
   revalidatePath("/dashboard/accounting/reports");
   revalidatePath("/dashboard/accounting");
-
-  const voucherNo = `EXP-${expenseDate.replace(/-/g, "").slice(2)}-${createdId.substring(0, 4).toUpperCase() || "001"}`;
 
   return { 
     success: true,
@@ -462,15 +534,26 @@ export async function updateExpense(formData: FormData) {
 
 export async function deleteExpense(expenseId: string) {
   const supabase = await createClient();
-  const { error } = await supabase.from("expenses").delete().eq("id", expenseId);
+  const user = await getAuthUser(supabase);
+  if (!user) return { error: "অনুমতি নেই বা মাদ্রাসা পাওয়া যায়নি" };
+
+  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+  if (!finalMadrasaId) return { error: "অনুমতি নেই বা মাদ্রাসা পাওয়া যায়নি" };
+
+  const { error } = await supabase
+    .from("expenses")
+    .delete()
+    .eq("id", expenseId)
+    .eq("madrasa_id", finalMadrasaId);
 
   if (error) {
     console.error("Error deleting expense:", error);
-    return { error: error.message };
+    return { error: error.message || "খরচ মুছে ফেলতে ব্যর্থ হয়েছে।" };
   }
 
   revalidatePath("/dashboard/accounting/expenses");
   revalidatePath("/dashboard/accounting/reports");
+  revalidatePath("/dashboard/accounting");
   return { success: true };
 }
 
@@ -511,29 +594,28 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     console.warn("Could not fetch custom funds list:", e);
   }
 
-  // 2. Fetch Donations (Zakat, Mahfil, Leather, Donation Box, General)
+  // 2. Fetch Donations with Database Date Filter
   // NOTE: donations table does NOT have a fund_id column; select valid columns
   const { data: donationsData, error: donErr } = await supabase
     .from("donations")
     .select("id, amount, donation_type, donation_date, notes, created_at")
-    .eq('madrasa_id', finalMadrasaId);
+    .eq('madrasa_id', finalMadrasaId)
+    .gte("donation_date", startDate)
+    .lte("donation_date", endDate);
 
   if (donErr) {
     console.error("Error fetching donations for report:", donErr);
   }
 
-  // Filter donations by target month and year
-  const monthlyDonations = (donationsData || []).filter((d: any) => {
-    const dateStr = d.donation_date || (d.created_at ? d.created_at.split("T")[0] : "");
-    return isWithinRange(dateStr);
-  });
+  const monthlyDonations = donationsData || [];
 
-  // 3. Fetch Fee Payments & Metadata (Fee Payments, Mahfils, Donors, Boxes, Leather, Online)
+  // 3. Fetch Fee Payments via getFeeMetadata (Relational Tables with Fallback) & Metadata
   let meta: any = {};
   let metaPayments: any[] = [];
   try {
+    const feeMeta = await getFeeMetadata(finalMadrasaId);
     meta = await getMadrasaMetadata(finalMadrasaId);
-    metaPayments = (meta.payments || []).filter((p: any) => {
+    metaPayments = (feeMeta.payments || []).filter((p: any) => {
       const dateStr = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
       return (
         isWithinRange(dateStr) &&
@@ -542,30 +624,28 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       );
     });
   } catch (e) {
-    console.warn("Could not fetch madrasa metadata for report:", e);
+    console.warn("Could not fetch fee data for report:", e);
   }
 
-  // 5. Fetch General Expenses
+  // 4. Fetch General Expenses with Database Date Filter
   const { data: expensesData } = await supabase
     .from("expenses")
     .select("id, amount, description, category, expense_date, created_at")
-    .eq('madrasa_id', finalMadrasaId);
+    .eq('madrasa_id', finalMadrasaId)
+    .gte("expense_date", startDate)
+    .lte("expense_date", endDate);
 
-  const monthlyExpenses = (expensesData || []).filter((e: any) => {
-    const dateStr = e.expense_date || (e.created_at ? e.created_at.split("T")[0] : "");
-    return isWithinRange(dateStr);
-  });
+  const monthlyExpenses = expensesData || [];
 
-  // 6. Fetch Bazar Expenses
+  // 5. Fetch Bazar Expenses with Database Date Filter
   const { data: bazarData } = await supabase
     .from("bazar_expenses")
     .select("id, amount, items_details, expense_date, created_at")
-    .eq('madrasa_id', finalMadrasaId);
+    .eq('madrasa_id', finalMadrasaId)
+    .gte("expense_date", startDate)
+    .lte("expense_date", endDate);
 
-  const monthlyBazar = (bazarData || []).filter((b: any) => {
-    const dateStr = b.expense_date || (b.created_at ? b.created_at.split("T")[0] : "");
-    return isWithinRange(dateStr);
-  });
+  const monthlyBazar = bazarData || [];
 
   // Setup Fund Map with Registered Funds
   const fundMap = new Map<string, { fund_id: string; fund_name: string; income: number; expense: number }>();
@@ -659,10 +739,12 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
 
   // B. Add Fee Payments to General Fund or Lillah/Boarding Fund based on fee allocations
   metaPayments.forEach((p: any) => {
+    let allocatedSum = 0;
     if (p.allocations && p.allocations.length > 0) {
       p.allocations.forEach((alloc: any) => {
         const amt = Number(alloc.allocated_amount || 0);
         if (amt <= 0) return;
+        allocatedSum += amt;
         const name = alloc.fee_type_name || "মাসিক বেতন";
         const combined = `${name} ${p.notes || ""}`.toLowerCase();
         if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
@@ -671,6 +753,14 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
           addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
         }
       });
+      const extraAdvance = Number(p.advance_amount || 0);
+      const fineTotal = Number(p.fine_total || 0);
+      const totalRec = Number(p.total_amount_received || 0);
+      const remainder = Math.max(0, totalRec - allocatedSum);
+      const extra = (extraAdvance + fineTotal > 0) ? (extraAdvance + fineTotal) : remainder;
+      if (extra > 0) {
+        addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", extra);
+      }
     } else {
       const amt = Number(p.total_amount_received || 0);
       const combined = `${p.notes || ""}`.toLowerCase();
@@ -1123,9 +1213,11 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
       const studentInfo = [studentClass, studentRoll].filter(Boolean).join(" | ");
 
       if (p.allocations && p.allocations.length > 0) {
+        let allocatedSum = 0;
         for (const alloc of p.allocations) {
           const amt = Number(alloc.allocated_amount || 0);
           if (amt <= 0) continue;
+          allocatedSum += amt;
 
           const name = alloc.fee_type_name || "মাসিক বেতন";
           const isLillah =
@@ -1154,6 +1246,33 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
             fund_name: matched.name,
             payment_method: p.payment_method || "Cash",
             amount: amt,
+            notes: p.notes || "",
+            receipt_url: `/dashboard/accounting/fees/${p.id}/receipt`,
+          });
+        }
+
+        const extraAdvance = Number(p.advance_amount || 0);
+        const fineTotal = Number(p.fine_total || 0);
+        const totalReceived = Number(p.total_amount_received || 0);
+        const remainder = Math.max(0, totalReceived - allocatedSum);
+        const extraAmt = (extraAdvance + fineTotal > 0) ? (extraAdvance + fineTotal) : remainder;
+
+        if (extraAmt > 0) {
+          const matched = funds.find((f: any) => isTransactionInFund(f, "fund-general", "সাধারণ ফান্ড", funds)) || funds[0];
+          sourceBreakdown.studentFees += extraAmt;
+          transactions.push({
+            id: `${p.id}_extra`,
+            date: paymentDate,
+            receipt_no: p.receipt_no || `MR-${p.id.substring(0, 6)}`,
+            source_type: "STUDENT_FEE",
+            source_type_label: "শিক্ষার্থী ফি",
+            source_name: studentName,
+            source_details: studentInfo || "মাদরাসা শিক্ষার্থী",
+            category: "অগ্রিম / জরিমানা / অতিরিক্ত ফি",
+            fund_id: matched.id,
+            fund_name: matched.name,
+            payment_method: p.payment_method || "Cash",
+            amount: extraAmt,
             notes: p.notes || "",
             receipt_url: `/dashboard/accounting/fees/${p.id}/receipt`,
           });
@@ -1195,12 +1314,23 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
     // Sort transactions by date descending
     transactions.sort((a, b) => new Date(b.date || "1970-01-01").getTime() - new Date(a.date || "1970-01-01").getTime());
 
-    const totalIncome = funds.reduce((sum: number, f: any) => sum + Number(f.total_collected || 0), 0);
+    // Calculate totalIncome directly from transactions list sum
+    const totalIncome = transactions.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+
+    // Update funds with live collected total from transactions
+    const fundTotals: Record<string, number> = {};
+    for (const t of transactions) {
+      fundTotals[t.fund_id] = (fundTotals[t.fund_id] || 0) + Number(t.amount || 0);
+    }
+    const updatedFunds = funds.map((f: any) => ({
+      ...f,
+      total_collected: fundTotals[f.id] !== undefined ? fundTotals[f.id] : Number(f.total_collected || 0),
+    }));
 
     return {
       totalIncome,
       totalTransactions: transactions.length,
-      funds,
+      funds: updatedFunds,
       sourceBreakdown,
       transactions,
     };

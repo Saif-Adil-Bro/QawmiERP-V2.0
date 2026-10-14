@@ -185,27 +185,50 @@ export async function getAuthMadrasaId(supabase?: any, user?: any): Promise<stri
     if (user?.id) {
       const { data: userData } = await adminClient
         .from("users")
-        .select("madrasa_id")
+        .select("madrasa_id, role")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
       if (userData?.madrasa_id) {
         return userData.madrasa_id;
       }
     }
 
-    // 2. If user doesn't have a valid madrasa_id, find or create the primary madrasa
-    const { data: firstMadrasa } = await adminClient
+    // 2. Check user_metadata
+    if (user?.user_metadata?.madrasa_id) {
+      return user.user_metadata.madrasa_id;
+    }
+
+    // 3. Check if user is an invited teacher or staff member by email
+    if (user?.email) {
+      const { data: teacherData } = await adminClient
+        .from("teachers")
+        .select("madrasa_id")
+        .eq("email", user.email.toLowerCase())
+        .maybeSingle();
+
+      if (teacherData?.madrasa_id) {
+        if (user.id) {
+          try {
+            await adminClient.from("users").upsert({
+              id: user.id,
+              madrasa_id: teacherData.madrasa_id,
+              full_name: user.email?.split("@")[0] || "Teacher",
+              email: user.email,
+              role: "teacher",
+            });
+          } catch {}
+        }
+        return teacherData.madrasa_id;
+      }
+    }
+
+    // 4. Initial system bootstrap ONLY if the database has 0 madrasas
+    const { count } = await adminClient
       .from("madrasas")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .single();
+      .select("id", { count: "exact", head: true });
 
-    let finalMadrasaId = firstMadrasa?.id;
-
-    if (!finalMadrasaId) {
-      // Create new madrasa if table is completely empty
+    if (count === 0 && user?.id) {
       const { data: newMadrasa } = await adminClient
         .from("madrasas")
         .insert({
@@ -216,26 +239,22 @@ export async function getAuthMadrasaId(supabase?: any, user?: any): Promise<stri
         .single();
 
       if (newMadrasa?.id) {
-        finalMadrasaId = newMadrasa.id;
-      }
-    }
-
-    if (finalMadrasaId && user?.id) {
-      try {
         await adminClient.from("users").upsert({
           id: user.id,
-          madrasa_id: finalMadrasaId,
+          madrasa_id: newMadrasa.id,
           full_name: user.email?.split("@")[0] || "Admin",
           email: user.email || "",
           role: "super_admin",
         });
-      } catch {}
+        return newMadrasa.id;
+      }
     }
 
-    return finalMadrasaId || "default_madrasa_id";
+    // 5. Unassigned user: DO NOT elevate to super_admin of other madrasas
+    return "";
   } catch (err) {
     console.error("Exception in getAuthMadrasaId:", err);
-    return "default_madrasa_id";
+    return "";
   }
 }
 

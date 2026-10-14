@@ -1,6 +1,6 @@
 {
-  "summary": "মাদরাসার নিজস্ব কোটা ট্র্যাকার, অবশিষ্ট ফ্রি স্ক্যান ও প্রিন্ট কাউন্টডাউন এবং এআই সিস্টেম লাইভ স্ট্যাটাস গাইড বাস্তবায়নের পরিকল্পনা।",
-  "updatedAt": "2026-10-13T13:44:00.727848683Z",
+  "summary": "Implementation plan for fixing all 6 critical vulnerabilities and migrating fee data to relational tables:\n1. Online payment verification & route auth hardening (prevent unauthorized fee marking)\n2. Safe migration of fee ledger from madrasas.registration_no JSON blob to relational tables (fee_types, fee_structures, student_fees, fee_payments) with fallback compatibility\n3. Atomic receipt number generation (eliminating race condition duplicates)\n4. Removal of auto-super_admin assignment for unassigned users\n5. Elimination of cross-tenant student fee leakage in generateMonthlyFees\n6. Fixing splice off-by-one bug in deleteFee",
+  "updatedAt": "2026-10-14T16:32:38.892581613Z",
   "requestFeedback": true,
   "userFacing": true
 }

@@ -1095,7 +1095,10 @@ export async function getDonations(filters?: {
     const funds = await getFunds();
     const fundNameMap = new Map(funds.map(f => [f.name, f]));
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const [meta, feeMeta] = await Promise.all([
+      getMadrasaMetadata(finalMadrasaId),
+      getFeeMetadata(finalMadrasaId),
+    ]);
     const subscriptionPayments = meta.donor_subscription_payments || [];
     const donorsList = await getDonors();
     const donorMap = new Map(donorsList.map(d => [d.id, d]));
@@ -1135,7 +1138,7 @@ export async function getDonations(filters?: {
 
     // Merge student fee payments into donations (e.g. Tuition -> General Fund, Khoraki -> Lillah Fund)
     const extraFeeDonations: any[] = [];
-    const feePayments = (meta.payments || []).filter(
+    const feePayments = (feeMeta.payments || []).filter(
       (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
     );
     for (const p of feePayments) {
@@ -1434,7 +1437,10 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
       .eq("madrasa_id", finalMadrasaId)
       .order("expense_date", { ascending: false });
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const [meta, feeMeta] = await Promise.all([
+      getMadrasaMetadata(finalMadrasaId),
+      getFeeMetadata(finalMadrasaId),
+    ]);
     const mahfils = meta.mahfils || [];
     const validMahfilVouchers = new Set<string>();
     const validMahfilRecordIds = new Set<string>();
@@ -1495,7 +1501,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
     }
 
     // Process Student Fee Payments into Fund Ledger (Dynamic Fund Routing)
-    const feePayments = (meta.payments || []).filter(
+    const feePayments = (feeMeta.payments || []).filter(
       (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
     );
     for (const p of feePayments) {
@@ -1801,8 +1807,8 @@ export async function deleteFundTransaction(
     let metaChanged = false;
 
     // Check Student Fee Payments
-    const feePayments = meta.payments || [];
-    const studentFees = meta.student_fees || [];
+    const feeMeta = await getFeeMetadata(finalMadrasaId);
+    const feePayments = (feeMeta.payments || []).length > 0 ? feeMeta.payments : (meta.payments || []);
     const payIdx = feePayments.findIndex(
       (p: any) =>
         p.id === txnId ||
@@ -1813,43 +1819,10 @@ export async function deleteFundTransaction(
 
     if (payIdx >= 0) {
       const payment = feePayments[payIdx];
-      const now = new Date().toISOString();
-
-      // Rollback allocations from student fees to restore dues
-      for (const alloc of payment.allocations || []) {
-        if (alloc.student_fee_id) {
-          const feeIdx = studentFees.findIndex((f: any) => f.id === alloc.student_fee_id);
-          if (feeIdx >= 0) {
-            const target = studentFees[feeIdx];
-            const newPaid = Math.max(0, (target.paid_amount || 0) - (alloc.allocated_amount || 0));
-            const newDue = Math.max(0, (target.payable_amount || 0) - newPaid);
-            studentFees[feeIdx] = {
-              ...target,
-              paid_amount: newPaid,
-              due_amount: newDue,
-              status: newPaid === 0 ? "UNPAID" : "PARTIAL",
-              updated_at: now,
-            };
-          }
-        }
-      }
-
-      // Remove the payment from payments array
-      feePayments.splice(payIdx, 1);
-      meta.payments = feePayments;
-      meta.student_fees = studentFees;
-      metaChanged = true;
-
-      // Clean up legacy fees table if linked
-      try {
-        if (payment.db_fee_id) {
-          await adminClient.from("fees").delete().eq("id", payment.db_fee_id).eq("madrasa_id", finalMadrasaId);
-        }
-        if (payment.receipt_no) {
-          await adminClient.from("fees").delete().like("notes", `%${payment.receipt_no}%`).eq("madrasa_id", finalMadrasaId);
-        }
-        await adminClient.from("fees").delete().eq("id", payment.id).eq("madrasa_id", finalMadrasaId);
-      } catch {}
+      const { deleteFee } = await import("./accounting");
+      await deleteFee(payment.id);
+      revalidatePath("/dashboard/zakat/funds");
+      return { success: true };
     }
 
     // Check Online Donations
