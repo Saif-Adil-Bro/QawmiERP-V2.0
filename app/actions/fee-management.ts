@@ -11,6 +11,7 @@ import {
   FeePayment,
   FeeDiscountWaiver,
   FeeAuditLog,
+  FeeStatus,
   DEFAULT_FEE_TYPES,
   MadrasaFeeData,
   PaymentAllocation,
@@ -1041,6 +1042,7 @@ export async function collectFeePayment(paymentData: {
     fee_type_name: string;
     billing_period?: string;
     allocated_amount: number;
+    discount_applied?: number;
     fund_id?: string;
     fund_name?: string;
   }[];
