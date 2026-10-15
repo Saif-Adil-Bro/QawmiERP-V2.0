@@ -1,6 +1,7 @@
 "use client";
 
 import { deleteHifzLog, updateHifzLog } from "@/app/actions/hifz";
+import { parseHifzLogNotes } from "@/lib/hifz-utils";
 import { useState } from "react";
 import { Trash2, Edit, X, Save } from "lucide-react";
 
@@ -294,7 +295,7 @@ export function HifzLogActions({ log, studentId }: { log: any; studentId: string
                 <textarea
                   name="notes"
                   rows={2}
-                  defaultValue={log.clean_notes || log.notes || ""}
+                  defaultValue={log.clean_notes !== undefined ? log.clean_notes : parseHifzLogNotes(log.notes).cleanNotes}
                   placeholder="উস্তাদের বিশেষ নির্দেশনা বা মন্তব্য..."
                   className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white"
                 />

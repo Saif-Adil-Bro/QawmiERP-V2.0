@@ -96,7 +96,7 @@ export function parseHifzLogNotes(rawNotes?: string | null): {
   let tilawatText = "";
   let clean = rawNotes;
 
-  // Extract JSON meta tag if present
+  // 1. Extract JSON meta tag if present
   const metaMatch = clean.match(/\[HIFZ_META:([\s\S]*?)\]/);
   if (metaMatch && metaMatch[1]) {
     try {
@@ -104,21 +104,33 @@ export function parseHifzLogNotes(rawNotes?: string | null): {
     } catch (e) {
       console.warn("Failed to parse HIFZ_META:", e);
     }
+  } else {
+    // Fallback: Check if rawNotes is a raw JSON object string
+    if (clean.trim().startsWith("{") && clean.trim().endsWith("}")) {
+      try {
+        meta = JSON.parse(clean.trim());
+        clean = "";
+      } catch (e) {
+        // Not JSON
+      }
+    }
   }
 
-  // Completely remove HIFZ_META tag
-  clean = clean.replace(/\[HIFZ_META:[\s\S]*?\]/g, "");
+  // 2. Completely remove any [HIFZ_META:...] block or residual HIFZ_META text
+  clean = clean.replace(/\[HIFZ_META:[\s\S]*?\]/gi, "");
+  clean = clean.replace(/\[HIFZ_META:[\s\S]*/gi, "");
+  clean = clean.replace(/\[HIFZ_META/gi, "");
 
-  // Extract tilawat if present
+  // 3. Extract tilawat if present
   const tilawatMatch = clean.match(/(?:\[?তেলাওয়াত:\s*([^\]|\n]+)\]?|তেলাওয়াত:\s*([^|\n]+))/i);
   if (tilawatMatch) {
     tilawatText = (tilawatMatch[1] || tilawatMatch[2] || "").trim();
   }
 
-  // Remove tilawat text from clean notes
+  // 4. Remove tilawat text from clean notes
   clean = clean.replace(/(?:\[?তেলাওয়াত:\s*[^\]|\n]+\]?|তেলাওয়াত:\s*[^|\n]+)/gi, "");
 
-  // Clean up remaining separators like " | " or leading/trailing pipes
+  // 5. Clean up remaining separators like " | " or leading/trailing pipes
   clean = clean
     .replace(/^\s*\|\s*/, "")
     .replace(/\s*\|\s*$/, "")
