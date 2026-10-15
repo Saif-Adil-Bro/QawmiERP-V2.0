@@ -511,7 +511,7 @@ export async function evaluateAdmissionTest(
     }
 
     const percentage = totalMax > 0 ? Math.round((total / totalMax) * 100) : 0;
-    const cutoff = evaluation.pass_cutoff ?? 50;
+    const cutoff = evaluation.pass_cutoff ?? Math.round(totalMax * 0.4);
     const is_passed = total >= cutoff;
 
     const testEval = {
@@ -630,20 +630,21 @@ export async function confirmAdmissionToStudent(params: {
 
     // 1. Determine Target Class and Roll
     const targetClassId = params.assignedClassId || adm.target_class_id;
-    let finalRoll = (params.assignedRoll || "").trim();
+    let finalRoll = (params.assignedRoll || "").trim().replace(/\s+/g, "");
 
     if (!finalRoll) {
       const { nextRoll } = await getNextClassRoll(targetClassId);
-      finalRoll = nextRoll || "1";
+      finalRoll = (nextRoll || "1").trim().replace(/\s+/g, "");
     }
 
     const { data: clsData } = await adminClient
       .from("classes")
-      .select("id, name")
+      .select("id, name, department_id")
       .eq("id", targetClassId)
       .single();
 
     const className = clsData?.name || adm.target_class_name;
+    const departmentId = clsData?.department_id || (adm as any).department_id || null;
 
     // 2. Prepare names
     const names = adm.applicant_name_bn.trim().split(" ");
@@ -664,6 +665,7 @@ export async function confirmAdmissionToStudent(params: {
       photo_url: adm.photo_url || null,
     };
 
+    if (departmentId) studentPayload.department_id = departmentId;
     if (adm.date_of_birth) studentPayload.date_of_birth = adm.date_of_birth;
     if (adm.blood_group) studentPayload.blood_group = adm.blood_group;
     if (adm.gender) studentPayload.gender = adm.gender;
@@ -674,18 +676,20 @@ export async function confirmAdmissionToStudent(params: {
       .select()
       .single();
 
-    // If blood_group, date_of_birth or gender column does not exist in schema cache, gracefully retry without them
+    // If blood_group, date_of_birth, gender or department_id column does not exist in schema cache, gracefully retry without them
     if (
       insertError &&
       (insertError.message?.includes("blood_group") ||
         insertError.message?.includes("date_of_birth") ||
         insertError.message?.includes("gender") ||
+        insertError.message?.includes("department_id") ||
         insertError.message?.includes("schema cache") ||
         insertError.code === "PGRST204")
     ) {
       delete studentPayload.blood_group;
       delete studentPayload.date_of_birth;
       delete studentPayload.gender;
+      delete studentPayload.department_id;
       const retryResult = await adminClient
         .from("students")
         .insert(studentPayload)
@@ -712,6 +716,7 @@ export async function confirmAdmissionToStudent(params: {
       roll_number: finalRoll,
       class_id: targetClassId,
       class_name: className,
+      department_id: departmentId,
       gender: adm.gender || "MALE",
       father_name: adm.father_name || "",
       father_occupation: adm.father_occupation || "",

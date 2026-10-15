@@ -101,10 +101,12 @@ export async function getStudentsForAttendance(date: string, classId?: string) {
 
   const defaultStatus = isHolidayDate ? "Leave" : "Present";
 
-  return (students || []).map(student => ({
+  const result = (students || []).map(student => ({
     ...student,
     status: attendanceMap.get(student.id) || defaultStatus,
   }));
+
+  return result.sort((a, b) => (parseInt(a.roll_number) || 999999) - (parseInt(b.roll_number) || 999999));
 }
 
 export async function saveAttendance(date: string, attendanceData: { student_id: string, status: string }[]) {
@@ -285,7 +287,7 @@ export async function getAttendanceReport(month: string, year: string, type: 'st
   if (!finalMadrasaId) return [];
 
   const startDate = `${year}-${month.padStart(2, '0')}-01`;
-  const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
+  const endDate = new Date(Date.UTC(parseInt(year), parseInt(month), 0)).toISOString().split('T')[0];
 
   const table = type === 'student' ? 'attendance' : 'teacher_attendance';
   const personTable = type === 'student' ? 'students' : 'teachers';
@@ -325,9 +327,15 @@ export async function getAttendanceReport(month: string, year: string, type: 'st
     if (record.status === 'Leave') stats.leave++;
   });
 
-  return persons?.map((person: any) => ({
+  const result = persons?.map((person: any) => ({
     ...person,
     stats: statsMap.get(person.id) || { present: 0, absent: 0, late: 0, leave: 0, total: 0 }
   })) || [];
+
+  if (type === 'student') {
+    return result.sort((a: any, b: any) => (parseInt(a.roll_number) || 999999) - (parseInt(b.roll_number) || 999999));
+  }
+
+  return result;
 }
 

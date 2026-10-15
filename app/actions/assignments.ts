@@ -323,6 +323,7 @@ export async function saveAssignment(data: {
   // Syllabus Auto-Sync payload
   sync_to_syllabus?: boolean;
   syllabus_id?: string;
+  syllabus_topic_id?: string;
   chapter_id?: string;
   selected_topic_ids?: string[];
   page_from?: string;
@@ -361,6 +362,10 @@ export async function saveAssignment(data: {
 
     const typeBangla = ASSIGNMENT_TYPE_MAP[data.type] || "অ্যাসাইনমেন্ট";
 
+    // Topic IDs handling
+    const topicIds = data.selected_topic_ids || (data.syllabus_topic_id ? [data.syllabus_topic_id] : []);
+    const primaryTopicId = data.syllabus_topic_id || (topicIds.length > 0 ? topicIds[0] : null);
+
     // Syllabus auto-sync processing
     let syllabusSynced = false;
     let syllabusBookName: string | null = null;
@@ -382,38 +387,60 @@ export async function saveAssignment(data: {
           targetSyllabusId = targetSyllabus.id;
           syllabusBookName = targetSyllabus.book_name || targetSyllabus.subject_name;
 
-          const classType =
-            data.progress_type ||
-            (data.type === "EXAM_REVISION"
-              ? "REVISION"
-              : data.type === "MEMORIZATION"
-              ? "NEW_LESSON"
-              : "NEW_LESSON");
+          const assignedDate = data.assigned_date || new Date().toISOString().split("T")[0];
 
-          const syncRes = await recordDailyClassAction({
-            syllabus_id: targetSyllabus.id,
-            date: data.assigned_date || new Date().toISOString().split("T")[0],
-            class_id: data.class_id,
-            class_name: data.class_name,
-            subject_id: targetSyllabus.subject_id || "",
-            subject_name: targetSyllabus.book_name || targetSyllabus.subject_name || data.subject_name || "",
-            teacher_id: user.id,
-            teacher_name: authorName,
-            class_type: classType,
-            chapter_id: data.chapter_id,
-            new_topic_ids: classType !== "REVISION" ? data.selected_topic_ids : [],
-            new_topic_progress: (data.selected_topic_ids || []).reduce((acc: any, id: string) => {
-              acc[id] = 100;
-              return acc;
-            }, {}),
-            revision_topic_ids: classType === "REVISION" ? data.selected_topic_ids : [],
-            page_from: data.page_from,
-            page_to: data.page_to,
-            notes: `[অ্যাসাইনমেন্ট হতে সিঙ্ক] ${data.title}${data.description ? `: ${data.description}` : ""}`,
+          // Prevent Duplicate Sync: Check if updating an already synced assignment or if topic was already synced today
+          const existingAssignments: AssignmentItem[] = meta.assignments || [];
+          const isUpdatingExistingSynced = Boolean(data.id) && existingAssignments.some((a) => a.id === data.id && a.is_syllabus_synced);
+
+          const alreadySynced = isUpdatingExistingSynced || existingAssignments.some((a) => {
+            if (!a.is_syllabus_synced) return false;
+            if (a.class_id !== data.class_id) return false;
+            if (a.assigned_date !== assignedDate) return false;
+            if (a.syllabus_id && a.syllabus_id === targetSyllabus.id) {
+              if (primaryTopicId && (a.syllabus_topic_id === primaryTopicId || a.syllabus_topic_ids?.includes(primaryTopicId))) {
+                return true;
+              }
+            }
+            return false;
           });
 
-          if (syncRes && syncRes.success) {
+          if (alreadySynced) {
             syllabusSynced = true;
+          } else {
+            const classType =
+              data.progress_type ||
+              (data.type === "EXAM_REVISION"
+                ? "REVISION"
+                : data.type === "MEMORIZATION"
+                ? "NEW_LESSON"
+                : "NEW_LESSON");
+
+            const syncRes = await recordDailyClassAction({
+              syllabus_id: targetSyllabus.id,
+              date: assignedDate,
+              class_id: data.class_id,
+              class_name: data.class_name,
+              subject_id: targetSyllabus.subject_id || "",
+              subject_name: targetSyllabus.book_name || targetSyllabus.subject_name || data.subject_name || "",
+              teacher_id: user.id,
+              teacher_name: authorName,
+              class_type: classType,
+              chapter_id: data.chapter_id,
+              new_topic_ids: classType !== "REVISION" ? topicIds : [],
+              new_topic_progress: topicIds.reduce((acc: any, id: string) => {
+                acc[id] = 100;
+                return acc;
+              }, {}),
+              revision_topic_ids: classType === "REVISION" ? topicIds : [],
+              page_from: data.page_from,
+              page_to: data.page_to,
+              notes: `[অ্যাসাইনমেন্ট হতে সিঙ্ক] ${data.title}${data.description ? `: ${data.description}` : ""}`,
+            });
+
+            if (syncRes && syncRes.success) {
+              syllabusSynced = true;
+            }
           }
         }
       } catch (syncErr) {
@@ -447,6 +474,8 @@ export async function saveAssignment(data: {
         status: data.status || existing.status || "ACTIVE",
         syllabus_id: targetSyllabusId || existing.syllabus_id,
         syllabus_book_name: syllabusBookName || existing.syllabus_book_name,
+        syllabus_topic_id: primaryTopicId || existing.syllabus_topic_id || null,
+        syllabus_topic_ids: topicIds.length > 0 ? topicIds : existing.syllabus_topic_ids || null,
         is_syllabus_synced: syllabusSynced || existing.is_syllabus_synced,
         page_from: data.page_from || existing.page_from,
         page_to: data.page_to || existing.page_to,
@@ -478,6 +507,8 @@ export async function saveAssignment(data: {
         status: "ACTIVE",
         syllabus_id: targetSyllabusId,
         syllabus_book_name: syllabusBookName,
+        syllabus_topic_id: primaryTopicId,
+        syllabus_topic_ids: topicIds.length > 0 ? topicIds : null,
         is_syllabus_synced: syllabusSynced,
         page_from: data.page_from || null,
         page_to: data.page_to || null,

@@ -91,13 +91,15 @@ export async function getStudentsForMeals(
     };
   });
 
+  const rollSort = (a: any, b: any) => (parseInt(a.roll_number) || 999999) - (parseInt(b.roll_number) || 999999);
+
   if (boardingFilter === "BOARDING") {
-    return mapped.filter(s => s.is_boarding);
+    return mapped.filter(s => s.is_boarding).sort(rollSort);
   } else if (boardingFilter === "NON_BOARDING") {
-    return mapped.filter(s => !s.is_boarding);
+    return mapped.filter(s => !s.is_boarding).sort(rollSort);
   }
 
-  return mapped;
+  return mapped.sort(rollSort);
 }
 
 export async function saveMealEntries(date: string, mealData: { student_id: string; meal_status: "On" | "Off" }[]) {
@@ -659,6 +661,9 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
       bill_amount: Math.round(netPayable * 100) / 100, // round to 2 decimal places
     };
   });
+
+  const rollSort = (a: any, b: any) => (parseInt(a.roll_number) || 999999) - (parseInt(b.roll_number) || 999999);
+  studentsReport.sort(rollSort);
 
   return {
     year,

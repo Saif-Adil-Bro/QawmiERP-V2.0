@@ -66,6 +66,14 @@ export default function HifzPage() {
           <h1 className="text-2xl font-bold text-slate-800">হিফজুল কুরআন ট্র্যাকিং</h1>
           <p className="text-slate-500 text-sm">দৈনন্দিন সবক, সবকী এবং আমুখতার অগ্রগতি তদারকি ও মূল্যায়ন</p>
         </div>
+
+        <Link
+          href="/dashboard/hifz/report"
+          className="inline-flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition"
+        >
+          <BookOpen className="w-4 h-4" />
+          <span>মাসিক প্রোগ্রেস ও কওমি সামারি রিপোর্ট</span>
+        </Link>
       </div>
 
       {/* KPI Stats */}

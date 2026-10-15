@@ -4,7 +4,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { EarlyWarningSummary, AttendanceDropAlert, ExamScoreDropAlert } from "@/lib/early-warning";
 
-export async function getEarlyWarningAlerts(): Promise<EarlyWarningSummary> {
+export async function getEarlyWarningAlerts(classId?: string, sectionId?: string): Promise<EarlyWarningSummary> {
   const result: EarlyWarningSummary = {
     attendance_alerts: [],
     exam_drop_alerts: [],
@@ -20,11 +20,20 @@ export async function getEarlyWarningAlerts(): Promise<EarlyWarningSummary> {
 
     if (!madrasaId) return result;
 
-    // 1. Fetch Students
-    const { data: students, error: studentsError } = await adminClient
+    // 1. Fetch Students with Class / Section Filter
+    let studentQuery = adminClient
       .from("students")
       .select("id, first_name, last_name, roll_number, class_id, parent_phone, classes(id, name)")
       .eq("madrasa_id", madrasaId);
+
+    if (classId && classId !== "All" && classId !== "all") {
+      studentQuery = studentQuery.eq("class_id", classId);
+    }
+    if (sectionId && sectionId !== "All" && sectionId !== "all") {
+      studentQuery = studentQuery.eq("section_id", sectionId);
+    }
+
+    const { data: students, error: studentsError } = await studentQuery;
 
     if (studentsError || !students || students.length === 0) {
       return result;
@@ -197,6 +206,13 @@ export async function getEarlyWarningAlerts(): Promise<EarlyWarningSummary> {
       }
     }
 
+    // Sort alert lists numerically by student roll_number
+    const rollSort = (a: { roll_number?: string }, b: { roll_number?: string }) =>
+      (parseInt(a.roll_number || "999999") || 999999) - (parseInt(b.roll_number || "999999") || 999999);
+
+    result.attendance_alerts.sort(rollSort);
+    result.exam_drop_alerts.sort(rollSort);
+
     // Distinct critical student count
     const criticalStudentIds = new Set([
       ...result.attendance_alerts.map((a) => a.student_id),
@@ -210,3 +226,5 @@ export async function getEarlyWarningAlerts(): Promise<EarlyWarningSummary> {
     return result;
   }
 }
+
+export const getEarlyWarningAnalytics = getEarlyWarningAlerts;

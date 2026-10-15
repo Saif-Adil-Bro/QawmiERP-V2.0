@@ -651,49 +651,55 @@ export async function getStudentReportCard(examId: string, classId?: string) {
     }
   });
 
-  // Group results by student ensuring EVERY class subject is present (0-default if unassigned/absent)
+  // Group results by student ensuring EVERY class subject is present
   const studentResults = students.map(student => {
     const classSubjects = classSubjectMap.get(student.class_id) || [];
     
     // Construct complete subject-wise marks
     const studentMarks = classSubjects.map(subDef => {
       const existingResult = (results || []).find(r => r.student_id === student.id && r.subject_name === subDef.subject_name);
+      const hasEntered = existingResult !== undefined && existingResult.marks_obtained !== null && existingResult.marks_obtained !== undefined;
       
-      const marksObtained = existingResult && existingResult.marks_obtained !== null && existingResult.marks_obtained !== undefined
-        ? Number(existingResult.marks_obtained)
-        : 0; // Default to 0 as required if no marks entered or absent
-      
+      const marksObtained = hasEntered ? Number(existingResult.marks_obtained) : 0;
       const totalMarks = Number(existingResult?.total_marks || subDef.total_marks || 100);
       const passMarks = Number(subDef.pass_marks || 33);
-      const isFailed = marksObtained < passMarks;
+      // Unentered marks do not count as failed
+      const isFailed = hasEntered ? (marksObtained < passMarks) : false;
 
       return {
         id: existingResult?.id || `fallback_${student.id}_${subDef.subject_name}`,
         exam_id: examId,
         student_id: student.id,
         subject_name: subDef.subject_name,
-        marks_obtained: marksObtained,
+        marks_obtained: hasEntered ? marksObtained : 0,
         total_marks: totalMarks,
         pass_marks: passMarks,
         is_compulsory: subDef.is_compulsory,
         is_failed: isFailed,
-        has_entered_marks: existingResult !== undefined && existingResult.marks_obtained !== null,
+        has_entered_marks: hasEntered,
         exam_type: subDef.exam_type
       };
     });
     
+    const enteredMarksCount = studentMarks.filter(m => m.has_entered_marks).length;
     const totalObtained = studentMarks.reduce((sum, r) => sum + Number(r.marks_obtained || 0), 0);
     const totalMax = studentMarks.reduce((sum, r) => sum + Number(r.total_marks || 100), 0);
     const percentage = totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
     
-    // Determine Pass/Fail based on failPolicy and compulsory subjects
-    const failedCompulsorySubjects = studentMarks.filter(m => m.is_compulsory && m.is_failed);
-    const failedAllSubjects = studentMarks.filter(m => m.is_failed);
+    // Compulsory vs Optional Subjects
+    const compulsorySubjects = studentMarks.filter(m => m.is_compulsory !== false);
+    const optionalSubjects = studentMarks.filter(m => m.is_compulsory === false);
+
+    const failedCompulsorySubjects = studentMarks.filter(m => m.is_compulsory !== false && m.is_failed && m.has_entered_marks);
+    const failedAllSubjects = studentMarks.filter(m => m.is_failed && m.has_entered_marks);
 
     let isOverallFailed = false;
     let failReason = "";
 
-    if (studentMarks.length > 0) {
+    if (enteredMarksCount === 0) {
+      isOverallFailed = false;
+      failReason = "";
+    } else {
       if (failPolicy === "any_subject_fail" && failedAllSubjects.length > 0) {
         isOverallFailed = true;
         failReason = `${failedAllSubjects.length}টি বিষয়ে অকৃতকার্য`;
@@ -712,7 +718,30 @@ export async function getStudentReportCard(examId: string, classId?: string) {
       }
     }
 
-    const calculatedGrade = isOverallFailed ? "রাসিব (Fail)" : calculateGrade(percentage);
+    let calculatedGrade = "N/A";
+    let calculatedGpa = "N/A";
+
+    if (enteredMarksCount > 0) {
+      if (isOverallFailed) {
+        calculatedGrade = "রাসিব (Fail)";
+        calculatedGpa = "০.০০";
+      } else {
+        const compulsoryGpaSum = compulsorySubjects.reduce((sum, m) => sum + getSubjectGpa(m), 0);
+        const optionalGpaBonus = optionalSubjects.reduce((sum, m) => sum + Math.max(0, getSubjectGpa(m) - 2.0), 0);
+        const totalGpaPoints = compulsoryGpaSum + optionalGpaBonus;
+
+        const mainCount = compulsorySubjects.length > 0 ? compulsorySubjects.length : studentMarks.length;
+        const rawGpa = mainCount > 0 ? Math.min(5.0, totalGpaPoints / mainCount) : 0;
+        calculatedGpa = rawGpa.toFixed(2);
+
+        if (rawGpa >= 5.0) calculatedGrade = "মুমতাজ (A+)";
+        else if (rawGpa >= 4.0) calculatedGrade = "জায়্যিদ জিদ্দান (A)";
+        else if (rawGpa >= 3.5) calculatedGrade = "জায়্যিদ (B)";
+        else if (rawGpa >= 2.0) calculatedGrade = "মাকবুল (C)";
+        else if (rawGpa >= 1.0) calculatedGrade = "উত্তীর্ণ (D)";
+        else calculatedGrade = "রাসিব (Fail)";
+      }
+    }
 
     return {
       ...student,
@@ -722,6 +751,7 @@ export async function getStudentReportCard(examId: string, classId?: string) {
       totalMax,
       percentage: percentage.toFixed(2),
       grade: calculatedGrade,
+      gpa: calculatedGpa,
       is_failed: isOverallFailed,
       fail_reason: failReason,
       failed_compulsory_count: failedCompulsorySubjects.length,
@@ -730,6 +760,18 @@ export async function getStudentReportCard(examId: string, classId?: string) {
   });
 
   return studentResults;
+}
+
+function getSubjectGpa(m: { marks_obtained: number; total_marks: number; pass_marks: number; is_failed: boolean; has_entered_marks: boolean }): number {
+  if (!m.has_entered_marks || m.is_failed) return 0;
+  const pct = m.total_marks > 0 ? (m.marks_obtained / m.total_marks) * 100 : 0;
+  if (pct >= 80) return 5.0;
+  if (pct >= 70) return 4.0;
+  if (pct >= 60) return 3.5;
+  if (pct >= 50) return 3.0;
+  if (pct >= 40) return 2.0;
+  if (pct >= 33) return 1.0;
+  return 0;
 }
 
 function calculateGrade(percentage: number) {

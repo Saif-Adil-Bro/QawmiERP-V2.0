@@ -33,6 +33,8 @@ export interface AssignmentItem {
   status: "ACTIVE" | "COMPLETED" | "ARCHIVED";
   syllabus_id?: string | null;
   syllabus_book_name?: string | null;
+  syllabus_topic_id?: string | null;
+  syllabus_topic_ids?: string[] | null;
   is_syllabus_synced?: boolean;
   page_from?: string | null;
   page_to?: string | null;

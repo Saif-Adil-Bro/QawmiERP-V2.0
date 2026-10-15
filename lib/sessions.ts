@@ -149,6 +149,7 @@ export interface ExtendedStudentProfile {
   roll_number?: string;
   class_id?: string;
   class_name?: string;
+  department_id?: string | null;
   father_name?: string;
   parent_phone?: string;
   address?: string;
@@ -180,6 +181,8 @@ export interface ExtendedStudentProfile {
   father_occupation?: string;
   medical_notes?: string;
   remarks?: string;
+  completed_hifz_paras?: number[];
+  hifz_stage?: "QAIDA" | "NAZERA" | "HIFZ" | "DAWR" | string;
   updated_at?: string;
 }
 

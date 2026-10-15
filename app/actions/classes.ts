@@ -496,18 +496,18 @@ export async function getStudentsByClass(classId: string) {
       .eq("class_id", classId)
       .order("roll_number", { ascending: true });
 
-    if (!userError && userData) {
-      return userData;
+    let list = userData;
+    if (userError || !list) {
+      const adminClient = await createAdminClient();
+      const { data: adminData } = await adminClient
+        .from("students")
+        .select("id, first_name, last_name, roll_number, father_name")
+        .eq("class_id", classId)
+        .order("roll_number", { ascending: true });
+      list = adminData || [];
     }
 
-    const adminClient = await createAdminClient();
-    const { data: adminData } = await adminClient
-      .from("students")
-      .select("id, first_name, last_name, roll_number, father_name")
-      .eq("class_id", classId)
-      .order("roll_number", { ascending: true });
-
-    return adminData || [];
+    return (list || []).sort((a: any, b: any) => (parseInt(a.roll_number) || 999999) - (parseInt(b.roll_number) || 999999));
   } catch (err) {
     console.error("Exception in getStudentsByClass:", err);
     return [];

@@ -105,7 +105,18 @@ export async function saveExamRoutine(data: {
 
 export async function deleteExamRoutine(id: string, examId: string) {
   const supabase = await createClient();
-  const { error } = await supabase.from("exam_routines").delete().eq("id", id);
+  const user = await getAuthUser(supabase);
+  if (!user) return { error: "Unauthorized" };
+
+  const madrasaId = await getAuthMadrasaId(supabase, user);
+  if (!madrasaId) return { error: "Madrasa not found" };
+
+  const { error } = await supabase
+    .from("exam_routines")
+    .delete()
+    .eq("id", id)
+    .eq("madrasa_id", madrasaId);
+
   if (error) {
     console.error("Error deleting exam routine:", error);
     return { error: error.message };
