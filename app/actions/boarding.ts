@@ -746,14 +746,30 @@ export async function syncBoardingBillsToAccounting(year: string, month: string,
       if (existingIdx >= 0) {
         const old = currentFees[existingIdx];
         const paid = Number(old.paid_amount || 0);
-        const due = Math.max(0, billAmt - paid);
+        const discount = Number(old.discount_amount || 0);
+        const fine = Number(old.fine_amount || 0);
+        const payable = Math.max(0, billAmt + fine - discount);
+        const due = Math.max(0, payable - paid);
+
+        let newStatus: any = "PARTIAL";
+        if (payable === 0 && discount > 0) {
+          newStatus = "WAIVED";
+        } else if (due === 0 && paid > 0) {
+          newStatus = "PAID";
+        } else if (paid === 0) {
+          newStatus = "UNPAID";
+        } else {
+          newStatus = "PARTIAL";
+        }
 
         currentFees[existingIdx] = {
           ...old,
           base_amount: billAmt,
-          payable_amount: billAmt,
+          discount_amount: discount,
+          fine_amount: fine,
+          payable_amount: payable,
           due_amount: due,
-          status: due === 0 ? "PAID" : paid > 0 ? "PARTIAL" : "UNPAID",
+          status: newStatus,
           updated_at: now,
         };
       } else {
@@ -836,6 +852,35 @@ export async function addBoardingMealPayment(params: {
       return { error: "ছাত্রের আইডি এবং বৈধ টাকার পরিমাণ আবশ্যক।" };
     }
 
+    const adminClient = await createAdminClient();
+
+    // Guard 4A: 15-Second Anti-Duplication Guard for Boarding Payment
+    const fifteenSecsAgo = new Date(Date.now() - 15000).toISOString();
+    try {
+      const { data: recentBdrPayment } = await adminClient
+        .from("fee_payments")
+        .select("*")
+        .eq("madrasa_id", finalMadrasaId)
+        .eq("student_id", student_id)
+        .gte("created_at", fifteenSecsAgo)
+        .order("created_at", { ascending: false });
+
+      if (recentBdrPayment && recentBdrPayment.length > 0) {
+        const match = recentBdrPayment.find(
+          (p: any) => Math.abs(Number(p.total_amount_received) - Number(amount)) < 0.01
+        );
+        if (match) {
+          return {
+            success: true,
+            receipt_no: match.receipt_no,
+            message: `পেমেন্টটি ইতিমধ্যে সফলভাবে রেকর্ড হয়েছে (ডুপ্লিকেট সাবমিশন প্রতিরোধ করা হয়েছে)।`,
+          };
+        }
+      }
+    } catch (recentErr) {
+      console.warn("Error checking recent boarding duplicate payments:", recentErr);
+    }
+
     const { getFeeMetadata, saveFeeMetadata } = await import("./fee-management");
     const meta = await getFeeMetadata(finalMadrasaId);
 
@@ -870,18 +915,51 @@ export async function addBoardingMealPayment(params: {
     if (existingFeeIdx >= 0) {
       const fee = studentFees[existingFeeIdx];
       feeId = fee.id;
+      const discount = Number(fee.discount_amount || 0);
+      const fine = Number(fee.fine_amount || 0);
+      let base = Number(fee.base_amount || 0);
+      if (base <= 0) base = amount;
+      const payable = Math.max(0, base + fine - discount);
       const newPaid = Number(fee.paid_amount || 0) + amount;
-      const baseAmt = Math.max(Number(fee.payable_amount || fee.base_amount || 0), newPaid);
-      const newDue = Math.max(0, baseAmt - newPaid);
+      const newDue = Math.max(0, payable - newPaid);
+
+      let newStatus: any = "PARTIAL";
+      if (payable === 0 && discount > 0) {
+        newStatus = "WAIVED";
+      } else if (newDue === 0 && newPaid > 0) {
+        newStatus = "PAID";
+      } else if (newPaid === 0) {
+        newStatus = "UNPAID";
+      } else {
+        newStatus = "PARTIAL";
+      }
+
       studentFees[existingFeeIdx] = {
         ...fee,
-        base_amount: baseAmt,
-        payable_amount: baseAmt,
+        base_amount: base,
+        discount_amount: discount,
+        fine_amount: fine,
+        payable_amount: payable,
         paid_amount: newPaid,
         due_amount: newDue,
-        status: newDue === 0 ? "PAID" : "PARTIAL",
+        status: newStatus,
         updated_at: now,
       };
+
+      try {
+        await adminClient.from("student_fees").update({
+          base_amount: base,
+          discount_amount: discount,
+          fine_amount: fine,
+          payable_amount: payable,
+          paid_amount: newPaid,
+          due_amount: newDue,
+          status: newStatus,
+          updated_at: now,
+        }).eq("id", feeId).eq("madrasa_id", finalMadrasaId);
+      } catch (sfErr) {
+        console.warn("Direct update student_fees error:", sfErr);
+      }
     } else {
       feeId = `fee_bdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const newFee: any = {
@@ -907,10 +985,16 @@ export async function addBoardingMealPayment(params: {
         updated_at: now,
       };
       studentFees.push(newFee);
+      try {
+        await adminClient.from("student_fees").upsert(newFee, { onConflict: "id" });
+      } catch (sfUpsertErr) {
+        console.warn("Direct upsert student_fees error:", sfUpsertErr);
+      }
     }
 
     // 2. Create fee_payments entry in relational database table & feeMetadata
-    const receiptNo = `MR-BDR-${Date.now().toString().slice(-6)}`;
+    const { generateNextReceiptNumber } = await import("./fee-management");
+    const receiptNo = await generateNextReceiptNumber(adminClient, finalMadrasaId, new Date().getFullYear());
     const newPayment: any = {
       id: `pay_bdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       madrasa_id: finalMadrasaId,
@@ -937,10 +1021,10 @@ export async function addBoardingMealPayment(params: {
       ],
     };
 
-    // Try inserting into fee_payments relational table
+    // Try inserting into fee_payments relational table and allocations
     try {
-      const adminClient = await createAdminClient();
       await adminClient.from("fee_payments").insert({
+        id: newPayment.id,
         madrasa_id: finalMadrasaId,
         receipt_no: receiptNo,
         student_id,
@@ -951,6 +1035,17 @@ export async function addBoardingMealPayment(params: {
         fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
         notes: params.notes || `বোর্ডিং খাবার ফি আদায় (${monthLabel})`,
         created_at: now,
+      });
+
+      await adminClient.from("fee_payment_allocations").insert({
+        payment_id: newPayment.id,
+        student_fee_id: feeId,
+        fee_type_id: feeTypeId,
+        fee_type_name: feeTypeName,
+        billing_period: period,
+        allocated_amount: amount,
+        discount_applied: 0,
+        fine_applied: 0,
       });
     } catch (dbErr) {
       console.warn("Relational fee_payments insert fallback to metadata:", dbErr);

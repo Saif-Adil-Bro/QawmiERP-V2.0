@@ -177,10 +177,14 @@ export async function deleteFee(feeId: string) {
             const newDue = Math.max(0, newPayable - newPaid);
 
             let newStatus: any = "PARTIAL";
-            if (newPaid === 0) {
+            if (newPayable === 0 && newDiscount > 0) {
+              newStatus = "WAIVED";
+            } else if (newDue === 0 && newPaid > 0) {
+              newStatus = "PAID";
+            } else if (newPaid === 0) {
               newStatus = "UNPAID";
-            } else if (newDue === 0) {
-              newStatus = (newPayable === 0 && newDiscount > 0) ? "WAIVED" : "PAID";
+            } else {
+              newStatus = "PARTIAL";
             }
 
             studentFees[feeIdx] = {
@@ -310,7 +314,7 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
 
   const list = (data || []).map((exp: any) => {
     const parsed = parseExpenseFund(exp.description);
-    const voucherNo = exp.voucher_no || `EXP-${new Date(exp.expense_date || exp.created_at || Date.now()).toISOString().split('T')[0].replace(/-/g, '').slice(2)}-${(exp.id || '').substring(0, 4).toUpperCase() || '001'}`;
+    const voucherNo = exp.voucher_no || parsed.voucherNo || `EXP-${new Date(exp.expense_date || exp.created_at || Date.now()).toISOString().split('T')[0].replace(/-/g, '').slice(2)}-${(exp.id || '').substring(0, 4).toUpperCase() || '001'}`;
     return {
       ...exp,
       description: parsed.cleanDesc,

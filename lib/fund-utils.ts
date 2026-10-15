@@ -190,23 +190,34 @@ export function getPaymentMethodName(method?: string): string {
   }
 }
 
-// Helper to parse fund metadata from description if stored like [FUND: fund_id | name]
-export function parseExpenseFund(rawDesc: string | null | undefined): { cleanDesc: string; fundId?: string; fundName?: string } {
+// Helper to parse fund & voucher metadata from description if stored like [FUND: fund_id | name][VOUCHER: voucher_no]
+export function parseExpenseFund(rawDesc: string | null | undefined): { cleanDesc: string; fundId?: string; fundName?: string; voucherNo?: string } {
   const desc = (rawDesc || "").trim();
-  if (!desc.includes("[FUND:")) {
-    return { cleanDesc: desc };
-  }
-  const match = desc.match(/\[FUND:\s*([^\]|]+)(?:\|\s*([^\]]+))?\]/i);
   let fundId = undefined;
   let fundName = undefined;
-  if (match) {
-    fundId = match[1]?.trim();
-    if (match[2]) {
-      fundName = match[2]?.trim();
+  let voucherNo = undefined;
+
+  // Extract VOUCHER tag if present: [VOUCHER: EXP-YYMM-001]
+  const vMatch = desc.match(/\[VOUCHER:\s*([^\]]+)\]/i);
+  if (vMatch && vMatch[1]) {
+    voucherNo = vMatch[1].trim();
+  }
+
+  // Extract FUND tag if present: [FUND: fund_id | name]
+  const fMatch = desc.match(/\[FUND:\s*([^\]|]+)(?:\|\s*([^\]]+))?\]/i);
+  if (fMatch) {
+    fundId = fMatch[1]?.trim();
+    if (fMatch[2]) {
+      fundName = fMatch[2]?.trim();
     }
   }
-  const cleanDesc = desc.replace(/\[FUND:[^\]]+\]\s*/i, "").trim();
-  return { cleanDesc, fundId, fundName };
+
+  const cleanDesc = desc
+    .replace(/\[FUND:[^\]]+\]\s*/gi, "")
+    .replace(/\[VOUCHER:[^\]]+\]\s*/gi, "")
+    .trim();
+
+  return { cleanDesc, fundId, fundName, voucherNo };
 }
 
 // Canonical normalize fund names/codes/types into matching active fund names

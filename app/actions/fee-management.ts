@@ -39,13 +39,42 @@ export async function generateNextReceiptNumber(
 
     let nextCounter = 101;
     if (data && data.length > 0 && data[0].receipt_no) {
-      const parts = data[0].receipt_no.split("-");
-      const lastNum = parseInt(parts[parts.length - 1], 10);
-      if (!isNaN(lastNum) && lastNum >= 100) {
-        nextCounter = lastNum + 1;
+      // Robust regex match for numeric counter after MR-YYYY-
+      const match = data[0].receipt_no.match(/MR-\d{4}-(\d+)/);
+      if (match && match[1]) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num >= 100) {
+          nextCounter = num + 1;
+        }
       }
     }
-    return `${prefix}${String(nextCounter).padStart(5, "0")}`;
+
+    // Ensure we don't regress below metadata receipt counter
+    try {
+      const meta = await getMadrasaMetadata(madrasaId);
+      if (meta?.receipt_counter && meta.receipt_counter >= nextCounter) {
+        nextCounter = meta.receipt_counter + 1;
+      }
+    } catch {}
+
+    // Auto-retry collision check up to 15 candidates in database
+    for (let retry = 0; retry < 15; retry++) {
+      const candidate = `${prefix}${String(nextCounter + retry).padStart(5, "0")}`;
+      const { data: existing } = await adminClient
+        .from("fee_payments")
+        .select("id")
+        .eq("madrasa_id", madrasaId)
+        .eq("receipt_no", candidate)
+        .maybeSingle();
+
+      if (!existing) {
+        return candidate;
+      }
+    }
+
+    // Fallback if extreme collision occurs: append random unique digits
+    const randSuffix = Math.floor(10 + Math.random() * 90);
+    return `${prefix}${String(nextCounter + 15).padStart(5, "0")}-${randSuffix}`;
   } catch (e) {
     console.error("Error generating receipt number:", e);
     const fallbackRand = Math.floor(10000 + Math.random() * 90000);
@@ -207,7 +236,7 @@ export async function saveFeeMetadata(madrasaId: string, feeData: Partial<Madras
 
     // 1. If student_fees are provided, synchronize them in relational table
     if (feeData.student_fees && Array.isArray(feeData.student_fees)) {
-      for (const sf of feeData.student_fees.slice(0, 100)) {
+      for (const sf of feeData.student_fees.slice(0, 500)) {
         await adminClient.from("student_fees").upsert({
           id: sf.id,
           madrasa_id: sf.madrasa_id || madrasaId,
@@ -240,7 +269,7 @@ export async function saveFeeMetadata(madrasaId: string, feeData: Partial<Madras
 
     // 2. If payments are provided, synchronize in relational fee_payments and allocations
     if (feeData.payments && Array.isArray(feeData.payments)) {
-      for (const p of feeData.payments.slice(0, 10)) {
+      for (const p of feeData.payments.slice(0, 100)) {
         const { error: pErr } = await adminClient.from("fee_payments").upsert({
           id: p.id,
           receipt_no: p.receipt_no,
@@ -658,6 +687,21 @@ export async function generateMonthlyFees(params: {
     const feeStructures = meta.fee_structures || [];
     const currentStudentFees = [...(meta.student_fees || [])];
 
+    // Guard 3: Fetch existing student_fees for this billing period directly from relational database for strict anti-duplication
+    let existingDbFees: any[] = [];
+    try {
+      const { data: dbFeeData } = await adminClient
+        .from("student_fees")
+        .select("id, student_id, fee_type_id, billing_period, paid_amount, due_amount, status")
+        .eq("madrasa_id", madrasaId)
+        .eq("billing_period", params.billingPeriod);
+      if (dbFeeData) {
+        existingDbFees = dbFeeData;
+      }
+    } catch (e) {
+      console.warn("Could not fetch db existing student_fees:", e);
+    }
+
     // Determine target fee types
     const targetFeeTypeIds = params.feeTypeIds && params.feeTypeIds.length > 0
       ? params.feeTypeIds
@@ -843,38 +887,60 @@ export async function generateMonthlyFees(params: {
         if (discountAmount > baseAmount) discountAmount = baseAmount;
         const payable = Math.max(0, baseAmount - discountAmount);
 
-        // Idempotency: Check if already exists for this period
-        const existingIdx = currentStudentFees.findIndex(
+        // Guard 3 Idempotency: Check if already exists for this period in memory OR in database
+        const existingInMemoryIdx = currentStudentFees.findIndex(
           (f) =>
-            f.session_id === params.sessionId &&
             f.student_id === student.id &&
             f.fee_type_id === ft.id &&
             f.billing_period === params.billingPeriod
         );
 
-        if (existingIdx >= 0) {
-          if (
-            params.forceUpdate &&
-            currentStudentFees[existingIdx].status !== "PAID" &&
-            (currentStudentFees[existingIdx].paid_amount || 0) === 0
-          ) {
-            const oldFee = currentStudentFees[existingIdx];
-            currentStudentFees[existingIdx] = {
-              ...oldFee,
-              base_amount: baseAmount,
-              discount_amount: discountAmount,
-              discount_reason: discountReason,
-              payable_amount: payable,
-              due_amount: payable,
-              due_date: dueDate,
-              status: payable === 0 ? "WAIVED" : "UNPAID",
-              updated_at: now,
-            };
+        const existingDb = existingDbFees.find(
+          (f: any) =>
+            f.student_id === student.id &&
+            f.fee_type_id === ft.id &&
+            f.billing_period === params.billingPeriod
+        );
+
+        if (existingInMemoryIdx >= 0 || existingDb) {
+          const targetFee = existingInMemoryIdx >= 0 ? currentStudentFees[existingInMemoryIdx] : existingDb;
+          const isUnpaid = targetFee.status !== "PAID" && (Number(targetFee.paid_amount) || 0) === 0;
+
+          if (params.forceUpdate && isUnpaid) {
+            if (existingInMemoryIdx >= 0) {
+              const oldFee = currentStudentFees[existingInMemoryIdx];
+              currentStudentFees[existingInMemoryIdx] = {
+                ...oldFee,
+                base_amount: baseAmount,
+                discount_amount: discountAmount,
+                discount_reason: discountReason,
+                payable_amount: payable,
+                due_amount: payable,
+                due_date: dueDate,
+                status: payable === 0 ? "WAIVED" : "UNPAID",
+                updated_at: now,
+              };
+            }
+
+            try {
+              await adminClient.from("student_fees").update({
+                base_amount: baseAmount,
+                discount_amount: discountAmount,
+                discount_reason: discountReason,
+                payable_amount: payable,
+                due_amount: payable,
+                due_date: dueDate,
+                status: payable === 0 ? "WAIVED" : "UNPAID",
+                updated_at: now,
+              }).eq("id", targetFee.id).eq("madrasa_id", madrasaId);
+            } catch (errDb) {
+              console.warn("Direct update existing student_fees error:", errDb);
+            }
             updatedCount++;
           } else {
             skippedCount++;
           }
-          continue;
+          continue; // SKIP generating duplicate invoice!
         }
 
         const targetFundId = ft.fund_id || (isFood ? "fund-lillah" : "fund-general");
@@ -1062,6 +1128,36 @@ export async function collectFeePayment(paymentData: {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
 
+    // Guard 1A: 15-Second Anti-Duplication Guard (Prevents double clicks and identical rapid submissions)
+    const fifteenSecsAgo = new Date(Date.now() - 15000).toISOString();
+    try {
+      const { data: recentPayments } = await adminClient
+        .from("fee_payments")
+        .select("*")
+        .eq("madrasa_id", madrasaId)
+        .eq("student_id", paymentData.student_id)
+        .gte("created_at", fifteenSecsAgo)
+        .order("created_at", { ascending: false });
+
+      if (recentPayments && recentPayments.length > 0) {
+        const recentMatch = recentPayments.find(
+          (p: any) => Math.abs(Number(p.total_amount_received) - Number(paymentData.total_amount)) < 0.01
+        );
+        if (recentMatch) {
+          return {
+            success: true,
+            receipt_no: recentMatch.receipt_no,
+            receiptNo: recentMatch.receipt_no,
+            newPaymentId: recentMatch.id,
+            payment: recentMatch,
+            message: "পেমেন্টটি ইতিমধ্যে সফলভাবে নেওয়া হয়েছে (ডুপ্লিকেট সাবমিশন প্রতিরোধ করা হয়েছে)।",
+          };
+        }
+      }
+    } catch (recentErr) {
+      console.warn("Error checking recent duplicate payments:", recentErr);
+    }
+
     // Fetch Student Info
     let student: any = null;
     const { data: stdData, error: stdErr } = await supabase
@@ -1094,13 +1190,59 @@ export async function collectFeePayment(paymentData: {
     const now = new Date().toISOString();
     const paymentDate = paymentData.payment_date || now.split("T")[0];
 
-    // Generate formatted unique serial receipt number atomically: MR-YYYY-XXXXX
-    const currentYear = new Date().getFullYear();
-    const receiptNo = await generateNextReceiptNumber(adminClient, madrasaId, currentYear);
+    // Fallback in-memory 15-second duplicate check from meta.payments
+    if (meta?.payments && Array.isArray(meta.payments)) {
+      const recentMetaMatch = meta.payments.find((p: any) => {
+        if (p.student_id !== paymentData.student_id) return false;
+        if (Math.abs(Number(p.total_amount_received) - Number(paymentData.total_amount)) >= 0.01) return false;
+        const pTime = new Date(p.created_at || "").getTime();
+        return !isNaN(pTime) && Date.now() - pTime < 15000;
+      });
+      if (recentMetaMatch) {
+        return {
+          success: true,
+          receipt_no: recentMetaMatch.receipt_no,
+          receiptNo: recentMetaMatch.receipt_no,
+          newPaymentId: recentMetaMatch.id,
+          payment: recentMetaMatch,
+          message: "পেমেন্টটি ইতিমধ্যে সফলভাবে নেওয়া হয়েছে (ডুপ্লিকেট সাবমিশন প্রতিরোধ করা হয়েছে)।",
+        };
+      }
+    }
 
     const studentFees = [...(meta.student_fees || [])];
     const payments = [...(meta.payments || [])];
     const feeTypesList = meta.fee_types || DEFAULT_FEE_TYPES;
+
+    // Guard 1B: Filter out allocations on invoices that are already fully PAID or due_amount === 0
+    if (paymentData.fee_allocations && paymentData.fee_allocations.length > 0) {
+      const activeAllocations = [];
+      for (const alloc of paymentData.fee_allocations) {
+        if (alloc.student_fee_id) {
+          const sf = studentFees.find((f) => f.id === alloc.student_fee_id);
+          if (sf) {
+            const isFullyPaid = (Number(sf.due_amount) <= 0 || sf.status === "PAID" || sf.status === "WAIVED") && (Number(alloc.allocated_amount) > 0);
+            if (isFullyPaid) {
+              console.warn(`Skipping allocation for already paid invoice ${alloc.student_fee_id}`);
+              continue; // Do not allocate on paid invoices
+            }
+          }
+        }
+        activeAllocations.push(alloc);
+      }
+
+      if (paymentData.fee_allocations.length > 0 && activeAllocations.length === 0 && Number(paymentData.total_amount) > 0) {
+        const studentUnpaidFees = studentFees.filter((f) => f.student_id === paymentData.student_id && f.due_amount > 0);
+        if (studentUnpaidFees.length === 0) {
+          return { error: "এই শিক্ষার্থীর সকল বকেয়া ফি ইতিমধ্যে পরিশোধিত। নতুন কোনো ডুপ্লিকেট পেমেন্ট প্রয়োজন নেই।" };
+        }
+      }
+      paymentData.fee_allocations = activeAllocations;
+    }
+
+    // Generate formatted unique serial receipt number atomically: MR-YYYY-XXXXX
+    const currentYear = new Date().getFullYear();
+    const receiptNo = await generateNextReceiptNumber(adminClient, madrasaId, currentYear);
 
     const resolveFund = (
       feeTypeId?: string,
@@ -1593,13 +1735,36 @@ export async function deleteSingleFeePayment(paymentId: string) {
               const target = studentFees[feeIdx];
               const newPaid = Math.max(0, target.paid_amount - alloc.allocated_amount);
               const newDue = Math.max(0, target.payable_amount - newPaid);
+              let newStatus: FeeStatus = "PARTIAL";
+              if (target.payable_amount === 0 && Number(target.discount_amount || 0) > 0) {
+                newStatus = "WAIVED";
+              } else if (newDue === 0 && newPaid > 0) {
+                newStatus = "PAID";
+              } else if (newPaid === 0) {
+                newStatus = "UNPAID";
+              } else {
+                newStatus = "PARTIAL";
+              }
+
               studentFees[feeIdx] = {
                 ...target,
                 paid_amount: newPaid,
                 due_amount: newDue,
-                status: newDue === 0 ? "PAID" : newPaid === 0 ? "UNPAID" : "PARTIAL",
+                status: newStatus,
                 updated_at: new Date().toISOString(),
               };
+
+              try {
+                const adminClient = await createAdminClient();
+                await adminClient.from("student_fees").update({
+                  paid_amount: newPaid,
+                  due_amount: newDue,
+                  status: newStatus,
+                  updated_at: new Date().toISOString(),
+                }).eq("id", target.id).eq("madrasa_id", madrasaId);
+              } catch (sfErr) {
+                console.warn("Direct student_fees update err on delete:", sfErr);
+              }
             }
           }
         }
@@ -1607,9 +1772,14 @@ export async function deleteSingleFeePayment(paymentId: string) {
       payments.splice(payIdx, 1);
     }
 
-    // Also delete from Supabase DB `fees` table
+    // Also delete from Supabase DB relational fee_payments and fees tables
     try {
       const adminClient = await createAdminClient();
+      await adminClient.from("fee_payments").delete().eq("id", paymentId).eq("madrasa_id", madrasaId);
+      if (targetPayment?.receipt_no) {
+        await adminClient.from("fee_payments").delete().eq("receipt_no", targetPayment.receipt_no).eq("madrasa_id", madrasaId);
+      }
+      await adminClient.from("fee_payment_allocations").delete().eq("payment_id", paymentId);
       await adminClient.from("fees").delete().eq("id", paymentId).eq("madrasa_id", madrasaId);
       if (targetPayment?.receipt_no) {
         await adminClient.from("fees").delete().like("notes", `%${targetPayment.receipt_no}%`).eq("madrasa_id", madrasaId);
@@ -1814,13 +1984,36 @@ export async function reverseFeePayment(paymentId: string, reason: string) {
           const target = studentFees[feeIdx];
           const newPaid = Math.max(0, target.paid_amount - alloc.allocated_amount);
           const newDue = Math.max(0, target.payable_amount - newPaid);
+          let newStatus: FeeStatus = "PARTIAL";
+          if (target.payable_amount === 0 && Number(target.discount_amount || 0) > 0) {
+            newStatus = "WAIVED";
+          } else if (newDue === 0 && newPaid > 0) {
+            newStatus = "PAID";
+          } else if (newPaid === 0) {
+            newStatus = "UNPAID";
+          } else {
+            newStatus = "PARTIAL";
+          }
+
           studentFees[feeIdx] = {
             ...target,
             paid_amount: newPaid,
             due_amount: newDue,
-            status: newPaid === 0 ? "UNPAID" : "PARTIAL",
+            status: newStatus,
             updated_at: now,
           };
+
+          try {
+            const adminClient = await createAdminClient();
+            await adminClient.from("student_fees").update({
+              paid_amount: newPaid,
+              due_amount: newDue,
+              status: newStatus,
+              updated_at: now,
+            }).eq("id", target.id).eq("madrasa_id", madrasaId);
+          } catch (sfErr) {
+            console.warn("Direct student_fees update err on reverse:", sfErr);
+          }
         }
       }
     }
@@ -1833,6 +2026,23 @@ export async function reverseFeePayment(paymentId: string, reason: string) {
       reversed_at: now,
       reversed_by: user.email || "অ্যাডমিন",
     };
+
+    // Update in relational fee_payments table
+    try {
+      const adminClient = await createAdminClient();
+      await adminClient.from("fee_payments").update({
+        status: "REVERSED",
+        notes: `[REVERSED: ${reason}] ${payment.notes || ""}`,
+      }).eq("id", payment.id).eq("madrasa_id", madrasaId);
+      if (payment.receipt_no) {
+        await adminClient.from("fee_payments").update({
+          status: "REVERSED",
+          notes: `[REVERSED: ${reason}] ${payment.notes || ""}`,
+        }).eq("receipt_no", payment.receipt_no).eq("madrasa_id", madrasaId);
+      }
+    } catch (eRel) {
+      console.warn("Relational fee_payments update status err on reverse:", eRel);
+    }
 
     // Clean up legacy fees table row if present
     try {
