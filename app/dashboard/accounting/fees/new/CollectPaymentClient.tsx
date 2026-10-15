@@ -55,10 +55,10 @@ export default function CollectPaymentClient({
   const [paymentDate, setPaymentDate] = useState<string>(todayStr);
   const [paymentMethod, setPaymentMethod] = useState<"Cash" | "Bank" | "bKash" | "Nagad" | "Rocket" | "Other">("Cash");
   const [transactionRef, setTransactionRef] = useState<string>("");
-  const [totalAmount, setTotalAmount] = useState<number>(0);
-  const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [totalAmount, setTotalAmount] = useState<number | "">("");
+  const [discountAmount, setDiscountAmount] = useState<number | "">("");
   const [discountReason, setDiscountReason] = useState<string>("");
-  const [fineAmount, setFineAmount] = useState<number>(0);
+  const [fineAmount, setFineAmount] = useState<number | "">("");
   const [fineReason, setFineReason] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [selectedGlobalFund, setSelectedGlobalFund] = useState<string>(allFunds[0]?.id || "fund-general");
@@ -196,7 +196,7 @@ export default function CollectPaymentClient({
       setError("অনুগ্রহ করে শিক্ষার্থী নির্বাচন করুন।");
       return;
     }
-    if (totalAmount <= 0) {
+    if ((Number(totalAmount) || 0) <= 0) {
       setError("টাকার পরিমাণ ০ এর বেশি হতে হবে।");
       return;
     }
@@ -480,8 +480,11 @@ export default function CollectPaymentClient({
                   required
                   min="1"
                   step="1"
-                  value={totalAmount || ""}
-                  onChange={(e) => setTotalAmount(Number(e.target.value))}
+                  value={totalAmount ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setTotalAmount(v === "" ? "" : Number(v));
+                  }}
                   placeholder="যেমন: 1500"
                   className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 font-mono font-bold text-base text-emerald-950 bg-emerald-50/40"
                 />
@@ -561,15 +564,18 @@ export default function CollectPaymentClient({
                 <input
                   type="number"
                   min="0"
-                  value={discountAmount || ""}
-                  onChange={(e) => setDiscountAmount(Number(e.target.value))}
+                  value={discountAmount ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDiscountAmount(v === "" ? "" : Number(v));
+                  }}
                   placeholder="ছাড়ের পরিমাণ (৳)"
                   className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 font-mono"
                 />
               </div>
 
               {/* Discount Reason */}
-              {discountAmount > 0 && (
+              {Boolean(discountAmount) && (
                 <div className="space-y-1.5 sm:col-span-2 animate-in fade-in">
                   <label className="font-bold text-slate-700 block">ছাড়ের কারণ / অনুমোদন</label>
                   <input

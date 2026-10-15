@@ -724,8 +724,11 @@ export default function GenerateClient({
                               type="number"
                               min="0"
                               step="50"
-                              value={currentAmount}
-                              onChange={(e) => handleAmountChange(ft.id, Number(e.target.value))}
+                              value={currentAmount ?? ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                handleAmountChange(ft.id, (val === "" ? "" : Number(val)) as any);
+                              }}
                               className="w-24 pl-5 pr-2 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 font-mono text-right"
                             />
                           </div>
@@ -1052,13 +1055,14 @@ export default function GenerateClient({
                   required
                   min="0"
                   placeholder="যেমন: 500"
-                  value={editingFeeType.default_amount || ""}
-                  onChange={(e) =>
+                  value={editingFeeType.default_amount ?? ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
                     setEditingFeeType({
                       ...editingFeeType,
-                      default_amount: Number(e.target.value),
-                    })
-                  }
+                      default_amount: (val === "" ? "" : Number(val)) as any,
+                    });
+                  }}
                   className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 font-medium"
                 />
               </div>

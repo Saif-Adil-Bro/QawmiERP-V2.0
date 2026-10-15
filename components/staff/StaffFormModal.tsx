@@ -88,21 +88,21 @@ export default function StaffFormModal({
   const [hifzCompleted, setHifzCompleted] = useState<boolean>(staff?.academic?.hifz_completed || false);
   const [qiraatDegree, setQiraatDegree] = useState(staff?.academic?.qiraat_degree || "");
   const [arabicQualification, setArabicQualification] = useState(staff?.academic?.arabic_qualification || "উচ্চতর আরবি সাহিত্য (আদব)");
-  const [experienceYears, setExperienceYears] = useState<number>(staff?.academic?.teaching_experience_years || 3);
+  const [experienceYears, setExperienceYears] = useState<number | "">(staff?.academic?.teaching_experience_years ?? 3);
   const [previousInstitution, setPreviousInstitution] = useState(staff?.academic?.previous_institution || "");
 
   // Salary Form State
-  const [basicSalary, setBasicSalary] = useState<number>(staff?.salary.basic_salary || 15000);
-  const [allowanceHousing, setAllowanceHousing] = useState<number>(staff?.salary.allowances?.housing || 0);
-  const [allowanceFood, setAllowanceFood] = useState<number>(staff?.salary.allowances?.food || 0);
-  const [allowanceTransport, setAllowanceTransport] = useState<number>(staff?.salary.allowances?.transport || 0);
-  const [allowanceMedical, setAllowanceMedical] = useState<number>(staff?.salary.allowances?.medical || 0);
-  const [allowanceOther, setAllowanceOther] = useState<number>(staff?.salary.allowances?.other || 0);
+  const [basicSalary, setBasicSalary] = useState<number | "">(staff?.salary.basic_salary ?? 15000);
+  const [allowanceHousing, setAllowanceHousing] = useState<number | "">(staff?.salary.allowances?.housing || "");
+  const [allowanceFood, setAllowanceFood] = useState<number | "">(staff?.salary.allowances?.food || "");
+  const [allowanceTransport, setAllowanceTransport] = useState<number | "">(staff?.salary.allowances?.transport || "");
+  const [allowanceMedical, setAllowanceMedical] = useState<number | "">(staff?.salary.allowances?.medical || "");
+  const [allowanceOther, setAllowanceOther] = useState<number | "">(staff?.salary.allowances?.other || "");
 
-  const [deductionAdvance, setDeductionAdvance] = useState<number>(staff?.salary.deductions?.advance || 0);
-  const [deductionLoan, setDeductionLoan] = useState<number>(staff?.salary.deductions?.loan || 0);
-  const [deductionAbsence, setDeductionAbsence] = useState<number>(staff?.salary.deductions?.absence || 0);
-  const [deductionOther, setDeductionOther] = useState<number>(staff?.salary.deductions?.other || 0);
+  const [deductionAdvance, setDeductionAdvance] = useState<number | "">(staff?.salary.deductions?.advance || "");
+  const [deductionLoan, setDeductionLoan] = useState<number | "">(staff?.salary.deductions?.loan || "");
+  const [deductionAbsence, setDeductionAbsence] = useState<number | "">(staff?.salary.deductions?.absence || "");
+  const [deductionOther, setDeductionOther] = useState<number | "">(staff?.salary.deductions?.other || "");
 
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "BANK" | "BKASH" | "NAGAD" | "OTHER">(staff?.salary.payment_method || "CASH");
   const [bankAccountNo, setBankAccountNo] = useState(staff?.salary.bank_account_no || "");
@@ -958,8 +958,11 @@ export default function StaffFormModal({
                     <input
                       type="number"
                       min={0}
-                      value={basicSalary}
-                      onChange={(e) => setBasicSalary(Number(e.target.value))}
+                      value={basicSalary ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setBasicSalary(v === "" ? "" : Number(v));
+                      }}
                       className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 font-bold"
                     />
                   </div>
@@ -970,8 +973,11 @@ export default function StaffFormModal({
                       <input
                         type="number"
                         min={0}
-                        value={allowanceHousing}
-                        onChange={(e) => setAllowanceHousing(Number(e.target.value))}
+                        value={allowanceHousing ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setAllowanceHousing(v === "" ? "" : Number(v));
+                        }}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -980,8 +986,11 @@ export default function StaffFormModal({
                       <input
                         type="number"
                         min={0}
-                        value={allowanceFood}
-                        onChange={(e) => setAllowanceFood(Number(e.target.value))}
+                        value={allowanceFood ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setAllowanceFood(v === "" ? "" : Number(v));
+                        }}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -990,8 +999,11 @@ export default function StaffFormModal({
                       <input
                         type="number"
                         min={0}
-                        value={allowanceTransport}
-                        onChange={(e) => setAllowanceTransport(Number(e.target.value))}
+                        value={allowanceTransport ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setAllowanceTransport(v === "" ? "" : Number(v));
+                        }}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1000,8 +1012,11 @@ export default function StaffFormModal({
                       <input
                         type="number"
                         min={0}
-                        value={allowanceMedical}
-                        onChange={(e) => setAllowanceMedical(Number(e.target.value))}
+                        value={allowanceMedical ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setAllowanceMedical(v === "" ? "" : Number(v));
+                        }}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1021,8 +1036,11 @@ export default function StaffFormModal({
                       <input
                         type="number"
                         min={0}
-                        value={deductionAdvance}
-                        onChange={(e) => setDeductionAdvance(Number(e.target.value))}
+                        value={deductionAdvance ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDeductionAdvance(v === "" ? "" : Number(v));
+                        }}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1031,8 +1049,11 @@ export default function StaffFormModal({
                       <input
                         type="number"
                         min={0}
-                        value={deductionLoan}
-                        onChange={(e) => setDeductionLoan(Number(e.target.value))}
+                        value={deductionLoan ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDeductionLoan(v === "" ? "" : Number(v));
+                        }}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1041,8 +1062,11 @@ export default function StaffFormModal({
                       <input
                         type="number"
                         min={0}
-                        value={deductionAbsence}
-                        onChange={(e) => setDeductionAbsence(Number(e.target.value))}
+                        value={deductionAbsence ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDeductionAbsence(v === "" ? "" : Number(v));
+                        }}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1051,8 +1075,11 @@ export default function StaffFormModal({
                       <input
                         type="number"
                         min={0}
-                        value={deductionOther}
-                        onChange={(e) => setDeductionOther(Number(e.target.value))}
+                        value={deductionOther ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setDeductionOther(v === "" ? "" : Number(v));
+                        }}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
                       />
                     </div>

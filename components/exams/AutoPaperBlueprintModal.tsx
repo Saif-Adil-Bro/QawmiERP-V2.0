@@ -190,8 +190,11 @@ export default function AutoPaperBlueprintModal({
               <div className="relative">
                 <input
                   type="number"
-                  value={blueprint.totalMarks}
-                  onChange={(e) => setBlueprint(prev => ({ ...prev, totalMarks: Number(e.target.value) || 0 }))}
+                  value={blueprint.totalMarks ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setBlueprint(prev => ({ ...prev, totalMarks: (v === "" ? "" : Number(v)) as any }));
+                  }}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none"
                   min="10"
                   max="500"

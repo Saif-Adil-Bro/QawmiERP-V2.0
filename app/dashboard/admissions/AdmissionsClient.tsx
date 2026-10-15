@@ -1514,10 +1514,11 @@ export default function AdmissionsClient({
                           required
                           min={1}
                           max={200}
-                          value={sub.max_marks}
-                          onChange={(e) =>
-                            handleSubjectChange(sub.id, "max_marks", Number(e.target.value))
-                          }
+                          value={sub.max_marks ?? ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            handleSubjectChange(sub.id, "max_marks", val === "" ? "" : Number(val));
+                          }}
                           className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-center text-xs sm:text-sm font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 font-mono"
                         />
                       </div>
@@ -1527,10 +1528,11 @@ export default function AdmissionsClient({
                           required
                           min={0}
                           max={sub.max_marks || 100}
-                          value={sub.obtained_marks}
-                          onChange={(e) =>
-                            handleSubjectChange(sub.id, "obtained_marks", Number(e.target.value))
-                          }
+                          value={sub.obtained_marks ?? ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            handleSubjectChange(sub.id, "obtained_marks", val === "" ? "" : Number(val));
+                          }}
                           className="w-full px-2 py-1.5 border-2 border-indigo-300 rounded-lg text-center text-xs sm:text-sm font-black text-indigo-900 focus:ring-2 focus:ring-indigo-500 bg-indigo-50/50 font-mono"
                         />
                       </div>
@@ -1581,10 +1583,11 @@ export default function AdmissionsClient({
                           type="number"
                           min={0}
                           max={totalMax}
-                          value={evalData.pass_cutoff}
-                          onChange={(e) =>
-                            setEvalData({ ...evalData, pass_cutoff: Number(e.target.value) })
-                          }
+                          value={evalData.pass_cutoff ?? ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEvalData({ ...evalData, pass_cutoff: (val === "" ? "" : Number(val)) as any });
+                          }}
                           className="w-16 px-2 py-0.5 border border-indigo-200 rounded text-center text-xs font-bold bg-white text-indigo-900"
                         />
                         <span className="text-[11px] text-slate-500">নম্বর</span>

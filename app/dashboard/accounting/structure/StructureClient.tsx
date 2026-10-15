@@ -664,10 +664,11 @@ export default function StructureClient({
                         <input
                           type="number"
                           min="0"
-                          value={item.amount}
+                          value={item.amount ?? ""}
                           onChange={(e) => {
                             const newItems = [...structForm.items];
-                            newItems[idx].amount = Number(e.target.value);
+                            const val = e.target.value;
+                            newItems[idx].amount = (val === "" ? "" : Number(val)) as any;
                             setStructForm({ ...structForm, items: newItems });
                           }}
                           className="w-24 px-2 py-1 border border-slate-300 rounded-md font-mono font-bold text-right text-xs"
@@ -784,8 +785,11 @@ export default function StructureClient({
                   <input
                     type="number"
                     min="0"
-                    value={typeForm.default_amount}
-                    onChange={(e) => setTypeForm({ ...typeForm, default_amount: Number(e.target.value) })}
+                    value={typeForm.default_amount ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setTypeForm({ ...typeForm, default_amount: (val === "" ? "" : Number(val)) as any });
+                    }}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono font-bold text-right"
                   />
                 </div>

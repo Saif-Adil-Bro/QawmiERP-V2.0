@@ -50,13 +50,13 @@ export default function NewStudentPage() {
   const [boardingType, setBoardingType] = useState<string>("অনাবাসিক");
 
   // Fee structure state for interactive real-time calculation
-  const [admissionFee, setAdmissionFee] = useState<number>(0);
-  const [monthlyFee, setMonthlyFee] = useState<number>(0);
-  const [khorakiFee, setKhorakiFee] = useState<number>(0);
-  const [accommodationFee, setAccommodationFee] = useState<number>(0);
-  const [transportFee, setTransportFee] = useState<number>(0);
-  const [otherFee, setOtherFee] = useState<number>(0);
-  const [feeDiscount, setFeeDiscount] = useState<number>(0);
+  const [admissionFee, setAdmissionFee] = useState<number | "">("");
+  const [monthlyFee, setMonthlyFee] = useState<number | "">("");
+  const [khorakiFee, setKhorakiFee] = useState<number | "">("");
+  const [accommodationFee, setAccommodationFee] = useState<number | "">("");
+  const [transportFee, setTransportFee] = useState<number | "">("");
+  const [otherFee, setOtherFee] = useState<number | "">("");
+  const [feeDiscount, setFeeDiscount] = useState<number | "">("");
   const [feeDiscountReason, setFeeDiscountReason] = useState<string>("");
 
   useEffect(() => {
@@ -117,7 +117,8 @@ export default function NewStudentPage() {
   };
 
   const applyHalfFreePreset = () => {
-    const base = monthlyFee > 0 ? monthlyFee : 1000;
+    const numFee = Number(monthlyFee) || 0;
+    const base = numFee > 0 ? numFee : 1000;
     setMonthlyFee(base);
     setFeeDiscount(Math.round(base * 0.5));
     setFeeDiscountReason("হাফ-ফ্রি সুবিধা (৫০% মাসিক বেতন মওকুফ)");
@@ -441,8 +442,11 @@ export default function NewStudentPage() {
                     name="admission_fee"
                     min="0"
                     step="50"
-                    value={admissionFee}
-                    onChange={(e) => setAdmissionFee(Number(e.target.value) || 0)}
+                    value={admissionFee ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setAdmissionFee(v === "" ? "" : Number(v));
+                    }}
                     placeholder="0"
                     className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                   />
@@ -465,8 +469,11 @@ export default function NewStudentPage() {
                     required
                     min="0"
                     step="50"
-                    value={monthlyFee}
-                    onChange={(e) => setMonthlyFee(Number(e.target.value) || 0)}
+                    value={monthlyFee ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setMonthlyFee(v === "" ? "" : Number(v));
+                    }}
                     placeholder="1000"
                     className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                   />
@@ -491,8 +498,11 @@ export default function NewStudentPage() {
                     name="khoraki_fee"
                     min="0"
                     step="50"
-                    value={khorakiFee}
-                    onChange={(e) => setKhorakiFee(Number(e.target.value) || 0)}
+                    value={khorakiFee ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setKhorakiFee(v === "" ? "" : Number(v));
+                    }}
                     placeholder="0"
                     className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                   />
@@ -517,8 +527,11 @@ export default function NewStudentPage() {
                     name="accommodation_fee"
                     min="0"
                     step="50"
-                    value={accommodationFee}
-                    onChange={(e) => setAccommodationFee(Number(e.target.value) || 0)}
+                    value={accommodationFee ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setAccommodationFee(v === "" ? "" : Number(v));
+                    }}
                     placeholder="0"
                     className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                   />
@@ -543,8 +556,11 @@ export default function NewStudentPage() {
                     name="transport_fee"
                     min="0"
                     step="50"
-                    value={transportFee}
-                    onChange={(e) => setTransportFee(Number(e.target.value) || 0)}
+                    value={transportFee ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setTransportFee(v === "" ? "" : Number(v));
+                    }}
                     placeholder="0"
                     className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                   />
@@ -569,8 +585,11 @@ export default function NewStudentPage() {
                     name="other_fee"
                     min="0"
                     step="50"
-                    value={otherFee}
-                    onChange={(e) => setOtherFee(Number(e.target.value) || 0)}
+                    value={otherFee ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setOtherFee(v === "" ? "" : Number(v));
+                    }}
                     placeholder="0"
                     className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                   />
@@ -592,8 +611,11 @@ export default function NewStudentPage() {
                     name="fee_discount"
                     min="0"
                     step="50"
-                    value={feeDiscount}
-                    onChange={(e) => setFeeDiscount(Number(e.target.value) || 0)}
+                    value={feeDiscount ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setFeeDiscount(v === "" ? "" : Number(v));
+                    }}
                     placeholder="0"
                     className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition text-red-700"
                   />

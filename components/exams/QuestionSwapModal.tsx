@@ -341,8 +341,11 @@ export default function QuestionSwapModal({
                     </label>
                     <input
                       type="number"
-                      value={newMarks}
-                      onChange={(e) => setNewMarks(Number(e.target.value) || 0)}
+                      value={newMarks ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setNewMarks(v === "" ? "" : Number(v));
+                      }}
                       className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg font-bold text-center"
                     />
                   </div>

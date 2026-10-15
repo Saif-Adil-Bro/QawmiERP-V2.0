@@ -76,40 +76,40 @@ export default function EditStudentForm({
   );
 
   // Fee structure states
-  const [admissionFee, setAdmissionFee] = useState<number>(
+  const [admissionFee, setAdmissionFee] = useState<number | "">(
     student.admission_fee !== undefined && student.admission_fee !== null && !isNaN(Number(student.admission_fee))
       ? Number(student.admission_fee)
-      : 0
+      : ""
   );
-  const [monthlyFee, setMonthlyFee] = useState<number>(
+  const [monthlyFee, setMonthlyFee] = useState<number | "">(
     student.monthly_fee !== undefined && student.monthly_fee !== null && !isNaN(Number(student.monthly_fee))
       ? Number(student.monthly_fee)
-      : 0
+      : ""
   );
-  const [khorakiFee, setKhorakiFee] = useState<number>(
+  const [khorakiFee, setKhorakiFee] = useState<number | "">(
     student.khoraki_fee !== undefined && student.khoraki_fee !== null && !isNaN(Number(student.khoraki_fee))
       ? Number(student.khoraki_fee)
-      : 0
+      : ""
   );
-  const [accommodationFee, setAccommodationFee] = useState<number>(
+  const [accommodationFee, setAccommodationFee] = useState<number | "">(
     student.accommodation_fee !== undefined && student.accommodation_fee !== null && !isNaN(Number(student.accommodation_fee))
       ? Number(student.accommodation_fee)
-      : 0
+      : ""
   );
-  const [transportFee, setTransportFee] = useState<number>(
+  const [transportFee, setTransportFee] = useState<number | "">(
     student.transport_fee !== undefined && student.transport_fee !== null && !isNaN(Number(student.transport_fee))
       ? Number(student.transport_fee)
-      : 0
+      : ""
   );
-  const [otherFee, setOtherFee] = useState<number>(
+  const [otherFee, setOtherFee] = useState<number | "">(
     student.other_fee !== undefined && student.other_fee !== null && !isNaN(Number(student.other_fee))
       ? Number(student.other_fee)
-      : 0
+      : ""
   );
-  const [feeDiscount, setFeeDiscount] = useState<number>(
+  const [feeDiscount, setFeeDiscount] = useState<number | "">(
     student.fee_discount !== undefined && student.fee_discount !== null && !isNaN(Number(student.fee_discount))
       ? Number(student.fee_discount)
-      : 0
+      : ""
   );
   const [feeDiscountReason, setFeeDiscountReason] = useState<string>(student.fee_discount_reason || "");
 
@@ -165,7 +165,8 @@ export default function EditStudentForm({
   };
 
   const applyHalfFreePreset = () => {
-    const base = monthlyFee > 0 ? monthlyFee : 1000;
+    const numFee = Number(monthlyFee) || 0;
+    const base = numFee > 0 ? numFee : 1000;
     setMonthlyFee(base);
     setFeeDiscount(Math.round(base * 0.5));
     setFeeDiscountReason("হাফ-ফ্রি সুবিধা (৫০% মাসিক বেতন মওকুফ)");
@@ -481,8 +482,11 @@ export default function EditStudentForm({
                   name="admission_fee"
                   min="0"
                   step="50"
-                  value={admissionFee}
-                  onChange={(e) => setAdmissionFee(Number(e.target.value) || 0)}
+                  value={admissionFee ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setAdmissionFee(v === "" ? "" : Number(v));
+                  }}
                   className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">৳</span>
@@ -502,8 +506,11 @@ export default function EditStudentForm({
                   name="monthly_fee"
                   min="0"
                   step="50"
-                  value={monthlyFee}
-                  onChange={(e) => setMonthlyFee(Number(e.target.value) || 0)}
+                  value={monthlyFee ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setMonthlyFee(v === "" ? "" : Number(v));
+                  }}
                   className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">৳</span>
@@ -526,8 +533,11 @@ export default function EditStudentForm({
                   name="khoraki_fee"
                   min="0"
                   step="50"
-                  value={khorakiFee}
-                  onChange={(e) => setKhorakiFee(Number(e.target.value) || 0)}
+                  value={khorakiFee ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setKhorakiFee(v === "" ? "" : Number(v));
+                  }}
                   className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">৳</span>
@@ -550,8 +560,11 @@ export default function EditStudentForm({
                   name="accommodation_fee"
                   min="0"
                   step="50"
-                  value={accommodationFee}
-                  onChange={(e) => setAccommodationFee(Number(e.target.value) || 0)}
+                  value={accommodationFee ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setAccommodationFee(v === "" ? "" : Number(v));
+                  }}
                   className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">৳</span>
@@ -574,8 +587,11 @@ export default function EditStudentForm({
                   name="transport_fee"
                   min="0"
                   step="50"
-                  value={transportFee}
-                  onChange={(e) => setTransportFee(Number(e.target.value) || 0)}
+                  value={transportFee ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setTransportFee(v === "" ? "" : Number(v));
+                  }}
                   className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">৳</span>
@@ -598,8 +614,11 @@ export default function EditStudentForm({
                   name="other_fee"
                   min="0"
                   step="50"
-                  value={otherFee}
-                  onChange={(e) => setOtherFee(Number(e.target.value) || 0)}
+                  value={otherFee ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setOtherFee(v === "" ? "" : Number(v));
+                  }}
                   className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">৳</span>
@@ -619,8 +638,11 @@ export default function EditStudentForm({
                   name="fee_discount"
                   min="0"
                   step="50"
-                  value={feeDiscount}
-                  onChange={(e) => setFeeDiscount(Number(e.target.value) || 0)}
+                  value={feeDiscount ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setFeeDiscount(v === "" ? "" : Number(v));
+                  }}
                   className="w-full pl-3 pr-8 py-2 text-sm font-bold border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition text-red-700"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">৳</span>
