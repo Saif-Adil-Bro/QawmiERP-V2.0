@@ -17,6 +17,7 @@ interface AllocationItem {
   fee_type_name: string;
   billing_period?: string;
   allocated_amount: number;
+  discount_applied?: number;
 }
 
 interface FeeData {
@@ -126,6 +127,12 @@ export default function DualMoneyReceipt({
   const amountVal = typeof fee.amount === 'number' ? fee.amount : parseFloat(String(fee.amount || 0));
   const banglaAmount = formatBanglaCurrency(amountVal);
   const inWords = numberToBanglaWords(amountVal);
+
+  const explicitDiscount = Number(fee.discount_total || 0);
+  const allocDiscountSum = (fee.allocations || []).reduce((sum, a) => sum + (Number(a.discount_applied) || 0), 0);
+  const effectiveDiscount = Math.max(explicitDiscount, allocDiscountSum);
+  const totalBill = amountVal + effectiveDiscount;
+  const hasItemDiscounts = (fee.allocations || []).some((a) => (Number(a.discount_applied) || 0) > 0);
 
   const handlePrint = () => {
     printElementIsolated("dual-money-receipt-sheet", "শিক্ষার্থী বেতন ও ফি আদায় রসিদ");
@@ -237,19 +244,40 @@ export default function DualMoneyReceipt({
                           <tr>
                             <th className="py-1 px-3 text-left">ফি'র খাত / বিবরণ</th>
                             <th className="py-1 px-3 text-left">মাস/পিরিয়ড</th>
+                            {hasItemDiscounts && (
+                              <>
+                                <th className="py-1 px-3 text-right">ধার্য ফি (৳)</th>
+                                <th className="py-1 px-3 text-right text-amber-800">ছাড় (-)</th>
+                              </>
+                            )}
                             <th className="py-1 px-3 text-right">আদায়কৃত পরিমাণ (৳)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {fee.allocations.map((alloc, aIdx) => (
-                            <tr key={aIdx}>
-                              <td className="py-1 px-3 font-medium text-slate-800">{alloc.fee_type_name}</td>
-                              <td className="py-1 px-3 text-slate-600">{alloc.billing_period || "-"}</td>
-                              <td className="py-1 px-3 text-right font-mono font-bold text-slate-900">
-                                ৳ {formatBanglaCurrency(alloc.allocated_amount)}
-                              </td>
-                            </tr>
-                          ))}
+                          {fee.allocations.map((alloc, aIdx) => {
+                            const aDiscount = Number(alloc.discount_applied || 0);
+                            const aPaid = Number(alloc.allocated_amount || 0);
+                            const aGross = aPaid + aDiscount;
+                            return (
+                              <tr key={aIdx}>
+                                <td className="py-1 px-3 font-medium text-slate-800">{alloc.fee_type_name}</td>
+                                <td className="py-1 px-3 text-slate-600">{alloc.billing_period || "-"}</td>
+                                {hasItemDiscounts && (
+                                  <>
+                                    <td className="py-1 px-3 text-right font-mono text-slate-700">
+                                      ৳ {formatBanglaCurrency(aGross)}
+                                    </td>
+                                    <td className="py-1 px-3 text-right font-mono text-amber-700 font-semibold">
+                                      {aDiscount > 0 ? `(-) ৳ ${formatBanglaCurrency(aDiscount)}` : "—"}
+                                    </td>
+                                  </>
+                                )}
+                                <td className="py-1 px-3 text-right font-mono font-bold text-slate-900">
+                                  ৳ {formatBanglaCurrency(aPaid)}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </td>
@@ -297,17 +325,47 @@ export default function DualMoneyReceipt({
             </table>
 
             {/* Total Paid Amount Highlight */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-emerald-50/80 px-3.5 py-2 border-t border-emerald-200">
-              <div className="text-xs text-slate-700 mb-1 sm:mb-0">
-                <span className="font-semibold">কথায়: </span>
-                <span className="font-medium text-slate-800">{inWords}</span>
-              </div>
-              <div className="flex items-center gap-2 self-end sm:self-auto">
-                <span className="text-xs font-bold text-slate-700 uppercase">মোট আদায়:</span>
-                <span className="text-base sm:text-lg font-black text-emerald-900 font-mono tracking-tight bg-white px-3 py-0.5 rounded border border-emerald-300 shadow-2xs">
-                  ৳ {banglaAmount} /-
-                </span>
-              </div>
+            <div className="bg-emerald-50/80 px-3.5 py-2 border-t border-emerald-200">
+              {effectiveDiscount > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between text-xs border-b border-emerald-200/60 pb-1.5 gap-2">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="text-slate-700 font-semibold">
+                        মোট বিল: <strong className="font-mono text-slate-900 font-bold">৳ {formatBanglaCurrency(totalBill)}</strong>
+                      </span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px]">
+                        ছাড়/মওকুফ (-): <span className="font-mono ml-1 font-black">৳ {formatBanglaCurrency(effectiveDiscount)}</span>
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-600">
+                      <span className="font-semibold">কথায়: </span>
+                      <span className="font-medium text-slate-800">{inWords}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                      নগদ আদায় (Net Received):
+                    </span>
+                    <span className="text-base sm:text-lg font-black text-emerald-900 font-mono tracking-tight bg-white px-3.5 py-0.5 rounded border border-emerald-300 shadow-2xs">
+                      ৳ {banglaAmount} /-
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between">
+                  <div className="text-xs text-slate-700 mb-1 sm:mb-0">
+                    <span className="font-semibold">কথায়: </span>
+                    <span className="font-medium text-slate-800">{inWords}</span>
+                  </div>
+                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                    <span className="text-xs font-bold text-slate-700 uppercase">মোট আদায়:</span>
+                    <span className="text-base sm:text-lg font-black text-emerald-900 font-mono tracking-tight bg-white px-3 py-0.5 rounded border border-emerald-300 shadow-2xs">
+                      ৳ {banglaAmount} /-
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

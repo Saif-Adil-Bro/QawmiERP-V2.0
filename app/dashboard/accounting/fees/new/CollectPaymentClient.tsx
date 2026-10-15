@@ -67,6 +67,9 @@ export default function CollectPaymentClient({
   const [allocations, setAllocations] = useState<{
     [feeId: string]: number;
   }>({});
+  const [itemDiscounts, setItemDiscounts] = useState<{
+    [feeId: string]: number;
+  }>({});
   const [allocationFunds, setAllocationFunds] = useState<{
     [feeId: string]: string;
   }>({});
@@ -112,8 +115,10 @@ export default function CollectPaymentClient({
     if (!studentId) {
       setStudentProfile(null);
       setAllocations({});
+      setItemDiscounts({});
       setAllocationFunds({});
-      setTotalAmount(0);
+      setTotalAmount("");
+      setDiscountAmount("");
       return;
     }
 
@@ -142,18 +147,22 @@ export default function CollectPaymentClient({
         if (profile && profile.fees) {
           const unpaidFees = profile.fees.filter((f: any) => f.due_amount > 0);
           const initialAlloc: Record<string, number> = {};
+          const initialDiscounts: Record<string, number> = {};
           const initialFunds: Record<string, string> = {};
           let initialSum = 0;
 
           unpaidFees.forEach((f: any) => {
             initialAlloc[f.id] = f.due_amount;
+            initialDiscounts[f.id] = 0;
             initialFunds[f.id] = resolveInitialFundId(f);
             initialSum += f.due_amount;
           });
 
           setAllocations(initialAlloc);
+          setItemDiscounts(initialDiscounts);
           setAllocationFunds(initialFunds);
-          setTotalAmount(initialSum > 0 ? initialSum : 1500);
+          setTotalAmount(initialSum > 0 ? initialSum : "");
+          setDiscountAmount("");
         }
       } catch (err) {
         console.error("fetchProfile failed:", err);
@@ -176,12 +185,116 @@ export default function CollectPaymentClient({
 
   const selectedStudent = students.find((s) => s.id === studentId);
 
-  // Handle manual allocation amount change
-  const handleAllocationChange = (feeId: string, val: number) => {
-    const updated = { ...allocations, [feeId]: Math.max(0, val) };
-    setAllocations(updated);
-    const sum = Object.values(updated).reduce((a, b) => a + b, 0);
+  // Live Summary Calculations
+  const unpaidFeesList = (studentProfile?.fees || []).filter((f: any) => f.due_amount > 0);
+  const totalGrossDue = unpaidFeesList.reduce((s: number, f: any) => s + (Number(f.due_amount) || 0), 0);
+  const totalItemDiscounts = Object.values(itemDiscounts).reduce((s, d) => s + (Number(d) || 0), 0);
+  const effectiveTotalDiscount = Math.max(Number(discountAmount) || 0, totalItemDiscounts);
+  const netPayableAfterDiscount = Math.max(0, totalGrossDue - effectiveTotalDiscount);
+  const cashToCollect = totalAmount === "" ? 0 : Number(totalAmount) || 0;
+  const remainingDueAfterPayment = Math.max(0, netPayableAfterDiscount - cashToCollect);
+
+  // Handle item-level instant discount change
+  const handleItemDiscountChange = (feeId: string, val: number | "") => {
+    const fee = studentProfile?.fees?.find((f: any) => f.id === feeId);
+    const feeDue = fee ? Number(fee.due_amount) || 0 : 0;
+    const discountNum = val === "" ? 0 : Math.max(0, Math.min(Number(val), feeDue));
+
+    const updatedDiscounts = { ...itemDiscounts, [feeId]: discountNum };
+    setItemDiscounts(updatedDiscounts);
+
+    // Net payable for this item after discount
+    const netPayableForItem = Math.max(0, feeDue - discountNum);
+
+    // Update allocation for this item to its new net payable
+    const updatedAlloc = { ...allocations, [feeId]: netPayableForItem };
+    setAllocations(updatedAlloc);
+
+    // Recompute total discount and total cash to collect
+    const totalDisc = Object.values(updatedDiscounts).reduce((a, b) => a + (Number(b) || 0), 0);
+    const totalCash = Object.values(updatedAlloc).reduce((a, b) => a + (Number(b) || 0), 0);
+
+    setDiscountAmount(totalDisc > 0 ? totalDisc : "");
+    setTotalAmount(totalCash > 0 ? totalCash : (totalDisc > 0 ? 0 : ""));
+  };
+
+  // Handle item-level cash allocation change
+  const handleAllocationChange = (feeId: string, val: number | "") => {
+    const fee = studentProfile?.fees?.find((f: any) => f.id === feeId);
+    const feeDue = fee ? Number(fee.due_amount) || 0 : 0;
+    const itemDiscount = itemDiscounts[feeId] || 0;
+    const maxPayable = Math.max(0, feeDue - itemDiscount);
+
+    const cashNum = val === "" ? 0 : Math.max(0, Math.min(Number(val), maxPayable));
+    const updatedAlloc = { ...allocations, [feeId]: val === "" ? ("" as any) : cashNum };
+    setAllocations(updatedAlloc);
+
+    const sum = Object.values(updatedAlloc).reduce((a, b) => a + (Number(b) || 0), 0);
     setTotalAmount(sum);
+  };
+
+  // Handle total discount change from section 3 (distribute across items)
+  const handleTotalDiscountChange = (val: number | "") => {
+    if (val === "") {
+      setDiscountAmount("");
+      const resetDiscounts: Record<string, number> = {};
+      const resetAlloc: Record<string, number> = {};
+      let totalDue = 0;
+      unpaidFeesList.forEach((f: any) => {
+        resetDiscounts[f.id] = 0;
+        resetAlloc[f.id] = f.due_amount;
+        totalDue += f.due_amount;
+      });
+      setItemDiscounts(resetDiscounts);
+      setAllocations(resetAlloc);
+      setTotalAmount(totalDue > 0 ? totalDue : "");
+      return;
+    }
+
+    const discNum = Math.max(0, Math.min(Number(val), totalGrossDue));
+    setDiscountAmount(discNum > 0 ? discNum : "");
+
+    // Distribute discount sequentially across unpaid fees
+    let remDiscount = discNum;
+    const newItemDiscounts: Record<string, number> = {};
+    const newAllocations: Record<string, number> = {};
+
+    unpaidFeesList.forEach((f: any) => {
+      const takeDisc = Math.min(remDiscount, f.due_amount);
+      newItemDiscounts[f.id] = takeDisc;
+      remDiscount -= takeDisc;
+      const netPayable = Math.max(0, f.due_amount - takeDisc);
+      newAllocations[f.id] = netPayable;
+    });
+
+    setItemDiscounts(newItemDiscounts);
+    setAllocations(newAllocations);
+    const newTotalCash = Math.max(0, totalGrossDue - discNum);
+    setTotalAmount(newTotalCash > 0 ? newTotalCash : (discNum > 0 ? 0 : ""));
+  };
+
+  // Handle total amount change from section 3
+  const handleTotalAmountChange = (val: number | "") => {
+    if (val === "") {
+      setTotalAmount("");
+      return;
+    }
+    const cashNum = Math.max(0, Number(val));
+    setTotalAmount(cashNum);
+
+    // Distribute cash across fees' net payables
+    let remCash = cashNum;
+    const newAllocations: Record<string, number> = {};
+
+    unpaidFeesList.forEach((f: any) => {
+      const disc = itemDiscounts[f.id] || 0;
+      const maxNetPayable = Math.max(0, f.due_amount - disc);
+      const alloc = Math.min(remCash, maxNetPayable);
+      newAllocations[f.id] = alloc;
+      remCash -= alloc;
+    });
+
+    setAllocations(newAllocations);
   };
 
   // Handle fund change for a fee
@@ -196,20 +309,22 @@ export default function CollectPaymentClient({
       setError("অনুগ্রহ করে শিক্ষার্থী নির্বাচন করুন।");
       return;
     }
-    if ((Number(totalAmount) || 0) <= 0) {
-      setError("টাকার পরিমাণ ০ এর বেশি হতে হবে।");
+    const finalCash = Number(totalAmount) || 0;
+    if (finalCash <= 0 && effectiveTotalDiscount <= 0) {
+      setError("আদায়ের পরিমাণ অথবা ছাড়ের পরিমাণ ০ এর বেশি হতে হবে।");
       return;
     }
 
     setIsPending(true);
     setError(null);
 
-    // Prepare allocations payload with specific funds
+    // Prepare allocations payload with specific funds and instant discounts
     const feeAllocationsList: any[] = [];
     if (studentProfile?.fees) {
       studentProfile.fees.forEach((f: any) => {
         const allocated = allocations[f.id] || 0;
-        if (allocated > 0) {
+        const discount = itemDiscounts[f.id] || 0;
+        if (allocated > 0 || discount > 0) {
           const assignedFundId = allocationFunds[f.id] || resolveInitialFundId(f);
           const fundObj = allFunds.find((af) => af.id === assignedFundId);
           feeAllocationsList.push({
@@ -218,6 +333,7 @@ export default function CollectPaymentClient({
             fee_type_name: f.fee_type_name,
             billing_period: f.billing_period,
             allocated_amount: allocated,
+            discount_applied: discount,
             fund_id: assignedFundId,
             fund_name: fundObj?.name || "সাধারণ ফান্ড",
           });
@@ -234,8 +350,8 @@ export default function CollectPaymentClient({
         payment_date: paymentDate,
         payment_method: paymentMethod,
         transaction_ref: transactionRef,
-        total_amount: Number(totalAmount),
-        discount_amount: Number(discountAmount),
+        total_amount: finalCash,
+        discount_amount: effectiveTotalDiscount,
         discount_reason: discountReason,
         fine_amount: Number(fineAmount),
         fine_reason: fineReason,
@@ -262,13 +378,14 @@ export default function CollectPaymentClient({
     setSuccessReceipt(null);
     setStudentId("");
     setStudentProfile(null);
-    setTotalAmount(0);
-    setDiscountAmount(0);
+    setTotalAmount("");
+    setDiscountAmount("");
     setDiscountReason("");
     setFineAmount(0);
     setFineReason("");
     setNotes("");
     setAllocations({});
+    setItemDiscounts({});
     setAllocationFunds({});
   };
 
@@ -409,9 +526,10 @@ export default function CollectPaymentClient({
                     <tr>
                       <th className="py-2.5 px-4">ফি'র খাত</th>
                       <th className="py-2.5 px-4">জমা হওয়ার ফান্ড</th>
-                      <th className="py-2.5 px-4 text-right">নির্ধারিত ফি</th>
-                      <th className="py-2.5 px-4 text-right">বকেয়া (৳)</th>
-                      <th className="py-2.5 px-4 text-right">এই রিসিটে জমা (৳)</th>
+                      <th className="py-2.5 px-4 text-right">নির্ধারিত বকেয়া (৳)</th>
+                      <th className="py-2.5 px-4 text-right text-amber-800">তাৎক্ষণিক ছাড় (৳)</th>
+                      <th className="py-2.5 px-4 text-right text-slate-800">প্রদেয় নিট (৳)</th>
+                      <th className="py-2.5 px-4 text-right text-emerald-900">এই রিসিটে জমা (৳)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -419,6 +537,8 @@ export default function CollectPaymentClient({
                       .filter((f: any) => f.due_amount > 0)
                       .map((fee: any) => {
                         const currentFundId = allocationFunds[fee.id] || resolveInitialFundId(fee);
+                        const itemDiscount = itemDiscounts[fee.id] || 0;
+                        const netPayable = Math.max(0, fee.due_amount - itemDiscount);
 
                         return (
                           <tr key={fee.id} className="hover:bg-slate-50/50">
@@ -439,18 +559,34 @@ export default function CollectPaymentClient({
                                 ))}
                               </select>
                             </td>
-                            <td className="py-2.5 px-4 text-right font-mono">৳{formatBanglaCurrency(fee.payable_amount)}</td>
-                            <td className="py-2.5 px-4 text-right font-mono font-bold text-red-700">
+                            <td className="py-2.5 px-4 text-right font-mono font-bold text-slate-800">
                               ৳{formatBanglaCurrency(fee.due_amount)}
+                            </td>
+                            <td className="py-2.5 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="text-amber-600 text-xs font-bold">(-)</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={fee.due_amount}
+                                  value={itemDiscounts[fee.id] ? itemDiscounts[fee.id] : ""}
+                                  onChange={(e) => handleItemDiscountChange(fee.id, e.target.value === "" ? "" : Number(e.target.value))}
+                                  placeholder="০"
+                                  className="w-24 px-2 py-1 border border-amber-300 bg-amber-50/40 rounded-lg text-right font-mono font-bold text-xs sm:text-sm text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                                />
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-4 text-right font-mono font-bold text-slate-900">
+                              ৳{formatBanglaCurrency(netPayable)}
                             </td>
                             <td className="py-2.5 px-4 text-right">
                               <input
                                 type="number"
                                 min="0"
-                                max={fee.due_amount}
-                                value={allocations[fee.id] ?? fee.due_amount}
-                                onChange={(e) => handleAllocationChange(fee.id, Number(e.target.value))}
-                                className="w-28 px-2.5 py-1 border border-slate-300 rounded-lg text-right font-mono font-bold text-xs sm:text-sm focus:ring-2 focus:ring-slate-900"
+                                max={netPayable}
+                                value={allocations[fee.id] !== undefined ? allocations[fee.id] : netPayable}
+                                onChange={(e) => handleAllocationChange(fee.id, e.target.value === "" ? "" : Number(e.target.value))}
+                                className="w-28 px-2.5 py-1 border border-slate-300 rounded-lg text-right font-mono font-bold text-xs sm:text-sm focus:ring-2 focus:ring-slate-900 bg-emerald-50/30 text-emerald-950"
                               />
                             </td>
                           </tr>
@@ -473,17 +609,16 @@ export default function CollectPaymentClient({
               {/* Total Amount */}
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-800 block">
-                  মোট আদায়কৃত টাকা (৳) <span className="text-red-500">*</span>
+                  মোট আদায়কৃত নগদ টাকা (৳) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
-                  required
-                  min="1"
+                  min="0"
                   step="1"
                   value={totalAmount ?? ""}
                   onChange={(e) => {
                     const v = e.target.value;
-                    setTotalAmount(v === "" ? "" : Number(v));
+                    handleTotalAmountChange(v === "" ? "" : Number(v));
                   }}
                   placeholder="যেমন: 1500"
                   className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 font-mono font-bold text-base text-emerald-950 bg-emerald-50/40"
@@ -560,29 +695,37 @@ export default function CollectPaymentClient({
 
               {/* Discount / Waiver */}
               <div className="space-y-1.5">
-                <label className="font-bold text-slate-700 block">বিশেষ ছাড় / মওকুফ (ঐচ্ছিক)</label>
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-slate-700 block">বিশেষ ছাড় / মওকুফ (ঐচ্ছিক)</label>
+                  {effectiveTotalDiscount > 0 && (
+                    <span className="text-[11px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
+                      ছাড়: ৳ {formatBanglaCurrency(effectiveTotalDiscount)}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="number"
                   min="0"
+                  max={totalGrossDue}
                   value={discountAmount ?? ""}
                   onChange={(e) => {
                     const v = e.target.value;
-                    setDiscountAmount(v === "" ? "" : Number(v));
+                    handleTotalDiscountChange(v === "" ? "" : Number(v));
                   }}
-                  placeholder="ছাড়ের পরিমাণ (৳)"
-                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 font-mono"
+                  placeholder="যেমন: 500"
+                  className="w-full px-3.5 py-2.5 border border-amber-300 bg-amber-50/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold text-amber-950"
                 />
               </div>
 
               {/* Discount Reason */}
-              {Boolean(discountAmount) && (
+              {effectiveTotalDiscount > 0 && (
                 <div className="space-y-1.5 sm:col-span-2 animate-in fade-in">
                   <label className="font-bold text-slate-700 block">ছাড়ের কারণ / অনুমোদন</label>
                   <input
                     type="text"
                     value={discountReason}
                     onChange={(e) => setDiscountReason(e.target.value)}
-                    placeholder="যেমন: মুহতারাম মুহতামিম সাহেবের অনুমোদনক্রমে"
+                    placeholder="যেমন: মুহতারাম মুহতামিম সাহেবের অনুমোদনক্রমে / এতিম মওকুফ"
                     className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900"
                   />
                 </div>
@@ -601,8 +744,70 @@ export default function CollectPaymentClient({
               </div>
             </div>
 
+            {/* Live Calculation Summary Banner */}
+            <div className="p-4.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2.5">
+                <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-emerald-600" />
+                  <span>লাইভ পেমেন্ট ও ডিসকাউন্ট সামারি (Live Calculation)</span>
+                </div>
+                <div>
+                  {remainingDueAfterPayment === 0 ? (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                      {cashToCollect === 0 && effectiveTotalDiscount >= totalGrossDue
+                        ? "শতভাগ মওকুফ (WAIVED) - বকেয়া ০"
+                        : "সম্পূর্ণ পরিশোধ (PAID) - বকেয়া ০"}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-700" />
+                      আংশিক পরিশোধ (PARTIAL)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-center text-xs">
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+                  <div className="text-slate-500 font-semibold text-[11px]">১. মোট বকেয়া বিল</div>
+                  <div className="text-sm sm:text-base font-black text-slate-900 font-mono mt-0.5">
+                    ৳ {formatBanglaCurrency(totalGrossDue)}
+                  </div>
+                </div>
+
+                <div className="bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs">
+                  <div className="text-amber-700 font-semibold text-[11px]">২. তাৎক্ষণিক ছাড় (-)</div>
+                  <div className="text-sm sm:text-base font-black text-amber-800 font-mono mt-0.5">
+                    ৳ {formatBanglaCurrency(effectiveTotalDiscount)}
+                  </div>
+                </div>
+
+                <div className="bg-white p-2.5 rounded-xl border border-indigo-200 shadow-2xs">
+                  <div className="text-indigo-700 font-semibold text-[11px]">৩. প্রদেয় পরিমাণ (Net)</div>
+                  <div className="text-sm sm:text-base font-black text-indigo-900 font-mono mt-0.5">
+                    ৳ {formatBanglaCurrency(netPayableAfterDiscount)}
+                  </div>
+                </div>
+
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-200 shadow-2xs">
+                  <div className="text-emerald-700 font-semibold text-[11px]">৪. এই রিসিটে আদায়</div>
+                  <div className="text-sm sm:text-base font-black text-emerald-900 font-mono mt-0.5">
+                    ৳ {formatBanglaCurrency(cashToCollect)}
+                  </div>
+                </div>
+
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs col-span-2 sm:col-span-1">
+                  <div className="text-slate-500 font-semibold text-[11px]">৫. অবশিষ্ট বকেয়া</div>
+                  <div className={`text-sm sm:text-base font-black font-mono mt-0.5 ${remainingDueAfterPayment === 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                    ৳ {formatBanglaCurrency(remainingDueAfterPayment)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Submission Button */}
-            <div className="pt-4 border-t border-slate-100">
+            <div className="pt-2 border-t border-slate-100">
               <button
                 type="submit"
                 disabled={isPending || !studentId}

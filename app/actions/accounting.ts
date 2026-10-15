@@ -156,27 +156,50 @@ export async function deleteFee(feeId: string) {
       removedPayment = payments[payIdx];
       const now = new Date().toISOString();
 
-      // Roll back paid amounts and restore due balances in student_fees
+      // Roll back paid amounts and discount waivers, and restore due balances in student_fees
       for (const alloc of removedPayment.allocations || []) {
         if (alloc.student_fee_id) {
           const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
           if (feeIdx >= 0) {
             const target = studentFees[feeIdx];
-            const newPaid = Math.max(0, target.paid_amount - alloc.allocated_amount);
-            const newDue = Math.max(0, target.payable_amount - newPaid);
+            const allocPaid = Number(alloc.allocated_amount || 0);
+            const allocDiscount = Number(alloc.discount_applied || 0);
+
+            // Roll back discount
+            const newDiscount = Math.max(0, Number(target.discount_amount || 0) - allocDiscount);
+            // Recalculate payable amount: base_amount + fine_amount - newDiscount
+            const baseAmt = Number(target.base_amount || 0);
+            const fineAmt = Number(target.fine_amount || 0);
+            const newPayable = Math.max(0, baseAmt + fineAmt - newDiscount);
+
+            // Roll back paid amount
+            const newPaid = Math.max(0, Number(target.paid_amount || 0) - allocPaid);
+            const newDue = Math.max(0, newPayable - newPaid);
+
+            let newStatus: any = "PARTIAL";
+            if (newPaid === 0) {
+              newStatus = "UNPAID";
+            } else if (newDue === 0) {
+              newStatus = (newPayable === 0 && newDiscount > 0) ? "WAIVED" : "PAID";
+            }
+
             studentFees[feeIdx] = {
               ...target,
+              discount_amount: newDiscount,
+              payable_amount: newPayable,
               paid_amount: newPaid,
               due_amount: newDue,
-              status: newPaid === 0 ? "UNPAID" : "PARTIAL",
+              status: newStatus,
               updated_at: now,
             };
             // Also update in relational student_fees table
             try {
               await supabase.from("student_fees").update({
+                discount_amount: newDiscount,
+                payable_amount: newPayable,
                 paid_amount: newPaid,
                 due_amount: newDue,
-                status: newPaid === 0 ? "UNPAID" : "PARTIAL",
+                status: newStatus,
                 updated_at: now,
               }).eq("id", target.id).eq("madrasa_id", finalMadrasaId);
             } catch {}

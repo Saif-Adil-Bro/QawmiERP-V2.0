@@ -1138,10 +1138,34 @@ export async function collectFeePayment(paymentData: {
     let amountToDistribute = Number(paymentData.total_amount) || 0;
     const finalAllocations: PaymentAllocation[] = [];
 
+    // Check if total discount was passed and if allocations need discount distribution
+    const explicitAllocDiscountTotal = (paymentData.fee_allocations || []).reduce(
+      (sum, a) => sum + (Number(a.discount_applied) || 0),
+      0
+    );
+    let unallocatedDiscount = Math.max(0, (Number(paymentData.discount_amount) || 0) - explicitAllocDiscountTotal);
+
     // Apply allocations if provided, or auto-allocate to unpaid fees
     if (paymentData.fee_allocations && paymentData.fee_allocations.length > 0) {
       for (const alloc of paymentData.fee_allocations) {
-        if (alloc.allocated_amount > 0) {
+        let allocDiscount = Number(alloc.discount_applied) || 0;
+        const allocCash = Number(alloc.allocated_amount) || 0;
+
+        // If top-level discount wasn't distributed to items, allocate remaining discount here
+        if (allocDiscount === 0 && unallocatedDiscount > 0 && alloc.student_fee_id) {
+          const sf = studentFees.find((f) => f.id === alloc.student_fee_id);
+          if (sf) {
+            const currentItemDue = Number(sf.due_amount) || 0;
+            const itemNetRemaining = Math.max(0, currentItemDue - allocCash);
+            const takeDiscount = Math.min(unallocatedDiscount, itemNetRemaining);
+            if (takeDiscount > 0) {
+              allocDiscount += takeDiscount;
+              unallocatedDiscount -= takeDiscount;
+            }
+          }
+        }
+
+        if (allocCash > 0 || allocDiscount > 0) {
           const fundInfo = resolveFund(
             alloc.fee_type_id,
             alloc.fee_type_name,
@@ -1155,7 +1179,8 @@ export async function collectFeePayment(paymentData: {
             fee_type_id: alloc.fee_type_id,
             fee_type_name: alloc.fee_type_name,
             billing_period: alloc.billing_period,
-            allocated_amount: alloc.allocated_amount,
+            allocated_amount: allocCash,
+            discount_applied: allocDiscount,
             fund_id: fundInfo.fund_id,
             fund_name: fundInfo.fund_name,
           });
@@ -1165,15 +1190,49 @@ export async function collectFeePayment(paymentData: {
             const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
             if (feeIdx >= 0) {
               const target = studentFees[feeIdx];
-              const newPaid = target.paid_amount + alloc.allocated_amount;
-              const newDue = Math.max(0, target.payable_amount - newPaid);
+              // ক) student_fees রেকর্ডের discount_amount বাড়ানো
+              const newDiscount = Number(target.discount_amount || 0) + allocDiscount;
+              // খ) payable_amount পুনরায় হিসাব
+              const baseAmt = Number(target.base_amount || 0);
+              const fineAmt = Number(target.fine_amount || 0);
+              const newPayable = Math.max(0, baseAmt + fineAmt - newDiscount);
+              // গ) paid_amount হিসাব
+              const newPaid = Number(target.paid_amount || 0) + allocCash;
+              // ঘ) due_amount হিসাব
+              const newDue = Math.max(0, newPayable - newPaid);
+              // ঙ) status নির্ধারণ: newDue === 0 হলে PAID (শতভাগ ছাড় হলে WAIVED)
+              let newStatus: FeeStatus = "PARTIAL";
+              if (newDue === 0) {
+                newStatus = (newPayable === 0 && newDiscount > 0) ? "WAIVED" : "PAID";
+              } else if (newPaid === 0) {
+                newStatus = "UNPAID";
+              }
+
               studentFees[feeIdx] = {
                 ...target,
+                discount_amount: newDiscount,
+                discount_reason: paymentData.discount_reason || target.discount_reason,
+                payable_amount: newPayable,
                 paid_amount: newPaid,
                 due_amount: newDue,
-                status: newDue === 0 ? "PAID" : "PARTIAL",
+                status: newStatus,
                 updated_at: now,
               };
+
+              // Also synchronize directly in relational student_fees table
+              try {
+                await adminClient.from("student_fees").update({
+                  discount_amount: newDiscount,
+                  discount_reason: paymentData.discount_reason || target.discount_reason,
+                  payable_amount: newPayable,
+                  paid_amount: newPaid,
+                  due_amount: newDue,
+                  status: newStatus,
+                  updated_at: now,
+                }).eq("id", target.id).eq("madrasa_id", madrasaId);
+              } catch (errRel) {
+                console.warn("Direct update to relational student_fees table fallback:", errRel);
+              }
             }
           }
         }
@@ -1184,21 +1243,54 @@ export async function collectFeePayment(paymentData: {
         .filter((f) => f.student_id === paymentData.student_id && f.due_amount > 0)
         .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
 
-      let remaining = amountToDistribute;
+      let remainingCash = amountToDistribute;
+      let remainingDiscount = Number(paymentData.discount_amount) || 0;
+
       for (const fee of unpaidStudentFees) {
-        if (remaining <= 0) break;
-        const allocAmt = Math.min(remaining, fee.due_amount);
+        if (remainingCash <= 0 && remainingDiscount <= 0) break;
+
+        const feeDue = Number(fee.due_amount) || 0;
+        const allocDiscount = Math.min(remainingDiscount, feeDue);
+        const dueAfterDiscount = Math.max(0, feeDue - allocDiscount);
+        const allocAmt = Math.min(remainingCash, dueAfterDiscount);
+
         const feeIdx = studentFees.findIndex((f) => f.id === fee.id);
-        const newPaid = fee.paid_amount + allocAmt;
-        const newDue = Math.max(0, fee.payable_amount - newPaid);
+        const newDiscount = Number(fee.discount_amount || 0) + allocDiscount;
+        const baseAmt = Number(fee.base_amount || 0);
+        const fineAmt = Number(fee.fine_amount || 0);
+        const newPayable = Math.max(0, baseAmt + fineAmt - newDiscount);
+        const newPaid = Number(fee.paid_amount || 0) + allocAmt;
+        const newDue = Math.max(0, newPayable - newPaid);
+
+        let newStatus: FeeStatus = "PARTIAL";
+        if (newDue === 0) {
+          newStatus = (newPayable === 0 && newDiscount > 0) ? "WAIVED" : "PAID";
+        } else if (newPaid === 0) {
+          newStatus = "UNPAID";
+        }
 
         studentFees[feeIdx] = {
           ...fee,
+          discount_amount: newDiscount,
+          discount_reason: paymentData.discount_reason || fee.discount_reason,
+          payable_amount: newPayable,
           paid_amount: newPaid,
           due_amount: newDue,
-          status: newDue === 0 ? "PAID" : "PARTIAL",
+          status: newStatus,
           updated_at: now,
         };
+
+        try {
+          await adminClient.from("student_fees").update({
+            discount_amount: newDiscount,
+            discount_reason: paymentData.discount_reason || fee.discount_reason,
+            payable_amount: newPayable,
+            paid_amount: newPaid,
+            due_amount: newDue,
+            status: newStatus,
+            updated_at: now,
+          }).eq("id", fee.id).eq("madrasa_id", madrasaId);
+        } catch {}
 
         const fundInfo = resolveFund(
           fee.fee_type_id,
@@ -1214,15 +1306,17 @@ export async function collectFeePayment(paymentData: {
           fee_type_name: fee.fee_type_name,
           billing_period: fee.billing_period,
           allocated_amount: allocAmt,
+          discount_applied: allocDiscount,
           fund_id: fundInfo.fund_id,
           fund_name: fundInfo.fund_name,
         });
 
-        remaining -= allocAmt;
+        remainingDiscount -= allocDiscount;
+        remainingCash -= allocAmt;
       }
 
       // If money left, record as Advance Payment
-      if (remaining > 0) {
+      if (remainingCash > 0) {
         const advFund = resolveFund(
           undefined,
           paymentData.fee_type || "অগ্রিম জমা (Advance Payment)",
@@ -1233,7 +1327,8 @@ export async function collectFeePayment(paymentData: {
         finalAllocations.push({
           fee_type_name: paymentData.fee_type || "অগ্রিম জমা (Advance Payment)",
           billing_period: paymentData.billing_month || "অগ্রিম",
-          allocated_amount: remaining,
+          allocated_amount: remainingCash,
+          discount_applied: 0,
           fund_id: advFund.fund_id,
           fund_name: advFund.fund_name,
         });
@@ -1279,7 +1374,10 @@ export async function collectFeePayment(paymentData: {
       payment_method: paymentData.payment_method || "Cash",
       transaction_ref: paymentData.transaction_ref,
       allocations: finalAllocations,
-      discount_total: Number(paymentData.discount_amount) || 0,
+      discount_total: Math.max(
+        Number(paymentData.discount_amount) || 0,
+        finalAllocations.reduce((sum, a) => sum + (Number(a.discount_applied) || 0), 0)
+      ),
       fine_total: Number(paymentData.fine_amount) || 0,
       advance_amount: 0,
       collector_name: user.email?.split("@")[0] || "হিসাব বিভাগ",
