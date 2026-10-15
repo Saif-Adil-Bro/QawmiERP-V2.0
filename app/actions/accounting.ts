@@ -476,8 +476,32 @@ export async function updateExpense(formData: FormData) {
     return { error: "খরচের আইডি, খাত, পরিমাণ ও তারিখ আবশ্যক।" };
   }
 
-  const cleanDesc = (description || "").trim();
-  const wrappedDescription = `[FUND: ${fundId} | ${fundName}]\n${cleanDesc}`.trim();
+  // Fetch existing expense to preserve voucher number if available
+  const { data: existingExp } = await supabase
+    .from("expenses")
+    .select("description, voucher_no")
+    .eq("id", id)
+    .eq("madrasa_id", finalMadrasaId)
+    .single();
+
+  let voucherNo = (formData.get("voucher_no") as string) || existingExp?.voucher_no || "";
+  if (!voucherNo && existingExp?.description) {
+    const vMatch = existingExp.description.match(/\[VOUCHER:\s*([^\]]+)\]/i);
+    if (vMatch && vMatch[1]) {
+      voucherNo = vMatch[1].trim();
+    }
+  }
+
+  const rawCleanDesc = (description || "")
+    .replace(/\[FUND:[^\]]+\]/gi, "")
+    .replace(/\[VOUCHER:[^\]]+\]/gi, "")
+    .trim();
+
+  let wrappedDescription = `[FUND: ${fundId} | ${fundName}]`;
+  if (voucherNo) {
+    wrappedDescription += `[VOUCHER: ${voucherNo}]`;
+  }
+  wrappedDescription += `\n${rawCleanDesc}`.trim();
 
   const updateWithFund: any = {
     category,
@@ -486,6 +510,7 @@ export async function updateExpense(formData: FormData) {
     description: wrappedDescription,
     fund_id: fundId,
     fund_name: fundName,
+    voucher_no: voucherNo || undefined,
   };
 
   const updateFallback: any = {
@@ -525,7 +550,7 @@ export async function updateExpense(formData: FormData) {
       category,
       amount: parseFloat(amount),
       expense_date: expenseDate,
-      description: cleanDesc,
+      description: rawCleanDesc,
       fund_id: fundId,
       fund_name: fundName,
     }
@@ -678,7 +703,11 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   }
 
   // Helper to map a donation type or label to a Fund ID & Name
-  function resolveDonationFund(typeStr?: string, notesStr?: string): { id: string; name: string } {
+  function resolveDonationFund(typeStr?: string, notesStr?: string, fundId?: string, fundName?: string): { id: string; name: string } {
+    if (fundId) {
+      return { id: fundId, name: fundName || typeStr || "ফান্ড" };
+    }
+
     const combined = `${typeStr || ""} ${notesStr || ""}`.toLowerCase();
     
     // Check if fund tag exists in notes, e.g. [FUND: fund-lillah | লিল্লাহ বোর্ডিং ফান্ড]
@@ -733,7 +762,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // A. Add Donations income to Fund Map
   monthlyDonations.forEach((don: any) => {
     const amt = Number(don.amount || 0);
-    const { id: fId, name: fName } = resolveDonationFund(don.donation_type, don.notes);
+    const { id: fId, name: fName } = resolveDonationFund(don.donation_type, don.notes, don.fund_id, don.fund_name);
     addIncomeToFund(fId, fName, amt);
   });
 
@@ -745,12 +774,20 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
         const amt = Number(alloc.allocated_amount || 0);
         if (amt <= 0) return;
         allocatedSum += amt;
-        const name = alloc.fee_type_name || "মাসিক বেতন";
-        const combined = `${name} ${p.notes || ""}`.toLowerCase();
-        if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
-          addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt);
+
+        // Prioritize explicit alloc.fund_id or p.fund_id
+        const targetFundId = alloc.fund_id || p.fund_id;
+        if (targetFundId) {
+          const targetFundName = alloc.fund_name || p.fund_name || (targetFundId === "fund-lillah" ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)");
+          addIncomeToFund(targetFundId, targetFundName, amt);
         } else {
-          addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
+          const name = alloc.fee_type_name || "মাসিক বেতন";
+          const combined = `${name} ${p.notes || ""}`.toLowerCase();
+          if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
+            addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt);
+          } else {
+            addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
+          }
         }
       });
       const extraAdvance = Number(p.advance_amount || 0);
@@ -763,11 +800,17 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       }
     } else {
       const amt = Number(p.total_amount_received || 0);
-      const combined = `${p.notes || ""}`.toLowerCase();
-      if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
-        addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt);
+      const targetFundId = p.fund_id;
+      if (targetFundId) {
+        const targetFundName = p.fund_name || (targetFundId === "fund-lillah" ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)");
+        addIncomeToFund(targetFundId, targetFundName, amt);
       } else {
-        addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
+        const combined = `${p.notes || ""}`.toLowerCase();
+        if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
+          addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt);
+        } else {
+          addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
+        }
       }
     }
   });
@@ -874,9 +917,16 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // I. Add Expenses to Fund Map
   monthlyExpenses.forEach((exp: any) => {
     const amt = Number(exp.amount || 0);
-    const parsed = parseExpenseFund(exp.description);
-    const fId = parsed.fundId || "fund-general";
-    const fName = parsed.fundName || "সাধারণ ফান্ড";
+    let fId = exp.fund_id;
+    let fName = exp.fund_name;
+    if (!fId) {
+      const parsed = parseExpenseFund(exp.description);
+      fId = parsed.fundId || "fund-general";
+      fName = parsed.fundName || "সাধারণ ফান্ড";
+    }
+    if (!fName) {
+      fName = fId === "fund-lillah" ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)";
+    }
     addExpenseToFund(fId, fName, amt);
   });
 

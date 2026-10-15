@@ -103,6 +103,20 @@ export default function IncomeHistoryClient({
     currentMonthStr,
   ]);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 25;
+
+  // Reset page on filter change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedFundId, selectedSourceType, dateFilter, customStartDate, customEndDate]);
+
+  const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
+  const paginatedTransactions = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredTransactions.slice(start, start + itemsPerPage);
+  }, [filteredTransactions, currentPage, itemsPerPage]);
+
   const filteredTotal = useMemo(() => {
     return filteredTransactions.reduce((sum, t) => sum + t.amount, 0);
   }, [filteredTransactions]);
@@ -455,10 +469,10 @@ export default function IncomeHistoryClient({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 print:divide-slate-300">
-                    {filteredTransactions.map((item, idx) => (
+                    {paginatedTransactions.map((item, idx) => (
                       <tr key={item.id} className="hover:bg-slate-50/70 transition">
                         <td className="py-3 px-3.5 text-slate-400 font-mono text-xs">
-                          {toBanglaNumber(idx + 1)}
+                          {toBanglaNumber((currentPage - 1) * itemsPerPage + idx + 1)}
                         </td>
                         <td className="py-3 px-3.5 text-slate-600 whitespace-nowrap font-medium text-xs">
                           {item.date ? format(new Date(item.date), "dd/MM/yyyy") : "-"}
@@ -517,7 +531,7 @@ export default function IncomeHistoryClient({
                   <tfoot>
                     <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 print:bg-slate-200">
                       <td colSpan={7} className="py-3 px-3.5 text-slate-900 text-right font-bold">
-                        সর্বমোট আদায়কৃত পরিমাণ:
+                        ফিল্টারকৃত মোট কালেকশন:
                       </td>
                       <td className="py-3 px-3.5 text-right font-mono font-black text-emerald-950 text-sm sm:text-base">
                         ৳ {formatBanglaCurrency(filteredTotal)}
@@ -526,6 +540,40 @@ export default function IncomeHistoryClient({
                     </tr>
                   </tfoot>
                 </table>
+
+                {/* Client Side Pagination */}
+                {totalPages > 1 && (
+                  <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 print:hidden">
+                    <div>
+                      সর্বমোট <strong className="text-slate-800">{toBanglaNumber(filteredTransactions.length)}</strong> টি লেনদেনের মধ্যে{" "}
+                      <strong className="text-slate-800">
+                        {toBanglaNumber((currentPage - 1) * itemsPerPage + 1)} - {toBanglaNumber(Math.min(currentPage * itemsPerPage, filteredTransactions.length))}
+                      </strong>{" "}
+                      দেখাচ্ছে
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        পূর্ববর্তী
+                      </button>
+                      <span className="px-2 font-bold text-slate-800">
+                        পৃষ্ঠা {toBanglaNumber(currentPage)} / {toBanglaNumber(totalPages)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        পরবর্তী
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

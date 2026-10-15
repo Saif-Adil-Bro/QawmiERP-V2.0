@@ -50,9 +50,14 @@ export default function ExpensesClient({
   // Modals state
   const [activeVoucherExpense, setActiveVoucherExpense] = useState<ExpenseItem | null>(null);
   const [editingExpense, setEditingExpense] = useState<ExpenseItem | null>(null);
+  const [expenseToDelete, setExpenseToDelete] = useState<ExpenseItem | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isDeleting, startDeleteTransition] = useTransition();
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 25;
 
   const showNotification = (type: "success" | "error", message: string) => {
     setNotification({ type, message });
@@ -84,32 +89,38 @@ export default function ExpensesClient({
     return true;
   });
 
+  const totalPages = Math.ceil(filteredExpenses.length / itemsPerPage);
+  const paginatedExpenses = React.useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredExpenses.slice(start, start + itemsPerPage);
+  }, [filteredExpenses, currentPage, itemsPerPage]);
+
   const totalExpenseSum = filteredExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const totalBazarSum = bazarExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const totalCombinedSum = totalExpenseSum + totalBazarSum;
 
-  // Handle delete
-  const handleDelete = (expense: ExpenseItem) => {
-    const voucherText = expense.voucher_no ? ` (${expense.voucher_no})` : "";
-    if (confirm(`আপনি কি নিশ্চিত যে আপনি এই খরচের রেকর্ডটি${voucherText} মুছে ফেলতে চান?\nপরিমাণ: ৳ ${Number(expense.amount).toLocaleString('bn-BD')}`)) {
-      setDeletingId(expense.id);
-      startDeleteTransition(async () => {
-        try {
-          const res = await deleteExpense(expense.id);
-          if (res?.error) {
-            showNotification("error", "মুছে ফেলতে সমস্যা হয়েছে: " + res.error);
-          } else {
-            setExpenses((prev) => prev.filter((item) => item.id !== expense.id));
-            showNotification("success", "খরচের রেকর্ডটি সফলভাবে মুছে ফেলা হয়েছে।");
-          }
-        } catch (err) {
-          console.error("Delete failed:", err);
-          showNotification("error", "একটি অপ্রত্যাশিত সমস্যা হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
-        } finally {
-          setDeletingId(null);
+  // Handle delete modal confirm
+  const handleConfirmDelete = () => {
+    if (!expenseToDelete) return;
+    const expense = expenseToDelete;
+    setDeletingId(expense.id);
+    startDeleteTransition(async () => {
+      try {
+        const res = await deleteExpense(expense.id);
+        if (res?.error) {
+          showNotification("error", "মুছে ফেলতে সমস্যা হয়েছে: " + res.error);
+        } else {
+          setExpenses((prev) => prev.filter((item) => item.id !== expense.id));
+          showNotification("success", "খরচের রেকর্ডটি সফলভাবে মুছে ফেলা হয়েছে।");
+          setExpenseToDelete(null);
         }
-      });
-    }
+      } catch (err) {
+        console.error("Delete failed:", err);
+        showNotification("error", "একটি অপ্রত্যাশিত সমস্যা হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+      } finally {
+        setDeletingId(null);
+      }
+    });
   };
 
   // Handle edit success
@@ -374,7 +385,7 @@ export default function ExpensesClient({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredExpenses.map((expense) => {
+                  {paginatedExpenses.map((expense) => {
                     const isRowDeleting = isDeleting && deletingId === expense.id;
                     const dateFormatted = expense.expense_date
                       ? format(new Date(expense.expense_date), "dd MMM, yyyy")
@@ -435,10 +446,10 @@ export default function ExpensesClient({
                             {/* Delete Expense Button */}
                             <button
                               type="button"
-                              onClick={() => handleDelete(expense)}
+                              onClick={() => setExpenseToDelete(expense)}
                               disabled={isRowDeleting}
                               className="p-1.5 text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 rounded-lg transition cursor-pointer border border-red-200 disabled:opacity-50"
-                              title="খরচ মুছে ফেলুন"
+                              title="খরচ বাতিল/মুছে ফেলুন"
                             >
                               {isRowDeleting ? (
                                 <Loader2 className="w-4 h-4 animate-spin text-red-600" />
@@ -453,10 +464,101 @@ export default function ExpensesClient({
                   })}
                 </tbody>
               </table>
+
+              {/* Client-Side Pagination */}
+              {totalPages > 1 && (
+                <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+                  <div>
+                    সর্বমোট <strong className="text-slate-800">{filteredExpenses.length}</strong> টি খরচের মধ্যে{" "}
+                    <strong className="text-slate-800">
+                      {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredExpenses.length)}
+                    </strong>{" "}
+                    দেখাচ্ছে
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      পূর্ববর্তী
+                    </button>
+                    <span className="px-2 font-bold text-slate-800">
+                      পৃষ্ঠা {toBanglaNumber(currentPage)} / {toBanglaNumber(totalPages)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      পরবর্তী
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Delete / Void Confirmation Modal */}
+      {expenseToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2 text-red-600 font-bold text-base">
+                <AlertCircle className="w-5 h-5" />
+                <span>খরচের ভাউচার বাতিল/ডিলিট নিশ্চিতকরণ</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExpenseToDelete(null)}
+                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-red-50/70 border border-red-100 p-3.5 rounded-xl text-xs space-y-1 text-slate-800 font-medium">
+              <div>
+                ভাউচার নং: <strong className="font-mono text-red-800">#{expenseToDelete.voucher_no || expenseToDelete.id.slice(0, 8)}</strong>
+              </div>
+              <div>
+                খাত ও ফান্ড: <strong>{expenseToDelete.category}</strong> ({expenseToDelete.fund_name || "সাধারণ ফান্ড"})
+              </div>
+              <div>
+                পরিমাণ: <strong className="text-red-700 font-bold text-sm">৳ {Number(expenseToDelete.amount).toLocaleString("bn-BD")}</strong>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600">
+              আপনি কি নিশ্চিত যে আপনি এই খরচের ইনভয়েসটি স্থায়ীভাবে মুছে ফেলতে চান? এটি মুছে ফেললে ফান্ড ব্যালেন্স ও লেজার স্বয়ংক্রিয়ভাবে রিক্যালকুলেট হবে।
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setExpenseToDelete(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer"
+              >
+                বাতিল করুন
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                <span>রেকর্ডটি মুছে ফেলুন</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Expense Voucher Modal */}
       {activeVoucherExpense && (

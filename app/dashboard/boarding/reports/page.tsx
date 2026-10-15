@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { getMonthlyBoardingReport } from "@/app/actions/boarding";
+import { getMonthlyBoardingReport, syncBoardingBillsToAccounting } from "@/app/actions/boarding";
 import { getMadrasaDetails } from "@/app/actions/tenant";
 import { format } from "date-fns";
 import {
@@ -20,6 +20,8 @@ import {
   AlertCircle,
   RefreshCw,
   Sparkles,
+  Receipt,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -30,6 +32,8 @@ export default function MonthlyReportsPage() {
   const [report, setReport] = useState<any>(null);
   const [madrasaInfo, setMadrasaInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -269,6 +273,33 @@ export default function MonthlyReportsPage() {
           </button>
 
           <button
+            type="button"
+            onClick={async () => {
+              setIsSyncing(true);
+              setSyncFeedback(null);
+              try {
+                const res = await syncBoardingBillsToAccounting(year, month);
+                if (res?.success) {
+                  setSyncFeedback({ type: "success", text: res.message || "বোর্ডিং বিল সফলভাবে একাউন্টিংয়ে যুক্ত করা হয়েছে।" });
+                } else {
+                  setSyncFeedback({ type: "error", text: res?.error || "বোর্ডিং বিল সিঙ্ক করতে সমস্যা হয়েছে।" });
+                }
+              } catch (e: any) {
+                setSyncFeedback({ type: "error", text: e?.message || "সিঙ্ক করতে ব্যর্থ হয়েছে।" });
+              } finally {
+                setIsSyncing(false);
+              }
+            }}
+            disabled={isSyncing || loading || !report}
+            title="এই মাসের সকল শিক্ষার্থীর প্রদেয় বোর্ডিং বিল একাউন্টিং লেজার ও স্টুডেন্ট ফিতে যুক্ত করুন"
+            className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl hover:bg-emerald-700 font-semibold transition shadow-xs flex items-center justify-center disabled:opacity-50 text-xs cursor-pointer"
+            id="btn_sync_boarding_accounting"
+          >
+            <Receipt className={`w-4 h-4 mr-1.5 ${isSyncing ? "animate-spin" : ""}`} />
+            <span>{isSyncing ? "সিঙ্ক হচ্ছে..." : "একাউন্টিং লেজারে বিল যুক্ত করুন"}</span>
+          </button>
+
+          <button
             onClick={handlePrint}
             disabled={loading || !report}
             className="bg-slate-900 text-white px-4 py-2.5 rounded-xl hover:bg-slate-800 font-semibold transition shadow-xs flex items-center justify-center disabled:opacity-50 text-xs"
@@ -279,6 +310,31 @@ export default function MonthlyReportsPage() {
           </button>
         </div>
       </div>
+
+      {syncFeedback && (
+        <div
+          className={`p-4 rounded-2xl text-xs sm:text-sm font-semibold flex items-center justify-between shadow-2xs print:hidden ${
+            syncFeedback.type === "success"
+              ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+              : "bg-red-50 text-red-800 border border-red-200"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {syncFeedback.type === "success" ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+            )}
+            <span>{syncFeedback.text}</span>
+          </div>
+          <button
+            onClick={() => setSyncFeedback(null)}
+            className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Available Data Quick Switcher Banner */}
       {report?.monthsWithData && report.monthsWithData.length > 0 && (

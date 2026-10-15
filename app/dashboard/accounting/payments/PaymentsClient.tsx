@@ -84,6 +84,13 @@ export default function PaymentsClient({
     return true;
   });
 
+  // Client-Side Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 25;
+
+  const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
+  const paginatedPayments = filteredPayments.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   const handleOpenReverse = (p: FeePayment) => {
     setSelectedPayment(p);
     setReversalReason("");
@@ -358,7 +365,7 @@ export default function PaymentsClient({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredPayments.map((p) => {
+                    {paginatedPayments.map((p) => {
                       const isReversed = p.status === "REVERSED" || p.status === "VOID";
 
                       return (
@@ -469,6 +476,40 @@ export default function PaymentsClient({
                     })}
                   </tbody>
                 </table>
+
+                {/* Client Side Pagination */}
+                {totalPages > 1 && (
+                  <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+                    <div>
+                      সর্বমোট <strong className="text-slate-800">{toBanglaNumber(filteredPayments.length)}</strong> টি পেমেন্টের মধ্যে{" "}
+                      <strong className="text-slate-800">
+                        {toBanglaNumber((currentPage - 1) * itemsPerPage + 1)} - {toBanglaNumber(Math.min(currentPage * itemsPerPage, filteredPayments.length))}
+                      </strong>{" "}
+                      দেখাচ্ছে
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        পূর্ববর্তী
+                      </button>
+                      <span className="px-2 font-bold text-slate-800">
+                        পৃষ্ঠা {toBanglaNumber(currentPage)} / {toBanglaNumber(totalPages)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        পরবর্তী
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

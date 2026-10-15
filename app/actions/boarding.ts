@@ -673,3 +673,303 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
     studentsReport,
   };
 }
+
+/**
+ * Synchronize monthly boarding bills to Accounting student_fees table
+ */
+export async function syncBoardingBillsToAccounting(year: string, month: string, sessionId: string = "default") {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
+
+    const report = await getMonthlyBoardingReport(year, month);
+    if (!report || !report.studentsReport || report.studentsReport.length === 0) {
+      return { error: "এই মাসের জন্য কোনো বোর্ডিং রিপোর্ট পাওয়া যায়নি।" };
+    }
+
+    const { getFeeMetadata, saveFeeMetadata } = await import("./fee-management");
+    const meta = await getFeeMetadata(madrasaId);
+
+    const feeTypes = meta.fee_types || [];
+    let khorakiFeeType = feeTypes.find(
+      (f) =>
+        f.category === "BOARDING" ||
+        f.code === "HOSTEL" ||
+        f.code === "FOOD" ||
+        (f.name || "").includes("খোরাকি") ||
+        (f.name || "").includes("বোর্ডিং")
+    );
+
+    const khorakiFeeTypeId = khorakiFeeType?.id || "ft_khoraki_default";
+    const khorakiFeeTypeName = khorakiFeeType?.name || "খোরাকি ও খাবার ফি";
+
+    const monthPadded = month.padStart(2, "0");
+    const billingPeriod = `${year}-${monthPadded}`;
+    const bengaliMonths: Record<string, string> = {
+      "01": "জানুয়ারি", "02": "ফেব্রুয়ারি", "03": "মার্চ", "04": "এপ্রিল",
+      "05": "মে", "06": "জুন", "07": "জুলাই", "08": "আগস্ট",
+      "09": "সেপ্টেম্বর", "10": "অক্টোবর", "11": "নভেম্বর", "12": "ডিসেম্বর"
+    };
+    const monthName = `${bengaliMonths[monthPadded] || monthPadded} ${year}`;
+    const dueDate = `${year}-${monthPadded}-10`;
+
+    const currentFees = [...(meta.student_fees || [])];
+    let syncedCount = 0;
+    const now = new Date().toISOString();
+
+    const boardingStudentsWithBill = report.studentsReport.filter((s: any) => s.bill_amount > 0);
+
+    if (boardingStudentsWithBill.length === 0) {
+      return { success: true, count: 0, message: "এই মাসে দেউলিয়া বা প্রদেয় বোর্ডিং বিল বিশিষ্ট কোনো ছাত্র পাওয়া যায়নি।" };
+    }
+
+    for (const student of boardingStudentsWithBill) {
+      const billAmt = Number(student.bill_amount) || 0;
+      if (billAmt <= 0) continue;
+
+      const existingIdx = currentFees.findIndex(
+        (f) =>
+          f.student_id === student.id &&
+          f.billing_period === billingPeriod &&
+          (f.fee_type_id === khorakiFeeTypeId || (f.fee_type_name || "").includes("খোরাকি") || (f.fee_type_name || "").includes("বোর্ডিং"))
+      );
+
+      if (existingIdx >= 0) {
+        const old = currentFees[existingIdx];
+        const paid = Number(old.paid_amount || 0);
+        const due = Math.max(0, billAmt - paid);
+
+        currentFees[existingIdx] = {
+          ...old,
+          base_amount: billAmt,
+          payable_amount: billAmt,
+          due_amount: due,
+          status: due === 0 ? "PAID" : paid > 0 ? "PARTIAL" : "UNPAID",
+          updated_at: now,
+        };
+      } else {
+        const newFee: any = {
+          id: `fee_bdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          madrasa_id: madrasaId,
+          session_id: sessionId,
+          student_id: student.id,
+          student_name: student.student_name || `${student.first_name || ""} ${student.last_name || ""}`.trim(),
+          student_roll: String(student.roll_number || ""),
+          class_id: "ALL",
+          class_name: student.class_name || "সাধারণ",
+          fee_type_id: khorakiFeeTypeId,
+          fee_type_name: khorakiFeeTypeName,
+          fund_id: "fund-lillah",
+          fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
+          billing_period: billingPeriod,
+          month_name: monthName,
+          year: year,
+          due_date: dueDate,
+          base_amount: billAmt,
+          discount_amount: 0,
+          fine_amount: 0,
+          payable_amount: billAmt,
+          paid_amount: 0,
+          due_amount: billAmt,
+          status: "UNPAID",
+          created_at: now,
+          updated_at: now,
+        };
+
+        currentFees.push(newFee);
+      }
+      syncedCount++;
+    }
+
+    const saved = await saveFeeMetadata(madrasaId, { student_fees: currentFees });
+    if (!saved) {
+      return { error: "একাউন্টিং লেজারে বোর্ডিং বিল যুক্ত করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
+    }
+
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/accounting/due");
+    revalidatePath("/dashboard/boarding/reports");
+
+    return {
+      success: true,
+      count: syncedCount,
+      message: `আলহামদুলিল্লাহ! ${monthName} মাসের সর্বমোট ${syncedCount} জন আবাসিক ছাত্রের বোর্ডিং মিল ইনভয়েস একাউন্টিং লেজারে সিঙ্ক করা হয়েছে।`,
+    };
+  } catch (err: any) {
+    console.error("Error in syncBoardingBillsToAccounting:", err);
+    return { error: err?.message || "সিঙ্ক করতে ব্যর্থ হয়েছে" };
+  }
+}
+
+/**
+ * Add / collect boarding meal payment with automatic invoice creation in student_fees
+ */
+export async function addBoardingMealPayment(params: {
+  student_id: string;
+  student_name?: string;
+  amount: number;
+  payment_date: string;
+  month_name?: string;
+  billing_period?: string;
+  notes?: string;
+  payment_method?: string;
+}) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
+
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
+
+    const { amount, payment_date, student_id } = params;
+    if (!student_id || !amount || amount <= 0) {
+      return { error: "ছাত্রের আইডি এবং বৈধ টাকার পরিমাণ আবশ্যক।" };
+    }
+
+    const { getFeeMetadata, saveFeeMetadata } = await import("./fee-management");
+    const meta = await getFeeMetadata(finalMadrasaId);
+
+    const now = new Date().toISOString();
+    const pDate = payment_date || now.split("T")[0];
+    const period = params.billing_period || pDate.substring(0, 7);
+    const monthLabel = params.month_name || period;
+
+    // Find or create Khoraki / Boarding Fee Type
+    const feeTypes = meta.fee_types || [];
+    let khorakiType = feeTypes.find(
+      (f: any) =>
+        f.category === "BOARDING" ||
+        f.code === "HOSTEL" ||
+        f.code === "FOOD" ||
+        (f.name || "").includes("খোরাকি") ||
+        (f.name || "").includes("বোর্ডিং")
+    );
+    const feeTypeId = khorakiType?.id || "ft_khoraki_default";
+    const feeTypeName = khorakiType?.name || "খোরাকি ও খাবার ফি";
+
+    // 1. Ensure student_fee invoice exists in student_fees
+    const studentFees = [...(meta.student_fees || [])];
+    let existingFeeIdx = studentFees.findIndex(
+      (f: any) =>
+        f.student_id === student_id &&
+        (f.billing_period === period || (f.month_name && f.month_name.includes(monthLabel))) &&
+        (f.fee_type_id === feeTypeId || (f.fee_type_name || "").includes("খোরাকি") || (f.fee_type_name || "").includes("বোর্ডিং"))
+    );
+
+    let feeId = "";
+    if (existingFeeIdx >= 0) {
+      const fee = studentFees[existingFeeIdx];
+      feeId = fee.id;
+      const newPaid = Number(fee.paid_amount || 0) + amount;
+      const baseAmt = Math.max(Number(fee.payable_amount || fee.base_amount || 0), newPaid);
+      const newDue = Math.max(0, baseAmt - newPaid);
+      studentFees[existingFeeIdx] = {
+        ...fee,
+        base_amount: baseAmt,
+        payable_amount: baseAmt,
+        paid_amount: newPaid,
+        due_amount: newDue,
+        status: newDue === 0 ? "PAID" : "PARTIAL",
+        updated_at: now,
+      };
+    } else {
+      feeId = `fee_bdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const newFee: any = {
+        id: feeId,
+        madrasa_id: finalMadrasaId,
+        student_id,
+        student_name: params.student_name || "ছাত্র",
+        fee_type_id: feeTypeId,
+        fee_type_name: feeTypeName,
+        fund_id: "fund-lillah",
+        fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
+        billing_period: period,
+        month_name: monthLabel,
+        due_date: pDate,
+        base_amount: amount,
+        discount_amount: 0,
+        fine_amount: 0,
+        payable_amount: amount,
+        paid_amount: amount,
+        due_amount: 0,
+        status: "PAID",
+        created_at: now,
+        updated_at: now,
+      };
+      studentFees.push(newFee);
+    }
+
+    // 2. Create fee_payments entry in relational database table & feeMetadata
+    const receiptNo = `MR-BDR-${Date.now().toString().slice(-6)}`;
+    const newPayment: any = {
+      id: `pay_bdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      madrasa_id: finalMadrasaId,
+      receipt_no: receiptNo,
+      student_id,
+      student_name: params.student_name || "ছাত্র",
+      payment_date: pDate,
+      total_amount_received: amount,
+      payment_method: params.payment_method || "Cash",
+      fund_id: "fund-lillah",
+      fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
+      notes: params.notes || `বোর্ডিং খাবার ফি আদায় (${monthLabel})`,
+      status: "PAID",
+      created_at: now,
+      allocations: [
+        {
+          student_fee_id: feeId,
+          fee_type_id: feeTypeId,
+          fee_type_name: feeTypeName,
+          fund_id: "fund-lillah",
+          fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
+          allocated_amount: amount,
+        },
+      ],
+    };
+
+    // Try inserting into fee_payments relational table
+    try {
+      const adminClient = await createAdminClient();
+      await adminClient.from("fee_payments").insert({
+        madrasa_id: finalMadrasaId,
+        receipt_no: receiptNo,
+        student_id,
+        payment_date: pDate,
+        total_amount_received: amount,
+        payment_method: params.payment_method || "Cash",
+        fund_id: "fund-lillah",
+        fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
+        notes: params.notes || `বোর্ডিং খাবার ফি আদায় (${monthLabel})`,
+        created_at: now,
+      });
+    } catch (dbErr) {
+      console.warn("Relational fee_payments insert fallback to metadata:", dbErr);
+    }
+
+    const currentPayments = [...(meta.payments || [])];
+    currentPayments.unshift(newPayment);
+
+    await saveFeeMetadata(finalMadrasaId, {
+      student_fees: studentFees,
+      payments: currentPayments,
+    });
+
+    revalidatePath("/dashboard/boarding");
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/accounting/reports");
+
+    return {
+      success: true,
+      receipt_no: receiptNo,
+      message: `আলহামদুলিল্লাহ! ৳${amount} বোর্ডিং মিল ফি জমা এবং ইনভয়েস সফলভাবে তৈরি করা হয়েছে।`,
+    };
+  } catch (err: any) {
+    console.error("Error in addBoardingMealPayment:", err);
+    return { error: err?.message || "মিল পেমেন্ট সংরক্ষণ করতে সমস্যা হয়েছে।" };
+  }
+}

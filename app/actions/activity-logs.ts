@@ -31,7 +31,7 @@ function isRealLog(log: GlobalActivityLogItem): boolean {
     "মাওলানা মাহমুদুল হাসান",
     "মুফতি আব্দুর রহমান",
     "হাফেজ কারী নূরুল ইসলাম",
-    "মুহতামim সাহেব",
+    "মুহতামিম সাহেব",
   ];
   if (fakeActors.includes(log.actor_name)) return false;
   if (
@@ -232,7 +232,7 @@ export async function getActivityLogs(filters?: ActivityLogFilters): Promise<{
     // --- G. Real Finance & Fee Audit Logs ---
     if (Array.isArray(meta.audit_logs)) {
       meta.audit_logs.forEach((f: any) => {
-        const isFeeCollect = f.action === "COLLECT_FEE_PAYMENT";
+        const isFeeCollect = f.action === "COLLECT_FEE_PAYMENT" || f.action === "COLLECT_PAYMENT";
         compiledLogs.push({
           id: `fin_${f.id}`,
           action_type: "PAYMENT",
@@ -247,6 +247,40 @@ export async function getActivityLogs(filters?: ActivityLogFilters): Promise<{
           link: "/dashboard/accounting/fees",
         });
       });
+    }
+
+    try {
+      const { data: relationalFeeLogs } = await adminClient
+        .from("fee_audit_logs")
+        .select("*")
+        .eq("madrasa_id", madrasaId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (Array.isArray(relationalFeeLogs) && relationalFeeLogs.length > 0) {
+        const existingIds = new Set(compiledLogs.map((l) => l.id));
+        relationalFeeLogs.forEach((f: any) => {
+          const logId = `fin_rel_${f.id}`;
+          if (!existingIds.has(logId) && !existingIds.has(`fin_${f.id}`)) {
+            const isFeeCollect = f.action === "COLLECT_FEE_PAYMENT" || f.action === "COLLECT_PAYMENT";
+            compiledLogs.push({
+              id: logId,
+              action_type: "PAYMENT",
+              module: "FINANCE",
+              module_name_bn: "হিসাব ও ফি",
+              title: isFeeCollect ? "শিক্ষার্থীর ফি আদায় ও রশিদ প্রদান" : "মাসিক বেতন ও ফি শিডিউল তৈরি",
+              description: f.details || "ফি সংক্রান্ত হিসাব হালনাগাদ করা হয়েছে।",
+              actor_name: f.user_name || currentUserName,
+              actor_role: f.user_role === "accountant" ? "হিসাবরক্ষক" : "অ্যাডমিন",
+              timestamp: f.created_at || new Date().toISOString(),
+              severity: "SUCCESS",
+              link: "/dashboard/accounting/fees",
+            });
+          }
+        });
+      }
+    } catch (feeLogErr) {
+      console.warn("Error fetching relational fee_audit_logs for activity logs:", feeLogErr);
     }
 
     // --- H. Real Online Admissions & Confirmations ---

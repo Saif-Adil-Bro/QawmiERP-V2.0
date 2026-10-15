@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
+import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { DEFAULT_SMS_TEMPLATES, SMSTemplate } from "@/lib/sms-template-helper";
 import {
   DEFAULT_SMS_GATEWAY_CONFIG,
@@ -213,24 +214,12 @@ export async function getSMSGatewayConfig(): Promise<SMSGatewayConfig> {
 
     if (!madrasaId) return DEFAULT_SMS_GATEWAY_CONFIG;
 
-    const { data: row } = await adminClient
-      .from("madrasas")
-      .select("registration_no")
-      .eq("id", madrasaId)
-      .single();
-
-    if (row?.registration_no && row.registration_no.startsWith("{")) {
-      try {
-        const meta = JSON.parse(row.registration_no);
-        if (meta.sms_gateway) {
-          return {
-            ...DEFAULT_SMS_GATEWAY_CONFIG,
-            ...meta.sms_gateway,
-          };
-        }
-      } catch {
-        // parse error fallback
-      }
+    const meta = await getMadrasaMetadata(madrasaId);
+    if (meta?.sms_gateway) {
+      return {
+        ...DEFAULT_SMS_GATEWAY_CONFIG,
+        ...meta.sms_gateway,
+      };
     }
 
     return DEFAULT_SMS_GATEWAY_CONFIG;
@@ -271,22 +260,8 @@ export async function saveSMSGatewayConfig(config: Partial<SMSGatewayConfig>) {
       return { error: "মাদরাসা পাওয়া যায়নি" };
     }
 
-    let existingMeta: Record<string, any> = {};
-    const { data: row } = await adminClient
-      .from("madrasas")
-      .select("registration_no")
-      .eq("id", madrasaId)
-      .single();
-
-    if (row?.registration_no && row.registration_no.startsWith("{")) {
-      try {
-        existingMeta = JSON.parse(row.registration_no);
-      } catch {
-        existingMeta = {};
-      }
-    }
-
-    const currentGateway = existingMeta.sms_gateway || DEFAULT_SMS_GATEWAY_CONFIG;
+    const meta = await getMadrasaMetadata(madrasaId);
+    const currentGateway = meta.sms_gateway || DEFAULT_SMS_GATEWAY_CONFIG;
     const mergedGateway: SMSGatewayConfig = {
       ...DEFAULT_SMS_GATEWAY_CONFIG,
       ...currentGateway,
@@ -297,21 +272,8 @@ export async function saveSMSGatewayConfig(config: Partial<SMSGatewayConfig>) {
       senderId: (config.senderId !== undefined ? config.senderId : currentGateway.senderId || "").trim(),
     };
 
-    const updatedMeta = {
-      ...existingMeta,
-      sms_gateway: mergedGateway,
-    };
-
-    const { error } = await adminClient
-      .from("madrasas")
-      .update({
-        registration_no: JSON.stringify(updatedMeta),
-      })
-      .eq("id", madrasaId);
-
-    if (error) {
-      return { error: "গেটওয়ে সেটিংস সংরক্ষণ ব্যর্থ: " + error.message };
-    }
+    meta.sms_gateway = mergedGateway;
+    await saveMadrasaMetadata(madrasaId, meta);
 
     revalidatePath("/dashboard/communication/sms");
     return { success: true, config: mergedGateway };

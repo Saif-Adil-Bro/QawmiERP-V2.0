@@ -8,7 +8,14 @@ import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFeeMetadata } from "./fee-management";
 
-const classifyAuditFund = (typeStr?: string, notesStr?: string): "general" | "lillah" | "zakat" | "building" => {
+const classifyAuditFund = (typeStr?: string, notesStr?: string, fundId?: string): "general" | "lillah" | "zakat" | "building" => {
+  if (fundId) {
+    const f = fundId.toLowerCase();
+    if (f === "fund-zakat" || f.includes("zakat")) return "zakat";
+    if (f === "fund-lillah" || f.includes("lillah")) return "lillah";
+    if (f === "fund-dev" || f === "fund-building" || f.includes("building") || f.includes("dev")) return "building";
+    if (f === "fund-general" || f.includes("general")) return "general";
+  }
   const combined = `${typeStr || ""} ${notesStr || ""}`.toLowerCase();
   if (
     combined.includes("zakat") ||
@@ -242,12 +249,19 @@ export async function getAnnualAuditStatement(
             const amt = Number(alloc.allocated_amount || 0);
             if (amt <= 0) return;
             allocatedSum += amt;
-            const name = alloc.fee_type_name || "মাসিক বেতন";
-            const combined = `${name} ${p.notes || ""}`.toLowerCase();
-            if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
+            const targetFundId = alloc.fund_id || p.fund_id;
+            if (targetFundId === "fund-lillah") {
               pLilIn += amt;
-            } else {
+            } else if (targetFundId) {
               pGenIn += amt;
+            } else {
+              const name = alloc.fee_type_name || "মাসিক বেতন";
+              const combined = `${name} ${p.notes || ""}`.toLowerCase();
+              if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
+                pLilIn += amt;
+              } else {
+                pGenIn += amt;
+              }
             }
           });
           const extraAdvance = Number(p.advance_amount || 0);
@@ -275,7 +289,7 @@ export async function getAnnualAuditStatement(
 
     (priorDonationsRes.data || []).forEach((d: any) => {
       const amt = Number(d.amount || 0);
-      const target = classifyAuditFund(d.donation_type, d.notes);
+      const target = classifyAuditFund(d.donation_type, d.notes, d.fund_id);
       if (target === "zakat") pZakIn += amt;
       else if (target === "lillah") pLilIn += amt;
       else if (target === "building") pBldIn += amt;
@@ -428,12 +442,19 @@ export async function getAnnualAuditStatement(
           const amt = Number(alloc.allocated_amount || 0);
           if (amt <= 0) return;
           allocatedSum += amt;
+          const targetFundId = alloc.fund_id || p.fund_id;
           const name = alloc.fee_type_name || "মাসিক বেতন ও ভর্তি ফি";
-          const combined = `${name} ${p.notes || ""}`.toLowerCase();
-          if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel")) {
+          if (targetFundId === "fund-lillah") {
             addCategoryAmount(lillahIncomes, "ছাত্র বোর্ডিং ও খাবার ফি", amt);
-          } else {
+          } else if (targetFundId) {
             addCategoryAmount(generalIncomes, name, amt);
+          } else {
+            const combined = `${name} ${p.notes || ""}`.toLowerCase();
+            if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel")) {
+              addCategoryAmount(lillahIncomes, "ছাত্র বোর্ডিং ও খাবার ফি", amt);
+            } else {
+              addCategoryAmount(generalIncomes, name, amt);
+            }
           }
         });
         const extraAdvance = Number(p.advance_amount || 0);
@@ -459,7 +480,7 @@ export async function getAnnualAuditStatement(
   // Process Database Donations
   (donationsData || []).forEach((don: any) => {
     const amt = Number(don.amount || 0);
-    const target = classifyAuditFund(don.donation_type, don.notes);
+    const target = classifyAuditFund(don.donation_type, don.notes, don.fund_id);
     const label = don.donation_type || "দান / অনুদান";
     const combined = `${don.donation_type || ""} ${don.notes || ""}`.toLowerCase();
 
@@ -606,8 +627,9 @@ export async function getAnnualAuditStatement(
   // Process Expenses
   (expensesData || []).forEach((exp: any) => {
     const amt = Number(exp.amount || 0);
+    const explicitFundId = exp.fund_id ? String(exp.fund_id).toLowerCase() : "";
     const parsed = parseExpenseFund(exp.description);
-    const fund = (parsed.fundId || "").toLowerCase();
+    const fund = explicitFundId || (parsed.fundId || "").toLowerCase();
     const cat = exp.category || "অন্যান্য পরিচালনা ব্যয়";
 
     if (fund.includes("zakat") || fund.includes("যাকাত")) {

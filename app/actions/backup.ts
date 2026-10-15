@@ -301,6 +301,11 @@ export async function getBackupOverviewStats(): Promise<{
       mealsRes,
       booksRes,
       noticesRes,
+      studentFeesRes,
+      feeStructuresRes,
+      feeTypesRes,
+      feeDiscountsRes,
+      feePaymentsRes,
     ] = await Promise.all([
       admin.from("students").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
       admin.from("classes").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
@@ -315,6 +320,11 @@ export async function getBackupOverviewStats(): Promise<{
       admin.from("meal_entries").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
       admin.from("books").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
       admin.from("notices").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("student_fees").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("fee_structures").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("fee_types").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("fee_discount_waivers").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("fee_payments").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
     ]);
 
     const studentCount = (studentsRes.count || 0) + countCollectionItems(meta.student_enrollments) + countCollectionItems(meta.student_profiles);
@@ -329,15 +339,26 @@ export async function getBackupOverviewStats(): Promise<{
     const examResultCount = (examResultsRes.count || 0) + countCollectionItems(meta.published_exams);
     const questionBankCount = countCollectionItems(meta.question_bank) + countCollectionItems(meta.exam_papers);
     
-    // Fees ledger & setup
-    const feesCount = 
+    // Fees ledger & setup (prefer relational table counts if present; fallback to metadata counts if 0)
+    const relFeesCount =
+      (studentFeesRes.count || 0) +
+      (feeStructuresRes.count || 0) +
+      (feeTypesRes.count || 0) +
+      (feeDiscountsRes.count || 0);
+
+    const metaFeesCount =
       countCollectionItems(meta.student_fees) +
       countCollectionItems(meta.fee_structures) +
       countCollectionItems(meta.fee_types) +
       countCollectionItems(meta.discounts);
-      
-    // Cash transactions & fee collection receipts
-    const financeTransactionsCount = (feesRes.count || 0) + countCollectionItems(meta.payments);
+
+    const feesCount = relFeesCount > 0 ? relFeesCount : metaFeesCount;
+
+    // Cash transactions & fee collection receipts (prefer relational table counts if present; fallback to metadata counts if 0)
+    const relFinanceTxCount = (feePaymentsRes.count || 0) + (feesRes.count || 0);
+    const metaFinanceTxCount = countCollectionItems(meta.payments);
+
+    const financeTransactionsCount = relFinanceTxCount > 0 ? relFinanceTxCount : metaFinanceTxCount;
     
     // Expenses and Bazar
     const expensesCount = (expRes.count || 0) + countCollectionItems(meta.bazar_expenses);
@@ -792,8 +813,8 @@ export async function analyzeBackupFile(fileContent: string): Promise<{
       leaves: countCollectionItems(dataObj.student_leaves) + countCollectionItems(dataObj.teacher_leaves),
       exams: countCollectionItems(dataObj.exams) + countCollectionItems(dataObj.exam_subjects) + countCollectionItems(dataObj.exam_results) + countCollectionItems(dataObj.published_exams),
       question_bank: countCollectionItems(dataObj.question_bank) + countCollectionItems(dataObj.exam_papers),
-      fees: countCollectionItems(dataObj.fee_structures) + countCollectionItems(dataObj.student_fees) + countCollectionItems(dataObj.discounts) + countCollectionItems(dataObj.fee_types),
-      finance_transactions: countCollectionItems(dataObj.fees) + countCollectionItems(dataObj.payments),
+      fees: countCollectionItems(dataObj.fee_structures) + countCollectionItems(dataObj.student_fees) + countCollectionItems(dataObj.discounts) + countCollectionItems(dataObj.fee_types) + countCollectionItems(dataObj.fee_structure_items) + countCollectionItems(dataObj.fee_discount_waivers),
+      finance_transactions: countCollectionItems(dataObj.fees) + countCollectionItems(dataObj.payments) + countCollectionItems(dataObj.fee_payments) + countCollectionItems(dataObj.fee_payment_allocations),
       expenses: countCollectionItems(dataObj.expenses) + countCollectionItems(dataObj.bazar_expenses),
       zakat_donations: countCollectionItems(dataObj.donations) + countCollectionItems(dataObj.zakat_funds) + countCollectionItems(dataObj.online_donations),
       donors_funds: countCollectionItems(dataObj.donors) + countCollectionItems(dataObj.funds),
@@ -809,7 +830,7 @@ export async function analyzeBackupFile(fileContent: string): Promise<{
       notices_sms: countCollectionItems(dataObj.notices) + countCollectionItems(dataObj.sms_templates) + countCollectionItems(dataObj.sms_logs),
       alumni: countCollectionItems(dataObj.alumni),
       settings: countCollectionItems(dataObj.sessions) + countCollectionItems(dataObj.academic_holidays) + (dataObj.madrasa ? 1 : 0),
-      audit_logs: countCollectionItems(dataObj.audit_logs) + countCollectionItems(dataObj.backup_history),
+      audit_logs: countCollectionItems(dataObj.audit_logs) + countCollectionItems(dataObj.backup_history) + countCollectionItems(dataObj.fee_audit_logs),
     };
 
     // Calculate dynamic unknown extension keys
@@ -825,7 +846,8 @@ export async function analyzeBackupFile(fileContent: string): Promise<{
       "certificate_templates", "student_leaves", "teacher_leaves", "alumni", "inventory",
       "hifz_logs", "kitab_logs", "meal_entries", "books", "book_issues", "notices",
       "sms_templates", "sms_logs", "syllabus", "sessions", "academic_holidays",
-      "madrasa", "metadata", "published_exams", "receipt_counter", "audit_logs", "backup_history"
+      "madrasa", "metadata", "published_exams", "receipt_counter", "audit_logs", "backup_history",
+      "fee_payments", "fee_payment_allocations", "fee_structure_items", "fee_discount_waivers", "fee_audit_logs"
     ]);
 
     let dynamicExtCount = 0;
