@@ -22,7 +22,7 @@ import {
   CheckCircle2,
   DollarSign
 } from "lucide-react";
-import { FundItem, getFundCategoryBadge, getPaymentMethodName } from "@/lib/fund-utils";
+import { FundItem, getFundCategoryBadge, getPaymentMethodName, isTransactionInFund } from "@/lib/fund-utils";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
 import { UnifiedIncomeOverview, UnifiedIncomeTransaction } from "@/app/actions/accounting";
 import PrintLetterpad from "@/app/components/PrintLetterpad";
@@ -68,8 +68,18 @@ export default function IncomeHistoryClient({
       }
 
       // Fund filter
-      if (selectedFundId !== "ALL" && t.fund_id !== selectedFundId) {
-        return false;
+      if (selectedFundId !== "ALL") {
+        const selectedFund = initialData.funds.find((f) => f.id === selectedFundId);
+        if (selectedFund) {
+          const matchById = t.fund_id === selectedFund.id;
+          const matchByName = t.fund_name?.toLowerCase().trim() === selectedFund.name?.toLowerCase().trim();
+          const matchByCanonical = isTransactionInFund(selectedFund, t.fund_id, t.fund_name, initialData.funds);
+          if (!matchById && !matchByName && !matchByCanonical) {
+            return false;
+          }
+        } else if (t.fund_id !== selectedFundId) {
+          return false;
+        }
       }
 
       // Source type filter
