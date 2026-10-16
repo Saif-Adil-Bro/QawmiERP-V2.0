@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { sortStudentsByRoll } from "@/lib/student-utils";
 import { Scissors } from "lucide-react";
+import { TableRowHeight, ROW_HEIGHT_PRESETS } from "@/lib/printUtils";
 
 interface PresetMadrasaSheetsProps {
   madrasaInfo: any;
@@ -11,6 +12,7 @@ interface PresetMadrasaSheetsProps {
   className?: string;
   monthName?: string;
   students?: any[];
+  rowHeight?: TableRowHeight;
 }
 
 export default function PresetMadrasaSheets({
@@ -19,7 +21,9 @@ export default function PresetMadrasaSheets({
   className = "জামাত",
   monthName = "মুহাররম / মে",
   students = [],
+  rowHeight = "normal",
 }: PresetMadrasaSheetsProps) {
+  const heightPreset = ROW_HEIGHT_PRESETS[rowHeight || "normal"] || ROW_HEIGHT_PRESETS.normal;
   const mName = madrasaInfo?.name || "মাদরাসা";
   const mAddress = madrasaInfo?.address || "";
   const mPhone = madrasaInfo?.phone || madrasaInfo?.contact_phone || "";
@@ -82,18 +86,24 @@ export default function PresetMadrasaSheets({
             </thead>
             <tbody>
               {rows.map((row, idx) => (
-                <tr key={idx} className={idx % 2 === 1 ? "bg-slate-50/70" : "bg-white"}>
-                  <td className="border border-slate-400 p-1 font-mono font-bold text-slate-800">{row.roll}</td>
-                  <td className="border border-slate-400 p-1 text-left px-1.5 font-semibold text-slate-900 truncate max-w-[140px]">
+                <tr
+                  key={idx}
+                  className={`${idx % 2 === 1 ? "bg-slate-50/70" : "bg-white"} ${heightPreset.minHeightClass}`}
+                  style={{ height: `${heightPreset.heightPx}px` }}
+                >
+                  <td className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} font-mono font-bold text-slate-800 align-middle`}>
+                    {row.roll}
+                  </td>
+                  <td className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} text-left font-semibold text-slate-900 truncate max-w-[140px] align-middle`}>
                     {row.name}
                   </td>
                   {days.map((d) => (
-                    <td key={d} className="border border-slate-400 p-0.5"></td>
+                    <td key={d} className={`border border-slate-400 ${heightPreset.paddingClass} align-middle`}></td>
                   ))}
-                  <td className="border border-slate-400 p-0.5 bg-emerald-50/50"></td>
-                  <td className="border border-slate-400 p-0.5 bg-rose-50/50"></td>
-                  <td className="border border-slate-400 p-0.5 bg-amber-50/50"></td>
-                  <td className="border border-slate-400 p-0.5"></td>
+                  <td className={`border border-slate-400 ${heightPreset.paddingClass} bg-emerald-50/50 align-middle`}></td>
+                  <td className={`border border-slate-400 ${heightPreset.paddingClass} bg-rose-50/50 align-middle`}></td>
+                  <td className={`border border-slate-400 ${heightPreset.paddingClass} bg-amber-50/50 align-middle`}></td>
+                  <td className={`border border-slate-400 ${heightPreset.paddingClass} align-middle`}></td>
                 </tr>
               ))}
             </tbody>
@@ -244,14 +254,18 @@ export default function PresetMadrasaSheets({
           </thead>
           <tbody>
             {rows.map((r, idx) => (
-              <tr key={idx} className={idx % 2 === 1 ? "bg-slate-50/60" : "bg-white"}>
-                <td className="border border-slate-400 p-1 text-center font-mono font-bold text-slate-800">{r.roll}</td>
-                <td className="border border-slate-400 p-1 font-semibold text-slate-900">{r.name}</td>
-                <td className="border border-slate-400 p-1 text-center"></td>
-                <td className="border border-slate-400 p-1 text-center"></td>
-                <td className="border border-slate-400 p-1 text-center"></td>
-                <td className="border border-slate-400 p-1 text-center"></td>
-                <td className="border border-slate-400 p-1 text-center"></td>
+              <tr
+                key={idx}
+                className={`${idx % 2 === 1 ? "bg-slate-50/60" : "bg-white"} ${heightPreset.minHeightClass}`}
+                style={{ height: `${heightPreset.heightPx}px` }}
+              >
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} text-center font-mono font-bold text-slate-800 align-middle`}>{r.roll}</td>
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} font-semibold text-slate-900 align-middle`}>{r.name}</td>
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} text-center align-middle`}></td>
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} text-center align-middle`}></td>
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} text-center align-middle`}></td>
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} text-center align-middle`}></td>
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} text-center align-middle`}></td>
               </tr>
             ))}
           </tbody>
@@ -310,14 +324,18 @@ export default function PresetMadrasaSheets({
           </thead>
           <tbody>
             {rows.map((row, idx) => (
-              <tr key={idx} className={idx % 2 === 1 ? "bg-slate-50/70" : "bg-white"}>
-                <td className="border border-slate-400 p-1 font-mono font-bold">{row.roll}</td>
-                <td className="border border-slate-400 p-1 text-left px-1.5 font-semibold truncate max-w-[140px]">{row.name}</td>
+              <tr
+                key={idx}
+                className={`${idx % 2 === 1 ? "bg-slate-50/70" : "bg-white"} ${heightPreset.minHeightClass}`}
+                style={{ height: `${heightPreset.heightPx}px` }}
+              >
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} font-mono font-bold align-middle`}>{row.roll}</td>
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} text-left font-semibold truncate max-w-[140px] align-middle`}>{row.name}</td>
                 {days.map((d) => (
-                  <td key={d} className="border border-slate-400 p-0.5"></td>
+                  <td key={d} className={`border border-slate-400 ${heightPreset.paddingClass} align-middle`}></td>
                 ))}
-                <td className="border border-slate-400 p-0.5 bg-amber-50/50"></td>
-                <td className="border border-slate-400 p-0.5"></td>
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} bg-amber-50/50 align-middle`}></td>
+                <td className={`border border-slate-400 ${heightPreset.paddingClass} align-middle`}></td>
               </tr>
             ))}
           </tbody>

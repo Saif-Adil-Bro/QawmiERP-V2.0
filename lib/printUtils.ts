@@ -217,3 +217,54 @@ export function printElementIsolated(
     window.print();
   }
 }
+
+export type TableRowHeight = "compact" | "normal" | "large" | "spacious";
+
+export interface RowHeightOption {
+  key: TableRowHeight;
+  label: string;
+  subLabel: string;
+  paddingClass: string;
+  minHeightClass: string;
+  textSizeClass: string;
+  heightPx: number;
+}
+
+export const ROW_HEIGHT_PRESETS: Record<TableRowHeight, RowHeightOption> = {
+  compact: {
+    key: "compact",
+    label: "আঁটোসাঁটো",
+    subLabel: "২২px",
+    paddingClass: "py-0.5 px-1",
+    minHeightClass: "h-[22px]",
+    textSizeClass: "text-[10px]",
+    heightPx: 22,
+  },
+  normal: {
+    key: "normal",
+    label: "স্বাভাবিক",
+    subLabel: "২৮px",
+    paddingClass: "py-1.5 px-1.5",
+    minHeightClass: "h-[28px]",
+    textSizeClass: "text-[11px]",
+    heightPx: 28,
+  },
+  large: {
+    key: "large",
+    label: "বড়",
+    subLabel: "৩৮px",
+    paddingClass: "py-2.5 px-2",
+    minHeightClass: "h-[38px]",
+    textSizeClass: "text-xs",
+    heightPx: 38,
+  },
+  spacious: {
+    key: "spacious",
+    label: "খুব বড়",
+    subLabel: "৫০px",
+    paddingClass: "py-3.5 px-2.5",
+    minHeightClass: "h-[50px]",
+    textSizeClass: "text-xs",
+    heightPx: 50,
+  },
+};

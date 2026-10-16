@@ -3,6 +3,7 @@
 import React from "react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { sortStudentsByRoll } from "@/lib/student-utils";
+import { TableRowHeight, ROW_HEIGHT_PRESETS } from "@/lib/printUtils";
 
 export interface EvaluationColumn {
   id: string;
@@ -24,6 +25,7 @@ interface ExaminerEvaluationSheetProps {
   students?: { roll?: string | number; name: string; father_name?: string }[];
   blankRowCount?: number;
   columns?: EvaluationColumn[];
+  rowHeight?: TableRowHeight;
 }
 
 export default function ExaminerEvaluationSheet({
@@ -38,6 +40,7 @@ export default function ExaminerEvaluationSheet({
   students = [],
   blankRowCount = 20,
   columns,
+  rowHeight = "normal",
 }: ExaminerEvaluationSheetProps) {
   const mName = madrasaInfo?.name || "মাদরাসা";
   const mAddress = madrasaInfo?.address || "";
@@ -152,63 +155,69 @@ export default function ExaminerEvaluationSheet({
             </tr>
           </thead>
           <tbody>
-            {displayRows.map((row, idx) => (
-              <tr
-                key={idx}
-                className={idx % 2 === 1 ? "bg-slate-50/60" : "bg-white"}
-              >
-                {activeColumns.map((col) => {
-                  if (col.id === "sl") {
+            {displayRows.map((row, idx) => {
+              const heightPreset = ROW_HEIGHT_PRESETS[rowHeight || "normal"] || ROW_HEIGHT_PRESETS.normal;
+
+              return (
+                <tr
+                  key={idx}
+                  className={`${idx % 2 === 1 ? "bg-slate-50/60" : "bg-white"} ${heightPreset.minHeightClass}`}
+                  style={{ height: `${heightPreset.heightPx}px` }}
+                >
+                  {activeColumns.map((col) => {
+                    if (col.id === "sl") {
+                      return (
+                        <td
+                          key={col.id}
+                          className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} text-center font-mono font-medium text-slate-600 align-middle`}
+                        >
+                          {row.sl}
+                        </td>
+                      );
+                    }
+                    if (col.id === "roll") {
+                      return (
+                        <td
+                          key={col.id}
+                          className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} text-center font-mono font-bold text-slate-900 align-middle`}
+                        >
+                          {row.roll}
+                        </td>
+                      );
+                    }
+                    if (col.id === "name") {
+                      return (
+                        <td
+                          key={col.id}
+                          className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} font-bold text-slate-900 align-middle`}
+                        >
+                          {row.name}
+                        </td>
+                      );
+                    }
+                    if (col.id === "father") {
+                      return (
+                        <td
+                          key={col.id}
+                          className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} text-slate-700 align-middle`}
+                        >
+                          {row.father}
+                        </td>
+                      );
+                    }
                     return (
                       <td
                         key={col.id}
-                        className="border border-slate-400 p-1 text-center font-mono font-medium text-slate-600"
+                        className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} text-center font-mono align-middle`}
                       >
-                        {row.sl}
+                        {/* Blank cell for handwriting */}
+                        &nbsp;
                       </td>
                     );
-                  }
-                  if (col.id === "roll") {
-                    return (
-                      <td
-                        key={col.id}
-                        className="border border-slate-400 p-1 text-center font-mono font-bold text-slate-900"
-                      >
-                        {row.roll}
-                      </td>
-                    );
-                  }
-                  if (col.id === "name") {
-                    return (
-                      <td
-                        key={col.id}
-                        className="border border-slate-400 p-1 font-bold text-slate-900"
-                      >
-                        {row.name}
-                      </td>
-                    );
-                  }
-                  if (col.id === "father") {
-                    return (
-                      <td
-                        key={col.id}
-                        className="border border-slate-400 p-1 text-slate-700"
-                      >
-                        {row.father}
-                      </td>
-                    );
-                  }
-                  return (
-                    <td
-                      key={col.id}
-                      className="border border-slate-400 p-1 text-center font-mono"
-                    >
-                      {/* Blank cell for handwriting */}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

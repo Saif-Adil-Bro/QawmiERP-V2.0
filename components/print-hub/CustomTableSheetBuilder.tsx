@@ -19,7 +19,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-import { printElementIsolated } from "@/lib/printUtils";
+import { printElementIsolated, TableRowHeight, ROW_HEIGHT_PRESETS } from "@/lib/printUtils";
 import { sortStudentsByRoll } from "@/lib/student-utils";
 
 export interface CustomColumn {
@@ -40,6 +40,7 @@ interface CustomTableSheetBuilderProps {
   madrasaInfo: any;
   classes: any[];
   allStudents: any[];
+  initialRowHeight?: TableRowHeight;
 }
 
 const PRESET_TEMPLATES = [
@@ -101,6 +102,7 @@ export default function CustomTableSheetBuilder({
   madrasaInfo,
   classes,
   allStudents,
+  initialRowHeight = "normal",
 }: CustomTableSheetBuilderProps) {
   // Document Configuration
   const [docTitle, setDocTitle] = useState("মাদরাসা পরীক্ষা ও শিক্ষাদান মূল্যায়ন শিট");
@@ -111,7 +113,12 @@ export default function CustomTableSheetBuilder({
   const [examDate, setExamDate] = useState("");
   const [roomNumber, setRoomNumber] = useState("");
   const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
+  const [rowHeight, setRowHeight] = useState<TableRowHeight>(initialRowHeight);
   const [notesText, setNotesText] = useState("");
+
+  useEffect(() => {
+    if (initialRowHeight) setRowHeight(initialRowHeight);
+  }, [initialRowHeight]);
 
   // Signatures
   const [sig1, setSig1] = useState("সংশ্লিষ্ট শিক্ষক / পরীক্ষকের স্বাক্ষর");
@@ -411,6 +418,36 @@ export default function CustomTableSheetBuilder({
                 >
                   আড়াআড়ি (Landscape)
                 </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-slate-600 font-semibold mb-1 flex items-center justify-between">
+                <span>সারির উচ্চতা (Row Height)</span>
+                <span className="text-[11px] text-emerald-800 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                  {ROW_HEIGHT_PRESETS[rowHeight].label} ({ROW_HEIGHT_PRESETS[rowHeight].subLabel})
+                </span>
+              </label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {(Object.keys(ROW_HEIGHT_PRESETS) as TableRowHeight[]).map((hKey) => {
+                  const opt = ROW_HEIGHT_PRESETS[hKey];
+                  const isSelected = rowHeight === hKey;
+                  return (
+                    <button
+                      key={hKey}
+                      type="button"
+                      onClick={() => setRowHeight(hKey)}
+                      className={`py-1.5 px-1 text-[11px] font-bold rounded-lg border transition text-center cursor-pointer ${
+                        isSelected
+                          ? "bg-emerald-700 text-white border-emerald-700 shadow-xs"
+                          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+                      }`}
+                      title={`${opt.label} (${opt.subLabel})`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -757,96 +794,102 @@ export default function CustomTableSheetBuilder({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, rIdx) => (
-                  <tr
-                    key={row.id || rIdx}
-                    className={rIdx % 2 === 1 ? "bg-slate-50/60" : "bg-white"}
-                  >
-                    {columns.map((col, cIdx) => {
-                      // First column: auto serial if no custom content
-                      if (cIdx === 0 && col.header.includes("ক্রম")) {
+                {rows.map((row, rIdx) => {
+                  const heightPreset = ROW_HEIGHT_PRESETS[rowHeight] || ROW_HEIGHT_PRESETS.normal;
+
+                  return (
+                    <tr
+                      key={row.id || rIdx}
+                      className={`${rIdx % 2 === 1 ? "bg-slate-50/60" : "bg-white"} ${heightPreset.minHeightClass}`}
+                      style={{ height: `${heightPreset.heightPx}px` }}
+                    >
+                      {columns.map((col, cIdx) => {
+                        // First column: auto serial if no custom content
+                        if (cIdx === 0 && col.header.includes("ক্রম")) {
+                          return (
+                            <td
+                              key={col.id}
+                              className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} text-center font-mono font-medium text-slate-600 align-middle`}
+                            >
+                              {toBanglaNumber(rIdx + 1)}
+                            </td>
+                          );
+                        }
+
+                        // Roll column
+                        if (col.header.includes("রোল")) {
+                          return (
+                            <td
+                              key={col.id}
+                              className={`border border-slate-400 ${heightPreset.paddingClass} text-center font-mono font-bold text-slate-900 align-middle`}
+                            >
+                              <input
+                                type="text"
+                                value={row.subLabel ? toBanglaNumber(row.subLabel) : ""}
+                                onChange={(e) => handleUpdateRow(row.id, { subLabel: e.target.value })}
+                                placeholder=""
+                                className="w-full text-center bg-transparent border-none p-0 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:bg-emerald-50 focus:ring-1 focus:ring-emerald-400 rounded"
+                              />
+                            </td>
+                          );
+                        }
+
+                        // Name / Label column
+                        if (col.header.includes("নাম") || col.header.includes("শিরোনাম") || col.header.includes("ছাত্র")) {
+                          return (
+                            <td
+                              key={col.id}
+                              className={`border border-slate-400 ${heightPreset.paddingClass} font-bold text-slate-900 align-middle`}
+                            >
+                              <input
+                                type="text"
+                                value={row.label || ""}
+                                onChange={(e) => handleUpdateRow(row.id, { label: e.target.value })}
+                                placeholder="নাম/বিবরণ লিখুন..."
+                                className="w-full bg-transparent border-none p-0 text-[11px] font-bold text-slate-900 focus:outline-none focus:bg-emerald-50 focus:ring-1 focus:ring-emerald-400 rounded placeholder:text-slate-300 print:placeholder:text-transparent"
+                              />
+                            </td>
+                          );
+                        }
+
+                        // Checkbox type column
+                        if (col.type === "checkbox") {
+                          return (
+                            <td
+                              key={col.id}
+                              className={`border border-slate-400 ${heightPreset.paddingClass} text-center align-middle`}
+                            >
+                              <div className="w-3.5 h-3.5 border border-slate-400 rounded mx-auto" />
+                            </td>
+                          );
+                        }
+
+                        // Signature type column
+                        if (col.type === "signature") {
+                          return (
+                            <td
+                              key={col.id}
+                              className={`border border-slate-400 ${heightPreset.paddingClass} text-center align-middle`}
+                            >
+                              <div className="w-16 border-b border-dotted border-slate-400 mx-auto" />
+                            </td>
+                          );
+                        }
+
+                        // Blank/marks cell
                         return (
                           <td
                             key={col.id}
-                            className="border border-slate-400 p-1 text-center font-mono font-medium text-slate-600"
+                            className={`border border-slate-400 ${heightPreset.paddingClass} ${heightPreset.textSizeClass} text-center font-mono align-middle`}
                           >
-                            {toBanglaNumber(rIdx + 1)}
+                            {/* Blank for manual handwriting */}
+                            &nbsp;
                           </td>
                         );
-                      }
-
-                      // Roll column
-                      if (col.header.includes("রোল")) {
-                        return (
-                          <td
-                            key={col.id}
-                            className="border border-slate-400 p-0.5 text-center font-mono font-bold text-slate-900"
-                          >
-                            <input
-                              type="text"
-                              value={row.subLabel ? toBanglaNumber(row.subLabel) : ""}
-                              onChange={(e) => handleUpdateRow(row.id, { subLabel: e.target.value })}
-                              placeholder=""
-                              className="w-full text-center bg-transparent border-none p-0.5 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:bg-emerald-50 focus:ring-1 focus:ring-emerald-400 rounded"
-                            />
-                          </td>
-                        );
-                      }
-
-                      // Name / Label column
-                      if (col.header.includes("নাম") || col.header.includes("শিরোনাম") || col.header.includes("ছাত্র")) {
-                        return (
-                          <td
-                            key={col.id}
-                            className="border border-slate-400 p-0.5 font-bold text-slate-900"
-                          >
-                            <input
-                              type="text"
-                              value={row.label || ""}
-                              onChange={(e) => handleUpdateRow(row.id, { label: e.target.value })}
-                              placeholder="নাম/বিবরণ লিখুন..."
-                              className="w-full bg-transparent border-none p-0.5 text-[11px] font-bold text-slate-900 focus:outline-none focus:bg-emerald-50 focus:ring-1 focus:ring-emerald-400 rounded placeholder:text-slate-300 print:placeholder:text-transparent"
-                            />
-                          </td>
-                        );
-                      }
-
-                      // Checkbox type column
-                      if (col.type === "checkbox") {
-                        return (
-                          <td
-                            key={col.id}
-                            className="border border-slate-400 p-1 text-center"
-                          >
-                            <div className="w-3.5 h-3.5 border border-slate-400 rounded mx-auto" />
-                          </td>
-                        );
-                      }
-
-                      // Signature type column
-                      if (col.type === "signature") {
-                        return (
-                          <td
-                            key={col.id}
-                            className="border border-slate-400 p-1 text-center"
-                          >
-                            <div className="w-16 border-b border-dotted border-slate-400 mx-auto" />
-                          </td>
-                        );
-                      }
-
-                      // Blank/marks cell
-                      return (
-                        <td
-                          key={col.id}
-                          className="border border-slate-400 p-1 text-center font-mono"
-                        >
-                          {/* Blank for manual handwriting */}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

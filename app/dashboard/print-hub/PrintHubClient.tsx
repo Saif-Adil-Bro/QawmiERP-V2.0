@@ -21,6 +21,7 @@ import {
   Copy,
   Scissors,
   Camera,
+  ArrowUpDown,
 } from "lucide-react";
 import BlankAdmissionForm from "@/components/print-hub/BlankAdmissionForm";
 import BlankMoneyReceipt from "@/components/print-hub/BlankMoneyReceipt";
@@ -29,7 +30,7 @@ import CustomTableSheetBuilder from "@/components/print-hub/CustomTableSheetBuil
 import PresetMadrasaSheets from "@/components/print-hub/PresetMadrasaSheets";
 import LetterpadNoticeBuilder from "@/components/print-hub/LetterpadNoticeBuilder";
 import { AIQuestionScannerModal } from "@/components/ai/AIQuestionScannerModal";
-import { printElementIsolated } from "@/lib/printUtils";
+import { printElementIsolated, TableRowHeight, ROW_HEIGHT_PRESETS } from "@/lib/printUtils";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { sortStudentsByRoll } from "@/lib/student-utils";
 
@@ -48,6 +49,7 @@ export default function PrintHubClient({
 }: PrintHubClientProps) {
   const [activeTab, setActiveTab] = useState<TabType>("admission");
   const [selectedFont, setSelectedFont] = useState("font-solaiman");
+  const [rowHeight, setRowHeight] = useState<TableRowHeight>("normal");
   const [aiScannerOpen, setAiScannerOpen] = useState(false);
 
   // Tab 1: Admission Form States
@@ -164,6 +166,23 @@ export default function PrintHubClient({
 
         {/* Global Action Tools */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Universal Table Row Height Selector */}
+          <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-xl px-3 py-2 shadow-2xs">
+            <ArrowUpDown className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span className="text-xs font-semibold text-slate-600 hidden sm:inline">সারির উচ্চতা:</span>
+            <select
+              value={rowHeight}
+              onChange={(e) => setRowHeight(e.target.value as TableRowHeight)}
+              className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+              title="টেবিল সারির উচ্চতা নির্ধারণ করুন"
+            >
+              <option value="compact">আঁটোসাঁটো (২২px)</option>
+              <option value="normal">স্বাভাবিক (২৮px)</option>
+              <option value="large">বড় (৩৮px)</option>
+              <option value="spacious">খুব বড় (৫০px)</option>
+            </select>
+          </div>
+
           {/* Font Selector */}
           <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-xl px-3 py-2 shadow-2xs">
             <Type className="w-4 h-4 text-slate-500 shrink-0" />
@@ -532,7 +551,36 @@ export default function PrintHubClient({
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 text-xs">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-4">
+                {/* Examiner Row Height Selector */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-600 font-semibold flex items-center gap-1">
+                    <ArrowUpDown className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>সারির উচ্চতা:</span>
+                  </span>
+                  <div className="inline-flex rounded-lg border border-slate-300 bg-slate-100 p-0.5">
+                    {(["compact", "normal", "large", "spacious"] as TableRowHeight[]).map((key) => {
+                      const opt = ROW_HEIGHT_PRESETS[key];
+                      const isSelected = rowHeight === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setRowHeight(key)}
+                          className={`px-2.5 py-1 text-xs font-bold rounded-md transition cursor-pointer ${
+                            isSelected
+                              ? "bg-emerald-700 text-white shadow-2xs"
+                              : "text-slate-700 hover:text-slate-900 hover:bg-slate-200/60"
+                          }`}
+                          title={`${opt.label} (${opt.subLabel})`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {!examinerClassId && (
                   <div className="flex items-center gap-2">
                     <span className="text-slate-600 font-medium">খালি রো সংখ্যা:</span>
@@ -588,6 +636,7 @@ export default function PrintHubClient({
                     : []
                 }
                 blankRowCount={examinerRowCount}
+                rowHeight={rowHeight}
               />
             </div>
           </div>
@@ -600,6 +649,7 @@ export default function PrintHubClient({
           madrasaInfo={madrasaInfo}
           classes={classes}
           allStudents={allStudents}
+          initialRowHeight={rowHeight}
         />
       )}
 
@@ -667,7 +717,38 @@ export default function PrintHubClient({
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 text-xs">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Row Height Selector for preset sheets */}
+                {(presetType === "attendance_monthly" || presetType === "hifz_tracker" || presetType === "hostel_meal") && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-600 font-semibold flex items-center gap-1">
+                      <ArrowUpDown className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>সারির উচ্চতা:</span>
+                    </span>
+                    <div className="inline-flex rounded-lg border border-slate-300 bg-slate-100 p-0.5">
+                      {(["compact", "normal", "large", "spacious"] as TableRowHeight[]).map((key) => {
+                        const opt = ROW_HEIGHT_PRESETS[key];
+                        const isSelected = rowHeight === key;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setRowHeight(key)}
+                            className={`px-2.5 py-1 text-xs font-bold rounded-md transition cursor-pointer ${
+                              isSelected
+                                ? "bg-emerald-700 text-white shadow-2xs"
+                                : "text-slate-700 hover:text-slate-900 hover:bg-slate-200/60"
+                            }`}
+                            title={`${opt.label} (${opt.subLabel})`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <select
                     value={presetClassId}
@@ -713,6 +794,7 @@ export default function PrintHubClient({
                 className={presetClassName}
                 monthName={presetMonth}
                 students={presetStudents}
+                rowHeight={rowHeight}
               />
             </div>
           </div>
