@@ -19,6 +19,7 @@ import {
   OnlineDonationSettings,
   DEFAULT_ONLINE_DONATION_SETTINGS,
 } from "@/lib/fundraising-types";
+import { isUuid } from "@/lib/student-utils";
 import { DEFAULT_FUNDS, normalizeFundName } from "@/lib/fund-utils";
 import { getFunds, getNextMahfilVoucherNo } from "@/app/actions/zakat";
 import {
@@ -1352,12 +1353,20 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
     let targetId = data.id;
     let savedDonorObj: LifeMemberDonor;
 
+    // Check if targetId is legacy non-UUID, and upgrade if needed
+    let oldLegacyId: string | null = null;
+    if (targetId && !isUuid(targetId)) {
+      oldLegacyId = targetId;
+      targetId = crypto.randomUUID();
+    }
+
     if (targetId) {
-      const idx = donors.findIndex((d: LifeMemberDonor) => d.id === targetId);
+      const idx = donors.findIndex((d: LifeMemberDonor) => d.id === targetId || (oldLegacyId && d.id === oldLegacyId));
       if (idx !== -1) {
         donors[idx] = {
           ...donors[idx],
           ...data,
+          id: targetId,
           pledge_amount: Number(data.pledge_amount || data.committed_amount || 0),
           updated_at: now,
         };
@@ -1387,7 +1396,7 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
         donors.unshift(savedDonorObj);
       }
     } else {
-      targetId = `donor_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+      targetId = crypto.randomUUID();
       const memberCount = donors.length + 1;
       const mType = data.member_type || data.membership_type || "MONTHLY_DONOR";
       const prefix = mType === "LIFE_MEMBER" ? "LM" : mType === "MONTHLY_DONOR" || mType === "MONTHLY" ? "MD" : "DN";
@@ -1418,6 +1427,15 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
       donors.unshift(savedDonorObj);
     }
 
+    // If ID was upgraded, update any payments referencing the old ID
+    if (oldLegacyId && oldLegacyId !== targetId) {
+      (meta.donor_subscription_payments || []).forEach((p: any) => {
+        if (p.donor_id === oldLegacyId) {
+          p.donor_id = targetId;
+        }
+      });
+    }
+
     // Save to Metadata
     meta.life_member_donors = donors;
     await saveMadrasaMetadata(finalMadrasaId, meta);
@@ -1436,15 +1454,21 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
       notes: savedDonorObj.notes || "",
     });
 
-    await adminClient.from("donors").upsert({
-      id: targetId,
-      madrasa_id: finalMadrasaId,
-      name: savedDonorObj.name,
-      phone: savedDonorObj.phone || "",
-      address: savedDonorObj.address || "",
-      donor_type: dbDonorType,
-      notes: metaNotes,
-    });
+    try {
+      if (isUuid(targetId)) {
+        await adminClient.from("donors").upsert({
+          id: targetId,
+          madrasa_id: finalMadrasaId,
+          name: savedDonorObj.name,
+          phone: savedDonorObj.phone || "",
+          address: savedDonorObj.address || "",
+          donor_type: dbDonorType,
+          notes: metaNotes,
+        });
+      }
+    } catch (upsertErr) {
+      console.warn("Could not upsert into donors table:", upsertErr);
+    }
 
     revalidatePath("/dashboard/fundraising/donors");
     revalidatePath("/dashboard/zakat/donors");
@@ -1543,9 +1567,10 @@ export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubsc
 
     // Also record into Supabase `donations` table
     try {
+      const dbDonorId = payment.donor_id && isUuid(payment.donor_id) ? payment.donor_id : null;
       await adminClient.from("donations").insert({
         madrasa_id: finalMadrasaId,
-        donor_id: payment.donor_id || null,
+        donor_id: dbDonorId,
         amount: Number(payment.amount || 0),
         donation_type: payment.fund_name || "সাধারণ ফান্ড",
         donation_date: newPayment.payment_date,

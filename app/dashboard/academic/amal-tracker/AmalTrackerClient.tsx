@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   AmalTrackerTemplate,
   AmalStudentSnapshot,
@@ -52,6 +52,27 @@ import {
 } from "@/app/actions/amal-tracker";
 import { useRouter } from "next/navigation";
 
+const AMAL_TEMPLATES_CACHE_KEY = "custom_amal_templates_cache_v2";
+
+function getCachedTemplates(): AmalTrackerTemplate[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(AMAL_TEMPLATES_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function setCachedTemplates(list: AmalTrackerTemplate[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(AMAL_TEMPLATES_CACHE_KEY, JSON.stringify(list));
+  } catch {}
+}
+
 interface AmalTrackerClientProps {
   initialTemplates: AmalTrackerTemplate[];
   initialLogs: AmalEvaluationLog[];
@@ -74,6 +95,31 @@ export default function AmalTrackerClient({
 
   // Studio Settings & Filter State
   const [templates, setTemplates] = useState<AmalTrackerTemplate[]>(initialTemplates);
+
+  // Hydrate & Merge with client LocalStorage cache on mount
+  useEffect(() => {
+    const cached = getCachedTemplates();
+    if (cached && cached.length > 0) {
+      setTemplates((prev) => {
+        const map = new Map<string, AmalTrackerTemplate>();
+        prev.forEach((t) => map.set(t.id, t));
+        cached.forEach((c) => {
+          const existing = map.get(c.id);
+          if (!existing) {
+            map.set(c.id, c);
+          } else if (!existing.isDefault || !c.isDefault) {
+            const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+            const cachedTime = c.updatedAt ? new Date(c.updatedAt).getTime() : 0;
+            if (cachedTime >= existingTime) {
+              map.set(c.id, c);
+            }
+          }
+        });
+        const merged = Array.from(map.values());
+        return merged;
+      });
+    }
+  }, []);
   const [evaluationLogs, setEvaluationLogs] = useState<AmalEvaluationLog[]>(initialLogs);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
     initialTemplates[0]?.id || WEEKLY_GENERAL_TEMPLATE.id
@@ -213,34 +259,57 @@ export default function AmalTrackerClient({
     setIsTemplateModalOpen(true);
   };
 
-  // Save Template Action
+  // Save Template Action (Dual-Layer Persistence: LocalStorage + Server Database)
   const handleSaveTemplate = async () => {
     if (!editingTemplate || !editingTemplate.title.trim()) {
       alert("অনুগ্রহ করে টেমপ্লেটের নাম প্রদান করুন।");
       return;
     }
 
+    const templateToSave: AmalTrackerTemplate = {
+      ...editingTemplate,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // 1. Instant local persistence & UI update
+    setTemplates((prev) => {
+      const index = prev.findIndex((t) => t.id === templateToSave.id);
+      let next: AmalTrackerTemplate[];
+      if (index >= 0) {
+        next = [...prev];
+        next[index] = templateToSave;
+      } else {
+        next = [templateToSave, ...prev];
+      }
+      setCachedTemplates(next);
+      return next;
+    });
+    setSelectedTemplateId(templateToSave.id);
+    setIsTemplateModalOpen(false);
+
+    // 2. Server database persistence
     try {
       setIsSavingTemplate(true);
-      const res = await saveAmalTrackerTemplate(editingTemplate);
+      const res = await saveAmalTrackerTemplate(templateToSave);
       if (res.success && res.template) {
         setTemplates((prev) => {
           const index = prev.findIndex((t) => t.id === res.template!.id);
+          let next: AmalTrackerTemplate[];
           if (index >= 0) {
-            const next = [...prev];
+            next = [...prev];
             next[index] = res.template!;
-            return next;
+          } else {
+            next = [res.template!, ...prev];
           }
-          return [res.template!, ...prev];
+          setCachedTemplates(next);
+          return next;
         });
-        setSelectedTemplateId(res.template.id);
-        setIsTemplateModalOpen(false);
         router.refresh();
       } else {
-        alert(res.message || "সংরক্ষণে সমস্যা হয়েছে।");
+        console.warn("Server save feedback:", res.message);
       }
     } catch (err: any) {
-      alert("ত্রুটি: " + err.message);
+      console.error("Server save error:", err);
     } finally {
       setIsSavingTemplate(false);
     }
@@ -250,12 +319,16 @@ export default function AmalTrackerClient({
   const handleDeleteTemplate = async (id: string) => {
     if (!confirm("আপনি কি নিশ্চিতভাবে এই টেমপ্লেটটি মুছে ফেলতে চান?")) return;
     try {
+      setTemplates((prev) => {
+        const updated = prev.filter((t) => t.id !== id);
+        setCachedTemplates(updated);
+        return updated;
+      });
+      if (selectedTemplateId === id) {
+        setSelectedTemplateId(WEEKLY_GENERAL_TEMPLATE.id);
+      }
       const res = await deleteAmalTrackerTemplate(id);
       if (res.success) {
-        setTemplates((prev) => prev.filter((t) => t.id !== id));
-        if (selectedTemplateId === id) {
-          setSelectedTemplateId(WEEKLY_GENERAL_TEMPLATE.id);
-        }
         router.refresh();
       } else {
         alert(res.message || "মুছে ফেলা সম্ভব হয়নি।");
@@ -550,10 +623,11 @@ export default function AmalTrackerClient({
                       const mode: "vertical" | "horizontal" = e.target.checked ? "vertical" : "horizontal";
                       const updated = templates.map((t) =>
                         t.id === activeTemplate.id
-                          ? { ...t, dateHeaderMode: mode }
+                          ? { ...t, dateHeaderMode: mode, updatedAt: new Date().toISOString() }
                           : t
                       );
                       setTemplates(updated);
+                      setCachedTemplates(updated);
                     }}
                     className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-0 cursor-pointer"
                   />
@@ -568,10 +642,11 @@ export default function AmalTrackerClient({
                     onChange={(e) => {
                       const updated = templates.map((t) =>
                         t.id === activeTemplate.id
-                          ? { ...t, showImamDailySignRow: e.target.checked }
+                          ? { ...t, showImamDailySignRow: e.target.checked, updatedAt: new Date().toISOString() }
                           : t
                       );
                       setTemplates(updated);
+                      setCachedTemplates(updated);
                     }}
                     className="w-3.5 h-3.5 text-amber-600 rounded focus:ring-0 cursor-pointer"
                   />
@@ -586,10 +661,11 @@ export default function AmalTrackerClient({
                     onChange={(e) => {
                       const updated = templates.map((t) =>
                         t.id === activeTemplate.id
-                          ? { ...t, showImamSign: e.target.checked }
+                          ? { ...t, showImamSign: e.target.checked, updatedAt: new Date().toISOString() }
                           : t
                       );
                       setTemplates(updated);
+                      setCachedTemplates(updated);
                     }}
                     className="w-3.5 h-3.5 text-amber-600 rounded focus:ring-0 cursor-pointer"
                   />

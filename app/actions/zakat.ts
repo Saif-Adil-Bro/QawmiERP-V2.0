@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
+import { isUuid } from "@/lib/student-utils";
 import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName, isTransactionInFund } from "@/lib/fund-utils";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFeeMetadata } from "./fee-management";
@@ -775,6 +776,68 @@ export async function getDonors(): Promise<DonorItem[]> {
 
     // Master unified donors mapping
     const donorResultMap = new Map<string, DonorItem>();
+
+    // Build DB donors lookup for automatic legacy migration
+    const dbDonorsByPhone = new Map<string, any>();
+    const dbDonorsByName = new Map<string, any>();
+    (dbDonors || []).forEach((d: any) => {
+      if (d.phone && d.phone.trim()) dbDonorsByPhone.set(d.phone.trim(), d);
+      if (d.name && d.name.trim()) dbDonorsByName.set(d.name.trim().toLowerCase(), d);
+    });
+
+    let metaNeedsSave = false;
+    for (const lm of rawDonors) {
+      if (!isUuid(lm.id)) {
+        const phoneKey = lm.phone ? lm.phone.trim() : "";
+        const nameKey = lm.name ? lm.name.trim().toLowerCase() : "";
+        let matchedDb = (phoneKey && dbDonorsByPhone.get(phoneKey)) || (nameKey && dbDonorsByName.get(nameKey));
+
+        if (matchedDb) {
+          const oldId = lm.id;
+          lm.id = matchedDb.id;
+          metaNeedsSave = true;
+          (meta.donor_subscription_payments || []).forEach((p: any) => {
+            if (p.donor_id === oldId) p.donor_id = matchedDb.id;
+          });
+        } else {
+          try {
+            const dType = lm.member_type === "LIFE_MEMBER" ? "Annual" :
+              lm.member_type === "MONTHLY_DONOR" || lm.member_type === "MONTHLY" ? "Monthly" : "OneTime";
+            const { data: newDb } = await adminClient.from("donors").insert({
+              madrasa_id: finalMadrasaId,
+              name: lm.name,
+              phone: lm.phone || "",
+              address: lm.address || "",
+              donor_type: dType,
+              notes: JSON.stringify({
+                member_no: lm.member_no || "",
+                pledge_amount: lm.pledge_amount || 0,
+                preferred_fund: lm.preferred_fund || "",
+                notes: lm.notes || "",
+              }),
+            }).select().single();
+
+            if (newDb?.id) {
+              const oldId = lm.id;
+              lm.id = newDb.id;
+              metaNeedsSave = true;
+              if (phoneKey) dbDonorsByPhone.set(phoneKey, newDb);
+              if (nameKey) dbDonorsByName.set(nameKey, newDb);
+              (meta.donor_subscription_payments || []).forEach((p: any) => {
+                if (p.donor_id === oldId) p.donor_id = newDb.id;
+              });
+            }
+          } catch (e) {
+            console.warn("Auto-healing legacy donor into DB error:", e);
+          }
+        }
+      }
+    }
+
+    if (metaNeedsSave) {
+      meta.life_member_donors = rawDonors;
+      await saveMadrasaMetadata(finalMadrasaId, meta);
+    }
 
     // First, add all DB donors
     (dbDonors || []).forEach((d: any) => {
@@ -2043,15 +2106,102 @@ export async function addDonation(prevState: any, formData: FormData) {
       formattedNotes = `[Method: ${payment_method}] ${formattedNotes}`.trim();
     }
 
-    const { data, error } = await adminClient.from("donations").insert({
+    // Resolve donor_id to a valid PostgreSQL UUID
+    let finalDonorId: string | null = null;
+    if (donor_id && donor_id.trim() !== "") {
+      if (isUuid(donor_id)) {
+        finalDonorId = donor_id;
+      } else {
+        // Resolve legacy non-UUID donor ID (e.g., "donor_1792128444291_ll4n")
+        try {
+          const meta = await getMadrasaMetadata(finalMadrasaId);
+          const rawDonors = meta.life_member_donors || [];
+          const matchedDonor = rawDonors.find((d: any) => d.id === donor_id);
+
+          if (matchedDonor) {
+            let dbDonor = null;
+            if (matchedDonor.phone && matchedDonor.phone.trim()) {
+              const { data: byPhone } = await adminClient
+                .from("donors")
+                .select("id")
+                .eq("madrasa_id", finalMadrasaId)
+                .eq("phone", matchedDonor.phone.trim())
+                .maybeSingle();
+              if (byPhone) dbDonor = byPhone;
+            }
+            if (!dbDonor && matchedDonor.name) {
+              const { data: byName } = await adminClient
+                .from("donors")
+                .select("id")
+                .eq("madrasa_id", finalMadrasaId)
+                .eq("name", matchedDonor.name.trim())
+                .maybeSingle();
+              if (byName) dbDonor = byName;
+            }
+
+            if (dbDonor?.id) {
+              finalDonorId = dbDonor.id;
+              matchedDonor.id = dbDonor.id;
+              await saveMadrasaMetadata(finalMadrasaId, meta);
+            } else {
+              const dType = matchedDonor.member_type === "LIFE_MEMBER" ? "Annual" :
+                matchedDonor.member_type === "MONTHLY_DONOR" || matchedDonor.member_type === "MONTHLY" ? "Monthly" : "OneTime";
+              const { data: newDb } = await adminClient.from("donors").insert({
+                madrasa_id: finalMadrasaId,
+                name: matchedDonor.name,
+                phone: matchedDonor.phone || "",
+                address: matchedDonor.address || "",
+                donor_type: dType,
+                notes: JSON.stringify({
+                  member_no: matchedDonor.member_no || "",
+                  pledge_amount: matchedDonor.pledge_amount || 0,
+                  preferred_fund: matchedDonor.preferred_fund || "",
+                  notes: matchedDonor.notes || "",
+                }),
+              }).select().single();
+
+              if (newDb?.id) {
+                finalDonorId = newDb.id;
+                matchedDonor.id = newDb.id;
+                await saveMadrasaMetadata(finalMadrasaId, meta);
+              }
+            }
+          }
+        } catch (resolveErr) {
+          console.warn("Could not resolve non-UUID donor_id in addDonation:", resolveErr);
+        }
+      }
+    }
+
+    let { data, error } = await adminClient.from("donations").insert({
       madrasa_id: finalMadrasaId,
-      donor_id: donor_id && donor_id !== "" ? donor_id : null,
+      donor_id: finalDonorId,
       amount,
       donation_type,
       donation_date,
       receipt_no,
       notes: formattedNotes,
     }).select().single();
+
+    // In case of any foreign key constraint violation or unexpected DB error with donor_id, retry safely
+    if (error && finalDonorId) {
+      console.warn("Retrying donation insert with donor_id: null due to error:", error.message);
+      const fallbackNotes = `[Donor Ref: ${finalDonorId}] ${formattedNotes}`.trim();
+      const retryRes = await adminClient.from("donations").insert({
+        madrasa_id: finalMadrasaId,
+        donor_id: null,
+        amount,
+        donation_type,
+        donation_date,
+        receipt_no,
+        notes: fallbackNotes,
+      }).select().single();
+
+      if (!retryRes.error) {
+        data = retryRes.data;
+        error = null;
+      }
+    }
 
     if (error) {
       return { error: error.message };

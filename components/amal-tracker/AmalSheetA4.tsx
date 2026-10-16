@@ -204,9 +204,9 @@ export const AmalSheetA4: React.FC<AmalSheetA4Props> = ({
               <span>✉</span>
               <span>সম্মানিত অভিভাবকের প্রতি বিশেষ নিবেদন:</span>
             </div>
-            <p className="text-justify text-slate-700 font-normal">
+            <div className="text-justify text-slate-700 font-normal whitespace-pre-line leading-relaxed">
               {template.naseehatText}
-            </p>
+            </div>
           </section>
         )}
 

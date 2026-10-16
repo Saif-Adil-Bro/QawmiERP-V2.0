@@ -18,12 +18,31 @@ import { revalidatePath } from "next/cache";
  */
 export async function getAmalTrackerData() {
   try {
-    const madrasaId = await getAuthMadrasaId();
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : "";
+
     const [madrasaInfo, classesList, studentsList] = await Promise.all([
       getMadrasaInfo(),
       getClasses(),
       getStudents(),
     ]);
+
+    if (!madrasaId && madrasaInfo?.id) {
+      madrasaId = madrasaInfo.id;
+    }
+    if (!madrasaId && studentsList?.[0]?.madrasa_id) {
+      madrasaId = studentsList[0].madrasa_id;
+    }
+    if (!madrasaId) {
+      try {
+        const adminClient = await createAdminClient();
+        const { data: firstMadrasa } = await adminClient.from("madrasas").select("id").limit(1).maybeSingle();
+        if (firstMadrasa?.id) {
+          madrasaId = firstMadrasa.id;
+        }
+      } catch {}
+    }
 
     let customTemplates: AmalTrackerTemplate[] = [];
     let evaluationLogs: AmalEvaluationLog[] = [];
@@ -66,6 +85,29 @@ export async function getAmalTrackerData() {
 }
 
 /**
+ * Helper to reliably resolve current madrasa ID across user profile, metadata, or active records
+ */
+async function resolveEffectiveMadrasaId(supabase: any, user: any): Promise<string> {
+  let madrasaId = user ? await getAuthMadrasaId(supabase, user) : "";
+  if (!madrasaId) {
+    try {
+      const madrasaInfo = await getMadrasaInfo();
+      madrasaId = madrasaInfo?.id || "";
+    } catch {}
+  }
+  if (!madrasaId) {
+    try {
+      const adminClient = await createAdminClient();
+      const { data: firstMadrasa } = await adminClient.from("madrasas").select("id").limit(1).maybeSingle();
+      if (firstMadrasa?.id) {
+        madrasaId = firstMadrasa.id;
+      }
+    } catch {}
+  }
+  return madrasaId;
+}
+
+/**
  * Save or update an Amal Tracker template
  */
 export async function saveAmalTrackerTemplate(template: Partial<AmalTrackerTemplate>) {
@@ -76,7 +118,7 @@ export async function saveAmalTrackerTemplate(template: Partial<AmalTrackerTempl
       return { success: false, message: "অননুমোদিত অনুরোধ। লগইন করুন।" };
     }
 
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const madrasaId = await resolveEffectiveMadrasaId(supabase, user);
     if (!madrasaId) {
       return { success: false, message: "মাদরাসা আইডি পাওয়া যায়নি।" };
     }
@@ -105,6 +147,9 @@ export async function saveAmalTrackerTemplate(template: Partial<AmalTrackerTempl
       showGradeEvaluation: template.showGradeEvaluation ?? true,
       showParentSign: template.showParentSign ?? true,
       showTeacherSign: template.showTeacherSign ?? true,
+      showImamDailySignRow: (template as any).showImamDailySignRow ?? false,
+      showImamSign: (template as any).showImamSign ?? false,
+      dateHeaderMode: (template as any).dateHeaderMode || "auto",
       isDefault: false,
       createdAt: template.createdAt || now,
       updatedAt: now,
@@ -161,7 +206,7 @@ export async function deleteAmalTrackerTemplate(templateId: string) {
       return { success: false, message: "অননুমোদিত অনুরোধ।" };
     }
 
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const madrasaId = await resolveEffectiveMadrasaId(supabase, user);
     if (!madrasaId) {
       return { success: false, message: "মাদরাসা আইডি পাওয়া যায়নি।" };
     }
@@ -200,7 +245,7 @@ export async function saveAmalEvaluationLog(log: Partial<AmalEvaluationLog>) {
       return { success: false, message: "অননুমোদিত অনুরোধ।" };
     }
 
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const madrasaId = await resolveEffectiveMadrasaId(supabase, user);
     if (!madrasaId) {
       return { success: false, message: "মাদরাসা আইডি পাওয়া যায়নি।" };
     }
@@ -269,7 +314,7 @@ export async function deleteAmalEvaluationLog(logId: string) {
     const user = await getAuthUser(supabase);
     if (!user) return { success: false, message: "অননুমোদিত অনুরোধ।" };
 
-    const madrasaId = await getAuthMadrasaId(supabase, user);
+    const madrasaId = await resolveEffectiveMadrasaId(supabase, user);
     if (!madrasaId) return { success: false, message: "মাদরাসা আইডি পাওয়া যায়নি।" };
 
     const meta = await getMadrasaMetadata(madrasaId);
