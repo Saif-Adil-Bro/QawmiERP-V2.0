@@ -189,13 +189,22 @@ export default function AccountingReportPage() {
               </div>
 
               {/* Fund-wise Reconciliation Breakdown Table */}
-              {report.fundStats && report.fundStats.length > 0 && selectedFundId === "all" && (
+              {report.fundStats && report.fundStats.length > 0 && (
                 <div className="border border-slate-200 rounded-xl overflow-hidden print:border-black">
-                  <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center gap-2 print:bg-white print:border-black">
-                    <Landmark className="w-4 h-4 text-emerald-700 print:hidden" />
-                    <h3 className="font-bold text-slate-800 text-sm sm:text-base print:text-black">
-                      ফান্ডভিত্তিক আয়-ব্যয়ের পুঙ্খানুপুঙ্খ সমন্বয় (Fund Reconciliation)
-                    </h3>
+                  <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between print:bg-white print:border-black">
+                    <div className="flex items-center gap-2">
+                      <Landmark className="w-4 h-4 text-emerald-700 print:hidden" />
+                      <h3 className="font-bold text-slate-800 text-sm sm:text-base print:text-black">
+                        {selectedFundId !== "all"
+                          ? `${funds.find((f) => f.id === selectedFundId)?.name || "নির্দিষ্ট ফান্ড"} - আয়-ব্যয় সমন্বয়`
+                          : "ফান্ডভিত্তিক আয়-ব্যয়ের পুঙ্খানুপুঙ্খ সমন্বয় (Fund Reconciliation)"}
+                      </h3>
+                    </div>
+                    {selectedFundId !== "all" && (
+                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 print:hidden">
+                        ফিল্টার্ড ভিউ
+                      </span>
+                    )}
                   </div>
                   <table className="w-full text-left text-xs sm:text-sm border-collapse">
                     <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 print:bg-slate-200 print:border-black">
@@ -245,10 +254,21 @@ export default function AccountingReportPage() {
               <div className="border-t border-slate-200 pt-8 print:border-black">
                 <h3 className="text-lg font-bold text-slate-800 mb-4 print:text-black">রিপোর্টের সারসংক্ষেপ</h3>
                 <p className="text-slate-600 print:text-black">
-                  {month}/{year} মাসে মাদরাসার মোট আয় হয়েছে <strong>৳{report.totalIncome.toLocaleString('bn-BD')}</strong> এবং মোট ব্যয় হয়েছে <strong>৳{report.totalExpense.toLocaleString('bn-BD')}</strong>। 
-                  মাসের শেষে নিট ব্যালেন্স দাঁড়াচ্ছে <strong className={report.netBalance >= 0 ? 'text-emerald-600 print:text-black' : 'text-red-600 print:text-black'}>
-                    {report.netBalance < 0 ? '-' : ''}৳{Math.abs(report.netBalance).toLocaleString('bn-BD')}
-                  </strong>।
+                  {selectedFundId !== "all" ? (
+                    <>
+                      {month}/{year} মাসে <strong>{funds.find((f) => f.id === selectedFundId)?.name || "ফান্ডে"}</strong> মোট আদায় হয়েছে <strong>৳{report.totalIncome.toLocaleString('bn-BD')}</strong> এবং ব্যয় হয়েছে <strong>৳{report.totalExpense.toLocaleString('bn-BD')}</strong>। 
+                      ফান্ডের নিট ব্যালেন্স দাঁড়াচ্ছে <strong className={report.netBalance >= 0 ? 'text-emerald-600 print:text-black' : 'text-red-600 print:text-black'}>
+                        {report.netBalance < 0 ? '-' : ''}৳{Math.abs(report.netBalance).toLocaleString('bn-BD')}
+                      </strong>।
+                    </>
+                  ) : (
+                    <>
+                      {month}/{year} মাসে মাদরাসার মোট আয় হয়েছে <strong>৳{report.totalIncome.toLocaleString('bn-BD')}</strong> এবং মোট ব্যয় হয়েছে <strong>৳{report.totalExpense.toLocaleString('bn-BD')}</strong>। 
+                      মাসের শেষে নিট ব্যালেন্স দাঁড়াচ্ছে <strong className={report.netBalance >= 0 ? 'text-emerald-600 print:text-black' : 'text-red-600 print:text-black'}>
+                        {report.netBalance < 0 ? '-' : ''}৳{Math.abs(report.netBalance).toLocaleString('bn-BD')}
+                      </strong>।
+                    </>
+                  )}
                 </p>
               </div>
             </div>

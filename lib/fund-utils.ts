@@ -362,55 +362,138 @@ export function isTransactionInFund(
   const fId = (fund.id || "").toLowerCase().trim();
   const fName = (fund.name || "").toLowerCase().trim();
   const fCode = (fund.code || "").toLowerCase().trim();
+  const fCategory = (fund.category || "").toLowerCase().trim();
 
   const candidateId = (itemFundId || "").toLowerCase().trim();
   const candidateName = (itemFundName || "").toLowerCase().trim();
 
+  // ONLY truly general funds are marked as General Fund (never Zakat, Lillah, etc. even if is_default is true)
   const isGeneralFund =
-    fund.is_default ||
     fId === "fund-general" ||
     fId === "gen" ||
-    fName.includes("সাধারণ");
+    fCategory === "general" ||
+    (fName.includes("সাধারণ") &&
+      !fName.includes("যাকাত") &&
+      !fName.includes("লিল্লাহ") &&
+      !fName.includes("ফিতরা") &&
+      !fName.includes("উন্নয়ন") &&
+      !fName.includes("মসজিদ") &&
+      !fName.includes("এতিম"));
 
+  // If candidate has no fund specified at all, it belongs strictly to General Fund
   if (!candidateId && !candidateName) {
     return isGeneralFund;
   }
 
+  // Exact ID match
   if (fId && candidateId && fId === candidateId) return true;
-  if (fName && candidateName && fName === candidateName) return true;
-  if (fCode && candidateName && (candidateName === fCode || candidateName.includes(fCode))) return true;
 
+  // Exact Name or Code match
+  if (fName && candidateName && fName === candidateName) return true;
+  if (fCode && candidateName && fCode === candidateName) return true;
+  if (fCode && candidateId && fCode === candidateId) return true;
+
+  // Specific Fund Keywords Identification
+  const isCandidateZakat =
+    candidateId.includes("zakat") ||
+    candidateId === "zkt" ||
+    candidateName.includes("যাকাত") ||
+    candidateName.includes("zakat");
+
+  const isCandidateLillah =
+    candidateId.includes("lillah") ||
+    candidateId === "lil" ||
+    candidateName.includes("লিল্লাহ") ||
+    candidateName.includes("খোরাকি") ||
+    candidateName.includes("বোর্ডিং") ||
+    candidateName.includes("খাবার") ||
+    candidateName.includes("lillah") ||
+    candidateName.includes("hostel");
+
+  const isCandidateFitra =
+    candidateId.includes("fitra") ||
+    candidateId === "ftr" ||
+    candidateName.includes("ফিতরা") ||
+    candidateName.includes("সদকা") ||
+    candidateName.includes("fitra") ||
+    candidateName.includes("sadaqah");
+
+  const isCandidateDev =
+    candidateId.includes("dev") ||
+    candidateName.includes("উন্নয়ন") ||
+    candidateName.includes("মসজিদ") ||
+    candidateName.includes("নির্মাণ") ||
+    candidateName.includes("development") ||
+    candidateName.includes("building");
+
+  const isCandidateOrphan =
+    candidateId.includes("orphan") ||
+    candidateId === "orp" ||
+    candidateName.includes("এতিম") ||
+    candidateName.includes("orphan");
+
+  const isFundZakat =
+    fId.includes("zakat") ||
+    fCode === "zkt" ||
+    fCategory === "zakat" ||
+    fName.includes("যাকাত");
+
+  const isFundLillah =
+    fId.includes("lillah") ||
+    fCode === "lil" ||
+    fCategory === "lillah" ||
+    fName.includes("লিল্লাহ") ||
+    fName.includes("বোর্ডিং");
+
+  const isFundFitra =
+    fId.includes("fitra") ||
+    fCode === "ftr" ||
+    fCategory === "fitra" ||
+    fName.includes("ফিতরা");
+
+  const isFundDev =
+    fId.includes("dev") ||
+    fCategory === "development" ||
+    fName.includes("উন্নয়ন") ||
+    fName.includes("মসজিদ");
+
+  const isFundOrphan =
+    fId.includes("orphan") ||
+    fCode === "orp" ||
+    fCategory === "education" ||
+    fName.includes("এতিম");
+
+  // Check specific targeted fund matches
+  if (isFundZakat) return isCandidateZakat;
+  if (isFundLillah) return isCandidateLillah;
+  if (isFundFitra) return isCandidateFitra;
+  if (isFundDev) return isCandidateDev;
+  if (isFundOrphan) return isCandidateOrphan;
+
+  // If this fund is General Fund
+  if (isGeneralFund) {
+    // If candidate belongs to any other specific fund (Zakat, Lillah, Fitra, Dev, Orphan),
+    // it MUST NOT be included in General Fund!
+    if (isCandidateZakat || isCandidateLillah || isCandidateFitra || isCandidateDev || isCandidateOrphan) {
+      return false;
+    }
+    return true;
+  }
+
+  // Custom funds (user created)
   const fundsList = allFunds || DEFAULT_FUNDS;
   const canonA = normalizeFundName(fund.name, fundsList).toLowerCase().trim();
   const canonB = normalizeFundName(candidateName || candidateId, fundsList).toLowerCase().trim();
 
   if (canonA && canonB && canonA === canonB) return true;
-  if (canonA && canonB && canonA.length >= 4 && canonB.length >= 4) {
-    if (canonA.includes(canonB) || canonB.includes(canonA)) return true;
-  }
-  if (fName && candidateName && fName.length >= 4 && candidateName.length >= 4) {
-    if (fName.includes(candidateName) || candidateName.includes(fName)) return true;
-  }
 
-  // If candidate is a general donation/grant and this is the General Fund
-  if (isGeneralFund && (!candidateId || candidateId === "fund-general" || candidateId === "gen")) {
-    const isOtherSpecificFund =
-      candidateName.includes("যাকাত") ||
-      candidateName.includes("লিল্লাহ") ||
-      candidateName.includes("খোরাকি") ||
-      candidateName.includes("বোর্ডিং") ||
-      candidateName.includes("ফিতরা") ||
-      candidateName.includes("উন্নয়ন") ||
-      candidateName.includes("মসজিদ") ||
-      candidateName.includes("এতিম") ||
-      candidateId.includes("zakat") ||
-      candidateId.includes("lillah") ||
-      candidateId.includes("fitra") ||
-      candidateId.includes("dev") ||
-      candidateId.includes("orphan");
-
-    if (!isOtherSpecificFund) {
-      return true;
+  if (fName && candidateName) {
+    const cleanFName = fName.replace(/\(.*?\)/g, "").replace(/ফান্ড/g, "").trim();
+    const cleanCName = candidateName.replace(/\(.*?\)/g, "").replace(/ফান্ড/g, "").trim();
+    if (cleanFName.length >= 3 && cleanCName.length >= 3) {
+      if (cleanFName.includes(cleanCName) || cleanCName.includes(cleanFName)) {
+        return true;
+      }
     }
   }
 

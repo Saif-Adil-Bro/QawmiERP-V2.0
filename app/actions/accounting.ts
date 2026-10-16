@@ -714,19 +714,51 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // Helper to safely add income to fundMap
   function addIncomeToFund(fId: string, fName: string, amt: number) {
     if (amt <= 0) return;
-    if (!fundMap.has(fId)) {
-      fundMap.set(fId, { fund_id: fId, fund_name: fName, income: 0, expense: 0 });
+    let targetKey = fId;
+    if (!fundMap.has(targetKey)) {
+      const matched = registeredFunds.find(rf => 
+        rf.id === fId || 
+        rf.code?.toLowerCase() === fId.toLowerCase() ||
+        rf.name.toLowerCase().trim() === fName.toLowerCase().trim() ||
+        (fId === "fund-zakat" && (rf.category === "Zakat" || rf.name.includes("যাকাত"))) ||
+        (fId === "fund-lillah" && (rf.category === "Lillah" || rf.name.includes("লিল্লাহ"))) ||
+        (fId === "fund-fitra" && (rf.category === "Fitra" || rf.name.includes("ফিতরা"))) ||
+        (fId === "fund-dev" && (rf.category === "Development" || rf.name.includes("উন্নয়ন") || rf.name.includes("মসজিদ"))) ||
+        (fId === "fund-orphan" && (rf.category === "Education" || rf.name.includes("এতিম")))
+      );
+      if (matched && fundMap.has(matched.id)) {
+        targetKey = matched.id;
+      }
     }
-    fundMap.get(fId)!.income += amt;
+    if (!fundMap.has(targetKey)) {
+      fundMap.set(targetKey, { fund_id: targetKey, fund_name: fName, income: 0, expense: 0 });
+    }
+    fundMap.get(targetKey)!.income += amt;
   }
 
   // Helper to safely add expense to fundMap
   function addExpenseToFund(fId: string, fName: string, amt: number) {
     if (amt <= 0) return;
-    if (!fundMap.has(fId)) {
-      fundMap.set(fId, { fund_id: fId, fund_name: fName, income: 0, expense: 0 });
+    let targetKey = fId;
+    if (!fundMap.has(targetKey)) {
+      const matched = registeredFunds.find(rf => 
+        rf.id === fId || 
+        rf.code?.toLowerCase() === fId.toLowerCase() ||
+        rf.name.toLowerCase().trim() === fName.toLowerCase().trim() ||
+        (fId === "fund-zakat" && (rf.category === "Zakat" || rf.name.includes("যাকাত"))) ||
+        (fId === "fund-lillah" && (rf.category === "Lillah" || rf.name.includes("লিল্লাহ"))) ||
+        (fId === "fund-fitra" && (rf.category === "Fitra" || rf.name.includes("ফিতরা"))) ||
+        (fId === "fund-dev" && (rf.category === "Development" || rf.name.includes("উন্নয়ন") || rf.name.includes("মসজিদ"))) ||
+        (fId === "fund-orphan" && (rf.category === "Education" || rf.name.includes("এতিম")))
+      );
+      if (matched && fundMap.has(matched.id)) {
+        targetKey = matched.id;
+      }
     }
-    fundMap.get(fId)!.expense += amt;
+    if (!fundMap.has(targetKey)) {
+      fundMap.set(targetKey, { fund_id: targetKey, fund_name: fName, income: 0, expense: 0 });
+    }
+    fundMap.get(targetKey)!.expense += amt;
   }
 
   // Helper to map a donation type or label to a Fund ID & Name
@@ -990,17 +1022,40 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
 
   // If specific fund filtered
   if (fundId && fundId !== "all") {
-    const target = fundMap.get(fundId) || {
+    let target = fundMap.get(fundId);
+    if (!target) {
+      const matched = registeredFunds.find(rf => 
+        rf.id === fundId ||
+        rf.code?.toLowerCase() === fundId.toLowerCase() ||
+        rf.name.toLowerCase().trim() === fundId.toLowerCase().trim() ||
+        (fundId === "fund-zakat" && (rf.category === "Zakat" || rf.name.includes("যাকাত"))) ||
+        (fundId === "fund-lillah" && (rf.category === "Lillah" || rf.name.includes("লিল্লাহ"))) ||
+        (fundId === "fund-fitra" && (rf.category === "Fitra" || rf.name.includes("ফিতরা"))) ||
+        (fundId === "fund-dev" && (rf.category === "Development" || rf.name.includes("উন্নয়ন") || rf.name.includes("মসজিদ"))) ||
+        (fundId === "fund-orphan" && (rf.category === "Education" || rf.name.includes("এতিম")))
+      );
+      if (matched && fundMap.has(matched.id)) {
+        target = fundMap.get(matched.id);
+      }
+    }
+
+    const finalTarget = target || {
       fund_id: fundId,
       fund_name: registeredFunds.find(f => f.id === fundId)?.name || "ফান্ড",
       income: 0,
       expense: 0,
     };
+
+    const singleStat = {
+      ...finalTarget,
+      balance: finalTarget.income - finalTarget.expense,
+    };
+
     return {
-      totalIncome: target.income,
-      totalExpense: target.expense,
-      netBalance: target.income - target.expense,
-      fundStats,
+      totalIncome: finalTarget.income,
+      totalExpense: finalTarget.expense,
+      netBalance: finalTarget.income - finalTarget.expense,
+      fundStats: [singleStat],
     };
   }
 

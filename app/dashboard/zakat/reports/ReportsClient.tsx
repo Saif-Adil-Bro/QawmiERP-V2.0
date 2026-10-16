@@ -14,7 +14,7 @@ import {
   Clock,
   PieChart
 } from "lucide-react";
-import { FundItem, DonorItem, DonationItem, getFundCategoryBadge, getDonorTypeBadge } from "@/lib/fund-utils";
+import { FundItem, DonorItem, DonationItem, getFundCategoryBadge, getDonorTypeBadge, isTransactionInFund } from "@/lib/fund-utils";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
 import { printElementIsolated } from "@/lib/printUtils";
 import { getActiveMadrasaHeaderInfo } from "@/app/actions/zakat";
@@ -67,8 +67,16 @@ export default function ReportsClient({
 
   const madrasaInfo = liveMadrasaInfo || initialMadrasaInfo;
 
+  const selectedFundObj = funds.find(
+    (f) => f.name === selectedFund || f.id === selectedFund || f.code === selectedFund
+  );
+
   const filteredDonations = donations.filter(d => {
-    const matchesFund = selectedFund === "ALL" || d.donation_type === selectedFund || d.fund_name === selectedFund;
+    const matchesFund =
+      selectedFund === "ALL" ||
+      (selectedFundObj
+        ? isTransactionInFund(selectedFundObj, (d as any).fund_id, d.fund_name || d.donation_type, funds)
+        : d.donation_type === selectedFund || d.fund_name === selectedFund);
     const matchesType = selectedDonorType === "ALL" || (d.donors?.donor_type || "OneTime") === selectedDonorType;
     const matchesStart = !startDate || d.donation_date >= startDate;
     const matchesEnd = !endDate || d.donation_date <= endDate;
@@ -76,6 +84,25 @@ export default function ReportsClient({
   });
 
   const totalFilteredAmount = filteredDonations.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+
+  const isFiltered = selectedFund !== "ALL" || selectedDonorType !== "ALL" || Boolean(startDate) || Boolean(endDate);
+
+  const displayTotal = isFiltered ? totalFilteredAmount : (stats?.grandTotal || totalFilteredAmount);
+  const displayCount = isFiltered ? filteredDonations.length : donations.length;
+
+  const filteredMonthly = filteredDonations
+    .filter((d) => (d.donors?.donor_type || "OneTime") === "Monthly")
+    .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  const filteredAnnual = filteredDonations
+    .filter((d) => d.donors?.donor_type === "Annual")
+    .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  const filteredOneTime = filteredDonations
+    .filter((d) => (d.donors?.donor_type || "OneTime") === "OneTime")
+    .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+
+  const displayMonthly = isFiltered ? filteredMonthly : (stats?.donorTypeStats?.monthly?.collected || 0);
+  const displayAnnual = isFiltered ? filteredAnnual : (stats?.donorTypeStats?.annual?.collected || 0);
+  const displayOneTime = isFiltered ? filteredOneTime : (stats?.donorTypeStats?.oneTime?.collected || 0);
 
   const handlePrint = () => {
     printElementIsolated("zakat-reports-print-root", "যাকাত_ও_ফান্ড_কালেকশন_রিপোর্ট");
@@ -163,16 +190,18 @@ export default function ReportsClient({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-semibold">সর্বমোট ফান্ড কালেকশন</span>
+            <span className="text-xs font-semibold">
+              {isFiltered ? "ফিল্টার্ড ফান্ড কালেকশন" : "সর্বমোট ফান্ড কালেকশন"}
+            </span>
             <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           <h3 className="text-2xl font-black text-slate-900 font-mono">
-            ৳ {formatBanglaCurrency(stats?.grandTotal || totalFilteredAmount)}
+            ৳ {formatBanglaCurrency(displayTotal)}
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            মোট {toBanglaNumber(donations.length)} টি অনুদান রসিদ
+            {isFiltered ? "ফিল্টার অনুযায়ী মোট" : "মোট"} {toBanglaNumber(displayCount)} টি অনুদান রসিদ
           </p>
         </div>
 
@@ -184,10 +213,10 @@ export default function ReportsClient({
             </div>
           </div>
           <h3 className="text-2xl font-black text-blue-900 font-mono">
-            ৳ {formatBanglaCurrency(stats?.donorTypeStats?.monthly?.collected || 0)}
+            ৳ {formatBanglaCurrency(displayMonthly)}
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            {toBanglaNumber(stats?.donorTypeStats?.monthly?.count || 0)} জন নিয়মিত মাসিক দাতা
+            নিয়মিত মাসিক অনুদান
           </p>
         </div>
 
@@ -199,10 +228,10 @@ export default function ReportsClient({
             </div>
           </div>
           <h3 className="text-2xl font-black text-purple-900 font-mono">
-            ৳ {formatBanglaCurrency(stats?.donorTypeStats?.annual?.collected || 0)}
+            ৳ {formatBanglaCurrency(displayAnnual)}
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            {toBanglaNumber(stats?.donorTypeStats?.annual?.count || 0)} জন বার্ষিক দাতা
+            বাৎসরিক অনুদান
           </p>
         </div>
 
@@ -214,10 +243,10 @@ export default function ReportsClient({
             </div>
           </div>
           <h3 className="text-2xl font-black text-amber-900 font-mono">
-            ৳ {formatBanglaCurrency(stats?.donorTypeStats?.oneTime?.collected || 0)}
+            ৳ {formatBanglaCurrency(displayOneTime)}
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            {toBanglaNumber(stats?.donorTypeStats?.oneTime?.count || 0)} জন এককালীন অনুদানকারী
+            এককালীন ও সাধারণ অনুদান
           </p>
         </div>
       </div>

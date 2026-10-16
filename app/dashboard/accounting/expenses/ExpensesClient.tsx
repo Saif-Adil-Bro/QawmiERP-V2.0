@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { deleteExpense } from "@/app/actions/accounting";
-import { FundItem } from "@/lib/fund-utils";
+import { FundItem, isTransactionInFund } from "@/lib/fund-utils";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
 import ExpenseVoucher, { ExpenseItem, MadrasaInfo } from "@/components/accounting/ExpenseVoucher";
 import EditExpenseModal from "@/components/accounting/EditExpenseModal";
@@ -69,8 +69,15 @@ export default function ExpensesClient({
   // Filter expenses based on search and dropdowns
   const filteredExpenses = expenses.filter((exp) => {
     // Fund match
-    if (selectedFundId !== "all" && exp.fund_id !== selectedFundId) {
-      return false;
+    if (selectedFundId !== "all") {
+      const fundObj = funds.find((f) => f.id === selectedFundId);
+      const directMatch = exp.fund_id === selectedFundId;
+      const canonicalMatch = fundObj
+        ? isTransactionInFund(fundObj, exp.fund_id, exp.fund_name, funds)
+        : false;
+      if (!directMatch && !canonicalMatch) {
+        return false;
+      }
     }
     // Category match
     if (selectedCategory !== "all" && exp.category !== selectedCategory) {
