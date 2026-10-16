@@ -21,9 +21,12 @@ import {
   MapPin,
   Check,
   UserCheck,
-  User
+  User,
+  Ban,
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react";
-import { addDonation, deleteDonation, addDonor } from "@/app/actions/zakat";
+import { addDonation, deleteDonation, voidDonationReceipt, unvoidDonationReceipt, addDonor } from "@/app/actions/zakat";
 import { 
   DonationItem, 
   DonorItem, 
@@ -91,12 +94,21 @@ export default function CollectionClient({
   // Search and Filter states for table
   const [search, setSearch] = useState("");
   const [tableFundFilter, setTableFundFilter] = useState("ALL");
+  const [tableStatusFilter, setTableStatusFilter] = useState<"ALL" | "COMPLETED" | "VOID">("ALL");
 
   // Modals state
   const [isFundModalOpen, setIsFundModalOpen] = useState(false);
   const [isDonorModalOpen, setIsDonorModalOpen] = useState(false);
   const [activeReceiptDonation, setActiveReceiptDonation] = useState<DonationItem | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Void & Unvoid Modal States
+  const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
+  const [donationToVoid, setDonationToVoid] = useState<DonationItem | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [isUnvoidModalOpen, setIsUnvoidModalOpen] = useState(false);
+  const [donationToUnvoid, setDonationToUnvoid] = useState<DonationItem | null>(null);
+  const [unvoidReason, setUnvoidReason] = useState("");
+  const [isActionSubmitting, setIsActionSubmitting] = useState(false);
 
   // Preselected donor info
   const currentSelectedDonor = donorList.find(d => d.id === selectedDonorId);
@@ -245,25 +257,95 @@ export default function CollectionClient({
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("আপনি কি নিশ্চিতভাবে এই কালেকশন রেকর্ডটি মুছে ফেলতে চান?")) return;
-    setDeletingId(id);
+  // Open Void Modal
+  const handleOpenVoid = (donation: DonationItem) => {
+    setDonationToVoid(donation);
+    setVoidReason("");
+    setIsVoidModalOpen(true);
+  };
+
+  // Confirm Void Donation Receipt
+  const handleConfirmVoid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!donationToVoid) return;
+    if (!voidReason.trim()) {
+      alert("রসিদ বাতিলের সুনির্দিষ্ট কারণ লেখা আবশ্যক।");
+      return;
+    }
+    setIsActionSubmitting(true);
     try {
-      const res = await deleteDonation(id);
+      const res = await voidDonationReceipt(donationToVoid.id, voidReason.trim());
       if (res?.error) {
         alert(res.error);
         return;
       }
-      setDonations(donations.filter(d => d.id !== id));
+      setDonations((prev) =>
+        prev.map((d) =>
+          d.id === donationToVoid.id
+            ? {
+                ...d,
+                status: "VOID",
+                cancellation_reason: voidReason.trim(),
+              }
+            : d
+        )
+      );
+      setIsVoidModalOpen(false);
+      setSuccessToast(`রসিদ নং ${donationToVoid.receipt_no || donationToVoid.id} সফলভাবে বাতিল (VOID) করা হয়েছে।`);
+      setTimeout(() => setSuccessToast(null), 4000);
     } catch (err: any) {
-      console.error("deleteDonation failed:", err);
-      alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
+      console.error("voidDonationReceipt failed:", err);
+      alert("রসিদ বাতিল করতে সমস্যা হয়েছে।");
     } finally {
-      setDeletingId(null);
+      setIsActionSubmitting(false);
     }
   };
 
-  const filteredDonations = donations.filter(d => {
+  // Open Unvoid Modal
+  const handleOpenUnvoid = (donation: DonationItem) => {
+    setDonationToUnvoid(donation);
+    setUnvoidReason("প্রধান এডমিনের বিশেষ অনুমোদনক্রমে পুনর্বহাল");
+    setIsUnvoidModalOpen(true);
+  };
+
+  // Confirm Unvoid (Super Admin)
+  const handleConfirmUnvoid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!donationToUnvoid) return;
+    setIsActionSubmitting(true);
+    try {
+      const res = await unvoidDonationReceipt(donationToUnvoid.id, unvoidReason.trim() || "পুনরায় সক্রিয়");
+      if (res?.error) {
+        alert(res.error);
+        return;
+      }
+      setDonations((prev) =>
+        prev.map((d) =>
+          d.id === donationToUnvoid.id
+            ? {
+                ...d,
+                status: "COMPLETED",
+                cancellation_reason: undefined,
+              }
+            : d
+        )
+      );
+      setIsUnvoidModalOpen(false);
+      setSuccessToast(`রসিদ নং ${donationToUnvoid.receipt_no || donationToUnvoid.id} সফলভাবে পুনরায় সক্রিয় করা হয়েছে।`);
+      setTimeout(() => setSuccessToast(null), 4000);
+    } catch (err: any) {
+      console.error("unvoidDonationReceipt failed:", err);
+      alert("পুনরায় সক্রিয় করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsActionSubmitting(false);
+    }
+  };
+
+  const filteredDonations = donations.filter((d) => {
+    const isVoid = d.status === "VOID" || (d.notes && d.notes.includes("[VOID:"));
+    if (tableStatusFilter === "COMPLETED" && isVoid) return false;
+    if (tableStatusFilter === "VOID" && !isVoid) return false;
+
     const donorName = d.donors?.name || "সাধারণ দাতা";
     const matchesSearch = 
       donorName.toLowerCase().includes(search.toLowerCase()) ||
@@ -277,7 +359,9 @@ export default function CollectionClient({
     return matchesSearch && matchesFund;
   });
 
-  const totalCollectedAmount = donations.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  const totalCollectedAmount = donations
+    .filter((d) => d.status !== "VOID" && !(d.notes && d.notes.includes("[VOID:")))
+    .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -713,17 +797,31 @@ export default function CollectionClient({
               />
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <select
+                  value={tableFundFilter}
+                  onChange={(e) => setTableFundFilter(e.target.value)}
+                  className="px-2.5 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 bg-white focus:outline-none cursor-pointer"
+                >
+                  <option value="ALL">সকল ফান্ড</option>
+                  {funds.map((f) => (
+                    <option key={f.id} value={f.name}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <select
-                value={tableFundFilter}
-                onChange={(e) => setTableFundFilter(e.target.value)}
-                className="px-2.5 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 bg-white focus:outline-none"
+                value={tableStatusFilter}
+                onChange={(e) => setTableStatusFilter(e.target.value as any)}
+                className="px-2.5 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 bg-white focus:outline-none cursor-pointer"
               >
-                <option value="ALL">সকল ফান্ড</option>
-                {funds.map(f => (
-                  <option key={f.id} value={f.name}>{f.name}</option>
-                ))}
+                <option value="ALL">সকল রসিদ</option>
+                <option value="COMPLETED">সফল রসিদ (Active)</option>
+                <option value="VOID">বাতিলকৃত রসিদ (VOID)</option>
               </select>
             </div>
           </div>
@@ -741,86 +839,130 @@ export default function CollectionClient({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                  {filteredDonations.map((donation) => (
-                    <tr key={donation.id} className="hover:bg-slate-50/80 transition-colors">
-                      {/* Date & Receipt No */}
-                      <td className="py-3 px-4">
-                        <div className="font-bold text-slate-900">
-                          {toBanglaNumber(new Date(donation.donation_date).toLocaleDateString("en-GB"))}
-                        </div>
-                        <div className="text-[11px] font-mono text-slate-500">
-                          {donation.receipt_no || "ZR-Auto"}
-                        </div>
-                      </td>
+                  {filteredDonations.map((donation) => {
+                    const isVoid = donation.status === "VOID" || (donation.notes && donation.notes.includes("[VOID:"));
 
-                      {/* Donor & Fund */}
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-slate-900 text-sm">
-                            {donation.is_mahfil_settlement
-                              ? donation.mahfil_title || donation.donors?.name || "বার্ষিক মাহফিল উদ্বৃত্ত তহবিল"
-                              : donation.donors?.name || "সাধারণ দাতা"}
-                          </span>
-                          {donation.is_mahfil_settlement && (
-                            <span className="text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md border border-amber-300 flex items-center gap-1">
-                              <span>✨ মাহফিল উদ্বৃত্ত</span>
+                    return (
+                      <tr
+                        key={donation.id}
+                        className={`hover:bg-slate-50/80 transition-colors ${
+                          isVoid ? "bg-rose-50/25 opacity-75" : ""
+                        }`}
+                      >
+                        {/* Date & Receipt No */}
+                        <td className="py-3 px-4">
+                          <div className={`font-bold ${isVoid ? "line-through text-slate-400" : "text-slate-900"}`}>
+                            {toBanglaNumber(new Date(donation.donation_date).toLocaleDateString("en-GB"))}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {isVoid && (
+                              <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                                VOID
+                              </span>
+                            )}
+                            <span className={`text-[11px] font-mono ${isVoid ? "line-through text-slate-400" : "text-slate-500"}`}>
+                              {donation.receipt_no || "ZR-Auto"}
                             </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                          <span className="text-[11px] font-medium text-emerald-800 bg-emerald-50 px-2 py-0.2 rounded border border-emerald-200">
-                            {donation.fund_name || donation.donation_type}
-                          </span>
-                          {donation.payment_method && donation.payment_method !== "Cash" && (
-                            <span className="text-[10px] text-slate-500 font-medium">
-                              • {donation.payment_method}
-                            </span>
-                          )}
-                          {donation.notes && (
-                            <span className="text-[10px] text-slate-500 truncate max-w-[200px]" title={donation.notes}>
-                              • {donation.notes}
-                            </span>
-                          )}
-                        </div>
-                      </td>
+                          </div>
+                        </td>
 
-                      {/* Amount */}
-                      <td className="py-3 px-4">
-                        <div className="font-black text-emerald-800 text-sm font-mono">
-                          ৳ {formatBanglaCurrency(donation.amount)}
-                        </div>
-                      </td>
+                        {/* Donor & Fund */}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`font-bold text-sm ${isVoid ? "line-through text-slate-400" : "text-slate-900"}`}>
+                              {donation.is_mahfil_settlement
+                                ? donation.mahfil_title || donation.donors?.name || "বার্ষিক মাহফিল উদ্বৃত্ত তহবিল"
+                                : donation.donors?.name || "সাধারণ দাতা"}
+                            </span>
+                            {donation.is_mahfil_settlement && (
+                              <span className="text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md border border-amber-300 flex items-center gap-1">
+                                <span>✨ মাহফিল উদ্বৃত্ত</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <span
+                              className={`text-[11px] font-medium px-2 py-0.2 rounded border ${
+                                isVoid
+                                  ? "line-through text-slate-400 bg-slate-100 border-slate-200"
+                                  : "text-emerald-800 bg-emerald-50 border-emerald-200"
+                              }`}
+                            >
+                              {donation.fund_name || donation.donation_type}
+                            </span>
+                            {donation.payment_method && donation.payment_method !== "Cash" && (
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                • {donation.payment_method}
+                              </span>
+                            )}
+                            {donation.notes && (
+                              <span className="text-[10px] text-slate-500 truncate max-w-[200px]" title={donation.notes}>
+                                • {donation.notes}
+                              </span>
+                            )}
+                          </div>
+                          {isVoid && donation.cancellation_reason && (
+                            <div className="text-[10px] text-rose-600 font-medium italic mt-1">
+                              বাতিলের কারণ: {donation.cancellation_reason}
+                            </div>
+                          )}
+                        </td>
 
-                      {/* Receipt & Action */}
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setActiveReceiptDonation(donation)}
-                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                              donation.is_mahfil_settlement
-                                ? "bg-amber-700 hover:bg-amber-800 text-white shadow-2xs"
-                                : "bg-slate-900 text-white hover:bg-slate-800"
+                        {/* Amount */}
+                        <td className="py-3 px-4">
+                          <div
+                            className={`font-mono text-sm ${
+                              isVoid ? "line-through text-slate-400 opacity-60 font-semibold" : "font-black text-emerald-800"
                             }`}
-                            title={donation.is_mahfil_settlement ? "মাহফিল হস্তান্তর মেমো/ভাউচার প্রিন্ট করুন" : "A4 মানি রসিদ প্রিন্ট করুন"}
                           >
-                            <Printer className={`w-3.5 h-3.5 ${donation.is_mahfil_settlement ? "text-amber-200" : "text-emerald-400"}`} />
-                            <span>{donation.is_mahfil_settlement ? "মেমো ভাউচার" : "রসিদ"}</span>
-                          </button>
+                            ৳ {formatBanglaCurrency(donation.amount)}
+                          </div>
+                        </td>
 
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(donation.id)}
-                            disabled={deletingId === donation.id}
-                            className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
-                            title="মুছে ফেলুন"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        {/* Receipt & Action */}
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setActiveReceiptDonation(donation)}
+                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                donation.is_mahfil_settlement
+                                  ? "bg-amber-700 hover:bg-amber-800 text-white shadow-2xs"
+                                  : "bg-slate-900 text-white hover:bg-slate-800"
+                              }`}
+                              title={donation.is_mahfil_settlement ? "মাহফিল হস্তান্তর মেমো/ভাউচার প্রিন্ট করুন" : "A4 মানি রসিদ প্রিন্ট করুন"}
+                            >
+                              <Printer className={`w-3.5 h-3.5 ${donation.is_mahfil_settlement ? "text-amber-200" : "text-emerald-400"}`} />
+                              <span>{donation.is_mahfil_settlement ? "মেমো ভাউচার" : "রসিদ"}</span>
+                            </button>
+
+                            {/* Void / Unvoid Action */}
+                            {!isVoid ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenVoid(donation)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition cursor-pointer"
+                                title="রসিদ বাতিল করুন (Void Receipt)"
+                              >
+                                <Ban className="w-3.5 h-3.5 text-rose-600" />
+                                <span>বাতিল</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenUnvoid(donation)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition cursor-pointer"
+                                title="প্রধান এডমিন: রসিদটি পুনরায় সক্রিয় করুন"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>সক্রিয়</span>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
 
                   {filteredDonations.length === 0 && (
                     <tr>
@@ -885,6 +1027,147 @@ export default function CollectionClient({
           window.location.reload();
         }}
       />
+
+      {/* Void Donation Receipt Modal */}
+      {isVoidModalOpen && donationToVoid && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-xl border border-rose-100">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2 text-rose-600">
+                <Ban className="w-5 h-5" />
+                <h3 className="text-base font-bold text-slate-900">অনুদান রসিদ বাতিল (Void Receipt)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsVoidModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-rose-50/70 text-slate-800 p-4 rounded-2xl text-xs space-y-2 border border-rose-200">
+              <div className="space-y-1 font-sans">
+                <p><strong>রসিদ নং:</strong> <span className="font-mono text-rose-700 font-bold">{donationToVoid.receipt_no || donationToVoid.id}</span></p>
+                <p><strong>দাতা:</strong> {donationToVoid.is_mahfil_settlement ? (donationToVoid.mahfil_title || donationToVoid.donors?.name) : (donationToVoid.donors?.name || "সাধারণ দাতা")}</p>
+                <p><strong>ফান্ড:</strong> {donationToVoid.fund_name || donationToVoid.donation_type}</p>
+                <p><strong>পরিমাণ:</strong> ৳ {formatBanglaCurrency(donationToVoid.amount)}</p>
+                <p><strong>তারিখ:</strong> {toBanglaNumber(new Date(donationToVoid.donation_date).toLocaleDateString("en-GB"))}</p>
+              </div>
+              <p className="text-[11px] text-rose-700 pt-2 border-t border-rose-200/60 leading-relaxed">
+                ⚠️ আর্থিক স্বচ্ছতার স্বার্থে রসিদ কখনোই ডাটাবেজ থেকে মুছে ফেলা হয় না। এটি বাতিল (VOID) হিসেবে সংরক্ষিত থাকবে এবং স্বয়ংক্রিয়ভাবে ফান্ডের ব্যালেন্স ও মোট আয় থেকে বাদ পড়বে।
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmVoid} className="space-y-4 text-xs sm:text-sm">
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700 flex items-center gap-1">
+                  <span>বাতিলের সুনির্দিষ্ট কারণ (বাধ্যতামূলক)</span>
+                  <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={voidReason}
+                  onChange={(e) => setVoidReason(e.target.value)}
+                  placeholder="যেমন: ভুল ফান্ডের নামে এন্ট্রি / ভুল অংক / চেক বাউন্স / দাতার অনুরোধ..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsVoidModalOpen(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold cursor-pointer"
+                >
+                  ফিরে যান
+                </button>
+                <button
+                  type="submit"
+                  disabled={isActionSubmitting}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Ban className="w-4 h-4" />
+                  <span>{isActionSubmitting ? "বাতিল হচ্ছে..." : "নিশ্চিত বাতিল করুন (VOID)"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Unvoid Donation Receipt Modal (Super Admin Reactivation) */}
+      {isUnvoidModalOpen && donationToUnvoid && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-xl border border-emerald-100">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2 text-emerald-700">
+                <RefreshCw className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-base font-bold text-slate-900">অনুদান রসিদ পুনরায় সক্রিয় করুন (Unvoid)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsUnvoidModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-emerald-50/60 text-slate-800 p-4 rounded-2xl text-xs space-y-2 border border-emerald-200">
+              <div className="space-y-1 font-sans">
+                <p><strong>রসিদ নং:</strong> <span className="font-mono text-emerald-800 font-bold">{donationToUnvoid.receipt_no || donationToUnvoid.id}</span></p>
+                <p><strong>দাতা:</strong> {donationToUnvoid.donors?.name || "সাধারণ দাতা"}</p>
+                <p><strong>ফান্ড:</strong> {donationToUnvoid.fund_name || donationToUnvoid.donation_type}</p>
+                <p><strong>পরিমাণ:</strong> ৳ {formatBanglaCurrency(donationToUnvoid.amount)}</p>
+                <p>
+                  <strong>পূর্বে বাতিলের কারণ:</strong>{" "}
+                  <span className="text-rose-700 italic">{donationToUnvoid.cancellation_reason || "তথ্য নেই"}</span>
+                </p>
+              </div>
+              <p className="text-[11px] text-emerald-800 pt-2 border-t border-emerald-200/60 leading-relaxed">
+                👑 শুধুমাত্র প্রধান এডমিনের বিশেষ অনুমোদনক্রমে বাতিল হওয়া রসিদ পুনর্বহাল করা সম্ভব। এটি সক্রিয় করলে ফান্ডের ব্যালেন্স ও আয়ের হিসাবে পুনরায় যোগ হবে।
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmUnvoid} className="space-y-4 text-xs sm:text-sm">
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700 flex items-center gap-1">
+                  <span>পুনরায় সক্রিয়করণের কারণ / এডমিন নোট (বাধ্যতামূলক)</span>
+                  <span className="text-emerald-600">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={unvoidReason}
+                  onChange={(e) => setUnvoidReason(e.target.value)}
+                  placeholder="যেমন: ভুলবশত বাতিল করা হয়েছিল, অডিট শেষে অনুমোদনক্রমে পুনরায় সক্রিয় করা হলো..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsUnvoidModalOpen(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold cursor-pointer"
+                >
+                  ফিরে যান
+                </button>
+                <button
+                  type="submit"
+                  disabled={isActionSubmitting}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>{isActionSubmitting ? "সক্রিয় হচ্ছে..." : "নিশ্চিত সক্রিয় করুন"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

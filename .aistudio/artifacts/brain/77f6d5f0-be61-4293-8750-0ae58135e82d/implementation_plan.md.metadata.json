@@ -1,6 +1,6 @@
 {
-  "summary": "হিফজ লগে জেসন (JSON) মেটাডাটা ও [HIFZ_META] টেক্সটের বদলে সুন্দর বাংলা লেবেল, ব্যাজ এবং কাঠামোগত কার্ড আকারে প্রদর্শনের পরিকল্পনা।",
-  "updatedAt": "2026-10-15T16:12:57.984389286Z",
+  "summary": "Comprehensive architectural and UI/UX implementation plan for replacing permanent hard deletion of receipts with an immutable Void/Cancellation workflow across Student Fee Receipts and Donation/Zakat collections, featuring reason modals, VOID badges, line-through styling, automatic balance rollback, and super-admin unvoiding.",
+  "updatedAt": "2026-10-16T00:45:29.386714601Z",
   "requestFeedback": true,
   "userFacing": true
 }

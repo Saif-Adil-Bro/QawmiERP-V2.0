@@ -113,6 +113,9 @@ export interface FeePayment {
   reversal_reason?: string;
   reversed_at?: string;
   reversed_by?: string;
+  cancellation_reason?: string;
+  voided_at?: string;
+  voided_by?: string;
   idempotency_key?: string;
   created_at: string;
 }

@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { FeePayment, FeeAuditLog } from "@/lib/fee-management";
 import {
-  reverseFeePayment,
-  deleteSingleFeePayment,
+  voidFeePayment,
+  unvoidFeePayment,
   resetAllFeeData,
   syncFeesWithFunds,
 } from "@/app/actions/fee-management";
@@ -19,8 +19,8 @@ import {
   History,
   X,
   CreditCard,
-  Trash2,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -39,17 +39,18 @@ export default function PaymentsClient({
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "COMPLETED" | "REVERSED">("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "COMPLETED" | "VOID">("ALL");
   const [methodFilter, setMethodFilter] = useState<string>("ALL");
 
-  // Reversal Modal
-  const [isReverseModalOpen, setIsReverseModalOpen] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<FeePayment | null>(null);
-  const [reversalReason, setReversalReason] = useState("");
+  // Void Receipt Modal
+  const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
+  const [selectedPaymentForVoid, setSelectedPaymentForVoid] = useState<FeePayment | null>(null);
+  const [cancellationReason, setCancellationReason] = useState("");
 
-  // Delete Single Modal
-  const [isDeleteSingleModalOpen, setIsDeleteSingleModalOpen] = useState(false);
-  const [paymentToDelete, setPaymentToDelete] = useState<FeePayment | null>(null);
+  // Unvoid Modal (Super Admin Reactivation)
+  const [isUnvoidModalOpen, setIsUnvoidModalOpen] = useState(false);
+  const [selectedPaymentForUnvoid, setSelectedPaymentForUnvoid] = useState<FeePayment | null>(null);
+  const [unvoidReason, setUnvoidReason] = useState("");
 
   // Reset Hub Modal
   const [isResetHubOpen, setIsResetHubOpen] = useState(false);
@@ -70,7 +71,9 @@ export default function PaymentsClient({
     .reduce((sum, p) => sum + (Number(p.total_amount_received) || 0), 0);
 
   const filteredPayments = payments.filter((p) => {
-    if (statusFilter !== "ALL" && p.status !== statusFilter) return false;
+    const isVoid = p.status === "REVERSED" || p.status === "VOID";
+    if (statusFilter === "COMPLETED" && isVoid) return false;
+    if (statusFilter === "VOID" && !isVoid) return false;
     if (methodFilter !== "ALL" && p.payment_method !== methodFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -91,60 +94,82 @@ export default function PaymentsClient({
   const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
   const paginatedPayments = filteredPayments.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const handleOpenReverse = (p: FeePayment) => {
-    setSelectedPayment(p);
-    setReversalReason("");
-    setIsReverseModalOpen(true);
+  // Open Void Modal
+  const handleOpenVoid = (p: FeePayment) => {
+    setSelectedPaymentForVoid(p);
+    setCancellationReason("");
+    setIsVoidModalOpen(true);
   };
 
-  const handleConfirmReverse = async (e: React.FormEvent) => {
+  // Confirm Void Receipt (Soft-Delete)
+  const handleConfirmVoid = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPayment) return;
-    if (!reversalReason.trim()) {
-      alert("রিভার্সালের কারণ উল্লেখ করা বাধ্যতামূলক।");
+    if (!selectedPaymentForVoid) return;
+    if (!cancellationReason.trim()) {
+      alert("রসিদ বাতিলের সুনির্দিষ্ট কারণ উল্লেখ করা বাধ্যতামূলক।");
       return;
     }
 
     setIsSubmitting(true);
     setFeedback(null);
 
-    const res = await reverseFeePayment(selectedPayment.id, reversalReason);
+    const res = await voidFeePayment(selectedPaymentForVoid.id, cancellationReason.trim());
     setIsSubmitting(false);
 
     if (res.success) {
-      setFeedback({ type: "success", text: res.message || "পেমেন্ট সফলভাবে বাতিল ও সমন্বয় করা হয়েছে।" });
+      setFeedback({ type: "success", text: res.message || "রসিদ সফলভাবে বাতিল (VOID) ও বকেয়া পুনর্বহাল করা হয়েছে।" });
       setPayments((prev) =>
         prev.map((p) =>
-          p.id === selectedPayment.id
-            ? { ...p, status: "REVERSED", reversal_reason: reversalReason, reversed_at: new Date().toISOString() }
+          p.id === selectedPaymentForVoid.id
+            ? {
+                ...p,
+                status: "VOID",
+                cancellation_reason: cancellationReason.trim(),
+                reversal_reason: cancellationReason.trim(),
+                voided_at: new Date().toISOString(),
+              }
             : p
         )
       );
-      setIsReverseModalOpen(false);
+      setIsVoidModalOpen(false);
     } else {
-      setFeedback({ type: "error", text: res.error || "পেমেন্ট বাতিল ব্যর্থ হয়েছে।" });
+      setFeedback({ type: "error", text: res.error || "রসিদ বাতিল করতে ব্যর্থ হয়েছে।" });
     }
   };
 
-  const handleOpenDeleteSingle = (p: FeePayment) => {
-    setPaymentToDelete(p);
-    setIsDeleteSingleModalOpen(true);
+  // Open Unvoid Modal
+  const handleOpenUnvoid = (p: FeePayment) => {
+    setSelectedPaymentForUnvoid(p);
+    setUnvoidReason("প্রধান এডমিনের অনুমোদনক্রমে পুনর্বহাল");
+    setIsUnvoidModalOpen(true);
   };
 
-  const handleConfirmDeleteSingle = async () => {
-    if (!paymentToDelete) return;
+  // Confirm Unvoid (Super Admin)
+  const handleConfirmUnvoid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPaymentForUnvoid) return;
+
     setIsSubmitting(true);
     setFeedback(null);
 
-    const res = await deleteSingleFeePayment(paymentToDelete.id);
+    const res = await unvoidFeePayment(selectedPaymentForUnvoid.id, unvoidReason.trim() || "পুনরায় সক্রিয়");
     setIsSubmitting(false);
 
     if (res.success) {
-      setFeedback({ type: "success", text: res.message || "পেমেন্ট রেকর্ড মুছে ফেলা হয়েছে।" });
-      setPayments((prev) => prev.filter((p) => p.id !== paymentToDelete.id));
-      setIsDeleteSingleModalOpen(false);
+      setFeedback({ type: "success", text: res.message || "রসিদটি পুনরায় সক্রিয় করা হয়েছে।" });
+      setPayments((prev) =>
+        prev.map((p) =>
+          p.id === selectedPaymentForUnvoid.id
+            ? {
+                ...p,
+                status: "COMPLETED",
+              }
+            : p
+        )
+      );
+      setIsUnvoidModalOpen(false);
     } else {
-      setFeedback({ type: "error", text: res.error || "ডিলিট করতে সমস্যা হয়েছে।" });
+      setFeedback({ type: "error", text: res.error || "পুনরায় সক্রিয় করতে সমস্যা হয়েছে।" });
     }
   };
 
@@ -323,9 +348,9 @@ export default function PaymentsClient({
               onChange={(e) => setStatusFilter(e.target.value as any)}
               className="px-3 py-2 border border-slate-300 rounded-xl text-xs sm:text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 font-medium cursor-pointer"
             >
-              <option value="ALL">সকল স্ট্যাটাস</option>
-              <option value="COMPLETED">সফল (Completed)</option>
-              <option value="REVERSED">বাতিলকৃত (Reversed)</option>
+              <option value="ALL">সকল রসিদ (সকল স্ট্যাটাস)</option>
+              <option value="COMPLETED">সফল রসিদ (Active)</option>
+              <option value="VOID">বাতিলকৃত রসিদ (VOID)</option>
             </select>
 
             {/* Method Filter */}
@@ -366,22 +391,36 @@ export default function PaymentsClient({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {paginatedPayments.map((p) => {
-                      const isReversed = p.status === "REVERSED" || p.status === "VOID";
+                      const isVoid = p.status === "REVERSED" || p.status === "VOID";
 
                       return (
-                        <tr key={p.id} className={`hover:bg-slate-50/60 transition ${isReversed ? "bg-red-50/30" : ""}`}>
+                        <tr
+                          key={p.id}
+                          className={`hover:bg-slate-50/80 transition-colors ${
+                            isVoid ? "bg-rose-50/25 opacity-75" : ""
+                          }`}
+                        >
                           {/* Receipt & Date */}
                           <td className="py-3.5 px-4">
-                            <span className="font-mono font-bold text-slate-900 block">{p.receipt_no}</span>
-                            <span className="text-[11px] text-slate-400">{p.payment_date}</span>
+                            <span className={`font-mono font-bold block ${isVoid ? "line-through text-slate-400" : "text-slate-900"}`}>
+                              {p.receipt_no}
+                            </span>
+                            <span className="text-[11px] text-slate-400 font-mono">{p.payment_date}</span>
                           </td>
 
                           {/* Student */}
                           <td className="py-3.5 px-4">
-                            <span className="font-bold text-slate-900 block">{p.student_name}</span>
+                            <span className={`font-bold block ${isVoid ? "line-through text-slate-400" : "text-slate-900"}`}>
+                              {p.student_name}
+                            </span>
                             <span className="text-[11px] text-slate-500">
                               {p.class_name || "-"} • রোল: {toBanglaNumber(p.student_roll || "-")}
                             </span>
+                            {isVoid && (p.cancellation_reason || p.reversal_reason) && (
+                              <div className="text-[10px] text-rose-600 font-medium italic mt-0.5">
+                                বাতিলের কারণ: {p.cancellation_reason || p.reversal_reason}
+                              </div>
+                            )}
                           </td>
 
                           {/* Items Breakdown */}
@@ -389,14 +428,14 @@ export default function PaymentsClient({
                             {p.allocations && p.allocations.length > 0 ? (
                               <div className="space-y-0.5">
                                 {p.allocations.map((a, aIdx) => (
-                                  <div key={aIdx} className="text-xs text-slate-700">
+                                  <div key={aIdx} className={`text-xs ${isVoid ? "line-through text-slate-400" : "text-slate-700"}`}>
                                     <span className="font-medium">{a.fee_type_name}</span>
                                     {a.fund_name ? (
                                       <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded ml-1 font-sans">
                                         {a.fund_name}
                                       </span>
                                     ) : null}
-                                    <span className="font-mono font-bold text-slate-900 ml-1">
+                                    <span className="font-mono font-bold ml-1">
                                       ৳{formatBanglaCurrency(a.allocated_amount)}
                                     </span>
                                   </div>
@@ -416,18 +455,29 @@ export default function PaymentsClient({
 
                           {/* Amount */}
                           <td className="py-3.5 px-4 text-right">
-                            <span className={`font-mono font-bold text-sm ${isReversed ? "line-through text-slate-400" : "text-emerald-700"}`}>
+                            <span
+                              className={`font-mono font-bold text-sm ${
+                                isVoid ? "line-through text-slate-400 opacity-60" : "text-emerald-700"
+                              }`}
+                            >
                               ৳ {formatBanglaCurrency(p.total_amount_received)}
                             </span>
                           </td>
 
                           {/* Status */}
                           <td className="py-3.5 px-4 text-center">
-                            {isReversed ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-100 text-red-700 border border-red-200">
-                                <Ban className="w-3 h-3" />
-                                বাতিলকৃত
-                              </span>
+                            {isVoid ? (
+                              <div className="space-y-0.5">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold font-mono bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                                  <Ban className="w-3 h-3 text-rose-600" />
+                                  VOID
+                                </span>
+                                {p.voided_at && (
+                                  <span className="text-[9px] text-slate-400 block font-mono">
+                                    {toBanglaNumber(new Date(p.voided_at).toLocaleDateString("en-GB"))}
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                                 <CheckCircle2 className="w-3 h-3" />
@@ -448,27 +498,28 @@ export default function PaymentsClient({
                                 <Printer className="w-4 h-4" />
                               </Link>
 
-                              {/* Reverse Button (if not already reversed) */}
-                              {!isReversed && (
+                              {/* Void Button (if active) */}
+                              {!isVoid ? (
                                 <button
                                   type="button"
-                                  onClick={() => handleOpenReverse(p)}
-                                  className="p-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition cursor-pointer"
-                                  title="পেমেন্ট বাতিল / রিভার্স করুন"
+                                  onClick={() => handleOpenVoid(p)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition cursor-pointer"
+                                  title="রসিদ বাতিল করুন (Void Receipt)"
                                 >
-                                  <Ban className="w-4 h-4" />
+                                  <Ban className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>বাতিল</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenUnvoid(p)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition cursor-pointer"
+                                  title="প্রধান এডমিন: রসিদটি পুনরায় সক্রিয় করুন"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>সক্রিয় করুন</span>
                                 </button>
                               )}
-
-                              {/* Delete Permanently Button */}
-                              <button
-                                type="button"
-                                onClick={() => handleOpenDeleteSingle(p)}
-                                className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                                title="রেকর্ডটি স্থায়ীভাবে ডিলিট করুন"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
                             </div>
                           </td>
                         </tr>
@@ -560,58 +611,56 @@ export default function PaymentsClient({
         </div>
       )}
 
-      {/* Reversal Confirmation Modal */}
-      {isReverseModalOpen && selectedPayment && (
+      {/* Void Receipt Modal (Soft-Delete with Reason) */}
+      {isVoidModalOpen && selectedPaymentForVoid && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-xl">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-xl border border-rose-100">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2 text-red-600">
-                <AlertTriangle className="w-5 h-5" />
-                <h3 className="text-base font-bold text-slate-900">পেমেন্ট রিভার্স / বাতিলকরণ</h3>
+              <div className="flex items-center gap-2 text-rose-600">
+                <Ban className="w-5 h-5" />
+                <h3 className="text-base font-bold text-slate-900">রসিদ বাতিল করুন (Void Receipt)</h3>
               </div>
               <button
                 type="button"
-                onClick={() => setIsReverseModalOpen(false)}
+                onClick={() => setIsVoidModalOpen(false)}
                 className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="bg-red-50 text-red-900 p-3.5 rounded-xl text-xs space-y-1">
-              <p>
-                <strong>রিসিট নং:</strong> {selectedPayment.receipt_no}
-              </p>
-              <p>
-                <strong>শিক্ষার্থী:</strong> {selectedPayment.student_name}
-              </p>
-              <p>
-                <strong>পরিমাণ:</strong> ৳ {formatBanglaCurrency(selectedPayment.total_amount_received)}
-              </p>
-              <p className="text-[11px] text-red-700 pt-1">
-                ⚠️ এই পেমেন্টটি বাতিল করলে শিক্ষার্থীর অ্যাকাউন্টে পূর্বের বকেয়া হিসাব পুনরায় যোগ হয়ে যাবে।
+            <div className="bg-rose-50/70 text-slate-800 p-4 rounded-2xl text-xs space-y-2 border border-rose-200">
+              <div className="space-y-1 font-sans">
+                <p><strong>রসিদ নং:</strong> <span className="font-mono text-rose-700 font-bold">{selectedPaymentForVoid.receipt_no}</span></p>
+                <p><strong>শিক্ষার্থী:</strong> {selectedPaymentForVoid.student_name} ({selectedPaymentForVoid.class_name || "-"})</p>
+                <p><strong>আদায়কৃত অর্থ:</strong> ৳ {formatBanglaCurrency(selectedPaymentForVoid.total_amount_received)}</p>
+                <p><strong>তারিখ:</strong> {selectedPaymentForVoid.payment_date}</p>
+              </div>
+              <p className="text-[11px] text-rose-700 pt-2 border-t border-rose-200/60 leading-relaxed">
+                ⚠️ আর্থিক স্বচ্ছতার জন্য রসিদ স্থায়ীভাবে মুছে ফেলা হয় না। এটি বাতিল (VOID) হিসেবে সংরক্ষিত থাকবে, মোট আয় থেকে বাদ পড়বে এবং শিক্ষার্থীর বকেয়া পূর্বে যে অবস্থায় ছিল সেভাবে পুনর্বহাল হবে।
               </p>
             </div>
 
-            <form onSubmit={handleConfirmReverse} className="space-y-4 text-xs sm:text-sm">
-              <div className="space-y-1">
-                <label className="font-semibold text-slate-700">
-                  বাতিলের কারণ (বাধ্যতামূলক) <span className="text-red-500">*</span>
+            <form onSubmit={handleConfirmVoid} className="space-y-4 text-xs sm:text-sm">
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700 flex items-center gap-1">
+                  <span>বাতিলের সুনির্দিষ্ট কারণ (বাধ্যতামূলক)</span>
+                  <span className="text-rose-500">*</span>
                 </label>
                 <textarea
                   required
                   rows={3}
-                  value={reversalReason}
-                  onChange={(e) => setReversalReason(e.target.value)}
-                  placeholder="যেমন: ভুল এন্ট্রি / ভুল শিক্ষার্থী নির্বাচিত হয়েছিল..."
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  value={cancellationReason}
+                  onChange={(e) => setCancellationReason(e.target.value)}
+                  placeholder="যেমন: ভুল ছাত্রের নামে এন্ট্রি / ভুল অংক / চেক বাউন্স / অভিভাবকের অনুরোধ..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 text-xs sm:text-sm"
                 />
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsReverseModalOpen(false)}
+                  onClick={() => setIsVoidModalOpen(false)}
                   className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold cursor-pointer"
                 >
                   ফিরে যান
@@ -619,9 +668,10 @@ export default function PaymentsClient({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-xs cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  {isSubmitting ? "বাতিল হচ্ছে..." : "নিশ্চিত বাতিল করুন"}
+                  <Ban className="w-4 h-4" />
+                  <span>{isSubmitting ? "বাতিল হচ্ছে..." : "নিশ্চিত বাতিল করুন (VOID)"}</span>
                 </button>
               </div>
             </form>
@@ -629,57 +679,75 @@ export default function PaymentsClient({
         </div>
       )}
 
-      {/* Delete Single Modal */}
-      {isDeleteSingleModalOpen && paymentToDelete && (
+      {/* Unvoid Modal (Super Admin Reactivation) */}
+      {isUnvoidModalOpen && selectedPaymentForUnvoid && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-xl">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-xl border border-emerald-100">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2 text-red-600">
-                <Trash2 className="w-5 h-5" />
-                <h3 className="text-base font-bold text-slate-900">পেমেন্ট রেকর্ড ডিলিট</h3>
+              <div className="flex items-center gap-2 text-emerald-700">
+                <RefreshCw className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-base font-bold text-slate-900">রসিদ পুনরায় সক্রিয় করুন (Unvoid)</h3>
               </div>
               <button
                 type="button"
-                onClick={() => setIsDeleteSingleModalOpen(false)}
+                onClick={() => setIsUnvoidModalOpen(false)}
                 className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="bg-red-50 text-red-900 p-4 rounded-2xl text-xs space-y-2 border border-red-200">
-              <p className="font-semibold text-red-800">
-                আপনি কি নিশ্চিত যে আপনি এই পেমেন্ট রেকর্ডটি স্থায়ীভাবে মুছে ফেলতে চান?
-              </p>
-              <div className="space-y-1 text-slate-700 pt-1 bg-white p-3 rounded-xl border border-red-100 font-sans">
-                <p><strong>রিসিট নং:</strong> {paymentToDelete.receipt_no}</p>
-                <p><strong>শিক্ষার্থী:</strong> {paymentToDelete.student_name}</p>
-                <p><strong>পরিমাণ:</strong> ৳ {formatBanglaCurrency(paymentToDelete.total_amount_received)}</p>
-                <p><strong>তারিখ:</strong> {paymentToDelete.payment_date}</p>
+            <div className="bg-emerald-50/60 text-slate-800 p-4 rounded-2xl text-xs space-y-2 border border-emerald-200">
+              <div className="space-y-1 font-sans">
+                <p><strong>রসিদ নং:</strong> <span className="font-mono text-emerald-800 font-bold">{selectedPaymentForUnvoid.receipt_no}</span></p>
+                <p><strong>শিক্ষার্থী:</strong> {selectedPaymentForUnvoid.student_name}</p>
+                <p><strong>পরিমাণ:</strong> ৳ {formatBanglaCurrency(selectedPaymentForUnvoid.total_amount_received)}</p>
+                <p>
+                  <strong>পূর্বে বাতিলের কারণ:</strong>{" "}
+                  <span className="text-rose-700 italic">
+                    {selectedPaymentForUnvoid.cancellation_reason || selectedPaymentForUnvoid.reversal_reason || "তথ্য নেই"}
+                  </span>
+                </p>
               </div>
-              <p className="text-[11px] text-red-600">
-                ⚠️ এটি ডিলিট করলে ফান্ড ও ড্যাশবোর্ড থেকে এই কালেকশন সম্পূর্ণ মুছে যাবে এবং শিক্ষার্থীর বকেয়া সমন্বয় হবে।
+              <p className="text-[11px] text-emerald-800 pt-2 border-t border-emerald-200/60 leading-relaxed">
+                👑 শুধুমাত্র প্রধান এডমিন বিশেষ কারণে বাতিলকৃত রসিদ পুনর্বহাল করতে পারেন। এটি পুনরায় সক্রিয় করলে আয় ও ক্যাশে যুক্ত হবে এবং শিক্ষার্থীর বকেয়া সমন্বয় হবে।
               </p>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setIsDeleteSingleModalOpen(false)}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold cursor-pointer"
-              >
-                ফিরে যান
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDeleteSingle}
-                disabled={isSubmitting}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>{isSubmitting ? "ডিলিট হচ্ছে..." : "স্থায়ীভাবে ডিলিট করুন"}</span>
-              </button>
-            </div>
+            <form onSubmit={handleConfirmUnvoid} className="space-y-4 text-xs sm:text-sm">
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700 flex items-center gap-1">
+                  <span>পুনরায় সক্রিয়করণের কারণ / এডমিন নোট (বাধ্যতামূলক)</span>
+                  <span className="text-emerald-600">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={unvoidReason}
+                  onChange={(e) => setUnvoidReason(e.target.value)}
+                  placeholder="যেমন: ভুলবশত বাতিল করা হয়েছিল, যাচাই শেষে পুনর্বহাল করা হলো..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsUnvoidModalOpen(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold cursor-pointer"
+                >
+                  ফিরে যান
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>{isSubmitting ? "সক্রিয় হচ্ছে..." : "নিশ্চিত সক্রিয় করুন"}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

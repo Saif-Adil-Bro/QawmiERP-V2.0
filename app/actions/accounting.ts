@@ -4,7 +4,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { parseExpenseFund } from "@/lib/fund-utils";
-import { getFeeMetadata, saveFeeMetadata } from "./fee-management";
+import { getFeeMetadata, saveFeeMetadata, voidFeePayment } from "./fee-management";
 
 export async function getFees(filters?: { month?: string; year?: string; student_id?: string }) {
   const supabase = await createClient();
@@ -126,6 +126,10 @@ export async function getFeeWithReceiptNo(feeId: string) {
     collector_name: payment.collector_name || "হিসাব বিভাগ",
     notes: payment.notes || "",
     status: payment.status || "COMPLETED",
+    cancellation_reason: payment.cancellation_reason || payment.reversal_reason || "",
+    reversal_reason: payment.reversal_reason || "",
+    voided_at: payment.voided_at || payment.reversed_at || "",
+    voided_by: payment.voided_by || payment.reversed_by || "",
     students: {
       first_name: payment.student_name || "শিক্ষার্থী",
       last_name: "",
@@ -136,148 +140,11 @@ export async function getFeeWithReceiptNo(feeId: string) {
   };
 }
 
-export async function deleteFee(feeId: string) {
-  try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
-
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-    if (!finalMadrasaId) return { error: "মাদ্রাসা সনাক্ত করা যায়নি" };
-
-    const meta = await getFeeMetadata(finalMadrasaId);
-    const payments = [...(meta.payments || [])];
-    const studentFees = [...(meta.student_fees || [])];
-
-    const payIdx = payments.findIndex((p) => p.id === feeId || p.receipt_no === feeId);
-    let removedPayment: any = null;
-
-    if (payIdx >= 0) {
-      removedPayment = payments[payIdx];
-      const now = new Date().toISOString();
-
-      // Roll back paid amounts and discount waivers, and restore due balances in student_fees
-      for (const alloc of removedPayment.allocations || []) {
-        if (alloc.student_fee_id) {
-          const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
-          if (feeIdx >= 0) {
-            const target = studentFees[feeIdx];
-            const allocPaid = Number(alloc.allocated_amount || 0);
-            const allocDiscount = Number(alloc.discount_applied || 0);
-
-            // Roll back discount
-            const newDiscount = Math.max(0, Number(target.discount_amount || 0) - allocDiscount);
-            // Recalculate payable amount: base_amount + fine_amount - newDiscount
-            const baseAmt = Number(target.base_amount || 0);
-            const fineAmt = Number(target.fine_amount || 0);
-            const newPayable = Math.max(0, baseAmt + fineAmt - newDiscount);
-
-            // Roll back paid amount
-            const newPaid = Math.max(0, Number(target.paid_amount || 0) - allocPaid);
-            const newDue = Math.max(0, newPayable - newPaid);
-
-            let newStatus: any = "PARTIAL";
-            if (newPayable === 0 && newDiscount > 0) {
-              newStatus = "WAIVED";
-            } else if (newDue === 0 && newPaid > 0) {
-              newStatus = "PAID";
-            } else if (newPaid === 0) {
-              newStatus = "UNPAID";
-            } else {
-              newStatus = "PARTIAL";
-            }
-
-            studentFees[feeIdx] = {
-              ...target,
-              discount_amount: newDiscount,
-              payable_amount: newPayable,
-              paid_amount: newPaid,
-              due_amount: newDue,
-              status: newStatus,
-              updated_at: now,
-            };
-            // Also update in relational student_fees table
-            try {
-              await supabase.from("student_fees").update({
-                discount_amount: newDiscount,
-                payable_amount: newPayable,
-                paid_amount: newPaid,
-                due_amount: newDue,
-                status: newStatus,
-                updated_at: now,
-              }).eq("id", target.id).eq("madrasa_id", finalMadrasaId);
-            } catch {}
-          }
-        }
-      }
-
-      // Remove the payment from active list
-      payments.splice(payIdx, 1);
-
-      // Audit log
-      const auditLogs = meta.audit_logs || [];
-      auditLogs.unshift({
-        id: `audit_${Date.now()}`,
-        madrasa_id: finalMadrasaId,
-        action: "DELETE_FEE_PAYMENT",
-        user_name: user.email || "অ্যাডমিন",
-        user_role: "admin",
-        record_id: feeId,
-        details: `রিসিট নং ${removedPayment.receipt_no} (পরিমাণ: ৳${removedPayment.total_amount_received}) ফি তালিকা থেকে ডিলিট করা হয়েছে এবং বকেয়া পুনর্স্থাপন করা হয়েছে।`,
-        created_at: now,
-      });
-
-      await saveFeeMetadata(finalMadrasaId, {
-        student_fees: studentFees,
-        payments,
-        audit_logs: auditLogs.slice(0, 100),
-      });
-
-      // Remove from relational fee_payments and allocations
-      try {
-        await supabase.from("fee_payments").delete().eq("id", removedPayment.id).eq("madrasa_id", finalMadrasaId);
-        if (removedPayment.receipt_no) {
-          await supabase.from("fee_payments").delete().eq("receipt_no", removedPayment.receipt_no).eq("madrasa_id", finalMadrasaId);
-        }
-      } catch {}
-    } else {
-      // Also check if this is an unpaid fee invoice in student_fees
-      const feeIdx = studentFees.findIndex((f) => f.id === feeId);
-      if (feeIdx >= 0) {
-        const removedFee = studentFees[feeIdx];
-        studentFees.splice(feeIdx, 1);
-        await saveFeeMetadata(finalMadrasaId, {
-          student_fees: studentFees,
-        });
-        try {
-          await supabase.from("student_fees").delete().eq("id", removedFee.id).eq("madrasa_id", finalMadrasaId);
-        } catch {}
-      }
-    }
-
-    // Clean up in legacy fees table if present
-    try {
-      await supabase.from("fees").delete().eq("id", feeId).eq("madrasa_id", finalMadrasaId);
-      if (removedPayment) {
-        if (removedPayment.db_fee_id) {
-          await supabase.from("fees").delete().eq("id", removedPayment.db_fee_id).eq("madrasa_id", finalMadrasaId);
-        }
-        if (removedPayment.receipt_no) {
-          await supabase.from("fees").delete().like("notes", `%${removedPayment.receipt_no}%`).eq("madrasa_id", finalMadrasaId);
-        }
-      }
-    } catch {}
-
-    revalidatePath("/dashboard/accounting");
-    revalidatePath("/dashboard/accounting/fees");
-    revalidatePath("/dashboard/accounting/receipts");
-    revalidatePath("/dashboard/accounting/due");
-
-    return { success: true };
-  } catch (err: any) {
-    console.error("Error in deleteFee:", err);
-    return { error: err.message || "ফি মুছতে সমস্যা হয়েছে।" };
-  }
+/**
+ * Void/Cancel fee payment instead of hard delete, preserving audit trail and rolling back dues.
+ */
+export async function deleteFee(feeId: string, reason: string = "ভুল এন্ট্রি বাতিল") {
+  return voidFeePayment(feeId, reason);
 }
 
 export async function getExpenses(filters?: { month?: string; year?: string; fundId?: string }) {
@@ -650,7 +517,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // NOTE: donations table does NOT have a fund_id column; select valid columns
   const { data: donationsData, error: donErr } = await supabase
     .from("donations")
-    .select("id, amount, donation_type, donation_date, notes, created_at")
+    .select("id, amount, donation_type, donation_date, notes, created_at, status")
     .eq('madrasa_id', finalMadrasaId)
     .gte("donation_date", startDate)
     .lte("donation_date", endDate);
@@ -659,7 +526,11 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     console.error("Error fetching donations for report:", donErr);
   }
 
-  const monthlyDonations = donationsData || [];
+  // Exclude VOID donations from calculations and balances
+  const monthlyDonations = (donationsData || []).filter((d: any) => {
+    const isVoid = d.status === "VOID" || (d.notes && d.notes.includes("[VOID:"));
+    return !isVoid;
+  });
 
   // 3. Fetch Fee Payments via getFeeMetadata (Relational Tables with Fallback) & Metadata
   let meta: any = {};
@@ -1174,6 +1045,9 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
 
     // 1. Process DB Donations
     for (const d of dbDonations || []) {
+      const isVoid = d.status === "VOID" || (d.notes && d.notes.includes("[VOID:"));
+      if (isVoid) continue;
+
       const isMahfil = d.receipt_no?.startsWith("MHF-") || (d.notes && d.notes.includes("মাহফিল"));
       if (isMahfil) {
         const isValid = (d.receipt_no && validMahfilVouchers.has(d.receipt_no)) || validMahfilRecordIds.has(d.id);

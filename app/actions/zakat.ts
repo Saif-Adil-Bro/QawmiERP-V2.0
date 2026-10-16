@@ -224,7 +224,7 @@ export async function getFunds(): Promise<FundItem[]> {
 
     // Fetch dynamic live collections & expenses to calculate real-time balances for all funds
     const [donationsRes, expensesRes, meta, feeMeta, dbFeesRes] = await Promise.all([
-      adminClient.from("donations").select("id, amount, donation_type, donor_id, receipt_no, notes").eq("madrasa_id", finalMadrasaId),
+      adminClient.from("donations").select("id, amount, donation_type, donor_id, receipt_no, notes, status").eq("madrasa_id", finalMadrasaId),
       adminClient.from("expenses").select("id, amount, description, category, voucher_no").eq("madrasa_id", finalMadrasaId),
       getMadrasaMetadata(finalMadrasaId),
       getFeeMetadata(finalMadrasaId),
@@ -257,6 +257,9 @@ export async function getFunds(): Promise<FundItem[]> {
     const existingIds = new Set(allDonations.map((d: any) => d.id).filter(Boolean));
 
     for (const d of allDonations) {
+      const isVoid = (d as any).status === "VOID" || (d.notes && d.notes.includes("[VOID:"));
+      if (isVoid) continue;
+
       const isMahfil = d.receipt_no?.startsWith("MHF-") || (d.notes && d.notes.includes("মাহফিল"));
       if (isMahfil) {
         const isValid = (d.receipt_no && validMahfilVouchers.has(d.receipt_no)) || validMahfilRecordIds.has(d.id);
@@ -1283,6 +1286,11 @@ export async function getDonations(filters?: {
         }
       }
 
+      const isVoid = d.status === "VOID" || (d.notes && d.notes.includes("[VOID:"));
+      const voidMatch = (d.notes || "").match(/\[VOID:\s*([^\]]+)\]/i);
+      const cancellationReason = voidMatch ? voidMatch[1].trim() : (d.cancellation_reason || "");
+      const cleanDisplayNotes = (cleanNotes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+
       return {
         id: d.id,
         madrasa_id: d.madrasa_id,
@@ -1294,7 +1302,9 @@ export async function getDonations(filters?: {
         donation_date: d.donation_date,
         receipt_no: serialReceipt,
         payment_method: paymentMethod,
-        notes: cleanNotes,
+        notes: cleanDisplayNotes,
+        status: isVoid ? "VOID" : "COMPLETED",
+        cancellation_reason: isVoid ? cancellationReason : undefined,
         created_at: d.created_at,
         is_mahfil_settlement: isMahfilSettlement,
         mahfil_title: mahfilTitle,
@@ -1365,6 +1375,11 @@ export async function getDonationById(id: string): Promise<DonationItem | null> 
       }
     }
 
+    const isVoid = data.status === "VOID" || (data.notes && data.notes.includes("[VOID:"));
+    const voidMatch = (data.notes || "").match(/\[VOID:\s*([^\]]+)\]/i);
+    const cancellationReason = voidMatch ? voidMatch[1].trim() : (data.cancellation_reason || "");
+    const cleanDisplayNotes = (cleanNotes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+
     return {
       id: data.id,
       madrasa_id: data.madrasa_id,
@@ -1375,7 +1390,9 @@ export async function getDonationById(id: string): Promise<DonationItem | null> 
       donation_date: data.donation_date,
       receipt_no: serialReceipt,
       payment_method: paymentMethod,
-      notes: cleanNotes,
+      notes: cleanDisplayNotes,
+      status: isVoid ? "VOID" : "COMPLETED",
+      cancellation_reason: isVoid ? cancellationReason : undefined,
       created_at: data.created_at,
       is_mahfil_settlement: isMahfilSettlement,
       mahfil_title: mahfilTitle,
@@ -2064,23 +2081,138 @@ export async function addDonation(prevState: any, formData: FormData) {
   }
 }
 
-export async function deleteDonation(id: string) {
+/**
+ * Void a Donation Receipt (Soft Delete with Reason, Balance Rollback, Immutable Audit Log)
+ */
+export async function voidDonationReceipt(id: string, reason: string) {
   try {
     const adminClient = await createAdminClient();
-    const { error } = await adminClient.from("donations").delete().eq("id", id);
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
 
-    if (error) {
-      return { error: error.message };
+    if (!reason || !reason.trim()) {
+      return { error: "রসিদ বাতিলের কারণ উল্লেখ করা আবশ্যক।" };
     }
+
+    const { data: existing, error: fetchErr } = await adminClient
+      .from("donations")
+      .select("*")
+      .eq("id", id)
+      .eq("madrasa_id", finalMadrasaId)
+      .single();
+
+    if (fetchErr || !existing) {
+      return { error: "অনুদান রেকর্ড পাওয়া যায়নি।" };
+    }
+
+    const now = new Date().toISOString();
+    const currentNotes = existing.notes || "";
+    const cleanNotes = currentNotes.replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+    const updatedNotes = `[VOID: ${reason.trim()}] ${cleanNotes}`.trim();
+
+    const { error: updateErr } = await adminClient
+      .from("donations")
+      .update({
+        notes: updatedNotes,
+      })
+      .eq("id", id)
+      .eq("madrasa_id", finalMadrasaId);
+
+    if (updateErr) {
+      return { error: updateErr.message };
+    }
+
+    try {
+      await adminClient.from("donations").update({ status: "VOID" }).eq("id", id);
+    } catch {}
+
+    // Record in Madrasa metadata audit logs
+    try {
+      const meta = await getMadrasaMetadata(finalMadrasaId);
+      const auditLogs = meta.audit_logs || [];
+      auditLogs.unshift({
+        id: `audit_${Date.now()}`,
+        madrasa_id: finalMadrasaId,
+        action: "VOID_DONATION_RECEIPT",
+        user_name: user?.email || "অ্যাডমিন",
+        user_role: "admin",
+        record_id: id,
+        details: `অনুদান রসিদ নং ${existing.receipt_no || id} (পরিমাণ: ৳${existing.amount}) বাতিল করা হয়েছে। কারণ: ${reason.trim()}`,
+        created_at: now,
+      });
+      meta.audit_logs = auditLogs.slice(0, 100);
+      await saveMadrasaMetadata(finalMadrasaId, meta);
+    } catch {}
 
     revalidatePath("/dashboard/zakat");
     revalidatePath("/dashboard/zakat/collection");
     revalidatePath("/dashboard/zakat/reports");
     revalidatePath("/dashboard/zakat/funds");
-    return { success: true };
+    revalidatePath("/dashboard/accounting/income");
+    revalidatePath("/dashboard/accounting/reports");
+
+    return { 
+      success: true, 
+      message: `রসিদ নং ${existing.receipt_no || id} সফলভাবে বাতিল (VOID) করা হয়েছে।` 
+    };
   } catch (err: any) {
-    return { error: err.message || "মুছে ফেলা ব্যর্থ হয়েছে" };
+    return { error: err.message || "রসিদ বাতিল করতে সমস্যা হয়েছে।" };
   }
+}
+
+/**
+ * Super Admin Unvoid a previously voided Donation Receipt
+ */
+export async function unvoidDonationReceipt(id: string, reason: string) {
+  try {
+    const adminClient = await createAdminClient();
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
+
+    const { data: existing, error: fetchErr } = await adminClient
+      .from("donations")
+      .select("*")
+      .eq("id", id)
+      .eq("madrasa_id", finalMadrasaId)
+      .single();
+
+    if (fetchErr || !existing) return { error: "অনুদান রেকর্ড পাওয়া যায়নি।" };
+
+    const cleanNotes = (existing.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+
+    await adminClient
+      .from("donations")
+      .update({
+        notes: cleanNotes,
+      })
+      .eq("id", id)
+      .eq("madrasa_id", finalMadrasaId);
+
+    try {
+      await adminClient.from("donations").update({ status: "COMPLETED" }).eq("id", id);
+    } catch {}
+
+    revalidatePath("/dashboard/zakat");
+    revalidatePath("/dashboard/zakat/collection");
+    revalidatePath("/dashboard/zakat/reports");
+    revalidatePath("/dashboard/zakat/funds");
+    revalidatePath("/dashboard/accounting/income");
+
+    return { success: true, message: `রসিদ নং ${existing.receipt_no || id} পুনরায় সক্রিয় করা হয়েছে।` };
+  } catch (err: any) {
+    return { error: err.message || "পুনরায় সক্রিয় করতে সমস্যা হয়েছে।" };
+  }
+}
+
+/**
+ * Backwards compatible deleteDonation alias to prevent hard deletions
+ */
+export async function deleteDonation(id: string, reason: string = "ভুল এন্ট্রি বাতিল") {
+  return voidDonationReceipt(id, reason);
 }
 
 // Comprehensive Fund & Zakat Report Statistics
@@ -2133,6 +2265,9 @@ export async function getZakatReportStats() {
     const oneTimeDonorSet = new Set<string>();
 
     donations.forEach((d: any) => {
+      const isVoid = d.status === "VOID" || (d.notes && d.notes.includes("[VOID:"));
+      if (isVoid) return;
+
       const amt = Number(d.amount || 0);
       grandTotal += amt;
 

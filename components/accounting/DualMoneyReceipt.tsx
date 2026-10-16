@@ -35,6 +35,10 @@ interface FeeData {
   allocations?: AllocationItem[];
   discount_total?: number;
   fine_total?: number;
+  status?: string;
+  cancellation_reason?: string;
+  reversal_reason?: string;
+  voided_at?: string;
 }
 
 interface MadrasaInfo {
@@ -141,16 +145,44 @@ export default function DualMoneyReceipt({
   // Render a Single Receipt Card
   const renderSingleReceipt = (copyType: "student" | "office", copyLabel: string, copySubLabel: string) => {
     const isStudent = copyType === "student";
+    const isVoid = fee.status === "VOID" || fee.status === "REVERSED" || Boolean(fee.notes?.includes("[VOID:"));
+    const cancellationReason = fee.cancellation_reason || fee.reversal_reason || (fee.notes?.match(/\[VOID:\s*([^\]]+)\]/i)?.[1]?.trim());
 
     return (
       <div 
         className={`receipt-card bg-white border border-slate-300 rounded-lg p-4 sm:p-5 relative flex flex-col justify-between text-slate-800 ${
           isStudent ? 'bg-white' : 'bg-slate-50/40'
-        }`}
+        } ${isVoid ? 'bg-rose-50/15' : ''}`}
         style={{ minHeight: '128mm' }}
       >
+        {/* VOID Watermark */}
+        {isVoid && (
+          <div className="absolute inset-0 pointer-events-none flex items-center justify-center overflow-hidden z-20">
+            <div className="transform -rotate-30 border-4 border-rose-600/30 text-rose-600/20 font-black text-6xl sm:text-7xl font-mono tracking-widest px-8 py-3 rounded-2xl uppercase select-none">
+              বাতিল / VOID
+            </div>
+          </div>
+        )}
+
         {/* Top Header Row */}
         <div>
+          {/* VOID Banner */}
+          {isVoid && (
+            <div className="mb-2 p-2 bg-rose-50 border border-rose-300 rounded-md text-xs text-rose-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.5 bg-rose-600 text-white rounded font-mono font-bold text-[10px]">
+                  VOID
+                </span>
+                <span className="font-bold">এই ফি রসিদটি বাতিল (Void) করা হয়েছে</span>
+              </div>
+              {cancellationReason && (
+                <span className="text-[11px] font-medium text-rose-700">
+                  কারণ: {cancellationReason}
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="flex items-start justify-between border-b border-slate-200 pb-3 gap-2">
             {/* Madrasa Logo + Info */}
             <div className="flex items-center gap-3 flex-1 min-w-0">

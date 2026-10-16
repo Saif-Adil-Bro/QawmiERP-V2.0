@@ -51,6 +51,10 @@ export interface DonationItem {
   payment_method?: string; // "Cash" | "bKash" | "Nagad" | "Bank" | "Other"
   transaction_id?: string;
   notes?: string;
+  status?: "COMPLETED" | "VOID";
+  cancellation_reason?: string;
+  voided_at?: string;
+  voided_by?: string;
   created_at?: string;
   is_mahfil_settlement?: boolean;
   mahfil_title?: string;

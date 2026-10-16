@@ -1706,125 +1706,10 @@ export async function getUnifiedFeePayments(madrasaId: string): Promise<FeePayme
 }
 
 /**
- * Delete a Single Fee Payment permanently (from metadata + fees table)
+ * Soft Delete / Void a Single Fee Payment safely with reason and audit trail
  */
-export async function deleteSingleFeePayment(paymentId: string) {
-  try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
-    if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
-
-    const meta = await getFeeMetadata(madrasaId);
-    const payments = [...(meta.payments || [])];
-    const studentFees = [...(meta.student_fees || [])];
-
-    const payIdx = payments.findIndex((p) => p.id === paymentId);
-    let targetPayment: FeePayment | null = null;
-
-    if (payIdx >= 0) {
-      targetPayment = payments[payIdx];
-      // Rollback allocations from student fees if this payment wasn't already reversed
-      if (targetPayment.status !== "REVERSED" && targetPayment.status !== "VOID") {
-        for (const alloc of targetPayment.allocations || []) {
-          if (alloc.student_fee_id) {
-            const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
-            if (feeIdx >= 0) {
-              const target = studentFees[feeIdx];
-              const newPaid = Math.max(0, target.paid_amount - alloc.allocated_amount);
-              const newDue = Math.max(0, target.payable_amount - newPaid);
-              let newStatus: FeeStatus = "PARTIAL";
-              if (target.payable_amount === 0 && Number(target.discount_amount || 0) > 0) {
-                newStatus = "WAIVED";
-              } else if (newDue === 0 && newPaid > 0) {
-                newStatus = "PAID";
-              } else if (newPaid === 0) {
-                newStatus = "UNPAID";
-              } else {
-                newStatus = "PARTIAL";
-              }
-
-              studentFees[feeIdx] = {
-                ...target,
-                paid_amount: newPaid,
-                due_amount: newDue,
-                status: newStatus,
-                updated_at: new Date().toISOString(),
-              };
-
-              try {
-                const adminClient = await createAdminClient();
-                await adminClient.from("student_fees").update({
-                  paid_amount: newPaid,
-                  due_amount: newDue,
-                  status: newStatus,
-                  updated_at: new Date().toISOString(),
-                }).eq("id", target.id).eq("madrasa_id", madrasaId);
-              } catch (sfErr) {
-                console.warn("Direct student_fees update err on delete:", sfErr);
-              }
-            }
-          }
-        }
-      }
-      payments.splice(payIdx, 1);
-    }
-
-    // Also delete from Supabase DB relational fee_payments and fees tables
-    try {
-      const adminClient = await createAdminClient();
-      await adminClient.from("fee_payments").delete().eq("id", paymentId).eq("madrasa_id", madrasaId);
-      if (targetPayment?.receipt_no) {
-        await adminClient.from("fee_payments").delete().eq("receipt_no", targetPayment.receipt_no).eq("madrasa_id", madrasaId);
-      }
-      await adminClient.from("fee_payment_allocations").delete().eq("payment_id", paymentId);
-      await adminClient.from("fees").delete().eq("id", paymentId).eq("madrasa_id", madrasaId);
-      if (targetPayment?.receipt_no) {
-        await adminClient.from("fees").delete().like("notes", `%${targetPayment.receipt_no}%`).eq("madrasa_id", madrasaId);
-      }
-      if (targetPayment?.db_fee_id) {
-        await adminClient.from("fees").delete().eq("id", targetPayment.db_fee_id).eq("madrasa_id", madrasaId);
-      }
-    } catch (e) {
-      console.warn("DB fee delete warning:", e);
-    }
-
-    const auditLogs = meta.audit_logs || [];
-    auditLogs.unshift({
-      id: `audit_${Date.now()}`,
-      madrasa_id: madrasaId,
-      action: "DELETE_FEE_PAYMENT",
-      user_name: user.email || "অ্যাডমিন",
-      user_role: "admin",
-      record_id: paymentId,
-      details: `পেমেন্ট রেকর্ড (ID: ${paymentId}${targetPayment ? `, রিসিট: ${targetPayment.receipt_no}, পরিমাণ: ৳${targetPayment.total_amount_received}` : ""}) স্থায়ীভাবে ডিলিট করা হয়েছে।`,
-      created_at: new Date().toISOString(),
-    });
-
-    await saveFeeMetadata(madrasaId, {
-      student_fees: studentFees,
-      payments,
-      audit_logs: auditLogs.slice(0, 100),
-    });
-
-    revalidatePath("/dashboard");
-    revalidatePath("/dashboard/accounting");
-    revalidatePath("/dashboard/accounting/payments");
-    revalidatePath("/dashboard/accounting/due");
-    revalidatePath("/dashboard/accounting/income");
-    revalidatePath("/dashboard/accounting/fees");
-    revalidatePath("/dashboard/zakat");
-
-    return {
-      success: true,
-      message: "পেমেন্ট রেকর্ডটি স্থায়ীভাবে মুছে ফেলা হয়েছে এবং বকেয়া সমন্বয় করা হয়েছে।",
-    };
-  } catch (err: any) {
-    console.error("Error in deleteSingleFeePayment:", err);
-    return { error: err.message || "পেমেন্ট রেকর্ড ডিলিট করতে সমস্যা হয়েছে।" };
-  }
+export async function deleteSingleFeePayment(paymentId: string, reason: string = "ভুল এন্ট্রি বাতিল") {
+  return voidFeePayment(paymentId, reason);
 }
 
 /**
@@ -2087,6 +1972,278 @@ export async function reverseFeePayment(paymentId: string, reason: string) {
   } catch (err: any) {
     console.error("Error in reverseFeePayment:", err);
     return { error: err.message || "পেমেন্ট রিভার্স করতে সমস্যা হয়েছে।" };
+  }
+}
+
+/**
+ * Void a Fee Payment (Soft Cancellation with Reason, Rollback of Dues, Immutable Audit Log)
+ */
+export async function voidFeePayment(paymentId: string, reason: string) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+
+    if (!reason || !reason.trim()) {
+      return { error: "রসিদ বাতিলের সুনির্দিষ্ট কারণ লেখা আবশ্যক।" };
+    }
+
+    const meta = await getFeeMetadata(madrasaId);
+    const payments = [...(meta.payments || [])];
+    const studentFees = [...(meta.student_fees || [])];
+
+    const payIdx = payments.findIndex((p) => p.id === paymentId || p.receipt_no === paymentId);
+    if (payIdx === -1) {
+      return { error: "পেমেন্ট রেকর্ড পাওয়া যায়নি।" };
+    }
+
+    const payment = payments[payIdx];
+    if (payment.status === "VOID" || payment.status === "REVERSED") {
+      return { error: "এই রসিদটি ইতিপূর্বেই বাতিল করা হয়েছে।" };
+    }
+
+    const now = new Date().toISOString();
+
+    // 1. Rollback allocations from student fees
+    for (const alloc of payment.allocations || []) {
+      if (alloc.student_fee_id) {
+        const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
+        if (feeIdx >= 0) {
+          const target = studentFees[feeIdx];
+          const newPaid = Math.max(0, Number(target.paid_amount || 0) - Number(alloc.allocated_amount || 0));
+          const newDue = Math.max(0, Number(target.payable_amount || 0) - newPaid);
+          let newStatus: FeeStatus = "PARTIAL";
+          if (target.payable_amount === 0 && Number(target.discount_amount || 0) > 0) {
+            newStatus = "WAIVED";
+          } else if (newDue === 0 && newPaid > 0) {
+            newStatus = "PAID";
+          } else if (newPaid === 0) {
+            newStatus = "UNPAID";
+          } else {
+            newStatus = "PARTIAL";
+          }
+
+          studentFees[feeIdx] = {
+            ...target,
+            paid_amount: newPaid,
+            due_amount: newDue,
+            status: newStatus,
+            updated_at: now,
+          };
+
+          try {
+            const adminClient = await createAdminClient();
+            await adminClient.from("student_fees").update({
+              paid_amount: newPaid,
+              due_amount: newDue,
+              status: newStatus,
+              updated_at: now,
+            }).eq("id", target.id).eq("madrasa_id", madrasaId);
+          } catch (sfErr) {
+            console.warn("Direct student_fees update err on void:", sfErr);
+          }
+        }
+      }
+    }
+
+    // 2. Mark payment as VOID
+    payments[payIdx] = {
+      ...payment,
+      status: "VOID",
+      cancellation_reason: reason.trim(),
+      reversal_reason: reason.trim(),
+      voided_at: now,
+      voided_by: user.email || "অ্যাডমিন",
+    };
+
+    // 3. Update relational fee_payments table
+    try {
+      const adminClient = await createAdminClient();
+      await adminClient.from("fee_payments").update({
+        status: "VOID",
+        notes: `[VOID: ${reason.trim()}] ${payment.notes || ""}`,
+      }).eq("id", payment.id).eq("madrasa_id", madrasaId);
+      if (payment.receipt_no) {
+        await adminClient.from("fee_payments").update({
+          status: "VOID",
+          notes: `[VOID: ${reason.trim()}] ${payment.notes || ""}`,
+        }).eq("receipt_no", payment.receipt_no).eq("madrasa_id", madrasaId);
+      }
+    } catch (eRel) {
+      console.warn("Relational fee_payments update status err on void:", eRel);
+    }
+
+    // 4. Update legacy fees table so it doesn't count towards income
+    try {
+      if (payment.db_fee_id) {
+        await supabase.from("fees").delete().eq("id", payment.db_fee_id).eq("madrasa_id", madrasaId);
+      }
+      if (payment.receipt_no) {
+        await supabase.from("fees").delete().like("notes", `%${payment.receipt_no}%`).eq("madrasa_id", madrasaId);
+      }
+      await supabase.from("fees").delete().eq("id", payment.id).eq("madrasa_id", madrasaId);
+    } catch (e) {
+      console.warn("Could not delete from legacy fees table:", e);
+    }
+
+    // 5. Immutable audit log
+    const auditLogs = meta.audit_logs || [];
+    auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      madrasa_id: madrasaId,
+      action: "VOID_FEE_PAYMENT",
+      user_name: user.email || "অ্যাডমিন",
+      user_role: "admin",
+      record_id: payment.id,
+      details: `রসিদ নং ${payment.receipt_no} (পরিমাণ: ৳${payment.total_amount_received}) বাতিল (VOID) করা হয়েছে। কারণ: ${reason.trim()}`,
+      created_at: now,
+    });
+
+    const saved = await saveFeeMetadata(madrasaId, {
+      student_fees: studentFees,
+      payments,
+      audit_logs: auditLogs.slice(0, 100),
+    });
+    if (!saved) {
+      return { error: "রসিদ বাতিল করার তথ্য ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
+    }
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/accounting/payments");
+    revalidatePath("/dashboard/accounting/due");
+    revalidatePath("/dashboard/accounting/income");
+    revalidatePath("/dashboard/accounting/receipts");
+
+    return {
+      success: true,
+      message: `রসিদ নং ${payment.receipt_no} সফলভাবে বাতিল (VOID) করা হয়েছে এবং বকেয়া পুনর্বহাল করা হয়েছে।`,
+      payment: payments[payIdx],
+    };
+  } catch (err: any) {
+    console.error("Error in voidFeePayment:", err);
+    return { error: err.message || "রসিদ বাতিল করতে সমস্যা হয়েছে।" };
+  }
+}
+
+/**
+ * Super Admin Unvoid / Reactivate a previously voided payment
+ */
+export async function unvoidFeePayment(paymentId: string, reason: string) {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+
+    const meta = await getFeeMetadata(madrasaId);
+    const payments = [...(meta.payments || [])];
+    const studentFees = [...(meta.student_fees || [])];
+
+    const payIdx = payments.findIndex((p) => p.id === paymentId || p.receipt_no === paymentId);
+    if (payIdx === -1) return { error: "পেমেন্ট রেকর্ড পাওয়া যায়নি।" };
+
+    const payment = payments[payIdx];
+    if (payment.status !== "VOID" && payment.status !== "REVERSED") {
+      return { error: "এই রসিদটি ইতিমধ্যে সক্রিয় রয়েছে।" };
+    }
+
+    const now = new Date().toISOString();
+
+    // Re-apply allocations to student fees
+    for (const alloc of payment.allocations || []) {
+      if (alloc.student_fee_id) {
+        const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
+        if (feeIdx >= 0) {
+          const target = studentFees[feeIdx];
+          const newPaid = Number(target.paid_amount || 0) + Number(alloc.allocated_amount || 0);
+          const newDue = Math.max(0, Number(target.payable_amount || 0) - newPaid);
+          let newStatus: FeeStatus = "PARTIAL";
+          if (newDue === 0) {
+            newStatus = "PAID";
+          } else if (newPaid === 0) {
+            newStatus = "UNPAID";
+          }
+
+          studentFees[feeIdx] = {
+            ...target,
+            paid_amount: newPaid,
+            due_amount: newDue,
+            status: newStatus,
+            updated_at: now,
+          };
+
+          try {
+            const adminClient = await createAdminClient();
+            await adminClient.from("student_fees").update({
+              paid_amount: newPaid,
+              due_amount: newDue,
+              status: newStatus,
+              updated_at: now,
+            }).eq("id", target.id).eq("madrasa_id", madrasaId);
+          } catch (sfErr) {
+            console.warn("Direct student_fees update err on unvoid:", sfErr);
+          }
+        }
+      }
+    }
+
+    // Set payment back to COMPLETED
+    payments[payIdx] = {
+      ...payment,
+      status: "COMPLETED",
+      notes: `${payment.notes || ""} [UNVOIDED: ${reason.trim() || "পুনরায় সক্রিয়"}]`,
+    };
+
+    // Update relational fee_payments table
+    try {
+      const adminClient = await createAdminClient();
+      await adminClient.from("fee_payments").update({
+        status: "COMPLETED",
+        notes: payments[payIdx].notes,
+      }).eq("id", payment.id).eq("madrasa_id", madrasaId);
+    } catch (eRel) {
+      console.warn("Relational fee_payments update status err on unvoid:", eRel);
+    }
+
+    // Audit log
+    const auditLogs = meta.audit_logs || [];
+    auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      madrasa_id: madrasaId,
+      action: "UNVOID_FEE_PAYMENT",
+      user_name: user.email || "অ্যাডমিন",
+      user_role: "admin",
+      record_id: payment.id,
+      details: `রসিদ নং ${payment.receipt_no} পুনরায় সক্রিয় করা হয়েছে। কারণ: ${reason.trim()}`,
+      created_at: now,
+    });
+
+    await saveFeeMetadata(madrasaId, {
+      student_fees: studentFees,
+      payments,
+      audit_logs: auditLogs.slice(0, 100),
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/accounting/payments");
+    revalidatePath("/dashboard/accounting/due");
+    revalidatePath("/dashboard/accounting/income");
+
+    return {
+      success: true,
+      message: `রসিদ নং ${payment.receipt_no} সফলভাবে পুনরায় সক্রিয় করা হয়েছে।`,
+      payment: payments[payIdx],
+    };
+  } catch (err: any) {
+    console.error("Error in unvoidFeePayment:", err);
+    return { error: err.message || "রসিদ পুনরায় সক্রিয় করতে সমস্যা হয়েছে।" };
   }
 }
 
