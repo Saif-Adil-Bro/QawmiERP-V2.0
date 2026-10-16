@@ -1,5 +1,6 @@
 // Data structures and helper models for Qawmi Madrasa Daily Amal & Home Routine Tracker
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { getStudentIdNumber, isUuid } from "@/lib/student-utils";
 
 export interface AmalCategory {
   id: string;
@@ -397,10 +398,12 @@ export function generateAmalDateDays(startDateStr: string, totalDays: number): {
   return result;
 }
 
-/**
- * Universal helper to extract student snapshot accurately from any Supabase student record
- */
-export function buildAmalStudentSnapshot(s: any, classesList: any[] = []): AmalStudentSnapshot {
+export function buildAmalStudentSnapshot(
+  s: any,
+  classesList: any[] = [],
+  allStudents?: any[],
+  madrasaPrefix?: string
+): AmalStudentSnapshot {
   if (!s || s === "blank" || s.studentId === "blank") {
     return {
       studentId: "blank",
@@ -431,20 +434,38 @@ export function buildAmalStudentSnapshot(s: any, classesList: any[] = []): AmalS
   const studentRoll =
     rawRoll !== "" && rawRoll !== null && rawRoll !== undefined ? String(rawRoll).trim() : "";
 
-  // 3. Resolve Student ID / Admission Code
-  const rawIdCode =
-    s.student_id ||
-    s.student_id_number ||
-    s.student_id_code ||
-    s.registration_no ||
-    s.reg_no ||
-    s.admission_number ||
-    s.admission_no ||
-    s.id_code;
-  
-  const studentIdCode = rawIdCode
-    ? String(rawIdCode).trim()
-    : (s.id && typeof s.id === "string" && s.id.length < 15 ? s.id : (studentRoll ? `রোল-${studentRoll}` : ""));
+  // 3. Resolve Student ID / Admission Code (Never leak internal database UUIDs)
+  let studentIdCode = "";
+  try {
+    studentIdCode = getStudentIdNumber(s, allStudents, madrasaPrefix);
+  } catch (err) {
+    console.warn("getStudentIdNumber error in buildAmalStudentSnapshot:", err);
+  }
+
+  // Fallback to explicit human-readable admission / student code if needed, never UUID
+  if (!studentIdCode || isUuid(studentIdCode)) {
+    const candidateIds = [
+      s.student_code,
+      s.admission_no,
+      s.admission_number,
+      s.student_id_number,
+      s.student_id,
+      s.registration_no,
+      s.reg_no,
+      s.id_code,
+      s.id_number,
+    ];
+    const validCandidate = candidateIds.find(
+      (id) => typeof id === "string" && id.trim() !== "" && !isUuid(id) && id.trim().length < 25
+    );
+    if (validCandidate) {
+      studentIdCode = validCandidate.trim();
+    } else if (studentRoll) {
+      studentIdCode = `রোল-${studentRoll}`;
+    } else {
+      studentIdCode = "";
+    }
+  }
 
   // 4. Resolve Class / Jamat
   const classObjFromRelation = Array.isArray(s.classes) ? s.classes[0] : s.classes;

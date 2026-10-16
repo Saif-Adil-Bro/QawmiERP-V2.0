@@ -172,8 +172,12 @@ export const AmalSheetA4: React.FC<AmalSheetA4Props> = ({
 
             <div>
               <span className="text-slate-500 font-medium">আইডি কোড: </span>
-              <strong className="text-slate-900 border-b border-dotted border-slate-400 pb-0.5">
-                {student?.studentIdCode || student?.studentRoll || ".............."}
+              <strong className="text-slate-900 border-b border-dotted border-slate-400 pb-0.5 font-mono">
+                {student?.studentIdCode && student.studentIdCode.length < 30 && !student.studentIdCode.includes("-90fc-")
+                  ? student.studentIdCode
+                  : student?.studentRoll
+                  ? `রোল-${toBanglaNumber(student.studentRoll)}`
+                  : ".............."}
               </strong>
             </div>
 

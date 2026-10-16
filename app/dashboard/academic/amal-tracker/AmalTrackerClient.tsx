@@ -14,6 +14,8 @@ import {
 } from "@/lib/amal-tracker";
 import { AmalSheetA4 } from "@/components/amal-tracker/AmalSheetA4";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { extractMadrasaPrefix } from "@/lib/madrasa-prefix";
+import { getActiveMadrasaPrefix } from "@/lib/student-utils";
 import {
   Printer,
   FileText,
@@ -127,6 +129,18 @@ export default function AmalTrackerClient({
     });
   }, [students, classes, selectedClassId]);
 
+  // Resolved Madrasa Prefix for Student IDs
+  const madrasaPrefix = useMemo(() => {
+    return (
+      madrasaInfo?.prefix ||
+      madrasaInfo?.short_code ||
+      (madrasaInfo?.madrasas ? extractMadrasaPrefix(madrasaInfo.madrasas) : "") ||
+      (madrasaInfo ? extractMadrasaPrefix(madrasaInfo) : "") ||
+      getActiveMadrasaPrefix() ||
+      ""
+    ).trim().toUpperCase();
+  }, [madrasaInfo]);
+
   // Prepared Student Snapshots for Generation
   const studentSnapshots: AmalStudentSnapshot[] = useMemo(() => {
     if (printMode === "blank") {
@@ -136,7 +150,7 @@ export default function AmalTrackerClient({
     if (printMode === "single") {
       const found = students.find((s: any) => String(s.id) === String(selectedStudentId));
       if (found) {
-        return [buildAmalStudentSnapshot(found, classes)];
+        return [buildAmalStudentSnapshot(found, classes, students, madrasaPrefix)];
       }
       return [{ studentId: "blank", studentName: "" }];
     }
@@ -146,8 +160,8 @@ export default function AmalTrackerClient({
       return [{ studentId: "blank", studentName: "" }];
     }
 
-    return filteredStudents.map((s: any) => buildAmalStudentSnapshot(s, classes));
-  }, [printMode, selectedStudentId, filteredStudents, students, classes]);
+    return filteredStudents.map((s: any) => buildAmalStudentSnapshot(s, classes, students, madrasaPrefix));
+  }, [printMode, selectedStudentId, filteredStudents, students, classes, madrasaPrefix]);
 
   // Current Student for Preview
   const currentPreviewStudent = studentSnapshots[currentStudentIndex] || studentSnapshots[0];
@@ -596,7 +610,7 @@ export default function AmalTrackerClient({
                   className="max-w-md px-3 py-1.5 text-xs border border-slate-300 rounded-lg font-medium bg-white"
                 >
                   {filteredStudents.map((s: any) => {
-                    const snap = buildAmalStudentSnapshot(s, classes);
+                    const snap = buildAmalStudentSnapshot(s, classes, students, madrasaPrefix);
                     return (
                       <option key={s.id} value={s.id}>
                         {snap.studentName || `শিক্ষার্থী (${snap.studentRoll || s.id})`} {snap.className ? `[${snap.className}]` : ""} (রোল: {toBanglaNumber(snap.studentRoll || "০")})
@@ -1334,7 +1348,7 @@ export default function AmalTrackerClient({
                   onChange={(e) => {
                     const st = students.find((s: any) => String(s.id) === e.target.value);
                     if (st) {
-                      const snap = buildAmalStudentSnapshot(st, classes);
+                      const snap = buildAmalStudentSnapshot(st, classes, students, madrasaPrefix);
                       setEvalForm({
                         ...evalForm,
                         studentId: snap.studentId,
@@ -1349,7 +1363,7 @@ export default function AmalTrackerClient({
                 >
                   <option value="">ছাত্র নির্বাচন করুন...</option>
                   {students.map((st: any) => {
-                    const snap = buildAmalStudentSnapshot(st, classes);
+                    const snap = buildAmalStudentSnapshot(st, classes, students, madrasaPrefix);
                     return (
                       <option key={st.id} value={st.id}>
                         {snap.studentName || `শিক্ষার্থী (${st.id})`} {snap.className ? `(${snap.className})` : ""} - রোল: {toBanglaNumber(snap.studentRoll || "০")}

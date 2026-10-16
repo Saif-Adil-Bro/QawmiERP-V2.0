@@ -79,6 +79,18 @@ export function getActiveIdYearFormat(): IdYearFormat {
 }
 
 /**
+ * Helper to identify UUIDs (32 hex characters with dashes, or 30+ char random hashes)
+ */
+export function isUuid(val: any): boolean {
+  if (!val || typeof val !== "string") return false;
+  const clean = val.trim();
+  return (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean) ||
+    clean.length >= 30
+  );
+}
+
+/**
  * Resolves the student ID number prioritizing original/custom ID, admission number, or generated standard ID.
  * Always formats with the unified Madrasa prefix and hyphen (e.g. "AH-480001" or "AHH-260001").
  */
@@ -106,19 +118,23 @@ export function getStudentIdNumber(
   }
 
   // 1. If student has an explicit custom / original student ID or admission number
-  const explicitId =
-    student.student_id ||
-    student.admission_no ||
-    student.student_code ||
-    student.custom_id ||
-    student.registration_no;
+  const candidateIds = [
+    student.student_code,
+    student.admission_no,
+    student.admission_number,
+    student.student_id_number,
+    student.student_id,
+    student.custom_id,
+    student.registration_no,
+    student.reg_no,
+    student.id_number,
+  ];
 
-  if (
-    explicitId &&
-    typeof explicitId === "string" &&
-    explicitId.trim() !== "" &&
-    explicitId.length < 25
-  ) {
+  const explicitId = candidateIds.find(
+    (id) => typeof id === "string" && id.trim() !== "" && !isUuid(id) && id.trim().length < 25
+  );
+
+  if (explicitId) {
     const cleanId = explicitId.trim().toUpperCase();
     if (prefix) {
       if (cleanId.startsWith(`${prefix}-`)) {
