@@ -1,6 +1,6 @@
 {
-  "summary": "Comprehensive architectural and UI/UX implementation plan for replacing permanent hard deletion of receipts with an immutable Void/Cancellation workflow across Student Fee Receipts and Donation/Zakat collections, featuring reason modals, VOID badges, line-through styling, automatic balance rollback, and super-admin unvoiding.",
-  "updatedAt": "2026-10-16T00:45:29.386714601Z",
+  "summary": "কওমি ইআরপি-তে বড় আকারের ব্যাকআপ ফাইল (১MB - ১০০MB) রিস্টোর করার সময় 'প্রথমে একটি বৈধ ব্যাকআপ ফাইল লোড করুন' সতর্কতা নিরসন, ক্লায়েন্ট-সাইড ইনস্ট্যান্ট পার্সিং, ১০০MB ডেডিকেটেড এপিআই রুট এবং স্পষ্ট এরর ইউআই বাস্তবায়নের পূর্ণাঙ্গ কর্মপরিকল্পনা।",
+  "updatedAt": "2026-10-16T05:07:32.406577452Z",
   "requestFeedback": true,
   "userFacing": true
 }

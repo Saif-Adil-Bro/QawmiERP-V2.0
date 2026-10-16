@@ -488,6 +488,21 @@ export default function BackupClient({
     }
   };
 
+  const countCollectionItemsClient = (val: any): number => {
+    if (!val) return 0;
+    if (Array.isArray(val)) return val.length;
+    if (typeof val === "object") {
+      const keys = Object.keys(val);
+      if (keys.length === 0) return 0;
+      const firstVal = val[keys[0]];
+      if (Array.isArray(firstVal)) {
+        return keys.reduce((acc, k) => acc + (Array.isArray(val[k]) ? val[k].length : 1), 0);
+      }
+      return keys.length;
+    }
+    return 1;
+  };
+
   const processFile = (file: File) => {
     if (!file.name.endsWith(".json")) {
       alert("অনুগ্রহ করে শুধুমাত্র বৈধ কওমি ব্যাকআপ .json ফাইল আপলোড করুন।");
@@ -503,19 +518,129 @@ export default function BackupClient({
     reader.onload = async (event) => {
       try {
         const content = event.target?.result as string;
-        const analysis = await analyzeBackupFile(content);
-        setAnalyzedData(analysis);
-        if (analysis.manifest?.modules) {
-          setSelectedRestoreModules(analysis.manifest.modules);
+        if (!content || typeof content !== "string") {
+          throw new Error("ফাইলটি খালি বা পড়া সম্ভব হয়নি।");
+        }
+
+        let parsed: any;
+        try {
+          parsed = JSON.parse(content);
+        } catch {
+          throw new Error("ফাইলটি বৈধ JSON ফরম্যাট নয়। ফাইলটি অসম্পূর্ণ বা ক্ষতিগ্রস্ত হতে পারে।");
+        }
+
+        if (!parsed || typeof parsed !== "object") {
+          throw new Error("অবৈধ ব্যাকআপ স্ট্রাকচার পাওয়া গেছে।");
+        }
+
+        let manifest: BackupManifest;
+        let dataObj: any;
+
+        if (parsed.manifest && parsed.data) {
+          manifest = parsed.manifest;
+          dataObj = parsed.data;
+        } else if (parsed.data || parsed.students || parsed.classes) {
+          dataObj = parsed.data || parsed;
+          manifest = {
+            app_name: parsed.app_name || "QawmiManager",
+            version: parsed.version || "1.0.0",
+            format: "qawmi_cloud_backup_v2",
+            generated_at: parsed.generated_at || parsed.export_date || new Date().toISOString(),
+            madrasa_id: parsed.madrasa_id || "portable",
+            madrasa_name: parsed.madrasa_name || "কওমি মাদরাসা",
+            modules: [
+              "students",
+              "academic",
+              "attendance",
+              "exams",
+              "finance",
+              "fundraising",
+              "staff",
+              "boarding",
+              "library",
+              "communication",
+              "certificates",
+              "leaves",
+              "inventory",
+              "settings",
+              "all_metadata",
+            ],
+            total_records: 0,
+            stats: {},
+            checksum: "legacy_format",
+            is_dynamic_universal_schema: true,
+          };
+        } else {
+          throw new Error("এই ফাইলে কোনো চেনার উপযোগী কওমি ব্যাকআপ ডেটা পাওয়া যায়নি।");
+        }
+
+        // Dynamic Module Counts Calculation in Browser
+        const moduleCounts: Record<string, number> = {
+          students: countCollectionItemsClient(dataObj.students) + countCollectionItemsClient(dataObj.student_enrollments) + countCollectionItemsClient(dataObj.student_profiles),
+          admissions: countCollectionItemsClient(dataObj.admissions),
+          academic: countCollectionItemsClient(dataObj.classes) + countCollectionItemsClient(dataObj.subjects) + countCollectionItemsClient(dataObj.class_subjects) + countCollectionItemsClient(dataObj.teacher_subjects) + countCollectionItemsClient(dataObj.syllabus),
+          routines: countCollectionItemsClient(dataObj.routines) + countCollectionItemsClient(dataObj.exam_routines),
+          hifz_kitab: countCollectionItemsClient(dataObj.hifz_logs) + countCollectionItemsClient(dataObj.kitab_logs),
+          attendance: countCollectionItemsClient(dataObj.attendance) + countCollectionItemsClient(dataObj.teacher_attendance),
+          leaves: countCollectionItemsClient(dataObj.student_leaves) + countCollectionItemsClient(dataObj.teacher_leaves),
+          exams: countCollectionItemsClient(dataObj.exams) + countCollectionItemsClient(dataObj.exam_subjects) + countCollectionItemsClient(dataObj.exam_results) + countCollectionItemsClient(dataObj.published_exams),
+          question_bank: countCollectionItemsClient(dataObj.question_bank) + countCollectionItemsClient(dataObj.exam_papers),
+          fees: countCollectionItemsClient(dataObj.fee_structures) + countCollectionItemsClient(dataObj.student_fees) + countCollectionItemsClient(dataObj.discounts) + countCollectionItemsClient(dataObj.fee_types) + countCollectionItemsClient(dataObj.fee_structure_items) + countCollectionItemsClient(dataObj.fee_discount_waivers),
+          finance_transactions: countCollectionItemsClient(dataObj.fees) + countCollectionItemsClient(dataObj.payments) + countCollectionItemsClient(dataObj.fee_payments) + countCollectionItemsClient(dataObj.fee_payment_allocations),
+          expenses: countCollectionItemsClient(dataObj.expenses) + countCollectionItemsClient(dataObj.bazar_expenses),
+          zakat_donations: countCollectionItemsClient(dataObj.donations) + countCollectionItemsClient(dataObj.zakat_funds) + countCollectionItemsClient(dataObj.online_donations),
+          donors_funds: countCollectionItemsClient(dataObj.donors) + countCollectionItemsClient(dataObj.funds),
+          fundraising_special: countCollectionItemsClient(dataObj.mahfils) + countCollectionItemsClient(dataObj.life_members) + countCollectionItemsClient(dataObj.subscription_payments) + countCollectionItemsClient(dataObj.qurbani_leathers) + countCollectionItemsClient(dataObj.donation_boxes) + countCollectionItemsClient(dataObj.box_collections),
+          payment_gateway: countCollectionItemsClient(dataObj.gateways) + (dataObj.online_settings ? 1 : 0),
+          id_cards: countCollectionItemsClient(dataObj.id_cards) + countCollectionItemsClient(dataObj.id_card_templates),
+          certificates: countCollectionItemsClient(dataObj.certificates) + countCollectionItemsClient(dataObj.certificate_templates),
+          boarding: countCollectionItemsClient(dataObj.meal_entries),
+          library: countCollectionItemsClient(dataObj.books) + countCollectionItemsClient(dataObj.book_issues),
+          inventory: countCollectionItemsClient(dataObj.inventory?.items || dataObj.inventory),
+          staff: countCollectionItemsClient(dataObj.teachers) + countCollectionItemsClient(dataObj.users),
+          communication: countCollectionItemsClient(dataObj.parent_feedbacks) + countCollectionItemsClient(dataObj.parent_appointments),
+          notices_sms: countCollectionItemsClient(dataObj.notices) + countCollectionItemsClient(dataObj.sms_templates) + countCollectionItemsClient(dataObj.sms_logs),
+          alumni: countCollectionItemsClient(dataObj.alumni),
+          settings: countCollectionItemsClient(dataObj.sessions) + countCollectionItemsClient(dataObj.academic_holidays) + (dataObj.madrasa ? 1 : 0),
+          audit_logs: countCollectionItemsClient(dataObj.audit_logs) + countCollectionItemsClient(dataObj.backup_history) + countCollectionItemsClient(dataObj.fee_audit_logs),
+        };
+
+        const totalRecords = Object.values(moduleCounts).reduce((acc, c) => acc + c, 0);
+        manifest.total_records = totalRecords;
+
+        const warnings: string[] = [];
+        if (totalRecords === 0) {
+          warnings.push("ফাইলটিতে রিস্টোর করার মতো কোনো ডেটা রেকর্ড পাওয়া যায়নি।");
+        }
+
+        setAnalyzedData({
+          isValid: true,
+          manifest,
+          moduleCounts,
+          totalRecords,
+          warnings,
+          parsedPayload: { manifest, data: dataObj },
+        });
+
+        if (manifest?.modules && manifest.modules.length > 0) {
+          setSelectedRestoreModules(manifest.modules);
         }
       } catch (err: any) {
+        console.error("Client backup analysis error:", err);
         setAnalyzedData({
           isValid: false,
-          error: "ফাইল রিডিং ব্যর্থ হয়েছে: " + err.message,
+          error: err?.message || "ফাইল লোড ও বিশ্লেষণে সমস্যা হয়েছে।",
         });
       } finally {
         setAnalyzingFile(false);
       }
+    };
+    reader.onerror = () => {
+      setAnalyzedData({
+        isValid: false,
+        error: "ফাইল রিড করতে ব্রাউজারে ত্রুটি হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।",
+      });
+      setAnalyzingFile(false);
     };
     reader.readAsText(file);
   };
@@ -545,19 +670,28 @@ export default function BackupClient({
       setIsRestoring(true);
       setRestoreResult(null);
 
-      const res = await executeDataRestore({
-        backupPayload: analyzedData.parsedPayload,
-        restoreMode: restoreMode,
-        selectedModules: selectedRestoreModules,
-        createAutoSnapshot: createAutoSnapshot,
+      // Dedicated high-capacity streaming API route (supports up to 100MB with 120s timeout)
+      const res = await fetch("/api/backup/restore", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          backupPayload: analyzedData.parsedPayload,
+          restoreMode: restoreMode,
+          selectedModules: selectedRestoreModules,
+          createAutoSnapshot: createAutoSnapshot,
+        }),
       });
 
-      setRestoreResult(res);
+      const data = await res.json();
+      setRestoreResult(data);
 
-      if (res.success) {
+      if (data.success) {
         router.refresh();
       }
     } catch (err: any) {
+      console.error("Execute restore error:", err);
       setRestoreResult({
         success: false,
         message: "রিস্টোর ব্যর্থ হয়েছে।",
@@ -1114,8 +1248,37 @@ export default function BackupClient({
             </div>
           )}
 
+          {/* File Error State (Invalid, corrupted or unreadable backup) */}
+          {analyzedData && !analyzedData.isValid && (
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-rose-200 shadow-sm space-y-4 animate-fadeIn">
+              <div className="flex items-start gap-3 p-4 bg-rose-50 border border-rose-200 rounded-2xl">
+                <AlertTriangle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+                <div className="space-y-1 flex-1 min-w-0">
+                  <h4 className="text-sm font-bold text-rose-900">
+                    ব্যাকআপ ফাইলটি লোড বা যাচাই করা সম্ভব হয়নি
+                  </h4>
+                  <p className="text-xs text-rose-700 leading-relaxed">
+                    {analyzedData.error || "ফাইলটি বৈধ কওমি ব্যাকআপ ফরম্যাট নয় বা ফাইলটিতে কোনো ডাটা পাওয়া যায়নি।"}
+                  </p>
+                  <p className="text-[11px] text-slate-500 font-mono mt-1">
+                    ফাইল: {uploadedFile?.name} ({Math.round((uploadedFile?.size || 0) / 1024)} KB)
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={resetRestoreFile}
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  অন্য ফাইল নির্বাচন করুন
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Analyzed Backup File Preview & Configuration */}
-          {analyzedData && (
+          {analyzedData && analyzedData.isValid && (
             <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-sm space-y-6 animate-fadeIn">
               {/* File Info Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
