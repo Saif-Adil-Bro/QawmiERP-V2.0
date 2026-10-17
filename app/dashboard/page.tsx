@@ -1,3 +1,4 @@
+import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
@@ -68,7 +69,7 @@ export default async function DashboardPage() {
     earlyWarningData = alerts;
 
     if (profile?.madrasa_id) {
-      const today = new Date().toISOString().split('T')[0];
+      const today = toDhakaDateString();
 
       const [
         { count: sCount }, 
@@ -103,7 +104,7 @@ export default async function DashboardPage() {
         supabase.from("donations").select("amount, donation_date").eq("madrasa_id", profile.madrasa_id),
         supabase.from("expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
         supabase.from("bazar_expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
-        supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]).lte("date", today),
+        supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", toDhakaDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))).lte("date", today),
         supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
         getStaffMetadataFull(),
         getMadrasaMetadata(profile.madrasa_id),
@@ -151,7 +152,7 @@ export default async function DashboardPage() {
       const monthlyData: Record<string, { income: number; expense: number }> = {};
       const addMonthly = (dateStr: string, amount: number, type: 'income' | 'expense') => {
         if (!dateStr || amount <= 0) return;
-        const cleanDate = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr.trim();
+        const cleanDate = dateStr.includes("T") ? toDhakaDateStringFrom(dateStr) : dateStr.trim();
         const month = cleanDate.substring(0, 7); // YYYY-MM
         if (!monthlyData[month]) monthlyData[month] = { income: 0, expense: 0 };
         monthlyData[month][type] += Number(amount);
@@ -180,7 +181,7 @@ export default async function DashboardPage() {
           !trackedFeeKeys.has(p.receipt_no)
         ) {
           const amt = Number(p.total_amount_received || 0);
-          const dt = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+          const dt = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
           if (amt > 0) {
             totalIncome += amt;
             addMonthly(dt, amt, 'income');
@@ -246,7 +247,7 @@ export default async function DashboardPage() {
       // 3. Regular Donor / Life Member Payments (untracked)
       (meta.donor_subscription_payments || []).forEach((p: any) => {
         const amt = Number(p.amount || 0);
-        const dt = p.payment_date || p.date || (p.created_at ? p.created_at.split("T")[0] : "");
+        const dt = p.payment_date || p.date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
         const pKey = p.id || p.receipt_no;
         if (amt > 0 && !trackedDonationKeys.has(pKey)) {
           totalIncome += amt;
@@ -257,7 +258,7 @@ export default async function DashboardPage() {
       // 4. Donation Box Collections (untracked)
       (meta.donation_box_logs || []).forEach((l: any) => {
         const amt = Number(l.amount || 0);
-        const dt = l.collection_date || l.date || (l.created_at ? l.created_at.split("T")[0] : "");
+        const dt = l.collection_date || l.date || (l.created_at ? toDhakaDateStringFrom(l.created_at) : "");
         const lKey = l.receipt_no || l.id;
         if (amt > 0 && !trackedDonationKeys.has(lKey)) {
           totalIncome += amt;
@@ -269,7 +270,7 @@ export default async function DashboardPage() {
       (meta.online_donations || []).forEach((d: any) => {
         if (d.status === "COMPLETED" || d.status === "VERIFIED" || d.status === "SUCCESS") {
           const amt = Number(d.amount || 0);
-          const dt = d.payment_date || (d.created_at ? d.created_at.split("T")[0] : "");
+          const dt = d.payment_date || (d.created_at ? toDhakaDateStringFrom(d.created_at) : "");
           const dKey = d.receipt_no || d.transaction_id || d.id;
           if (amt > 0 && !trackedDonationKeys.has(dKey)) {
             totalIncome += amt;
@@ -283,7 +284,7 @@ export default async function DashboardPage() {
       leatherRecords.forEach((r: any) => {
         const inc = Number(r.received_amount || r.total_sale_price || r.total_sale_amount || 0);
         const exp = Number(r.transport_labour_cost || r.transport_labor_cost || 0);
-        const dt = r.collection_date || r.sale_date || r.date || (r.created_at ? r.created_at.split("T")[0] : "");
+        const dt = r.collection_date || r.sale_date || r.date || (r.created_at ? toDhakaDateStringFrom(r.created_at) : "");
         const rKey = r.receipt_no || r.id;
         if (!trackedDonationKeys.has(rKey)) {
           if (inc > 0) {

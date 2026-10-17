@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
@@ -408,7 +409,7 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
       .single();
 
     const madrasaName = madrasaRow?.name || "কওমি মাদরাসা";
-    const date = targetDate || new Date().toISOString().split("T")[0];
+    const date = targetDate || toDhakaDateString();
 
     // 1. Fetch all students of this madrasa
     let studentQuery = adminClient
@@ -442,7 +443,7 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
     const targetDateObj = new Date(date);
     const thirtyDaysAgo = new Date(targetDateObj);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 35);
-    const startDateStr = thirtyDaysAgo.toISOString().split("T")[0];
+    const startDateStr = toDhakaDateString(thirtyDaysAgo);
     const currentMonthPrefix = date.substring(0, 7); // "YYYY-MM"
 
     const { data: pastAttList } = await adminClient

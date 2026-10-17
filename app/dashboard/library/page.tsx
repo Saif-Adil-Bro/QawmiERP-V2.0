@@ -1,3 +1,4 @@
+import { toDhakaDateString } from "@/lib/date-utils";
 import Link from "next/link";
 import { Library, BookUp, BookDown, AlertCircle, Bookmark, ChevronRight } from "lucide-react";
 import { getBooks, getBookIssues } from "@/app/actions/library";
@@ -11,7 +12,7 @@ export default async function LibraryDashboardPage() {
     getBookIssues()
   ]);
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDhakaDateString();
 
   // Calculate stats
   const totalUniqueBooks = books.length;

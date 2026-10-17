@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString, toDhakaDateStringFrom } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -60,7 +61,7 @@ function formatWhatsAppPhone(phone: string): string {
 function generateWhatsAppMessage(donation: OnlineDonation, madrasaName: string, receiptUrl: string): string {
   const donor = donation.donor_name || "শুভাকাঙ্ক্ষী";
   const fund = donation.fund_category || "সাধারণ";
-  const dateStr = donation.donation_date || new Date().toISOString().split("T")[0];
+  const dateStr = donation.donation_date || toDhakaDateString();
 
   return (
     "আসসালামু আলাইকুম ওয়া রাহমাতুল্লাহ,\n" +
@@ -534,7 +535,7 @@ export default function OnlineDonationsClient({
                       </td>
 
                       <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                        {toBanglaNumber(d.donation_date || d.created_at?.split("T")[0])}
+                        {toBanglaNumber(d.donation_date || toDhakaDateStringFrom(d.created_at))}
                       </td>
 
                       <td className="py-3 px-4 font-bold text-emerald-700 text-sm whitespace-nowrap">
@@ -1040,7 +1041,7 @@ export default function OnlineDonationsClient({
                   </p>
                   <span className="text-slate-300">•</span>
                   <p className="text-[11px] text-slate-600">
-                    তারিখ: {toBanglaNumber(selectedDonationForReceipt.donation_date || selectedDonationForReceipt.created_at?.split("T")[0])}
+                    তারিখ: {toBanglaNumber(selectedDonationForReceipt.donation_date || toDhakaDateStringFrom(selectedDonationForReceipt.created_at))}
                   </p>
                 </div>
               </div>

@@ -1,3 +1,4 @@
+import { toDhakaDateString } from "@/lib/date-utils";
 import { getPublicHolidaysForPortal } from "@/app/actions/holidays";
 import { 
   CalendarDays, Calendar, Clock, Sparkles, CheckCircle2, 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function PortalHolidaysPage() {
   const holidays = await getPublicHolidaysForPortal();
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = toDhakaDateString();
   const ongoingHolidays = holidays.filter((h) => today >= h.start_date && today <= h.end_date);
   const upcomingHolidays = holidays.filter((h) => today < h.start_date);
   const pastHolidays = holidays.filter((h) => today > h.end_date);

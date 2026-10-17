@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import {
   X,
@@ -73,10 +74,10 @@ export default function AssignmentFormModal({
   const [description, setDescription] = useState(initialData?.description || "");
   const [imageUrls, setImageUrls] = useState<string[]>(initialData?.image_urls || []);
   const [assignedDate, setAssignedDate] = useState(
-    initialData?.assigned_date || new Date().toISOString().split("T")[0]
+    initialData?.assigned_date || toDhakaDateString()
   );
   const [dueDate, setDueDate] = useState(
-    initialData?.due_date || new Date().toISOString().split("T")[0]
+    initialData?.due_date || toDhakaDateString()
   );
 
   const [classStudents, setClassStudents] = useState<any[]>([]);
@@ -135,7 +136,7 @@ export default function AssignmentFormModal({
       setSubjectName("");
       setDescription("");
       setImageUrls([]);
-      const today = new Date().toISOString().split("T")[0];
+      const today = toDhakaDateString();
       setAssignedDate(today);
       setDueDate(today);
       setSelectedSyllabusId("");

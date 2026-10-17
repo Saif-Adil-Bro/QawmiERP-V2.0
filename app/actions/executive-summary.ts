@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom, toDhakaMonthString } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents, getClasses } from "./students";
 import { getMadrasaMetadata } from "@/lib/sessions";
@@ -113,7 +114,7 @@ const MONTH_NAMES_BN: Record<string, string> = {
 export async function getMonthlyExecutiveSummary(
   targetMonth?: string // Format: "YYYY-MM" (e.g. "2026-09")
 ): Promise<MonthlyExecutiveSummaryData> {
-  const currentMonth = targetMonth || new Date().toISOString().substring(0, 7);
+  const currentMonth = targetMonth || toDhakaMonthString();
   const [yearStr, monthNumStr] = currentMonth.split("-");
   const monthNameBn = `${MONTH_NAMES_BN[monthNumStr] || monthNumStr} ${yearStr}`;
 
@@ -512,7 +513,7 @@ export async function getMonthlyExecutiveSummary(
   const allPayments = feeMeta.payments || [];
   allPayments.forEach((p: any) => {
     if (p.status === "REVERSED" || p.status === "VOID") return;
-    const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+    const pDate = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
     if (pDate.startsWith(currentMonth)) {
       const totalRec = Number(p.total_amount_received || 0);
       feeCollection += totalRec;

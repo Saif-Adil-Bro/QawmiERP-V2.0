@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -176,7 +177,7 @@ export async function syncHolidayAttendanceRecords({
     // CRITICAL: Attendance records can only be recorded for dates that have already arrived or occurred.
     // Future dates cannot have attendance records, otherwise future holiday leaves will corrupt
     // all live attendance rate calculations, pie charts, and monthly reports.
-    const today = new Date().toISOString().split("T")[0];
+    const today = toDhakaDateString();
     const eligibleDates = dates.filter((d) => d <= today);
     if (eligibleDates.length === 0) return { success: true, count: 0 };
 
@@ -366,7 +367,7 @@ function calculateDays(start: string, end: string): number {
  * Computes status of a holiday based on current date
  */
 function computeHolidayStatus(startDate: string, endDate: string): "upcoming" | "ongoing" | "completed" {
-  const today = new Date().toISOString().split("T")[0];
+  const today = toDhakaDateString();
   if (today < startDate) return "upcoming";
   if (today > endDate) return "completed";
   return "ongoing";

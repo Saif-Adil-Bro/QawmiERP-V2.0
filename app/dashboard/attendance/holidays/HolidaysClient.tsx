@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { 
@@ -121,8 +122,8 @@ export default function HolidaysClient({
   const [formData, setFormData] = useState({
     title: "",
     category: "general" as keyof typeof HOLIDAY_CATEGORIES,
-    start_date: new Date().toISOString().split("T")[0],
-    end_date: new Date().toISOString().split("T")[0],
+    start_date: toDhakaDateString(),
+    end_date: toDhakaDateString(),
     reopen_date: "",
     reopen_time: "সকাল ৮:০০ ঘটিকা",
     applicable_to: "all",
@@ -173,7 +174,7 @@ export default function HolidaysClient({
   const handleOpenCreate = () => {
     setEditingHoliday(null);
     setModalError(null);
-    const today = new Date().toISOString().split("T")[0];
+    const today = toDhakaDateString();
     setFormData({
       title: "",
       category: "exam_vacation",
@@ -216,11 +217,11 @@ export default function HolidaysClient({
     const startObj = new Date(sDate);
     const endObj = new Date(startObj);
     endObj.setDate(endObj.getDate() + (preset.days - 1));
-    const eDate = endObj.toISOString().split("T")[0];
+    const eDate = toDhakaDateString(endObj);
 
     const reopenObj = new Date(endObj);
     reopenObj.setDate(reopenObj.getDate() + 1);
-    const rDate = reopenObj.toISOString().split("T")[0];
+    const rDate = toDhakaDateString(reopenObj);
 
     setFormData((prev) => ({
       ...prev,
@@ -478,7 +479,7 @@ export default function HolidaysClient({
       }
 
       // Status
-      const today = new Date().toISOString().split("T")[0];
+      const today = toDhakaDateString();
       const isArchived = Boolean(h.is_archived);
       const isOngoing = today >= h.start_date && today <= h.end_date;
       const isUpcoming = today < h.start_date;
@@ -502,7 +503,7 @@ export default function HolidaysClient({
 
   // Statistics Summary
   const stats = useMemo(() => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = toDhakaDateString();
     const nonArchived = holidays.filter((h) => !h.is_archived);
     const ongoing = nonArchived.filter((h) => today >= h.start_date && today <= h.end_date);
     const upcoming = nonArchived.filter((h) => today < h.start_date);
@@ -907,7 +908,7 @@ export default function HolidaysClient({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredHolidays.map((h) => {
-            const today = new Date().toISOString().split("T")[0];
+            const today = toDhakaDateString();
             const isOngoing = today >= h.start_date && today <= h.end_date;
             const isUpcoming = today < h.start_date;
             const categoryMeta = HOLIDAY_CATEGORIES[h.category as keyof typeof HOLIDAY_CATEGORIES] || {

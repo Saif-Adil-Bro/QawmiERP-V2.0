@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useEffect } from "react";
 import { StaffMember } from "@/lib/staff-management";
 import { 
@@ -25,7 +26,7 @@ function getDefaultBodyText(type: CertificateLetterType, staff: StaffMember): st
   const address = staff.contact.present_address || "—";
   const designation = staff.employment.designation || "সহকারী শিক্ষক (মুদাররিস)";
   const dept = staff.employment.department_name || "একাডেমিক ও পাঠদান বিভাগ";
-  const joinDate = toBanglaNumber(staff.employment.joining_date || new Date().toISOString().split("T")[0]);
+  const joinDate = toBanglaNumber(staff.employment.joining_date || toDhakaDateString());
   const basicSalary = toBanglaNumber((staff.salary.basic_salary || 0).toString());
   const netSalary = toBanglaNumber((staff.salary.net_salary || 0).toString());
   const staffCode = staff.staff_id_code || "";
@@ -72,7 +73,7 @@ export default function StaffCertificateGeneratorModal({
 }: StaffCertificateGeneratorModalProps) {
   const [selectedType, setSelectedType] = useState<CertificateLetterType>("APPOINTMENT");
   const [customSubject, setCustomSubject] = useState("");
-  const [issueDate, setIssueDate] = useState(new Date().toISOString().split("T")[0]);
+  const [issueDate, setIssueDate] = useState(toDhakaDateString());
   const [referenceNo, setReferenceNo] = useState(
     `QM/DOC/${new Date().getFullYear()}/${(staff.staff_id_code || "0001").replace(/[^0-9]/g, "").slice(-4) || "0001"}`
   );

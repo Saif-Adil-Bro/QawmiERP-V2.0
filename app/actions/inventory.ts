@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString, toDhakaDateStringFrom } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
@@ -112,7 +113,7 @@ export async function createAssetItem(data: {
       in_stock_qty: totalQty,
       damaged_qty: 0,
       condition: data.condition || "GOOD",
-      purchase_date: data.purchase_date || now.split("T")[0],
+      purchase_date: data.purchase_date || toDhakaDateStringFrom(now),
       purchase_price_per_unit: unitPrice,
       total_value: totalQty * unitPrice,
       vendor_or_donor: data.vendor_or_donor?.trim() || "",
@@ -278,7 +279,7 @@ export async function allocateAsset(data: {
       location_or_room: data.location_or_room.trim(),
       assigned_to_person: data.assigned_to_person?.trim() || "",
       quantity: reqQty,
-      allocation_date: now.split("T")[0],
+      allocation_date: toDhakaDateStringFrom(now),
       status: "ACTIVE",
       remarks: data.remarks?.trim() || "",
     };
@@ -328,7 +329,7 @@ export async function returnAssetAllocation(allocationId: string, returnQty?: nu
     }
 
     alloc.status = "RETURNED";
-    alloc.return_date = new Date().toISOString().split("T")[0];
+    alloc.return_date = toDhakaDateString();
 
     await saveMadrasaMetadata(madrasaId, meta);
     revalidatePath("/dashboard/inventory");
@@ -374,7 +375,7 @@ export async function recordMaintenance(data: {
       asset_id: item.id,
       asset_name: item.name,
       asset_code: item.asset_code,
-      maintenance_date: data.maintenance_date || now.split("T")[0],
+      maintenance_date: data.maintenance_date || toDhakaDateStringFrom(now),
       issue_description: data.issue_description.trim(),
       work_done: data.work_done.trim(),
       cost,

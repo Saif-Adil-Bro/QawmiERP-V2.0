@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState } from "react";
 import { 
   HeartHandshake, 
@@ -83,7 +84,7 @@ export default function CollectionClient({
   const [selectedFundName, setSelectedFundName] = useState(preselectedFundName || "সাধারণ ফান্ড (General Fund)");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [amount, setAmount] = useState("");
-  const [donationDate, setDonationDate] = useState(new Date().toISOString().split("T")[0]);
+  const [donationDate, setDonationDate] = useState(toDhakaDateString());
   const [receiptNo, setReceiptNo] = useState("");
   const [notes, setNotes] = useState("");
 

@@ -1,4 +1,5 @@
 // Data structures and helper models for Qawmi Madrasa Daily Amal & Home Routine Tracker
+import { toDhakaDateString } from "@/lib/date-utils";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { getStudentIdNumber, isUuid } from "@/lib/student-utils";
 
@@ -376,7 +377,7 @@ export function generateAmalDateDays(startDateStr: string, totalDays: number): {
     const monthName = banglaMonths[monthIndex];
     const shortMonthName = shortBanglaMonths[monthIndex];
 
-    const isoStr = current.toISOString().split("T")[0];
+    const isoStr = toDhakaDateString(current);
     const formatted = `${toBanglaNumber(dayNum)} ${monthName}`;
     const dayDateMonthShort = `${toBanglaNumber(dayNum)} ${shortMonthName}`;
     const dayDateNumericShort = `${toBanglaNumber(dayNum)}/${toBanglaNumber(monthIndex + 1)}`;

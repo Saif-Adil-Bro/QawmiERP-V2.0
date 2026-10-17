@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
@@ -371,7 +372,7 @@ export default function StudentProfileClient({
                         <div>
                           <span className="text-slate-400 block">এনরোলমেন্ট তারিখ:</span>
                           <span className="font-medium text-slate-700">
-                            {item.enrollment_date?.split("T")[0] || "-"}
+                            {toDhakaDateStringFrom(item.enrollment_date) || "-"}
                           </span>
                         </div>
                       </div>

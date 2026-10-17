@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import React from "react";
 import {
   StaffCategory,
@@ -401,7 +402,7 @@ export default function StaffDashboardView({
                   </div>
                   <div className="text-right text-[10px] text-slate-400">
                     <span className="block font-medium text-slate-600">{act.user_email || "অ্যাডমিন"}</span>
-                    <span>{act.created_at.split("T")[0]}</span>
+                    <span>{toDhakaDateStringFrom(act.created_at)}</span>
                   </div>
                 </div>
               ))

@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState } from "react";
 import {
   StaffMember,
@@ -185,7 +186,7 @@ export default function StaffReportsView({
             </span>
           </div>
           <p className="text-[11px] text-slate-500 pt-0.5">
-            প্রতিবেদন প্রস্তুতের তারিখ: {toBanglaNumber(new Date().toISOString().split("T")[0])} খ্রিস্টাব্দ
+            প্রতিবেদন প্রস্তুতের তারিখ: {toBanglaNumber(toDhakaDateString())} খ্রিস্টাব্দ
           </p>
         </div>
 

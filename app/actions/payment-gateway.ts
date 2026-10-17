@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
@@ -495,7 +496,7 @@ export async function verifyAndCompleteOnlinePayment(params: {
       student_roll: targetTxn.student_roll,
       class_name: targetTxn.class_name,
       total_amount_received: targetTxn.amount,
-      payment_date: now.split("T")[0],
+      payment_date: toDhakaDateStringFrom(now),
       payment_method: paymentMethodCode,
       transaction_ref: params.gateway_ref || targetTxn.transaction_id,
       allocations: finalAllocations,
@@ -531,7 +532,7 @@ export async function verifyAndCompleteOnlinePayment(params: {
       student_id: targetTxn.student_id,
       fee_type: "Monthly",
       amount: targetTxn.amount,
-      payment_date: now.split("T")[0],
+      payment_date: toDhakaDateStringFrom(now),
       fee_month: new Date().toLocaleString("en-US", { month: "long" }),
       fee_year: currentYear,
       notes: `[অনলাইন পেমেন্ট: ${receiptNo} | Trx: ${targetTxn.transaction_id}]`,
@@ -566,7 +567,7 @@ export async function verifyAndCompleteOnlinePayment(params: {
       transaction_id: targetTxn.transaction_id,
       amount: targetTxn.amount,
       student_name: targetTxn.student_name,
-      payment_date: now.split("T")[0],
+      payment_date: toDhakaDateStringFrom(now),
       payment_channel: targetTxn.payment_channel,
     };
   } catch (err: any) {

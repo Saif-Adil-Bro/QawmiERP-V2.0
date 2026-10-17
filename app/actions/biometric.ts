@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -781,7 +782,7 @@ export async function getBiometricOverviewStats() {
     const mappings: BiometricUserMapping[] = meta.biometric_mappings || [];
     const logs: BiometricPunchLog[] = meta.biometric_logs || [];
 
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = toDhakaDateString();
     const todayLogs = logs.filter((l) => l.punch_date === todayStr);
 
     const activeDevices = devices.filter((d) => d.status === "active").length;

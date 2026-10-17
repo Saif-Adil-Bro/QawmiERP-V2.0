@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -593,7 +594,7 @@ export default function StudentsListClient({
       selectedClass !== "ALL" ? `_${selectedClass.replace(/\s+/g, "_")}` : "";
     link.setAttribute(
       "download",
-      `শিক্ষার্থী_তালিকা${classNameSuffix}_${new Date().toISOString().split("T")[0]}.csv`
+      `শিক্ষার্থী_তালিকা${classNameSuffix}_${toDhakaDateString()}.csv`
     );
     document.body.appendChild(link);
     link.click();

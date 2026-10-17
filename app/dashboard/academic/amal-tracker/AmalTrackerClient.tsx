@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   AmalTrackerTemplate,
@@ -128,7 +129,7 @@ export default function AmalTrackerClient({
   const [printMode, setPrintMode] = useState<"bulk" | "single" | "blank">("bulk");
   const [selectedStudentId, setSelectedStudentId] = useState<string>("");
   const [startDateStr, setStartDateStr] = useState<string>(() => {
-    return new Date().toISOString().split("T")[0];
+    return toDhakaDateString();
   });
   const [zoomLevel, setZoomLevel] = useState<number>(95);
   const [currentStudentIndex, setCurrentStudentIndex] = useState<number>(0);

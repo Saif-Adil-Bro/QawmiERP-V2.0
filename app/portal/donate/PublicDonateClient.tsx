@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
@@ -403,7 +404,7 @@ export default function PublicDonateClient({
                   </span>
                   <span className="text-slate-300">•</span>
                   <span className="text-slate-600 text-[11px]">
-                    তারিখ: {toBanglaNumber(submittedReceipt.donation_date || new Date().toISOString().split("T")[0])}
+                    তারিখ: {toBanglaNumber(submittedReceipt.donation_date || toDhakaDateString())}
                   </span>
                 </div>
               </div>

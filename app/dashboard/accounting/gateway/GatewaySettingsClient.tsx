@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import React, { useState } from "react";
 import {
   CreditCard,
@@ -1230,7 +1231,7 @@ export default function GatewaySettingsClient({
                       <td className="px-4 py-3 font-mono font-bold text-slate-800">
                         {t.transaction_id}
                         <span className="block text-[10px] text-slate-400 font-normal">
-                          {t.created_at.split("T")[0]}
+                          {toDhakaDateStringFrom(t.created_at)}
                         </span>
                       </td>
                       <td className="px-4 py-3">

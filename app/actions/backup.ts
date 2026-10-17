@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
@@ -654,7 +655,7 @@ export async function generateBackupExport(options?: {
 
     const now = new Date();
     const isoDate = now.toISOString();
-    const dateFormatted = now.toISOString().split("T")[0];
+    const dateFormatted = toDhakaDateString(now);
     const safeMadrasaName = (madrasaData?.name || "madrasa").replace(/[^a-zA-Z0-9\u0980-\u09FF]/g, "_");
     const filename = `Qawmi_Backup_${safeMadrasaName}_${dateFormatted}_${Math.floor(Date.now() / 1000)}.json`;
 

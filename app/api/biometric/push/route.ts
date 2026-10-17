@@ -1,3 +1,4 @@
+import { toDhakaDateString } from "@/lib/date-utils";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
@@ -128,7 +129,7 @@ export async function POST(req: NextRequest) {
 
       const dateObj = p.timestamp ? new Date(p.timestamp) : new Date();
       const validDate = isNaN(dateObj.getTime()) ? new Date() : dateObj;
-      const dateStr = validDate.toISOString().split("T")[0];
+      const dateStr = toDhakaDateString(validDate);
       const isoTime = validDate.toISOString();
 
       const mapped = mappingMap.get(userId);

@@ -1,3 +1,4 @@
+import { toDhakaDateString } from "@/lib/date-utils";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import AttendanceForm from "./AttendanceForm";
 import { checkHolidayForDate } from "@/app/actions/holidays";
@@ -38,7 +39,7 @@ export default async function TeacherAttendancePage(props: { searchParams?: Prom
 
   // Await search params since we are in Next 15+
   const awaitedSearchParams = props.searchParams ? (await props.searchParams) || {} : {};
-  const dateStr = awaitedSearchParams?.date || new Date().toISOString().split('T')[0];
+  const dateStr = awaitedSearchParams?.date || toDhakaDateString();
   const classId = awaitedSearchParams?.class_id || (classes?.[0]?.id || "");
 
   // Check holiday or weekend status for the requested date

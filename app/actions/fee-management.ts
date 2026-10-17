@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -315,7 +316,7 @@ export async function saveFeeMetadata(madrasaId: string, feeData: Partial<Madras
         billing_period: sf.billing_period || "",
         month_name: sf.month_name || "",
         year: String(sf.year || new Date().getFullYear()),
-        due_date: sf.due_date || new Date().toISOString().split("T")[0],
+        due_date: sf.due_date || toDhakaDateString(),
         base_amount: Number(sf.base_amount) || 0,
         discount_amount: Number(sf.discount_amount) || 0,
         discount_reason: sf.discount_reason || null,
@@ -369,7 +370,7 @@ export async function saveFeeMetadata(madrasaId: string, feeData: Partial<Madras
         fund_id: p.fund_id || null,
         fund_name: p.fund_name || null,
         total_amount_received: Number(p.total_amount_received) || 0,
-        payment_date: p.payment_date || new Date().toISOString().split("T")[0],
+        payment_date: p.payment_date || toDhakaDateString(),
         payment_method: p.payment_method || "Cash",
         transaction_ref: p.transaction_ref || null,
         discount_total: Number(p.discount_total) || 0,
@@ -893,7 +894,7 @@ export async function generateMonthlyFees(params: {
     const now = new Date().toISOString();
     const dueDate =
       params.dueDate ||
-      new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      toDhakaDateString(new Date(Date.now() + 15 * 24 * 60 * 60 * 1000));
 
     const shouldSyncProfiles = params.syncStudentProfiles !== false;
 
@@ -1390,7 +1391,7 @@ export async function collectFeePayment(paymentData: {
 
     const meta = await getFeeMetadata(madrasaId);
     const now = new Date().toISOString();
-    const paymentDate = paymentData.payment_date || now.split("T")[0];
+    const paymentDate = paymentData.payment_date || toDhakaDateStringFrom(now);
 
     // HI-2: দ্বিতীয় স্তরের ১৫-সেকেন্ডের মেটাডেটা গার্ডও সরানো হলো (একই ত্রুটি —
     // বৈধ দ্বিতীয় পেমেন্ট গিলে ফেলা)। idempotencyKey-ভিত্তিক চেকই যথেষ্ট।
@@ -1927,7 +1928,7 @@ export async function getUnifiedFeePayments(madrasaId: string): Promise<FeePayme
 
       if (!isTracked && !isReversed) {
         const student = studentMap.get(f.student_id);
-        const feeDate = f.payment_date || (f.created_at ? f.created_at.split("T")[0] : "");
+        const feeDate = f.payment_date || (f.created_at ? toDhakaDateStringFrom(f.created_at) : "");
         const feeAmount = Number(f.amount) || 0;
         const feeTypeName = f.fee_type || "মাসিক ফি";
         const isFood =
@@ -2938,7 +2939,7 @@ export async function getFeeDashboardOverview() {
 
       if (!isTracked && !isReversed) {
         const student = studentMap.get(f.student_id);
-        const feeDate = f.payment_date || (f.created_at ? f.created_at.split("T")[0] : "");
+        const feeDate = f.payment_date || (f.created_at ? toDhakaDateStringFrom(f.created_at) : "");
         const feeAmount = Number(f.amount) || 0;
         const feeTypeName = f.fee_type || "মাসিক ফি";
         
@@ -2983,7 +2984,7 @@ export async function getFeeDashboardOverview() {
     const currentYear = now.getFullYear();
     const currentMonthNum = now.getMonth() + 1;
     const currentMonthStr = `${currentYear}-${String(currentMonthNum).padStart(2, "0")}`; // "YYYY-MM"
-    const todayStr = now.toISOString().split("T")[0];
+    const todayStr = toDhakaDateString(now);
 
     // Total Collection
     const totalCollected = unifiedPayments.reduce((sum, p) => sum + (Number(p.total_amount_received) || 0), 0);
@@ -3014,7 +3015,7 @@ export async function getFeeDashboardOverview() {
     // Current month collection
     const thisMonthCollection = unifiedPayments
       .filter((p) => {
-        const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+        const pDate = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
         return Boolean(pDate && pDate.startsWith(currentMonthStr));
       })
       .reduce((sum, p) => sum + (Number(p.total_amount_received) || 0), 0);
@@ -3022,7 +3023,7 @@ export async function getFeeDashboardOverview() {
     // Today's collection
     const todayCollection = unifiedPayments
       .filter((p) => {
-        const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+        const pDate = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
         return pDate === todayStr;
       })
       .reduce((sum, p) => sum + (Number(p.total_amount_received) || 0), 0);

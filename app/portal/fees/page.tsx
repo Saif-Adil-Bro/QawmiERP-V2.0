@@ -1,3 +1,4 @@
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { createClient } from "@/lib/supabase/server";
 import {
   getStudentFeeProfile,
@@ -118,7 +119,7 @@ export default async function ParentPortalFees(props: {
         if (
           p.payment_date &&
           sf.payment_date &&
-          p.payment_date.split("T")[0] === sf.payment_date.split("T")[0] &&
+          toDhakaDateStringFrom(p.payment_date) === toDhakaDateStringFrom(sf.payment_date) &&
           Math.abs((Number(p.total_amount_received) || 0) - sfAmount) < 0.01
         ) {
           if (extractedReceipt && p.receipt_no === extractedReceipt) return true;

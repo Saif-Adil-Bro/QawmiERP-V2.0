@@ -1,3 +1,4 @@
+import { toDhakaDateString } from "@/lib/date-utils";
 import { createAdminClient } from "@/lib/supabase/server";
 import { DEFAULT_FEE_TYPES } from "@/lib/fee-management";
 import { DEFAULT_FUNDS } from "@/lib/fund-utils";
@@ -315,7 +316,7 @@ export async function runPhaseBBackfill(options: { dryRun?: boolean; targetMadra
             student_roll: p.student_roll || "",
             class_name: p.class_name || "",
             total_amount_received: Number(p.total_amount_received || 0),
-            payment_date: p.payment_date ? p.payment_date.substring(0, 10) : new Date().toISOString().substring(0, 10),
+            payment_date: p.payment_date ? p.payment_date.substring(0, 10) : toDhakaDateString(),
             payment_method: p.payment_method || "Cash",
             transaction_ref: p.transaction_ref || null,
             discount_total: Number(p.discount_total || 0),

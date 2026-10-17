@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState } from "react";
 import {
   BellRing,
@@ -53,7 +54,7 @@ interface Props {
 
 export default function AbsenceAlertsClient({ initialData, classes }: Props) {
   const [data, setData] = useState(initialData);
-  const [selectedDate, setSelectedDate] = useState(initialData.date || new Date().toISOString().split("T")[0]);
+  const [selectedDate, setSelectedDate] = useState(initialData.date || toDhakaDateString());
   const [selectedClass, setSelectedClass] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterMode, setFilterMode] = useState<"all" | "threshold_only" | "non_threshold">("all");
