@@ -1,6 +1,7 @@
 "use server";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
 import {
@@ -77,44 +78,49 @@ export async function login(prevState: any, formData: FormData) {
       }
     }
 
-    // If student login failed with default password (123456), force password sync and retry
-    if (error && isStudentLogin && password.trim() === "123456") {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: authUsers } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
-        const authUser = authUsers?.users?.find(
-          (u) =>
-            u.email?.toLowerCase() === targetEmail.toLowerCase() ||
-            u.email?.toLowerCase() === canonicalEmail.toLowerCase() ||
-            u.email?.toLowerCase() === legacyEmail.toLowerCase()
-        );
-        if (authUser) {
-          await adminClient.auth.admin.updateUserById(authUser.id, {
-            password: "123456",
-            email_confirm: true,
-          });
-          const reSync = await supabase.auth.signInWithPassword({
-            email: authUser.email || targetEmail,
-            password: "123456",
-          });
-          if (!reSync.error && reSync.data.user) {
-            data = reSync.data;
-            error = null;
-          }
-        }
-      } catch (syncPassErr) {
-        console.warn("Password sync in server action login error:", syncPassErr);
-      }
+    // ⛔ নিরাপত্তা ফিক্স (CR-1): আগে এখানে "ডিফল্ট পাসওয়ার্ড (123456) দিয়ে লগইন ব্যর্থ হলে
+    // admin API দিয়ে জোরপূর্বক পাসওয়ার্ড রিসেট করে আবার লগইন" করার কোড ছিল। ফলে শুধু শিক্ষার্থী
+    // আইডি জানলেই যে কেউ ওই অ্যাকাউন্ট দখল করতে পারত — কারণ শিক্ষার্থী আগে পাসওয়ার্ড বদলালেও
+    // সিস্টেম নিজেই সেটি মুছে 123456 করে দিত। এই স্বয়ংক্রিয় রিসেট সম্পূর্ণভাবে সরিয়ে দেওয়া হলো।
+    // পাসওয়ার্ড ভুলে গেলে মাদ্রাসা প্রশাসন (PermissionGuard-যুক্ত resetUserPassword) রিসেট করাবেন।
+    if (error && isStudentLogin) {
+      return {
+        error:
+          "পাসওয়ার্ড সঠিক নয়। আপনি যদি পাসওয়ার্ড ভুলে গিয়ে থাকেন, তবে মাদ্রাসা প্রশাসনের সাথে যোগাযোগ করে পাসওয়ার্ড রিসেট করিয়ে নিন।",
+      };
     }
 
     if (error || !data?.user) {
-      if (isStudentLogin) {
-        return {
-          error: "পাসওয়ার্ড সঠিক নয়। ডিফল্ট পাসওয়ার্ড 123456 অথবা আপনার পরবর্তীতে পরিবর্তিত পাসওয়ার্ড ব্যবহার করুন।",
-        };
-      }
-      return { error: error?.message || "লগইন ব্যর্থ হয়েছে।" };
+      return { error: error?.message || "লগইন ব্যর্থ হয়েছে।" };
     }
+    // ⛔ CR-4: অ্যাকাউন্ট স্ট্যাটাস (SUSPENDED / DISABLED) এখানেই যাচাই করা হয়।
+    // আগে স্ট্যাটাস শুধু ক্লায়েন্ট কম্পোনেন্টে দেখা হতো — ফলে স্থগিত ইউজারও লগইন করে
+    // server action সরাসরি কল করে সব কাজ করতে পারত।
+    try {
+      const statusClient = await createAdminClient();
+      const { data: statusRow } = await statusClient
+        .from("users")
+        .select("madrasa_id, role")
+        .eq("id", data.user.id)
+        .maybeSingle();
+
+      if (statusRow?.madrasa_id) {
+        const { loadServerPermissions } = await import("@/lib/permissions-server");
+        const permCtx = await loadServerPermissions(data.user.id, statusRow.madrasa_id);
+        if (permCtx && (permCtx.status === "SUSPENDED" || permCtx.status === "DISABLED")) {
+          await supabase.auth.signOut();
+          return {
+            error:
+              permCtx.status === "SUSPENDED"
+                ? "আপনার অ্যাকাউন্টটি সাময়িকভাবে স্থগিত করা হয়েছে। মাদ্রাসা প্রশাসনের সাথে যোগাযোগ করুন।"
+                : "আপনার অ্যাকাউন্টটি নিষ্ক্রিয় (Disabled) করা হয়েছে। মাদ্রাসা প্রশাসনের সাথে যোগাযোগ করুন।",
+          };
+        }
+      }
+    } catch (statusErr) {
+      console.warn("Account status check during login failed:", statusErr);
+    }
+
 
     if (data.user) {
       let userRole = data.user.user_metadata?.role || (isStudentLogin ? "parent" : "staff");
@@ -279,6 +285,34 @@ export async function logout() {
   } catch (err) {
     console.warn("Logout error:", err);
   }
+
+  // ⛔ L-3 ফিক্স: signOut() সেশন সার্ভারে বাতিল করে এবং `setAll` দিয়ে cookie মুছতে চায় —
+  // কিন্তু `createClient` React `cache()`-এ মোড়ানো এবং RSC-তে cookie লেখা নীরবে ব্যর্থ হয়।
+  // ফলে কখনো কখনো `sb-*-auth-token` cookie ক্লায়েন্টে থেকে যেত এবং পরের রিকোয়েস্টে
+  // পুরোনো (বাতিল) টোকেন নিয়ে ব্যবহারকারী "লগআউট হয়নি" অনুভব করতেন। তাই এখানে
+  // ডিফেন্স-ইন-ডেপথ হিসেবে সব Supabase auth cookie স্পষ্টভাবে মোছে হয়।
+  try {
+    const cookieStore = await cookies();
+    for (const cookie of cookieStore.getAll()) {
+      if (cookie.name.startsWith("sb-")) {
+        try {
+          cookieStore.delete(cookie.name);
+        } catch {
+          /* কিছু পরিবেশে cookie লিখন নিষিদ্ধ — signOut-ই তখন একমাত্র ভরসা */
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Logout cookie cleanup warning:", err);
+  }
+
+  // লগআউটের পর ক্যাশে করা RSC পেলোড যেন পুরোনো সেশন-ডেটা না দেখায়
+  try {
+    revalidatePath("/", "layout");
+  } catch {
+    /* ক্যাশ রিভ্যালিডেশন ব্যর্থ হলেও লগআউট চলবে */
+  }
+
   redirect("/login");
 }
 

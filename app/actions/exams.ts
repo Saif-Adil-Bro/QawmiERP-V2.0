@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
@@ -197,6 +198,13 @@ export async function getExamById(id: string) {
 }
 
 export async function toggleExamPublish(examId: string, isPublished: boolean, note?: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("exams");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -284,6 +292,13 @@ export async function getExamPublishStatus(examId: string) {
 }
 
 export async function createExam(prevState: any, formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("exams");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
@@ -355,6 +370,13 @@ export async function createExam(prevState: any, formData: FormData) {
 }
 
 export async function updateExamDetails(examId: string, data: { title?: string; year?: string; start_date?: string | null; end_date?: string | null }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("exams");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
@@ -406,6 +428,13 @@ export async function updateExamDetails(examId: string, data: { title?: string; 
 }
 
 export async function deleteExam(examId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("exams");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   const finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
@@ -526,6 +555,13 @@ export async function getExamResults(examId: string, classId: string, subjectNam
 }
 
 export async function saveExamMarks(examId: string, subjectName: string, marksData: { student_id: string, marks_obtained: number, total_marks: number }[]) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("exams");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
@@ -844,6 +880,13 @@ export async function getExamEvaluationSettings(examId: string) {
 }
 
 export async function saveExamEvaluationSettings(examId: string, settings: { fail_policy: string }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("exams");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
@@ -873,6 +916,13 @@ export async function saveExamEvaluationSettings(examId: string, settings: { fai
 }
 
 export async function saveExamSubjects(examId: string, classId: string, subjectsData: any[], failPolicy?: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("exams");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };

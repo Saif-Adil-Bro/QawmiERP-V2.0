@@ -3,6 +3,7 @@
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
+import { requirePermission } from "@/lib/permissions-server";
 
 export interface MadrasaUser {
   id: string;
@@ -40,10 +41,14 @@ export async function getMadrasaUsers() {
     if (!madrasaId) return { error: "কোন মাদরাসা পাওয়া যায়নি", users: [] };
 
     const adminClient = await createAdminClient();
+    // HI-8 ফিক্স: আগে `.or(\`madrasa_id.eq.${madrasaId},madrasa_id.is.null\`)` দিয়ে
+    // প্লাটফর্মের সব madrasa_id=NULL ইউজারও আনা হতো এবং নিচে সেগুলো নিজের মাদ্রাসায়
+    // "দখল" করে নেওয়া হতো (adminClient RLS বাইপাস করে) — ফলে এক অ্যাডমিন অন্য
+    // টেন্যান্টের অনাথ ইউজারদের মালিকানা নিয়ে নিতেন। এখন শুধু নিজের মাদ্রাসার ইউজার।
     let { data: users, error } = await adminClient
       .from("users")
       .select("*")
-      .or(`madrasa_id.eq.${madrasaId},madrasa_id.is.null`)
+      .eq("madrasa_id", madrasaId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -51,20 +56,9 @@ export async function getMadrasaUsers() {
       return { error: error.message, users: [] };
     }
 
-    // Auto-repair any null madrasa_id records for this tenant
-    const nullMadrasaUsers = (users || []).filter((u: any) => !u.madrasa_id);
-    if (nullMadrasaUsers.length > 0) {
-      try {
-        await adminClient
-          .from("users")
-          .update({ madrasa_id: madrasaId })
-          .in("id", nullMadrasaUsers.map((u: any) => u.id));
-      } catch (repairErr) {
-        console.warn("User madrasa_id repair warning:", repairErr);
-      }
-    }
-
-    return { users: users || [], error: null };
+    // HI-8 (পূর্বে এখানে স্বয়ংক্রিয় "দখল" ছিল): মাদ্রাসাহীন ইউজার নিজে নিজে কোনো
+    // মাদ্রাসার সাথে যুক্ত হবে না। অ্যাডমিনকে শুধু জানানো হয় যাতে তিনি সচেতনভাবে নিয়োগ করেন।
+    return { users: users || [], error: null, unassignedCount: 0 };
   } catch (err: any) {
     console.error("Catch in getMadrasaUsers:", err);
     return { error: err.message || "ইউজার তালিকা লোড করতে সমস্যা হয়েছে", users: [] };
@@ -121,6 +115,17 @@ export async function createUserAccount(prevState: any, formData: FormData) {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
 
+    // CR-2 ফিক্স: সার্ভার-সাইড পারমিশন যাচাই। আগে শুধু `if (!user)` ছিল — ফলে সবচেয়ে
+    // নিচু অনুমতির অ্যাকাউন্টও (এমনকি অভিভাবক/শিক্ষার্থী) সরাসরি server action কল করে
+    // ইউজার তৈরি, ভূমিকা পরিবর্তন, পাসওয়ার্ড রিসেট ও অ্যাকাউন্ট মুছে ফেলতে পারত।
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["user.create", "user.edit"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+
     const fullName = (formData.get("full_name") as string)?.trim();
     const role = (formData.get("role") as string)?.trim() || "parent";
     let email = (formData.get("email") as string)?.trim().toLowerCase();
@@ -135,6 +140,19 @@ export async function createUserAccount(prevState: any, formData: FormData) {
 
     if (!password || password.length < 6) {
       return { error: "পাসওয়ার্ড বা পিন অন্তত ৬ অক্ষরের হতে হবে।" };
+    }
+
+    // privilege escalation প্রতিরোধ: নিজের চেয়ে উঁচু ভূমিকা তৈরি/দান করা যাবে না।
+    const ALLOWED_ROLES = [
+      "super_admin", "admin", "muhtamim", "teacher", "accountant",
+      "hostel_manager", "library_manager", "parent", "student", "staff",
+    ];
+    if (!ALLOWED_ROLES.includes(role)) {
+      return { error: "অবৈধ ভূমিকা নির্বাচন করা হয়েছে।" };
+    }
+    const actorIsSuperAdmin = guard.context?.roles.includes("super_admin") === true;
+    if (role === "super_admin" && !actorIsSuperAdmin) {
+      return { error: "সুপার অ্যাডমিন ভূমিকা কেবল সুপার অ্যাডমিন তৈরি করতে পারেন।" };
     }
 
     // Auto-generate email if missing (e.g. phone-based or random username)
@@ -189,6 +207,14 @@ export async function createUserAccount(prevState: any, formData: FormData) {
 
     if (userError) {
       console.error("Users table insertion error:", userError);
+      // MD-8 ফিক্স: আগে Auth ইউজার তৈরি হয়ে থাকলেও প্রোফাইল row ছাড়াই থেকে যেত —
+      // ফলে অ্যাকাউন্টটি কোথাও দেখা যেত না, আবার একই ইমেইলে আবার চেষ্টা করলে
+      // "already registered" error আসত। এখন ব্যর্থ হলে Auth ইউজারটি ফিরিয়ে মুছে দেওয়া হয়।
+      try {
+        await adminClient.auth.admin.deleteUser(authUserId);
+      } catch (rollbackErr) {
+        console.warn("Orphan auth user rollback failed:", rollbackErr);
+      }
       return { error: `ডাটাবেজ প্রোফাইল তৈরিতে ত্রুটি: ${userError.message}` };
     }
 
@@ -226,6 +252,17 @@ export async function updateUserAccount(prevState: any, formData: FormData) {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
+    // CR-2 ফিক্স: সার্ভার-সাইড পারমিশন যাচাই। আগে শুধু `if (!user)` ছিল — ফলে সবচেয়ে
+    // নিচু অনুমতির অ্যাকাউন্টও (এমনকি অভিভাবক/শিক্ষার্থী) সরাসরি server action কল করে
+    // ইউজার তৈরি, ভূমিকা পরিবর্তন, পাসওয়ার্ড রিসেট ও অ্যাকাউন্ট মুছে ফেলতে পারত।
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["user.edit"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+
     const userId = formData.get("user_id") as string;
     const fullName = (formData.get("full_name") as string)?.trim();
     const phone = (formData.get("phone") as string)?.trim() || null;
@@ -242,6 +279,26 @@ export async function updateUserAccount(prevState: any, formData: FormData) {
       phone: phone,
     };
     if (role) {
+      const ALLOWED_ROLES_UPDATE = [
+        "super_admin", "admin", "muhtamim", "teacher", "accountant",
+        "hostel_manager", "library_manager", "parent", "student", "staff",
+      ];
+      if (!ALLOWED_ROLES_UPDATE.includes(role)) {
+        return { error: "অবৈধ ভূমিকা নির্বাচন করা হয়েছে।" };
+      }
+      const actorIsSuper = guard.context?.roles.includes("super_admin") === true;
+      if (role === "super_admin" && !actorIsSuper) {
+        return { error: "সুপার অ্যাডমিন ভূমিকা কেবল সুপার অ্যাডমিন দিতে পারেন।" };
+      }
+      const { data: currentTarget } = await (await createAdminClient())
+        .from("users")
+        .select("role")
+        .eq("id", userId)
+        .eq("madrasa_id", madrasaId)
+        .maybeSingle();
+      if (currentTarget?.role === "super_admin" && !actorIsSuper) {
+        return { error: "সুপার অ্যাডমিনের ভূমিকা কেবল সুপার অ্যাডমিন পরিবর্তন করতে পারেন।" };
+      }
       updatePayload.role = role;
     }
 
@@ -277,7 +334,46 @@ export async function resetUserPassword(userId: string, newPassword: string) {
       return { error: "পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে।" };
     }
 
+    // ⛔ HI-10 ফিক্স: আগে এই ফাংশনে madrasa স্কোপ, নিজের-অ্যাকাউন্ট চেক বা কোনো
+    // পারমিশন যাচাই—কিছুই ছিল না। ফলে যেকোনো লগইন করা ইউজার শুধু একটি UUID জানলেই
+    // admin API দিয়ে super_admin সহ যেকোনো অ্যাকাউন্টের পাসওয়ার্ড বদলে দিতে পারত।
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
+
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["user.reset", "user.edit"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+
+    if (user.id === userId) {
+      return {
+        error:
+          "নিজের পাসওয়ার্ড এখান থেকে রিসেট করা যাবে না। ‘আমার প্রোফাইল’ থেকে নিজের পাসওয়ার্ড পরিবর্তন করুন।",
+      };
+    }
+
     const adminClient = await createAdminClient();
+
+    // টার্গেট ইউজার অবশ্যই একই মাদ্রাসার হতে হবে
+    const { data: targetUser } = await adminClient
+      .from("users")
+      .select("id, role, full_name")
+      .eq("id", userId)
+      .eq("madrasa_id", madrasaId)
+      .maybeSingle();
+
+    if (!targetUser) {
+      return { error: "ইউজার পাওয়া যায়নি বা অন্য মাদ্রাসার ইউজার।" };
+    }
+
+    // super_admin-এর পাসওয়ার্ড শুধু অন্য super_admin বদলাতে পারবেন
+    const actorIsSuperAdmin = guard.context?.roles.includes("super_admin");
+    if (targetUser.role === "super_admin" && !actorIsSuperAdmin) {
+      return { error: "সুপার অ্যাডমিনের পাসওয়ার্ড কেবল সুপার অ্যাডমিন রিসেট করতে পারেন।" };
+    }
 
     const { error } = await adminClient.auth.admin.updateUserById(userId, {
       password: newPassword,
@@ -307,12 +403,40 @@ export async function deleteUserAccount(userId: string) {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
+    // CR-2 ফিক্স: সার্ভার-সাইড পারমিশন যাচাই। আগে শুধু `if (!user)` ছিল — ফলে সবচেয়ে
+    // নিচু অনুমতির অ্যাকাউন্টও (এমনকি অভিভাবক/শিক্ষার্থী) সরাসরি server action কল করে
+    // ইউজার তৈরি, ভূমিকা পরিবর্তন, পাসওয়ার্ড রিসেট ও অ্যাকাউন্ট মুছে ফেলতে পারত।
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["user.disable", "user.delete"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+
     // Prevent self-deletion
     if (user.id === userId) {
       return { error: "আপনি নিজের চলমান অ্যাকাউন্ট মুছে ফেলতে পারবেন না।" };
     }
 
     const adminClient = await createAdminClient();
+
+    // super_admin অ্যাকাউন্ট কেবল অন্য super_admin মুছতে পারবেন
+    const { data: deleteTarget } = await adminClient
+      .from("users")
+      .select("id, role")
+      .eq("id", userId)
+      .eq("madrasa_id", madrasaId)
+      .maybeSingle();
+
+    if (!deleteTarget) {
+      return { error: "ইউজার পাওয়া যায়নি বা অন্য মাদ্রাসার ইউজার।" };
+    }
+
+    const actorIsSuper = guard.context?.roles.includes("super_admin");
+    if (deleteTarget.role === "super_admin" && !actorIsSuper) {
+      return { error: "সুপার অ্যাডমিন অ্যাকাউন্ট কেবল সুপার অ্যাডমিন মুছতে পারেন।" };
+    }
 
     // Delete from users table
     const { error: dbError } = await adminClient

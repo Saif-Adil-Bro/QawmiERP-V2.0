@@ -1,8 +1,10 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
+import { requirePermission } from "@/lib/permissions-server";
 import { getMadrasaMetadata, saveMadrasaMetadata, AcademicSession, StudentEnrollment } from "@/lib/sessions";
 import {
   FeeType,
@@ -28,26 +30,39 @@ export async function generateNextReceiptNumber(
   year: number = new Date().getFullYear()
 ): Promise<string> {
   const prefix = `MR-${year}-`;
+
+  const parseCounter = (receiptNo: unknown): number | null => {
+    const rec = String(receiptNo ?? "").trim();
+    // স্বাভাবিক: "MR-2026-00151"; ব্যতিক্রমী (পুরোনো random suffix): "MR-2026-00166-42"
+    const m = rec.match(/^MR-(\d{4})-(\d+)(?:-\d+)?$/);
+    if (!m) return null;
+    const n = parseInt(m[2], 10);
+    return isNaN(n) ? null : n;
+  };
+
   try {
+    // ⛔ MD-9 ফিক্স: আগে `.order("receipt_no", { ascending: false }).limit(1)` দিয়ে
+    // "সর্বোচ্চ" রসিদ নম্বর বের করা হতো — কিন্তু receipt_no একটি TEXT কলাম, তাই এটি
+    // **লেক্সিকোগ্রাফিক** সাজানো: "MR-2026-99999" < "MR-2026-00151-B"? বরং কখনো
+    // "9..." বড় অঙ্ক ডানে-বামে মিলিয়ে ভুল সারি প্রথমে আসে এবং সংখ্যাটি সঠিকভাবে
+    // পড়া যায় না। ফল: রসিদের ক্রম লাফাচ্ছিল বা পুরোনো নম্বর পুনরাবৃত্তি হচ্ছিল।
+    // এখন প্রকৃত সংখ্যা বিশ্লেষণ করে সর্বোচ্চ ক্রম বের করা হয় (suffix-যুক্ত ব্যতিক্রমী
+    // মানগুলোও চেনা হয়), তারপর একটি ফাঁকা স্লট খোঁজা হয়।
     const { data } = await adminClient
       .from("fee_payments")
       .select("receipt_no")
       .eq("madrasa_id", madrasaId)
       .like("receipt_no", `${prefix}%`)
-      .order("receipt_no", { ascending: false })
-      .limit(1);
+      .order("created_at", { ascending: false })
+      .limit(2000);
 
-    let nextCounter = 101;
-    if (data && data.length > 0 && data[0].receipt_no) {
-      // Robust regex match for numeric counter after MR-YYYY-
-      const match = data[0].receipt_no.match(/MR-\d{4}-(\d+)/);
-      if (match && match[1]) {
-        const num = parseInt(match[1], 10);
-        if (!isNaN(num) && num >= 100) {
-          nextCounter = num + 1;
-        }
-      }
+    let maxCounter = 100;
+    for (const row of data || []) {
+      const n = parseCounter(row?.receipt_no);
+      if (n !== null && n > maxCounter) maxCounter = n;
     }
+
+    let nextCounter = maxCounter + 1;
 
     // Ensure we don't regress below metadata receipt counter
     try {
@@ -57,8 +72,9 @@ export async function generateNextReceiptNumber(
       }
     } catch {}
 
-    // Auto-retry collision check up to 15 candidates in database
-    for (let retry = 0; retry < 15; retry++) {
+    // Auto-retry collision check — এখন ২০০ পর্যন্ত, কারণ ফাঁকা স্লট খুঁজে পাওয়া পর্যন্ত
+    // random suffix ব্যবহার করা হয় না (সেটিই পরে max-logic-কে বিভ্রান্ত করত)।
+    for (let retry = 0; retry < 200; retry++) {
       const candidate = `${prefix}${String(nextCounter + retry).padStart(5, "0")}`;
       const { data: existing } = await adminClient
         .from("fee_payments")
@@ -72,12 +88,15 @@ export async function generateNextReceiptNumber(
       }
     }
 
-    // Fallback if extreme collision occurs: append random unique digits
+    // চরম সংঘর্ষে (২০০টি ক্রম ধারাবাহিকভাবে দখল) শুধু তখনই suffix — এবং স্পষ্টভাবে লগ করা হয়
     const randSuffix = Math.floor(10 + Math.random() * 90);
-    return `${prefix}${String(nextCounter + 15).padStart(5, "0")}-${randSuffix}`;
+    const fallbackNo = `${prefix}${String(nextCounter + 200).padStart(5, "0")}-${randSuffix}`;
+    console.warn("[receipt-no] ২০০টি ক্রমই দখল — ব্যতিক্রমী রসিদ নং তৈরি:", fallbackNo);
+    return fallbackNo;
   } catch (e) {
     console.error("Error generating receipt number:", e);
     const fallbackRand = Math.floor(10000 + Math.random() * 90000);
+    console.warn("[receipt-no] DB কুয়েরি ব্যর্থ — সাময়িক রসিদ নং:", `${prefix}${fallbackRand}`);
     return `${prefix}${fallbackRand}`;
   }
 }
@@ -128,10 +147,15 @@ export async function getFeeMetadata(madrasaId: string): Promise<MadrasaFeeData>
       student_name: p.student_name,
       student_roll: p.student_roll,
       class_name: p.class_name,
+      fund_id: p.fund_id || undefined,
+      fund_name: p.fund_name || undefined,
       total_amount_received: Number(p.total_amount_received) || 0,
       payment_date: p.payment_date,
       payment_method: p.payment_method,
       transaction_ref: p.transaction_ref,
+      // CR-8 ফিক্স: ফান্ড ম্যাপিং (fund_id/fund_name) এখন পড়া হয় — আগে এই দুটি ফিল্ড
+      // বাদ পড়ত, ফলে রিপোর্টে `alloc.fund_id || p.fund_id` সর্বদা undefined হয়ে
+      // ফি-প্রকারের নাম দেখে অনুমান করে ফান্ড ঠিক করা হতো (সব ফি General/Lillah-এ যেত)।
       allocations: (p.fee_payment_allocations || []).map((a: any) => ({
         student_fee_id: a.student_fee_id,
         fee_type_id: a.fee_type_id,
@@ -140,6 +164,8 @@ export async function getFeeMetadata(madrasaId: string): Promise<MadrasaFeeData>
         allocated_amount: Number(a.allocated_amount) || 0,
         discount_applied: Number(a.discount_applied) || 0,
         fine_applied: Number(a.fine_applied) || 0,
+        fund_id: a.fund_id || undefined,
+        fund_name: a.fund_name || undefined,
       })),
       discount_total: Number(p.discount_total) || 0,
       fine_total: Number(p.fine_total) || 0,
@@ -147,6 +173,15 @@ export async function getFeeMetadata(madrasaId: string): Promise<MadrasaFeeData>
       collector_name: p.collector_name,
       notes: p.notes,
       status: p.status,
+      // void/reverse মেটাডেটা আগে পড়া হতো না — ফলে বাতিল রসিদের কারণ ও সময় UI-তে ও
+      // রিপোর্টে হারিয়ে যেত (getFeeWithReceiptNo-তে যেগুলো দেখানোর কথা)।
+      cancellation_reason: p.cancellation_reason || p.reversal_reason || undefined,
+      reversal_reason: p.reversal_reason || undefined,
+      reversed_at: p.reversed_at ? String(p.reversed_at) : undefined,
+      reversed_by: p.reversed_by || undefined,
+      voided_at: p.voided_at ? String(p.voided_at) : undefined,
+      voided_by: p.voided_by || undefined,
+      idempotency_key: p.idempotency_key || undefined,
       created_at: p.created_at,
     }));
 
@@ -234,91 +269,210 @@ export async function saveFeeMetadata(madrasaId: string, feeData: Partial<Madras
   try {
     const adminClient = await createAdminClient();
 
-    // 1. If student_fees are provided, synchronize them in relational table
-    if (feeData.student_fees && Array.isArray(feeData.student_fees)) {
-      for (const sf of feeData.student_fees.slice(0, 500)) {
-        await adminClient.from("student_fees").upsert({
-          id: sf.id,
-          madrasa_id: sf.madrasa_id || madrasaId,
-          session_id: sf.session_id || "default_session",
-          student_id: sf.student_id,
-          student_name: sf.student_name || "",
-          student_roll: sf.student_roll || "",
-          class_id: sf.class_id || null,
-          class_name: sf.class_name || "",
-          fee_type_id: sf.fee_type_id,
-          fee_type_name: sf.fee_type_name || "",
-          billing_period: sf.billing_period || "",
-          month_name: sf.month_name || "",
-          year: String(sf.year || new Date().getFullYear()),
-          due_date: sf.due_date || new Date().toISOString().split("T")[0],
-          base_amount: Number(sf.base_amount) || 0,
-          discount_amount: Number(sf.discount_amount) || 0,
-          discount_reason: sf.discount_reason || null,
-          fine_amount: Number(sf.fine_amount) || 0,
-          fine_reason: sf.fine_reason || null,
-          payable_amount: Number(sf.payable_amount) || 0,
-          paid_amount: Number(sf.paid_amount) || 0,
-          due_amount: Number(sf.due_amount) || 0,
-          status: sf.status || "UNPAID",
-          created_at: sf.created_at || new Date().toISOString(),
-          updated_at: sf.updated_at || new Date().toISOString(),
-        }, { onConflict: "id" });
+    // ─────────────────────────────────────────────────────────────────────────
+    // CR-7 / CR-8 / HI-13 ফিক্স — এই ফাংশনের তিনটি গুরুতর সমস্যা ছিল:
+    //
+    //  ১. `fee_payment_allocations.upsert()`-এ `id` বা `onConflict` কিছুই দেওয়া হতো না।
+    //     টেবিলে `id` হলো DEFAULT gen_random_uuid() — তাই প্রতিবার নতুন row INSERT হয়ে
+    //     DUPLICATE তৈরি হতো। `saveFeeMetadata` প্রতি ফি-আদায়ে সর্বশেষ ১০০ পেমেন্ট আবার
+    //     লিখে দিত, ফলে রিপোর্টে আয় ক্রমাগত ফুলে উঠত।
+    //  ২. `fund_id` / `fund_name` (এবং void-মেটাডেটা) সংরক্ষণ করা হতো না — তাই
+    //     "ফি কাঠামো ও ফান্ড ম্যাপিং" ফিচারটি রিপোর্টে সম্পূর্ণ নিষ্ক্রিয় ছিল।
+    //  ৩. `slice(0, 500)` / `slice(0, 100)` সীমার কারণে ৫০০-এর বেশি শিক্ষার্থী বা
+    //     ১০০-এর বেশি পেমেন্ট থাকলে পুরোনো রেকর্ডগুলো ডেটাবেজে আর আপডেটই হতো না।
+    //
+    // এখন: সব row bulk upsert হয়, allocation-গুলো "replace" সেমান্টিক্সে (প্রতি পেমেন্টের
+    // পুরোনো allocation মুছে নতুন করে লেখা) সেভ হয় এবং কোনো slice সীমা নেই।
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const CHUNK = 200;
+
+    async function batchUpsert(table: string, rows: any[], onConflict: string) {
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const { error } = await adminClient
+          .from(table)
+          .upsert(rows.slice(i, i + CHUNK), { onConflict });
+        if (error) {
+          console.error(`Error upserting ${table} (batch ${i / CHUNK}):`, error);
+          throw new Error(`${table}: ${error.message}`);
+        }
       }
     }
 
-    // 2. If payments are provided, synchronize in relational fee_payments and allocations
-    if (feeData.payments && Array.isArray(feeData.payments)) {
-      for (const p of feeData.payments.slice(0, 100)) {
-        const { error: pErr } = await adminClient.from("fee_payments").upsert({
-          id: p.id,
-          receipt_no: p.receipt_no,
-          madrasa_id: p.madrasa_id || madrasaId,
-          session_id: p.session_id || "default_session",
-          student_id: p.student_id,
-          student_name: p.student_name || "শিক্ষার্থী",
-          student_roll: p.student_roll || "",
-          class_name: p.class_name || "",
-          total_amount_received: Number(p.total_amount_received) || 0,
-          payment_date: p.payment_date || new Date().toISOString().split("T")[0],
-          payment_method: p.payment_method || "Cash",
-          transaction_ref: p.transaction_ref || null,
-          discount_total: Number(p.discount_total) || 0,
-          fine_total: Number(p.fine_total) || 0,
-          advance_amount: Number(p.advance_amount) || 0,
-          collector_name: p.collector_name || "Admin",
-          notes: p.notes || "",
-          status: p.status || "COMPLETED",
-          created_at: p.created_at || new Date().toISOString(),
-        }, { onConflict: "id" });
+    // 1. student_fees
+    if (Array.isArray(feeData.student_fees) && feeData.student_fees.length > 0) {
+      const rows = feeData.student_fees.filter((sf) => !!sf?.id).map((sf) => ({
+        id: sf.id,
+        madrasa_id: sf.madrasa_id || madrasaId,
+        session_id: sf.session_id || "default_session",
+        student_id: sf.student_id,
+        student_name: sf.student_name || "",
+        student_roll: sf.student_roll || "",
+        class_id: sf.class_id || null,
+        class_name: sf.class_name || "",
+        fee_type_id: sf.fee_type_id,
+        fee_type_name: sf.fee_type_name || "",
+        billing_period: sf.billing_period || "",
+        month_name: sf.month_name || "",
+        year: String(sf.year || new Date().getFullYear()),
+        due_date: sf.due_date || new Date().toISOString().split("T")[0],
+        base_amount: Number(sf.base_amount) || 0,
+        discount_amount: Number(sf.discount_amount) || 0,
+        discount_reason: sf.discount_reason || null,
+        fine_amount: Number(sf.fine_amount) || 0,
+        fine_reason: sf.fine_reason || null,
+        payable_amount: Number(sf.payable_amount) || 0,
+        paid_amount: Number(sf.paid_amount) || 0,
+        due_amount: Number(sf.due_amount) || 0,
+        status: sf.status || "UNPAID",
+        created_at: sf.created_at || new Date().toISOString(),
+        updated_at: sf.updated_at || new Date().toISOString(),
+        // CR-8: ফান্ড ম্যাপিং সংরক্ষণ (কলাম না থাকলে upsert পুরো batch ফেল করবে না,
+        // কারণ সেটি নিচের retry-তে কলাম-বিহীন payload দিয়ে আবার চেষ্টা করবে)
+        fund_id: (sf as any).fund_id || null,
+        fund_name: (sf as any).fund_name || null,
+      }));
 
-        if (!pErr && p.allocations && Array.isArray(p.allocations)) {
-          for (const a of p.allocations) {
-            await adminClient.from("fee_payment_allocations").upsert({
-              payment_id: p.id,
-              student_fee_id: a.student_fee_id || null,
-              fee_type_id: a.fee_type_id || null,
-              fee_type_name: a.fee_type_name || "",
-              billing_period: a.billing_period || "",
-              allocated_amount: Number(a.allocated_amount) || 0,
-              discount_applied: Number(a.discount_applied) || 0,
-              fine_applied: Number(a.fine_applied) || 0,
-            });
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const chunk = rows.slice(i, i + CHUNK);
+        const { error } = await adminClient
+          .from("student_fees")
+          .upsert(chunk, { onConflict: "id" });
+
+        if (error) {
+          // fund_id/fund_name কলাম না থাকলে (পুরোনো স্কিমা) — কলাম ছাড়াই retry
+          const stripped = chunk.map(({ fund_id, fund_name, ...rest }) => rest);
+          const retry = await adminClient
+            .from("student_fees")
+            .upsert(stripped, { onConflict: "id" });
+          if (retry.error) {
+            console.error("Error upserting student_fees:", retry.error);
+            throw new Error(`student_fees: ${retry.error.message}`);
           }
         }
       }
     }
 
-    // 3. Save lightweight non-ledger metadata if needed (without polluting registration_no)
+    // 2. fee_payments + fee_payment_allocations
+    if (Array.isArray(feeData.payments) && feeData.payments.length > 0) {
+      const payments = feeData.payments.filter((p) => !!p?.id);
+
+      const paymentRows = payments.map((p) => ({
+        id: p.id,
+        receipt_no: p.receipt_no,
+        madrasa_id: p.madrasa_id || madrasaId,
+        session_id: p.session_id || "default_session",
+        student_id: p.student_id,
+        student_name: p.student_name || "শিক্ষার্থী",
+        student_roll: p.student_roll || "",
+        class_name: p.class_name || "",
+        fund_id: p.fund_id || null,
+        fund_name: p.fund_name || null,
+        total_amount_received: Number(p.total_amount_received) || 0,
+        payment_date: p.payment_date || new Date().toISOString().split("T")[0],
+        payment_method: p.payment_method || "Cash",
+        transaction_ref: p.transaction_ref || null,
+        discount_total: Number(p.discount_total) || 0,
+        fine_total: Number(p.fine_total) || 0,
+        // HI-12 ফিক্স: আগে advance_amount সবসময় 0 পাঠানো হতো
+        advance_amount: Number(p.advance_amount) || 0,
+        collector_name: p.collector_name || "Admin",
+        notes: p.notes || "",
+        status: p.status || "COMPLETED",
+        reversal_reason: p.reversal_reason || null,
+        reversed_at: p.reversed_at || null,
+        reversed_by: p.reversed_by || null,
+        idempotency_key: p.idempotency_key || null,
+        created_at: p.created_at || new Date().toISOString(),
+      }));
+
+      for (let i = 0; i < paymentRows.length; i += CHUNK) {
+        const chunk = paymentRows.slice(i, i + CHUNK);
+        const { error } = await adminClient
+          .from("fee_payments")
+          .upsert(chunk, { onConflict: "id" });
+
+        if (error) {
+          // পুরোনো স্কিমায় fund_id/fund_name/idempotency_key না থাকলে সেগুলো বাদ দিয়ে retry
+          const stripped = chunk.map(
+            ({ fund_id, fund_name, idempotency_key, ...rest }) => rest
+          );
+          const retry = await adminClient
+            .from("fee_payments")
+            .upsert(stripped, { onConflict: "id" });
+          if (retry.error) {
+            console.error("Error upserting fee_payments:", retry.error);
+            throw new Error(`fee_payments: ${retry.error.message}`);
+          }
+        }
+      }
+
+      // ── allocations: replace semantics (ডুপ্লিকেট প্রতিরোধের মূল সমাধান) ──
+      // MD-2: delete-ও chunk-এ ভাগ করা হয়, নাহলে ১০০০+ payment id নিয়ে `.in(...)` ব্যবহার
+      // করলে PostgREST-এর URL সীমা ছাড়িয়ে যেতে পারে এবং ডিলিট নীরবে ব্যর্থ হয়ে আবার
+      // ডুপ্লিকেট অ্যালোকেশন তৈরি হতে পারে।
+      const paymentIds = payments.map((p) => p.id);
+      const DELETE_CHUNK = 200;
+      for (let i = 0; i < paymentIds.length; i += DELETE_CHUNK) {
+        const idChunk = paymentIds.slice(i, i + DELETE_CHUNK);
+        const { error: delErr } = await adminClient
+          .from("fee_payment_allocations")
+          .delete()
+          .in("payment_id", idChunk);
+        if (delErr) {
+          // ডিলিট ব্যর্থ হলে insert করা হলে সবচেয়ে খারাপ অবস্থা: পুরোনো + নতুন ডুপ্লিকেট।
+          // তাই স্পষ্টভাবে থামানো হয় — কলার error দেখে ব্যবহারকারী আবার চেষ্টা করবেন।
+          console.error("Error clearing previous fee_payment_allocations:", delErr);
+          throw new Error(`fee_payment_allocations delete: ${delErr.message}`);
+        }
+      }
+
+      const allocRows: any[] = [];
+      for (const p of payments) {
+        if (!Array.isArray(p.allocations)) continue;
+        for (const a of p.allocations) {
+          allocRows.push({
+            payment_id: p.id,
+            student_fee_id: a.student_fee_id || null,
+            fee_type_id: a.fee_type_id || null,
+            fee_type_name: a.fee_type_name || "",
+            billing_period: a.billing_period || "",
+            allocated_amount: Number(a.allocated_amount) || 0,
+            discount_applied: Number(a.discount_applied) || 0,
+            fine_applied: Number(a.fine_applied) || 0,
+            fund_id: a.fund_id || null, // CR-8: ফান্ড ম্যাপিং সংরক্ষণ
+            fund_name: a.fund_name || null,
+          });
+        }
+      }
+
+      for (let i = 0; i < allocRows.length; i += CHUNK) {
+        const chunk = allocRows.slice(i, i + CHUNK);
+        const { error } = await adminClient.from("fee_payment_allocations").insert(chunk);
+        if (error) {
+          const stripped = chunk.map(({ fund_id, fund_name, ...rest }) => rest);
+          const retry = await adminClient
+            .from("fee_payment_allocations")
+            .insert(stripped);
+          if (retry.error) {
+            console.error("Error inserting fee_payment_allocations:", retry.error);
+            throw new Error(`fee_payment_allocations: ${retry.error.message}`);
+          }
+        }
+      }
+    }
+
+    // 3. ফি-সংক্রান্ত হালকা মেটাডেটা (student_profiles, discounts, receipt_counter)
     const currentMeta = await getMadrasaMetadata(madrasaId);
     const updatedMeta = {
       ...currentMeta,
       student_profiles: feeData.student_profiles || currentMeta.student_profiles,
       discounts: feeData.discounts || currentMeta.discounts,
       receipt_counter: feeData.receipt_counter || currentMeta.receipt_counter,
+      audit_logs: feeData.audit_logs || currentMeta.audit_logs,
     };
     return await saveMadrasaMetadata(madrasaId, updatedMeta);
-  } catch (e) {
+  } catch (e: any) {
     console.error("Error saving relational fee data:", e);
     return false;
   }
@@ -333,19 +487,11 @@ export async function getFeeTypes(): Promise<FeeType[]> {
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: firstMadrasa } = await adminClient
-          .from("madrasas")
-          .select("id")
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .single();
-        madrasaId = firstMadrasa?.id || null;
-      } catch {}
-    }
-
+    // ⛔ HI-14 ফিক্স: আগে মাদ্রাসা সনাক্ত না হলে ডেটাবেজের *প্রথম* মাদ্রাসাটি ধরে নেওয়া হতো
+    // (`.order("created_at", { ascending: true }).limit(1).single()`), আর adminClient দিয়ে
+    // সেই অন্য মাদ্রাসার student_fees / fee_types / academic sessions-এ ফি জেনারেট বা
+    // আপডেট হয়ে যেত — অর্থাৎ cross-tenant ডেটা করাপশন। এখন মাদ্রাসা না পাওয়া গেলে
+    // কিছুই করা হয় না এবং স্পষ্ট বার্তা দেওয়া হয়।
     if (!madrasaId) return DEFAULT_FEE_TYPES;
 
     const meta = await getFeeMetadata(madrasaId);
@@ -381,20 +527,23 @@ export async function saveFeeType(feeType: Partial<FeeType>) {
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: firstMadrasa } = await adminClient
-          .from("madrasas")
-          .select("id")
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .single();
-        madrasaId = firstMadrasa?.id || null;
-      } catch {}
-    }
+    // ⛔ HI-14 ফিক্স: আগে মাদ্রাসা সনাক্ত না হলে ডেটাবেজের *প্রথম* মাদ্রাসাটি ধরে নেওয়া হতো
+    // (`.order("created_at", { ascending: true }).limit(1).single()`), আর adminClient দিয়ে
+    // সেই অন্য মাদ্রাসার student_fees / fee_types / academic sessions-এ ফি জেনারেট বা
+    // আপডেট হয়ে যেত — অর্থাৎ cross-tenant ডেটা করাপশন। এখন মাদ্রাসা না পাওয়া গেলে
+    // কিছুই করা হয় না এবং স্পষ্ট বার্তা দেওয়া হয়।
+    if (!madrasaId) return { error: "মাদ্রাসা সনাক্ত করা যায়নি। অনুগ্রহ করে আবার লগইন করুন।" };
 
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.edit"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
 
     const meta = await getFeeMetadata(madrasaId);
     const feeTypes = [...(meta.fee_types || DEFAULT_FEE_TYPES)];
@@ -464,20 +613,23 @@ export async function deleteFeeType(feeTypeId: string) {
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: firstMadrasa } = await adminClient
-          .from("madrasas")
-          .select("id")
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .single();
-        madrasaId = firstMadrasa?.id || null;
-      } catch {}
-    }
+    // ⛔ HI-14 ফিক্স: আগে মাদ্রাসা সনাক্ত না হলে ডেটাবেজের *প্রথম* মাদ্রাসাটি ধরে নেওয়া হতো
+    // (`.order("created_at", { ascending: true }).limit(1).single()`), আর adminClient দিয়ে
+    // সেই অন্য মাদ্রাসার student_fees / fee_types / academic sessions-এ ফি জেনারেট বা
+    // আপডেট হয়ে যেত — অর্থাৎ cross-tenant ডেটা করাপশন। এখন মাদ্রাসা না পাওয়া গেলে
+    // কিছুই করা হয় না এবং স্পষ্ট বার্তা দেওয়া হয়।
+    if (!madrasaId) return { error: "মাদ্রাসা সনাক্ত করা যায়নি। অনুগ্রহ করে আবার লগইন করুন।" };
 
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.edit"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
 
     const meta = await getFeeMetadata(madrasaId);
     const feeTypes = (meta.fee_types || DEFAULT_FEE_TYPES).filter((f) => f.id !== feeTypeId);
@@ -534,6 +686,15 @@ export async function saveFeeStructure(structure: Partial<FeeStructure>) {
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.edit"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
 
     const meta = await getFeeMetadata(madrasaId);
     const structures = [...(meta.fee_structures || [])];
@@ -602,6 +763,15 @@ export async function deleteFeeStructure(structureId: string) {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
 
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.edit"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+
     const meta = await getFeeMetadata(madrasaId);
     const filtered = (meta.fee_structures || []).filter((s) => s.id !== structureId);
 
@@ -640,19 +810,23 @@ export async function generateMonthlyFees(params: {
 
     const adminClient = await createAdminClient();
 
-    if (!madrasaId) {
-      try {
-        const { data: firstMadrasa } = await adminClient
-          .from("madrasas")
-          .select("id")
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .single();
-        madrasaId = firstMadrasa?.id || null;
-      } catch {}
-    }
+    // ⛔ HI-14 ফিক্স: আগে মাদ্রাসা সনাক্ত না হলে ডেটাবেজের *প্রথম* মাদ্রাসাটি ধরে নেওয়া হতো
+    // (`.order("created_at", { ascending: true }).limit(1).single()`), আর adminClient দিয়ে
+    // সেই অন্য মাদ্রাসার student_fees / fee_types / academic sessions-এ ফি জেনারেট বা
+    // আপডেট হয়ে যেত — অর্থাৎ cross-tenant ডেটা করাপশন। এখন মাদ্রাসা না পাওয়া গেলে
+    // কিছুই করা হয় না এবং স্পষ্ট বার্তা দেওয়া হয়।
+    if (!madrasaId) return { error: "মাদ্রাসা সনাক্ত করা যায়নি। অনুগ্রহ করে আবার লগইন করুন।" };
 
     if (!madrasaId) return { error: "মাদরাসা তথ্য পাওয়া যায়নি।" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.create", "finance.create"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
 
     // Fetch students strictly belonging to this madrasa
     let students: any[] = [];
@@ -1117,6 +1291,12 @@ export async function collectFeePayment(paymentData: {
   billing_year?: string;
   fee_type?: string;
   fund_id?: string;
+  /**
+   * ⛔ HI-2: Duplicate-payment protection.
+   * একটি সাবমিট চেষ্টার জন্য অনন্য key (ক্লায়েন্ট `crypto.randomUUID()` দেয়)।
+   * একই key দ্বিতীয়বার এলে সার্ভার নতুন পেমেন্ট তৈরি করে না — বরং আগেরটিই ফেরত দেয়।
+   */
+  idempotency_key?: string;
   fund_name?: string;
 }) {
   try {
@@ -1128,34 +1308,56 @@ export async function collectFeePayment(paymentData: {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
 
-    // Guard 1A: 15-Second Anti-Duplication Guard (Prevents double clicks and identical rapid submissions)
-    const fifteenSecsAgo = new Date(Date.now() - 15000).toISOString();
-    try {
-      const { data: recentPayments } = await adminClient
-        .from("fee_payments")
-        .select("*")
-        .eq("madrasa_id", madrasaId)
-        .eq("student_id", paymentData.student_id)
-        .gte("created_at", fifteenSecsAgo)
-        .order("created_at", { ascending: false });
+    // CR-2 ফিক্স: ফি আদায়ের জন্য সার্ভার-সাইড অনুমতি যাচাই। আগে শুধু `if (!user)` ছিল,
+    // ফলে অভিভাবক/শিক্ষার্থী পোর্টাল অ্যাকাউন্ট থেকেও সরাসরি action কল করে ফি আদায় ও
+    // রসিদ তৈরি করা যেত।
+    const collectGuard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.create", "finance.create"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+      errorMessage: "ফি আদায় ও রসিদ তৈরির অনুমতি আপনার নেই।",
+    });
+    if (!collectGuard.allowed) {
+      return { error: collectGuard.error || "ফি আদায়ের অনুমতি আপনার নেই।" };
+    }
 
-      if (recentPayments && recentPayments.length > 0) {
-        const recentMatch = recentPayments.find(
-          (p: any) => Math.abs(Number(p.total_amount_received) - Number(paymentData.total_amount)) < 0.01
-        );
-        if (recentMatch) {
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HI-2 ফিক্স — ডুপ্লিকেট প্রতিরোধ
+    //
+    // আগে "১৫ সেকেন্ডে একই শিক্ষার্থীর একই অঙ্কের পেমেন্ট" এলেই সেটি ডুপ্লিকেট ধরে
+    // ফেলে পুরোনো রসিদ নম্বর ফিরিয়ে দেওয়া হতো। ফলে ১৫ সেকেন্ডের মধ্যে করা একটি
+    // সম্পূর্ণ বৈধ দ্বিতীয় পেমেন্ট (দুই মাসের ফি, দুই ভাইয়ের ফি ইত্যাদি) চুপচাপ
+    // হারিয়ে যেত — নগদ জমা হতো অথচ নতুন কোনো রসিদ বা রেকর্ড তৈরি হতো না।
+    //
+    // এখন ক্লায়েন্ট থেকে আসা `idempotencyKey` দিয়েই কেবল প্রতিরোধ করা হয়
+    // (ডাবল-ক্লিক/ডাবল-সাবমিটে একই key পুনরাবৃত্তি হয়) — সময়/অঙ্ক-ভিত্তিক অনুমান নয়।
+    // `fee_payments.idempotency_key` কলামটি স্কিমায় আগে থেকেই ছিল, কিন্তু ব্যবহার হতো না।
+    // ─────────────────────────────────────────────────────────────────────────
+    const idempotencyKey = (paymentData as any).idempotency_key || null;
+    if (idempotencyKey) {
+      try {
+        const { data: existingByKey } = await adminClient
+          .from("fee_payments")
+          .select("*")
+          .eq("madrasa_id", madrasaId)
+          .eq("idempotency_key", idempotencyKey)
+          .maybeSingle();
+
+        if (existingByKey) {
           return {
             success: true,
-            receipt_no: recentMatch.receipt_no,
-            receiptNo: recentMatch.receipt_no,
-            newPaymentId: recentMatch.id,
-            payment: recentMatch,
-            message: "পেমেন্টটি ইতিমধ্যে সফলভাবে নেওয়া হয়েছে (ডুপ্লিকেট সাবমিশন প্রতিরোধ করা হয়েছে)।",
+            receipt_no: existingByKey.receipt_no,
+            receiptNo: existingByKey.receipt_no,
+            newPaymentId: existingByKey.id,
+            payment: existingByKey,
+            message: "পেমেন্টটি ইতিমধ্যে সফলভাবে গ্রহণ করা হয়েছে (ডুপ্লিকেট সাবমিশন প্রতিরোধ করা হয়েছে)।",
           };
         }
+      } catch (keyErr) {
+        console.warn("Idempotency key check unavailable:", keyErr);
       }
-    } catch (recentErr) {
-      console.warn("Error checking recent duplicate payments:", recentErr);
     }
 
     // Fetch Student Info
@@ -1190,25 +1392,22 @@ export async function collectFeePayment(paymentData: {
     const now = new Date().toISOString();
     const paymentDate = paymentData.payment_date || now.split("T")[0];
 
-    // Fallback in-memory 15-second duplicate check from meta.payments
-    if (meta?.payments && Array.isArray(meta.payments)) {
-      const recentMetaMatch = meta.payments.find((p: any) => {
-        if (p.student_id !== paymentData.student_id) return false;
-        if (Math.abs(Number(p.total_amount_received) - Number(paymentData.total_amount)) >= 0.01) return false;
-        const pTime = new Date(p.created_at || "").getTime();
-        return !isNaN(pTime) && Date.now() - pTime < 15000;
-      });
-      if (recentMetaMatch) {
+    // HI-2: দ্বিতীয় স্তরের ১৫-সেকেন্ডের মেটাডেটা গার্ডও সরানো হলো (একই ত্রুটি —
+    // বৈধ দ্বিতীয় পেমেন্ট গিলে ফেলা)। idempotencyKey-ভিত্তিক চেকই যথেষ্ট।
+    if (idempotencyKey && meta?.payments && Array.isArray(meta.payments)) {
+      const keyMatch = meta.payments.find((p: any) => p.idempotency_key === idempotencyKey);
+      if (keyMatch) {
         return {
           success: true,
-          receipt_no: recentMetaMatch.receipt_no,
-          receiptNo: recentMetaMatch.receipt_no,
-          newPaymentId: recentMetaMatch.id,
-          payment: recentMetaMatch,
-          message: "পেমেন্টটি ইতিমধ্যে সফলভাবে নেওয়া হয়েছে (ডুপ্লিকেট সাবমিশন প্রতিরোধ করা হয়েছে)।",
+          receipt_no: keyMatch.receipt_no,
+          receiptNo: keyMatch.receipt_no,
+          newPaymentId: keyMatch.id,
+          payment: keyMatch,
+          message: "পেমেন্টটি ইতিমধ্যে সফলভাবে গ্রহণ করা হয়েছে (ডুপ্লিকেট সাবমিশন প্রতিরোধ করা হয়েছে)।",
         };
       }
     }
+
 
     const studentFees = [...(meta.student_fees || [])];
     const payments = [...(meta.payments || [])];
@@ -1238,6 +1437,55 @@ export async function collectFeePayment(paymentData: {
         }
       }
       paymentData.fee_allocations = activeAllocations;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CR-9 ফিক্স — সার্ভার-সাইড আর্থিক যাচাই
+    //
+    // আগে `total_amount`, প্রতিটি `allocated_amount` এবং `discount_amount` ক্লায়েন্টের
+    // পাঠানো মান হুবহু বিশ্বাস করা হতো। ফলে হাতে-বানানো request দিয়ে
+    // total_amount = ১০০ কিন্তু allocated_amount = ৫০,০০০ পাঠালে invoice সম্পূর্ণ PAID
+    // হয়ে যেত; আবার অনুমোদনহীন ছাড় বসিয়ে দেওয়া যেত (fee_discount_waivers বাইপাস)।
+    // এখন সার্ভারেই যাচাই করা হয়: যোগফল মিলছে কি না এবং ছাড় দেওয়ার অনুমতি আছে কি না।
+    // ─────────────────────────────────────────────────────────────────────────
+    const requestedTotal = Number(paymentData.total_amount) || 0;
+    if (!(requestedTotal > 0)) {
+      return { error: "আদায়ের পরিমাণ শূন্যের বেশি হতে হবে।" };
+    }
+
+    if (paymentData.fee_allocations && paymentData.fee_allocations.length > 0) {
+      const clientAllocSum = paymentData.fee_allocations.reduce(
+        (sum, a) => sum + (Number(a.allocated_amount) || 0),
+        0
+      );
+      if (Math.abs(clientAllocSum - requestedTotal) > 0.01) {
+        return {
+          error:
+            `মোট আদায় (${requestedTotal}) ও খাতভিত্তিক বণ্টনের যোগফল (${clientAllocSum}) ` +
+            "মিলছে না। পুনরায় যাচাই করে সাবমিট করুন।",
+        };
+      }
+    }
+
+    const requestedDiscount = Number(paymentData.discount_amount) || 0;
+    if (requestedDiscount > 0) {
+      const adminClientForDiscount = await createAdminClient();
+      const { requirePermission } = await import("@/lib/permissions-server");
+      const discountGuard = await requirePermission({
+        userId: user.id,
+        madrasaId,
+        permissions: ["fee.discount", "fee.waiver", "fee.approve"],
+        roles: ["super_admin", "admin", "muhtamim", "accountant"],
+        errorMessage: "ফি ছাড় (Discount) দেওয়ার অনুমতি আপনার নেই।",
+      });
+      if (!discountGuard.allowed) {
+        return {
+          error:
+            (discountGuard.error || "ফি ছাড় দেওয়ার অনুমতি আপনার নেই।") +
+            " অনুগ্রহ করে মুহতামিম/হিসাবরক্ষকের অনুমোদন নিন।",
+        };
+      }
+      void adminClientForDiscount;
     }
 
     // Generate formatted unique serial receipt number atomically: MR-YYYY-XXXXX
@@ -1523,7 +1771,14 @@ export async function collectFeePayment(paymentData: {
         finalAllocations.reduce((sum, a) => sum + (Number(a.discount_applied) || 0), 0)
       ),
       fine_total: Number(paymentData.fine_amount) || 0,
-      advance_amount: 0,
+      // HI-12 ফিক্স: আগে advance_amount সর্বদা 0 সেভ হতো, ফলে অগ্রিম জমা কোথাও সঠিকভাবে
+      // রেকর্ড হতো না এবং "অগ্রিম" রিপোর্ট সবসময় শূন্য দেখাত। এখন অগ্রিম বণ্টন থেকে
+      // প্রকৃত পরিমাণ হিসাব করে সেভ করা হয়।
+      advance_amount: finalAllocations
+        .filter((a) => (a.billing_period || "").includes("অগ্রিম"))
+        .reduce((sum, a) => sum + (Number(a.allocated_amount) || 0), 0),
+      // HI-2: ডুপ্লিকেট প্রতিরোধের জন্য ক্লায়েন্ট-প্রদত্ত idempotency key সংরক্ষণ
+      idempotency_key: idempotencyKey || undefined,
       collector_name: user.email?.split("@")[0] || "হিসাব বিভাগ",
       notes: paymentData.notes,
       status: "COMPLETED",
@@ -1531,31 +1786,6 @@ export async function collectFeePayment(paymentData: {
     };
 
     payments.unshift(newPayment);
-
-    // Write to Supabase `fees` table for backwards compatibility
-    const feeTypeDesc =
-      finalAllocations.map((a) => a.fee_type_name).join(", ") ||
-      paymentData.fee_type ||
-      "Monthly";
-
-    const { data: dbFee, error: dbFeeErr } = await supabase
-      .from("fees")
-      .insert({
-        madrasa_id: madrasaId,
-        student_id: paymentData.student_id,
-        fee_type: paymentData.fee_type || (finalAllocations[0]?.fee_type_name.includes("Admission") ? "Admission" : "Monthly"),
-        amount: amountToDistribute,
-        payment_date: paymentDate,
-        fee_month: paymentData.billing_month || new Date(paymentDate).toLocaleString("en-US", { month: "long" }),
-        fee_year: paymentData.billing_year ? parseInt(paymentData.billing_year) : currentYear,
-        notes: `[রিসিট: ${receiptNo}] ${paymentData.notes || ""}`,
-      })
-      .select("id")
-      .single();
-
-    if (dbFee?.id) {
-      newPayment.db_fee_id = dbFee.id;
-    }
 
     // Record audit log
     const auditLogs = meta.audit_logs || [];
@@ -1570,13 +1800,61 @@ export async function collectFeePayment(paymentData: {
       created_at: now,
     });
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // HI-11 ফিক্স — লেখার ক্রম উল্টানো হলো
+    //
+    // আগে legacy `fees` টেবিলে row ইনসার্ট করে তারপর `saveFeeMetadata` (আসল
+    // fee_payments + allocations + student_fees) সেভ করা হতো। মাঝখানে ব্যর্থ হলে
+    // ফাংশন “টাকা জমা হিসেবে গণ্য হয়নি” বার্তা দিয়ে ফিরত, কিন্তু legacy row থেকে যেত —
+    // আর `getFeeDashboardOverview` সেই untracked row-কে বৈধ আয় হিসেবে গুনে ফেলত
+    // (অর্থাৎ সিস্টেম নিজেই যা অস্বীকার করেছে, ড্যাশবোর্ডে সেটাই আয় হয়ে যেত)।
+    //
+    // এখন আসল (authoritative) রেকর্ড আগে লেখা হয়; সফল হলে তবেই legacy row।
+    // ─────────────────────────────────────────────────────────────────────────
     const saved = await saveFeeMetadata(madrasaId, {
       student_fees: studentFees,
-      payments: payments.slice(0, 500),
+      payments,
       audit_logs: auditLogs.slice(0, 100),
     });
     if (!saved) {
       return { error: "পেমেন্ট গ্রহণের তথ্য ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন। (টাকা জমা হিসেবে গণ্য হয়নি)" };
+    }
+
+    // Legacy `fees` টেবিলে ব্যাকওয়ার্ড-কম্প্যাটিবিলিটির জন্য row (best effort, কখনো ফ্যাটাল নয়)
+    let legacyFeeId: string | undefined;
+    try {
+      const { data: dbFee } = await supabase
+        .from("fees")
+        .insert({
+          madrasa_id: madrasaId,
+          student_id: paymentData.student_id,
+          fee_type:
+            paymentData.fee_type ||
+            (finalAllocations[0]?.fee_type_name.includes("Admission") ? "Admission" : "Monthly"),
+          amount: amountToDistribute,
+          payment_date: paymentDate,
+          fee_month:
+            paymentData.billing_month ||
+            new Date(paymentDate).toLocaleString("en-US", { month: "long" }),
+          fee_year: paymentData.billing_year ? parseInt(paymentData.billing_year) : currentYear,
+          notes: `[রিসিট: ${receiptNo}] ${paymentData.notes || ""}`,
+        })
+        .select("id")
+        .single();
+
+      if (dbFee?.id) {
+        legacyFeeId = dbFee.id;
+        newPayment.db_fee_id = dbFee.id;
+        // db_fee_id মেটাডেটাতেও best-effort আপডেট (ব্যর্থ হলেও কিছু হারায় না,
+        // কারণ legacy row সবসময় রসিদ নম্বর দিয়েই মেলানো হয়)
+        try {
+          await saveFeeMetadata(madrasaId, { payments });
+        } catch (dbIdErr) {
+          console.warn("db_fee_id metadata sync warning:", dbIdErr);
+        }
+      }
+    } catch (legacyErr) {
+      console.warn("Legacy fees table insert skipped:", legacyErr);
     }
 
     revalidatePath("/dashboard/accounting");
@@ -1591,7 +1869,7 @@ export async function collectFeePayment(paymentData: {
       success: true,
       message: "ফি সফলভাবে আদায় করা হয়েছে এবং মানি রিসিট প্রস্তুত করা হয়েছে!",
       payment: newPayment,
-      fee_id: dbFee?.id || newPayment.id,
+      fee_id: legacyFeeId || newPayment.id,
       receipt_no: receiptNo,
     };
   } catch (err: any) {
@@ -1728,6 +2006,15 @@ export async function resetAllFeeData(options: {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
 
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["finance.delete", "fee.edit"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+
     const meta = await getFeeMetadata(madrasaId);
     let currentStudentFees = [...(meta.student_fees || [])];
     let currentPayments = [...(meta.payments || [])];
@@ -1813,19 +2100,135 @@ export async function resetAllFeeData(options: {
 /**
  * 1-Click Sync Fees with Funds
  */
-export async function syncFeesWithFunds() {
+export async function syncFeesWithFunds(): Promise<{
+  success?: boolean;
+  error?: string;
+  message?: string;
+  report?: {
+    payments: number;
+    allocations: number;
+    mismatchedPayments: number;
+    duplicateAllocations: number;
+    orphanAllocations: number;
+  };
+}> {
   try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদ্রাসা সনাক্ত করা যায়নি।" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.edit", "finance.edit", "finance.approve"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+
+    // ⛔ L-4 ফিক্স: আগে এই ফাংশনটি **কিছুই করত না** — শুধু কয়েকটি revalidatePath
+    // কল করে "সকল ফি কালেকশন ও ফান্ড ব্যালেন্স সফলভাবে রিক্যালকুলেট ও সিঙ্ক করা হয়েছে!"
+    // মেসেজ দেখাত। ফান্ড ব্যালেন্স আসলে লাইভ ডেটা (fee_payments + allocations) থেকে
+    // হিসাব হয়, তাই "রিক্যালকুলেশন" নামের কোনো কাজই ছিল না — ব্যবহারকারী ভাবতেন কিছু
+    // ঠিক হয়ে গেল, অথচ ডুপ্লিকেট অ্যালোকেশন/অসম পেমেন্ট রয়ে যেত।
+    //
+    // এখন এটি একটি প্রকৃত যাচাই (integrity audit) চালায় এবং সত্যি ফলাফল জানায়:
+    //   • প্রতি পেমেন্টের allocations-এর যোগফল payment-এর মোট অঙ্কের সাথে মেলে কি না
+    //   • একই পেমেন্টে একই fee_type + billing_period বারবার আছে কি না (CR-7-এর ক্ষতি)
+    //   • কোনো পেমেন্ট ছাড়া পড়ে থাকা orphan allocation আছে কি না
+    // কিছু অমিল পাওয়া গেলে message-এ সেটি স্পষ্টভাবে বলা হয়।
+    const adminClient = await createAdminClient();
+
+    const [{ data: paymentRows }, { data: allocationRows }] = await Promise.all([
+      adminClient
+        .from("fee_payments")
+        .select("id, total_amount_received, status")
+        .eq("madrasa_id", madrasaId)
+        .limit(10000),
+      adminClient
+        .from("fee_payment_allocations")
+        .select("payment_id, fee_type_id, billing_period, allocated_amount")
+        .eq("madrasa_id", madrasaId)
+        .limit(20000),
+    ]);
+
+    const payments = paymentRows || [];
+    const allocations = allocationRows || [];
+
+    const allocationsByPayment = new Map<string, { sum: number; keys: Map<string, number> }>();
+    for (const a of allocations as any[]) {
+      const pid = String(a.payment_id || "");
+      if (!pid) continue;
+      const bucket = allocationsByPayment.get(pid) || { sum: 0, keys: new Map<string, number>() };
+      bucket.sum += Number(a.allocated_amount) || 0;
+      const dedupeKey = `${a.fee_type_id || "?"}|${a.billing_period || "?"}`;
+      bucket.keys.set(dedupeKey, (bucket.keys.get(dedupeKey) || 0) + 1);
+      allocationsByPayment.set(pid, bucket);
+    }
+
+    let mismatchedPayments = 0;
+    let duplicateAllocations = 0;
+
+    for (const p of payments as any[]) {
+      if (String(p.status || "").toUpperCase() !== "COMPLETED") continue;
+      const bucket = allocationsByPayment.get(String(p.id));
+      if (!bucket) continue;
+      const received = Number(p.total_amount_received) || 0;
+      if (Math.abs(bucket.sum - received) > 0.01) mismatchedPayments++;
+    }
+
+    allocationsByPayment.forEach((bucket) => {
+      bucket.keys.forEach((count, key) => {
+        // একই fee_type + billing_period একাধিক বার = ঐতিহাসিক ডুপ্লিকেট (আয় ফুলে ওঠার কারণ)
+        if (count > 1) duplicateAllocations += count - 1;
+        void key;
+      });
+    });
+
+    const paymentIds = new Set(payments.map((p: any) => String(p.id)));
+    const orphanAllocations = (allocations as any[]).filter(
+      (a) => a.payment_id && !paymentIds.has(String(a.payment_id))
+    ).length;
+
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/payments");
     revalidatePath("/dashboard/accounting/income");
     revalidatePath("/dashboard/zakat");
+    revalidatePath("/dashboard/funds");
+
+    const report = {
+      payments: payments.length,
+      allocations: allocations.length,
+      mismatchedPayments,
+      duplicateAllocations,
+      orphanAllocations,
+    };
+
+    const problems = mismatchedPayments + duplicateAllocations + orphanAllocations;
+    if (problems > 0) {
+      return {
+        success: true,
+        report,
+        message:
+          `যাচাই সম্পন্ন: ${payments.length} টি পেমেন্ট ও ${allocations.length} টি অ্যালোকেশন পরীক্ষা করা হয়েছে। ` +
+          `⚠️ ${duplicateAllocations} টি ডুপ্লিকেট অ্যালোকেশন, ${mismatchedPayments} টি অমিল পেমেন্ট এবং ` +
+          `${orphanAllocations} টি অনাথ অ্যালোকেশন পাওয়া গেছে — বিস্তারিত দেখতে "পেমেন্ট ইতিহাস" ও রিপোর্ট ব্যবহার করুন।`,
+      };
+    }
+
     return {
       success: true,
-      message: "সকল ফি কালেকশন ও ফান্ড ব্যালেন্স সফলভাবে রিক্যালকুলেট ও সিঙ্ক করা হয়েছে!",
+      report,
+      message:
+        `যাচাই সম্পন্ন: ${payments.length} টি পেমেন্ট ও ${allocations.length} টি অ্যালোকেশন — ` +
+        `কোনো ডুপ্লিকেট, অমিল বা অনাথ রেকর্ড পাওয়া যায়নি। ফান্ডের ব্যালেন্স লাইভ ডেটা থেকেই হিসাব হচ্ছে।`,
     };
   } catch (err: any) {
-    return { error: err.message || "সিঙ্ক করতে ব্যর্থ হয়েছে।" };
+    return { error: err.message || "যাচাই করতে ব্যর্থ হয়েছে।" };
   }
 }
 
@@ -1840,6 +2243,15 @@ export async function reverseFeePayment(paymentId: string, reason: string) {
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.edit", "finance.edit"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
 
     if (!reason || reason.trim().length < 5) {
       return { error: "পেমেন্ট রিভার্স করার সুনির্দিষ্ট কারণ উল্লেখ করুন (কমপক্ষে ৫ অক্ষর)।" };
@@ -1867,10 +2279,20 @@ export async function reverseFeePayment(paymentId: string, reason: string) {
         const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
         if (feeIdx >= 0) {
           const target = studentFees[feeIdx];
-          const newPaid = Math.max(0, target.paid_amount - alloc.allocated_amount);
-          const newDue = Math.max(0, target.payable_amount - newPaid);
+          // ⛔ HI-1 ফিক্স: আগে শুধু paid_amount ফেরানো হতো, discount_amount ফেরানো
+          // হতো না। অথচ আদায়ের সময় ডিসকাউন্ট invoice-এর payable_amount-এ স্থায়ীভাবে
+          // বসে যেত — ফলে রসিদ বাতিল করলে ছাড়ও স্থায়ী থেকে যেত এবং বকেয়া কম ধরা পড়ত
+          // (যেমন base ১০০০, ছাড় ২০০, পরিশোধ ৮০০ → বাতিলের পর বকেয়া ৮০০ দেখাত, ১০০০ নয়)।
+          // এখন paid_amount ও discount_amount দুটোই ফেরানো হয়।
+          const revertedDiscount = Number((alloc as any).discount_applied || 0);
+          const baseAmt = Number((target as any).base_amount || 0);
+          const fineAmt = Number((target as any).fine_amount || 0);
+          const newDiscount = Math.max(0, Number(target.discount_amount || 0) - revertedDiscount);
+          const newPayable = Math.max(0, baseAmt + fineAmt - newDiscount);
+          const newPaid = Math.max(0, Number(target.paid_amount || 0) - Number(alloc.allocated_amount || 0));
+          const newDue = Math.max(0, newPayable - newPaid);
           let newStatus: FeeStatus = "PARTIAL";
-          if (target.payable_amount === 0 && Number(target.discount_amount || 0) > 0) {
+          if (newPayable === 0 && newDiscount > 0) {
             newStatus = "WAIVED";
           } else if (newDue === 0 && newPaid > 0) {
             newStatus = "PAID";
@@ -1892,6 +2314,9 @@ export async function reverseFeePayment(paymentId: string, reason: string) {
             const adminClient = await createAdminClient();
             await adminClient.from("student_fees").update({
               paid_amount: newPaid,
+              // HI-1: ডিসকাউন্ট ও পুনঃগণিত payable-ও ফেরত লিখতে হবে
+              discount_amount: newDiscount,
+              payable_amount: newPayable,
               due_amount: newDue,
               status: newStatus,
               updated_at: now,
@@ -1987,6 +2412,15 @@ export async function voidFeePayment(paymentId: string, reason: string) {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
 
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.edit", "finance.edit"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+
     if (!reason || !reason.trim()) {
       return { error: "রসিদ বাতিলের সুনির্দিষ্ট কারণ লেখা আবশ্যক।" };
     }
@@ -2013,10 +2447,16 @@ export async function voidFeePayment(paymentId: string, reason: string) {
         const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
         if (feeIdx >= 0) {
           const target = studentFees[feeIdx];
+          // ⛔ HI-1 ফিক্স: void করার সময়ও ডিসকাউন্ট ফেরানো হয় (reverse path-এর মতোই)
+          const revertedDiscount = Number((alloc as any).discount_applied || 0);
+          const baseAmt = Number((target as any).base_amount || 0);
+          const fineAmt = Number((target as any).fine_amount || 0);
+          const newDiscount = Math.max(0, Number(target.discount_amount || 0) - revertedDiscount);
+          const newPayable = Math.max(0, baseAmt + fineAmt - newDiscount);
           const newPaid = Math.max(0, Number(target.paid_amount || 0) - Number(alloc.allocated_amount || 0));
-          const newDue = Math.max(0, Number(target.payable_amount || 0) - newPaid);
+          const newDue = Math.max(0, newPayable - newPaid);
           let newStatus: FeeStatus = "PARTIAL";
-          if (target.payable_amount === 0 && Number(target.discount_amount || 0) > 0) {
+          if (newPayable === 0 && newDiscount > 0) {
             newStatus = "WAIVED";
           } else if (newDue === 0 && newPaid > 0) {
             newStatus = "PAID";
@@ -2038,6 +2478,8 @@ export async function voidFeePayment(paymentId: string, reason: string) {
             const adminClient = await createAdminClient();
             await adminClient.from("student_fees").update({
               paid_amount: newPaid,
+              discount_amount: newDiscount,
+              payable_amount: newPayable,
               due_amount: newDue,
               status: newStatus,
               updated_at: now,
@@ -2140,6 +2582,15 @@ export async function unvoidFeePayment(paymentId: string, reason: string) {
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["finance.delete", "fee.edit"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
 
     const meta = await getFeeMetadata(madrasaId);
     const payments = [...(meta.payments || [])];
@@ -2413,6 +2864,13 @@ export async function getDueManagementData(filters?: {
  * 8. Get Comprehensive Fee & Finance Overview Data (for Dashboard)
  */
 export async function getFeeDashboardOverview() {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("finance");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -2531,6 +2989,28 @@ export async function getFeeDashboardOverview() {
     const totalCollected = unifiedPayments.reduce((sum, p) => sum + (Number(p.total_amount_received) || 0), 0);
     const totalDue = studentFees.reduce((sum, f) => sum + (Number(f.due_amount) || 0), 0);
 
+    // ⛔ MD-4 ফিক্স: "আদায় হার" KPI-এর জন্য ডেটা।
+    //
+    // আগে ড্যাশবোর্ডে হার হিসাব হতো এভাবে: আদায় = *আজীবনের সব পেমেন্ট*,
+    // বকেয়া = *সব সেশনের student_fees.due_amount*। দুই পাশ ভিন্ন সময়-পরিসরের ডেটা
+    // হওয়ায় অনুপাত অর্থহীন হয়ে যেত — ১০০%-এর বেশি বা অসম্ভব কম দেখাতে পারত।
+    //
+    // এখন একই ডেটাসেট (student_fees = একই সেশন/বিলিং রেকর্ড) থেকেই তিনটি মান
+    // বের করা হয়: মোট চার্জ (payable), আদায়কৃত (paid) ও বকেয়া (due)।
+    // ফলে collectible = paid + due = payable এবং হার কখনো ১০০%-এর উপরে যায় না।
+    const sessionPayable = studentFees.reduce(
+      (sum, f) => sum + (Number(f.payable_amount) || 0),
+      0
+    );
+    const sessionCollected = studentFees.reduce((sum, f) => {
+      const payable = Number(f.payable_amount) || 0;
+      const due = Number(f.due_amount) || 0;
+      const paidFromFields = Number((f as any).paid_amount);
+      if (Number.isFinite(paidFromFields) && paidFromFields > 0) return sum + paidFromFields;
+      return sum + Math.max(0, payable - due);
+    }, 0);
+    const sessionDue = studentFees.reduce((sum, f) => sum + (Number(f.due_amount) || 0), 0);
+
     // Current month collection
     const thisMonthCollection = unifiedPayments
       .filter((p) => {
@@ -2577,6 +3057,10 @@ export async function getFeeDashboardOverview() {
     return {
       totalCollected,
       totalDue,
+      // MD-4: একই সেশন-পরিসরের সংখ্যা — "আদায় হার" KPI এখন এগুলো থেকেই হিসাব হয়
+      sessionPayable,
+      sessionCollected,
+      sessionDue,
       thisMonthCollection,
       todayCollection,
       totalPaymentsCount: unifiedPayments.length,
@@ -2603,6 +3087,15 @@ export async function deleteStudentFee(feeId: string): Promise<{ success?: boole
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদ্রাসা সনাক্ত করা যায়নি।" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.edit", "finance.delete"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
 
     const meta = await getFeeMetadata(madrasaId);
     const studentFees = meta.student_fees || [];
@@ -2668,6 +3161,15 @@ export async function deleteGeneratedFeeBatch(params: {
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদ্রাসা সনাক্ত করা যায়নি।" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই (আগে শুধু `if (!user)` ছিল)
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      permissions: ["fee.edit", "finance.delete"],
+      roles: ["super_admin", "admin", "muhtamim", "accountant"],
+    });
+    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
 
     const meta = await getFeeMetadata(madrasaId);
     const studentFees = meta.student_fees || [];

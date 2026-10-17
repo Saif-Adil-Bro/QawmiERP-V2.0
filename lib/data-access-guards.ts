@@ -98,18 +98,18 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
       // ignore column absence if user_id column doesn't exist
     }
 
-    // Fetch all students for inspection (both madrasa-scoped and general fallback)
-    let madrasaStudents: any[] = [];
+    // ⛔ CR-3 ফিক্স: আগে এখানে madrasa_id ফিল্টার কখনো প্রয়োগ করা হতো না —
+    // `if (madrasaId)` ও `else` দুটো শাখাতেই একই unfiltered query ছিল, তাই
+    // লাইভ ডেটাবেজের *সব মাদ্রাসার* শিক্ষার্থী মেমোরিতে লোড হতো এবং ফোন/ইমেইল/নামের
+    // আংশিক মিলে অন্য মাদ্রাসার শিক্ষার্থীও অভিভাবকের সাথে যুক্ত হয়ে যেত।
+    // এখন কঠোরভাবে নিজের মাদ্রাসার শিক্ষার্থীই পড়া হয়; madrasaId না থাকলে কিছুই নয়।
+    const madrasaStudents: any[] = [];
     if (madrasaId) {
       const { data: ms } = await adminClient
         .from("students")
-        .select("id, first_name, last_name, parent_phone, father_name, roll_number, madrasa_id");
-      madrasaStudents = ms || [];
-    } else {
-      const { data: ms } = await adminClient
-        .from("students")
-        .select("id, first_name, last_name, parent_phone, father_name, roll_number, madrasa_id");
-      madrasaStudents = ms || [];
+        .select("id, first_name, last_name, parent_phone, father_name, roll_number, madrasa_id")
+        .eq("madrasa_id", madrasaId);
+      madrasaStudents.push(...(ms || []));
     }
 
     // Also load metadata student profiles if available
@@ -174,11 +174,14 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
           const full = `${fName} ${lName}`.trim();
           const stId = (s.student_id || "").toLowerCase();
 
+          // CR-3 ফিক্স: আগে `includes` (আংশিক মিল) ব্যবহার হতো — ফলে ইমেইল
+          // `rahim@...` হলে "Ibrahim", "Rahimuddin" নামের অন্য শিক্ষার্থীরাও যুক্ত হয়ে
+          // যেতেন। এখন কেবল হুবহু মিল (পূর্ণ নাম বা শিক্ষার্থী আইডি) গ্রহণ করা হয়।
+          const fullCompact = full.replace(/\s+/g, "");
           if (
-            fName.includes(emailPrefix) ||
-            lName.includes(emailPrefix) ||
-            full.includes(emailPrefix) ||
-            stId.includes(emailPrefix)
+            fullCompact === emailPrefix ||
+            fName === emailPrefix ||
+            stId === emailPrefix
           ) {
             studentIdsSet.add(s.id);
           }
@@ -200,14 +203,9 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
           const lName = (s.last_name || "").trim().toLowerCase();
           const fullName = `${fName} ${lName}`.trim();
 
-          if (
-            fullName === cLower ||
-            fName === cLower ||
-            lName === cLower ||
-            fullName.includes(cLower) ||
-            cLower.includes(fullName) ||
-            (fName && (cLower.includes(fName) || fName.includes(cLower)))
-          ) {
+          // CR-3 ফিক্স: আংশিক (substring) মিল সরানো হলো — আগে "আশরাফুল" নামের অভিভাবক
+          // "আশরাফুল হক"-এর পাশাপাশি "মোঃ আশরাফ"-এর ডেটাও দেখতে পেতেন।
+          if (fullName === cLower || fName === cLower || fullName.replace(/\s+/g, "") === cLower.replace(/\s+/g, "")) {
             studentIdsSet.add(s.id);
           }
         });
@@ -215,7 +213,8 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
         // Also check metadata profiles
         Object.entries(metaProfiles).forEach(([sid, prof]) => {
           const profName = `${prof.first_name || ""} ${prof.last_name || ""}`.trim().toLowerCase();
-          if (profName && (profName.includes(cLower) || cLower.includes(profName))) {
+          // CR-3 ফিক্স: শুধুমাত্র হুবহু পূর্ণ-নাম মিল
+          if (profName && profName === cLower) {
             studentIdsSet.add(sid);
           }
         });
@@ -227,20 +226,27 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
         madrasaStudents.forEach((s) => {
           const fName = (s.father_name || "").trim().toLowerCase();
           const mName = (s.mother_name || "").trim().toLowerCase();
-          if (fName && (fName.includes(pClean) || pClean.includes(fName))) {
+          // CR-3 ফিক্স: আংশিক মিল বাদ — কেবল হুবহু অভিভাবকের নাম মিললেই অ্যাক্সেস
+          if (fName && fName === pClean) {
             studentIdsSet.add(s.id);
           }
-          if (mName && (mName.includes(pClean) || pClean.includes(mName))) {
+          if (mName && mName === pClean) {
             studentIdsSet.add(s.id);
           }
         });
       }
     }
 
-    // Strategy E: Resilient Fallback for Parent / Student users
-    // If no specific student could be matched by any pattern, associate available students in madrasa
-    if (studentIdsSet.size === 0 && madrasaStudents.length > 0) {
-      madrasaStudents.forEach((s) => studentIdsSet.add(s.id));
+    // ⛔ CR-3 ফিক্স (Strategy E অপসারণ): আগে কোনো শিক্ষার্থী ম্যাচ না হলে "resilient fallback"
+    // হিসেবে ওই মাদ্রাসার *সব* শিক্ষার্থীর id অ্যাক্সেস-লিস্টে ঢুকিয়ে দেওয়া হতো — অর্থাৎ
+    // সঠিকভাবে লিংক না থাকা যেকোনো অভিভাবক পুরো মাদ্রাসার ছাত্রদের ডেটা পেয়ে যেতেন।
+    // এখন ম্যাচ না পেলে কোনো অ্যাক্সেস দেওয়া হয় না (খালি লিস্ট), এবং ম্যাচ শুধুমাত্র
+    // নির্ভরযোগ্য সূত্র থেকেই করা হয় (নিচের ফোন/ইমেইল/নাম-ভিত্তিক অনুমান কঠোরভাবে scoped)।
+    if (studentIdsSet.size === 0) {
+      console.warn(
+        `[access-guard] No linked student matched for user ${authUser.id} (madrasa ${madrasaId}). ` +
+          "Access denied until a parent/guardian link is configured."
+      );
     }
 
     // Auto-heal madrasa_id and phone in users table if matched students belong to a madrasa

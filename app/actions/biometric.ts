@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
@@ -17,6 +18,13 @@ import {
  * Get all biometric devices for the current madrasa
  */
 export async function getBiometricDevices(): Promise<BiometricDevice[]> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("biometric");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return [];
@@ -67,6 +75,13 @@ export async function getBiometricDevices(): Promise<BiometricDevice[]> {
 export async function saveBiometricDevice(
   deviceData: Partial<BiometricDevice>
 ): Promise<{ success?: boolean; device?: BiometricDevice; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("biometric");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "অনুগ্রহ করে পুনরায় লগইন করুন" };
@@ -140,6 +155,13 @@ export async function saveBiometricDevice(
  * Delete a biometric device
  */
 export async function deleteBiometricDevice(deviceId: string): Promise<{ success?: boolean; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("biometric");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
@@ -233,6 +255,13 @@ export async function getBiometricUserMappings(): Promise<BiometricUserMapping[]
 export async function saveBiometricUserMapping(
   mapping: Partial<BiometricUserMapping>
 ): Promise<{ success?: boolean; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("biometric");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
@@ -290,6 +319,13 @@ export async function saveBiometricUserMapping(
 export async function deleteBiometricUserMapping(
   mappingId: string
 ): Promise<{ success?: boolean; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("biometric");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
@@ -319,6 +355,13 @@ export async function autoGenerateUserMappings(): Promise<{
   totalMapped: number;
   message: string;
 }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("biometric");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { success: false, totalMapped: 0, message: "অননুমোদিত অ্যাক্সেস" };
@@ -478,6 +521,13 @@ export async function importBiometricLogsFromFile(
   message: string;
   error?: string;
 }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("biometric");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { success: false, totalParsed: 0, totalProcessed: 0, unmappedCount: 0, uniqueDates: [], message: "অননুমোদিত অ্যাক্সেস" };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { collectFeePayment, getStudentFeeProfile } from "@/app/actions/fee-management";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
 import {
@@ -75,6 +75,17 @@ export default function CollectPaymentClient({
   }>({});
 
   const [isPending, setIsPending] = useState(false);
+
+  // ⛔ HI-2 ফিক্সের ক্লায়েন্ট অংশ: প্রতিটি "নতুন পেমেন্ট চেষ্টা"-র জন্য একটি অনন্য
+  // idempotency key তৈরি হয়। ডাবল-ক্লিক বা নেটওয়ার্ক রিট্রাই হলে একই key যায় —
+  // সার্ভার তখনই সেটি চিনে দ্বিতীয়বার পেমেন্ট তৈরি করে না (আগের ১৫-সেকেন্ডের
+  // সময়-ভিত্তিক গার্ডটি বৈধ দ্বিতীয় পেমেন্টও গিলে ফেলত)। পেমেন্ট সফল হলে key
+  // রিফ্রেশ হয়, তাই পরের পেমেন্ট নতুন হিসেবেই যায়।
+  const idempotencyKeyRef = useRef<string>(
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `pay_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  );
   const [error, setError] = useState<string | null>(null);
   const [successReceipt, setSuccessReceipt] = useState<any>(null);
 
@@ -359,9 +370,16 @@ export default function CollectPaymentClient({
         notes: notes,
         fund_id: selectedGlobalFund,
         fund_name: globalFundObj?.name || "সাধারণ ফান্ড",
+        // HI-2: ডুপ্লিকেট পেমেন্ট ঠেকানোর idempotency key
+        idempotency_key: idempotencyKeyRef.current,
       });
 
       if (res?.success && res.payment) {
+        // পেমেন্ট সফল — পরের পেমেন্টের জন্য নতুন key
+        idempotencyKeyRef.current =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `pay_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
         setSuccessReceipt(res.payment);
       } else {
         setError(res?.error || "ফি কালেকশন সম্পন্ন করা যায়নি।");

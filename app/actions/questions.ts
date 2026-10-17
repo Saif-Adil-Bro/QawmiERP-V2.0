@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
@@ -144,6 +145,13 @@ export async function saveQuestion(data: {
   chapter?: string;
   difficulty?: "easy" | "medium" | "hard" | string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("questions");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   await ensureQuestionBankColumns();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -206,6 +214,13 @@ export async function updateQuestion(
     difficulty?: "easy" | "medium" | "hard" | string;
   }
 ) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("questions");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   await ensureQuestionBankColumns();
   const supabase = await createClient();
   const chapterVal = data.chapter || data.options?.chapter || "";
@@ -265,6 +280,13 @@ export async function bulkSaveQuestions(questionsList: Array<{
   difficulty?: "easy" | "medium" | "hard" | string;
   options?: any;
 }>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("questions");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   await ensureQuestionBankColumns();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -327,6 +349,13 @@ export async function bulkSaveQuestions(questionsList: Array<{
 }
 
 export async function deleteQuestion(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("questions");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.from("question_bank").delete().eq("id", id);
   if (error) {
@@ -386,6 +415,13 @@ export async function saveExamPaper(data: {
   exam_name?: string;
   questions: any;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("questions");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   await ensureExamPapersTable();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -612,6 +648,13 @@ export async function cloneExamPaper(params: {
   syncToQuestionBank?: boolean;
   selectedQuestionIds?: string[];
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("questions");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   await ensureExamPapersTable();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -769,6 +812,13 @@ export async function cloneExamPaper(params: {
 }
 
 export async function deleteExamPaper(paperId: string): Promise<{ success?: boolean; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("questions");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
@@ -803,6 +853,13 @@ export async function deleteExamPaper(paperId: string): Promise<{ success?: bool
 }
 
 export async function toggleArchivePaper(paperId: string, isArchived: boolean): Promise<{ success?: boolean; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("questions");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
@@ -871,6 +928,13 @@ export async function getPastPapersForSubject(classId: string, subjectId: string
 }
 
 export async function seedSampleQuestionsForSubject(classId: string, subjectId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("questions");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   await ensureQuestionBankColumns();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

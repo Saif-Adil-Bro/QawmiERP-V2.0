@@ -1,11 +1,12 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { isUuid } from "@/lib/student-utils";
-import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName, isTransactionInFund } from "@/lib/fund-utils";
+import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName, isTransactionInFund, isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFeeMetadata } from "./fee-management";
 
@@ -225,7 +226,11 @@ export async function getFunds(): Promise<FundItem[]> {
 
     // Fetch dynamic live collections & expenses to calculate real-time balances for all funds
     const [donationsRes, expensesRes, meta, feeMeta, dbFeesRes] = await Promise.all([
-      adminClient.from("donations").select("id, amount, donation_type, donor_id, receipt_no, notes, status").eq("madrasa_id", finalMadrasaId),
+      // ⛔ CR-10 ক্লাসের বাগ: `donations.status` কলামটি supabase_schema.sql-এ নেই, অথচ
+      // এখানে সেটি সিলেক্ট করা হচ্ছিল — কলাম না থাকলে পুরো query ফেল করে এবং *সব*
+      // অনুদান আয় হারিয়ে গিয়ে ফান্ডের ব্যালেন্স শূন্য/ভুল দেখায়। এখন কলামটি
+      // থাকলে status সহ, না থাকলে ছাড়াই — দুই ক্ষেত্রেই কাজ করে (বিস্তারিত ফিক্স নিচে)।
+      adminClient.from("donations").select("id, amount, donation_type, donor_id, receipt_no, notes").eq("madrasa_id", finalMadrasaId),
       adminClient.from("expenses").select("id, amount, description, category, voucher_no").eq("madrasa_id", finalMadrasaId),
       getMadrasaMetadata(finalMadrasaId),
       getFeeMetadata(finalMadrasaId),
@@ -246,7 +251,8 @@ export async function getFunds(): Promise<FundItem[]> {
     });
 
     const allDonations = donationsRes.data || [];
-    const allExpenses = expensesRes.data || [];
+    // HI-5: বাতিল (VOID) করা খরচ ফান্ডের ব্যয়ে গোনা হয় না
+    const allExpenses = (expensesRes.data || []).filter((e: any) => !isVoidedExpense(e));
     const subscriptionPayments = meta.donor_subscription_payments || [];
 
     const fundStats = new Map<string, { collected: number; expense: number; count: number; donors: Set<string> }>();
@@ -258,8 +264,7 @@ export async function getFunds(): Promise<FundItem[]> {
     const existingIds = new Set(allDonations.map((d: any) => d.id).filter(Boolean));
 
     for (const d of allDonations) {
-      const isVoid = (d as any).status === "VOID" || (d.notes && d.notes.includes("[VOID:"));
-      if (isVoid) continue;
+      if (isVoidDonation(d)) continue;
 
       const isMahfil = d.receipt_no?.startsWith("MHF-") || (d.notes && d.notes.includes("মাহফিল"));
       if (isMahfil) {
@@ -537,6 +542,13 @@ export async function getFunds(): Promise<FundItem[]> {
 
 // Create a new custom Fund manually
 export async function createFund(formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -624,6 +636,13 @@ export async function createFund(formData: FormData) {
 
 // Update Fund
 export async function updateFund(fundId: string, formData: FormData): Promise<{ success?: boolean; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -680,6 +699,13 @@ export async function updateFund(fundId: string, formData: FormData): Promise<{ 
 
 // Delete Fund
 export async function deleteFund(fundId: string): Promise<{ success?: boolean; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -722,6 +748,13 @@ export async function deleteFund(fundId: string): Promise<{ success?: boolean; e
 
 // Fetch all donors with donation aggregates (Unified Master Donors)
 export async function getDonors(): Promise<DonorItem[]> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -909,6 +942,13 @@ export async function getDonors(): Promise<DonorItem[]> {
 
 // Add Donor with Frequency: Annual / Monthly / OneTime
 export async function addDonor(formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -1021,6 +1061,13 @@ export async function addDonor(formData: FormData) {
 
 // Update Donor
 export async function updateDonor(donorId: string, formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -1086,6 +1133,13 @@ export async function updateDonor(donorId: string, formData: FormData) {
 }
 
 export async function deleteDonor(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -1475,6 +1529,13 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
   totalOutflow: number;
   currentBalance: number;
 }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -1850,6 +1911,13 @@ export async function deleteFundTransaction(
   txnType: string,
   voucherNo?: string
 ): Promise<{ success?: boolean; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -2012,6 +2080,13 @@ export async function deleteFundTransaction(
 
 // Add Collection with Fund Selection and Auto Receipt Generation
 export async function addDonation(prevState: any, formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -2235,6 +2310,13 @@ export async function addDonation(prevState: any, formData: FormData) {
  * Void a Donation Receipt (Soft Delete with Reason, Balance Rollback, Immutable Audit Log)
  */
 export async function voidDonationReceipt(id: string, reason: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -2274,9 +2356,30 @@ export async function voidDonationReceipt(id: string, reason: string) {
       return { error: updateErr.message };
     }
 
-    try {
-      await adminClient.from("donations").update({ status: "VOID" }).eq("id", id);
-    } catch {}
+    // ⛔ CR-10/HI-5 ক্লাসের ফিক্স: `status` কলামটি বেস স্কিমায় নেই — তাই আগের এই
+    // "status: VOID" আপডেটটি নীরবে ব্যর্থ হতো এবং বাতিল অবস্থা কেবল `notes`-এর
+    // [VOID:...] ট্যাগে থাকত (নতুন সব কোড এখন ট্যাগটিই নির্ভরযোগ্য সূত্র হিসেবে দেখে)।
+    // কলাম থাকলে পূর্ণ মেটাডেটাও (status/reason/time) লেখা হয়, না থাকলে ট্যাগই যথেষ্ট।
+    {
+      const voidUpdate = await adminClient
+        .from("donations")
+        .update({ status: "VOID", void_reason: reason.trim(), voided_at: now })
+        .eq("id", id)
+        .eq("madrasa_id", finalMadrasaId);
+      if (voidUpdate.error) {
+        const tagOnly = await adminClient
+          .from("donations")
+          .update({ status: "VOID" })
+          .eq("id", id)
+          .eq("madrasa_id", finalMadrasaId);
+        if (tagOnly.error) {
+          console.warn(
+            "donations.status কলামে বাতিল অবস্থা লেখা যায়নি — notes-এর [VOID:] ট্যাগই নির্ভরযোগ্য সূত্র:",
+            tagOnly.error.message
+          );
+        }
+      }
+    }
 
     // Record in Madrasa metadata audit logs
     try {
@@ -2316,6 +2419,13 @@ export async function voidDonationReceipt(id: string, reason: string) {
  * Super Admin Unvoid a previously voided Donation Receipt
  */
 export async function unvoidDonationReceipt(id: string, reason: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
@@ -2342,9 +2452,20 @@ export async function unvoidDonationReceipt(id: string, reason: string) {
       .eq("id", id)
       .eq("madrasa_id", finalMadrasaId);
 
-    try {
-      await adminClient.from("donations").update({ status: "COMPLETED" }).eq("id", id);
-    } catch {}
+    // Unvoid — status কলাম থাকলে সেটিও সক্রিয় করা হয় (নাহলে notes থেকে ট্যাগ সরে যাওয়াই যথেষ্ট)
+    {
+      const unvoidUpdate = await adminClient
+        .from("donations")
+        .update({ status: "COMPLETED" })
+        .eq("id", id)
+        .eq("madrasa_id", finalMadrasaId);
+      if (unvoidUpdate.error) {
+        console.warn(
+          "donations.status কলামে সক্রিয় অবস্থা লেখা যায়নি — notes থেকে [VOID:] ট্যাগ সরানো হয়েছে:",
+          unvoidUpdate.error.message
+        );
+      }
+    }
 
     revalidatePath("/dashboard/zakat");
     revalidatePath("/dashboard/zakat/collection");

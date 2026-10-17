@@ -22,9 +22,21 @@ export function formatBanglaCurrency(num: number | string | null | undefined): s
   if (num === null || num === undefined || num === '') return '০';
   const val = typeof num === 'number' ? num : parseFloat(String(num));
   if (isNaN(val)) return '০';
-  
-  // Format with standard comma grouping
-  const formatted = Number(val).toLocaleString('en-IN');
+
+  // ⛔ MD-6 ফিক্স: আগে `toLocaleString('en-IN')`-এ কোনো fraction digit নির্দিষ্ট করা ছিল না।
+  // ফলে `toLocaleString`-এর ডিফল্ট (সর্বোচ্চ ৩ দশমিক) ব্যবহার হতো — ১২.৫ → "১২.৫",
+  // ১২.৫০ → "১২.৫", ১২.৫০৫ → "১২.৫০৫" (পয়সার হিসাবে ৩ দশমিক, যা মুদ্রার নিয়মবিরুদ্ধ)।
+  // রসিদ, লেজার ও রিপোর্টে টাকার অঙ্ক দুই দশমিক ঘরে স্থির না থাকায় যোগফল মেলানো কঠিন হতো
+  // এবং রাউন্ডিং-এ অমিল তৈরি হতো।
+  //
+  // নিয়ম এখন: পূর্ণ টাকার অঙ্ক পরিষ্কার থাকে (৫,০০০), আর ভগ্নাংশ থাকলে ঠিক দুই দশমিক
+  // (১২.৫ → ১২.৫০, ১২.৫০৫ → ১২.৫১) — অর্থাৎ প্রতিটি অঙ্কই পয়সা পর্যন্ত নির্ভুল/সুসংগত।
+  const rounded = Math.round(val * 100) / 100;
+  const hasFraction = Math.abs(rounded - Math.trunc(rounded)) > 1e-9;
+  const formatted = rounded.toLocaleString('en-IN', {
+    minimumFractionDigits: hasFraction ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
   return toBanglaNumber(formatted);
 }
 

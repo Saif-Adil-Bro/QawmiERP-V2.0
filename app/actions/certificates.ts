@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents } from "@/app/actions/students";
 import { getMadrasaMetadata, saveMadrasaMetadata, AcademicSession, getDefaultSessions } from "@/lib/sessions";
@@ -28,6 +29,13 @@ export async function getCertificatesData(options?: {
   status?: string;
   search?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("certificates");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
     const scope = await getUserDataAccessScope();
@@ -170,6 +178,13 @@ export async function issueStudentCertificate(payload: {
   teacher_signature?: boolean;
   show_seal?: boolean;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("certificates");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const madrasaId = await getAuthMadrasaId();
     if (!madrasaId) {
@@ -362,6 +377,13 @@ export async function bulkGenerateCertificates(payload: {
  * Approve pending certificate
  */
 export async function approveCertificate(certificateId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("certificates");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const madrasaId = await getAuthMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
@@ -406,6 +428,13 @@ export async function approveCertificate(certificateId: string) {
  * Revoke certificate
  */
 export async function revokeCertificate(certificateId: string, reason: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("certificates");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const madrasaId = await getAuthMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
@@ -453,6 +482,13 @@ export async function revokeCertificate(certificateId: string, reason: string) {
  * Delete a certificate permanently
  */
 export async function deleteCertificate(certificateId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("certificates");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const madrasaId = await getAuthMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
@@ -494,6 +530,13 @@ export async function deleteCertificate(certificateId: string) {
  * Reissue certificate
  */
 export async function reissueCertificate(certificateId: string, reason: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("certificates");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const madrasaId = await getAuthMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
@@ -556,6 +599,13 @@ export async function reissueCertificate(certificateId: string, reason: string) 
  * Update certificate template configurations
  */
 export async function saveCertificateTemplates(templates: CertificateTemplateConfig[]) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("certificates");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const madrasaId = await getAuthMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };

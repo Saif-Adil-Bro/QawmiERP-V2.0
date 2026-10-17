@@ -505,3 +505,40 @@ export function isTransactionInFund(
 }
 
 
+
+/**
+ * খরচের রেকর্ড VOID (বাতিল) কি না তা নির্ধারণ করে।
+ *
+ * HI-5 ফিক্সের অংশ: আগে খরচ মুছে ফেলার একমাত্র উপায় ছিল হার্ড ডিলিট (কোনো চিহ্ন ছাড়াই)।
+ * এখন `deleteExpense` soft-void করে — `status = 'VOID'` এবং description-এ
+ * `[VOID: কারণ | BY: ... | AT: ...]` ট্যাগ। পুরোনো স্কিমায় `status` কলাম না থাকলেও
+ * ট্যাগটি কাজ করে, তাই সব রিপোর্ট দুই ক্ষেত্রেই বাতিল খরচ বাদ দিতে পারে।
+ */
+export function isVoidedExpense(exp: any): boolean {
+  if (!exp) return false;
+  if (String(exp.status || "").toUpperCase() === "VOID") return true;
+  const desc = typeof exp.description === "string" ? exp.description : "";
+  return desc.includes("[VOID:");
+}
+
+/** খরচের description থেকে void-এর কারণ বের করে (রিপোর্টে দেখানোর জন্য)। */
+export function getExpenseVoidReason(exp: any): string {
+  const desc = typeof exp?.description === "string" ? exp.description : "";
+  const m = desc.match(/\[VOID:\s*([^\]|]+)/i);
+  return m?.[1]?.trim() || "";
+}
+
+/**
+ * অনুদান/রসিদ বাতিল (VOID) কি না।
+ *
+ * গুরুত্বপূর্ণ: `donations.status` কলামটি বেস স্কিমায় নেই — তাই বাতিল অবস্থা নির্ভরযোগ্যভাবে
+ * `notes`-এর `[VOID: ...]` ট্যাগ দিয়েই নির্ধারণ করা হয় (status থাকলে সেটিও বিবেচনায় নেওয়া হয়)।
+ * আগে শুধু `status` দেখে চেক করা হতো, যা কলাম না থাকলে কখনো সত্য হতো না — ফলে বাতিল করা
+ * অনুদান আয় হিসেবে গোনা হয়ে যেত।
+ */
+export function isVoidDonation(donation: any): boolean {
+  if (!donation) return false;
+  if (String(donation.status || "").toUpperCase() === "VOID") return true;
+  const notes = typeof donation.notes === "string" ? donation.notes : "";
+  return notes.includes("[VOID:");
+}
