@@ -59,6 +59,7 @@ import {
   executeMadrasaDataWipe,
   WipeMadrasaOptions,
 } from "@/app/actions/backup";
+import { resolveBackupSelection, isTableSelected } from "@/lib/backup-modules";
 
 export interface ModuleDefinition {
   key: BackupModuleKey;
@@ -364,6 +365,15 @@ export default function BackupClient({
     MODULE_DEFINITIONS.map((m) => m.key)
   );
   const [createAutoSnapshot, setCreateAutoSnapshot] = useState(true);
+  // ⛔ সিলেক্টিভ রিস্টোর: আংশিক নির্বাচনে যদি শিক্ষার্থী/ক্লাস/বিষয়/পরীক্ষার মতো
+  // parent টেবিল থাকে, তাহলে Clean Replace নিষিদ্ধ — কারণ delete() করলে FK CASCADE-এ
+  // ফি, হাজিরা, রেজাল্ট ইত্যাদি নির্ভরশীল ডেটা মুছে যাবে (সার্ভারের গার্ডের সাথে মিলিত)।
+  const restoreSelectionResolved = resolveBackupSelection(selectedRestoreModules);
+  const isReplaceBlocked =
+    !restoreSelectionResolved.isFull &&
+    ["students", "classes", "subjects", "exams"].some((t) =>
+      isTableSelected(t, restoreSelectionResolved)
+    );
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState<{
@@ -452,8 +462,12 @@ export default function BackupClient({
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
+      // ⛔ সিলেক্টিভ ব্যাকআপ ফিক্স: আগে আংশিক নির্বাচনেও "সকল ... ১০০%" দাবি করা হতো।
+      const isFullSelection = modules.length === MODULE_DEFINITIONS.length;
       setExportSuccessMessage(
-        `সফল হয়েছে! মাদরাসার সকল নির্বাচিত মডিউল ও ডায়নামিক মেটাডাটার ১০০% সুরক্ষিত ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে।`
+        isFullSelection
+          ? `সফল হয়েছে! মাদ্রাসার সম্পূর্ণ ব্যাকআপ (${modules.length} টি মডিউল) ডাউনলোড সম্পন্ন হয়েছে।`
+          : `সফল হয়েছে! শুধুমাত্র নির্বাচিত ${modules.length} টি মডিউলের ডেটা সহ ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে — বাকি মডিউলের কোনো তথ্য ফাইলে নেই।`
       );
     } catch (err: any) {
       alert("ব্যাকআপ ডাউনলোডে ত্রুটি: " + (err.message || String(err)));
@@ -622,9 +636,20 @@ export default function BackupClient({
           parsedPayload: { manifest, data: dataObj },
         });
 
-        if (manifest?.modules && manifest.modules.length > 0) {
-          setSelectedRestoreModules(manifest.modules);
-        }
+        // ⛔ সিলেক্টিভ রিস্টোর — রিস্টোর-স্কোপ নির্ধারণ।
+        //
+        // নতুন ফরম্যাটে `manifest.is_selective` স্পষ্টভাবে বলে ফাইলটি আংশিক কি না।
+        //   • is_selective === true  → ঠিক manifest.modules-ই রিস্টোর হবে
+        //   • is_selective === false → সম্পূর্ণ ব্যাকআপ, সব মডিউল
+        //   • ফিল্ডটাই নেই (পুরোনো ফাইল) → বাগি কোডে তৈরি, manifest.modules আংশিক
+        //     হলেও ভেতরে সব ডেটাই থাকে — তাই আগের মতোই সম্পূর্ণ রিস্টোর (backward compatible)
+        const allModuleKeys = MODULE_DEFINITIONS.map((m) => m.key);
+        const manifestModules = (Array.isArray(manifest?.modules) ? manifest.modules : []).filter(
+          (k: string) => MODULE_DEFINITIONS.some((m) => m.key === k)
+        );
+        const isSelectiveFile =
+          (manifest as any)?.is_selective === true && manifestModules.length > 0;
+        setSelectedRestoreModules(isSelectiveFile ? manifestModules : allModuleKeys);
       } catch (err: any) {
         console.error("Client backup analysis error:", err);
         setAnalyzedData({
@@ -648,6 +673,16 @@ export default function BackupClient({
   const handleExecuteRestore = async () => {
     if (!analyzedData?.parsedPayload) {
       alert("প্রথমে একটি বৈধ ব্যাকআপ ফাইল লোড করুন।");
+      return;
+    }
+
+    if (restoreMode === "replace" && isReplaceBlocked) {
+      alert(
+        "আংশিক ব্যাকআপে Clean Replace মোড নিরাপদ নয় — শিক্ষার্থী/ক্লাস/বিষয়/পরীক্ষার ডেটা মুছলে " +
+          "তার সাথে যুক্ত ফি, হাজিরা ও অন্যান্য রেকর্ডও CASCADE-এ মুছে যেতে পারে। " +
+          "Merge মোড বেছে নিন, অথবা সম্পূর্ণ ব্যাকআপ দিয়ে Replace করুন।"
+      );
+      setRestoreMode("merge");
       return;
     }
 
@@ -1144,6 +1179,22 @@ export default function BackupClient({
               </div>
             )}
 
+            {/* ⛔ সিলেক্টিভ ব্যাকআপ নোট — ব্যবহারকারী যেন বুঝতে পারেন কী ফাইলে যাবে */}
+            <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-2xl flex items-start gap-2.5 text-xs text-emerald-900">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold">
+                  {selectedExportModules.length === MODULE_DEFINITIONS.length
+                    ? "সম্পূর্ণ ব্যাকআপ তৈরি হবে — সব মডিউলের ডেটা অন্তর্ভুক্ত থাকবে।"
+                    : `শুধুমাত্র নির্বাচিত ${selectedExportModules.length} টি মডিউলের ডেটাই ব্যাকআপ ফাইলে যাবে।`}
+                </p>
+                <p className="text-emerald-800/80 leading-relaxed">
+                  টিক না দেওয়া মডিউলের কোনো টেবিল বা মেটাডেটা ফাইলে অন্তর্ভুক্ত হবে না। তবে কোনো
+                  অজানা/কাস্টম এক্সটেনশন ডেটা রাখতে চাইলে সব মডিউল নির্বাচন করুন।
+                </p>
+              </div>
+            </div>
+
             {/* Export Format & Trigger */}
             <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-3">
@@ -1291,6 +1342,7 @@ export default function BackupClient({
                       {uploadedFile?.name}
                     </h4>
                     <p className="text-xs text-slate-500">
+                      {analyzedData.manifest?.is_selective ? "🎯 সিলেক্টিভ ব্যাকআপ" : "📦 সম্পূর্ণ ব্যাকআপ"} •{" "}
                       সাইজ: {Math.round((uploadedFile?.size || 0) / 1024)} KB • সংস্করণ:{" "}
                       {analyzedData.manifest?.version || "3.0"} • জেনারেট:{" "}
                       {analyzedData.manifest?.generated_at
@@ -1386,18 +1438,32 @@ export default function BackupClient({
 
                   {/* Replace Mode */}
                   <div
-                    onClick={() => setRestoreMode("replace")}
-                    className={`p-4 rounded-2xl border-2 cursor-pointer transition ${
-                      restoreMode === "replace"
-                        ? "border-rose-500 bg-rose-50/40"
-                        : "border-slate-200 hover:border-slate-300"
+                    onClick={() => {
+                      if (isReplaceBlocked) {
+                        alert(
+                          "এই ফাইলটি সিলেক্টিভ ব্যাকআপ — Clean Replace মোড এতে ব্যবহার করা যাবে না। Merge মোড ব্যবহার করুন।"
+                        );
+                        return;
+                      }
+                      setRestoreMode("replace");
+                    }}
+                    className={`p-4 rounded-2xl border-2 transition ${
+                      isReplaceBlocked
+                        ? "border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed"
+                        : restoreMode === "replace"
+                          ? "border-rose-500 bg-rose-50/40 cursor-pointer"
+                          : "border-slate-200 hover:border-slate-300 cursor-pointer"
                     }`}
                   >
                     <div className="flex items-center gap-2">
                       <input
                         type="radio"
                         checked={restoreMode === "replace"}
-                        onChange={() => setRestoreMode("replace")}
+                        disabled={isReplaceBlocked}
+                        onChange={() => {
+                          if (isReplaceBlocked) return;
+                          setRestoreMode("replace");
+                        }}
                         className="w-4 h-4 text-rose-600 cursor-pointer"
                       />
                       <span className="font-bold text-sm text-rose-900">
@@ -1405,7 +1471,28 @@ export default function BackupClient({
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 mt-2 leading-relaxed pl-6">
-                      বর্তমান ডাটাবেজ খালি করে ব্যাকআপের সম্পূর্ণ নতুন তথ্য স্থাপন করবে।
+                      {isReplaceBlocked
+                        ? "সিলেক্টিভ ব্যাকআপে এই মোড নিষ্ক্রিয় — FK CASCADE-এ অন্য মডিউলের ডেটা মুছে যাওয়ার ঝুঁকি রয়েছে।"
+                        : "সম্পূর্ণ মডিউলের বর্তমান ডেটা মুছে ব্যাকআপের তথ্য স্থাপন করবে।"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* ⛔ রিস্টোর-স্কোপ তথ্য: ফাইল ও manifest অনুযায়ী ঠিক কোন মডিউল রিস্টোর হবে */}
+                <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl flex items-start gap-2.5 text-xs text-blue-900">
+                  <Layers className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1 min-w-0">
+                    <p className="font-bold">
+                      এই ফাইল থেকে {selectedRestoreModules.length} টি মডিউল রিস্টোর হবে
+                      {selectedRestoreModules.length === MODULE_DEFINITIONS.length ? " (সম্পূর্ণ ব্যাকআপ)" : " (সিলেক্টিভ)"}।
+                    </p>
+                    <p className="text-blue-800/80 leading-relaxed break-words">
+                      {selectedRestoreModules
+                        .map((key) => MODULE_DEFINITIONS.find((m) => m.key === key)?.name || key)
+                        .join(" · ")}
+                    </p>
+                    <p className="text-blue-800/70 leading-relaxed">
+                      ফাইলে না থাকা বা তালিকায় না থাকা মডিউলের ডেটা অপরিবর্তিত থাকবে।
                     </p>
                   </div>
                 </div>
