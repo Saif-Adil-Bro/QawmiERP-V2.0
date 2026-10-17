@@ -4,6 +4,7 @@ import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
+import { getFullPaymentGatewayConfig } from "@/lib/payment-gateway-config";
 import { revalidatePath } from "next/cache";
 import {
   PaymentGatewayConfig,
@@ -43,37 +44,12 @@ export async function getSafeMadrasaId(): Promise<string | null> {
 }
 
 /**
- * 1. Fetch current Payment Gateway Configuration for the Madrasa
+ * 1. পেমেন্ট গেটওয়ে কনফিগ সংক্রান্ত নোট
+ *
+ * ⛔ পূর্ণ কনফিগ (ক্রেডেনশিয়ালসহ) এখন `lib/payment-gateway-config.ts`-এ —
+ * `"use server"` ফাইলে export করলে সেটি লগইন ছাড়াই RPC-তে কলযোগ্য হয়ে যায়।
+ * UI/পাবলিক কোডে `toPublicPaymentGatewayConfig()` ব্যবহার করুন।
  */
-export async function getPaymentGatewayConfig(): Promise<PaymentGatewayConfig> {
-  try {
-    const madrasaId = await getSafeMadrasaId();
-    if (!madrasaId) {
-      return DEFAULT_GATEWAY_CONFIG;
-    }
-
-    const meta = await getMadrasaMetadata(madrasaId);
-    if (meta.payment_gateway_config) {
-      return {
-        ...DEFAULT_GATEWAY_CONFIG,
-        ...meta.payment_gateway_config,
-        islami_bank: {
-          ...DEFAULT_GATEWAY_CONFIG.islami_bank,
-          ...(meta.payment_gateway_config.islami_bank || {}),
-        },
-        enabled_methods: {
-          ...DEFAULT_GATEWAY_CONFIG.enabled_methods,
-          ...(meta.payment_gateway_config.enabled_methods || {}),
-        },
-      };
-    }
-
-    return DEFAULT_GATEWAY_CONFIG;
-  } catch (err) {
-    console.error("Error in getPaymentGatewayConfig:", err);
-    return DEFAULT_GATEWAY_CONFIG;
-  }
-}
 
 /**
  * 2. Save / Update Payment Gateway Configuration
@@ -414,7 +390,7 @@ export async function verifyAndCompleteOnlinePayment(params: {
     }
 
     // 0. Strict Gateway Verification
-    const config = await getPaymentGatewayConfig();
+    const config = await getFullPaymentGatewayConfig();
     const isGatewaySimulated = Boolean(params.is_simulated);
 
     if (isGatewaySimulated) {
@@ -637,7 +613,7 @@ export async function getStudentPublicFeeInfo(studentId: string) {
 
     // Get fee profile
     const feeProfile = await getStudentFeeProfile(student.id);
-    const config = await getPaymentGatewayConfig();
+    const config = await getFullPaymentGatewayConfig();
 
     const clsObj: any = Array.isArray(student.classes)
       ? student.classes[0]

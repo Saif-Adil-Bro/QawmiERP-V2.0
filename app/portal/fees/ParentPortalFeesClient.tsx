@@ -23,7 +23,8 @@ import Link from "next/link";
 import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
 import OnlinePaymentCheckoutModal from "@/components/payments/OnlinePaymentCheckoutModal";
 import DualMoneyReceipt from "@/components/accounting/DualMoneyReceipt";
-import type { PaymentGatewayConfig } from "@/lib/payment-gateway";
+import type { PublicPaymentGatewayConfig } from "@/lib/payment-gateway";
+import type { PublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 
 interface Props {
   child: {
@@ -41,8 +42,8 @@ interface Props {
   totalDue: number;
   unpaidInvoices: any[];
   combinedPayments: any[];
-  gatewayConfig?: PaymentGatewayConfig;
-  madrasaInfo?: any;
+  gatewayConfig?: PublicPaymentGatewayConfig;
+  madrasaInfo?: PublicMadrasaInfo;
 }
 
 export default function ParentPortalFeesClient({

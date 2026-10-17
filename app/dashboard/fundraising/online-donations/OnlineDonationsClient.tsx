@@ -35,7 +35,7 @@ import {
   deleteOnlineDonation,
   sendDonationNotificationSMS,
 } from "@/app/actions/fundraising";
-import { PaymentGatewayConfig } from "@/lib/payment-gateway";
+import type { PublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { FundItem } from "@/lib/fund-utils";
 import { printElementIsolated } from "@/lib/printUtils";
 import { numberToBanglaWords } from "@/lib/utils";
@@ -82,14 +82,12 @@ function generateWhatsAppMessage(donation: OnlineDonation, madrasaName: string, 
 export default function OnlineDonationsClient({
   initialDonations = [],
   initialSettings,
-  paymentGatewayConfig,
   madrasaInfo,
   funds = [],
 }: {
   initialDonations: OnlineDonation[];
   initialSettings?: OnlineDonationSettings;
-  paymentGatewayConfig?: PaymentGatewayConfig;
-  madrasaInfo?: any;
+  madrasaInfo?: PublicMadrasaInfo;
   funds?: FundItem[];
 }) {
   const router = useRouter();

@@ -1,6 +1,6 @@
 import { getMadrasaUsers, getLinkableProfiles } from "@/app/actions/users";
 import { getMadrasaRolesAndPermissions } from "@/app/actions/permissions";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import UserManagementClient from "./UserManagementClient";
 import PermissionGuard from "@/components/permissions/PermissionGuard";
 import AccessDeniedMessage from "@/components/permissions/AccessDeniedMessage";
@@ -67,7 +67,7 @@ export default async function UsersPage() {
           initialAuditLogs={rolesRes.auditLogs || []}
           initialApprovalRequests={rolesRes.approvalRequests || []}
           initialSecurityProfiles={rolesRes.userSecurityProfiles || {}}
-          madrasaInfo={madrasaInfo}
+          madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
         />
       </div>
     </PermissionGuard>

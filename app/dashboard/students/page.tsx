@@ -1,6 +1,6 @@
 import { getStudents, getClasses } from "@/app/actions/students";
 import { getAcademicSessions, getCurrentSession } from "@/app/actions/sessions";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import StudentsListClient from "./StudentsListClient";
 
 export const metadata = {
@@ -22,7 +22,7 @@ export default async function StudentsPage() {
       classes={classes || []}
       sessions={sessions || []}
       currentSession={currentSession || null}
-      madrasaInfo={madrasaInfo}
+      madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
     />
   );
 }

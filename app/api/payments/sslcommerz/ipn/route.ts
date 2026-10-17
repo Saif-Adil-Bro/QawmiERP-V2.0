@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getFullPaymentGatewayConfig } from "@/lib/payment-gateway-config";
 import {
-  getPaymentGatewayConfig,
   verifyAndCompleteOnlinePayment,
   getSafeMadrasaId,
 } from "@/app/actions/payment-gateway";
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing parameters" }, { status: 400 });
     }
 
-    const config = await getPaymentGatewayConfig();
+    const config = await getFullPaymentGatewayConfig();
     const validation = await validateSSLCommerzTransaction(val_id, config);
 
     if (!validation.is_valid) {

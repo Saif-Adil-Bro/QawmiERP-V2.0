@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getFullPaymentGatewayConfig } from "@/lib/payment-gateway-config";
 import {
-  getPaymentGatewayConfig,
   verifyAndCompleteOnlinePayment,
   getSafeMadrasaId,
 } from "@/app/actions/payment-gateway";
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.redirect(`${baseUrl}/portal/fees?error=missing_transaction_parameters`, 303);
     }
 
-    const config = await getPaymentGatewayConfig();
+    const config = await getFullPaymentGatewayConfig();
 
     // 1. Validate transaction directly with SSLCommerz Server
     const validation = await validateSSLCommerzTransaction(val_id, config);

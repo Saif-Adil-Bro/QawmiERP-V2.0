@@ -1,3 +1,4 @@
+import { toPublicMadrasaInfoFromRecord } from "@/lib/getMadrasaInfo";
 import React from "react";
 import { getUnifiedIncomeHistory } from "@/app/actions/accounting";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
@@ -16,7 +17,7 @@ export default async function IncomeHistoryPage() {
     <PermissionGuard permission="finance.view">
       <IncomeHistoryClient
         initialData={incomeData}
-        madrasaInfo={madrasaRes?.madrasa}
+        madrasaInfo={toPublicMadrasaInfoFromRecord(madrasaRes?.madrasa)}
         logoUrl={madrasaRes?.logoUrl || ""}
       />
     </PermissionGuard>

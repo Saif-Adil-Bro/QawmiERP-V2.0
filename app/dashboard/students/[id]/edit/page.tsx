@@ -1,5 +1,5 @@
 import { getStudentById, getClasses, getStudents } from "@/app/actions/students";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import EditStudentForm from "./EditStudentForm";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -52,7 +52,7 @@ export default async function EditStudentPage({
         student={student}
         classes={classes}
         allStudents={allStudents}
-        madrasaInfo={madrasaInfo}
+        madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
       />
     </div>
   );

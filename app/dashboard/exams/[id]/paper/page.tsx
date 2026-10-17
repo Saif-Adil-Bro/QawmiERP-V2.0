@@ -5,6 +5,7 @@ import { getClasses } from "@/app/actions/students";
 import { getSubjects } from "@/app/actions/subjects";
 import { getQuestions } from "@/app/actions/questions";
 import { getMadrasaDetails as getMadrasaInfo } from "@/app/actions/tenant";
+import { toPublicMadrasaInfoFromRecord } from "@/lib/getMadrasaInfo";
 import { notFound } from "next/navigation";
 import PaperGeneratorClient from "./PaperGeneratorClient";
 import ExamNavTabs from "../ExamNavTabs";
@@ -54,7 +55,7 @@ export default async function ExamPaperPage({
         subjects={subjects} 
         questions={questions}
         exam={exam}
-        madrasa={madrasa}
+        madrasa={toPublicMadrasaInfoFromRecord(madrasa)}
       />
     </div>
   );

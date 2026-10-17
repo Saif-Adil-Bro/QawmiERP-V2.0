@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { getLeatherCollections, getCollectionBoxes, syncFundraisingCollectionsToDonations } from "@/app/actions/fundraising";
 import { getFunds } from "@/app/actions/zakat";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import CollectionsClient from "./CollectionsClient";
 import { Loader2 } from "lucide-react";
 
@@ -30,7 +30,7 @@ export default async function CollectionsManagementPage() {
         initialLeathers={leatherBatches}
         initialBoxes={boxesData.boxes}
         availableFunds={funds}
-        madrasaInfo={madrasaInfo}
+        madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
       />
     </Suspense>
   );

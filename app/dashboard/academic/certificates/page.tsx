@@ -1,6 +1,6 @@
 import { Award } from "lucide-react";
 import CertificateClient from "./CertificateClient";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getExams } from "@/app/actions/exams";
 import { getClasses, getStudents } from "@/app/actions/students";
 import { getCertificatesData } from "@/app/actions/certificates";
@@ -49,7 +49,7 @@ export default async function CertificatesPage(props: {
         <CertificateClient 
           selectedStudent={selectedStudent} 
           certificateType={certificateType} 
-          madrasaInfo={madrasaInfo} 
+          madrasaInfo={toPublicMadrasaInfo(madrasaInfo)} 
           students={students || []}
           classes={classes || []}
           exams={exams || []}

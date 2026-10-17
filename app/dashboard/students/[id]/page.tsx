@@ -1,6 +1,6 @@
 import { getStudentById, getStudents } from "@/app/actions/students";
 import { getStudentAcademicHistory } from "@/app/actions/sessions";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import StudentProfileClient from "./StudentProfileClient";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -41,7 +41,7 @@ export default async function StudentDetailPage({
       currentEnrollment={historyData.currentEnrollment}
       academicHistory={historyData.history}
       allStudents={allStudents}
-      madrasaInfo={madrasaInfo}
+      madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
     />
   );
 }

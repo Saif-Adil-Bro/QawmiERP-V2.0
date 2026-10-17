@@ -41,8 +41,8 @@ import {
   DEFAULT_ONLINE_DONATION_SETTINGS,
   OnlineDonation,
 } from "@/lib/fundraising-types";
-import { PaymentGatewayConfig } from "@/lib/payment-gateway";
 import { FundItem, DEFAULT_FUNDS } from "@/lib/fund-utils";
+import type { PublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import {
   PaymentBrandSymbol,
   BkashBadge,
@@ -65,12 +65,10 @@ function toBanglaNumber(val: number | string | undefined | null): string {
 
 export default function PublicDonateClient({
   madrasaInfo,
-  paymentGatewayConfig,
   donationSettings,
   funds = [],
 }: {
-  madrasaInfo?: any;
-  paymentGatewayConfig?: PaymentGatewayConfig;
+  madrasaInfo?: PublicMadrasaInfo;
   donationSettings?: OnlineDonationSettings;
   funds?: FundItem[];
 }) {
