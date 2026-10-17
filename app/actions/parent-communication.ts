@@ -36,13 +36,10 @@ export async function getParentFeedbacks(filter?: {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+    const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
-
+    // ⛔ আগে মাদ্রাসা না পেলে "প্রথম মাদ্রাসা"-তে fallback হতো — ফলে ভিন্ন/অনিবন্ধিত
+    // ব্যবহারকারী অন্য মাদ্রাসার অভিভাবক-অভিযোগ পড়তে পারত। এখন fail-closed।
     if (!madrasaId) return [];
 
     let query = adminClient
@@ -138,13 +135,9 @@ export async function createParentFeedback(data: {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+    const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
-
+    // ⛔ প্রথম-মাদ্রাসা fallback বাদ — অন্যথায় ভিন্ন মাদ্রাসার নোটিশে আবেদন জমা পড়ত
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
     if (!data.subject?.trim() || !data.description?.trim()) {
@@ -184,6 +177,9 @@ export async function createParentFeedback(data: {
       status: "PENDING",
       status_bangla: "অপেক্ষমান",
       created_at: new Date().toISOString(),
+      // ⛔ মালিকানা যাচাইয়ের জন্য স্রষ্টার id — পোর্টাল ব্যবহারকারী কেবল নিজের
+      // আবেদন মুছতে পারবেন (deleteParentFeedback-এ ব্যবহৃত)
+      created_by_user_id: user?.id || "",
     };
 
     const recordId = `fb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -231,10 +227,18 @@ export async function updateParentFeedbackStatus(data: {
 
   try {
     const adminClient = await createAdminClient();
+
+    // ⛔ টেন্যান্ট স্কোপ: আগে শুধু id দিয়ে রেকর্ড পড়া/আপডেট হতো — অন্য মাদ্রাসার
+    // ফিডব্যাক আইডি জানা থাকলে তার স্ট্যাটাস বদলানো সম্ভব ছিল।
+    const __authzScope = await writeGuard("communication");
+    if (!__authzScope.allowed) return __authzScope.fallback;
+    const scopeMadrasaId = __authzScope.madrasaId;
+
     const { data: record, error: fetchErr } = await adminClient
       .from("fee_audit_logs")
       .select("*")
       .eq("id", data.id)
+      .eq("madrasa_id", scopeMadrasaId)
       .single();
 
     if (fetchErr || !record) {
@@ -265,7 +269,8 @@ export async function updateParentFeedbackStatus(data: {
       .update({
         details: JSON.stringify(updatedDetails),
       })
-      .eq("id", data.id);
+      .eq("id", data.id)
+      .eq("madrasa_id", scopeMadrasaId);
 
     if (updateErr) {
       return { error: "আপডেট ব্যর্থ হয়েছে: " + updateErr.message };
@@ -290,19 +295,91 @@ export async function updateParentFeedbackStatus(data: {
   }
 }
 
+/**
+ * অভিভাবক-ফিডব্যাক মুছে ফেলা।
+ *
+ * ⛔ আগের সমস্যা (IDOR): কোনো auth বা টেন্যান্ট চেক ছিল না — `id` জানলেই যে কেউ
+ * admin client দিয়ে **যেকোনো মাদ্রাসার** রেকর্ড মুছে ফেলতে পারত (পোর্টাল থেকেও
+ * action-টি কলযোগ্য ছিল)।
+ *
+ * এখন:
+ *   ১. লগইন + মাদ্রাসা বাধ্যতামূলক (fallback নেই)
+ *   ২. রেকর্ডটি সেই মাদ্রাসার কিনা যাচাই
+ *   ৩. স্টাফ হলে `communication` পারমিশন; পোর্টাল রোল হলে **নিজের** আবেদনই কেবল
+ *      (created_by_user_id / guardian_phone)
+ */
 export async function deleteParentFeedback(id: string) {
   try {
     const adminClient = await createAdminClient();
-    const { error } = await adminClient.from("fee_audit_logs").delete().eq("id", id);
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসা সনাক্ত করা যায়নি।" };
+
+    const { data: record, error: fetchErr } = await adminClient
+      .from("fee_audit_logs")
+      .select("id, madrasa_id, details, action")
+      .eq("id", id)
+      .eq("madrasa_id", madrasaId)
+      .maybeSingle();
+
+    if (fetchErr || !record) {
+      return { error: "রেকর্ড পাওয়া যায়নি।" };
+    }
+
+    // স্টাফ-পারমিশন থাকলে সরাসরি অনুমোদন
+    const staffAuth = await writeGuard("communication");
+    let allowed = staffAuth.allowed;
+
+    if (!allowed) {
+      // পোর্টাল ব্যবহারকারী — কেবল নিজের আবেদন
+      let details: any = {};
+      try {
+        details = JSON.parse((record as any).details || "{}");
+      } catch {
+        details = {};
+      }
+
+      const normPhone = (value: any) =>
+        String(value || "").replace(/[^0-9]/g, "").slice(-10);
+
+      const { data: userRow } = await adminClient
+        .from("users")
+        .select("phone, full_name")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      const myPhone = normPhone((userRow as any)?.phone || user.user_metadata?.phone);
+      const guardianPhone = normPhone(details.guardian_phone);
+
+      allowed =
+        details.created_by_user_id === user.id ||
+        (myPhone.length >= 6 && guardianPhone.length >= 6 && myPhone === guardianPhone);
+    }
+
+    if (!allowed) {
+      return { error: "এই আবেদনটি মুছে ফেলার অনুমতি নেই।" };
+    }
+
+    const { error } = await adminClient
+      .from("fee_audit_logs")
+      .delete()
+      .eq("id", id)
+      .eq("madrasa_id", madrasaId);
+
     if (error) return { error: error.message };
 
     revalidatePath("/dashboard/communication/feedback");
     revalidatePath("/portal/feedback");
     return { success: true };
   } catch (e: any) {
-    return { error: e.message || "মুছে ফেলা ব্যর্থ হয়েছে" };
+    return { error: e.message || "মুছে ফেলা ব্যর্থ হয়েছে" };
   }
 }
+
 
 // -------------------------------------------------------------
 // 2. ABSENCE & FAJR TALIM ALERTS (AUTOMATED & 1-CLICK)

@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
+// ⛔ এই রুটটি admin client দিয়ে storage bucket তৈরি/আপলোড করে — আগে কোনো auth ছিল না।
+// এখন অন্তত লগইন বাধ্যতামূলক (কোনো মডিউল-নির্দিষ্ট নয়, কারণ students/staff/settings
+// সব জায়গা থেকে ব্যবহৃত হয়) এবং ফাইল সাইজ/MIME সীমাবদ্ধ।
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) {
+      return NextResponse.json({ error: "অননুমোদিত অ্যাক্সেস।" }, { status: 401 });
+    }
+
     let cleanBase64 = "";
     let originalFilename = "student_image.jpg";
     let fileBlob: Blob | null = null;
@@ -27,6 +39,18 @@ export async function POST(req: NextRequest) {
         if (providerField) preferredProvider = providerField;
 
         if (file && typeof file !== "string") {
+          if (file.size > MAX_UPLOAD_BYTES) {
+            return NextResponse.json(
+              { error: "ছবির সাইজ ৮ MB-এর বেশি হতে পারবে না।" },
+              { status: 413 }
+            );
+          }
+          if (file.type && !ALLOWED_IMAGE_TYPES.includes(file.type)) {
+            return NextResponse.json(
+              { error: "শুধু JPG/PNG/WEBP/GIF ছবি আপলোড করা যাবে।" },
+              { status: 415 }
+            );
+          }
           const arrayBuf = await file.arrayBuffer();
           fileBuffer = Buffer.from(arrayBuf);
           cleanBase64 = fileBuffer.toString("base64");
