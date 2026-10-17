@@ -707,7 +707,7 @@ export default function StudentProfileClient({
               💡 হিসাব বিভাগ থেকে মাসিক ফি আদায়ের সময় স্বয়ংক্রিয়ভাবে এই ফি চার্ট প্রযোজ্য হবে।
             </span>
             <Link
-              href="/dashboard/accounts/fees"
+              href="/dashboard/accounting/fees"
               className="px-3.5 py-1.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition"
             >
               হিসাব বিভাগে যান →

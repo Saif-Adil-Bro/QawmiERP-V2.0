@@ -966,7 +966,21 @@ export async function executeDataRestore({
     // ফাইলে যা ছিল সবই রিস্টোর হয়ে যেত। ফলে "শুধু শিক্ষার্থী" রিস্টোর করতে চাইলেও
     // ফি/খরচ/যাকাত সব ঢুকে পড়ত (replace মোডে অন্য মডিউলের ডেটাও মুছে যেত)।
     // এখন ব্যাকআপের মতো একই ম্যাপ দিয়ে রিস্টোরও সীমাবদ্ধ করা হয়।
-    const selection = resolveBackupSelection(selectedModules);
+    //
+    // ⛔ দ্বিতীয় স্তর: স্কোপ কেবল ক্লায়েন্টের পাঠানো `selectedModules`-এর উপর
+    // নির্ভর করে না। ফাইলের manifest যদি নিজেকে সিলেক্টিভ বলে (`is_selective: true`),
+    // তাহলে manifest-এর তালিকাই চূড়ান্ত — কেউ ভুলে/ইচ্ছে করে বেশি মডিউল পাঠালেও
+    // আংশিক ফাইল "সম্পূর্ণ" হিসেবে রিস্টোর হতে পারবে না, এবং Replace-এর CASCADE
+    // গার্ডও বাইপাস হবে না।
+    const declaredManifest = (backupPayload as any)?.manifest;
+    const manifestScope =
+      declaredManifest?.is_selective === true &&
+      Array.isArray(declaredManifest?.modules) &&
+      declaredManifest.modules.length > 0
+        ? (declaredManifest.modules as BackupModuleKey[])
+        : null;
+    const effectiveModules = manifestScope ?? selectedModules;
+    const selection = resolveBackupSelection(effectiveModules);
 
     // ⛔ সিলেক্টিভ রিস্টোরের নিরাপত্তা: Clean Replace মোডে ডিলিট করা টেবিলের FK CASCADE
     // একই সারিতে থাকা *অন্য* মডিউলের ডেটাও মুছে ফেলতে পারে (যেমন students.delete →
@@ -995,7 +1009,7 @@ export async function executeDataRestore({
           timestamp: new Date().toISOString(),
           actor_name: user?.user_metadata?.full_name || "সিস্টেম রিস্টোরার",
           actor_email: user?.email || "system@qawmi.edu",
-          modules: (selectedModules as string[]) || ["ALL"],
+          modules: (effectiveModules as string[]) || ["ALL"],
           total_records: 0,
           status: "SUCCESS",
           note: `রিস্টোর শুরুর পূর্বে স্বয়ংক্রিয় ইউনিভার্সাল সেফটি স্ন্যাপশট সংরক্ষিত হয়েছে (${restoreMode === "merge" ? "Merge" : "Replace"} মোড)`,
