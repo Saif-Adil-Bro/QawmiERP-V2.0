@@ -1,8 +1,6 @@
 import React from "react";
-import {
-  getPaymentGatewayConfig,
-  getOnlinePaymentHistory,
-} from "@/app/actions/payment-gateway";
+import { getOnlinePaymentHistory } from "@/app/actions/payment-gateway";
+import { getFullPaymentGatewayConfig } from "@/lib/payment-gateway-config";
 import GatewaySettingsClient from "./GatewaySettingsClient";
 import PermissionGuard from "@/components/permissions/PermissionGuard";
 import { createClient } from "@/lib/supabase/server";
@@ -10,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 export default async function GatewaySettingsPage() {
-  const config = await getPaymentGatewayConfig();
+  const config = await getFullPaymentGatewayConfig();
   const transactions = await getOnlinePaymentHistory(50);
 
   // Get a sample student for the "Test Gateway" button

@@ -1,3 +1,4 @@
+import { toPublicMadrasaInfoFromRecord } from "@/lib/getMadrasaInfo";
 import Link from "next/link";
 import { ArrowLeft, BookOpen, FileSignature, History } from "lucide-react";
 import { getArchivedExamPapers } from "@/app/actions/questions";
@@ -57,7 +58,7 @@ export default async function ExamArchivesPage() {
         exams={exams}
         classes={classes}
         subjects={subjects}
-        madrasa={madrasa}
+        madrasa={toPublicMadrasaInfoFromRecord(madrasa)}
       />
     </div>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { deleteHifzLog, updateHifzLog } from "@/app/actions/hifz";
 import { parseHifzLogNotes } from "@/lib/hifz-utils";
 import { useState } from "react";
@@ -105,7 +106,7 @@ export function HifzLogActions({ log, studentId }: { log: any; studentId: string
                   <input
                     type="date"
                     name="log_date"
-                    defaultValue={log.log_date?.split("T")[0] || ""}
+                    defaultValue={toDhakaDateStringFrom(log.log_date) || ""}
                     required
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 font-medium"
                   />

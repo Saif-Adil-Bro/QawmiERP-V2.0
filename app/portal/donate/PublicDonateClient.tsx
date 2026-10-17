@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
@@ -41,8 +42,8 @@ import {
   DEFAULT_ONLINE_DONATION_SETTINGS,
   OnlineDonation,
 } from "@/lib/fundraising-types";
-import { PaymentGatewayConfig } from "@/lib/payment-gateway";
 import { FundItem, DEFAULT_FUNDS } from "@/lib/fund-utils";
+import type { PublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import {
   PaymentBrandSymbol,
   BkashBadge,
@@ -65,12 +66,10 @@ function toBanglaNumber(val: number | string | undefined | null): string {
 
 export default function PublicDonateClient({
   madrasaInfo,
-  paymentGatewayConfig,
   donationSettings,
   funds = [],
 }: {
-  madrasaInfo?: any;
-  paymentGatewayConfig?: PaymentGatewayConfig;
+  madrasaInfo?: PublicMadrasaInfo;
   donationSettings?: OnlineDonationSettings;
   funds?: FundItem[];
 }) {
@@ -405,7 +404,7 @@ export default function PublicDonateClient({
                   </span>
                   <span className="text-slate-300">•</span>
                   <span className="text-slate-600 text-[11px]">
-                    তারিখ: {toBanglaNumber(submittedReceipt.donation_date || new Date().toISOString().split("T")[0])}
+                    তারিখ: {toBanglaNumber(submittedReceipt.donation_date || toDhakaDateString())}
                   </span>
                 </div>
               </div>

@@ -204,7 +204,9 @@ export const MODULE_POLICIES: Record<ModuleKey, ModulePolicy> = {
   },
   kitab: {
     permissions: ["kitab.create", "kitab.edit", "kitab.delete"],
-    roles: ["super_admin", "admin", "muhtamim", "naib_muhtamim", "librarian", "office_staff"],
+    // শিক্ষক/ওস্তাদরা শিক্ষার্থীর কিতাব পাঠের দরস-ডায়েরি এন্ট্রি করেন (হিফজের মতোই) —
+    // তাই ACADEMIC_ROLES এখানে যুক্ত। পোর্টাল রোল এখনো সম্পূর্ণ নিষিদ্ধ।
+    roles: [...ACADEMIC_ROLES, "librarian", "office_staff"],
     denyRoles: PORTAL_ROLES,
   },
   boarding: {

@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { deleteKitabLog, updateKitabLog, createKitabLog } from "@/app/actions/kitab";
 import { useState, useTransition } from "react";
 import { Trash2, Edit3, Plus, X, BookOpen, Calendar, CheckCircle2, AlertCircle } from "lucide-react";
@@ -165,7 +166,7 @@ export function EditKitabLogModal({
               <input
                 type="date"
                 name="log_date"
-                defaultValue={log.log_date ? new Date(log.log_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]}
+                defaultValue={log.log_date ? toDhakaDateString(new Date(log.log_date)) : toDhakaDateString()}
                 required
                 className="w-full px-3 py-2 border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
@@ -364,7 +365,7 @@ export function AddKitabLogModal({
             <input
               type="date"
               name="log_date"
-              defaultValue={new Date().toISOString().split('T')[0]}
+              defaultValue={toDhakaDateString()}
               required
               className="w-full px-3 py-2 border rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />

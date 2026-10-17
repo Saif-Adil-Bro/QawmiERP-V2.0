@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
@@ -158,26 +159,26 @@ export default function StaffProfileView({
   // Promotion Form State
   const [promoteDesignation, setPromoteDesignation] = useState(staff.employment.designation);
   const [promoteSalary, setPromoteSalary] = useState(staff.salary.basic_salary);
-  const [promoteDate, setPromoteDate] = useState(new Date().toISOString().split("T")[0]);
+  const [promoteDate, setPromoteDate] = useState(toDhakaDateString());
   const [promoteReason, setPromoteReason] = useState("");
   const [isPromoting, setIsPromoting] = useState(false);
 
   // Transfer Form State
   const [transferDeptId, setTransferDeptId] = useState(staff.employment.department_id);
-  const [transferDate, setTransferDate] = useState(new Date().toISOString().split("T")[0]);
+  const [transferDate, setTransferDate] = useState(toDhakaDateString());
   const [transferReason, setTransferReason] = useState("");
   const [isTransferring, setIsTransferring] = useState(false);
 
   // Status Change State
   const [newStatus, setNewStatus] = useState<StaffStatus>(staff.employment.status);
-  const [statusDate, setStatusDate] = useState(new Date().toISOString().split("T")[0]);
+  const [statusDate, setStatusDate] = useState(toDhakaDateString());
   const [statusReason, setStatusReason] = useState("");
   const [isChangingStatus, setIsChangingStatus] = useState(false);
 
   // Leave Form State
   const [leaveType, setLeaveType] = useState<any>("CASUAL");
-  const [leaveStart, setLeaveStart] = useState(new Date().toISOString().split("T")[0]);
-  const [leaveEnd, setLeaveEnd] = useState(new Date().toISOString().split("T")[0]);
+  const [leaveStart, setLeaveStart] = useState(toDhakaDateString());
+  const [leaveEnd, setLeaveEnd] = useState(toDhakaDateString());
   const [leaveDays, setLeaveDays] = useState(1);
   const [leaveReason, setLeaveReason] = useState("");
   const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
@@ -1402,7 +1403,7 @@ export default function StaffProfileView({
                   </div>
                   <div className="text-right text-[10px] text-slate-400">
                     <span className="block">{log.user_email || "অ্যাডমিন"}</span>
-                    <span>{log.created_at.split("T")[0]}</span>
+                    <span>{toDhakaDateStringFrom(log.created_at)}</span>
                   </div>
                 </div>
               ))

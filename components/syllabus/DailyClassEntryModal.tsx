@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import {
   X,
@@ -55,7 +56,7 @@ export default function DailyClassEntryModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [date, setDate] = useState(
-    existingRecord?.date || new Date().toISOString().split("T")[0]
+    existingRecord?.date || toDhakaDateString()
   );
   const [classId, setClassId] = useState(
     existingRecord?.class_id || initialClassId || (classes[0]?.id || "")
@@ -131,7 +132,7 @@ export default function DailyClassEntryModal({
   useEffect(() => {
     if (!isOpen) return;
 
-    setDate(existingRecord?.date || new Date().toISOString().split("T")[0]);
+    setDate(existingRecord?.date || toDhakaDateString());
     setClassId(existingRecord?.class_id || initialClassId || (classes[0]?.id || ""));
     setSubjectId(existingRecord?.subject_id || initialSubjectId || (subjects[0]?.id || ""));
     setTeacherId(existingRecord?.teacher_id || initialTeacherId || (teachers[0]?.id || ""));

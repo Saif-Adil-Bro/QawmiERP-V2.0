@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
@@ -27,7 +28,7 @@ export async function getFees(filters?: { month?: string; year?: string; student
 
   if (filters?.year) {
     filtered = filtered.filter((p) => {
-      const dt = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+      const dt = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
       const allocYear = p.allocations?.[0]?.billing_period?.split("-")?.[0];
       return dt.startsWith(filters.year!) || allocYear === filters.year;
     });
@@ -35,7 +36,7 @@ export async function getFees(filters?: { month?: string; year?: string; student
 
   if (filters?.month) {
     filtered = filtered.filter((p) => {
-      const dt = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+      const dt = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
       const allocMonth = p.allocations?.[0]?.billing_period?.split("-")?.[1];
       return dt.includes(`-${filters.month}-`) || allocMonth === filters.month;
     });
@@ -61,7 +62,7 @@ export async function getFees(filters?: { month?: string; year?: string; student
       id: p.id,
       madrasa_id: finalMadrasaId,
       receipt_no: p.receipt_no || p.id.substring(0, 8).toUpperCase(),
-      payment_date: p.payment_date || (p.created_at ? p.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+      payment_date: p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : toDhakaDateString()),
       student_id: p.student_id,
       fee_type: feeTypeName,
       fee_month: bMonth || "",
@@ -112,7 +113,7 @@ export async function getFeeWithReceiptNo(feeId: string) {
     id: payment.id,
     madrasa_id: finalMadrasaId,
     receipt_no: payment.receipt_no || payment.id.substring(0, 8).toUpperCase(),
-    payment_date: payment.payment_date || (payment.created_at ? payment.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+    payment_date: payment.payment_date || (payment.created_at ? toDhakaDateStringFrom(payment.created_at) : toDhakaDateString()),
     student_id: payment.student_id,
     fee_type: feeTypeName,
     fee_month: bMonth || "",
@@ -214,7 +215,7 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
   // HI-5: বাতিল (VOID) করা খরচ কখনো তালিকা/রিপোর্টে দেখানো বা গোনা হয় না
   const list = (data || []).filter((exp: any) => !isVoidedExpense(exp)).map((exp: any) => {
     const parsed = parseExpenseFund(exp.description);
-    const voucherNo = exp.voucher_no || parsed.voucherNo || `EXP-${new Date(exp.expense_date || exp.created_at || Date.now()).toISOString().split('T')[0].replace(/-/g, '').slice(2)}-${(exp.id || '').substring(0, 4).toUpperCase() || '001'}`;
+    const voucherNo = exp.voucher_no || parsed.voucherNo || `EXP-${toDhakaDateString(new Date(exp.expense_date || exp.created_at || Date.now())).replace(/-/g, '').slice(2)}-${(exp.id || '').substring(0, 4).toUpperCase() || '001'}`;
     return {
       ...exp,
       description: parsed.cleanDesc,
@@ -636,7 +637,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // Helper date checker
   function isWithinRange(dateStr?: string): boolean {
     if (!dateStr) return false;
-    const cleanDate = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr.trim();
+    const cleanDate = dateStr.includes("T") ? toDhakaDateStringFrom(dateStr) : dateStr.trim();
     return cleanDate >= startDate && cleanDate <= endDate;
   }
 
@@ -695,7 +696,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     const feeMeta = await getFeeMetadata(finalMadrasaId);
     meta = await getMadrasaMetadata(finalMadrasaId);
     metaPayments = (feeMeta.payments || []).filter((p: any) => {
-      const dateStr = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+      const dateStr = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
       return (
         isWithinRange(dateStr) &&
         p.status !== "REVERSED" &&
@@ -956,7 +957,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // E. Add Donor Subscriptions from Metadata (untracked)
   const donorPayments = meta.donor_subscription_payments || [];
   donorPayments.forEach((p: any) => {
-    const d = p.payment_date || p.date || (p.created_at ? p.created_at.split("T")[0] : "");
+    const d = p.payment_date || p.date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
     const pKey = p.id || p.receipt_no;
     if (isWithinRange(d) && !trackedDonationKeys.has(pKey)) {
       const fundInfo = resolveDonationFund(p.fund_name || p.fund_category, p.notes);
@@ -967,7 +968,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // F. Add Donation Box Collections from Metadata (untracked)
   const boxLogs = meta.donation_box_logs || [];
   boxLogs.forEach((l: any) => {
-    const d = l.collection_date || l.date || (l.created_at ? l.created_at.split("T")[0] : "");
+    const d = l.collection_date || l.date || (l.created_at ? toDhakaDateStringFrom(l.created_at) : "");
     const lKey = l.receipt_no || l.id;
     if (isWithinRange(d) && !trackedDonationKeys.has(lKey)) {
       const fundInfo = resolveDonationFund(l.fund_name || "দানবাক্স ফান্ড", l.notes);
@@ -979,7 +980,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   const onlineDonations = meta.online_donations || [];
   onlineDonations.forEach((d: any) => {
     if (d.status === "COMPLETED" || d.status === "VERIFIED" || d.status === "SUCCESS") {
-      const dt = d.payment_date || (d.created_at ? d.created_at.split("T")[0] : "");
+      const dt = d.payment_date || (d.created_at ? toDhakaDateStringFrom(d.created_at) : "");
       const dKey = d.receipt_no || d.transaction_id || d.id;
       if (isWithinRange(dt) && !trackedDonationKeys.has(dKey)) {
         const fundInfo = resolveDonationFund(d.fund_category || d.fund_name || d.purpose, d.notes);
@@ -991,7 +992,7 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   // H. Add Qurbani Leather Records from Metadata (untracked)
   const leatherRecords = meta.qurbani_leather_records || meta.leather_batches || [];
   leatherRecords.forEach((r: any) => {
-    const d = r.collection_date || r.sale_date || r.date || (r.created_at ? r.created_at.split("T")[0] : "");
+    const d = r.collection_date || r.sale_date || r.date || (r.created_at ? toDhakaDateStringFrom(r.created_at) : "");
     const rKey = r.receipt_no || r.id;
     if (isWithinRange(d) && !trackedDonationKeys.has(rKey)) {
       const inc = Number(r.received_amount || r.total_sale_price || r.total_sale_amount || 0);
@@ -1230,7 +1231,7 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
 
       transactions.push({
         id: d.id,
-        date: d.donation_date || (d.created_at ? d.created_at.split("T")[0] : ""),
+        date: d.donation_date || (d.created_at ? toDhakaDateStringFrom(d.created_at) : ""),
         receipt_no: d.receipt_no || `ZR-${d.id.substring(0, 6)}`,
         source_type: sType,
         source_type_label: sLabel,
@@ -1259,7 +1260,7 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
 
       transactions.push({
         id: sp.id,
-        date: sp.payment_date || sp.date || (sp.created_at ? sp.created_at.split("T")[0] : ""),
+        date: sp.payment_date || sp.date || (sp.created_at ? toDhakaDateStringFrom(sp.created_at) : ""),
         receipt_no: sp.receipt_no || `LMP-${sp.id.substring(0, 6)}`,
         source_type: "SUBSCRIPTION",
         source_type_label: "আজীবন সদস্য / মাসিক চাঁদা",
@@ -1288,7 +1289,7 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
 
         transactions.push({
           id: od.id,
-          date: od.donation_date || (od.created_at ? od.created_at.split("T")[0] : ""),
+          date: od.donation_date || (od.created_at ? toDhakaDateStringFrom(od.created_at) : ""),
           receipt_no: od.receipt_no || od.trx_id || `ONL-${od.id.substring(0, 6)}`,
           source_type: "ONLINE",
           source_type_label: "অনলাইন গেটওয়ে",
@@ -1318,7 +1319,7 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
 
       transactions.push({
         id: b.id,
-        date: b.collection_date || b.date || (b.created_at ? b.created_at.split("T")[0] : ""),
+        date: b.collection_date || b.date || (b.created_at ? toDhakaDateStringFrom(b.created_at) : ""),
         receipt_no: b.receipt_no || `BOX-${b.id.substring(0, 6)}`,
         source_type: "DONATION_BOX",
         source_type_label: "দানবাক্স কালেকশন",
@@ -1346,7 +1347,7 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
 
       transactions.push({
         id: lr.id,
-        date: lr.sale_date || lr.collection_date || lr.date || (lr.created_at ? lr.created_at.split("T")[0] : ""),
+        date: lr.sale_date || lr.collection_date || lr.date || (lr.created_at ? toDhakaDateStringFrom(lr.created_at) : ""),
         receipt_no: lr.receipt_no || `LTH-${lr.id.substring(0, 6)}`,
         source_type: "LEATHER_SALE",
         source_type_label: "চামড়া বিক্রয়",
@@ -1368,7 +1369,7 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
 
     for (const p of validFeePayments) {
       if ((p.receipt_no && existingReceiptNos.has(p.receipt_no)) || existingIds.has(p.id)) continue;
-      const paymentDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+      const paymentDate = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
       const studentName = p.student_name || "শিক্ষার্থী";
       const studentClass = p.class_name ? `শ্রেণি: ${p.class_name}` : "";
       const studentRoll = p.student_roll ? `রোল: ${p.student_roll}` : "";

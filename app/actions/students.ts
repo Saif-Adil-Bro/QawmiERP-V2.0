@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -623,7 +624,7 @@ export async function createStudent(prevState: any, formData: FormData) {
           class_id: classId,
           roll_number: rollNumber,
           status: "ACTIVE",
-          enrollment_date: new Date().toISOString().split("T")[0],
+          enrollment_date: toDhakaDateString(),
           created_at: new Date().toISOString(),
         });
         meta.enrollments = enrollments;
@@ -898,7 +899,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
             class_name: className,
             roll_number: rollNumber,
             status: enrollmentStatus,
-            enrollment_date: new Date().toISOString().split("T")[0],
+            enrollment_date: toDhakaDateString(),
             created_at: new Date().toISOString(),
           });
         }

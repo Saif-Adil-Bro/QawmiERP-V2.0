@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
@@ -344,7 +345,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
     if (madrasaId) {
       try {
         const adminClient = await createAdminClient();
-        const todayStr = new Date().toISOString().split("T")[0];
+        const todayStr = toDhakaDateString();
         const { data: overdues } = await adminClient
           .from("borrow_records")
           .select("id, book_id, student_id, due_date, status, books(title), students(first_name, last_name, roll_number)")

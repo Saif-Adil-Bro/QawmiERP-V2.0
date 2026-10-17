@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { 
@@ -97,7 +98,7 @@ export default function KitabDashboardClient({
 
   // Statistics
   const stats = useMemo(() => {
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = toDhakaDateString();
     const todayLogs = logs.filter((l) => l.log_date && l.log_date.startsWith(todayStr));
     const excellentOrGood = logs.filter((l) => l.performance_rating === "Excellent" || l.performance_rating === "Good");
     const satisfactionRate = logs.length > 0 ? Math.round((excellentOrGood.length / logs.length) * 100) : 100;

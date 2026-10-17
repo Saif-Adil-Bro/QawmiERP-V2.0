@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useActionState, useEffect, useRef } from "react";
 import { createKitabLog } from "@/app/actions/kitab";
 
@@ -15,7 +16,7 @@ export default function AddKitabLogForm({ studentId }: { studentId: string }) {
       // Set today's date back after reset
       const dateInput = formRef.current?.elements.namedItem('log_date') as HTMLInputElement;
       if (dateInput) {
-        dateInput.value = new Date().toISOString().split('T')[0];
+        dateInput.value = toDhakaDateString();
       }
     }
   }, [state]);
@@ -42,7 +43,7 @@ export default function AddKitabLogForm({ studentId }: { studentId: string }) {
           type="date"
           id="log_date"
           name="log_date"
-          defaultValue={new Date().toISOString().split('T')[0]}
+          defaultValue={toDhakaDateString()}
           required
           className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 transition"
         />

@@ -1,3 +1,4 @@
+import { toPublicMadrasaInfoFromRecord } from "@/lib/getMadrasaInfo";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getClasses } from "@/app/actions/students";
@@ -33,7 +34,7 @@ export default async function QuestionBankPage() {
         classes={classes} 
         subjects={subjects} 
         initialQuestions={questions}
-        madrasa={madrasa}
+        madrasa={toPublicMadrasaInfoFromRecord(madrasa)}
       />
     </div>
   );

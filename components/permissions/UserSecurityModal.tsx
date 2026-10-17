@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useTransition, useMemo } from "react";
 import {
   Shield,
@@ -89,7 +90,7 @@ export default function UserSecurityModal({
   const [tempExpiryDate, setTempExpiryDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 7);
-    return d.toISOString().split("T")[0];
+    return toDhakaDateString(d);
   });
   const [tempReason, setTempReason] = useState<string>("");
 

@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -1019,7 +1020,7 @@ export async function addDonor(formData: FormData) {
         preferred_fund,
         collection_day: 10,
         payment_method: "Cash",
-        join_date: new Date().toISOString().split("T")[0],
+        join_date: toDhakaDateString(),
         status: "ACTIVE",
         notes,
         created_at: new Date().toISOString(),
@@ -1236,7 +1237,7 @@ export async function getDonations(filters?: {
         donor_id: sp.donor_id,
         amount: Number(sp.amount || 0),
         donation_type: sp.fund_name || "সাধারণ ফান্ড",
-        donation_date: sp.payment_date || (sp.created_at ? sp.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+        donation_date: sp.payment_date || (sp.created_at ? toDhakaDateStringFrom(sp.created_at) : toDhakaDateString()),
         receipt_no: sp.receipt_no || `MR-${sp.id.slice(0, 5)}`,
         notes: sp.notes ? `[মাস: ${sp.month || ""}] ${sp.notes}` : `[মাস: ${sp.month || ""}] মাসিক/বাৎসরিক চাঁদা আদায়`,
         created_at: sp.created_at || new Date().toISOString(),
@@ -1263,7 +1264,7 @@ export async function getDonations(filters?: {
     );
     for (const p of feePayments) {
       if ((p.receipt_no && existingReceiptNos.has(p.receipt_no)) || existingIds.has(p.id)) continue;
-      const paymentDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : new Date().toISOString().split("T")[0]);
+      const paymentDate = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : toDhakaDateString());
       
       if (p.allocations && p.allocations.length > 0) {
         for (const alloc of p.allocations) {
@@ -1325,7 +1326,7 @@ export async function getDonations(filters?: {
     const onlineDonations = meta.online_donations || [];
     for (const od of onlineDonations) {
       if ((od.receipt_no && existingReceiptNos.has(od.receipt_no)) || existingIds.has(od.id) || (od.trx_id && existingReceiptNos.has(od.trx_id))) continue;
-      const paymentDate = od.donation_date || (od.created_at ? od.created_at.split("T")[0] : new Date().toISOString().split("T")[0]);
+      const paymentDate = od.donation_date || (od.created_at ? toDhakaDateStringFrom(od.created_at) : toDhakaDateString());
       const canonicalFund = normalizeFundName(od.fund_category || od.fund_name || od.purpose, funds);
       extraOnlineDonations.push({
         id: od.id,
@@ -1670,7 +1671,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
               fund_id: targetFundId,
               fund_name: targetCanonicalName,
               amount: amt,
-              date: p.payment_date || (p.created_at ? p.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+              date: p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : toDhakaDateString()),
               source_or_recipient: `${p.student_name || "শিক্ষার্থী"} (${p.class_name || "সাধারণ"}) [${name}]`,
               voucher_no: p.receipt_no || `MR-${p.id.substring(0, 6)}`,
               payment_method: p.payment_method || "Cash",
@@ -1699,7 +1700,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
               fund_id: targetFundId,
               fund_name: targetCanonicalName,
               amount: amt,
-              date: p.payment_date || (p.created_at ? p.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+              date: p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : toDhakaDateString()),
               source_or_recipient: `${p.student_name || "শিক্ষার্থী"} (${p.class_name || "সাধারণ"})`,
               voucher_no: p.receipt_no || `MR-${p.id.substring(0, 6)}`,
               payment_method: p.payment_method || "Cash",
@@ -1726,7 +1727,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           fund_id: targetFundId,
           fund_name: targetCanonicalName,
           amount: amt,
-          date: sp.payment_date || (sp.created_at ? sp.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+          date: sp.payment_date || (sp.created_at ? toDhakaDateStringFrom(sp.created_at) : toDhakaDateString()),
           source_or_recipient: `${sp.donor_name || "সম্মানিত দাতা"} (মাসিক/বাৎসরিক চাঁদা)`,
           voucher_no: sp.receipt_no || `SUB-${sp.id.substring(0, 6)}`,
           payment_method: sp.payment_method || "Cash",
@@ -1755,7 +1756,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
             fund_id: targetFundId,
             fund_name: targetCanonicalName,
             amount: amt,
-            date: od.donation_date || (od.created_at ? od.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+            date: od.donation_date || (od.created_at ? toDhakaDateStringFrom(od.created_at) : toDhakaDateString()),
             source_or_recipient: `${od.donor_name || "অনলাইন শুভাকাঙ্ক্ষী"}${od.phone ? ` (${od.phone})` : ""}${od.is_anonymous ? " [গোপন দান]" : ""}`,
             voucher_no: od.receipt_no || `ONL-${od.id.substring(0, 6)}`,
             payment_method: od.payment_method || "Digital",
@@ -1783,7 +1784,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
             fund_id: targetFundId,
             fund_name: targetCanonicalName,
             amount: amt,
-            date: b.collection_date || (b.created_at ? b.created_at.split("T")[0] : new Date().toISOString().split("T")[0]),
+            date: b.collection_date || (b.created_at ? toDhakaDateStringFrom(b.created_at) : toDhakaDateString()),
             source_or_recipient: `${b.box_name || "দানবাক্স"} (কালেকশন)`,
             voucher_no: b.receipt_no || `BOX-${b.id.substring(0, 6)}`,
             payment_method: "Cash",
@@ -1803,7 +1804,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
       if (isTransactionInFund(targetFund, undefined, "লিল্লাহ বোর্ডিং ফান্ড", funds)) {
         const inc = Number(lr.received_amount || lr.total_sale_price || lr.total_sale_amount || 0);
         const exp = Number(lr.transport_labour_cost || lr.transport_labor_cost || 0);
-        const date = lr.sale_date || lr.collection_date || (lr.created_at ? lr.created_at.split("T")[0] : new Date().toISOString().split("T")[0]);
+        const date = lr.sale_date || lr.collection_date || (lr.created_at ? toDhakaDateStringFrom(lr.created_at) : toDhakaDateString());
         if (inc > 0) {
           totalInflow += inc;
           transactions.push({
@@ -2160,7 +2161,7 @@ export async function addDonation(prevState: any, formData: FormData) {
     const raw_donation_type = (formData.get("donation_type") as string) || "General";
     const fundsList = await getFunds();
     const donation_type = normalizeFundName(raw_donation_type, fundsList);
-    const donation_date = (formData.get("donation_date") as string) || new Date().toISOString().split("T")[0];
+    const donation_date = (formData.get("donation_date") as string) || toDhakaDateString();
     const payment_method = (formData.get("payment_method") as string) || "Cash";
     const receipt_no_input = (formData.get("receipt_no") as string)?.trim();
     const userNotes = (formData.get("notes") as string)?.trim() || "";

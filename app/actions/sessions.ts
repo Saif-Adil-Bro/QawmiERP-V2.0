@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -943,7 +944,7 @@ export async function executeStudentPromotion(request: PromotionRequest) {
           ...enrollments[oldIndex],
           status: oldStatus,
           promotion_status: `Promoted to ${toSession.name}`,
-          leaving_date: now.split("T")[0],
+          leaving_date: toDhakaDateStringFrom(now),
           remarks: remarks || enrollments[oldIndex].remarks,
         };
       } else {
@@ -956,8 +957,8 @@ export async function executeStudentPromotion(request: PromotionRequest) {
           class_id: fromClassId,
           roll_number: targetRoll,
           status: oldStatus,
-          enrollment_date: fromSession?.start_date || now.split("T")[0],
-          leaving_date: now.split("T")[0],
+          enrollment_date: fromSession?.start_date || toDhakaDateStringFrom(now),
+          leaving_date: toDhakaDateStringFrom(now),
           promotion_status: `Promoted to ${toSession.name}`,
           remarks: remarks,
           created_at: now,
@@ -983,7 +984,7 @@ export async function executeStudentPromotion(request: PromotionRequest) {
           class_name: clsObj?.name || undefined,
           roll_number: targetRoll || undefined,
           status: "ACTIVE",
-          enrollment_date: toSession.start_date || now.split("T")[0],
+          enrollment_date: toSession.start_date || toDhakaDateStringFrom(now),
           remarks: remarks || (actionStatus === "PROMOTE" ? "উত্তীর্ণ হয়ে প্রমোশন প্রাপ্ত" : "একই জামাতে পুনরাবৃত্তি"),
           created_at: now,
         };

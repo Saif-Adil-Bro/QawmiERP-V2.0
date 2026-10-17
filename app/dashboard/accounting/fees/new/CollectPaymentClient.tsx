@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect, useRef } from "react";
 import { collectFeePayment, getStudentFeeProfile } from "@/app/actions/fee-management";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
@@ -42,7 +43,7 @@ export default function CollectPaymentClient({
   funds = [],
 }: CollectPaymentClientProps) {
   const currentYear = new Date().getFullYear();
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDhakaDateString();
 
   // Only use actual active funds defined in the system
   const allFunds = funds && funds.length > 0 ? funds : DEFAULT_FUNDS;

@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState } from "react";
 import { BookUp, BookOpen, User, Calendar, CheckCircle2, AlertCircle, Search } from "lucide-react";
 import { issueBook } from "@/app/actions/library";
@@ -52,7 +53,7 @@ export default function IssueClient({ books, students, initialIssues }: IssueCli
   const [issues, setIssues] = useState<BookIssue[]>(initialIssues);
   const [selectedBookId, setSelectedBookId] = useState("");
   const [selectedStudentId, setSelectedStudentId] = useState("");
-  const [issueDate, setIssueDate] = useState(new Date().toISOString().split("T")[0]);
+  const [issueDate, setIssueDate] = useState(toDhakaDateString());
   const [dueDate, setDueDate] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");

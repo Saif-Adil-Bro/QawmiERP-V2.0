@@ -5,6 +5,7 @@ import { getClasses } from "@/app/actions/students";
 import { getSubjects } from "@/app/actions/subjects";
 import { getExamRoutines } from "@/app/actions/exam-routines";
 import { getMadrasaDetails as getMadrasaInfo } from "@/app/actions/tenant";
+import { toPublicMadrasaInfoFromRecord } from "@/lib/getMadrasaInfo";
 import { notFound } from "next/navigation";
 import ExamRoutineClient from "./ExamRoutineClient";
 import ExamNavTabs from "../ExamNavTabs";
@@ -55,7 +56,7 @@ export default async function ExamRoutinePage({
         subjects={subjects} 
         routines={routines} 
         exam={exam}
-        madrasa={madrasa}
+        madrasa={toPublicMadrasaInfoFromRecord(madrasa)}
         examSubjects={examSubjects}
       />
     </div>

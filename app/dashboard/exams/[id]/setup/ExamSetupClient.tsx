@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { getExamSubjects, saveExamSubjects, updateExamDetails, getExamEvaluationSettings, saveExamEvaluationSettings } from "@/app/actions/exams";
 import { getClassSubjects } from "@/app/actions/class_subjects";
@@ -26,7 +27,7 @@ function getDynamicStatusInfo(startDate: string, endDate: string) {
       day: '2-digit' 
     }).format(new Date());
   } catch {
-    todayStr = new Date().toISOString().split('T')[0];
+    todayStr = toDhakaDateString();
   }
 
   const sStr = startDate.split('T')[0];

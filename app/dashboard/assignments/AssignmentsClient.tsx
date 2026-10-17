@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import {
   BookOpen,
@@ -93,7 +94,7 @@ export default function AssignmentsClient({
   }, [assignments, selectedClass, selectedType, selectedTarget, selectedTeacher, filterDate, searchQuery]);
 
   // KPI counts
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDhakaDateString();
   const todayLessonsCount = assignments.filter(
     (a) => a.type === "TODAY_LESSON" || a.assigned_date === todayStr
   ).length;

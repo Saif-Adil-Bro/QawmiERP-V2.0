@@ -1,41 +1,19 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata, deduplicateSessions } from "@/lib/sessions";
 import { revalidatePath } from "next/cache";
+import type { BackupModuleKey } from "@/lib/backup-modules";
+import {
+  resolveBackupSelection,
+  isMetadataKeySelected,
+  isTableSelected,
+} from "@/lib/backup-modules";
 
-export type BackupModuleKey = 
-  | "students"               // শিক্ষার্থী ও প্রোফাইল
-  | "admissions"             // ভর্তি ব্যবস্থাপনা
-  | "academic"               // জামাত, বিষয় ও সিলেবাস
-  | "routines"               // ক্লাস ও পরীক্ষার রুটিন
-  | "hifz_kitab"             // হিফজুল কুরআন ও কিতাব লগ
-  | "attendance"             // হাজিরা ও বায়োমেট্রিক
-  | "leaves"                 // শিক্ষার্থী ও শিক্ষক ছুটি
-  | "exams"                  // পরীক্ষা ও মেধা মূল্যায়ন
-  | "question_bank"          // প্রশ্নব্যাংক ও প্রশ্নপত্র
-  | "fees"                   // শিক্ষার্থী ফি ও বকেয়া
-  | "finance_transactions"   // ফি আদায়, রসিদ ও ক্যাশবুক
-  | "expenses"               // সাধারণ ব্যয় ও মেস বাজার
-  | "zakat_donations"        // যাকাত, অনুদান ও রসিদ
-  | "donors_funds"           // কেন্দ্রীয় দাতা রেজিস্টার ও ফান্ড
-  | "fundraising_special"    // বিশেষ তহবিল (মাহফিল, চামড়া, দান বাক্স)
-  | "payment_gateway"        // অনলাইন পেমেন্ট গেটওয়ে ও ট্রানজেকশন
-  | "id_cards"               // ডিজিটাল স্মার্ট আইডি কার্ড
-  | "certificates"           // সনদপত্র ও প্রশংসাপত্র
-  | "boarding"               // বোর্ডিং, মেস ও মিল রেজিস্টার
-  | "library"                // গ্রন্থাগার ও কিতাব ইস্যু
-  | "inventory"              // সম্পদ ও ইনভেন্টরি মজুদ
-  | "staff"                  // শিক্ষক, স্টাফ ও একাউন্টস
-  | "communication"          // অভিভাবক যোগাযোগ ও অভিযোগ
-  | "notices_sms"            // নোটিশ বোর্ড ও বাল্ক এসএমএস
-  | "alumni"                 // কওমি অ্যালামনাই নেটওয়ার্ক
-  | "settings"               // শিক্ষাবর্ষ, সেশন ও সেটিংস
-  | "audit_logs"             // অডিট ট্রেইল ও সিস্টেম লগ
-  | "all_metadata"
-  | string;
+export type { BackupModuleKey } from "@/lib/backup-modules";
 
 export interface BackupManifest {
   app_name: string;
@@ -51,6 +29,14 @@ export interface BackupManifest {
   stats: Record<string, number>;
   checksum: string;
   is_dynamic_universal_schema?: boolean;
+  /**
+   * ⛔ সিলেক্টিভ ব্যাকআপ ফিক্সের অংশ: ফাইলটি সম্পূর্ণ ব্যাকআপ না আংশিক
+   * (শুধু কিছু মডিউল) — সেটি স্পষ্টভাবে রেকর্ড করা হয়, যাতে রিস্টোর ইঞ্জিন
+   * অনুমান না করে ঠিক যা আছে তাই ফেরত দেয়।
+   */
+  is_selective?: boolean;
+  included_tables?: string[];
+  included_metadata_keys?: string[] | "ALL";
 }
 
 export interface BackupPayload {
@@ -567,6 +553,18 @@ export async function generateBackupExport(options?: {
     const stats: Record<string, number> = {};
     let totalCount = 0;
 
+    // ⛔ সিলেক্টিভ ব্যাকআপ ফিক্স — এখানেই আসল বাগটি ছিল।
+    // আগে `options.modules` শুধু manifest-এ লেখা হতো; ডেটা সব ৪৪টি টেবিল ও সম্পূর্ণ
+    // মেটাডেটা থেকে তোলা হতো। ফলে "শুধু শিক্ষার্থী" টিক দিলেও ফাইলে ফি/খরচ/যাকাত/
+    // বেতন — সব চলে যেত, আর manifest মিথ্যা দাবি করত যে কিছু নির্দিষ্ট মডিউল আছে।
+    // এখন নির্বাচনকে বাস্তব টেবিল/metadata-কী-তে রূপান্তর করে তারপরই কুয়েরি চালানো হয়।
+    const selection = resolveBackupSelection(options?.modules);
+
+    const tablesToFetch =
+      selection.tables === "ALL"
+        ? KNOWN_DB_TABLES
+        : KNOWN_DB_TABLES.filter((table) => isTableSelected(table, selection));
+
     // Dynamic Helper to query any table safely
     const fetchTableSafe = async (tableName: string) => {
       try {
@@ -581,8 +579,8 @@ export async function generateBackupExport(options?: {
       }
     };
 
-    // Auto-probe all known database tables dynamically
-    const tablePromises = KNOWN_DB_TABLES.map(async (table) => {
+    // Auto-probe only the tables that belong to the selected modules
+    const tablePromises = tablesToFetch.map(async (table) => {
       const rows = await fetchTableSafe(table);
       return { table, rows };
     });
@@ -609,12 +607,25 @@ export async function generateBackupExport(options?: {
       }
     }
 
-    // 2. Deep Harvest of ALL Metadata Keys (Zero-Loss Universal Guarantee)
-    // Decompose all collections inside metadata into top-level keys for easy access AND keep complete metadata
-    payloadData.metadata = fullMeta;
-    payloadData.madrasa = madrasaData || {};
-
+    // 2. Metadata — কেবল নির্বাচিত মডিউলের কী (সম্পূর্ণ ব্যাকআপ হলে আগের মতোই সব)
+    // আগে এখানে fullMeta হুবহু বসানো হতো, এমনকি আংশিক নির্বাচনেও।
+    const filteredMeta: Record<string, any> = {};
     for (const [key, val] of Object.entries(fullMeta)) {
+      if (val === undefined || val === null) continue;
+      if (!isMetadataKeySelected(key, selection)) continue;
+      filteredMeta[key] = val;
+    }
+
+    payloadData.metadata = filteredMeta;
+
+    // মাদ্রাসা প্রোফাইল কেবল settings মডিউলে (বা সম্পূর্ণ ব্যাকআপে) — আংশিক ব্যাকআপে
+    // ভুল করে মাদ্রাসার নাম/ঠিকানা বদলে যাওয়া ঠেকাতে।
+    if (selection.includeMadrasaProfile) {
+      payloadData.madrasa = madrasaData || {};
+    }
+
+    // Decompose selected metadata into top-level keys for easy access
+    for (const [key, val] of Object.entries(filteredMeta)) {
       if (val !== undefined && val !== null) {
         // Expose top level key if not already populated by table
         if (!payloadData[key]) {
@@ -631,31 +642,20 @@ export async function generateBackupExport(options?: {
       }
     }
 
-    // Module grouping
-    const selectedModules: BackupModuleKey[] =
-      options?.modules && options.modules.length > 0
-        ? options.modules
-        : [
-            "students",
-            "academic",
-            "attendance",
-            "exams",
-            "finance",
-            "fundraising",
-            "staff",
-            "boarding",
-            "library",
-            "communication",
-            "certificates",
-            "leaves",
-            "inventory",
-            "settings",
-            "all_metadata",
-          ];
+    // Module grouping — নির্বাচন এখন আসলেই ডেটা নির্ধারণ করেছে
+    const selectedModules: BackupModuleKey[] = selection.modules as BackupModuleKey[];
+
+    const includedTables = Object.keys(payloadData).filter(
+      (key) =>
+        key !== "metadata" &&
+        key !== "madrasa" &&
+        KNOWN_DB_TABLES.includes(key) &&
+        Array.isArray((payloadData as any)[key])
+    );
 
     const now = new Date();
     const isoDate = now.toISOString();
-    const dateFormatted = now.toISOString().split("T")[0];
+    const dateFormatted = toDhakaDateString(now);
     const safeMadrasaName = (madrasaData?.name || "madrasa").replace(/[^a-zA-Z0-9\u0980-\u09FF]/g, "_");
     const filename = `Qawmi_Backup_${safeMadrasaName}_${dateFormatted}_${Math.floor(Date.now() / 1000)}.json`;
 
@@ -676,6 +676,13 @@ export async function generateBackupExport(options?: {
       stats: stats,
       checksum: checksum,
       is_dynamic_universal_schema: true,
+      // সিলেক্টিভ ব্যাকআপ — কোন টেবিল ও metadata key সত্যিই ফাইলে আছে
+      is_selective: !selection.isFull,
+      included_tables: includedTables,
+      included_metadata_keys:
+        selection.metadataKeys === "ALL"
+          ? "ALL"
+          : Object.keys(filteredMeta).sort(),
     };
 
     const finalPayload: BackupPayload = {
@@ -701,7 +708,9 @@ export async function generateBackupExport(options?: {
       total_records: totalCount,
       status: "SUCCESS",
       file_size_kb: sizeKb,
-      note: `ইউনিভার্সাল অটোমেটিক ব্যাকআপ তৈরি হয়েছে (সর্বমোট ${totalCount} টি রেকর্ড ও ১০০% মেটাডাটা সংরক্ষিত)`,
+      note: selection.isFull
+        ? `সম্পূর্ণ ব্যাকআপ তৈরি হয়েছে (সর্বমোট ${totalCount} টি রেকর্ড এবং সব মেটাডেটা)`
+        : `নির্বাচিত ${selectedModules.length} টি মডিউলের ব্যাকআপ তৈরি হয়েছে (সর্বমোট ${totalCount} টি রেকর্ড) — শুধুমাত্র নির্বাচিত ডেটাই অন্তর্ভুক্ত`,
     };
 
     const updatedHistory = [newLog, ...(fullMeta.backup_history || [])].slice(0, 50);
@@ -716,8 +725,12 @@ export async function generateBackupExport(options?: {
       await recordActivityLog({
         action_type: "BACKUP",
         module: "BACKUP",
-        title: "ডাটাবেজ ইউনিভার্সাল ব্যাকআপ এক্সপোর্ট",
-        description: `সর্বমোট ${totalCount}টি রেকর্ড এবং সমস্ত ডায়নামিক মেটাডাটার পূর্ণাঙ্গ ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে (${sizeKb} KB)।`,
+        title: selection.isFull
+          ? "ডাটাবেজ সম্পূর্ণ ব্যাকআপ এক্সপোর্ট"
+          : "ডাটাবেজ সিলেক্টিভ ব্যাকআপ এক্সপোর্ট",
+        description: selection.isFull
+          ? `সর্বমোট ${totalCount}টি রেকর্ড এবং সমস্ত ডায়নামিক মেটাডেটার পূর্ণাঙ্গ ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে (${sizeKb} KB)।`
+          : `নির্বাচিত ${selectedModules.length} টি মডিউলের সর্বমোট ${totalCount}টি রেকর্ডের ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে (${sizeKb} KB) — বাকি কোনো মডিউলের ডেটা ফাইলে নেই।`,
         severity: "SUCCESS",
         link: "/dashboard/settings/backup",
       });
@@ -950,6 +963,44 @@ export async function executeDataRestore({
     const dataObj = backupPayload.data;
     const currentMeta = await getMadrasaMetadata(madrasaId);
 
+    // ⛔ সিলেক্টিভ রিস্টোর ফিক্স: আগে `selectedModules` শুধু অডিট-লগে লেখা হতো —
+    // ফাইলে যা ছিল সবই রিস্টোর হয়ে যেত। ফলে "শুধু শিক্ষার্থী" রিস্টোর করতে চাইলেও
+    // ফি/খরচ/যাকাত সব ঢুকে পড়ত (replace মোডে অন্য মডিউলের ডেটাও মুছে যেত)।
+    // এখন ব্যাকআপের মতো একই ম্যাপ দিয়ে রিস্টোরও সীমাবদ্ধ করা হয়।
+    //
+    // ⛔ দ্বিতীয় স্তর: স্কোপ কেবল ক্লায়েন্টের পাঠানো `selectedModules`-এর উপর
+    // নির্ভর করে না। ফাইলের manifest যদি নিজেকে সিলেক্টিভ বলে (`is_selective: true`),
+    // তাহলে manifest-এর তালিকাই চূড়ান্ত — কেউ ভুলে/ইচ্ছে করে বেশি মডিউল পাঠালেও
+    // আংশিক ফাইল "সম্পূর্ণ" হিসেবে রিস্টোর হতে পারবে না, এবং Replace-এর CASCADE
+    // গার্ডও বাইপাস হবে না।
+    const declaredManifest = (backupPayload as any)?.manifest;
+    const manifestScope =
+      declaredManifest?.is_selective === true &&
+      Array.isArray(declaredManifest?.modules) &&
+      declaredManifest.modules.length > 0
+        ? (declaredManifest.modules as BackupModuleKey[])
+        : null;
+    const effectiveModules = manifestScope ?? selectedModules;
+    const selection = resolveBackupSelection(effectiveModules);
+
+    // ⛔ সিলেক্টিভ রিস্টোরের নিরাপত্তা: Clean Replace মোডে ডিলিট করা টেবিলের FK CASCADE
+    // একই সারিতে থাকা *অন্য* মডিউলের ডেটাও মুছে ফেলতে পারে (যেমন students.delete →
+    // fee_payments, student_fees, attendance সব CASCADE-এ মুছে যায়)। তাই আংশিক
+    // নির্বাচনে Replace মোড বন্ধ করা হয় — আংশিক রিস্টোরের জন্য Merge নিরাপদ।
+    if (restoreMode === "replace" && !selection.isFull) {
+      const cascadeRiskTables = ["students", "classes", "subjects", "exams"];
+      const touchesCascadeRisk = cascadeRiskTables.some((t) => isTableSelected(t, selection));
+      if (touchesCascadeRisk) {
+        return {
+          success: false,
+          message:
+            "আংশিক ব্যাকআপে Clean Replace মোড নিরাপদ নয় — শিক্ষার্থী/ক্লাস/বিষয়/পরীক্ষার ডেটা মুছলে তার সাথে যুক্ত ফি, হাজিরা ও অন্যান্য রেকর্ডও CASCADE-এ মুছে যেতে পারে। " +
+            "অনুগ্রহ করে Merge মোড বেছে নিন, অথবা সম্পূর্ণ ব্যাকআপ দিয়ে Replace করুন।",
+          error: "PARTIAL_REPLACE_BLOCKED",
+        };
+      }
+    }
+
     // 1. Create an Auto Pre-Restore Snapshot if enabled
     if (createAutoSnapshot) {
       try {
@@ -959,7 +1010,7 @@ export async function executeDataRestore({
           timestamp: new Date().toISOString(),
           actor_name: user?.user_metadata?.full_name || "সিস্টেম রিস্টোরার",
           actor_email: user?.email || "system@qawmi.edu",
-          modules: (selectedModules as string[]) || ["ALL"],
+          modules: (effectiveModules as string[]) || ["ALL"],
           total_records: 0,
           status: "SUCCESS",
           note: `রিস্টোর শুরুর পূর্বে স্বয়ংক্রিয় ইউনিভার্সাল সেফটি স্ন্যাপশট সংরক্ষিত হয়েছে (${restoreMode === "merge" ? "Merge" : "Replace"} মোড)`,
@@ -1029,8 +1080,9 @@ export async function executeDataRestore({
       return insertedCount;
     };
 
-    // 2. Dynamic DB Tables Restoration
+    // 2. Dynamic DB Tables Restoration — কেবল নির্বাচিত মডিউলের টেবিল
     for (const table of KNOWN_DB_TABLES) {
+      if (!isTableSelected(table, selection)) continue;
       if (dataObj[table] && Array.isArray(dataObj[table]) && dataObj[table].length > 0) {
         const count = await restoreTable(table, dataObj[table], {
           cleanBefore: restoreMode === "replace" && ["classes", "subjects", "students", "exams"].includes(table),
@@ -1057,6 +1109,8 @@ export async function executeDataRestore({
 
     // Deep merge / replace incoming metadata into currentMeta
     for (const [key, val] of Object.entries(incomingMetadata)) {
+      // নির্বাচিত মডিউলের বাইরের metadata key রিস্টোর করা হয় না
+      if (!isMetadataKeySelected(key, selection)) continue;
       if (key === "backup_history") continue; // keep local restore audit history intact
 
       // Special Deduplicated handling for academic sessions
@@ -1112,8 +1166,8 @@ export async function executeDataRestore({
       }
     }
 
-    // Madrasa basic info update if present
-    if (dataObj.madrasa && typeof dataObj.madrasa === "object") {
+    // Madrasa basic info update if present — কেবল settings মডিউল (বা সম্পূর্ণ রিস্টোর) হলে
+    if (selection.includeMadrasaProfile && dataObj.madrasa && typeof dataObj.madrasa === "object") {
       try {
         await admin
           .from("madrasas")
@@ -1136,10 +1190,12 @@ export async function executeDataRestore({
       timestamp: new Date().toISOString(),
       actor_name: user?.user_metadata?.full_name || "সুপার এডমিন",
       actor_email: user?.email || "admin@qawmi.edu",
-      modules: (selectedModules as string[]) || ["ALL_MODULES_AND_METADATA"],
+      modules: selection.modules.length > 0 ? selection.modules : ["ALL_MODULES_AND_METADATA"],
       total_records: totalRestored,
       status: "SUCCESS",
-      note: `ইউনিভার্সাল ডায়নামিক ইঞ্জিনের মাধ্যমে সর্বমোট ${totalRestored}টি রেকর্ড ও মেটাডাটা সফলভাবে রিস্টোর হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড)।`,
+      note: selection.isFull
+        ? `সম্পূর্ণ ব্যাকআপ থেকে সর্বমোট ${totalRestored}টি রেকর্ড ও মেটাডেটা সফলভাবে রিস্টোর হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড)।`
+        : `নির্বাচিত ${selection.modules.length} টি মডিউলের সর্বমোট ${totalRestored}টি রেকর্ড রিস্টোর হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড) — বাকি মডিউলের ডেটা অপরিবর্তিত আছে।`,
     };
 
     const finalHistory = [restoreAuditLog, ...(currentMeta.backup_history || [])].slice(0, 50);
@@ -1151,8 +1207,12 @@ export async function executeDataRestore({
       await recordActivityLog({
         action_type: "RESTORE",
         module: "BACKUP",
-        title: "ডাটাবেজ ইউনিভার্সাল রিস্টোর সম্পন্ন",
-        description: `সর্বমোট ${totalRestored}টি রেকর্ড ও ডায়নামিক ফিচার সফলভাবে ডাটাবেজে রিস্টোর ও সিঙ্ক করা হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড)।`,
+        title: selection.isFull
+          ? "ডাটাবেজ সম্পূর্ণ রিস্টোর সম্পন্ন"
+          : "ডাটাবেজ সিলেক্টিভ রিস্টোর সম্পন্ন",
+        description: selection.isFull
+          ? `সর্বমোট ${totalRestored}টি রেকর্ড ও ডায়নামিক ফিচার সফলভাবে ডাটাবেজে রিস্টোর ও সিঙ্ক করা হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড)।`
+          : `নির্বাচিত ${selection.modules.length} টি মডিউলের সর্বমোট ${totalRestored}টি রেকর্ড রিস্টোর হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড)।`,
         severity: "SUCCESS",
         link: "/dashboard/settings/backup",
       });
@@ -1171,7 +1231,9 @@ export async function executeDataRestore({
 
     return {
       success: true,
-      message: `আলহামদুলিল্লাহ! ইউনিভার্সাল ইঞ্জিনের মাধ্যমে সর্বমোট ${totalRestored} টি রেকর্ড ও সমস্ত কাস্টম মেটাডাটা সফলভাবে রিস্টোর করা হয়েছে।`,
+      message: selection.isFull
+        ? `আলহামদুলিল্লাহ! সর্বমোট ${totalRestored} টি রেকর্ড ও সব মেটাডেটা সফলভাবে রিস্টোর করা হয়েছে।`
+        : `আলহামদুলিল্লাহ! নির্বাচিত ${selection.modules.length} টি মডিউলের সর্বমোট ${totalRestored} টি রেকর্ড রিস্টোর করা হয়েছে — বাকি মডিউলের ডেটা অপরিবর্তিত আছে।`,
       restoredStats,
       totalRestored,
     };

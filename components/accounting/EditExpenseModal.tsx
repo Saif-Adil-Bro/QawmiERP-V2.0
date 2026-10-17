@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useTransition, useEffect } from "react";
 import { X, Landmark, Save, Loader2, Plus, Trash2, Layers, AlignLeft, List, AlertTriangle } from "lucide-react";
 import { FundItem } from "@/lib/fund-utils";
@@ -212,7 +213,7 @@ export default function EditExpenseModal({
               <input
                 type="date"
                 name="expense_date"
-                defaultValue={expense.expense_date ? new Date(expense.expense_date).toISOString().split('T')[0] : ""}
+                defaultValue={expense.expense_date ? toDhakaDateString(new Date(expense.expense_date)) : ""}
                 required
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 text-sm font-medium"
               />

@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents } from "@/app/actions/students";
@@ -47,7 +48,7 @@ export async function getIdCardsData(filters?: {
     const auditLogs: IDCardAuditLog[] = meta.id_card_audit_logs || [];
 
     // Auto check expired status on load, sync student photos/details, and normalize IDs to consistent 480001 / QM-480001
-    const todayStr = new Date().toISOString().split("T")[0];
+    const todayStr = toDhakaDateString();
     let isModified = false;
 
     // Fetch all students to sync current photo_url and profile changes
@@ -275,9 +276,9 @@ export async function issueStudentIdCard(payload: {
     const cardNumber = studentIdCode;
     const verificationId = generateVerificationToken();
 
-    const today = payload.issue_date || new Date().toISOString().split("T")[0];
+    const today = payload.issue_date || toDhakaDateString();
     // Default 1 year expiry
-    const expiry = payload.expiry_date || new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split("T")[0];
+    const expiry = payload.expiry_date || toDhakaDateString(new Date(new Date().setFullYear(new Date().getFullYear() + 1)));
 
     // Deactivate previous ACTIVE card for same student and session
     cards.forEach((c) => {
@@ -391,8 +392,8 @@ export async function bulkGenerateIdCards(payload: {
 
     const cards: StudentIDCard[] = meta.id_cards || [];
     let counter = meta.id_card_counter || cards.length + 100;
-    const today = payload.issue_date || new Date().toISOString().split("T")[0];
-    const expiry = payload.expiry_date || new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split("T")[0];
+    const today = payload.issue_date || toDhakaDateString();
+    const expiry = payload.expiry_date || toDhakaDateString(new Date(new Date().setFullYear(new Date().getFullYear() + 1)));
     const yearShort = targetSession?.academic_year?.split("-")?.[0]?.slice(-2) || new Date().getFullYear().toString().slice(-2);
 
     const madrasaPrefix = (
@@ -518,8 +519,8 @@ export async function reissueStudentIdCard(cardId: string, reason?: string) {
     const cardNumber = formatCardNumber(yearShort, counter);
     const verificationId = generateVerificationToken();
 
-    const today = new Date().toISOString().split("T")[0];
-    const expiry = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split("T")[0];
+    const today = toDhakaDateString();
+    const expiry = toDhakaDateString(new Date(new Date().setFullYear(new Date().getFullYear() + 1)));
 
     const newCard: StudentIDCard = {
       ...oldCard,
@@ -934,7 +935,7 @@ export async function verifyStudentIdCard(verificationId: string) {
     }
 
     // Expiry check
-    const today = new Date().toISOString().split("T")[0];
+    const today = toDhakaDateString();
     if (foundCard.status === "ACTIVE" && foundCard.expiry_date && foundCard.expiry_date < today) {
       foundCard.status = "EXPIRED";
     }

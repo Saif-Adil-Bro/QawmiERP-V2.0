@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import PublicDonateClient from "@/app/portal/donate/PublicDonateClient";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
-import { getPaymentGatewayConfig } from "@/app/actions/payment-gateway";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getOnlineDonationSettings } from "@/app/actions/fundraising";
 import { getFunds } from "@/app/actions/zakat";
 import { Loader2 } from "lucide-react";
@@ -14,9 +13,10 @@ export const metadata = {
 };
 
 export default async function PublicDonatePage() {
-  const [madrasaInfo, paymentGatewayConfig, donationSettings, funds] = await Promise.all([
+  // ⛔ পেমেন্ট গেটওয়ে কনফিগ আর ক্লায়েন্টে পাঠানো হয় না — এতে store_passwd /
+  // app_secret পাবলিক পেজের HTML/RSC পেলোডে চলে যেত (ক্লায়েন্টে এটি ব্যবহৃতও হতো না)।
+  const [madrasaInfo, donationSettings, funds] = await Promise.all([
     getMadrasaInfo(),
-    getPaymentGatewayConfig(),
     getOnlineDonationSettings(),
     getFunds(),
   ]);
@@ -30,8 +30,7 @@ export default async function PublicDonatePage() {
       }
     >
       <PublicDonateClient
-        madrasaInfo={madrasaInfo}
-        paymentGatewayConfig={paymentGatewayConfig}
+        madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
         donationSettings={donationSettings}
         funds={funds}
       />

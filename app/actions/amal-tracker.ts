@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents } from "@/app/actions/students";
@@ -286,8 +287,8 @@ export async function saveAmalEvaluationLog(log: Partial<AmalEvaluationLog>) {
       studentName: log.studentName || "",
       studentRoll: log.studentRoll || "",
       className: log.className || "",
-      startDate: log.startDate || new Date().toISOString().split("T")[0],
-      endDate: log.endDate || new Date().toISOString().split("T")[0],
+      startDate: log.startDate || toDhakaDateString(),
+      endDate: log.endDate || toDhakaDateString(),
       totalDays: log.totalDays || 7,
       completedDays: log.completedDays || 0,
       totalScorePercentage: log.totalScorePercentage || 0,

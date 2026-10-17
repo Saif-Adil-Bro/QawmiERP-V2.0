@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
@@ -169,7 +170,7 @@ async function syncAndGetStaffMembers(
           department_id: "dept-academic",
           department_name: "একাডেমিক ও পাঠদান বিভাগ",
           designation: t.designation || "সহকারী শিক্ষক (মুদাররিস)",
-          joining_date: t.created_at ? t.created_at.split("T")[0] : new Date().toISOString().split("T")[0],
+          joining_date: t.created_at ? toDhakaDateStringFrom(t.created_at) : toDhakaDateString(),
           employment_type: "FULL_TIME",
           status: "ACTIVE",
         },
@@ -195,14 +196,14 @@ async function syncAndGetStaffMembers(
             type: "JOINED",
             new_designation: t.designation || "সহকারী শিক্ষক",
             new_department: "একাডেমিক বিভাগ",
-            effective_date: t.created_at ? t.created_at.split("T")[0] : new Date().toISOString().split("T")[0],
+            effective_date: t.created_at ? toDhakaDateStringFrom(t.created_at) : toDhakaDateString(),
             reason: "প্রাথমিক শিক্ষক হিসেবে যোগদান",
             created_at: new Date().toISOString(),
           },
         ],
         id_card: {
           card_number: `QM-${code}`,
-          issue_date: new Date().toISOString().split("T")[0],
+          issue_date: toDhakaDateString(),
           expiry_date: `${currentYear + 2}-12-31`,
           verification_token: generateStaffVerificationToken(madrasaId, t.id),
           is_revoked: false,
@@ -317,8 +318,8 @@ export async function getStaffDashboardData() {
     const today = new Date();
     const next30Days = new Date();
     next30Days.setDate(today.getDate() + 30);
-    const todayStr = today.toISOString().split("T")[0];
-    const next30Str = next30Days.toISOString().split("T")[0];
+    const todayStr = toDhakaDateString(today);
+    const next30Str = toDhakaDateString(next30Days);
 
     let expiringDocumentsCount = 0;
     members.forEach((m) => {
@@ -600,7 +601,7 @@ export async function createStaffMember(payload: {
       auth_role: authRole,
       id_card: {
         card_number: `QM-${staffIdCode}`,
-        issue_date: payload.employment.joining_date || nowStr.split("T")[0],
+        issue_date: payload.employment.joining_date || toDhakaDateStringFrom(nowStr),
         expiry_date: `${currentYear + 2}-12-31`,
         verification_token: generateStaffVerificationToken(madrasaId, newStaffId),
         is_revoked: false,
@@ -1163,7 +1164,7 @@ export async function reviewStaffLeaveRequest(payload: {
         else if (req.leave_type === "ANNUAL") staff.leave_balance.annual_used += req.total_days;
 
         // Check if currently on leave today
-        const todayStr = new Date().toISOString().split("T")[0];
+        const todayStr = toDhakaDateString();
         if (req.start_date <= todayStr && req.end_date >= todayStr) {
           staff.employment.status = "ON_LEAVE";
         }
@@ -1295,7 +1296,7 @@ export async function processSalaryPayment(payload: {
 
     const record = records[index];
     const nowStr = new Date().toISOString();
-    const paymentDateStr = nowStr.split("T")[0];
+    const paymentDateStr = toDhakaDateStringFrom(nowStr);
 
     // Insert into madrasa `expenses` table to integrate with Accounting/Finance
     const adminClient = await createAdminClient();
@@ -1500,7 +1501,7 @@ export async function generateStaffIdCard(staffId: string) {
 
     staff.id_card = {
       card_number: `QM-${staff.staff_id_code}`,
-      issue_date: new Date().toISOString().split("T")[0],
+      issue_date: toDhakaDateString(),
       expiry_date: `${currentYear + 2}-12-31`,
       verification_token: token,
       is_revoked: false,

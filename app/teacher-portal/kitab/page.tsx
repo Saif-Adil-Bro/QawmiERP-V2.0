@@ -1,3 +1,4 @@
+import { toDhakaDateString } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import KitabEntryClient from "./KitabEntryClient";
 import { getMadrasaMetadata } from "@/lib/sessions";
@@ -77,7 +78,7 @@ export default async function TeacherPortalKitab(props: {
             students={[]}
             existingLogs={[]}
             currentClassId=""
-            currentDate={params.date || new Date().toISOString().split("T")[0]}
+            currentDate={params.date || toDhakaDateString()}
             teacherId={teacherId}
             madrasaId={madrasaId}
           />
@@ -95,7 +96,7 @@ export default async function TeacherPortalKitab(props: {
   const meta = madrasaId ? await getMadrasaMetadata(madrasaId) : null;
 
   const currentClassId = params.class_id || classes?.[0]?.id || "";
-  const currentDate = params.date || new Date().toISOString().split("T")[0];
+  const currentDate = params.date || toDhakaDateString();
 
   let students: any[] = [];
   let existingLogs: any[] = [];

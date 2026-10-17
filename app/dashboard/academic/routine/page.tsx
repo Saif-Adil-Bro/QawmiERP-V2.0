@@ -3,7 +3,7 @@ import { getAuthMadrasaId } from "@/app/actions/students";
 import { CalendarDays, Plus, ArrowRight, BookOpen, Layers } from "lucide-react";
 import Link from "next/link";
 import RoutineClient from "./RoutineClient";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 
 export const dynamic = "force-dynamic";
 
@@ -125,7 +125,7 @@ export default async function RoutinePage(props: {
         routines={routines}
         routineType={routineType}
         className={classes.find((c) => c.id === classId)?.name}
-        madrasaInfo={madrasaInfo}
+        madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
       />
     </div>
   );

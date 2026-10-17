@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -26,8 +27,8 @@ function getDefaultAssignmentsSeed(
   teachers: any[] = [],
   defaultTeacherName: string = "উস্তাদ"
 ): AssignmentItem[] {
-  const today = new Date().toISOString().split("T")[0];
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+  const today = toDhakaDateString();
+  const tomorrow = toDhakaDateString(new Date(Date.now() + 86400000));
 
   const firstClass = classes[0] || { id: "c1", name: "হিফজুল কুরআন" };
   const secondClass = classes[1] || { id: "c2", name: "মিযান জামাত" };
@@ -395,7 +396,7 @@ export async function saveAssignment(data: {
           targetSyllabusId = targetSyllabus.id;
           syllabusBookName = targetSyllabus.book_name || targetSyllabus.subject_name;
 
-          const assignedDate = data.assigned_date || new Date().toISOString().split("T")[0];
+          const assignedDate = data.assigned_date || toDhakaDateString();
 
           // Prevent Duplicate Sync: Check if updating an already synced assignment or if topic was already synced today
           const existingAssignments: AssignmentItem[] = meta.assignments || [];
@@ -506,7 +507,7 @@ export async function saveAssignment(data: {
         subject_name: data.subject_name || "",
         description: data.description,
         image_urls: data.image_urls || [],
-        assigned_date: data.assigned_date || new Date().toISOString().split("T")[0],
+        assigned_date: data.assigned_date || toDhakaDateString(),
         due_date: data.due_date || null,
         teacher_id: user.id,
         teacher_name: authorName,

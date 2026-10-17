@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState } from "react";
 import { AcademicSession } from "@/lib/sessions";
 import { FeeType, HIJRI_MONTHS, GREGORIAN_MONTHS, FeeCategory, FeeFrequency } from "@/lib/fee-management";
@@ -79,7 +80,7 @@ export default function GenerateClient({
   const [batchDeleteMsg, setBatchDeleteMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   const [dueDate, setDueDate] = useState<string>(
-    new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+    toDhakaDateString(new Date(Date.now() + 10 * 24 * 60 * 60 * 1000))
   );
 
   const [loading, setLoading] = useState(false);

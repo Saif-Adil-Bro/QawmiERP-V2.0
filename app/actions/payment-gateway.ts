@@ -1,9 +1,11 @@
 "use server";
 
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
+import { getFullPaymentGatewayConfig } from "@/lib/payment-gateway-config";
 import { revalidatePath } from "next/cache";
 import {
   PaymentGatewayConfig,
@@ -43,37 +45,12 @@ export async function getSafeMadrasaId(): Promise<string | null> {
 }
 
 /**
- * 1. Fetch current Payment Gateway Configuration for the Madrasa
+ * 1. পেমেন্ট গেটওয়ে কনফিগ সংক্রান্ত নোট
+ *
+ * ⛔ পূর্ণ কনফিগ (ক্রেডেনশিয়ালসহ) এখন `lib/payment-gateway-config.ts`-এ —
+ * `"use server"` ফাইলে export করলে সেটি লগইন ছাড়াই RPC-তে কলযোগ্য হয়ে যায়।
+ * UI/পাবলিক কোডে `toPublicPaymentGatewayConfig()` ব্যবহার করুন।
  */
-export async function getPaymentGatewayConfig(): Promise<PaymentGatewayConfig> {
-  try {
-    const madrasaId = await getSafeMadrasaId();
-    if (!madrasaId) {
-      return DEFAULT_GATEWAY_CONFIG;
-    }
-
-    const meta = await getMadrasaMetadata(madrasaId);
-    if (meta.payment_gateway_config) {
-      return {
-        ...DEFAULT_GATEWAY_CONFIG,
-        ...meta.payment_gateway_config,
-        islami_bank: {
-          ...DEFAULT_GATEWAY_CONFIG.islami_bank,
-          ...(meta.payment_gateway_config.islami_bank || {}),
-        },
-        enabled_methods: {
-          ...DEFAULT_GATEWAY_CONFIG.enabled_methods,
-          ...(meta.payment_gateway_config.enabled_methods || {}),
-        },
-      };
-    }
-
-    return DEFAULT_GATEWAY_CONFIG;
-  } catch (err) {
-    console.error("Error in getPaymentGatewayConfig:", err);
-    return DEFAULT_GATEWAY_CONFIG;
-  }
-}
 
 /**
  * 2. Save / Update Payment Gateway Configuration
@@ -414,16 +391,33 @@ export async function verifyAndCompleteOnlinePayment(params: {
     }
 
     // 0. Strict Gateway Verification
-    const config = await getPaymentGatewayConfig();
+    const config = await getFullPaymentGatewayConfig();
     const isGatewaySimulated = Boolean(params.is_simulated);
 
-    if (isGatewaySimulated) {
-      // Security check: Simulation is ONLY allowed in Test/Sandbox environment for authenticated administrators
-      const supabase = await createClient();
-      const user = await getAuthUser(supabase);
-      if (!user) {
-        return { error: "অননুমোদিত টেস্ট পেমেন্ট। সিমুলেশন শুধুমাত্র লগইন করা অ্যাডমিনদের জন্য অনুমোদিত।" };
+    // ⛔ সিকিউরিটি ফিক্স: এই ফাংশনটি `"use server"` ফাইলে export করা, অর্থাৎ ব্রাউজার
+    // থেকে সরাসরি RPC-তে কলযোগ্য। আগে:
+    //   • `is_simulated: true` দিয়ে যেকোনো **লগইন করা** ব্যবহারকারী (এমনকি অভিভাবকও)
+    //     ট্রানজেকশন SUCCESS বানাতে পারত — কোনো finance permission যাচাই ছিল না।
+    //   • SSLCOMMERZ ছাড়া অন্য প্রোভাইডারে (SHURJOPAY / BKASH_CHECKOUT / AAMARPAY /
+    //     DIRECT_ISLAMI_BANK) কোনো সার্ভার-সাইড ভ্যালিডেশনই নেই — শুধু একটি
+    //     transaction_id জানলেই পেমেন্ট "সফল" হয়ে যেত।
+    // এখন: সিমুলেশন অথবা নন-SSLCommerz (ম্যানুয়াল) ভেরিফিকেশনে `finance` পারমিশন
+    // বাধ্যতামূলক। SSLCommerz-এর আসল গেটওয়ে কলব্যাক (৩য় পক্ষ) আগের মতোই ভ্যালিডেশন
+    // করে, তাই সেখানে লগইন ছাড়াও কাজ করবে।
+    const requiresManualAuthorization =
+      isGatewaySimulated || targetTxn.provider !== "SSLCOMMERZ";
+
+    if (requiresManualAuthorization) {
+      const manualAuth = await writeGuard("finance");
+      if (!manualAuth.allowed) {
+        return {
+          error: manualAuth.error ||
+            "এই পেমেন্টটি ম্যানুয়ালি সম্পন্ন করার অনুমতি নেই। শুধুমাত্র finance অনুমতিপ্রাপ্ত অ্যাকাউন্ট পারবে।",
+        };
       }
+    }
+
+    if (isGatewaySimulated) {
       if (config.environment === "LIVE") {
         return { error: "লাইভ প্রোডাকশন সিস্টেমে টেস্ট পেমেন্ট সিমুলেশন কঠোরভাবে নিষিদ্ধ।" };
       }
@@ -502,7 +496,7 @@ export async function verifyAndCompleteOnlinePayment(params: {
       student_roll: targetTxn.student_roll,
       class_name: targetTxn.class_name,
       total_amount_received: targetTxn.amount,
-      payment_date: now.split("T")[0],
+      payment_date: toDhakaDateStringFrom(now),
       payment_method: paymentMethodCode,
       transaction_ref: params.gateway_ref || targetTxn.transaction_id,
       allocations: finalAllocations,
@@ -538,7 +532,7 @@ export async function verifyAndCompleteOnlinePayment(params: {
       student_id: targetTxn.student_id,
       fee_type: "Monthly",
       amount: targetTxn.amount,
-      payment_date: now.split("T")[0],
+      payment_date: toDhakaDateStringFrom(now),
       fee_month: new Date().toLocaleString("en-US", { month: "long" }),
       fee_year: currentYear,
       notes: `[অনলাইন পেমেন্ট: ${receiptNo} | Trx: ${targetTxn.transaction_id}]`,
@@ -573,7 +567,7 @@ export async function verifyAndCompleteOnlinePayment(params: {
       transaction_id: targetTxn.transaction_id,
       amount: targetTxn.amount,
       student_name: targetTxn.student_name,
-      payment_date: now.split("T")[0],
+      payment_date: toDhakaDateStringFrom(now),
       payment_channel: targetTxn.payment_channel,
     };
   } catch (err: any) {
@@ -637,7 +631,7 @@ export async function getStudentPublicFeeInfo(studentId: string) {
 
     // Get fee profile
     const feeProfile = await getStudentFeeProfile(student.id);
-    const config = await getPaymentGatewayConfig();
+    const config = await getFullPaymentGatewayConfig();
 
     const clsObj: any = Array.isArray(student.classes)
       ? student.classes[0]
@@ -679,6 +673,13 @@ export async function getStudentPublicFeeInfo(studentId: string) {
  * 7. Test Gateway Credentials Action
  */
 export async function testGatewayCredentialsAction(config: PaymentGatewayConfig) {
+  // ⛔ ক্লায়েন্ট-সরবরাহকৃত কনফিগ নিয়ে গেটওয়ে endpoint-এ রিকোয়েস্ট যায় — finance
+  // পারমিশন ছাড়া এটি SSRF/অপব্যবহারের মাধ্যম হতে পারত।
+  {
+    const __authz = await writeGuard("finance");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const credCheck = validateGatewayCredentials(config.active_provider, config);
     if (!credCheck.isValid) {
@@ -736,6 +737,13 @@ export async function testGatewayCredentialsAction(config: PaymentGatewayConfig)
  * 8. Admin Manual Verification of Pending Online Transaction
  */
 export async function verifyOnlineTransactionAsAdmin(transactionId: string) {
+  // ⛔ CR-2: admin-finance guard — আগে এই action-টি guard-হীন ছিল, ফলে লগইন করা
+  // যেকোনো ব্যবহারকারী pending ট্রানজেকশন "সফল" হিসেবে চিহ্নিত করতে পারত।
+  {
+    const __authz = await writeGuard("finance");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   return verifyAndCompleteOnlinePayment({
     transaction_id: transactionId,
     gateway_ref: `ADMIN-VERIFIED-${Date.now()}`,

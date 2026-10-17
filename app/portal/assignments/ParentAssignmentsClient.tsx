@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect, useMemo } from "react";
 import {
   BookOpen,
@@ -85,7 +86,7 @@ export default function ParentAssignmentsClient({
   }, [initialAssignments, currentStudent]);
 
   // Filter by tab
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDhakaDateString();
   const filteredAssignments = useMemo(() => {
     return studentAssignments.filter((a) => {
       if (activeTab === "TODAY") {

@@ -1,3 +1,4 @@
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 export type AssetCategory =
   | "BOARDING"
   | "ELECTRICAL"
@@ -87,7 +88,7 @@ export function getDefaultInventorySeed(madrasaId: string): {
   maintenance: MaintenanceRecord[];
 } {
   const now = new Date().toISOString();
-  const today = now.split("T")[0];
+  const today = toDhakaDateStringFrom(now);
 
   const items: AssetItem[] = [
     {

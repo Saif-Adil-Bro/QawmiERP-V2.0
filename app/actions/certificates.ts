@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents } from "@/app/actions/students";
@@ -243,8 +244,8 @@ export async function issueStudentCertificate(payload: {
       session_name: currentSession ? currentSession.name : "১৪৪৭-৪৮ হিজরি",
       hijri_year: currentSession ? currentSession.hijri_year : "১৪৪৭-৪৮",
       academic_year: currentSession ? currentSession.academic_year : "২০২৬-২৭",
-      admission_date: student.created_at ? new Date(student.created_at).toISOString().split("T")[0] : "—",
-      leaving_date: payload.last_attendance_date || new Date().toISOString().split("T")[0],
+      admission_date: student.created_at ? toDhakaDateString(new Date(student.created_at)) : "—",
+      leaving_date: payload.last_attendance_date || toDhakaDateString(),
       date_of_birth: student.date_of_birth || "—",
       address: student.address || "—",
       madrasa_name: madrasaInfo?.name || "মাদরাসা",
@@ -258,7 +259,7 @@ export async function issueStudentCertificate(payload: {
       payload.status || (certType.requires_approval ? "PENDING_APPROVAL" : "ISSUED");
 
     const now = new Date().toISOString();
-    const issueDateStr = payload.issue_date || new Date().toISOString().split("T")[0];
+    const issueDateStr = payload.issue_date || toDhakaDateString();
 
     const newCert: StudentCertificate = {
       id: `cert_${Date.now()}_${Math.floor(Math.random() * 1000)}`,

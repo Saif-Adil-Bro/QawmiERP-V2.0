@@ -1,3 +1,4 @@
+import { toDhakaDateString } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import HifzForm from "./HifzForm";
 import { getMadrasaMetadata } from "@/lib/sessions";
@@ -66,7 +67,7 @@ export default async function TeacherHifzPage(props: { searchParams?: Promise<{ 
 
   // Await search params
   const awaitedSearchParams = props.searchParams ? (await props.searchParams) || {} : {};
-  const dateStr = awaitedSearchParams?.date || new Date().toISOString().split('T')[0];
+  const dateStr = awaitedSearchParams?.date || toDhakaDateString();
   const classId = awaitedSearchParams?.class_id || (classes?.[0]?.id || "");
 
   let students: any[] = [];

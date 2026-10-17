@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import {
@@ -47,7 +48,7 @@ export default function IncomeHistoryClient({
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDhakaDateString();
   const currentMonthStr = todayStr.substring(0, 7);
 
   // Filtered transactions

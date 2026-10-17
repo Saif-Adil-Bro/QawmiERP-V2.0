@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { getLifeMemberDonors } from "@/app/actions/fundraising";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import DonorsClient from "./DonorsClient";
 import { Loader2 } from "lucide-react";
 
@@ -20,7 +20,7 @@ export default async function DonorsManagementPage() {
         </div>
       }
     >
-      <DonorsClient initialDonors={donors} initialPayments={payments} madrasaInfo={madrasaInfo} />
+      <DonorsClient initialDonors={donors} initialPayments={payments} madrasaInfo={toPublicMadrasaInfo(madrasaInfo)} />
     </Suspense>
   );
 }

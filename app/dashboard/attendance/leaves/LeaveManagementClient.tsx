@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useMemo } from "react";
 import {
   CalendarDays,
@@ -87,8 +88,8 @@ export default function LeaveManagementClient({
   const [newTargetId, setNewTargetId] = useState("");
   const [modalStudentSearch, setModalStudentSearch] = useState("");
   const [newLeaveType, setNewLeaveType] = useState("অসুস্থতাজনিত ছুটি");
-  const [newStartDate, setNewStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [newEndDate, setNewEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [newStartDate, setNewStartDate] = useState(toDhakaDateString());
+  const [newEndDate, setNewEndDate] = useState(toDhakaDateString());
   const [newReason, setNewReason] = useState("");
   const [newGuardianName, setNewGuardianName] = useState("");
   const [newGuardianPhone, setNewGuardianPhone] = useState("");
@@ -253,8 +254,8 @@ export default function LeaveManagementClient({
     setNewReason("");
     setNewGuardianName("");
     setNewGuardianPhone("");
-    setNewStartDate(new Date().toISOString().split("T")[0]);
-    setNewEndDate(new Date().toISOString().split("T")[0]);
+    setNewStartDate(toDhakaDateString());
+    setNewEndDate(toDhakaDateString());
   };
 
   // Quick Prompt for missing phone

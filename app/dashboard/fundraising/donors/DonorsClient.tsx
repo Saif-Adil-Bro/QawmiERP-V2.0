@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString, toDhakaMonthString } from "@/lib/date-utils";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -106,7 +107,7 @@ export default function DonorsClient({
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
 
   // Current Month for collection tracking
-  const currentMonthStr = new Date().toISOString().slice(0, 7); // "2026-09"
+  const currentMonthStr = toDhakaMonthString(); // "2026-09"
   const [selectedMonth, setSelectedMonth] = useState(currentMonthStr);
 
   // Modals
@@ -210,8 +211,8 @@ export default function DonorsClient({
       pledge_amount: 1000,
       preferred_fund: "সাধারণ ফান্ড",
       status: "ACTIVE",
-      joined_date: new Date().toISOString().split("T")[0],
-      join_date: new Date().toISOString().split("T")[0],
+      joined_date: toDhakaDateString(),
+      join_date: toDhakaDateString(),
       notes: "",
     });
     setDonorModalOpen(true);
@@ -316,7 +317,7 @@ export default function DonorsClient({
         donor_id: selectedDonorForPayment.id,
         amount: Number(paymentFormData.amount),
         month: paymentFormData.month,
-        date: new Date().toISOString().split("T")[0],
+        date: toDhakaDateString(),
         payment_method: paymentFormData.payment_method as any,
         trx_id: paymentFormData.trx_id,
         fund_category: paymentFormData.fund_category,
@@ -340,8 +341,8 @@ export default function DonorsClient({
         donor_name: selectedDonorForPayment.name,
         amount: Number(paymentFormData.amount),
         month: paymentFormData.month,
-        date: new Date().toISOString().split("T")[0],
-        payment_date: new Date().toISOString().split("T")[0],
+        date: toDhakaDateString(),
+        payment_date: toDhakaDateString(),
         payment_method: paymentFormData.payment_method as any,
         trx_id: paymentFormData.trx_id,
         fund_name: paymentFormData.fund_category,
@@ -1233,7 +1234,7 @@ export default function DonorsClient({
                       রসিদ নং: {receiptToPrint.payment.receipt_no}
                     </p>
                     <p className="text-[10px] text-slate-500">
-                      তারিখ: {toBanglaNumber(receiptToPrint.payment.payment_date || receiptToPrint.payment.date || new Date().toISOString().split("T")[0])}
+                      তারিখ: {toBanglaNumber(receiptToPrint.payment.payment_date || receiptToPrint.payment.date || toDhakaDateString())}
                     </p>
                   </div>
                 </div>
@@ -1325,7 +1326,7 @@ export default function DonorsClient({
                       রসিদ নং: {receiptToPrint.payment.receipt_no}
                     </p>
                     <p className="text-[10px] text-slate-600">
-                      তারিখ: {toBanglaNumber(receiptToPrint.payment.payment_date || receiptToPrint.payment.date || new Date().toISOString().split("T")[0])}
+                      তারিখ: {toBanglaNumber(receiptToPrint.payment.payment_date || receiptToPrint.payment.date || toDhakaDateString())}
                     </p>
                   </div>
                 </div>
@@ -1435,7 +1436,7 @@ export default function DonorsClient({
                 <h2 className="text-xl font-black text-slate-900">{madrasaInfo?.name || "মাদরাসা"}</h2>
                 {madrasaInfo?.address && <p className="text-xs text-slate-500">{madrasaInfo.address}</p>}
                 <h3 className="text-sm font-bold text-emerald-800 mt-1">আজীবন সদস্য ও মাসিক নিয়মিত দাতা খতিয়ান রেজিস্টার</h3>
-                <p className="text-[11px] text-slate-500">প্রিন্ট তারিখ: {toBanglaNumber(new Date().toISOString().split("T")[0])}</p>
+                <p className="text-[11px] text-slate-500">প্রিন্ট তারিখ: {toBanglaNumber(toDhakaDateString())}</p>
               </div>
 
               <table className="w-full text-[11px] border border-slate-300 divide-y divide-slate-200">

@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -83,8 +84,8 @@ export default function MahfilListClient({ initialMahfils }: { initialMahfils: M
       title: "",
       year: "২০২৬-২৭",
       hijri_year: "১৪৪৭-৪৮",
-      start_date: new Date().toISOString().split("T")[0],
-      end_date: new Date().toISOString().split("T")[0],
+      start_date: toDhakaDateString(),
+      end_date: toDhakaDateString(),
       venue: "মাদ্রাসা প্রাঙ্গণ",
       president: "",
       host: "",

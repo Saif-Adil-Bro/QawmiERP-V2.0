@@ -3,6 +3,7 @@
  * Supports ZKTeco (K40, IN01, MB20, uFace), Hikvision, Dahua, Realand, Anviz & Generic Cloud Push / USB logs
  */
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { toBanglaNumber } from "./numberToBangla";
 
 export type BiometricBrand = 
@@ -153,7 +154,7 @@ export function parseBiometricPunchFile(rawText: string): ParsedPunchRecord[] {
     if (!dateStr) {
       const parsedDate = new Date(dateTimeStr.replace(/-/g, "/"));
       const validDate = !isNaN(parsedDate.getTime()) ? parsedDate : new Date();
-      dateStr = validDate.toISOString().split("T")[0];
+      dateStr = toDhakaDateString(validDate);
     }
 
     const isoTimestamp = `${dateStr}T${timeStr}Z`;

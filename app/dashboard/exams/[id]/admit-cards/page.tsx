@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getExamById } from "@/app/actions/exams";
 import { getClasses } from "@/app/actions/students";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { notFound } from "next/navigation";
 import AdmitCardClient from "./AdmitCardClient";
 import ExamNavTabs from "../ExamNavTabs";
@@ -48,7 +48,7 @@ export default async function AdmitCardsPage({
           classes={classes} 
           examTitle={exam.title} 
           examYear={exam.year}
-          madrasaInfo={madrasaInfo}
+          madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
         />
       </div>
     </div>

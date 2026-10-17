@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect, useTransition } from "react";
 import {
   StudentCertificate,
@@ -118,7 +119,7 @@ export default function CertificateClient({
   const [formTemplateId, setFormTemplateId] = useState(certData.templates[0]?.id || "classic");
   const [formPurpose, setFormPurpose] = useState("উচ্চশিক্ষা / চাকরি / অফিশিয়াল প্রয়োজন");
   const [formStatement, setFormStatement] = useState("");
-  const [formIssueDate, setFormIssueDate] = useState(new Date().toISOString().split("T")[0]);
+  const [formIssueDate, setFormIssueDate] = useState(toDhakaDateString());
   const [formExpiryDate, setFormExpiryDate] = useState("");
 
   // Custom Category Fields
@@ -126,7 +127,7 @@ export default function CertificateClient({
   const [formDuesAmount, setFormDuesAmount] = useState<number>(0);
   const [formConductGrade, setFormConductGrade] = useState("উত্তম");
   const [formReasonForLeaving, setFormReasonForLeaving] = useState("পড়াশোনা সমাপ্তি");
-  const [formLastAttendance, setFormLastAttendance] = useState(new Date().toISOString().split("T")[0]);
+  const [formLastAttendance, setFormLastAttendance] = useState(toDhakaDateString());
 
   // Exam Result
   const [formExamTitle, setFormExamTitle] = useState("");
