@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
@@ -247,6 +248,13 @@ async function syncAndGetStaffMembers(
  * Fetch staff dashboard aggregated statistics and overview
  */
 export async function getStaffDashboardData() {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -360,6 +368,13 @@ export async function getStaffList(filters?: {
   designation?: string;
   search?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -449,6 +464,13 @@ export async function createStaffMember(payload: {
     role?: "teacher" | "admin" | "staff";
   };
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -626,6 +648,13 @@ export async function updateStaffMember(
   id: string,
   payload: Partial<Omit<StaffMember, "id" | "madrasa_id" | "staff_id_code">>
 ) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -736,6 +765,13 @@ export async function promoteStaffMember(payload: {
   reason: string;
   remarks?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -838,6 +874,13 @@ export async function transferStaffMember(payload: {
   reason: string;
   remarks?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -906,6 +949,13 @@ export async function changeStaffStatus(payload: {
   reason: string;
   remarks?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1004,6 +1054,13 @@ export async function submitStaffLeaveRequest(payload: {
   totalDays: number;
   reason: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1053,6 +1110,13 @@ export async function reviewStaffLeaveRequest(payload: {
   status: "APPROVED" | "REJECTED";
   reviewReason?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1132,6 +1196,13 @@ export async function reviewStaffLeaveRequest(payload: {
  * Generate Monthly Payroll Sheet for all active staff
  */
 export async function generateMonthlyPayroll(month: string, year: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1201,6 +1272,13 @@ export async function processSalaryPayment(payload: {
   transactionRef?: string;
   remarks?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1292,6 +1370,13 @@ export async function addStaffDocument(payload: {
   expiryDate?: string;
   notes?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1349,6 +1434,13 @@ export async function addStaffDocument(payload: {
  * Delete Staff Document
  */
 export async function deleteStaffDocument(staffId: string, documentId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1381,6 +1473,13 @@ export async function deleteStaffDocument(staffId: string, documentId: string) {
  * Generate or Reissue Digital Staff ID Card
  */
 export async function generateStaffIdCard(staffId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1492,6 +1591,13 @@ export async function updateStaffSettings(payload: {
   designations?: StaffDesignation[];
   idPrefix?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1520,6 +1626,13 @@ export async function updateStaffSettings(payload: {
  * Fetch all staff metadata for the current user's madrasa
  */
 export async function getStaffMetadataFull() {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const madrasaInfo = await getMadrasaInfo();
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
@@ -1567,6 +1680,13 @@ export async function getStaffMetadataFull() {
 }
 
 export async function addStaffDepartment(name: string, nameEn?: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1591,6 +1711,13 @@ export async function addStaffDepartment(name: string, nameEn?: string) {
 }
 
 export async function deleteStaffDepartment(deptId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1609,6 +1736,13 @@ export async function deleteStaffDepartment(deptId: string) {
 }
 
 export async function addStaffDesignation(name: string, departmentId?: string, nameEn?: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1644,6 +1778,13 @@ export async function addStaffDesignation(name: string, departmentId?: string, n
 }
 
 export async function deleteStaffDesignation(desId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1662,6 +1803,13 @@ export async function deleteStaffDesignation(desId: string) {
 }
 
 export async function addStaffCategory(name: string, code: any = "custom", nameEn?: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1686,6 +1834,13 @@ export async function addStaffCategory(name: string, code: any = "custom", nameE
 }
 
 export async function deleteStaffCategory(catId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1707,6 +1862,13 @@ export async function deleteStaffCategory(catId: string) {
  * Permanently delete a teacher or staff member from both metadata and SQL tables with full safety checks
  */
 export async function deleteStaffMember(staffId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("staff");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);

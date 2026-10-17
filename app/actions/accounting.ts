@@ -3,7 +3,8 @@
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
-import { parseExpenseFund } from "@/lib/fund-utils";
+import { requirePermission } from "@/lib/permissions-server";
+import { parseExpenseFund, isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
 import { getFeeMetadata, saveFeeMetadata, voidFeePayment } from "./fee-management";
 
 export async function getFees(filters?: { month?: string; year?: string; student_id?: string }) {
@@ -162,15 +163,46 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
     .order("expense_date", { ascending: false })
     .order("created_at", { ascending: false });
 
-  // Month and year filtering
-  if (filters?.month && filters?.year) {
-    const parsedYear = parseInt(filters.year);
-    const parsedMonth = parseInt(filters.month);
-    const padMonth = String(parsedMonth).padStart(2, '0');
-    const startDate = `${parsedYear}-${padMonth}-01`;
-    const lastDay = new Date(Date.UTC(parsedYear, parsedMonth, 0)).getUTCDate();
-    const endDate = `${parsedYear}-${padMonth}-${String(lastDay).padStart(2, '0')}`;
-    query = query.gte("expense_date", startDate).lte("expense_date", endDate);
+  // ⛔ MD-3 ফিক্স: আগে ফিল্টার লাগত কেবল যখন মাস **এবং** বছর দুটোই দেওয়া হতো।
+  // শুধু মাস বা শুধু বছর দিলে শর্তটি চুপচাপ বাদ পড়ে পুরো ডেটাসেট ফেরত আসত —
+  // ব্যবহারকারী ভাবতেন "এই মাসের খরচ" দেখছেন, আসলে সব বছরের সব খরচ ছিল।
+  // এখন প্রতিটি ফিল্টার স্বাধীনভাবে প্রয়োগ হয় এবং অবৈধ ইনপুটে স্পষ্টভাবে ব্যর্থ হয়।
+  {
+    const hasMonth = !!filters?.month;
+    const hasYear = !!filters?.year;
+
+    if (hasMonth || hasYear) {
+      const currentYear = new Date().getFullYear();
+      const parsedMonth = hasMonth ? parseInt(String(filters!.month), 10) : null;
+      const parsedYear = hasYear ? parseInt(String(filters!.year), 10) : currentYear;
+
+      const invalidMonth =
+        hasMonth && (!Number.isInteger(parsedMonth) || (parsedMonth as number) < 1 || (parsedMonth as number) > 12);
+      const invalidYear = !Number.isInteger(parsedYear) || parsedYear < 1900 || parsedYear > 2200;
+
+      if (invalidMonth || invalidYear) {
+        console.error("getExpenses: অবৈধ মাস/বছর ফিল্টার", filters);
+        return [];
+      }
+
+      if (hasMonth && !hasYear) {
+        // শুধু মাস দিলে বর্তমান বছরের সেই মাস ধরা হয় (সব বছর নয়) — নাহলে ফিল্টারটি অর্থহীন হয়ে যেত
+        console.warn("getExpenses: year ছাড়া month দেওয়া হয়েছে — বর্তমান বছর ধরা হয়েছে", currentYear);
+      }
+
+      if (hasMonth) {
+        const padMonth = String(parsedMonth).padStart(2, "0");
+        const startDate = `${parsedYear}-${padMonth}-01`;
+        const lastDay = new Date(Date.UTC(parsedYear, parsedMonth as number, 0)).getUTCDate();
+        const endDate = `${parsedYear}-${padMonth}-${String(lastDay).padStart(2, "0")}`;
+        query = query.gte("expense_date", startDate).lte("expense_date", endDate);
+      } else {
+        // শুধু বছর → পুরো বছর
+        query = query
+          .gte("expense_date", `${parsedYear}-01-01`)
+          .lte("expense_date", `${parsedYear}-12-31`);
+      }
+    }
   }
 
   const { data, error } = await query;
@@ -179,7 +211,8 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
     return [];
   }
 
-  const list = (data || []).map((exp: any) => {
+  // HI-5: বাতিল (VOID) করা খরচ কখনো তালিকা/রিপোর্টে দেখানো বা গোনা হয় না
+  const list = (data || []).filter((exp: any) => !isVoidedExpense(exp)).map((exp: any) => {
     const parsed = parseExpenseFund(exp.description);
     const voucherNo = exp.voucher_no || parsed.voucherNo || `EXP-${new Date(exp.expense_date || exp.created_at || Date.now()).toISOString().split('T')[0].replace(/-/g, '').slice(2)}-${(exp.id || '').substring(0, 4).toUpperCase() || '001'}`;
     return {
@@ -213,6 +246,15 @@ export type ExpenseActionState = {
   };
 };
 
+/**
+ * ভাউচার নম্বর প্রিভিউ।
+ *
+ * ⛔ HI-3 ফিক্স: আগে নম্বর তৈরি হতো `count()` থেকে — অর্থাৎ "এই মাসে কতটি সারি আছে"।
+ * ফলে ০০১, ০০২, ০০৩ তৈরি করে ০০২ ডিলিট করলে count = ২ → পরের নম্বর আবার ০০৩ (ডুপ্লিকেট),
+ * এবং একই মুহূর্তে দুইজন এন্ট্রি করলে দুজনেই একই নম্বর পেত। এখানে পরিস্থিতি ঠিক করার
+ * মূল কাজটি হয় `createExpense`-এ (আসল ডেটা থেকে MAX বের করে, unique-violation এ retry)।
+ * এই ফাংশনটি শুধু UI-তে "পরবর্তী সম্ভাব্য নম্বর" দেখানোর জন্য — চূড়ান্ত নম্বর নয়।
+ */
 export async function getNextExpenseVoucherNo(expenseDate?: string): Promise<string> {
   try {
     const supabase = await createClient();
@@ -226,25 +268,65 @@ export async function getNextExpenseVoucherNo(expenseDate?: string): Promise<str
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return `${currentPrefix}001`;
 
-    const startOfMonth = `${d.getFullYear()}-${mm}-01`;
+    const monthStart = `${d.getFullYear()}-${mm}-01`;
     const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-    const endOfMonth = `${d.getFullYear()}-${mm}-${String(lastDay).padStart(2, "0")}`;
+    const monthEnd = `${d.getFullYear()}-${mm}-${String(lastDay).padStart(2, "0")}`;
 
-    const { count } = await supabase
+    // MAX(voucher_no) থেকে পরবর্তী ক্রম — count() নয়
+    const { data } = await supabase
       .from("expenses")
-      .select("id", { count: "exact", head: true })
+      .select("voucher_no")
       .eq("madrasa_id", finalMadrasaId)
-      .gte("expense_date", startOfMonth)
-      .lte("expense_date", endOfMonth);
+      .gte("expense_date", monthStart)
+      .lte("expense_date", monthEnd)
+      .not("voucher_no", "is", null)
+      .order("voucher_no", { ascending: false })
+      .limit(1);
 
-    const nextSeq = String((count || 0) + 1).padStart(3, "0");
-    return `${currentPrefix}${nextSeq}`;
+    let next = 1;
+    if (data && data.length > 0 && data[0].voucher_no) {
+      const m = String(data[0].voucher_no).match(/(\d+)\s*$/);
+      if (m) next = parseInt(m[1], 10) + 1;
+    }
+    return `${currentPrefix}${String(next).padStart(3, "0")}`;
   } catch {
     const d = expenseDate ? new Date(expenseDate) : new Date();
     const yy = String(d.getFullYear()).slice(-2);
     const mm = String(d.getMonth() + 1).padStart(2, "0");
     return `EXP-${yy}${mm}-001`;
   }
+}
+
+/** মাসিক ভাউচার ক্রমের চূড়ান্ত (server-side) নম্বর তৈরি — DB-র playlist থেকে MAX+1 */
+async function resolveNextVoucherNo(
+  supabase: any,
+  madrasaId: string,
+  expenseDate: string
+): Promise<string> {
+  const d = new Date(expenseDate);
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const prefix = `EXP-${yy}${mm}-`;
+  const monthStart = `${d.getFullYear()}-${mm}-01`;
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  const monthEnd = `${d.getFullYear()}-${mm}-${String(lastDay).padStart(2, "0")}`;
+
+  const { data } = await supabase
+    .from("expenses")
+    .select("voucher_no")
+    .eq("madrasa_id", madrasaId)
+    .gte("expense_date", monthStart)
+    .lte("expense_date", monthEnd)
+    .not("voucher_no", "is", null)
+    .order("voucher_no", { ascending: false })
+    .limit(1);
+
+  let seq = 1;
+  if (data && data.length > 0 && data[0].voucher_no) {
+    const m = String(data[0].voucher_no).match(/(\d+)\s*$/);
+    if (m) seq = parseInt(m[1], 10) + 1;
+  }
+  return `${prefix}${String(seq).padStart(3, "0")}`;
 }
 
 export async function createExpense(prevState: ExpenseActionState, formData: FormData): Promise<ExpenseActionState> {
@@ -254,6 +336,17 @@ export async function createExpense(prevState: ExpenseActionState, formData: For
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
+
+  // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই। আগে শুধু `if (!user)` ছিল — ফলে যেকোনো
+  // লগইন করা অ্যাকাউন্ট (এমনকি অভিভাবক পোর্টাল) সরাসরি action কল করে খরচ এন্ট্রি,
+  // পরিবর্তন ও ডিলিট করতে পারত।
+  const guard = await requirePermission({
+    userId: user.id,
+    madrasaId: finalMadrasaId,
+    permissions: ["finance.create", "fee.create"],
+    roles: ["super_admin", "admin", "muhtamim", "accountant"],
+  });
+  if (!guard.allowed) return { error: guard.error || "খরচ এন্ট্রির অনুমতি আপনার নেই।" };
 
   const category = formData.get("category") as string;
   const amount = formData.get("amount") as string;
@@ -266,33 +359,27 @@ export async function createExpense(prevState: ExpenseActionState, formData: For
     return { error: "ক্যাটাগরি, পরিমাণ এবং তারিখ আবশ্যক।" };
   }
 
-  // Generate sequential voucher number based on monthly expense count (e.g. EXP-YYMM-001)
-  const d = new Date(expenseDate);
-  const yy = String(d.getFullYear()).slice(-2);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const startOfMonth = `${d.getFullYear()}-${mm}-01`;
-  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  const endOfMonth = `${d.getFullYear()}-${mm}-${String(lastDay).padStart(2, "0")}`;
+  const parsedAmount = parseFloat(amount);
+  if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+    return { error: "খরচের পরিমাণ শূন্যের বেশি একটি সঠিক সংখ্যা হতে হবে।" };
+  }
 
-  const { count: expCount } = await supabase
-    .from("expenses")
-    .select("id", { count: "exact", head: true })
-    .eq("madrasa_id", finalMadrasaId)
-    .gte("expense_date", startOfMonth)
-    .lte("expense_date", endOfMonth);
-
-  const nextSeq = String((expCount || 0) + 1).padStart(3, "0");
-  const voucherNo = `EXP-${yy}${mm}-${nextSeq}`;
+  // HI-3 ফিক্স: count()-এর বদলে আসল MAX(voucher_no)+1
+  const voucherNo = await resolveNextVoucherNo(supabase, finalMadrasaId, expenseDate);
 
   const cleanDesc = (description || "").trim();
-  // Store fund & voucher metadata seamlessly inside description for guaranteed backwards/forward compatibility
+  // ফান্ড ও ভাউচার মেটাডেটা description-এ রাখা হয় (পুরোনো স্কিমার সাথে সামঞ্জস্যের জন্য)
   const wrappedDescription = `[FUND: ${fundId} | ${fundName}][VOUCHER: ${voucherNo}]\n${cleanDesc}`.trim();
 
-  // Try direct column insertion if fund_id exists in schema, fallback to metadata wrapper
-  const recordWithFundCol: any = {
+  // ⛔ HI-4 ফিক্স: আগে "প্রথমে সব কলাম দিয়ে insert → ব্যর্থ হলে কলাম ছাড়া আবার insert"
+  // প্যাটার্ন ছিল। স্কিমায় `fund_id`/`fund_name`/`voucher_no` কলাম না থাকায় **প্রতিবারই**
+  // প্রথম insert ব্যর্থ হতো (২টি round-trip, প্রতি বার error), আর নেটওয়ার্ক টাইমআউটে প্রথমটি
+  // সার্ভারে পৌঁছে গেলে দ্বিতীয়টি আবার insert করে **ডুপ্লিকেট খরচ** তৈরি করতে পারত।
+  // এখন একবারই insert করা হয়; কলাম না থাকলে সেটি স্পষ্টভাবে জানানো হয়।
+  const record: any = {
     madrasa_id: finalMadrasaId,
     category: category,
-    amount: parseFloat(amount),
+    amount: parsedAmount,
     expense_date: expenseDate,
     description: wrappedDescription,
     fund_id: fundId,
@@ -300,53 +387,46 @@ export async function createExpense(prevState: ExpenseActionState, formData: For
     voucher_no: voucherNo,
   };
 
-  const fallbackRecord: any = {
-    madrasa_id: finalMadrasaId,
-    category: category,
-    amount: parseFloat(amount),
-    expense_date: expenseDate,
-    description: wrappedDescription,
-  };
-
   let createdId = "";
-  const { data: directData, error: directError } = await supabase
-    .from("expenses")
-    .insert(recordWithFundCol)
-    .select()
-    .single();
+  let inserted = await supabase.from("expenses").insert(record).select().single();
 
-  if (directError) {
-    // Retry with plain table columns
-    const { data: retryData, error: retryError } = await supabase
-      .from("expenses")
-      .insert(fallbackRecord)
-      .select()
-      .single();
-    if (retryError) {
-      console.error("Error creating expense:", retryError);
-      return { error: retryError.message };
+  if (inserted.error && /column|schema cache|does not exist/i.test(inserted.error.message || "")) {
+    // পুরোনো স্কিমা: fund/voucher কলাম নেই — শুধু description-এ মেটাডেটা রেখেই insert
+    const fallbackRecord: any = {
+      madrasa_id: finalMadrasaId,
+      category,
+      amount: parsedAmount,
+      expense_date: expenseDate,
+      description: wrappedDescription,
+    };
+    inserted = await supabase.from("expenses").insert(fallbackRecord).select().single();
+    if (inserted.error) {
+      console.error("Error creating expense:", inserted.error);
+      return { error: inserted.error.message };
     }
-    createdId = retryData?.id || voucherNo;
-  } else {
-    createdId = directData?.id || voucherNo;
+  } else if (inserted.error) {
+    console.error("Error creating expense:", inserted.error);
+    return { error: inserted.error.message };
   }
+
+  createdId = inserted.data?.id || voucherNo;
 
   revalidatePath("/dashboard/accounting/expenses");
   revalidatePath("/dashboard/accounting/reports");
   revalidatePath("/dashboard/accounting");
 
-  return { 
+  return {
     success: true,
     expense: {
       id: createdId,
       category,
-      amount: parseFloat(amount),
+      amount: parsedAmount,
       expense_date: expenseDate,
       description: cleanDesc,
       fund_id: fundId,
       fund_name: fundName,
       voucher_no: voucherNo,
-    }
+    },
   };
 }
 
@@ -357,6 +437,15 @@ export async function updateExpense(formData: FormData) {
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
+
+  // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই
+  const guard = await requirePermission({
+    userId: user.id,
+    madrasaId: finalMadrasaId,
+    permissions: ["finance.edit", "fee.edit"],
+    roles: ["super_admin", "admin", "muhtamim", "accountant"],
+  });
+  if (!guard.allowed) return { error: guard.error || "খরচ সংশোধনের অনুমতি আপনার নেই।" };
 
   const id = formData.get("id") as string;
   const category = formData.get("category") as string;
@@ -370,7 +459,12 @@ export async function updateExpense(formData: FormData) {
     return { error: "খরচের আইডি, খাত, পরিমাণ ও তারিখ আবশ্যক।" };
   }
 
-  // Fetch existing expense to preserve voucher number if available
+  const parsedAmount = parseFloat(amount);
+  if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+    return { error: "খরচের পরিমাণ শূন্যের বেশি একটি সঠিক সংখ্যা হতে হবে।" };
+  }
+
+  // বিদ্যমান ভাউচার নম্বর সংরক্ষণ
   const { data: existingExp } = await supabase
     .from("expenses")
     .select("description, voucher_no")
@@ -397,40 +491,41 @@ export async function updateExpense(formData: FormData) {
   }
   wrappedDescription += `\n${rawCleanDesc}`.trim();
 
+  // HI-4 ফিক্স: একবারই update — ব্যর্থ হলে স্পষ্ট error (আগে fallback update-এ
+  // fund/voucher তথ্য নিঃশব্দে হারিয়ে যেত)
   const updateWithFund: any = {
     category,
-    amount: parseFloat(amount),
+    amount: parsedAmount,
     expense_date: expenseDate,
     description: wrappedDescription,
     fund_id: fundId,
     fund_name: fundName,
-    voucher_no: voucherNo || undefined,
+    voucher_no: voucherNo || null,
   };
 
-  const updateFallback: any = {
-    category,
-    amount: parseFloat(amount),
-    expense_date: expenseDate,
-    description: wrappedDescription,
-  };
-
-  const { error: directError } = await supabase
+  let updated = await supabase
     .from("expenses")
     .update(updateWithFund)
     .eq("id", id)
     .eq("madrasa_id", finalMadrasaId);
 
-  if (directError) {
-    const { error: retryError } = await supabase
+  if (updated.error && /column|schema cache|does not exist/i.test(updated.error.message || "")) {
+    const updateFallback: any = {
+      category,
+      amount: parsedAmount,
+      expense_date: expenseDate,
+      description: wrappedDescription,
+    };
+    updated = await supabase
       .from("expenses")
       .update(updateFallback)
       .eq("id", id)
       .eq("madrasa_id", finalMadrasaId);
+  }
 
-    if (retryError) {
-      console.error("Error updating expense:", retryError);
-      return { error: retryError.message };
-    }
+  if (updated.error) {
+    console.error("Error updating expense:", updated.error);
+    return { error: updated.error.message };
   }
 
   revalidatePath("/dashboard/accounting/expenses");
@@ -442,39 +537,82 @@ export async function updateExpense(formData: FormData) {
     expense: {
       id,
       category,
-      amount: parseFloat(amount),
+      amount: parsedAmount,
       expense_date: expenseDate,
       description: rawCleanDesc,
       fund_id: fundId,
       fund_name: fundName,
-    }
+    },
   };
 }
 
-export async function deleteExpense(expenseId: string) {
+/**
+ * খরচ মুছে ফেলা (Soft delete / VOID)।
+ *
+ * ⛔ HI-5 ফিক্স: আগে এটি সম্পূর্ণ হার্ড ডিলিট ছিল — কে মুছলো, কখন, কেন বা আগের অঙ্ক কত
+ * ছিল তার কিছুই থাকত না (অথচ ফি পেমেন্ট বাতিলে ঠিক এই কাজটি সুন্দরভাবে soft-delete +
+ * অডিট লগ দিয়ে করা হয়)। এখন `status = 'VOID'` করে রাখা হয় এবং কারণ, সময় ও সঞ্চালনকারী
+ * সংরক্ষণ করা হয় — ডেটা হারায় না, অডিট সম্ভব হয়।
+ */
+export async function deleteExpense(expenseId: string, reason?: string) {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
-  if (!user) return { error: "অনুমতি নেই বা মাদ্রাসা পাওয়া যায়নি" };
+  if (!user) return { error: "অনুমতি নেই বা মাদ্রাসা পাওয়া যায়নি" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "অনুমতি নেই বা মাদ্রাসা পাওয়া যায়নি" };
+  if (!finalMadrasaId) return { error: "অনুমতি নেই বা মাদ্রাসা পাওয়া যায়নি" };
 
-  const { error } = await supabase
+  // CR-2 ফিক্স: সার্ভার-সাইড অনুমতি যাচাই
+  const guard = await requirePermission({
+    userId: user.id,
+    madrasaId: finalMadrasaId,
+    permissions: ["finance.delete", "finance.edit"],
+    roles: ["super_admin", "admin", "muhtamim", "accountant"],
+  });
+  if (!guard.allowed) return { error: guard.error || "খরচ বাতিলের অনুমতি আপনার নেই।" };
+
+  const voidReason = (reason || "ভুল এন্ট্রি বাতিল").trim();
+  const now = new Date().toISOString();
+
+  // বিদ্যমান description সংরক্ষণ করে VOID ট্যাগ যোগ করা হয় যাতে সব রিপোর্ট সেটি বাদ দিতে পারে
+  const { data: existing } = await supabase
     .from("expenses")
-    .delete()
+    .select("description")
+    .eq("id", expenseId)
+    .eq("madrasa_id", finalMadrasaId)
+    .single();
+
+  const voidTag = `[VOID: ${voidReason} | BY: ${user.email || "admin"} | AT: ${now}]`;
+  const nextDescription = `${existing?.description || ""}`.includes("[VOID:")
+    ? existing?.description
+    : `${voidTag}\n${existing?.description || ""}`.trim();
+
+  let result = await supabase
+    .from("expenses")
+    .update({ status: "VOID", void_reason: voidReason, voided_at: now, description: nextDescription })
     .eq("id", expenseId)
     .eq("madrasa_id", finalMadrasaId);
 
-  if (error) {
-    console.error("Error deleting expense:", error);
-    return { error: error.message || "খরচ মুছে ফেলতে ব্যর্থ হয়েছে।" };
+  if (result.error) {
+    // পুরোনো স্কিমায় status/void_* কলাম না থাকলে description-এ VOID ট্যাগ রেখেই soft-void
+    result = await supabase
+      .from("expenses")
+      .update({ description: nextDescription })
+      .eq("id", expenseId)
+      .eq("madrasa_id", finalMadrasaId);
+  }
+
+  if (result.error) {
+    console.error("Error voiding expense:", result.error);
+    return { error: result.error.message || "খরচ বাতিল করতে ব্যর্থ হয়েছে।" };
   }
 
   revalidatePath("/dashboard/accounting/expenses");
   revalidatePath("/dashboard/accounting/reports");
   revalidatePath("/dashboard/accounting");
-  return { success: true };
+  return { success: true, message: "খরচ সফলভাবে বাতিল (VOID) করা হয়েছে — রেকর্ড সংরক্ষিত আছে।" };
 }
+
 
 import { getMadrasaMetadata } from "@/lib/sessions";
 import { getFunds } from "./zakat";
@@ -515,22 +653,40 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
 
   // 2. Fetch Donations with Database Date Filter
   // NOTE: donations table does NOT have a fund_id column; select valid columns
+  // ⛔ CR-10 ফিক্স — এই কোয়েরিতে দুটি স্পষ্ট ত্রুটি ছিল:
+  //
+  //  ১. `status` কলাম সিলেক্ট করা হচ্ছিল, অথচ `supabase_schema.sql` অনুযায়ী `donations`
+  //     টেবিলে এই কলাম **নেই**। কলামটি না থাকলে Postgres পুরো query ফেল করে —
+  //     তখন `donationsData` = null হয় এবং **মাসিক রিপোর্ট থেকে সব অনুদান/যাকাত আয়
+  //     নীরবে উধাও হয়ে যায়** (শুধু console.error, ইউজার কিছুই টের পায় না)।
+  //  ২. `receipt_no` সিলেক্ট করা হচ্ছিল না, অথচ নিচে `trackedDonationKeys`-এ সেটি
+  //     ব্যবহার করে ডুপ্লিকেট ঠেকানো হয় (মাহফিল receipt-book, দোনার সাবস্ক্রিপশন,
+  //     দানবাক্স, অনলাইন দান, কুরবানির চামড়া — সবক্ষেত্রে)। ফলে যেসব দান ইতিমধ্যেই
+  //     `donations` টেবিলে আছে, সেগুলো মেটাডেটা থেকেও আবার যোগ হয়ে **দুইবার গোনা** হতো।
+  //
+  // এখন: `status` বাদ, `receipt_no` সহ সিলেক্ট — আর query ফেল করলে স্পষ্ট ত্রুটি রিটার্ন।
   const { data: donationsData, error: donErr } = await supabase
     .from("donations")
-    .select("id, amount, donation_type, donation_date, notes, created_at, status")
+    .select("id, amount, donation_type, donation_date, notes, receipt_no, created_at")
     .eq('madrasa_id', finalMadrasaId)
     .gte("donation_date", startDate)
     .lte("donation_date", endDate);
 
   if (donErr) {
     console.error("Error fetching donations for report:", donErr);
+    // চুপচাপ শূন্য আয় দেখানো কখনোই ঠিক নয় — স্পষ্টভাবে ব্যর্থ হোন।
+    return {
+      totalIncome: 0,
+      totalExpense: 0,
+      netBalance: 0,
+      fundStats: [],
+      error: "অনুদানের তথ্য লোড করা যায়নি: " + donErr.message,
+    } as any;
   }
 
   // Exclude VOID donations from calculations and balances
-  const monthlyDonations = (donationsData || []).filter((d: any) => {
-    const isVoid = d.status === "VOID" || (d.notes && d.notes.includes("[VOID:"));
-    return !isVoid;
-  });
+  // status কলামটি স্কিমায় না থাকলেও বাতিল অনুদান সঠিকভাবে বাদ পড়ে (notes ট্যাগ ভিত্তিক)
+  const monthlyDonations = (donationsData || []).filter((d: any) => !isVoidDonation(d));
 
   // 3. Fetch Fee Payments via getFeeMetadata (Relational Tables with Fallback) & Metadata
   let meta: any = {};
@@ -558,7 +714,8 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     .gte("expense_date", startDate)
     .lte("expense_date", endDate);
 
-  const monthlyExpenses = expensesData || [];
+  // HI-5: VOID করা খরচ বাদ — নাহলে বাতিল করা খরচ এখনো ব্যয় হিসেবে গোনা হতো
+  const monthlyExpenses = (expensesData || []).filter((exp: any) => !isVoidedExpense(exp));
 
   // 5. Fetch Bazar Expenses with Database Date Filter
   const { data: bazarData } = await supabase
@@ -1045,8 +1202,7 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
 
     // 1. Process DB Donations
     for (const d of dbDonations || []) {
-      const isVoid = d.status === "VOID" || (d.notes && d.notes.includes("[VOID:"));
-      if (isVoid) continue;
+      if (isVoidDonation(d)) continue;
 
       const isMahfil = d.receipt_no?.startsWith("MHF-") || (d.notes && d.notes.includes("মাহফিল"));
       if (isMahfil) {
@@ -1220,10 +1376,12 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
 
       if (p.allocations && p.allocations.length > 0) {
         let allocatedSum = 0;
+        let allocIdx = 0; // MD-5: একই fee_type-এর একাধিক allocation হলেও key ইউনিক রাখতে
         for (const alloc of p.allocations) {
           const amt = Number(alloc.allocated_amount || 0);
           if (amt <= 0) continue;
           allocatedSum += amt;
+          const allocPosition = allocIdx++;
 
           const name = alloc.fee_type_name || "মাসিক বেতন";
           const isLillah =
@@ -1240,7 +1398,10 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
           sourceBreakdown.studentFees += amt;
 
           transactions.push({
-            id: `${p.id}_${alloc.fee_type_id || "alloc"}`,
+            // ⛔ MD-5 ফিক্স: আগে key ছিল `${payment.id}_${fee_type_id}` — একই পেমেন্টে
+            // একই fee_type-এর একাধিক allocation (যেমন দুই মাসের মাসিক ফি) থাকলে React key
+            // ডুপ্লিকেট হয়ে তালিকা ভুলভাবে রেন্ডার হতো (ভুল রো, মোশন ত্রুটি)। এখন position যোগ করা হয়েছে।
+            id: `${p.id}_${alloc.fee_type_id || "alloc"}_${allocPosition}`,
             date: paymentDate,
             receipt_no: p.receipt_no || `MR-${p.id.substring(0, 6)}`,
             source_type: "STUDENT_FEE",

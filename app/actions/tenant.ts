@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
 import { revalidatePath } from "next/cache";
@@ -40,16 +41,38 @@ export async function registerMadrasa(formData: FormData) {
   };
 
   // 1. Create the Madrasa record (Tenant)
-  const { data: madrasaData, error: madrasaError } = await supabase
+  //
+  // ⛔ MD-1/HI-6 ফিক্স: আগে মাদ্রাসার prefix/শর্ট-কোড JSON আকারে `registration_no`
+  // কলামে ঢোকানো হতো — অথচ ওই কলামটিই মাদ্রাসার আসল নিবন্ধন নম্বরের জন্য। ফলে
+  // ইউজার স্ট্যাটাস/সেশন/রোল সংক্রান্ত পূর্ণ JSON ব্লব আসল নম্বরটিকে চাপা দিত।
+  // এখন ডেডিকেটেড `metadata` কলাম ব্যবহার হয়; পুরোনো স্কিমার জন্য ফলব্যাক রাখা হয়েছে
+  // (কিন্তু ফলব্যাকেও reg_no সংরক্ষিত থাকে, তাই আসল নম্বর হারায় না)।
+  let { data: madrasaData, error: madrasaError } = await supabase
     .from("madrasas")
     .insert({
       name: madrasaName,
       contact_email: contactEmail,
       subscription_plan: "free",
-      registration_no: JSON.stringify(initialMetadata),
+      metadata: initialMetadata,
     })
     .select("id")
     .single();
+
+  if (madrasaError && /column|schema cache|does not exist/i.test(madrasaError.message || "")) {
+    // পুরোনো ডেটাবেজ: metadata কলাম নেই — registration_no-তে JSON ফরম্যাটেই (আগের আচরণ)
+    const retry = await supabase
+      .from("madrasas")
+      .insert({
+        name: madrasaName,
+        contact_email: contactEmail,
+        subscription_plan: "free",
+        registration_no: JSON.stringify(initialMetadata),
+      })
+      .select("id")
+      .single();
+    madrasaData = retry.data;
+    madrasaError = retry.error;
+  }
 
   if (madrasaError || !madrasaData) {
     return { error: madrasaError?.message || "মাদরাসা তৈরিতে সমস্যা হয়েছে।" };
@@ -202,6 +225,13 @@ export async function getMadrasaProfileWithLogo() {
 }
 
 export async function updateMadrasaDetails(formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("generic");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     let madrasaId: string | null = null;

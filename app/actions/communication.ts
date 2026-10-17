@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
@@ -13,6 +14,13 @@ import {
 } from "@/lib/sms-gateway";
 
 export async function addNotice(formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("communication");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) throw new Error("Unauthorized");
@@ -39,6 +47,13 @@ export async function addNotice(formData: FormData) {
 }
 
 export async function deleteNotice(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("communication");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.from("notices").delete().eq("id", id);
   
@@ -93,6 +108,13 @@ export async function getSMSTemplates(): Promise<SMSTemplate[]> {
 }
 
 export async function saveSMSTemplate(formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("communication");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "লগইন করা আবশ্যক" };
@@ -155,6 +177,13 @@ export async function saveSMSTemplate(formData: FormData) {
 }
 
 export async function deleteSMSTemplate(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("communication");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   if (id.startsWith("tpl-")) {
     return { error: "ডিফল্ট সিস্টেম টেমপ্লেট মুছে ফেলা যাবে না" };
   }
@@ -230,6 +259,13 @@ export async function getSMSGatewayConfig(): Promise<SMSGatewayConfig> {
 }
 
 export async function saveSMSGatewayConfig(config: Partial<SMSGatewayConfig>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("communication");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     let madrasaId: string | null = null;
@@ -726,6 +762,13 @@ export async function getMramDeliveryReport(apiKey?: string, shootId = "getAll")
 // -------------------------------------------------------------
 
 export async function sendSMS(formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("communication");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) throw new Error("Unauthorized");
@@ -794,6 +837,13 @@ export async function sendBulkSMS(messages: Array<{
   message: string;
   message_type?: string;
 }>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("communication");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };

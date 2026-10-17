@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
@@ -210,6 +211,13 @@ export async function getClasses(): Promise<EnrichedClassItem[]> {
  * Assign or change a class's Jimmadar / Class Teacher
  */
 export async function assignClassTeacher(classId: string, teacherId: string | null) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("classes");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -254,6 +262,13 @@ export async function assignClassTeacher(classId: string, teacherId: string | nu
 }
 
 export async function createClass(prevState: any, formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("classes");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -339,6 +354,13 @@ export async function updateClass(
   sequence?: number,
   classTeacherId?: string | null
 ) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("classes");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -387,6 +409,13 @@ export async function updateClass(
 }
 
 export async function deleteClass(classId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("classes");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -435,6 +464,13 @@ export async function deleteClass(classId: string) {
 
 // Update sequence ordering for classes
 export async function updateClassSequences(sequences: { id: string; sequence: number }[]) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("classes");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -516,6 +552,13 @@ export async function getStudentsByClass(classId: string) {
 
 // Promote students to another class
 export async function promoteStudents(studentIds: string[], nextClassId: string | null) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("classes");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     if (!studentIds || studentIds.length === 0) {
       return { error: "কোনো শিক্ষার্থী নির্বাচন করা হয়নি।" };

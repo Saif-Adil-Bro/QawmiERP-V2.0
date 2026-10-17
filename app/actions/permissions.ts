@@ -3,6 +3,8 @@
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
+import { readJsonStore, writeJsonStore } from "@/lib/madrasa-store";
+import { requirePermission } from "@/lib/permissions-server";
 import {
   DEFAULT_SYSTEM_ROLES,
   PERMISSION_CATEGORIES,
@@ -33,75 +35,37 @@ interface MadrasaSecurityStore {
 }
 
 async function getMadrasaSecurityStore(madrasaId: string): Promise<MadrasaSecurityStore> {
-  const adminClient = await createAdminClient();
-  const { data } = await adminClient
-    .from("madrasas")
-    .select("registration_no")
-    .eq("id", madrasaId)
-    .single();
-
-  if (!data?.registration_no) return {};
-
-  try {
-    if (data.registration_no.startsWith("{")) {
-      const parsed = JSON.parse(data.registration_no);
-      return {
-        custom_roles: parsed.custom_roles || [],
-        user_security_profiles: parsed.user_security_profiles || {},
-        approval_requests: parsed.approval_requests || [],
-        security_audit_logs: parsed.security_audit_logs || [],
-      };
-    }
-  } catch (err) {
-    console.error("Error parsing madrasa security store:", err);
-  }
-  return {};
+  // HI-6 ফিক্স: নিরাপত্তা স্টোর এখন `madrasas.security_metadata` কলামে রাখা হয় —
+  // আগে `registration_no` কলামে রাখা হতো, যার ফলে মাদ্রাসার আসল নিবন্ধন নম্বর প্রতিবার
+  // JSON দিয়ে overwrite হয়ে হারিয়ে যেত। পুরোনো ডেটাবেজ হলে স্বয়ংক্রিয় fallback আছে।
+  const store = await readJsonStore(madrasaId, "security");
+  return {
+    custom_roles: store.custom_roles || [],
+    user_security_profiles: store.user_security_profiles || {},
+    approval_requests: store.approval_requests || [],
+    security_audit_logs: store.security_audit_logs || [],
+  };
 }
 
 async function saveMadrasaSecurityStore(
   madrasaId: string,
   updater: (store: MadrasaSecurityStore) => MadrasaSecurityStore
 ): Promise<boolean> {
-  const adminClient = await createAdminClient();
-  const { data: existingRow } = await adminClient
-    .from("madrasas")
-    .select("registration_no")
-    .eq("id", madrasaId)
-    .single();
-
-  let meta: Record<string, any> = {};
-  if (existingRow?.registration_no && existingRow.registration_no.startsWith("{")) {
-    try {
-      meta = JSON.parse(existingRow.registration_no);
-    } catch {
-      meta = {};
-    }
-  }
-
-  const currentStore: MadrasaSecurityStore = {
-    custom_roles: meta.custom_roles || [],
-    user_security_profiles: meta.user_security_profiles || {},
-    approval_requests: meta.approval_requests || [],
-    security_audit_logs: meta.security_audit_logs || [],
-  };
-
+  const currentStore = await getMadrasaSecurityStore(madrasaId);
   const updatedStore = updater(currentStore);
 
-  const newMeta = {
-    ...meta,
+  const next = {
+    // অজানা/ভবিষ্যতের কী সংরক্ষণে বাধা না দিতে সম্পূর্ণ স্টোর merge করা হয়
+    ...(await readJsonStore(madrasaId, "security")),
     custom_roles: updatedStore.custom_roles || [],
     user_security_profiles: updatedStore.user_security_profiles || {},
     approval_requests: (updatedStore.approval_requests || []).slice(0, 150), // keep latest 150
     security_audit_logs: (updatedStore.security_audit_logs || []).slice(0, 250), // keep latest 250
   };
 
-  const { error } = await adminClient
-    .from("madrasas")
-    .update({ registration_no: JSON.stringify(newMeta) })
-    .eq("id", madrasaId);
-
-  if (error) {
-    console.error("Error saving madrasa security store:", error);
+  const saved = await writeJsonStore(madrasaId, "security", next);
+  if (!saved) {
+    console.error("Error saving madrasa security store");
     return false;
   }
   return true;
@@ -267,6 +231,16 @@ export async function createCustomRole(payload: {
     const madrasaId = await getAuthMadrasaId(supabase, authUser);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
+    // CR-2 ফিক্স: সার্ভার-সাইড পারমিশন যাচাই — আগে শুধু `if (!authUser)` ছিল,
+    // ফলে স্ক্রিনে বোতাম না থাকলেও সরাসরি action কল করে কাজ চালানো যেত।
+    const guard = await requirePermission({
+      userId: authUser.id,
+      madrasaId,
+      permissions: ["role.create"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "অনুমতি নেই।" };
+
     const roleName = payload.name.trim();
     if (!roleName) return { error: "রোলের নাম দেওয়া আবশ্যক।" };
 
@@ -351,6 +325,16 @@ export async function updateCustomRole(
     const madrasaId = await getAuthMadrasaId(supabase, authUser);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
+    // CR-2 ফিক্স: সার্ভার-সাইড পারমিশন যাচাই — আগে শুধু `if (!authUser)` ছিল,
+    // ফলে স্ক্রিনে বোতাম না থাকলেও সরাসরি action কল করে কাজ চালানো যেত।
+    const guard = await requirePermission({
+      userId: authUser.id,
+      madrasaId,
+      permissions: ["role.edit"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "অনুমতি নেই।" };
+
     const roleName = payload.name.trim();
     if (!roleName) return { error: "রোলের নাম দেওয়া আবশ্যক।" };
 
@@ -417,6 +401,16 @@ export async function deleteCustomRole(roleId: string) {
 
     const madrasaId = await getAuthMadrasaId(supabase, authUser);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড পারমিশন যাচাই — আগে শুধু `if (!authUser)` ছিল,
+    // ফলে স্ক্রিনে বোতাম না থাকলেও সরাসরি action কল করে কাজ চালানো যেত।
+    const guard = await requirePermission({
+      userId: authUser.id,
+      madrasaId,
+      permissions: ["role.delete"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "অনুমতি নেই।" };
 
     // 1. Check if it is a system role
     const isSystemRole = DEFAULT_SYSTEM_ROLES.some((r) => r.id === roleId);
@@ -499,6 +493,16 @@ export async function assignUserSecurityProfile(
 
     const madrasaId = await getAuthMadrasaId(supabase, authUser);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড পারমিশন যাচাই — আগে শুধু `if (!authUser)` ছিল,
+    // ফলে স্ক্রিনে বোতাম না থাকলেও সরাসরি action কল করে কাজ চালানো যেত।
+    const guard = await requirePermission({
+      userId: authUser.id,
+      madrasaId,
+      permissions: ["role.assign", "user.edit", "user.reset"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "অনুমতি নেই।" };
 
     const adminClient = await createAdminClient();
 
@@ -664,6 +668,16 @@ export async function reviewApprovalRequest(
 
     const madrasaId = await getAuthMadrasaId(supabase, authUser);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
+
+    // CR-2 ফিক্স: সার্ভার-সাইড পারমিশন যাচাই — আগে শুধু `if (!authUser)` ছিল,
+    // ফলে স্ক্রিনে বোতাম না থাকলেও সরাসরি action কল করে কাজ চালানো যেত।
+    const guard = await requirePermission({
+      userId: authUser.id,
+      madrasaId,
+      permissions: ["role.assign", "fee.approve", "finance.approve"],
+      roles: ["super_admin", "admin", "muhtamim"],
+    });
+    if (!guard.allowed) return { error: guard.error || "অনুমতি নেই।" };
 
     const store = await getMadrasaSecurityStore(madrasaId);
     const request = store.approval_requests?.find((r) => r.id === requestId);

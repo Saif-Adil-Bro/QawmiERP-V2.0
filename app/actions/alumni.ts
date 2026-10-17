@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
@@ -12,6 +13,13 @@ export async function getAlumniMembers(filters?: {
   search?: string;
   mahfil_invite_only?: boolean;
 }): Promise<AlumniMember[]> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("generic");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -81,6 +89,13 @@ export async function getAlumniMemberById(id: string): Promise<AlumniMember | nu
 export async function saveAlumniMember(
   data: Partial<AlumniMember> & { name_bn: string; phone: string; graduation_type: AlumniMember["graduation_type"] }
 ): Promise<{ success?: boolean; error?: string; id?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("generic");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -148,6 +163,13 @@ export async function saveAlumniMember(
 }
 
 export async function deleteAlumniMember(id: string): Promise<{ success?: boolean; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("generic");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -173,6 +195,13 @@ export async function toggleArchiveAlumniMember(
   id: string,
   isArchived: boolean
 ): Promise<{ success?: boolean; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("generic");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -202,6 +231,13 @@ export async function bulkUpdateAlumni(
   ids: string[],
   updates: Partial<AlumniMember>
 ): Promise<{ success?: boolean; count?: number; error?: string }> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("generic");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);

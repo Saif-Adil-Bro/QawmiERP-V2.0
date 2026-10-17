@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
@@ -160,6 +161,13 @@ export async function syncHolidayAttendanceRecords({
   applicableTo?: string;
   applicableClasses?: string[];
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("holidays");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const admin = await createAdminClient();
     const dates = getDatesInRange(startDate, endDate);
@@ -265,6 +273,13 @@ export async function cleanupHolidayAttendanceRecords({
   startDate: string;
   endDate: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("holidays");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const admin = await createAdminClient();
     const dates = getDatesInRange(startDate, endDate);
@@ -403,6 +418,13 @@ export async function getAcademicHolidayById(id: string) {
  * Create a new academic holiday / vacation
  */
 export async function createAcademicHoliday(payload: Omit<AcademicHoliday, "id" | "created_at" | "total_days">) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("holidays");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { madrasaId, user } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
@@ -513,6 +535,13 @@ export async function createAcademicHoliday(payload: Omit<AcademicHoliday, "id" 
  * Update an existing academic holiday
  */
 export async function updateAcademicHoliday(id: string, payload: Partial<AcademicHoliday>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("holidays");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
@@ -597,6 +626,13 @@ export async function updateAcademicHoliday(id: string, payload: Partial<Academi
  * Delete a holiday permanently
  */
 export async function deleteAcademicHoliday(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("holidays");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
@@ -670,6 +706,13 @@ export async function restoreAcademicHoliday(id: string) {
  * Seed Default Common Qawmi Holidays for the Current Year
  */
 export async function seedDefaultQawmiHolidays(year?: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("holidays");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
@@ -895,6 +938,13 @@ export async function getPublicHolidaysForPortal(madrasaId?: string) {
  * Update Madrasa Weekly Holidays (weekend days e.g. Friday, Thursday)
  */
 export async function updateWeeklyHolidays(weekendDays: string[]) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("holidays");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };

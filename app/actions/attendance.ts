@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
@@ -7,6 +8,13 @@ import { getStaffMetadataFull } from "./staff";
 import { getMadrasaMetadata } from "@/lib/sessions";
 
 export async function getStudentsForAttendance(date: string, classId?: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("attendance");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return [];
@@ -110,6 +118,13 @@ export async function getStudentsForAttendance(date: string, classId?: string) {
 }
 
 export async function saveAttendance(date: string, attendanceData: { student_id: string, status: string }[]) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("attendance");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
@@ -140,6 +155,13 @@ export async function saveAttendance(date: string, attendanceData: { student_id:
 }
 
 export async function getTeachersForAttendance(date: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("attendance");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return [];
@@ -249,6 +271,13 @@ export async function getTeachersForAttendance(date: string) {
 }
 
 export async function saveTeacherAttendance(date: string, attendanceData: { teacher_id: string, status: string }[]) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("attendance");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };

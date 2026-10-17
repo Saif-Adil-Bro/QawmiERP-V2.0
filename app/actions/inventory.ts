@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
@@ -31,6 +32,13 @@ async function getAuthenticatedMadrasaId(): Promise<string | null> {
 }
 
 export async function getInventoryData(): Promise<InventoryMetadata> {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("inventory");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const madrasaId = await getAuthenticatedMadrasaId();
   if (!madrasaId) {
     return { items: [], allocations: [], maintenance: [] };
@@ -70,6 +78,13 @@ export async function createAssetItem(data: {
   room_location?: string;
   description?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("inventory");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const madrasaId = await getAuthenticatedMadrasaId();
   if (!madrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
 
@@ -123,6 +138,13 @@ export async function updateAssetItem(
   id: string,
   data: Partial<AssetItem>
 ) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("inventory");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const madrasaId = await getAuthenticatedMadrasaId();
   if (!madrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
 
@@ -160,6 +182,13 @@ export async function updateAssetItem(
 }
 
 export async function deleteAssetItem(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("inventory");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const madrasaId = await getAuthenticatedMadrasaId();
   if (!madrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
 
@@ -182,6 +211,13 @@ export async function deleteAssetItem(id: string) {
 }
 
 export async function archiveAssetItem(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("inventory");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const madrasaId = await getAuthenticatedMadrasaId();
   if (!madrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
 
@@ -210,6 +246,13 @@ export async function allocateAsset(data: {
   quantity: number;
   remarks?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("inventory");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const madrasaId = await getAuthenticatedMadrasaId();
   if (!madrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
 
@@ -257,6 +300,13 @@ export async function allocateAsset(data: {
 }
 
 export async function returnAssetAllocation(allocationId: string, returnQty?: number) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("inventory");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const madrasaId = await getAuthenticatedMadrasaId();
   if (!madrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
 
@@ -299,6 +349,13 @@ export async function recordMaintenance(data: {
   fund_name: string;
   auto_add_to_expense?: boolean;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("inventory");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const madrasaId = await getAuthenticatedMadrasaId();
   if (!madrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
 
@@ -357,6 +414,13 @@ export async function recordMaintenance(data: {
 }
 
 export async function deleteMaintenance(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("inventory");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const madrasaId = await getAuthenticatedMadrasaId();
   if (!madrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
 

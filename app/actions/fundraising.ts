@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
@@ -132,6 +133,13 @@ export async function getMahfilById(id: string): Promise<Mahfil | null> {
 }
 
 export async function saveMahfil(data: Partial<Mahfil>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -201,6 +209,13 @@ export async function saveMahfil(data: Partial<Mahfil>) {
 }
 
 export async function deleteMahfil(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -285,6 +300,13 @@ export async function deleteMahfil(id: string) {
 // -------------------------------------------------------------
 
 export async function saveMahfilSpeaker(mahfilId: string, speaker: Partial<MahfilSpeaker>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
@@ -329,6 +351,13 @@ export async function saveMahfilSpeaker(mahfilId: string, speaker: Partial<Mahfi
 }
 
 export async function deleteMahfilSpeaker(mahfilId: string, speakerId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
@@ -349,6 +378,13 @@ export async function deleteMahfilSpeaker(mahfilId: string, speakerId: string) {
 }
 
 export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<MahfilReceiptBook>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { activeMadrasaId, meta, mahfils, targetMahfil: resolvedMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId) return { error: "মাদ্রাসা আইডি পাওয়া যায়নি" };
@@ -568,6 +604,13 @@ export async function saveMahfilBulkReceiptBooks(
     notes?: string;
   }
 ) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
@@ -653,6 +696,13 @@ export async function saveMahfilBulkReceiptBooks(
 }
 
 export async function deleteMahfilReceiptBook(mahfilId: string, bookId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
@@ -673,6 +723,13 @@ export async function deleteMahfilReceiptBook(mahfilId: string, bookId: string) 
 }
 
 export async function saveMahfilTransaction(mahfilId: string, txn: Partial<MahfilTransaction>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
@@ -720,6 +777,13 @@ export async function saveMahfilTransaction(mahfilId: string, txn: Partial<Mahfi
 }
 
 export async function deleteMahfilTransaction(mahfilId: string, txnId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
@@ -817,6 +881,13 @@ export async function getAvailableFundsForMahfil() {
 }
 
 export async function settleMahfilFund(mahfilId: string, payload: MahfilSettlementPayload) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1048,6 +1119,13 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
 }
 
 export async function deleteMahfilSettlement(mahfilId: string, settlementId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
@@ -1338,6 +1416,13 @@ export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]
 }
 
 export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -1481,6 +1566,13 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
 }
 
 export async function deleteLifeMemberDonor(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -1506,6 +1598,13 @@ export async function deleteLifeMemberDonor(id: string) {
 }
 
 export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubscriptionPayment>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -1709,6 +1808,13 @@ export async function getNextLeatherVoucherNo(madrasaId?: string): Promise<strin
 }
 
 export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecord>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
@@ -1899,6 +2005,13 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
 }
 
 export async function deleteQurbaniLeatherRecord(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
@@ -2047,6 +2160,13 @@ export async function getNextBoxVoucherNo(madrasaId?: string): Promise<string> {
 }
 
 export async function saveDonationBox(data: Partial<DonationBox>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
@@ -2150,6 +2270,13 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
 }
 
 export async function deleteDonationBox(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
@@ -2197,6 +2324,13 @@ export async function deleteDonationBox(id: string) {
 }
 
 export async function deleteDonationBoxCollectionLog(logId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
@@ -2255,6 +2389,13 @@ export async function deleteDonationBoxCollectionLog(logId: string) {
 }
 
 export async function recordDonationBoxCollection(log: Partial<DonationBoxCollectionLog>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
@@ -2365,6 +2506,13 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
 
 // Auto-sync function to backfill and guarantee all metadata collections are present in donations table
 export async function syncFundraisingCollectionsToDonations(madrasaId?: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = madrasaId || (await getSafeMadrasaId());
     if (!finalMadrasaId) return { syncedCount: 0 };
@@ -2499,6 +2647,13 @@ export async function getOnlineDonationSettings(): Promise<OnlineDonationSetting
 }
 
 export async function saveOnlineDonationSettings(settings: Partial<OnlineDonationSettings>) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
@@ -2830,6 +2985,13 @@ export async function updateOnlineDonationStatus(
   status: "VERIFIED" | "PENDING" | "REJECTED",
   verifierName?: string
 ) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
@@ -2925,6 +3087,13 @@ export async function updateOnlineDonationStatus(
 }
 
 export async function deleteOnlineDonation(id: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
@@ -2951,6 +3120,13 @@ export async function sendDonationNotificationSMS(params: {
   receipt_no: string;
   fund_category?: string;
 }) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("fundraising");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };

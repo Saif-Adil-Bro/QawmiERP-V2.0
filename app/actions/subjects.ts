@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
@@ -33,6 +34,13 @@ export async function getSubjects() {
 }
 
 export async function createSubject(prevState: any, formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("subjects");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -123,6 +131,13 @@ export async function getSubjectById(subjectId: string) {
 }
 
 export async function updateSubject(subjectId: string, prevState: any, formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("subjects");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -171,6 +186,13 @@ export async function updateSubject(subjectId: string, prevState: any, formData:
 }
 
 export async function deleteSubject(subjectId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("subjects");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();

@@ -25,6 +25,9 @@ export default async function AccountingDashboardPage() {
   const overview = overviewData || {
     totalCollected: 0,
     totalDue: 0,
+    sessionPayable: 0,
+    sessionCollected: 0,
+    sessionDue: 0,
     thisMonthCollection: 0,
     todayCollection: 0,
     totalPaymentsCount: 0,
@@ -35,8 +38,15 @@ export default async function AccountingDashboardPage() {
     auditLogs: [],
   };
 
-  const totalDemand = (overview.totalCollected || 0) + (overview.totalDue || 0);
-  const collectionRate = totalDemand > 0 ? Math.round(((overview.totalCollected || 0) / totalDemand) * 100) : 100;
+  // MD-4 fix: একই সেশন/বিলিং ডেটাসেট থেকে হার
+  const sessionPayable = (overview as any).sessionPayable ?? 0;
+  const sessionCollected = (overview as any).sessionCollected ?? 0;
+  const sessionDue = (overview as any).sessionDue ?? 0;
+  const collectionBase = sessionPayable > 0 ? sessionPayable : sessionCollected + sessionDue;
+  const collectionRate =
+    collectionBase > 0
+      ? Math.min(100, Math.max(0, Math.round((sessionCollected / collectionBase) * 100)))
+      : 0;
 
   return (
     <PermissionGuard permission="finance.view">
@@ -134,6 +144,9 @@ export default async function AccountingDashboardPage() {
               style={{ width: `${Math.min(100, collectionRate)}%` }}
             />
           </div>
+          <span className="text-[11px] text-slate-500 font-medium block">
+            চার্জ ৳{formatBanglaCurrency(sessionPayable)} · আদায় ৳{formatBanglaCurrency(sessionCollected)} · বকেয়া ৳{formatBanglaCurrency(sessionDue)}
+          </span>
         </div>
 
         {/* Total Students */}

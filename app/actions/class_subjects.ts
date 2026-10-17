@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
@@ -28,6 +29,13 @@ export async function getClassSubjects(classId: string) {
 }
 
 export async function assignSubjectToClass(classId: string, subjectId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("classes");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
 
@@ -115,6 +123,13 @@ export async function assignSubjectToClass(classId: string, subjectId: string) {
 }
 
 export async function removeSubjectFromClass(classSubjectId: string, classId: string, subjectId?: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("classes");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   try {
     const adminClient = await createAdminClient();
     const isUuid = Boolean(classSubjectId) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(classSubjectId);

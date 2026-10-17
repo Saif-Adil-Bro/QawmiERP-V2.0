@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId, getStudents } from "./students";
@@ -69,6 +70,13 @@ export async function getKitabLogs(studentId: string, limit = 10) {
 }
 
 export async function createKitabLog(prevState: any, formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("kitab");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
@@ -163,6 +171,13 @@ export async function getAllRecentKitabLogs(limit = 100) {
 }
 
 export async function updateKitabLog(prevState: any, formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("kitab");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
@@ -219,6 +234,13 @@ export async function updateKitabLog(prevState: any, formData: FormData) {
 }
 
 export async function deleteKitabLog(logId: string, studentId?: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("kitab");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   let { error } = await supabase
     .from("kitab_logs")

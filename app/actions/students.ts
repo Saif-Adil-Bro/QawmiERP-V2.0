@@ -1,5 +1,6 @@
 "use server";
 
+import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import {
@@ -223,12 +224,51 @@ export async function getAuthMadrasaId(supabase?: any, user?: any): Promise<stri
       }
     }
 
-    // 4. Initial system bootstrap ONLY if the database has 0 madrasas
-    const { count } = await adminClient
+    // 4. Initial system bootstrap — ⛔ HI-9 ফিক্স
+    //
+    // আগে ডেটাবেজে একটি মাদ্রাসাও না থাকলে **যে কেউ** লগইন করলেই স্বয়ংক্রিয়ভাবে
+    // একটি মাদ্রাসা তৈরি হতো এবং সে `super_admin` হয়ে যেত (ঠিক কে প্রথম লগইন করল,
+    // তার উপর নির্ভর করে মালিকানা যায়; দুজন একসাথে লগইন করলে count===0 দুইজনেই দেখে
+    // TOCTOU রেসে একাধিক super_admin তৈরি হতে পারত; আবার কেউ সব মাদ্রাসা মুছে দিলে
+    // পরের লগইনকারীই আজীবন admin)পরিষ্কার
+    //
+    // এখন bootstrap কেবল তখনই হয় যখন ইনফ্রাস্ট্রাকচার স্পষ্টভাবে অনুমতি দেয়:
+    //   ALLOW_INITIAL_BOOTSTRAP=true এবং লগইনকারীর ইমেইল BOOTSTRAP_ADMIN_EMAILS তালিকায়পরিষ্কার
+    // নাহলে কোনো মাদ্রাসা তৈরি না করে মালিকানা-হীন অবস্থায় ফিরে যাওয়া হয় —
+    // নিরাপদ পথ হলো `lib/db/setup.sql`/migration দিয়ে প্রাথমিক মাদ্রাসা ও super_admin সিড করাপরিষ্কার
+    const { count, error: countError } = await adminClient
       .from("madrasas")
       .select("id", { count: "exact", head: true });
 
+    if (countError) {
+      console.error("Madrasa count check failed:", countError);
+      return "";
+    }
+
     if (count === 0 && user?.id) {
+      const allowBootstrap = process.env.ALLOW_INITIAL_BOOTSTRAP === "true";
+      const allowedEmails = (process.env.BOOTSTRAP_ADMIN_EMAILS || "")
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean);
+      const loginEmail = (user.email || "").toLowerCase();
+
+      if (!allowBootstrap || !loginEmail || !allowedEmails.includes(loginEmail)) {
+        console.warn(
+          "[bootstrap-blocked] ডেটাবেজে কোনো মাদ্রাসা নেই, কিন্তু এই অ্যাকাউন্টের জন্য স্বয়ংক্রিয় bootstrap নিষ্ক্রিয়পরিষ্কার " +
+            "মাদ্রাসা ও super_admin তৈরি করতে migration চালান, অথবা ALLOW_INITIAL_BOOTSTRAP=true এবং BOOTSTRAP_ADMIN_EMAILS সেট করুনপরিষ্কার"
+        );
+        return "";
+      }
+
+      // TOCTOU রেস: দুইটি সমান্তরাল রিকোয়েস্ট দুজনেই count === 0 দেখতে পারে — তাই
+      // insert-এর ঠিক আগে আবার যাচাই, এবং insert-এর পরে deterministic "winner"
+      // নির্বাচন (সবচেয়ে পুরোনো মাদ্রাসা), যাতে দ্বিতীয়টি নিজেই নিজেকে মুছে ফেলেপরিষ্কার
+      const { count: recheck } = await adminClient
+        .from("madrasas")
+        .select("id", { count: "exact", head: true });
+      if ((recheck ?? 0) > 0) return "";
+
       const { data: newMadrasa } = await adminClient
         .from("madrasas")
         .insert({
@@ -239,14 +279,39 @@ export async function getAuthMadrasaId(supabase?: any, user?: any): Promise<stri
         .single();
 
       if (newMadrasa?.id) {
+        const { data: winner } = await adminClient
+          .from("madrasas")
+          .select("id")
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        const chosenMadrasaId = winner?.id || newMadrasa.id;
+
+        if (winner?.id && winner.id !== newMadrasa.id) {
+          // এই রিকোয়েস্ট রেসে হেরে গেছে — নিজের তৈরি খালি মাদ্রাসাটি সরিয়ে ফেলা হয়
+          try {
+            const { count: usersHere } = await adminClient
+              .from("users")
+              .select("id", { count: "exact", head: true })
+              .eq("madrasa_id", newMadrasa.id);
+            if ((usersHere ?? 0) === 0) {
+              await adminClient.from("madrasas").delete().eq("id", newMadrasa.id);
+            }
+          } catch {
+            /* ব্যর্থ হলে খালি মাদ্রাসা থেকে যাবে — ক্ষতিকর নয় */
+          }
+          return "";
+        }
+
         await adminClient.from("users").upsert({
           id: user.id,
-          madrasa_id: newMadrasa.id,
+          madrasa_id: chosenMadrasaId,
           full_name: user.email?.split("@")[0] || "Admin",
           email: user.email || "",
           role: "super_admin",
         });
-        return newMadrasa.id;
+        return chosenMadrasaId;
       }
     }
 
@@ -333,6 +398,13 @@ export async function checkRollAvailability(
 }
 
 export async function createStudent(prevState: any, formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("students");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
@@ -386,7 +458,7 @@ export async function createStudent(prevState: any, formData: FormData) {
   const totalMonthlyFee = Math.max(0, (monthlyFee + khorakiFee + accommodationFee + transportFee + otherFee) - feeDiscount);
 
   if (!firstName || !classId) {
-    return { error: "শিক্ষার্থীর নাম এবং জামাত/শ্রেণি নির্বাচন আবশ্যক।" };
+    return { error: "শিক্ষার্থীর নাম এবং জামাত/শ্রেণি নির্বাচন আবশ্যকপরিষ্কার" };
   }
 
   // Auto-calculate next sequential roll if roll is not explicitly provided
@@ -398,7 +470,7 @@ export async function createStudent(prevState: any, formData: FormData) {
     const rollCheck = await checkRollAvailability(classId, rollNumber);
     if (!rollCheck.available) {
       return {
-        error: `এই জামাতে '${rollNumber}' রোল নম্বরটি ইতিমধ্যে অন্য একজন শিক্ষার্থীর (${rollCheck.conflictStudentName}) জন্য নির্ধারিত আছে। অনুগ্রহ করে ভিন্ন রোল নম্বর দিন।`,
+        error: `এই জামাতে '${rollNumber}' রোল নম্বরটি ইতিমধ্যে অন্য একজন শিক্ষার্থীর (${rollCheck.conflictStudentName}) জন্য নির্ধারিত আছেপরিষ্কার অনুগ্রহ করে ভিন্ন রোল নম্বর দিনপরিষ্কার`,
       };
     }
   }
@@ -568,7 +640,7 @@ export async function createStudent(prevState: any, formData: FormData) {
       action_type: "CREATE",
       module: "STUDENTS",
       title: "নতুন শিক্ষার্থী নিবন্ধন সম্পন্ন",
-      description: `${firstName} ${lastName || ""} কে শ্রেণি রোল ${rollNumber || "অনির্ধারিত"} সহ নতুন শিক্ষার্থী হিসেবে ভর্তি ও নিবন্ধন করা হয়েছে।`,
+      description: `${firstName} ${lastName || ""} কে শ্রেণি রোল ${rollNumber || "অনির্ধারিত"} সহ নতুন শিক্ষার্থী হিসেবে ভর্তি ও নিবন্ধন করা হয়েছেপরিষ্কার`,
       entity_id: insertedStudent?.id || undefined,
       entity_type: "student",
       link: insertedStudent?.id ? `/dashboard/students/${insertedStudent.id}` : "/dashboard/students",
@@ -585,6 +657,13 @@ export async function createStudent(prevState: any, formData: FormData) {
 }
 
 export async function updateStudent(prevState: any, formData: FormData) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("students");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const adminClient = await createAdminClient();
   const user = await getAuthUser(supabase);
@@ -636,7 +715,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
     : undefined;
 
   if (!id || !firstName || !classId) {
-    return { error: "শিক্ষার্থীর আইডি, নাম এবং জামাত/শ্রেণি আবশ্যক।" };
+    return { error: "শিক্ষার্থীর আইডি, নাম এবং জামাত/শ্রেণি আবশ্যকপরিষ্কার" };
   }
 
   // Check roll duplication in this class
@@ -644,7 +723,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
     const rollCheck = await checkRollAvailability(classId, rollNumber, id);
     if (!rollCheck.available) {
       return {
-        error: `এই জামাতে '${rollNumber}' রোল নম্বরটি ইতিমধ্যে অন্য একজন শিক্ষার্থীর (${rollCheck.conflictStudentName}) জন্য নির্ধারিত আছে। অনুগ্রহ করে ভিন্ন রোল নম্বর দিন।`,
+        error: `এই জামাতে '${rollNumber}' রোল নম্বরটি ইতিমধ্যে অন্য একজন শিক্ষার্থীর (${rollCheck.conflictStudentName}) জন্য নির্ধারিত আছেপরিষ্কার অনুগ্রহ করে ভিন্ন রোল নম্বর দিনপরিষ্কার`,
       };
     }
   }
@@ -901,7 +980,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
       action_type: "UPDATE",
       module: "STUDENTS",
       title: "শিক্ষার্থীর তথ্য হালনাগাদ",
-      description: `${firstName} ${lastName || ""} (আইডি: ${id}) এর ব্যক্তিগত ও একাডেমিক তথ্য সফলভাবে হালনাগাদ করা হয়েছে।`,
+      description: `${firstName} ${lastName || ""} (আইডি: ${id}) এর ব্যক্তিগত ও একাডেমিক তথ্য সফলভাবে হালনাগাদ করা হয়েছেপরিষ্কার`,
       entity_id: id,
       entity_type: "student",
       link: `/dashboard/students/${id}`,
@@ -923,6 +1002,13 @@ export async function updateStudent(prevState: any, formData: FormData) {
 }
 
 export async function deleteStudent(studentId: string) {
+  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
+  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+  {
+    const __authz = await writeGuard("students");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("students")
@@ -940,7 +1026,7 @@ export async function deleteStudent(studentId: string) {
       action_type: "DELETE",
       module: "STUDENTS",
       title: "শিক্ষার্থীর প্রোফাইল মুছে ফেলা হয়েছে",
-      description: `শিক্ষার্থী আইডি (${studentId}) এর রেকর্ড সিস্টেম থেকে অপসারণ করা হয়েছে।`,
+      description: `শিক্ষার্থী আইডি (${studentId}) এর রেকর্ড সিস্টেম থেকে অপসারণ করা হয়েছেপরিষ্কার`,
       entity_id: studentId,
       entity_type: "student",
       severity: "WARNING",
