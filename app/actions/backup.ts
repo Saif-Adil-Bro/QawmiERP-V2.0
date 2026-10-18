@@ -121,6 +121,9 @@ export interface BackupAuditEntry {
   status: "SUCCESS" | "FAILED" | "WARNING";
   note?: string;
   file_size_kb?: number;
+  // ⛔ P2-Fix: আসল snapshot সংরক্ষণের তথ্য (private `backups` storage bucket)
+  storage_path?: string;
+  checksum?: string;
 }
 
 export interface BackupOverviewStats {
@@ -226,6 +229,37 @@ function generateSimpleChecksum(dataStr: string): string {
     hash |= 0; // Convert to 32bit integer
   }
   return "chk_" + Math.abs(hash).toString(16) + "_" + dataStr.length;
+}
+
+/**
+ * ⛔ P2-Fix: backup/snapshot JSON-কে private `backups` Storage bucket-এ সংরক্ষণ।
+ * Bucket না থাকলে স্বয়ংক্রিয়ভাবে বানানো হয় (tenant.ts-এর logos/signatures-এর
+ * একই প্যাটার্ন)। ফাইল private — কোনো public URL-এ যায় না।
+ */
+async function uploadBackupSnapshotFile(
+  madrasaId: string,
+  json: string
+): Promise<{ ok: boolean; storagePath?: string; error?: string }> {
+  try {
+    const admin = await createAdminClient();
+    try {
+      await admin.storage.createBucket("backups", { public: false });
+    } catch {
+      // Bucket আগে থেকেই আছে — স্বাভাবিক
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const storagePath = `snapshots/${madrasaId}/snap_${stamp}_${Date.now() % 100000}.json`;
+    const { error } = await admin.storage
+      .from("backups")
+      .upload(storagePath, new Blob([json], { type: "application/json" }), {
+        contentType: "application/json",
+        upsert: false,
+      });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, storagePath };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "storage error" };
+  }
 }
 
 /**
@@ -960,6 +994,21 @@ export async function executeDataRestore({
       return { success: false, message: "অবৈধ ব্যাকআপ ডেটা লোড হয়েছে।", error: "Missing data payload" };
     }
 
+    // ⛔ P2-Fix: রিস্টোরের আগে checksum verify — নষ্ট/পরিবর্তিত ফাইল DB-তে
+    // লেখা যাবে না। (legacy format ফাইল-এর checksum "legacy_format" হলে skip)
+    const declaredChecksum = (backupPayload as any)?.manifest?.checksum;
+    if (declaredChecksum && declaredChecksum !== "legacy_format") {
+      const recomputed = generateSimpleChecksum(JSON.stringify(backupPayload.data));
+      if (declaredChecksum !== recomputed) {
+        return {
+          success: false,
+          message:
+            "ব্যাকআপ ফাইলের checksum মেলে না — ফাইলটি নষ্ট বা পরিবর্তিত হতে পারে। নতুন ব্যাকআপ ফাইল ডাউনলোড করে আবার চেষ্টা করুন।",
+          error: "CHECKSUM_MISMATCH",
+        };
+      }
+    }
+
     const dataObj = backupPayload.data;
     const currentMeta = await getMadrasaMetadata(madrasaId);
 
@@ -1001,22 +1050,57 @@ export async function executeDataRestore({
       }
     }
 
-    // 1. Create an Auto Pre-Restore Snapshot if enabled
+    // 1. Create a REAL Auto Pre-Restore Snapshot if enabled
+    // ⛔ P2-Fix: আগে এখানে শুধু audit row লেখা হতো (কোনো ডেটা সংরক্ষিত হতো না) —
+    // রিস্টোর-এ ডেটা ভেঙে গেলে ফেরা যায় না। এখন আসল snapshot-টি private `backups`
+    // bucket-এ checksum-সহ সংরক্ষিত হয় এবং audit entry-তে storage_path + checksum
+    // নথিভুক্ত হয়।
     if (createAutoSnapshot) {
       try {
-        const preSnapshotLog: BackupAuditEntry = {
-          id: "snap_" + Date.now(),
-          type: "AUTO_SNAPSHOT",
-          timestamp: new Date().toISOString(),
-          actor_name: user?.user_metadata?.full_name || "সিস্টেম রিস্টোরার",
-          actor_email: user?.email || "system@qawmi.edu",
-          modules: (effectiveModules as string[]) || ["ALL"],
-          total_records: 0,
-          status: "SUCCESS",
-          note: `রিস্টোর শুরুর পূর্বে স্বয়ংক্রিয় ইউনিভার্সাল সেফটি স্ন্যাপশট সংরক্ষিত হয়েছে (${restoreMode === "merge" ? "Merge" : "Replace"} মোড)`,
-        };
-        const preHistory = [preSnapshotLog, ...(currentMeta.backup_history || [])].slice(0, 50);
-        await saveMadrasaMetadata(madrasaId, { ...currentMeta, backup_history: preHistory });
+        const snapExport = await generateBackupExport({
+          modules: (effectiveModules as BackupModuleKey[]) || undefined,
+          format: "minified",
+        });
+        const snapUpload =
+          snapExport.success && snapExport.backupJson
+            ? await uploadBackupSnapshotFile(madrasaId, snapExport.backupJson)
+            : { ok: false, error: snapExport.error || "snapshot export failed" };
+
+        const snapManifest = snapExport.backupPayload?.manifest;
+        const actorName = user?.user_metadata?.full_name || "সিস্টেম রিস্টোরার";
+        const actorEmail = user?.email || "system@qawmi.edu";
+
+        const preSnapshotLog: BackupAuditEntry = snapUpload.ok
+          ? {
+              id: "snap_" + Date.now(),
+              type: "AUTO_SNAPSHOT",
+              timestamp: new Date().toISOString(),
+              actor_name: actorName,
+              actor_email: actorEmail,
+              modules: (effectiveModules as string[]) || ["ALL"],
+              total_records: snapManifest?.total_records || 0,
+              status: "SUCCESS",
+              storage_path: snapUpload.storagePath,
+              checksum: snapManifest?.checksum,
+              file_size_kb: Math.round(new Blob([snapExport.backupJson!]).size / 1024),
+              note: `রিস্টোরের পূর্বে আসল সেফটি স্ন্যাপশট সংরক্ষিত হয়েছে (${restoreMode === "merge" ? "Merge" : "Replace"} মোড — ${snapUpload.storagePath})`,
+            }
+          : {
+              id: "snap_" + Date.now(),
+              type: "AUTO_SNAPSHOT",
+              timestamp: new Date().toISOString(),
+              actor_name: actorName,
+              actor_email: actorEmail,
+              modules: (effectiveModules as string[]) || ["ALL"],
+              total_records: 0,
+              status: "WARNING",
+              note: `⚠️ রিস্টোরের পূর্বে সেফটি স্ন্যাপশট সংরক্ষণ ব্যর্থ (${snapUpload.error}) — সতর্কতার সাথে রিস্টোর চলবে`,
+            };
+        // generateBackupExport নিজের BACKUP_EXPORT entry-ও লেখে — তাই history
+        // merge-এর জন্য metadata-টি আবার পড়া হয় (দুটো entry-ই থাকবে)
+        const metaNow = await getMadrasaMetadata(madrasaId);
+        const preHistory = [preSnapshotLog, ...(metaNow.backup_history || [])].slice(0, 50);
+        await saveMadrasaMetadata(madrasaId, { ...metaNow, backup_history: preHistory });
       } catch (snapErr) {
         console.warn("Pre-snapshot warning:", snapErr);
       }
@@ -1298,13 +1382,30 @@ export async function executeMadrasaDataWipe(options: WipeMadrasaOptions): Promi
 
     // 2. Automatically generate a pre-wipe safety backup payload first
     let preWipeBackupJson = "";
+    let preWipeChecksum = "";
+    let preWipeTotalRecords = 0;
     try {
       const backupRes = await generateBackupExport({ format: "formatted" });
       if (backupRes.success && backupRes.backupJson) {
         preWipeBackupJson = backupRes.backupJson;
+        preWipeChecksum = backupRes.backupPayload?.manifest?.checksum || "";
+        preWipeTotalRecords = backupRes.backupPayload?.manifest?.total_records || 0;
       }
     } catch (bErr) {
       console.warn("Auto pre-wipe backup capture warning:", bErr);
+    }
+
+    // 2b. ⛔ P2-Fix: pre-wipe snapshot-টি private `backups` bucket-এ সংরক্ষণ (checksum-সহ) —
+    // আগে শুধু client-কে return হতো, server-এ কিছুই সেভ হতো না; page বন্ধ করলে
+    // safety-net হারিয়ে যেত
+    let preWipeStoragePath = "";
+    if (preWipeBackupJson) {
+      const wipeSnapUp = await uploadBackupSnapshotFile(madrasaId, preWipeBackupJson);
+      if (wipeSnapUp.ok) {
+        preWipeStoragePath = wipeSnapUp.storagePath || "";
+      } else {
+        console.warn("Pre-wipe snapshot storage upload failed:", wipeSnapUp.error);
+      }
     }
 
     const currentMeta = await getMadrasaMetadata(madrasaId);
@@ -1532,8 +1633,10 @@ export async function executeMadrasaDataWipe(options: WipeMadrasaOptions): Promi
       actor_email: user?.email || "admin@qawmi.edu",
       modules: [scope.toUpperCase()],
       total_records: totalWiped,
-      status: "SUCCESS",
-      note: `মাদরাসা ডাটা ফ্যাক্টরি রিসেট / ক্লিনিং সম্পন্ন হয়েছে (স্কোপ: ${scope}, মোট মোছা রেকর্ড: ${totalWiped}টি)।`,
+      status: preWipeStoragePath ? "SUCCESS" : "WARNING",
+      storage_path: preWipeStoragePath || undefined,
+      checksum: preWipeChecksum || undefined,
+      note: `মাদরাসা ডাটা ফ্যাক্টরি রিসেট / ক্লিনিং সম্পন্ন হয়েছে (স্কোপ: ${scope}, মোট মোছা রেকর্ড: ${totalWiped}টি)। Pre-wipe snapshot (${preWipeTotalRecords} রেকর্ড): ${preWipeStoragePath || "⚠️ সংরক্ষণ ব্যর্থ"}`,
     };
 
     const updatedHistory = [wipeAuditLog, ...(currentMeta.backup_history || [])].slice(0, 50);
