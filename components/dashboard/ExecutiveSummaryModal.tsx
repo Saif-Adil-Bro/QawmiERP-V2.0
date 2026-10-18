@@ -34,7 +34,7 @@ const toBn = (val: number | string | undefined | null): string => {
     "0": "০", "1": "১", "2": "২", "3": "৩", "4": "৪",
     "5": "৫", "6": "৬", "7": "৭", "8": "৮", "9": "৯"
   };
-  const str = typeof val === "number" ? val.toLocaleString("en-IN") : String(val);
+  const str = typeof val === "number" ? val.toLocaleString("en-US") : String(val); // P2-Fix: international grouping — lakh-কমা (৮,৫,০,০০) বন্ধ
   return str.replace(/[0-9]/g, (d) => enToBn[d] || d);
 };
 
