@@ -90,17 +90,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: firstM } = await adminClient
-          .from("madrasas")
-          .select("id")
-          .limit(1)
-          .single();
-        madrasaId = firstM?.id || null;
-      } catch {}
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed (meta/reads খালি থাকবে)
 
     const items: GlobalNotificationItem[] = [];
     let meta: any = {};
@@ -463,15 +453,7 @@ export async function markNotificationAsRead(notificationId: string): Promise<{
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const adminClient = await createAdminClient();
-      const { data: firstM } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .limit(1)
-        .single();
-      madrasaId = firstM?.id || null;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) return { success: false, error: "মাদরাসা পাওয়া যায়নি।" };
 
@@ -511,15 +493,7 @@ export async function markAllNotificationsAsRead(category?: NotificationCategory
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const adminClient = await createAdminClient();
-      const { data: firstM } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .limit(1)
-        .single();
-      madrasaId = firstM?.id || null;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) return { success: false, error: "মাদরাসা পাওয়া যায়নি।" };
 
@@ -568,15 +542,7 @@ export async function toggleNotificationReadStatus(notificationId: string, isRea
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const adminClient = await createAdminClient();
-      const { data: firstM } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .limit(1)
-        .single();
-      madrasaId = firstM?.id || null;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) return { success: false, isRead: false, error: "মাদরাসা পাওয়া যায়নি।" };
 

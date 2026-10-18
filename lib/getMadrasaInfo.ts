@@ -1,3 +1,4 @@
+import { getDefaultMadrasaId } from "@/lib/madrasa-default";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { extractMadrasaPrefix, generateSuggestedPrefix } from "@/lib/madrasa-prefix";
 
@@ -141,24 +142,8 @@ export async function getMadrasaInfo(specificMadrasaId?: string): Promise<Madras
     }
 
     if (!targetMadrasaId) {
-      const primaryActiveId = "25f5b85c-4b75-4255-846d-f5f84a61608c";
-      const { data: activeMadrasa } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .eq("id", primaryActiveId)
-        .maybeSingle();
-
-      if (activeMadrasa?.id) {
-        targetMadrasaId = activeMadrasa.id;
-      } else {
-        const { data: firstMadrasa } = await adminClient
-          .from("madrasas")
-          .select("id")
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .single();
-        targetMadrasaId = firstMadrasa?.id || null;
-      }
+      // P2-Fix: hardcoded UUID সরানো — DEFAULT_MADRASA_ID env → সবচেয়ে পুরোনো মাদরাসা
+      targetMadrasaId = await getDefaultMadrasaId();
     }
 
     if (targetMadrasaId) {

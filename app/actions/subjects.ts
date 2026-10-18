@@ -56,11 +56,7 @@ export async function createSubject(prevState: any, formData: FormData) {
       console.warn("Could not get user madrasa:", e);
     }
 
-    if (!madrasaId) {
-      const { data: anyMadrasa } = await adminClient.from("madrasas").select("id").limit(1).single();
-      madrasaId = anyMadrasa?.id || "";
-    }
-
+    // P2-Fix: first-madrasa fallback সরানো
     if (!madrasaId) {
       return { error: "কোনো মাদরাসা পাওয়া যায়নি।" };
     }

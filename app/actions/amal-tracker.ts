@@ -36,15 +36,7 @@ export async function getAmalTrackerData() {
     if (!madrasaId && studentsList?.[0]?.madrasa_id) {
       madrasaId = studentsList[0].madrasa_id;
     }
-    if (!madrasaId) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: firstMadrasa } = await adminClient.from("madrasas").select("id").limit(1).maybeSingle();
-        if (firstMadrasa?.id) {
-          madrasaId = firstMadrasa.id;
-        }
-      } catch {}
-    }
+    // P2-Fix: first-madrasa fallback সরানো — madrasaId নেই → ডিফল্ট টেমপ্লেট only (fail-closed)
 
     let customTemplates: AmalTrackerTemplate[] = [];
     let evaluationLogs: AmalEvaluationLog[] = [];
@@ -97,15 +89,7 @@ async function resolveEffectiveMadrasaId(supabase: any, user: any): Promise<stri
       madrasaId = madrasaInfo?.id || "";
     } catch {}
   }
-  if (!madrasaId) {
-    try {
-      const adminClient = await createAdminClient();
-      const { data: firstMadrasa } = await adminClient.from("madrasas").select("id").limit(1).maybeSingle();
-      if (firstMadrasa?.id) {
-        madrasaId = firstMadrasa.id;
-      }
-    } catch {}
-  }
+  // P2-Fix: first-madrasa fallback সরানো — caller-এ !madrasaId হলে fail-closed error
   return madrasaId;
 }
 

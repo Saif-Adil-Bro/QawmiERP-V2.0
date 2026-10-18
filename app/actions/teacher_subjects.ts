@@ -254,11 +254,7 @@ export async function getTeacherAcademicSchedule(staffId: string): Promise<Teach
     const { getAuthMadrasaId } = await import("./students");
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : undefined;
 
-    if (!madrasaId) {
-      const { data: anyM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      madrasaId = anyM?.id;
-    }
-
+    // P2-Fix: first-madrasa fallback সরানো
     if (!madrasaId) return result;
 
     const meta = ((await getMadrasaMetadata(madrasaId)) as any) || {};

@@ -1,5 +1,6 @@
 "use server";
 
+import { getDefaultMadrasaId } from "@/lib/madrasa-default";
 import { toDhakaDateStringFrom, toDhakaDateString, toDhakaMonthString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
@@ -1707,17 +1708,11 @@ export async function getSafeMadrasaId(): Promise<string | null> {
     // Safe ignore if called in Route Handler or outside standard cookie context
   }
 
+  // P2-Fix: first-madrasa fallback → central default (DEFAULT_MADRASA_ID env → সবচেয়ে পুরোনো)
   try {
-    const adminClient = await createAdminClient();
-    const { data: firstM } = await adminClient
-      .from("madrasas")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    return firstM?.id || null;
+    return await getDefaultMadrasaId();
   } catch (err) {
-    console.error("Error finding fallback madrasa id:", err);
+    console.error("Error finding default madrasa id:", err);
     return null;
   }
 }

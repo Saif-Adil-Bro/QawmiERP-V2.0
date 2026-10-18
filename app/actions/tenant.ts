@@ -135,20 +135,7 @@ export async function getMadrasaDetails() {
     // Auth check failed
   }
 
-  // Fallback to primary madrasa if no auth session or unlinked
-  if (!madrasaId) {
-    const { data: firstMadrasa } = await adminClient
-      .from("madrasas")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .single();
-
-    if (firstMadrasa) {
-      madrasaId = firstMadrasa.id;
-    }
-  }
-
+  // P2-Fix: first-madrasa fallback সরানো — user-এর মাদরাসা নেই → null (fail-closed)
   if (!madrasaId) return null;
   
   const { data, error } = await adminClient
@@ -246,18 +233,7 @@ export async function updateMadrasaDetails(formData: FormData) {
       // Auth check failed
     }
 
-    if (!madrasaId) {
-      const { data: firstMadrasa } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .single();
-
-      if (firstMadrasa) {
-        madrasaId = firstMadrasa.id;
-      }
-    }
+    // P2-Fix: first-madrasa fallback সরানো — নিজের মাদরাসা না পেলে fail-closed
 
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
     

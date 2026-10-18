@@ -12,7 +12,6 @@ import { getMadrasaMetadata, saveMadrasaMetadata, AcademicHoliday, HOLIDAY_CATEG
  * with fallback to the primary/active madrasa if auth session is ambiguous.
  */
 async function resolveCurrentMadrasaId(): Promise<{ madrasaId: string | null; user: any | null }> {
-  const adminClient = await createAdminClient();
   let madrasaId: string | null = null;
   let user: any = null;
 
@@ -26,20 +25,7 @@ async function resolveCurrentMadrasaId(): Promise<{ madrasaId: string | null; us
     console.warn("Auth check in resolveCurrentMadrasaId:", err);
   }
 
-  // Fallback to active/primary madrasa if auth check is unlinked or session is absent
-  if (!madrasaId) {
-    const { data: firstMadrasa } = await adminClient
-      .from("madrasas")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .single();
-
-    if (firstMadrasa?.id) {
-      madrasaId = firstMadrasa.id;
-    }
-  }
-
+  // P2-Fix: first-madrasa fallback সরানো — প্রতিটি caller-এ !madrasaId fail-closed আছে
   return { madrasaId, user };
 }
 

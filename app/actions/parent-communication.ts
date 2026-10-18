@@ -463,10 +463,7 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) {
       return { absentStudents: [], totalStudents: 0, presentCount: 0, absentCount: 0, madrasaName: "মাদরাসা" };
@@ -684,10 +681,7 @@ export async function getAbsenceAlertSettings(): Promise<AbsenceAlertSettings> {
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) return DEFAULT_ABSENCE_SETTINGS;
 
@@ -726,10 +720,7 @@ export async function saveAbsenceAlertSettings(settings: Partial<AbsenceAlertSet
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
 
@@ -824,10 +815,7 @@ export async function getFeeAlertStudentsData(classFilter?: string, customBaseUr
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) {
       return { feeStudents: [], totalDueOverall: 0, madrasaName: "মাদরাসা", detectedBaseUrl: "" };

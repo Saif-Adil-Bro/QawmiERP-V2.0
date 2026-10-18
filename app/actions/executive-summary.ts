@@ -125,15 +125,20 @@ export async function getMonthlyExecutiveSummary(
   const monthStartDate = `${currentMonth}-01`;
   const monthEndDate = `${currentMonth}-${String(lastDayOfMonth).padStart(2, "0")}`;
 
-  let madrasaId = "25f5b85c-4b75-4255-846d-f5f84a61608c";
+  // P2-Fix: hardcoded UUID সরানো — শুধুই লগইন-করা user-এর নিজের মাদরাসা।
+  // resolve না হলে fail-closed: অন্য কোনো মাদরাসার ডেটা দেওয়া হবে না।
   const adminClient = await createAdminClient();
+  let madrasaId: string | null = null;
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    const resolvedId = await getAuthMadrasaId(supabase, user);
-    if (resolvedId) madrasaId = resolvedId;
+    if (user?.id) madrasaId = (await getAuthMadrasaId(supabase, user)) || null;
   } catch {
-    // Graceful fallback if called outside cookie scope
+    // outside cookie scope — নিচে fail-closed
+  }
+
+  if (!madrasaId) {
+    throw new Error("মাদরাসা আইডি পাওয়া যায়নি — লগইন সেশনটি যাচাই করে আবার চেষ্টা করুন।");
   }
 
   // 1. Concurrently fetch all metadata and authoritative collections

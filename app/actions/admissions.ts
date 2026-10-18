@@ -1,5 +1,6 @@
 "use server";
 
+import { getDefaultMadrasaId } from "@/lib/madrasa-default";
 import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -95,13 +96,8 @@ export async function getAdmissionById(identifier: string) {
       madrasaId = await getAuthMadrasaId(supabase, user);
     }
     if (!madrasaId) {
-      const { data: firstMadrasa } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .single();
-      madrasaId = firstMadrasa?.id || "default_madrasa_id";
+      // P2-Fix: first-madrasa fallback → central default (DEFAULT_MADRASA_ID env → সবচেয়ে পুরোনো)
+      madrasaId = await getDefaultMadrasaId();
     }
 
     const safeMadrasaId = madrasaId || "default_madrasa_id";

@@ -1,4 +1,5 @@
-import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
+import { getDefaultMadrasaId } from "@/lib/madrasa-default";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { getMadrasaMetadata } from "@/lib/sessions";
 import { PaymentGatewayConfig, DEFAULT_GATEWAY_CONFIG } from "@/lib/payment-gateway";
@@ -21,9 +22,8 @@ export async function resolveGatewayMadrasaId(): Promise<string | null> {
     const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
     if (madrasaId) return madrasaId;
 
-    const adminClient = await createAdminClient();
-    const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-    return firstM?.id || null;
+    // P2-Fix: first-madrasa fallback → central default (DEFAULT_MADRASA_ID env → সবচেয়ে পুরোনো)
+    return await getDefaultMadrasaId();
   } catch {
     return null;
   }

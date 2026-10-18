@@ -67,10 +67,7 @@ export async function getTeachersForClassAssignment(): Promise<AvailableTeacher[
       console.warn("Could not get user madrasa:", e);
     }
 
-    if (!madrasaId) {
-      const { data: anyMadrasa } = await adminClient.from("madrasas").select("id").limit(1).single();
-      madrasaId = anyMadrasa?.id || "";
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     const teachersList: AvailableTeacher[] = [];
     const seenIds = new Set<string>();
@@ -140,10 +137,8 @@ export async function getClasses(): Promise<EnrichedClassItem[]> {
       console.warn("Could not get user madrasa:", e);
     }
 
-    if (!madrasaId) {
-      const { data: anyMadrasa } = await adminClient.from("madrasas").select("id").limit(1).single();
-      madrasaId = anyMadrasa?.id || "";
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
+    if (!madrasaId) return [];
 
     let rawData: any[] = [];
     const { data: userData, error: userError } = await supabase
@@ -284,10 +279,7 @@ export async function createClass(prevState: any, formData: FormData) {
       console.warn("Could not get user madrasa:", e);
     }
 
-    if (!madrasaId) {
-      const { data: anyMadrasa } = await adminClient.from("madrasas").select("id").limit(1).single();
-      madrasaId = anyMadrasa?.id || "";
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) {
       return { error: "কোনো মাদরাসা খুঁজে পাওয়া যায়নি।" };

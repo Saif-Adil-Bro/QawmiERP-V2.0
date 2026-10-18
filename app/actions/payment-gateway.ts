@@ -1,5 +1,6 @@
 "use server";
 
+import { getDefaultMadrasaId } from "@/lib/madrasa-default";
 import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -26,21 +27,16 @@ import {
 import { FeePayment, PaymentAllocation } from "@/lib/fee-management";
 
 export async function getSafeMadrasaId(): Promise<string | null> {
+  // P2-Fix: fake placeholder UUID + first-madrasa fallback সরানো হয়েছে —
+  // user-এর মাদরাসা → central default (DEFAULT_MADRASA_ID env → সবচেয়ে পুরোনো) → null
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+    const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
     if (madrasaId) return madrasaId;
-
-    const adminClient = await createAdminClient();
-    const { data: firstM } = await adminClient
-      .from("madrasas")
-      .select("id")
-      .limit(1)
-      .single();
-    return firstM?.id || "00000000-0000-0000-0000-000000000001";
+    return await getDefaultMadrasaId();
   } catch {
-    return "00000000-0000-0000-0000-000000000001";
+    return null;
   }
 }
 
@@ -585,16 +581,7 @@ export async function getOnlinePaymentHistory(limit: number = 50) {
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const adminClient = await createAdminClient();
-      const { data: firstM } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .limit(1)
-        .single();
-      madrasaId = firstM?.id || null;
-    }
-
+    // P2-Fix: first-madrasa fallback সরানো — user-এর মাদরাসা নেই → খালি তালিকা (fail-closed)
     if (!madrasaId) return [];
 
     const meta = await getMadrasaMetadata(madrasaId);
