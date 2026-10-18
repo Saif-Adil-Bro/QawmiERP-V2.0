@@ -149,10 +149,13 @@ export async function getClasses(): Promise<EnrichedClassItem[]> {
     if (!userError && userData && userData.length > 0) {
       rawData = userData;
     } else {
+      // ⛔ P2-Fix: admin fallback আগে সব মাদরাসার class আনত — এখন নিজের
+      // মাদরাসা-scoped (legacy null madrasa_id row-গুলো রক্ষা করা হলো)
       const { data: adminData } = await adminClient
         .from("classes")
         .select("*")
-        .order("name");
+        .order("name")
+        .or(`madrasa_id.eq.${madrasaId},madrasa_id.is.null`);
       rawData = adminData || [];
     }
 

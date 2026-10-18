@@ -128,7 +128,7 @@ export async function initiateOnlinePayment(params: {
     // 1. Fetch Student Info
     const { data: student, error: stdErr } = await adminClient
       .from("students")
-      .select("id, madrasa_id, first_name, last_name, roll_number, class_name, classes(name)")
+      .select("id, madrasa_id, first_name, last_name, roll_number, class_name, parent_phone, classes(name)")
       .eq("id", params.student_id)
       .single();
 
@@ -274,6 +274,19 @@ export async function initiateOnlinePayment(params: {
       };
     }
 
+    // ⛔ P2-Fix: cus_phone-এ dummy "01700000000" আর যাবে না।
+    // আগে `guardian_phone`/`phone` কলাম-এর নাম ভুল ছিল (students-এ আসল কলাম
+    // `parent_phone`) — ফলে সব অটোমেটেড পেমেন্ট dummy নম্বরে চলে যেত।
+    const cusPhone =
+      String(params.payer_phone || "").replace(/[\s-]/g, "") ||
+      String((student as any)?.parent_phone || "").replace(/[\s-]/g, "");
+    if (!/^01[3-9]\d{8}$/.test(cusPhone)) {
+      return {
+        error:
+          "পেমেন্ট শুরু করা যায়নি — শিক্ষার্থীর প্রোফাইলে বৈধ মোবাইল নম্বর (01XXXXXXXXX) নেই। প্রথমে ফোন নম্বর আপডেট করুন।",
+      };
+    }
+
     // Call Real Gateway Provider API
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://qawmimanager.app";
     const sessionRes = await createRealGatewaySession(
@@ -281,7 +294,7 @@ export async function initiateOnlinePayment(params: {
         tran_id: transactionId,
         amount: totalPayable,
         cus_name: studentName,
-        cus_phone: params.payer_phone || (student as any)?.guardian_phone || (student as any)?.phone || "01700000000",
+        cus_phone: cusPhone,
         cus_email: "student_fee@madrasa.internal",
         product_name: `Student Fee - ${studentName}`,
         product_category: "Education",

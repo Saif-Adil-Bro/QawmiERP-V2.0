@@ -215,6 +215,26 @@ export async function createParentFeedback(data: {
       return { error: "বিষয় এবং বিস্তারিত বিবরণ লেখা আবশ্যক" };
     }
 
+    // ⛔ P2-Fix: user-ভিত্তিক rate limit — ২৪ ঘণ্টায় সর্বোচ্চ ৫টি আবেদন।
+    // (আগে একই portal user টানা টানা আবেদন ঢালতে পারত, staff-এর feedback list ভরে যেত)
+    const dayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: recentFeedbackRows } = await adminClient
+      .from("fee_audit_logs")
+      .select("details")
+      .eq("madrasa_id", madrasaId)
+      .like("action", "PARENT_FEEDBACK%")
+      .gte("created_at", dayAgoIso);
+    let ownRecentCount = 0;
+    for (const row of recentFeedbackRows || []) {
+      try {
+        if (JSON.parse(row.details || "{}").created_by_user_id === user?.id) ownRecentCount++;
+      } catch {}
+      if (ownRecentCount >= 5) break;
+    }
+    if (ownRecentCount >= 5) {
+      return { error: "২৪ ঘণ্টায় সর্বোচ্চ ৫টি আবেদন জমা দেওয়া যাবে — পরে আবার চেষ্টা করুন।" };
+    }
+
     const typeMap: Record<string, string> = {
       COMPLAINT: "অভিযোগ",
       SUGGESTION: "পরামর্শ",

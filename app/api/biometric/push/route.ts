@@ -68,7 +68,12 @@ export async function POST(req: NextRequest) {
       try {
         const meta = JSON.parse(m.registration_no);
         const devices: BiometricDevice[] = meta.biometric_devices || [];
-        const found = devices.find((d) => d.secret_token === token || (body.device_sn && d.serial_number === body.device_sn));
+        // ⛔ P2-Fix: আগে `token OR serial` — serial device-এ ছাপা (গোপন নয়),
+        // তাই secret_token ছাড়াই যেকোনো device punch push করতে পারত।
+        // এখন secret_token আবশ্যক; device_sn দেওয়া থাকলে সেটিও মেলবে (additional check)।
+        const found = devices.find(
+          (d) => d.secret_token === token && (!body.device_sn || d.serial_number === body.device_sn)
+        );
         if (found) {
           matchedMadrasaId = m.id;
           matchedDevice = found;
