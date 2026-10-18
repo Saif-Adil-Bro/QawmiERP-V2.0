@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -52,7 +53,7 @@ function computeExamStatus(
       day: '2-digit' 
     }).format(new Date());
   } catch {
-    todayStr = new Date().toISOString().split('T')[0];
+    todayStr = toDhakaDateString();
   }
 
   const startStr = effectiveStartDate.split('T')[0];

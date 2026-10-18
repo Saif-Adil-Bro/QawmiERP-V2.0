@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -175,7 +176,7 @@ export async function getAllLeaveData() {
 
     leaveFeedbacks.forEach((fb: ParentFeedbackItem) => {
       if (!existingFeedbackIds.has(fb.id)) {
-        let startDate = fb.preferred_date || (fb.created_at ? fb.created_at.split("T")[0] : new Date().toISOString().split("T")[0]);
+        let startDate = fb.preferred_date || (fb.created_at ? toDhakaDateStringFrom(fb.created_at) : toDhakaDateString());
         let endDate = startDate;
         const reasonText = fb.description || "";
 
@@ -495,7 +496,7 @@ export async function reviewStudentLeaveRequest(payload: {
       const allParentFeedbacks = await getParentFeedbacks();
       const fb = allParentFeedbacks.find((f) => f.id === fbId);
       if (fb) {
-        let sd = fb.preferred_date || (fb.created_at ? fb.created_at.split("T")[0] : new Date().toISOString().split("T")[0]);
+        let sd = fb.preferred_date || (fb.created_at ? toDhakaDateStringFrom(fb.created_at) : toDhakaDateString());
         let ed = sd;
         const dateMatch = fb.description?.match(/(\d{4}-\d{2}-\d{2})\s*(?:হতে|থেকে|-|to)\s*(\d{4}-\d{2}-\d{2})/i);
         if (dateMatch) {

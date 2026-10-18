@@ -1,7 +1,7 @@
 import React from "react";
 import { notFound } from "next/navigation";
 import { getDonationById } from "@/app/actions/zakat";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import DonationReceipt from "@/components/zakat/DonationReceipt";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -35,7 +35,7 @@ export default async function DonationReceiptPage({
 
       <DonationReceipt
         donation={donation}
-        madrasaInfo={madrasaInfo}
+        madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
         showControls={true}
       />
     </div>

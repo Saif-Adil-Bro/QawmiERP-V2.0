@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -249,7 +250,7 @@ export async function getAnnualAuditStatement(
 
     // Prior fee payments from relational fee tables
     feePayments.forEach((p: any) => {
-      const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+      const pDate = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
       if (pDate && pDate < startDate) {
         if (p.allocations && p.allocations.length > 0) {
           let allocatedSum = 0;
@@ -313,7 +314,7 @@ export async function getAnnualAuditStatement(
 
     // Prior Subscriptions
     (meta.donor_subscription_payments || []).forEach((sp: any) => {
-      const d = sp.payment_date || sp.date || (sp.created_at ? sp.created_at.split("T")[0] : "");
+      const d = sp.payment_date || sp.date || (sp.created_at ? toDhakaDateStringFrom(sp.created_at) : "");
       const k = sp.id || sp.receipt_no;
       if (d && d < startDate && !priorDonationKeys.has(k)) {
         const amt = Number(sp.amount || 0);
@@ -327,7 +328,7 @@ export async function getAnnualAuditStatement(
 
     // Prior Donation Boxes
     (meta.donation_box_logs || []).forEach((bl: any) => {
-      const d = bl.collection_date || bl.date || (bl.created_at ? bl.created_at.split("T")[0] : "");
+      const d = bl.collection_date || bl.date || (bl.created_at ? toDhakaDateStringFrom(bl.created_at) : "");
       const k = bl.receipt_no || bl.id;
       if (d && d < startDate && !priorDonationKeys.has(k)) {
         const amt = Number(bl.amount || 0);
@@ -342,7 +343,7 @@ export async function getAnnualAuditStatement(
     // Prior Online Donations
     (meta.online_donations || []).forEach((od: any) => {
       if (od.status === "COMPLETED" || od.status === "VERIFIED" || od.status === "SUCCESS") {
-        const dt = od.payment_date || (od.created_at ? od.created_at.split("T")[0] : "");
+        const dt = od.payment_date || (od.created_at ? toDhakaDateStringFrom(od.created_at) : "");
         const k = od.receipt_no || od.transaction_id || od.id;
         if (dt && dt < startDate && !priorDonationKeys.has(k)) {
           const amt = Number(od.amount || 0);
@@ -357,7 +358,7 @@ export async function getAnnualAuditStatement(
 
     // Prior Qurbani Leather
     (meta.qurbani_leather_records || meta.leather_batches || []).forEach((lr: any) => {
-      const d = lr.collection_date || lr.sale_date || lr.date || (lr.created_at ? lr.created_at.split("T")[0] : "");
+      const d = lr.collection_date || lr.sale_date || lr.date || (lr.created_at ? toDhakaDateStringFrom(lr.created_at) : "");
       const k = lr.receipt_no || lr.id;
       if (d && d < startDate && !priorDonationKeys.has(k)) {
         const inc = Number(lr.received_amount || lr.total_sale_price || lr.total_sale_amount || 0);
@@ -427,7 +428,7 @@ export async function getAnnualAuditStatement(
 
   const isDateInRange = (dStr?: string): boolean => {
     if (!dStr) return false;
-    const cleanDate = dStr.includes("T") ? dStr.split("T")[0] : dStr.trim();
+    const cleanDate = dStr.includes("T") ? toDhakaDateStringFrom(dStr) : dStr.trim();
     return cleanDate >= startDate && cleanDate <= endDate;
   };
 
@@ -442,7 +443,7 @@ export async function getAnnualAuditStatement(
 
   // Process Fees from Relational Tables
   feePayments.forEach((p: any) => {
-    const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+    const pDate = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
     if (pDate && pDate >= startDate && pDate <= endDate) {
       if (p.allocations && p.allocations.length > 0) {
         let allocatedSum = 0;
@@ -577,7 +578,7 @@ export async function getAnnualAuditStatement(
 
   // Process Donor Subscriptions from Metadata
   (meta.donor_subscription_payments || []).forEach((p: any) => {
-    const d = p.payment_date || p.date || (p.created_at ? p.created_at.split("T")[0] : "");
+    const d = p.payment_date || p.date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
     const pKey = p.id || p.receipt_no;
     if (isDateInRange(d) && !trackedDonationKeys.has(pKey)) {
       const amt = Number(p.amount || 0);
@@ -592,7 +593,7 @@ export async function getAnnualAuditStatement(
 
   // Process Donation Box Collections from Metadata
   (meta.donation_box_logs || []).forEach((l: any) => {
-    const d = l.collection_date || l.date || (l.created_at ? l.created_at.split("T")[0] : "");
+    const d = l.collection_date || l.date || (l.created_at ? toDhakaDateStringFrom(l.created_at) : "");
     const lKey = l.receipt_no || l.id;
     if (isDateInRange(d) && !trackedDonationKeys.has(lKey)) {
       const amt = Number(l.amount || 0);
@@ -607,7 +608,7 @@ export async function getAnnualAuditStatement(
   // Process Online Donations from Metadata
   (meta.online_donations || []).forEach((od: any) => {
     if (od.status === "COMPLETED" || od.status === "VERIFIED" || od.status === "SUCCESS") {
-      const dt = od.payment_date || (od.created_at ? od.created_at.split("T")[0] : "");
+      const dt = od.payment_date || (od.created_at ? toDhakaDateStringFrom(od.created_at) : "");
       const dKey = od.receipt_no || od.transaction_id || od.id;
       if (isDateInRange(dt) && !trackedDonationKeys.has(dKey)) {
         const amt = Number(od.amount || 0);
@@ -622,7 +623,7 @@ export async function getAnnualAuditStatement(
 
   // Process Qurbani Leather Records from Metadata
   (meta.qurbani_leather_records || meta.leather_batches || []).forEach((lr: any) => {
-    const d = lr.collection_date || lr.sale_date || lr.date || (lr.created_at ? lr.created_at.split("T")[0] : "");
+    const d = lr.collection_date || lr.sale_date || lr.date || (lr.created_at ? toDhakaDateStringFrom(lr.created_at) : "");
     const rKey = lr.receipt_no || lr.id;
     if (isDateInRange(d) && !trackedDonationKeys.has(rKey)) {
       const inc = Number(lr.received_amount || lr.total_sale_price || lr.total_sale_amount || 0);

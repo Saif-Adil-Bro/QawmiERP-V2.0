@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState } from "react";
 import { BookDown, Search, CheckCircle, Calendar, AlertTriangle, User } from "lucide-react";
 import { returnBook } from "@/app/actions/library";
@@ -50,7 +51,7 @@ export default function ReturnClient({ initialIssues }: ReturnClientProps) {
               ? {
                   ...item,
                   status: "Returned",
-                  return_date: new Date().toISOString().split("T")[0],
+                  return_date: toDhakaDateString(),
                 }
               : item
           )
@@ -63,7 +64,7 @@ export default function ReturnClient({ initialIssues }: ReturnClientProps) {
     }
   };
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDhakaDateString();
 
   // Currently issued books (Pending return)
   const pendingIssues = issues.filter(issue => issue.status === "Issued");

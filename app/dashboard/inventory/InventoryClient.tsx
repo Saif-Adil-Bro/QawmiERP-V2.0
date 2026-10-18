@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState } from "react";
 import Link from "next/link";
 import {
@@ -85,7 +86,7 @@ export default function InventoryClient({
     category_name: "বোর্ডিং ও ছাত্রাবাস (খাট-তোশক)",
     total_qty: 1,
     condition: "GOOD" as any,
-    purchase_date: new Date().toISOString().split("T")[0],
+    purchase_date: toDhakaDateString(),
     purchase_price_per_unit: 0,
     vendor_or_donor: "",
     voucher_no: "",
@@ -103,7 +104,7 @@ export default function InventoryClient({
 
   const [maintenanceFormData, setMaintenanceFormData] = useState({
     asset_id: "",
-    maintenance_date: new Date().toISOString().split("T")[0],
+    maintenance_date: toDhakaDateString(),
     issue_description: "",
     work_done: "",
     cost: 0,
@@ -375,7 +376,7 @@ export default function InventoryClient({
   const openMaintenanceForItem = (item: AssetItem) => {
     setMaintenanceFormData({
       asset_id: item.id,
-      maintenance_date: new Date().toISOString().split("T")[0],
+      maintenance_date: toDhakaDateString(),
       issue_description: "",
       work_done: "",
       cost: 0,
@@ -463,7 +464,7 @@ export default function InventoryClient({
                 category_name: "বোর্ডিং ও ছাত্রাবাস (খাট-তোশক)",
                 total_qty: 1,
                 condition: "GOOD",
-                purchase_date: new Date().toISOString().split("T")[0],
+                purchase_date: toDhakaDateString(),
                 purchase_price_per_unit: 0,
                 vendor_or_donor: "",
                 voucher_no: "",
@@ -626,7 +627,7 @@ export default function InventoryClient({
                   if (items.length > 0) {
                     setMaintenanceFormData({
                       asset_id: items[0].id,
-                      maintenance_date: new Date().toISOString().split("T")[0],
+                      maintenance_date: toDhakaDateString(),
                       issue_description: "",
                       work_done: "",
                       cost: 0,

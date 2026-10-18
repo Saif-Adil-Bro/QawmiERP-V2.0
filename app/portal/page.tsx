@@ -1,3 +1,4 @@
+import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import { createClient } from "@/lib/supabase/server";
 import {
   GraduationCap,
@@ -116,7 +117,7 @@ export default async function PortalOverview(props: {
         if (
           p.payment_date &&
           sf.payment_date &&
-          p.payment_date.split("T")[0] === sf.payment_date.split("T")[0] &&
+          toDhakaDateStringFrom(p.payment_date) === toDhakaDateStringFrom(sf.payment_date) &&
           Math.abs((Number(p.total_amount_received) || 0) - sfAmount) < 0.01
         ) {
           return true;
@@ -163,7 +164,7 @@ export default async function PortalOverview(props: {
 
   // Fetch daily assignments for this child
   const childAssignments = await getStudentAssignments(child.id, child.class_id);
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDhakaDateString();
   const todayAssignments = childAssignments.filter(
     (a) => a.type === "TODAY_LESSON" || a.assigned_date === todayStr
   );

@@ -1,3 +1,4 @@
+import { toDhakaDateString } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import {
   GraduationCap,
@@ -80,7 +81,7 @@ export default async function TeacherPortalOverview() {
     }
   }
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDhakaDateString();
 
   const [classesRes, studentsRes, todayAttendanceRes, todayHifzRes, noticesRes, earlyWarningData, teacherSchedule] = await Promise.all([
     adminClient.from("classes").select("id, name").eq("madrasa_id", madrasaId),

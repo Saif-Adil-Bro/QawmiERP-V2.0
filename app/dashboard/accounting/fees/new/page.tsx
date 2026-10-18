@@ -1,5 +1,5 @@
 import { getStudents } from "@/app/actions/students";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFunds } from "@/app/actions/zakat";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -34,7 +34,7 @@ export default async function NewFeePage(props: {
 
       <CollectPaymentClient
         students={students || []}
-        madrasaInfo={madrasaInfo}
+        madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
         funds={funds || []}
         preselectedStudentId={params?.student_id}
       />

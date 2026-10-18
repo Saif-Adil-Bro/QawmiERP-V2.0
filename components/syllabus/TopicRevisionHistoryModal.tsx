@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { X, RotateCcw, Calendar, User, Clock, CheckCircle2, Star } from "lucide-react";
 import { SyllabusTopic } from "@/lib/syllabus";
 
@@ -20,7 +21,7 @@ export default function TopicRevisionHistoryModal({
 }: Props) {
   if (!isOpen || !topic) return null;
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDhakaDateString();
   const lastRevDate = topic.last_revised_date || topic.initial_completed_date;
   let gapDays = 0;
   if (lastRevDate) {

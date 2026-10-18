@@ -1,6 +1,6 @@
 import React from "react";
 import { getZakatReportStats, getFunds, getDonors, getDonations } from "@/app/actions/zakat";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import ZakatNav from "@/components/zakat/ZakatNav";
 import ReportsClient from "./ReportsClient";
 
@@ -21,7 +21,7 @@ export default async function ZakatReportsPage() {
         funds={funds}
         donors={donors}
         donations={donations}
-        madrasaInfo={madrasaInfo}
+        madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
       />
     </div>
   );

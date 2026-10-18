@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -119,7 +120,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   const [settlementAmount, setSettlementAmount] = useState<number>(0);
   const [settlementFundId, setSettlementFundId] = useState<string>("fund-general");
   const [settlementFundName, setSettlementFundName] = useState<string>("সাধারণ ফান্ড (General Fund)");
-  const [settlementDate, setSettlementDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [settlementDate, setSettlementDate] = useState<string>(toDhakaDateString());
   const [settlementPaymentMethod, setSettlementPaymentMethod] = useState<"Cash" | "bKash" | "Nagad" | "Bank" | "Other">("Cash");
   const [settlementNotes, setSettlementNotes] = useState<string>("");
   const [availableFunds, setAvailableFunds] = useState<Array<{ id: string; name: string; category?: string; current_balance?: number }>>([]);
@@ -409,7 +410,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           issued_to_phone: "",
           issued_to_jamath: "",
           issued_to_area: "",
-          issued_date: new Date().toISOString().split("T")[0],
+          issued_date: toDhakaDateString(),
           used_pages: used,
           total_collected: Number(bk.total_collected || 0),
         });
@@ -423,7 +424,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
           returned_pages: 0,
           total_collected: rem > 0 && bk.rate_per_page ? rem * bk.rate_per_page : 0,
           is_deposited: true,
-          return_date: new Date().toISOString().split("T")[0],
+          return_date: toDhakaDateString(),
           status: rem <= 0 ? "RETURNED" : "IN_STOCK",
         });
       } else {
@@ -470,7 +471,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             issued_to_phone: "",
             issued_to_jamath: "",
             issued_to_area: "",
-            issued_date: new Date().toISOString().split("T")[0],
+            issued_date: toDhakaDateString(),
             used_pages: used,
             total_collected: Number(firstInStock.total_collected || 0),
           });
@@ -487,7 +488,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             status: "ISSUED",
             issued_to_name: "",
             issued_to_type: "উস্তাদ",
-            issued_date: new Date().toISOString().split("T")[0],
+            issued_date: toDhakaDateString(),
           });
         }
       } else if (mode === "deposit") {
@@ -506,7 +507,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             returned_pages: 0,
             total_collected: remSoFar > 0 && firstIssued.rate_per_page ? remSoFar * firstIssued.rate_per_page : 0,
             is_deposited: true,
-            return_date: new Date().toISOString().split("T")[0],
+            return_date: toDhakaDateString(),
             status: remSoFar <= 0 ? "RETURNED" : "IN_STOCK",
           });
         } else {
@@ -516,7 +517,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
             returned_pages: 0,
             total_collected: 0,
             is_deposited: true,
-            return_date: new Date().toISOString().split("T")[0],
+            return_date: toDhakaDateString(),
             status: "IN_STOCK",
           });
         }
@@ -615,7 +616,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       // Log into deposit history
       const depositRecord = {
         id: `dep_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        date: editingBook.return_date || new Date().toISOString().split("T")[0],
+        date: editingBook.return_date || toDhakaDateString(),
         collector_name: (editingBook.issued_to_name || existingBook?.issued_to_name || "সংগ্রাহক").trim(),
         collector_type: editingBook.issued_to_type || existingBook?.issued_to_type || "উস্তাদ",
         collector_phone: editingBook.issued_to_phone || existingBook?.issued_to_phone || "",
@@ -683,11 +684,11 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       issued_to_phone: editingBook.issued_to_phone || existingBook?.issued_to_phone || "",
       issued_to_jamath: editingBook.issued_to_jamath || existingBook?.issued_to_jamath || "",
       issued_to_area: editingBook.issued_to_area || existingBook?.issued_to_area || "",
-      issued_date: editingBook.issued_date || (finalIsDistributed ? new Date().toISOString().split("T")[0] : (existingBook?.issued_date || "")),
+      issued_date: editingBook.issued_date || (finalIsDistributed ? toDhakaDateString() : (existingBook?.issued_date || "")),
       distributed_pages: finalDistributedPages,
       issued_by: editingBook.issued_by || existingBook?.issued_by || "",
       is_deposited: finalTotalCollected > 0 || bookModalMode === "deposit" || existingBook?.is_deposited,
-      return_date: editingBook.return_date || (bookModalMode === "deposit" ? new Date().toISOString().split("T")[0] : (existingBook?.return_date || "")),
+      return_date: editingBook.return_date || (bookModalMode === "deposit" ? toDhakaDateString() : (existingBook?.return_date || "")),
       used_pages: finalUsedPages,
       returned_pages: finalReturnedPages,
       remaining_pages: finalRemainingPages,
@@ -863,7 +864,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
         category: type === "INCOME" ? "মঞ্চের প্রকাশ্য দান" : "বক্তা হাদিয়া",
         amount: 5000,
         description: "",
-        date: new Date().toISOString().split("T")[0],
+        date: toDhakaDateString(),
         receipt_no: `MHF-${Date.now().toString().slice(-4)}`,
         paid_to_or_received_from: "",
         payment_method: "Cash",
@@ -949,7 +950,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
 
     setSettlementMode(determinedMode);
     setSettlementAmount(defaultAmt);
-    setSettlementDate(new Date().toISOString().split("T")[0]);
+    setSettlementDate(toDhakaDateString());
     setSettlementPaymentMethod("Cash");
     setSettlementNotes("");
 
@@ -3061,7 +3062,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                                 is_deposited: true,
                                 remaining_pages: rem,
                                 current_page_from: startPage,
-                                return_date: new Date().toISOString().split("T")[0],
+                                return_date: toDhakaDateString(),
                                 status: rem <= 0 ? "RETURNED" : "IN_STOCK",
                               }));
                             }

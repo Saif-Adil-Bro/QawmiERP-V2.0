@@ -58,12 +58,8 @@ export async function assignSubjectToClass(classId: string, subjectId: string) {
     }
 
     if (!madrasaId) {
-      const { data: anyMadrasa } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .limit(1)
-        .single();
-      madrasaId = anyMadrasa?.id;
+      // P2-Fix: first-madrasa fallback সরানো — tenant resolve না হলে fail-closed
+      return { error: "মাদরাসা পাওয়া যায়নি।" };
     }
 
     // 2. Check if already assigned

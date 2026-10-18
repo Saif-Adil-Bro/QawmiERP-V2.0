@@ -1,5 +1,7 @@
 "use server";
 
+import { getDefaultMadrasaId } from "@/lib/madrasa-default";
+import { toDhakaDateStringFrom, toDhakaDateString, toDhakaMonthString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -175,8 +177,8 @@ export async function saveMahfil(data: Partial<Mahfil>) {
         title: data.title || "বার্ষিক ইসলামী মহাসম্মেলন",
         year: data.year || "২০২৬-২৭",
         hijri_year: data.hijri_year || "১৪৪৭-৪৮",
-        start_date: data.start_date || new Date().toISOString().split("T")[0],
-        end_date: data.end_date || data.start_date || new Date().toISOString().split("T")[0],
+        start_date: data.start_date || toDhakaDateString(),
+        end_date: data.end_date || data.start_date || toDhakaDateString(),
         venue: data.venue || "মাদ্রাসা প্রাঙ্গণ",
         president: data.president || "",
         host: data.host || "",
@@ -398,8 +400,8 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
         madrasa_id: activeMadrasaId,
         title: "বার্ষিক ইসলামি মহাসম্মেলন",
         year: new Date().getFullYear().toString(),
-        start_date: new Date().toISOString().split("T")[0],
-        end_date: new Date().toISOString().split("T")[0],
+        start_date: toDhakaDateString(),
+        end_date: toDhakaDateString(),
         venue: "মাদ্রাসা ময়দান",
         status: "UPCOMING",
         speakers: [],
@@ -512,7 +514,7 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
         issued_to_phone: book.issued_to_phone !== undefined ? book.issued_to_phone : (prevBook.issued_to_phone || ""),
         issued_to_jamath: book.issued_to_jamath !== undefined ? book.issued_to_jamath : (prevBook.issued_to_jamath || ""),
         issued_to_area: book.issued_to_area !== undefined ? book.issued_to_area : (prevBook.issued_to_area || ""),
-        issued_date: book.issued_date || prevBook.issued_date || (isDistributed ? new Date().toISOString().split("T")[0] : ""),
+        issued_date: book.issued_date || prevBook.issued_date || (isDistributed ? toDhakaDateString() : ""),
         distributed_pages: distributedPages,
         issued_by: book.issued_by !== undefined ? book.issued_by : (prevBook.issued_by || ""),
         is_deposited: isDeposited,
@@ -548,7 +550,7 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
         issued_to_phone: book.issued_to_phone || "",
         issued_to_jamath: book.issued_to_jamath || "",
         issued_to_area: book.issued_to_area || "",
-        issued_date: book.issued_date || (isDistributed ? new Date().toISOString().split("T")[0] : ""),
+        issued_date: book.issued_date || (isDistributed ? toDhakaDateString() : ""),
         distributed_pages: distributedPages,
         issued_by: book.issued_by || "",
         is_deposited: isDeposited,
@@ -752,7 +754,7 @@ export async function saveMahfilTransaction(mahfilId: string, txn: Partial<Mahfi
         category: txn.category || "অন্যান্য",
         amount: Number(txn.amount || 0),
         description: txn.description || "",
-        date: txn.date || new Date().toISOString().split("T")[0],
+        date: txn.date || toDhakaDateString(),
         receipt_no: txn.receipt_no || "",
         paid_to_or_received_from: txn.paid_to_or_received_from || "",
         payment_method: txn.payment_method || "Cash",
@@ -899,7 +901,7 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
     const adminClient = await createAdminClient();
     const settlementId = `settle_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
     const now = new Date().toISOString();
-    const dateStr = payload.settlement_date || now.split("T")[0];
+    const dateStr = payload.settlement_date || toDhakaDateStringFrom(now);
     const amount = Number(payload.amount);
 
     if (!amount || amount <= 0) {
@@ -1318,7 +1320,7 @@ export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]
           preferred_fund: dbD.preferred_fund || "সাধারণ ফান্ড",
           collection_day: 10,
           payment_method: "Cash",
-          join_date: dbD.created_at ? dbD.created_at.split("T")[0] : new Date().toISOString().split("T")[0],
+          join_date: dbD.created_at ? toDhakaDateStringFrom(dbD.created_at) : toDhakaDateString(),
           status: "ACTIVE",
           notes: notesText,
           created_at: dbD.created_at || new Date().toISOString(),
@@ -1365,9 +1367,9 @@ export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]
             id: `dn_${dn.id}`,
             donor_id: donorId,
             donor_name: dObj?.name || dn.donors?.name || "দানকারী",
-            month: (dn.donation_date || dn.created_at || "").slice(0, 7) || new Date().toISOString().slice(0, 7),
+            month: (dn.donation_date || dn.created_at || "").slice(0, 7) || toDhakaMonthString(),
             amount: amt,
-            payment_date: dn.donation_date || (dn.created_at ? dn.created_at.split("T")[0] : ""),
+            payment_date: dn.donation_date || (dn.created_at ? toDhakaDateStringFrom(dn.created_at) : ""),
             payment_method: dn.payment_method || "Cash",
             receipt_no: dn.receipt_no || `REC-${dn.id.slice(0, 5)}`,
             fund_name: dn.donation_type || dn.fund_name || "সাধারণ ফান্ড",
@@ -1472,7 +1474,7 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
           preferred_fund: data.preferred_fund || "সাধারণ ফান্ড",
           collection_day: Number(data.collection_day || 10),
           payment_method: data.payment_method || "Cash",
-          join_date: data.join_date || data.joined_date || new Date().toISOString().split("T")[0],
+          join_date: data.join_date || data.joined_date || toDhakaDateString(),
           status: data.status || "ACTIVE",
           notes: data.notes || "",
           created_at: now,
@@ -1503,7 +1505,7 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
         collection_day: Number(data.collection_day || 10),
         payment_method: data.payment_method || "Cash",
         account_or_trx_no: data.account_or_trx_no || "",
-        join_date: data.join_date || data.joined_date || new Date().toISOString().split("T")[0],
+        join_date: data.join_date || data.joined_date || toDhakaDateString(),
         status: data.status || "ACTIVE",
         notes: data.notes || "",
         created_at: now,
@@ -1639,9 +1641,9 @@ export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubsc
       id: `dpay_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       donor_id: payment.donor_id || "",
       donor_name: payment.donor_name || "",
-      month: payment.month || new Date().toISOString().slice(0, 7),
+      month: payment.month || toDhakaMonthString(),
       amount: Number(payment.amount || 0),
-      payment_date: payment.payment_date || new Date().toISOString().split("T")[0],
+      payment_date: payment.payment_date || toDhakaDateString(),
       payment_method: payment.payment_method || "Cash",
       receipt_no: receiptNo,
       fund_name: payment.fund_name || "সাধারণ ফান্ড",
@@ -1706,17 +1708,11 @@ export async function getSafeMadrasaId(): Promise<string | null> {
     // Safe ignore if called in Route Handler or outside standard cookie context
   }
 
+  // P2-Fix: first-madrasa fallback → central default (DEFAULT_MADRASA_ID env → সবচেয়ে পুরোনো)
   try {
-    const adminClient = await createAdminClient();
-    const { data: firstM } = await adminClient
-      .from("madrasas")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    return firstM?.id || null;
+    return await getDefaultMadrasaId();
   } catch (err) {
-    console.error("Error finding fallback madrasa id:", err);
+    console.error("Error finding default madrasa id:", err);
     return null;
   }
 }
@@ -1738,7 +1734,7 @@ export async function getQurbaniLeatherRecords(): Promise<QurbaniLeatherRecord[]
       const rec = Number(r.received_amount !== undefined ? r.received_amount : (r.paid_amount !== undefined ? r.paid_amount : Math.max(0, gross - due)));
       const profit = Number(r.net_profit !== undefined ? r.net_profit : (gross - cost));
       const type = r.type || r.leather_type || "গরু";
-      const dt = r.sale_date || r.collection_date || r.date || r.created_at?.split("T")[0] || "";
+      const dt = r.sale_date || r.collection_date || r.date || toDhakaDateStringFrom(r.created_at) || "";
 
       return {
         ...r,
@@ -1832,7 +1828,7 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
     const netProfit = Number(data.net_profit !== undefined ? data.net_profit : (totalSale - transportCost));
     const type = data.type || (data.leather_type as any) || "গরু";
     const leatherType = data.leather_type || (data.type as any) || "COW";
-    const recordDate = data.sale_date || data.collection_date || (data as any).date || now.split("T")[0];
+    const recordDate = data.sale_date || data.collection_date || (data as any).date || toDhakaDateStringFrom(now);
     const targetFund = data.fund_name || data.target_fund || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
 
     let receiptNo = (data.receipt_no || "").trim();
@@ -2177,7 +2173,7 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
 
     const contactPerson = (data.contact_person || (data as any).responsible_person || "").trim();
     const phone = (data.phone || (data as any).responsible_phone || "").trim();
-    const installDate = data.install_date || (data as any).installation_date || now.split("T")[0];
+    const installDate = data.install_date || (data as any).installation_date || toDhakaDateStringFrom(now);
 
     // Compute next sequential box code if not provided
     let boxCode = (data.box_code || "").trim();
@@ -2405,7 +2401,7 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
     const logs: DonationBoxCollectionLog[] = meta.donation_box_logs || [];
 
     const amount = Number(log.amount || 0);
-    const colDate = log.collection_date || (log as any).date || new Date().toISOString().split("T")[0];
+    const colDate = log.collection_date || (log as any).date || toDhakaDateString();
     const witness = (log.witness_name || (log as any).witnesses || "মুহতামিম ও ক্যাশিয়ার").trim();
 
     const targetBox = boxes.find((b: DonationBox) => b.id === log.box_id);
@@ -2548,7 +2544,7 @@ export async function syncFundraisingCollectionsToDonations(madrasaId?: string) 
         const received = Number(lth.received_amount || lth.paid_amount || profit);
         const depositAmt = received > 0 ? received : (profit > 0 ? profit : gross);
         const targetFund = lth.fund_name || lth.target_fund || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
-        const recordDate = lth.sale_date || lth.collection_date || lth.date || (lth as any).created_at?.split("T")[0] || new Date().toISOString().split("T")[0];
+        const recordDate = lth.sale_date || lth.collection_date || lth.date || toDhakaDateStringFrom((lth as any).created_at) || toDhakaDateString();
         const buyer = (lth.buyer_name || "").trim() || "স্থানীয় চামড়া ব্যবসায়ী";
         const formattedNotes = `[কুরবানির চামড়া বিক্রয়] চালান: ${recNo}, চামড়া: ${lth.type || lth.leather_type || "গরু"} (${qty} পিস), দর: ৳${rate}, মোট বিক্রয়: ৳${gross}, লেবার/পরিবহন খরচ: ৳${cost}, ক্রেতা: ${buyer}${lth.buyer_phone ? ` (${lth.buyer_phone})` : ""}${lth.due_amount ? `, বকেয়া: ৳${lth.due_amount}` : ""}`;
 
@@ -2582,7 +2578,7 @@ export async function syncFundraisingCollectionsToDonations(madrasaId?: string) 
         const boxCode = log.box_code || targetBox?.box_code || "BOX";
         const locName = log.location_name || targetBox?.location_name || "";
         const targetFund = log.fund_name || targetBox?.fund_name || "সাধারণ ফান্ড (General Fund)";
-        const colDate = log.collection_date || log.date || (log as any).created_at?.split("T")[0] || new Date().toISOString().split("T")[0];
+        const colDate = log.collection_date || log.date || toDhakaDateStringFrom((log as any).created_at) || toDhakaDateString();
         const witness = (log.witness_name || log.witnesses || "মুহতামিম ও ক্যাশিয়ার").trim();
         const formattedNotes = `[দানবাক্স কালেকশন] বক্স: ${boxCode} (${locName}), দায়িত্বশীল: ${targetBox?.responsible_person || targetBox?.contact_person || ""}, স্বাক্ষী: ${witness}${log.notes ? `, মন্তব্য: ${log.notes}` : ""}`;
 
@@ -2773,7 +2769,7 @@ export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
       amount: Number(donation.amount || 0),
       payment_method: donation.payment_method || (isGateway ? "Online Gateway" : "bKash"),
       trx_id: (donation.trx_id || (isGateway ? `GW-${Date.now().toString().slice(-8)}` : "")).trim().toUpperCase(),
-      donation_date: donation.donation_date || nowIso.split("T")[0],
+      donation_date: donation.donation_date || toDhakaDateStringFrom(nowIso),
       receipt_no: receiptNo,
       status: isGateway ? "VERIFIED" : (donation.status || "PENDING"),
       is_gateway: isGateway,
@@ -2951,7 +2947,7 @@ export async function initiateOnlineDonationGateway(params: {
       payment_method: `${params.payment_channel} (Gateway)`,
       trx_id: transactionId,
       receipt_no: receiptNo,
-      donation_date: nowIso.split("T")[0],
+      donation_date: toDhakaDateStringFrom(nowIso),
       status: "PENDING",
       is_gateway: true,
       gateway_provider: config.active_provider,

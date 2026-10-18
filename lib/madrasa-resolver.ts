@@ -1,3 +1,4 @@
+import { getDefaultMadrasaId } from "@/lib/madrasa-default";
 import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAllMadrasasWithPrefixes } from "@/lib/madrasa-prefix-server";
 import { getAuthMadrasaId } from "@/app/actions/students";
@@ -151,10 +152,10 @@ export async function resolveMadrasaForAdmission(
       }
     } catch {}
 
-    // 3. Fallback: Prefer the madrasa that has registered classes or users
-    // "25f5b85c-4b75-4255-846d-f5f84a61608c" is the primary active madrasa ("আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা")
-    const primaryActiveId = "25f5b85c-4b75-4255-846d-f5f84a61608c";
-    let defaultMatch = allMadrasas.find((m) => m.id === primaryActiveId);
+    // 3. Fallback: P2-Fix — hardcoded UUID সরানো হয়েছে; ডিফল্ট মাদরাসা এখন
+    // DEFAULT_MADRASA_ID env → সবচেয়ে পুরোনো মাদরাসা (lib/madrasa-default.ts)
+    const defaultId = await getDefaultMadrasaId();
+    let defaultMatch = defaultId ? allMadrasas.find((m) => m.id === defaultId) : undefined;
 
     // If not found, use first available
     if (!defaultMatch && allMadrasas.length > 0) {

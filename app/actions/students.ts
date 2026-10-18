@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -101,6 +102,12 @@ export async function getClasses(targetMadrasaId?: string) {
         let adminQuery = adminClient.from("classes").select("*").order("name");
         if (targetMadrasaId) {
           adminQuery = adminQuery.eq("madrasa_id", targetMadrasaId);
+        } else if (scope.madrasaId) {
+          // ⛔ P2-Fix: explicit madrasa ছাড়া → নিজের মাদরাসা (legacy null row সহ)
+          adminQuery = adminQuery.or(`madrasa_id.eq.${scope.madrasaId},madrasa_id.is.null`);
+        } else {
+          // ⛔ P2-Fix: anonymous/unlinked caller → সব মাদরাসার class দেওয়া যাবে না (fail-closed)
+          return [];
         }
         if (!scope.isUnrestricted && scope.userRole === "teacher") {
           if (scope.allowedClassIds.length === 0) return [];
@@ -112,8 +119,13 @@ export async function getClasses(targetMadrasaId?: string) {
         }
 
         // If targetMadrasaId had no specific classes, fallback to any classes
+        // ⛔ P2-Fix: fallback-ও এখন সেই মাদরাসা-scoped (legacy null row সহ)
         if (targetMadrasaId) {
-          const { data: anyClasses } = await adminClient.from("classes").select("*").order("name");
+          const { data: anyClasses } = await adminClient
+            .from("classes")
+            .select("*")
+            .order("name")
+            .or(`madrasa_id.eq.${targetMadrasaId},madrasa_id.is.null`);
           if (anyClasses && anyClasses.length > 0) return anyClasses;
         }
         return [];
@@ -623,7 +635,7 @@ export async function createStudent(prevState: any, formData: FormData) {
           class_id: classId,
           roll_number: rollNumber,
           status: "ACTIVE",
-          enrollment_date: new Date().toISOString().split("T")[0],
+          enrollment_date: toDhakaDateString(),
           created_at: new Date().toISOString(),
         });
         meta.enrollments = enrollments;
@@ -898,7 +910,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
             class_name: className,
             roll_number: rollNumber,
             status: enrollmentStatus,
-            enrollment_date: new Date().toISOString().split("T")[0],
+            enrollment_date: toDhakaDateString(),
             created_at: new Date().toISOString(),
           });
         }

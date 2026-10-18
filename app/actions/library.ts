@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -215,7 +216,7 @@ export async function issueBook(prevState: any, formData: FormData) {
     madrasa_id: madrasaId,
     book_id: bookId,
     student_id: studentId,
-    issue_date: issueDateStr || new Date().toISOString().split("T")[0],
+    issue_date: issueDateStr || toDhakaDateString(),
     due_date: dueDateStr || null,
     status: "Issued",
   });
@@ -269,7 +270,7 @@ export async function returnBook(issueId: string) {
     .from("book_issues")
     .update({
       status: "Returned",
-      return_date: new Date().toISOString().split("T")[0],
+      return_date: toDhakaDateString(),
     })
     .eq("id", issueId);
 

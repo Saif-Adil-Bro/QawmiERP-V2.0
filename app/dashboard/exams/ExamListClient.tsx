@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import { useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -64,11 +65,11 @@ function getDynamicStatusInfo(startDate: string, endDate: string) {
       day: "2-digit",
     }).format(new Date());
   } catch {
-    todayStr = new Date().toISOString().split("T")[0];
+    todayStr = toDhakaDateString();
   }
 
-  const sStr = startDate.split("T")[0];
-  const eStr = endDate ? endDate.split("T")[0] : sStr;
+  const sStr = toDhakaDateStringFrom(startDate);
+  const eStr = endDate ? toDhakaDateStringFrom(endDate) : sStr;
 
   if (todayStr < sStr) {
     return {
@@ -144,8 +145,8 @@ export default function ExamListClient({ initialExams }: { initialExams: ExamIte
     setEditingExam(exam);
     setEditTitle(exam.title);
     setEditYear(exam.year);
-    setEditStartDate(exam.start_date ? exam.start_date.split("T")[0] : "");
-    setEditEndDate(exam.end_date ? exam.end_date.split("T")[0] : "");
+    setEditStartDate(exam.start_date ? toDhakaDateStringFrom(exam.start_date) : "");
+    setEditEndDate(exam.end_date ? toDhakaDateStringFrom(exam.end_date) : "");
     const presetTitles = [
       "ছামাহি (Quarterly)",
       "শশমাহি (Half-Yearly)",

@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createExpense, ExpenseActionState } from "@/app/actions/accounting";
 import { getFunds } from "@/app/actions/zakat";
@@ -65,7 +66,7 @@ export default function AddExpenseForm() {
       setSimpleDescription("");
       const dateInput = formRef.current?.elements.namedItem('expense_date') as HTMLInputElement;
       if (dateInput) {
-        dateInput.value = new Date().toISOString().split('T')[0];
+        dateInput.value = toDhakaDateString();
       }
     }
   }, [state]);
@@ -193,7 +194,7 @@ export default function AddExpenseForm() {
                 type="date"
                 id="expense_date"
                 name="expense_date"
-                defaultValue={new Date().toISOString().split('T')[0]}
+                defaultValue={toDhakaDateString()}
                 required
                 className="w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition font-medium text-sm"
               />

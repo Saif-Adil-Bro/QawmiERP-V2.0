@@ -1,3 +1,4 @@
+import { toDhakaDateString } from "@/lib/date-utils";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
@@ -67,7 +68,12 @@ export async function POST(req: NextRequest) {
       try {
         const meta = JSON.parse(m.registration_no);
         const devices: BiometricDevice[] = meta.biometric_devices || [];
-        const found = devices.find((d) => d.secret_token === token || (body.device_sn && d.serial_number === body.device_sn));
+        // ⛔ P2-Fix: আগে `token OR serial` — serial device-এ ছাপা (গোপন নয়),
+        // তাই secret_token ছাড়াই যেকোনো device punch push করতে পারত।
+        // এখন secret_token আবশ্যক; device_sn দেওয়া থাকলে সেটিও মেলবে (additional check)।
+        const found = devices.find(
+          (d) => d.secret_token === token && (!body.device_sn || d.serial_number === body.device_sn)
+        );
         if (found) {
           matchedMadrasaId = m.id;
           matchedDevice = found;
@@ -128,7 +134,7 @@ export async function POST(req: NextRequest) {
 
       const dateObj = p.timestamp ? new Date(p.timestamp) : new Date();
       const validDate = isNaN(dateObj.getTime()) ? new Date() : dateObj;
-      const dateStr = validDate.toISOString().split("T")[0];
+      const dateStr = toDhakaDateString(validDate);
       const isoTime = validDate.toISOString();
 
       const mapped = mappingMap.get(userId);

@@ -1,5 +1,7 @@
 "use server";
 
+import { getDefaultMadrasaId } from "@/lib/madrasa-default";
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getClasses, getNextClassRoll } from "@/app/actions/students";
@@ -94,13 +96,8 @@ export async function getAdmissionById(identifier: string) {
       madrasaId = await getAuthMadrasaId(supabase, user);
     }
     if (!madrasaId) {
-      const { data: firstMadrasa } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .single();
-      madrasaId = firstMadrasa?.id || "default_madrasa_id";
+      // P2-Fix: first-madrasa fallback → central default (DEFAULT_MADRASA_ID env → সবচেয়ে পুরোনো)
+      madrasaId = await getDefaultMadrasaId();
     }
 
     const safeMadrasaId = madrasaId || "default_madrasa_id";
@@ -548,7 +545,7 @@ export async function evaluateAdmissionTest(
       is_passed,
       evaluated_by: evaluation.evaluated_by || "পরীক্ষক প্যানেল",
       evaluator_designation: evaluation.evaluator_designation || "নাজেমে তা'লীমাত / পরীক্ষক",
-      evaluated_at: new Date().toISOString().split("T")[0],
+      evaluated_at: toDhakaDateString(),
       remarks: evaluation.remarks || (is_passed ? "উত্তীর্ণ" : "অনুপযুক্ত"),
       merit_position: list[idx].test_evaluation?.merit_position,
     };
@@ -792,7 +789,7 @@ export async function confirmAdmissionToStudent(params: {
           class_name: className,
           roll_number: finalRoll,
           status: "ACTIVE" as const,
-          enrollment_date: new Date().toISOString().split("T")[0],
+          enrollment_date: toDhakaDateString(),
           created_at: new Date().toISOString(),
         };
         if (existingIdx >= 0) {

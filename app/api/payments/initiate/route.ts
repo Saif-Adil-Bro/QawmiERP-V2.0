@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { initiateOnlinePayment } from "@/app/actions/payment-gateway";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 
+// ⛔ P2-Fix: per-IP in-memory rate-limit state (best-effort anti-spam;
+// server restart-এ counter reset — বৈধ পেমেন্ট প্রভাবিত হয় না)
+const ipRateLimit = new Map<string, number[]>();
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
@@ -22,6 +26,57 @@ export async function POST(req: NextRequest) {
         { error: "বৈধ শিক্ষার্থী আইডি এবং টাকার পরিমাণ প্রয়োজন।" },
         { status: 400 }
       );
+    }
+
+    // ⛔ P2-Fix (spam protection):
+    // ১) amount cap — একক অনলাইন পেমেন্টে ১০ লক্ষ টাকার বেশি বৈধ নয়
+    const amountNum = Number(amount);
+    if (!Number.isFinite(amountNum) || amountNum > 1000000) {
+      return NextResponse.json(
+        { error: "টাকার পরিমাণ বৈধ নয়।" },
+        { status: 400 }
+      );
+    }
+
+    // ২) payer_phone দেওয়া থাকলে বৈধ BD মোবাইল হতে হবে (01XXXXXXXXX)।
+    // নম্বর ছাড়াও চলবে — গেটওয়ে তখন শিক্ষার্থীর প্রোফাইলের guardian phone ব্যবহার করে
+    // (initiateOnlinePayment-এ fallback আছে); invalid নম্বর গেটওয়ে পর্যন্ত পৌঁছাবে না
+    if (payer_phone !== undefined && payer_phone !== null && String(payer_phone).trim() !== "") {
+      const phone = String(payer_phone).replace(/[\s-]/g, "");
+      if (!/^01[3-9]\d{8}$/.test(phone)) {
+        return NextResponse.json(
+          { error: "মোবাইল নম্বরটি বৈধ নয় — ১১ ডিজিটের বাংলাদেশি নম্বর (01XXXXXXXXX) দিন।" },
+          { status: 400 }
+        );
+      }
+    }
+
+    // ৩) per-IP rate limit — ১০ মিনিটে সর্বোচ্চ ১০টি initiate।
+    // (আগে anonymous caller টানা টানা pending transaction বানিয়ে metadata ভরে দিতে পারত)
+    {
+      const ip =
+        req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        req.headers.get("x-real-ip") ||
+        "unknown";
+      const nowMs = Date.now();
+      const WINDOW_MS = 10 * 60 * 1000;
+      const MAX_REQ = 10;
+      const recent = (ipRateLimit.get(ip) || []).filter((t) => nowMs - t < WINDOW_MS);
+      if (recent.length >= MAX_REQ) {
+        return NextResponse.json(
+          { error: "অনেক বেশি চেষ্টা করা হয়েছে — কিছুক্ষণ পরে আবার চেষ্টা করুন।" },
+          { status: 429 }
+        );
+      }
+      recent.push(nowMs);
+      if (ipRateLimit.size > 1000) {
+        for (const [k, v] of ipRateLimit) {
+          const fresh = v.filter((t) => nowMs - t < WINDOW_MS);
+          if (fresh.length === 0) ipRateLimit.delete(k);
+          else ipRateLimit.set(k, fresh);
+        }
+      }
+      ipRateLimit.set(ip, recent);
     }
 
     // Verify student exists in the database

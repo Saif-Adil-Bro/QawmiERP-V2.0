@@ -1,6 +1,6 @@
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import IdCardClient from "./IdCardClient";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getIdCardsData } from "@/app/actions/id-card-management";
 import { getStudents, getAuthMadrasaId } from "@/app/actions/students";
 import { getStaffMetadataFull } from "@/app/actions/staff";
@@ -88,7 +88,7 @@ export default async function IdCardsPage(props: {
         classes={classes || []}
         users={users}
         userType={userType}
-        madrasaInfo={madrasaInfo}
+        madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
       />
     </div>
   );

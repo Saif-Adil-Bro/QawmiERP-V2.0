@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState } from "react";
 import {
   StaffLeaveRequest,
@@ -47,8 +48,8 @@ export default function StaffLeaveView({
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedStaffId, setSelectedStaffId] = useState(staffList[0]?.id || "");
   const [leaveType, setLeaveType] = useState<any>("CASUAL");
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [startDate, setStartDate] = useState(toDhakaDateString());
+  const [endDate, setEndDate] = useState(toDhakaDateString());
   const [totalDays, setTotalDays] = useState(1);
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);

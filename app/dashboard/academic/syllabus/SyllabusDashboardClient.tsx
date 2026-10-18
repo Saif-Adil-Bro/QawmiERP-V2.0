@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState } from "react";
 import {
   BookOpen,
@@ -1221,7 +1222,7 @@ export default function SyllabusDashboardClient({ initialData }: Props) {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
                       {completedTopics.map((top) => {
-                        const todayStr = new Date().toISOString().split("T")[0];
+                        const todayStr = toDhakaDateString();
                         const lastDate = top.last_revised_date || top.initial_completed_date;
                         let gap = 0;
                         if (lastDate) {

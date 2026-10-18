@@ -1,7 +1,7 @@
 import { getExpenses } from "@/app/actions/accounting";
 import { getBazarExpenses } from "@/app/actions/boarding";
 import { getFunds } from "@/app/actions/zakat";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { DEFAULT_FUNDS } from "@/lib/fund-utils";
 import ExpensesClient from "./ExpensesClient";
 
@@ -24,7 +24,7 @@ export default async function ExpensesPage(props: {
       initialExpenses={expenses}
       initialBazarExpenses={bazarExpenses}
       funds={funds}
-      madrasaInfo={madrasaInfo}
+      madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
     />
   );
 }

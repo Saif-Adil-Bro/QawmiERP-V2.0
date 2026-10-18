@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createExam } from "@/app/actions/exams";
 import { Calendar, Clock, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
@@ -27,7 +28,7 @@ function getDynamicStatusInfo(startDate: string, endDate: string) {
       day: '2-digit' 
     }).format(new Date());
   } catch {
-    todayStr = new Date().toISOString().split('T')[0];
+    todayStr = toDhakaDateString();
   }
 
   const sStr = startDate.split('T')[0];

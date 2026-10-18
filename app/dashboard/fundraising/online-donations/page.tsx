@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import { getOnlineDonations, getOnlineDonationSettings } from "@/app/actions/fundraising";
-import { getPaymentGatewayConfig } from "@/app/actions/payment-gateway";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFunds } from "@/app/actions/zakat";
 import OnlineDonationsClient from "./OnlineDonationsClient";
 import { Loader2 } from "lucide-react";
@@ -9,10 +8,11 @@ import { Loader2 } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 export default async function OnlineDonationsPage() {
-  const [donations, donationSettings, paymentGatewayConfig, madrasaInfo, funds] = await Promise.all([
+  // ⛔ গেটওয়ে কনফিগ ক্লায়েন্টে ব্যবহৃত হয় না — পূর্ণ কনফিগ (store_passwd/app_secret)
+  // prop হিসেবে পাঠানো মানে সেটি browser-এ সিরিয়ালাইজ হয়ে ফাঁস হওয়া। বাদ দেওয়া হলো।
+  const [donations, donationSettings, madrasaInfo, funds] = await Promise.all([
     getOnlineDonations(),
     getOnlineDonationSettings(),
-    getPaymentGatewayConfig(),
     getMadrasaInfo(),
     getFunds(),
   ]);
@@ -28,8 +28,7 @@ export default async function OnlineDonationsPage() {
       <OnlineDonationsClient
         initialDonations={donations}
         initialSettings={donationSettings}
-        paymentGatewayConfig={paymentGatewayConfig}
-        madrasaInfo={madrasaInfo}
+        madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
         funds={funds}
       />
     </Suspense>

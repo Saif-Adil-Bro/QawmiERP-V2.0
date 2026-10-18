@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
@@ -89,17 +90,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: firstM } = await adminClient
-          .from("madrasas")
-          .select("id")
-          .limit(1)
-          .single();
-        madrasaId = firstM?.id || null;
-      } catch {}
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed (meta/reads খালি থাকবে)
 
     const items: GlobalNotificationItem[] = [];
     let meta: any = {};
@@ -344,7 +335,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
     if (madrasaId) {
       try {
         const adminClient = await createAdminClient();
-        const todayStr = new Date().toISOString().split("T")[0];
+        const todayStr = toDhakaDateString();
         const { data: overdues } = await adminClient
           .from("borrow_records")
           .select("id, book_id, student_id, due_date, status, books(title), students(first_name, last_name, roll_number)")
@@ -462,15 +453,7 @@ export async function markNotificationAsRead(notificationId: string): Promise<{
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const adminClient = await createAdminClient();
-      const { data: firstM } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .limit(1)
-        .single();
-      madrasaId = firstM?.id || null;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) return { success: false, error: "মাদরাসা পাওয়া যায়নি।" };
 
@@ -510,15 +493,7 @@ export async function markAllNotificationsAsRead(category?: NotificationCategory
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const adminClient = await createAdminClient();
-      const { data: firstM } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .limit(1)
-        .single();
-      madrasaId = firstM?.id || null;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) return { success: false, error: "মাদরাসা পাওয়া যায়নি।" };
 
@@ -567,15 +542,7 @@ export async function toggleNotificationReadStatus(notificationId: string, isRea
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const adminClient = await createAdminClient();
-      const { data: firstM } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .limit(1)
-        .single();
-      madrasaId = firstM?.id || null;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) return { success: false, isRead: false, error: "মাদরাসা পাওয়া যায়নি।" };
 

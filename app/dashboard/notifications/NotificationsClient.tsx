@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -297,7 +298,7 @@ export default function NotificationsClient({
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(activityLogs, null, 2));
     const downloadAnchor = document.createElement("a");
     downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `qawmi_activity_logs_${new Date().toISOString().split("T")[0]}.json`);
+    downloadAnchor.setAttribute("download", `qawmi_activity_logs_${toDhakaDateString()}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -326,7 +327,7 @@ export default function NotificationsClient({
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + encodeURIComponent([headers, ...rows].join("\n"));
     const downloadAnchor = document.createElement("a");
     downloadAnchor.setAttribute("href", csvContent);
-    downloadAnchor.setAttribute("download", `qawmi_activity_audit_${new Date().toISOString().split("T")[0]}.csv`);
+    downloadAnchor.setAttribute("download", `qawmi_activity_audit_${toDhakaDateString()}.csv`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();

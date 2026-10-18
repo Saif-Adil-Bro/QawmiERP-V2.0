@@ -1,3 +1,4 @@
+import { toPublicMadrasaInfoFromRecord } from "@/lib/getMadrasaInfo";
 import React from "react";
 import AmalTrackerClient from "./AmalTrackerClient";
 import { getAmalTrackerData } from "@/app/actions/amal-tracker";
@@ -18,7 +19,7 @@ export default async function AmalTrackerPage() {
         initialLogs={data.evaluationLogs || []}
         classes={data.classes || []}
         students={data.students || []}
-        madrasaInfo={data.madrasaInfo}
+        madrasaInfo={toPublicMadrasaInfoFromRecord(data.madrasaInfo)}
       />
     </div>
   );

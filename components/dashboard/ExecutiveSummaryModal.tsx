@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaMonthString } from "@/lib/date-utils";
 import React, { useState, useEffect, useTransition } from "react";
 import {
   X,
@@ -45,7 +46,7 @@ export function ExecutiveSummaryModal({
   onClose: () => void;
 }) {
   const [data, setData] = useState<MonthlyExecutiveSummaryData | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => new Date().toISOString().substring(0, 7));
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => toDhakaMonthString());
   const [isPending, startTransition] = useTransition();
 
   const loadData = (month: string) => {

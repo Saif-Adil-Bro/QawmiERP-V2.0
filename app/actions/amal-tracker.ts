@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents } from "@/app/actions/students";
@@ -35,15 +36,7 @@ export async function getAmalTrackerData() {
     if (!madrasaId && studentsList?.[0]?.madrasa_id) {
       madrasaId = studentsList[0].madrasa_id;
     }
-    if (!madrasaId) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: firstMadrasa } = await adminClient.from("madrasas").select("id").limit(1).maybeSingle();
-        if (firstMadrasa?.id) {
-          madrasaId = firstMadrasa.id;
-        }
-      } catch {}
-    }
+    // P2-Fix: first-madrasa fallback সরানো — madrasaId নেই → ডিফল্ট টেমপ্লেট only (fail-closed)
 
     let customTemplates: AmalTrackerTemplate[] = [];
     let evaluationLogs: AmalEvaluationLog[] = [];
@@ -96,15 +89,7 @@ async function resolveEffectiveMadrasaId(supabase: any, user: any): Promise<stri
       madrasaId = madrasaInfo?.id || "";
     } catch {}
   }
-  if (!madrasaId) {
-    try {
-      const adminClient = await createAdminClient();
-      const { data: firstMadrasa } = await adminClient.from("madrasas").select("id").limit(1).maybeSingle();
-      if (firstMadrasa?.id) {
-        madrasaId = firstMadrasa.id;
-      }
-    } catch {}
-  }
+  // P2-Fix: first-madrasa fallback সরানো — caller-এ !madrasaId হলে fail-closed error
   return madrasaId;
 }
 
@@ -286,8 +271,8 @@ export async function saveAmalEvaluationLog(log: Partial<AmalEvaluationLog>) {
       studentName: log.studentName || "",
       studentRoll: log.studentRoll || "",
       className: log.className || "",
-      startDate: log.startDate || new Date().toISOString().split("T")[0],
-      endDate: log.endDate || new Date().toISOString().split("T")[0],
+      startDate: log.startDate || toDhakaDateString(),
+      endDate: log.endDate || toDhakaDateString(),
       totalDays: log.totalDays || 7,
       completedDays: log.completedDays || 0,
       totalScorePercentage: log.totalScorePercentage || 0,

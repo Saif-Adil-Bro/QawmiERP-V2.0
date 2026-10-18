@@ -216,7 +216,8 @@ export async function deleteSMSTemplate(id: string) {
 
 export async function getSMSGatewayConfig(): Promise<SMSGatewayConfig> {
   try {
-    const adminClient = await createAdminClient();
+    // P2-Fix: first-madrasa fallback সরানো — user-এর মাদরাসা না থাকলে fail-closed
+    // (SMS gateway config/API credential অন্য মাদরাসা বা anonymous caller-এ যাবে না)
     let madrasaId: string | null = null;
 
     try {
@@ -227,18 +228,6 @@ export async function getSMSGatewayConfig(): Promise<SMSGatewayConfig> {
       }
     } catch {
       // ignore
-    }
-
-    if (!madrasaId) {
-      const { data: firstMadrasa } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .single();
-      if (firstMadrasa) {
-        madrasaId = firstMadrasa.id;
-      }
     }
 
     if (!madrasaId) return DEFAULT_SMS_GATEWAY_CONFIG;
@@ -267,7 +256,8 @@ export async function saveSMSGatewayConfig(config: Partial<SMSGatewayConfig>) {
   }
 
   try {
-    const adminClient = await createAdminClient();
+    // P2-Fix: first-madrasa fallback সরানো — user-এর মাদরাসা না থাকলে fail-closed
+    // (SMS gateway config/API credential অন্য মাদরাসা বা anonymous caller-এ যাবে না)
     let madrasaId: string | null = null;
 
     try {
@@ -278,18 +268,6 @@ export async function saveSMSGatewayConfig(config: Partial<SMSGatewayConfig>) {
       }
     } catch {
       // ignore
-    }
-
-    if (!madrasaId) {
-      const { data: firstMadrasa } = await adminClient
-        .from("madrasas")
-        .select("id")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .single();
-      if (firstMadrasa) {
-        madrasaId = firstMadrasa.id;
-      }
     }
 
     if (!madrasaId) {

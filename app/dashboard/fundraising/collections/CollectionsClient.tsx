@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -92,7 +93,7 @@ export default function CollectionsClient({
   const [selectedBoxForOpen, setSelectedBoxForOpen] = useState<CollectionBox | null>(null);
   const [logFormData, setLogFormData] = useState({
     amount: 1500,
-    date: new Date().toISOString().split("T")[0],
+    date: toDhakaDateString(),
     witnesses: "মুহতামিম ও ক্যাশিয়ার",
     receipt_no: "BOX-REC-001",
     fund_name: "সাধারণ ফান্ড (General Fund)",
@@ -204,7 +205,7 @@ export default function CollectionsClient({
       buyer_phone: "",
       receipt_no: nextRec,
       fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
-      sale_date: new Date().toISOString().split("T")[0],
+      sale_date: toDhakaDateString(),
       notes: "",
     });
     setLeatherModalOpen(true);
@@ -234,7 +235,7 @@ export default function CollectionsClient({
       const due = Number(editingLeather.due_amount || 0);
       const netProfit = Number(editingLeather.net_profit !== undefined ? editingLeather.net_profit : (totalSale - transport));
       const received = Number(editingLeather.received_amount !== undefined ? editingLeather.received_amount : Math.max(0, totalSale - due));
-      const recordDate = editingLeather.sale_date || editingLeather.collection_date || new Date().toISOString().split("T")[0];
+      const recordDate = editingLeather.sale_date || editingLeather.collection_date || toDhakaDateString();
       const receiptNo = (editingLeather.receipt_no || calculateNextLeatherVoucherNo(leathers)).trim();
       const fundName = editingLeather.fund_name || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
 
@@ -336,7 +337,7 @@ export default function CollectionsClient({
       box_code: nextCode,
       location_name: "",
       area: "বাজার এলাকা",
-      installation_date: new Date().toISOString().split("T")[0],
+      installation_date: toDhakaDateString(),
       responsible_person: "",
       responsible_phone: "",
       status: "ACTIVE",
@@ -369,8 +370,8 @@ export default function CollectionsClient({
         contact_person: (editingBox.responsible_person || "").trim(),
         responsible_phone: (editingBox.responsible_phone || "").trim(),
         phone: (editingBox.responsible_phone || "").trim(),
-        installation_date: editingBox.installation_date || new Date().toISOString().split("T")[0],
-        install_date: editingBox.installation_date || new Date().toISOString().split("T")[0],
+        installation_date: editingBox.installation_date || toDhakaDateString(),
+        install_date: editingBox.installation_date || toDhakaDateString(),
         status: editingBox.status || "ACTIVE",
         total_collected_lifetime: Number(editingBox.total_collected_lifetime || 0),
       };
@@ -403,8 +404,8 @@ export default function CollectionsClient({
         contact_person: payload.responsible_person || "",
         responsible_phone: payload.responsible_phone || "",
         phone: payload.responsible_phone || "",
-        installation_date: payload.installation_date || new Date().toISOString().split("T")[0],
-        install_date: payload.installation_date || new Date().toISOString().split("T")[0],
+        installation_date: payload.installation_date || toDhakaDateString(),
+        install_date: payload.installation_date || toDhakaDateString(),
         status: payload.status || "ACTIVE",
         total_collected_lifetime: payload.total_collected_lifetime || 0,
         collection_logs: editingBox.collection_logs || [],
@@ -457,7 +458,7 @@ export default function CollectionsClient({
     const nextVoucher = calculateNextReceiptNo(boxes);
     setLogFormData({
       amount: 1500,
-      date: new Date().toISOString().split("T")[0],
+      date: toDhakaDateString(),
       witnesses: "মুহতামিম ও ক্যাশিয়ার",
       receipt_no: nextVoucher,
       fund_name: "সাধারণ ফান্ড (General Fund)",
@@ -1108,7 +1109,7 @@ export default function CollectionsClient({
                   <label className="block font-bold text-slate-700 mb-1">বিক্রয় / কালেকশন তারিখ</label>
                   <input
                     type="date"
-                    value={editingLeather?.sale_date || new Date().toISOString().split("T")[0]}
+                    value={editingLeather?.sale_date || toDhakaDateString()}
                     onChange={(e) => setEditingLeather(prev => ({ ...prev, sale_date: e.target.value }))}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg"
                   />
@@ -1378,7 +1379,7 @@ export default function CollectionsClient({
                 <h2 className="text-lg font-black text-emerald-950">{madrasaInfo?.name || "মাদরাসা"}</h2>
                 {madrasaInfo?.address && <p className="text-[10px] text-slate-500">{madrasaInfo.address}</p>}
                 <h3 className="text-xs font-bold text-slate-700 mt-1">কুরবানির চামড়া সংগ্রহ ও বিক্রয় মেমো - {printLeatherMemo.year}</h3>
-                <p className="text-[10px] text-slate-500">চালান তারিখ: {toBanglaNumber(printLeatherMemo.sale_date || new Date().toISOString().split("T")[0])}</p>
+                <p className="text-[10px] text-slate-500">চালান তারিখ: {toBanglaNumber(printLeatherMemo.sale_date || toDhakaDateString())}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1559,7 +1560,7 @@ export default function CollectionsClient({
                 <h2 className="text-xl font-black text-slate-900">{madrasaInfo?.name || "মাদরাসা"}</h2>
                 {madrasaInfo?.address && <p className="text-xs text-slate-500">{madrasaInfo.address}</p>}
                 <h3 className="text-sm font-bold text-emerald-800 mt-1">কুরবানির চামড়া ও এলাকাভিত্তিক দানবাক্স বার্ষিক কালেকশন অডিট রিপোর্ট</h3>
-                <p className="text-[11px] text-slate-500">প্রিন্ট তারিখ: {toBanglaNumber(new Date().toISOString().split("T")[0])}</p>
+                <p className="text-[11px] text-slate-500">প্রিন্ট তারিখ: {toBanglaNumber(toDhakaDateString())}</p>
               </div>
 
               {/* Section 1: Leather Summary */}

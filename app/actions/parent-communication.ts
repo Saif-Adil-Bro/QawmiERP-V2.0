@@ -1,6 +1,8 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
+import { loadServerPermissions } from "@/lib/permissions-server";
 import { revalidatePath } from "next/cache";
 import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
@@ -23,6 +25,17 @@ export type {
   FeeAlertStudentInfo,
 };
 
+/**
+ * পোর্টাল-শুধু রোল। এই রোলধারীরা ড্যাশবোর্ডের সম্পূর্ণ তালিকা নয় — কেবল
+ * নিজের (বা নিজের সন্তানের) অভিভাবক-ফিডব্যাক দেখতে পারবেন।
+ */
+const PORTAL_ONLY_ROLES = ["student", "parent", "guardian"];
+
+/** ফোন নম্বরের শেষ ১০ ডিজিট — +৮৮/০১ প্রিফিক্স-ভিন্নতা উপেক্ষা করতে। */
+function normalizePhoneForMatch(value: unknown): string {
+  return String(value || "").replace(/[^0-9]/g, "").slice(-10);
+}
+
 // -------------------------------------------------------------
 // 1. PARENT FEEDBACK & APPOINTMENTS (CRUD)
 // -------------------------------------------------------------
@@ -36,14 +49,56 @@ export async function getParentFeedbacks(filter?: {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+    const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
-
+    // ⛔ আগে মাদ্রাসা না পেলে "প্রথম মাদ্রাসা"-তে fallback হতো — ফলে ভিন্ন/অনিবন্ধিত
+    // ব্যবহারকারী অন্য মাদ্রাসার অভিভাবক-অভিযোগ পড়তে পারত। এখন fail-closed।
     if (!madrasaId) return [];
+
+    // ⛔ পোর্টাল প্রাইভেসি: অভিভাবক/শিক্ষার্থী যেন অন্য অভিভাবকের অভিযোগ,
+    // পরামর্শ বা সাক্ষাতের আবেদন পড়তে না পারেন। স্টাফ/কর্মকর্তা (যাঁদের
+    // communication মডিউলে অনুমতি আছে) আগের মতোই মাদ্রাসার সব ফিডব্যাক দেখবেন।
+    const staffView = (await writeGuard("communication")).allowed;
+
+    let portalOwnership: {
+      userId: string;
+      phone: string;
+      studentIds: Set<string>;
+    } | null = null;
+
+    if (!staffView) {
+      // পোর্টাল ব্যবহারকারীর মালিকানা নির্ধারণ। permission-context লোড
+      // ব্যর্থ হলেও `users.role` ভিত্তিতে fail-closed থাকা হয়।
+      const { data: userRow } = await adminClient
+        .from("users")
+        .select("role, phone")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      const baseRole = String((userRow as any)?.role || "").toLowerCase();
+      const permCtx = await loadServerPermissions(user.id, madrasaId);
+      const activeRoles = (
+        permCtx?.roles?.length
+          ? permCtx.roles
+          : [permCtx?.role || baseRole]
+      ).map((role) => String(role || "").toLowerCase());
+
+      const isPortalUser =
+        activeRoles.length > 0 &&
+        activeRoles.every((role) => PORTAL_ONLY_ROLES.includes(role));
+
+      if (isPortalUser) {
+        portalOwnership = {
+          userId: user.id,
+          phone: normalizePhoneForMatch(
+            (userRow as any)?.phone || user.user_metadata?.phone
+          ),
+          studentIds: new Set<string>(
+            (permCtx?.profile?.linkedStudentIds || []).map(String)
+          ),
+        };
+      }
+    }
 
     let query = adminClient
       .from("fee_audit_logs")
@@ -63,7 +118,20 @@ export async function getParentFeedbacks(filter?: {
     for (const r of rows) {
       try {
         const parsed = JSON.parse(r.details || "{}");
-        
+
+        // ⛔ পোর্টাল ব্যবহারকারী কেবল নিজের/নিজের সন্তানের ফিডব্যাক দেখবেন
+        if (portalOwnership) {
+          const guardianPhone = normalizePhoneForMatch(parsed.guardian_phone);
+          const ownsFeedback =
+            parsed.created_by_user_id === portalOwnership.userId ||
+            (portalOwnership.phone.length >= 6 &&
+              guardianPhone === portalOwnership.phone) ||
+            (!!parsed.student_id &&
+              portalOwnership.studentIds.has(String(parsed.student_id)));
+
+          if (!ownsFeedback) continue;
+        }
+
         // Filter by studentId if specified
         if (filter?.studentId && parsed.student_id && parsed.student_id !== filter.studentId) {
           continue;
@@ -138,17 +206,33 @@ export async function createParentFeedback(data: {
     const adminClient = await createAdminClient();
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+    const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
-
+    // ⛔ প্রথম-মাদ্রাসা fallback বাদ — অন্যথায় ভিন্ন মাদ্রাসার নোটিশে আবেদন জমা পড়ত
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
     if (!data.subject?.trim() || !data.description?.trim()) {
       return { error: "বিষয় এবং বিস্তারিত বিবরণ লেখা আবশ্যক" };
+    }
+
+    // ⛔ P2-Fix: user-ভিত্তিক rate limit — ২৪ ঘণ্টায় সর্বোচ্চ ৫টি আবেদন।
+    // (আগে একই portal user টানা টানা আবেদন ঢালতে পারত, staff-এর feedback list ভরে যেত)
+    const dayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: recentFeedbackRows } = await adminClient
+      .from("fee_audit_logs")
+      .select("details")
+      .eq("madrasa_id", madrasaId)
+      .like("action", "PARENT_FEEDBACK%")
+      .gte("created_at", dayAgoIso);
+    let ownRecentCount = 0;
+    for (const row of recentFeedbackRows || []) {
+      try {
+        if (JSON.parse(row.details || "{}").created_by_user_id === user?.id) ownRecentCount++;
+      } catch {}
+      if (ownRecentCount >= 5) break;
+    }
+    if (ownRecentCount >= 5) {
+      return { error: "২৪ ঘণ্টায় সর্বোচ্চ ৫টি আবেদন জমা দেওয়া যাবে — পরে আবার চেষ্টা করুন।" };
     }
 
     const typeMap: Record<string, string> = {
@@ -184,6 +268,9 @@ export async function createParentFeedback(data: {
       status: "PENDING",
       status_bangla: "অপেক্ষমান",
       created_at: new Date().toISOString(),
+      // ⛔ মালিকানা যাচাইয়ের জন্য স্রষ্টার id — পোর্টাল ব্যবহারকারী কেবল নিজের
+      // আবেদন মুছতে পারবেন (deleteParentFeedback-এ ব্যবহৃত)
+      created_by_user_id: user?.id || "",
     };
 
     const recordId = `fb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -231,10 +318,18 @@ export async function updateParentFeedbackStatus(data: {
 
   try {
     const adminClient = await createAdminClient();
+
+    // ⛔ টেন্যান্ট স্কোপ: আগে শুধু id দিয়ে রেকর্ড পড়া/আপডেট হতো — অন্য মাদ্রাসার
+    // ফিডব্যাক আইডি জানা থাকলে তার স্ট্যাটাস বদলানো সম্ভব ছিল।
+    const __authzScope = await writeGuard("communication");
+    if (!__authzScope.allowed) return __authzScope.fallback;
+    const scopeMadrasaId = __authzScope.madrasaId;
+
     const { data: record, error: fetchErr } = await adminClient
       .from("fee_audit_logs")
       .select("*")
       .eq("id", data.id)
+      .eq("madrasa_id", scopeMadrasaId)
       .single();
 
     if (fetchErr || !record) {
@@ -265,7 +360,8 @@ export async function updateParentFeedbackStatus(data: {
       .update({
         details: JSON.stringify(updatedDetails),
       })
-      .eq("id", data.id);
+      .eq("id", data.id)
+      .eq("madrasa_id", scopeMadrasaId);
 
     if (updateErr) {
       return { error: "আপডেট ব্যর্থ হয়েছে: " + updateErr.message };
@@ -290,19 +386,91 @@ export async function updateParentFeedbackStatus(data: {
   }
 }
 
+/**
+ * অভিভাবক-ফিডব্যাক মুছে ফেলা।
+ *
+ * ⛔ আগের সমস্যা (IDOR): কোনো auth বা টেন্যান্ট চেক ছিল না — `id` জানলেই যে কেউ
+ * admin client দিয়ে **যেকোনো মাদ্রাসার** রেকর্ড মুছে ফেলতে পারত (পোর্টাল থেকেও
+ * action-টি কলযোগ্য ছিল)।
+ *
+ * এখন:
+ *   ১. লগইন + মাদ্রাসা বাধ্যতামূলক (fallback নেই)
+ *   ২. রেকর্ডটি সেই মাদ্রাসার কিনা যাচাই
+ *   ৩. স্টাফ হলে `communication` পারমিশন; পোর্টাল রোল হলে **নিজের** আবেদনই কেবল
+ *      (created_by_user_id / guardian_phone)
+ */
 export async function deleteParentFeedback(id: string) {
   try {
     const adminClient = await createAdminClient();
-    const { error } = await adminClient.from("fee_audit_logs").delete().eq("id", id);
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+
+    if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসা সনাক্ত করা যায়নি।" };
+
+    const { data: record, error: fetchErr } = await adminClient
+      .from("fee_audit_logs")
+      .select("id, madrasa_id, details, action")
+      .eq("id", id)
+      .eq("madrasa_id", madrasaId)
+      .maybeSingle();
+
+    if (fetchErr || !record) {
+      return { error: "রেকর্ড পাওয়া যায়নি।" };
+    }
+
+    // স্টাফ-পারমিশন থাকলে সরাসরি অনুমোদন
+    const staffAuth = await writeGuard("communication");
+    let allowed = staffAuth.allowed;
+
+    if (!allowed) {
+      // পোর্টাল ব্যবহারকারী — কেবল নিজের আবেদন
+      let details: any = {};
+      try {
+        details = JSON.parse((record as any).details || "{}");
+      } catch {
+        details = {};
+      }
+
+      const normPhone = (value: any) =>
+        String(value || "").replace(/[^0-9]/g, "").slice(-10);
+
+      const { data: userRow } = await adminClient
+        .from("users")
+        .select("phone, full_name")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      const myPhone = normPhone((userRow as any)?.phone || user.user_metadata?.phone);
+      const guardianPhone = normPhone(details.guardian_phone);
+
+      allowed =
+        details.created_by_user_id === user.id ||
+        (myPhone.length >= 6 && guardianPhone.length >= 6 && myPhone === guardianPhone);
+    }
+
+    if (!allowed) {
+      return { error: "এই আবেদনটি মুছে ফেলার অনুমতি নেই।" };
+    }
+
+    const { error } = await adminClient
+      .from("fee_audit_logs")
+      .delete()
+      .eq("id", id)
+      .eq("madrasa_id", madrasaId);
+
     if (error) return { error: error.message };
 
     revalidatePath("/dashboard/communication/feedback");
     revalidatePath("/portal/feedback");
     return { success: true };
   } catch (e: any) {
-    return { error: e.message || "মুছে ফেলা ব্যর্থ হয়েছে" };
+    return { error: e.message || "মুছে ফেলা ব্যর্থ হয়েছে" };
   }
 }
+
 
 // -------------------------------------------------------------
 // 2. ABSENCE & FAJR TALIM ALERTS (AUTOMATED & 1-CLICK)
@@ -315,10 +483,7 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) {
       return { absentStudents: [], totalStudents: 0, presentCount: 0, absentCount: 0, madrasaName: "মাদরাসা" };
@@ -331,7 +496,7 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
       .single();
 
     const madrasaName = madrasaRow?.name || "কওমি মাদরাসা";
-    const date = targetDate || new Date().toISOString().split("T")[0];
+    const date = targetDate || toDhakaDateString();
 
     // 1. Fetch all students of this madrasa
     let studentQuery = adminClient
@@ -365,7 +530,7 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
     const targetDateObj = new Date(date);
     const thirtyDaysAgo = new Date(targetDateObj);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 35);
-    const startDateStr = thirtyDaysAgo.toISOString().split("T")[0];
+    const startDateStr = toDhakaDateString(thirtyDaysAgo);
     const currentMonthPrefix = date.substring(0, 7); // "YYYY-MM"
 
     const { data: pastAttList } = await adminClient
@@ -536,10 +701,7 @@ export async function getAbsenceAlertSettings(): Promise<AbsenceAlertSettings> {
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) return DEFAULT_ABSENCE_SETTINGS;
 
@@ -578,10 +740,7 @@ export async function saveAbsenceAlertSettings(settings: Partial<AbsenceAlertSet
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
 
@@ -676,10 +835,7 @@ export async function getFeeAlertStudentsData(classFilter?: string, customBaseUr
     const user = await getAuthUser(supabase);
     let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    if (!madrasaId) {
-      const { data: firstM } = await adminClient.from("madrasas").select("id").limit(1).single();
-      if (firstM) madrasaId = firstM.id;
-    }
+    // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) {
       return { feeStudents: [], totalDueOverall: 0, madrasaName: "মাদরাসা", detectedBaseUrl: "" };

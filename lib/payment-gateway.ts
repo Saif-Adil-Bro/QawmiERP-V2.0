@@ -95,6 +95,42 @@ export interface OnlinePaymentTransaction {
   }[];
 }
 
+/**
+ * পাবলিক/ক্লায়েন্ট-এ পাঠানোর জন্য নিরাপদ gateway কনফিগ।
+ *
+ * ⛔ সিকিউরিটি: পূর্ণ `PaymentGatewayConfig`-এ `sslcommerz.store_passwd`,
+ * `shurjopay.merchant_password`, `bkash.app_secret` ইত্যাদি থাকে। এগুলো কোনো
+ * client component-এ prop হিসেবে পাঠালে RSC payload/HTML সোর্স থেকেই পড়া যায়।
+ * তাই পাবলিক পেজে সবসময় নিচের whitelisted টাইপ ব্যবহার করুন।
+ */
+export interface PublicPaymentGatewayConfig {
+  is_enabled: boolean;
+  active_provider: PaymentGatewayProvider;
+  environment: GatewayEnvironment;
+  enabled_methods: PaymentGatewayConfig["enabled_methods"];
+  /** ব্যাংক ট্রান্সফারের তথ্য — পেমেন্টকারীকে দেখানোর জন্যই তৈরি, গোপন নয় */
+  islami_bank: PaymentGatewayConfig["islami_bank"];
+  convenience_fee_percent?: number;
+  sandbox_test_mode?: boolean;
+  updated_at?: string;
+}
+
+/** শুধু পেমেন্ট UI-তে প্রয়োজনীয় ফিল্ড রেখে ক্রেডেনশিয়াল বাদ দেয়। */
+export function toPublicPaymentGatewayConfig(
+  config: PaymentGatewayConfig
+): PublicPaymentGatewayConfig {
+  return {
+    is_enabled: Boolean(config.is_enabled),
+    active_provider: config.active_provider,
+    environment: config.environment,
+    enabled_methods: { ...config.enabled_methods },
+    islami_bank: { ...config.islami_bank },
+    convenience_fee_percent: config.convenience_fee_percent,
+    sandbox_test_mode: config.sandbox_test_mode,
+    updated_at: config.updated_at,
+  };
+}
+
 export const DEFAULT_GATEWAY_CONFIG: PaymentGatewayConfig = {
   is_enabled: true,
   active_provider: "SSLCOMMERZ",

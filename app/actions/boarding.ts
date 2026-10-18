@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -921,7 +922,7 @@ export async function addBoardingMealPayment(params: {
     const meta = await getFeeMetadata(finalMadrasaId);
 
     const now = new Date().toISOString();
-    const pDate = payment_date || now.split("T")[0];
+    const pDate = payment_date || toDhakaDateStringFrom(now);
     const period = params.billing_period || pDate.substring(0, 7);
     const monthLabel = params.month_name || period;
 

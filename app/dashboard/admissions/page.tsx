@@ -1,6 +1,6 @@
 import { getAdmissionApplications } from "@/app/actions/admissions";
 import { getClasses } from "@/app/actions/students";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfoFromRecord } from "@/lib/getMadrasaInfo";
 import AdmissionsClient from "./AdmissionsClient";
 import PermissionGuard from "@/components/permissions/PermissionGuard";
 
@@ -16,7 +16,7 @@ export default async function AdmissionsPage() {
       <AdmissionsClient
         initialApplications={applications || []}
         classes={classes || []}
-        madrasaInfo={madrasa}
+        madrasaInfo={toPublicMadrasaInfoFromRecord(madrasa)}
       />
     </PermissionGuard>
   );

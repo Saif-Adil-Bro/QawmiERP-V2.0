@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { useState } from "react";
 import {
   Send,
@@ -24,8 +25,8 @@ interface Props {
 
 export default function LeaveClient({ students, userProfile, initialApplications = [] }: Props) {
   const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id || "");
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const [startDate, setStartDate] = useState(toDhakaDateString());
+  const [endDate, setEndDate] = useState(toDhakaDateString());
   const [reason, setReason] = useState("");
   const [leaveType, setLeaveType] = useState("অসুস্থতাজনিত ছুটি");
   const [isSubmitting, setIsSubmitting] = useState(false);

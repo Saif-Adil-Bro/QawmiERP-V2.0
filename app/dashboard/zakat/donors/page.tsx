@@ -1,7 +1,7 @@
 import React, { Suspense } from "react";
 import { getLifeMemberDonors } from "@/app/actions/fundraising";
 import { getFunds } from "@/app/actions/zakat";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import ZakatNav from "@/components/zakat/ZakatNav";
 import DonorsClient from "@/app/dashboard/fundraising/donors/DonorsClient";
 import { Loader2 } from "lucide-react";
@@ -25,7 +25,7 @@ export default async function DonorsPage() {
           </div>
         }
       >
-        <DonorsClient initialDonors={donors} initialPayments={payments} madrasaInfo={madrasaInfo} />
+        <DonorsClient initialDonors={donors} initialPayments={payments} madrasaInfo={toPublicMadrasaInfo(madrasaInfo)} />
       </Suspense>
     </div>
   );

@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 
 export const maxDuration = 60; // Allow sufficient time for vision OCR
 
 export async function POST(req: NextRequest) {
   try {
+    // ⛔ আগে এই রুটটি লগইন ছাড়াই কলযোগ্য ছিল — যে কেউ সার্ভারের GEMINI_API_KEY
+    // ব্যবহার করে কোটা শেষ করে দিতে পারত। এখন শুধু লগইন করা ব্যবহারকারী।
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) {
+      return NextResponse.json({ error: "অননুমোদিত অ্যাক্সেস।" }, { status: 401 });
+    }
+
     const body = await req.json();
     const { imageBase64, mimeType = "image/jpeg", madrasaName } = body;
 

@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -11,7 +12,6 @@ import { getMadrasaMetadata, saveMadrasaMetadata, AcademicHoliday, HOLIDAY_CATEG
  * with fallback to the primary/active madrasa if auth session is ambiguous.
  */
 async function resolveCurrentMadrasaId(): Promise<{ madrasaId: string | null; user: any | null }> {
-  const adminClient = await createAdminClient();
   let madrasaId: string | null = null;
   let user: any = null;
 
@@ -25,20 +25,7 @@ async function resolveCurrentMadrasaId(): Promise<{ madrasaId: string | null; us
     console.warn("Auth check in resolveCurrentMadrasaId:", err);
   }
 
-  // Fallback to active/primary madrasa if auth check is unlinked or session is absent
-  if (!madrasaId) {
-    const { data: firstMadrasa } = await adminClient
-      .from("madrasas")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .single();
-
-    if (firstMadrasa?.id) {
-      madrasaId = firstMadrasa.id;
-    }
-  }
-
+  // P2-Fix: first-madrasa fallback সরানো — প্রতিটি caller-এ !madrasaId fail-closed আছে
   return { madrasaId, user };
 }
 
@@ -176,7 +163,7 @@ export async function syncHolidayAttendanceRecords({
     // CRITICAL: Attendance records can only be recorded for dates that have already arrived or occurred.
     // Future dates cannot have attendance records, otherwise future holiday leaves will corrupt
     // all live attendance rate calculations, pie charts, and monthly reports.
-    const today = new Date().toISOString().split("T")[0];
+    const today = toDhakaDateString();
     const eligibleDates = dates.filter((d) => d <= today);
     if (eligibleDates.length === 0) return { success: true, count: 0 };
 
@@ -366,7 +353,7 @@ function calculateDays(start: string, end: string): number {
  * Computes status of a holiday based on current date
  */
 function computeHolidayStatus(startDate: string, endDate: string): "upcoming" | "ongoing" | "completed" {
-  const today = new Date().toISOString().split("T")[0];
+  const today = toDhakaDateString();
   if (today < startDate) return "upcoming";
   if (today > endDate) return "completed";
   return "ongoing";

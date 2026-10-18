@@ -1,4 +1,4 @@
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getClasses, getStudents } from "@/app/actions/students";
 import PrintHubClient from "./PrintHubClient";
 
@@ -16,7 +16,7 @@ export default async function PrintHubPage() {
 
   return (
     <PrintHubClient
-      madrasaInfo={madrasaInfo}
+      madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
       classes={classes || []}
       allStudents={students || []}
     />

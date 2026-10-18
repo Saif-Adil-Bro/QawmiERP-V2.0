@@ -1,5 +1,6 @@
 "use server";
 
+import { toDhakaDateStringFrom, toDhakaMonthString } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents, getClasses } from "./students";
 import { getMadrasaMetadata } from "@/lib/sessions";
@@ -113,7 +114,7 @@ const MONTH_NAMES_BN: Record<string, string> = {
 export async function getMonthlyExecutiveSummary(
   targetMonth?: string // Format: "YYYY-MM" (e.g. "2026-09")
 ): Promise<MonthlyExecutiveSummaryData> {
-  const currentMonth = targetMonth || new Date().toISOString().substring(0, 7);
+  const currentMonth = targetMonth || toDhakaMonthString();
   const [yearStr, monthNumStr] = currentMonth.split("-");
   const monthNameBn = `${MONTH_NAMES_BN[monthNumStr] || monthNumStr} ${yearStr}`;
 
@@ -124,15 +125,20 @@ export async function getMonthlyExecutiveSummary(
   const monthStartDate = `${currentMonth}-01`;
   const monthEndDate = `${currentMonth}-${String(lastDayOfMonth).padStart(2, "0")}`;
 
-  let madrasaId = "25f5b85c-4b75-4255-846d-f5f84a61608c";
+  // P2-Fix: hardcoded UUID সরানো — শুধুই লগইন-করা user-এর নিজের মাদরাসা।
+  // resolve না হলে fail-closed: অন্য কোনো মাদরাসার ডেটা দেওয়া হবে না।
   const adminClient = await createAdminClient();
+  let madrasaId: string | null = null;
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    const resolvedId = await getAuthMadrasaId(supabase, user);
-    if (resolvedId) madrasaId = resolvedId;
+    if (user?.id) madrasaId = (await getAuthMadrasaId(supabase, user)) || null;
   } catch {
-    // Graceful fallback if called outside cookie scope
+    // outside cookie scope — নিচে fail-closed
+  }
+
+  if (!madrasaId) {
+    throw new Error("মাদরাসা আইডি পাওয়া যায়নি — লগইন সেশনটি যাচাই করে আবার চেষ্টা করুন।");
   }
 
   // 1. Concurrently fetch all metadata and authoritative collections
@@ -512,7 +518,7 @@ export async function getMonthlyExecutiveSummary(
   const allPayments = feeMeta.payments || [];
   allPayments.forEach((p: any) => {
     if (p.status === "REVERSED" || p.status === "VOID") return;
-    const pDate = p.payment_date || (p.created_at ? p.created_at.split("T")[0] : "");
+    const pDate = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
     if (pDate.startsWith(currentMonth)) {
       const totalRec = Number(p.total_amount_received || 0);
       feeCollection += totalRec;

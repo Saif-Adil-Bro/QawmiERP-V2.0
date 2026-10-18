@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState } from "react";
 import {
   StaffMember,
@@ -74,7 +75,7 @@ export default function StaffFormModal({
   const [categoryId, setCategoryId] = useState(staff?.employment.category_id || "cat-teaching");
   const [departmentId, setDepartmentId] = useState(staff?.employment.department_id || "dept-academic");
   const [designation, setDesignation] = useState(staff?.employment.designation || "সহকারী শিক্ষক (মুদাররিস)");
-  const [joiningDate, setJoiningDate] = useState(staff?.employment.joining_date || new Date().toISOString().split("T")[0]);
+  const [joiningDate, setJoiningDate] = useState(staff?.employment.joining_date || toDhakaDateString());
   const [employmentType, setEmploymentType] = useState<EmploymentType>(staff?.employment.employment_type || "FULL_TIME");
   const [status, setStatus] = useState<StaffStatus>(staff?.employment.status || "ACTIVE");
   const [reportingToName, setReportingToName] = useState(staff?.employment.reporting_to_name || "মুহতামিম সাহেব");

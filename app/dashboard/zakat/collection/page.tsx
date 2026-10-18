@@ -1,6 +1,6 @@
 import React from "react";
 import { getDonations, getDonors, getFunds } from "@/app/actions/zakat";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import ZakatNav from "@/components/zakat/ZakatNav";
 import CollectionClient from "./CollectionClient";
 
@@ -24,7 +24,7 @@ export default async function ZakatCollectionPage({
         initialDonations={donations}
         donors={donors}
         funds={funds}
-        madrasaInfo={madrasaInfo}
+        madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
         preselectedDonorId={resolvedParams.donor_id}
         preselectedFundName={resolvedParams.fund}
       />
