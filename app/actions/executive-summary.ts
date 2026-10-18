@@ -7,7 +7,7 @@ import { getMadrasaMetadata } from "@/lib/sessions";
 import { getFeeMetadata } from "./fee-management";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFunds } from "./zakat";
-import { isTransactionInFund, parseExpenseFund, FundItem } from "@/lib/fund-utils";
+import { isTransactionInFund, parseExpenseFund, isVoidDonation, isVoidedExpense, FundItem } from "@/lib/fund-utils";
 import { getSyllabusDashboardData } from "./syllabus";
 import { getStaffMetadataFull } from "./staff";
 
@@ -170,6 +170,7 @@ export async function getMonthlyExecutiveSummary(
     dbTeachersRes,
     dbStudentsRes,
     dbClassesRes,
+    allDonationsRes,
   ] = await Promise.all([
     adminClient
       .from("attendance")
@@ -211,6 +212,11 @@ export async function getMonthlyExecutiveSummary(
       .from("classes")
       .select("id, name, madrasa_id")
       .eq("madrasa_id", madrasaId),
+    // P2-Fix: dedup-এর জন্য সব donation-এর id/receipt_no (মাস-সীমা ছাড়া)
+    adminClient
+      .from("donations")
+      .select("id, receipt_no")
+      .eq("madrasa_id", madrasaId),
   ]);
 
   // 3. Resolve Full Dynamic Students List
@@ -238,6 +244,22 @@ export async function getMonthlyExecutiveSummary(
   const dbTeachers = dbTeachersRes.data || [];
   const dbExpenses = expensesRes.data || [];
   const dbDonations = donationsRes.data || [];
+
+  // P2-Fix: dedup — একই অনুদান DB + metadata দুই জায়গায় থাকলে একবারই গণনা হবে (getFunds-এর সমতুল্য)
+  const allDonationIds = new Set<string>();
+  const allDonationReceipts = new Set<string>();
+  (allDonationsRes.data || []).forEach((d: any) => {
+    if (d.id) allDonationIds.add(String(d.id));
+    if (d.receipt_no) allDonationReceipts.add(String(d.receipt_no));
+  });
+  const isDupDonation = (rec: any) =>
+    Boolean(
+      (rec.receipt_no && allDonationReceipts.has(String(rec.receipt_no))) ||
+        (rec.id && allDonationIds.has(String(rec.id)))
+    );
+
+  // P2-Fix: ফান্ড-মেল না-খাওয়া লেনদেন চুপচাপ প্রথম ফান্ডে (GEN) না-ঢুকিয়ে আলাদা row-এ রাখা হয়
+  const UNMATCHED_FUND = "__unmatched__";
   const teacherIdSet = new Set<string>();
 
   dbTeachers.forEach((t: any) => {
@@ -524,20 +546,27 @@ export async function getMonthlyExecutiveSummary(
       feeCollection += totalRec;
 
       if (p.allocations && p.allocations.length > 0) {
+        let sumAlloc = 0;
         p.allocations.forEach((alloc: any) => {
           const allocAmt = Number(alloc.allocated_amount || 0);
           if (allocAmt > 0) {
+            sumAlloc += allocAmt;
             const targetFund = fundsList.find((f) =>
               isTransactionInFund(f, alloc.fund_id, alloc.fund_name || alloc.fee_type_name, fundsList)
-            ) || fundsList[0];
-            if (targetFund) {
-              monthlyFundInflowMap.set(
-                targetFund.id,
-                (monthlyFundInflowMap.get(targetFund.id) || 0) + allocAmt
-              );
-            }
+            );
+            // P2-Fix: unknown fund → আলাদা row (চুপচাপ GEN-এ না-ঢোকে)
+            const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
+            monthlyFundInflowMap.set(fundId, (monthlyFundInflowMap.get(fundId) || 0) + allocAmt);
           }
         });
+        // P2-Fix: unallocated বাকি অংশ GEN-এ গণনা — তাহলেই card-এর মোট আয় = টেবিলের সর্বমোট জমা
+        const remainder = totalRec - sumAlloc;
+        if (remainder > 0 && fundsList.length > 0) {
+          monthlyFundInflowMap.set(
+            fundsList[0].id,
+            (monthlyFundInflowMap.get(fundsList[0].id) || 0) + remainder
+          );
+        }
       } else {
         const targetFund = fundsList.find((f) =>
           isTransactionInFund(f, p.fund_id, p.fund_name, fundsList)
@@ -581,6 +610,8 @@ export async function getMonthlyExecutiveSummary(
 
   // B. Real Donations & Zakat in current month
   dbDonations.forEach((d: any) => {
+    // P2-Fix: VOID-করা অনুদান আয় হিসেবে গণনা হবে না (getFunds-এ এই ফিল্টার আছে)
+    if (isVoidDonation(d)) return;
     const amt = Number(d.amount || 0);
     const cat = (d.category || d.donation_type || "").toLowerCase();
     const isZakat = cat.includes("zakat") || cat.includes("যাকাত") || cat.includes("lillah") || cat.includes("লিল্লাহ") || cat.includes("fitra") || cat.includes("ফিতরা");
@@ -592,49 +623,49 @@ export async function getMonthlyExecutiveSummary(
 
     const targetFund = fundsList.find((f) =>
       isTransactionInFund(f, (d as any).fund_id, d.donation_type || d.category, fundsList)
-    ) || fundsList[0];
-
-    if (targetFund) {
-      monthlyFundInflowMap.set(
-        targetFund.id,
-        (monthlyFundInflowMap.get(targetFund.id) || 0) + amt
-      );
-    }
+    );
+    // P2-Fix: unknown fund → আলাদা row (চুপচাপ GEN-এ না-ঢোকে)
+    const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
+    monthlyFundInflowMap.set(fundId, (monthlyFundInflowMap.get(fundId) || 0) + amt);
   });
 
   // Donor subscription payments in metadata
   (meta.donor_subscription_payments || []).forEach((sp: any) => {
     const spDate = sp.date || sp.created_at || "";
+    // P2-Fix: dedup — DB-তে এই receipt/id ইতিমধ্যে আছে হলে double-count হবে না
+    if (isDupDonation(sp)) return;
     if (spDate.startsWith(currentMonth)) {
       const amt = Number(sp.amount || 0);
       generalDonations += amt;
       const targetFund = fundsList.find((f) =>
         isTransactionInFund(f, sp.fund_id, sp.fund_name, fundsList)
-      ) || fundsList[0];
-      if (targetFund) {
-        monthlyFundInflowMap.set(
-          targetFund.id,
-          (monthlyFundInflowMap.get(targetFund.id) || 0) + amt
-        );
-      }
+      );
+      // P2-Fix: unknown fund → আলাদা row (চুপচাপ GEN-এ না-ঢোকে)
+      const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
+      monthlyFundInflowMap.set(fundId, (monthlyFundInflowMap.get(fundId) || 0) + amt);
     }
   });
 
   // Online verified donations in metadata
   (meta.online_donations || []).forEach((od: any) => {
     const odDate = od.date || od.created_at || "";
+    // P2-Fix: dedup — DB-তে এই receipt/id/trx ইতিমধ্যে আছে হলে double-count হবে না
+    if (
+      (od.receipt_no && allDonationReceipts.has(String(od.receipt_no))) ||
+      (od.id && allDonationIds.has(String(od.id))) ||
+      (od.trx_id && allDonationReceipts.has(String(od.trx_id)))
+    ) {
+      return;
+    }
     if (odDate.startsWith(currentMonth) && (od.status === "VERIFIED" || od.status === "COMPLETED" || od.status === "SUCCESS")) {
       const amt = Number(od.amount || 0);
       generalDonations += amt;
       const targetFund = fundsList.find((f) =>
         isTransactionInFund(f, od.fund_id, od.fund_category || od.fund_name || od.purpose, fundsList)
-      ) || fundsList[0];
-      if (targetFund) {
-        monthlyFundInflowMap.set(
-          targetFund.id,
-          (monthlyFundInflowMap.get(targetFund.id) || 0) + amt
-        );
-      }
+      );
+      // P2-Fix: unknown fund → আলাদা row (চুপচাপ GEN-এ না-ঢোকে)
+      const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
+      monthlyFundInflowMap.set(fundId, (monthlyFundInflowMap.get(fundId) || 0) + amt);
     }
   });
 
@@ -664,6 +695,8 @@ export async function getMonthlyExecutiveSummary(
   let boardingBazarExpense = 0;
 
   dbExpenses.forEach((e: any) => {
+    // P2-Fix: VOID-করা খরচ ব্যয় হিসেবে গণনা হবে না (getFunds-এ HI-5 ফিল্টার আছে)
+    if (isVoidedExpense(e)) return;
     const amt = Number(e.amount || 0);
     const cat = (e.category || "").toLowerCase();
     const desc = (e.description || "").toLowerCase();
@@ -749,6 +782,22 @@ export async function getMonthlyExecutiveSummary(
         totalReserve: Number(fund.current_balance || 0),
       };
     });
+
+  // P2-Fix: ফান্ড-মেল না-খাওয়া লেনদেন আলাদা row হিসেবে দেখানো হয় (চুপচাপ GEN-এ ঢোকে না)
+  const unmatchedIncome = monthlyFundInflowMap.get(UNMATCHED_FUND) || 0;
+  const unmatchedExpense = monthlyFundOutflowMap.get(UNMATCHED_FUND) || 0;
+  if (unmatchedIncome > 0 || unmatchedExpense > 0) {
+    fundsBreakdown.push({
+      fundId: UNMATCHED_FUND,
+      fundName: "অনুপরিচিত ফান্ড",
+      code: "OTH",
+      category: "অনুপরিচিত",
+      income: unmatchedIncome,
+      expense: unmatchedExpense,
+      balance: unmatchedIncome - unmatchedExpense,
+      totalReserve: 0,
+    });
+  }
 
   // Calculate leaves in target month
   const leavesCount = (meta.leaves || []).filter((l: any) => {
