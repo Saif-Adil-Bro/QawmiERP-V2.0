@@ -1,6 +1,6 @@
 "use server";
 
-import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateStringFrom, toDhakaDateString, getDhakaYear, toDhakaMonthString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -28,7 +28,7 @@ import {
 export async function generateNextReceiptNumber(
   adminClient: any,
   madrasaId: string,
-  year: number = new Date().getFullYear()
+  year: number = getDhakaYear()
 ): Promise<string> {
   const prefix = `MR-${year}-`;
 
@@ -315,7 +315,7 @@ export async function saveFeeMetadata(madrasaId: string, feeData: Partial<Madras
         fee_type_name: sf.fee_type_name || "",
         billing_period: sf.billing_period || "",
         month_name: sf.month_name || "",
-        year: String(sf.year || new Date().getFullYear()),
+        year: String(sf.year || getDhakaYear()),
         due_date: sf.due_date || toDhakaDateString(),
         base_amount: Number(sf.base_amount) || 0,
         discount_amount: Number(sf.discount_amount) || 0,
@@ -1137,7 +1137,7 @@ export async function generateMonthlyFees(params: {
           fund_name: targetFundName,
           billing_period: params.billingPeriod,
           month_name: params.monthName || params.billingPeriod,
-          year: params.year || new Date().getFullYear().toString(),
+          year: params.year || String(getDhakaYear()),
           due_date: dueDate,
           base_amount: baseAmount,
           discount_amount: discountAmount,
@@ -1226,8 +1226,7 @@ export async function getStudentFeeProfile(studentId: string, sessionId?: string
     const totalPaid = payments.reduce((sum, p) => sum + p.total_amount_received, 0);
     const totalDue = fees.reduce((sum, f) => sum + f.due_amount, 0);
 
-    const now = new Date();
-    const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const currentPeriod = toDhakaMonthString(); // P2-Fix: ঢাকা টাইমজোনের চলমান মাস (দারি-তালিকা)
     const currentMonthDueList = fees.filter((f) => f.billing_period === currentPeriod && f.due_amount > 0);
 
     let currentMonthDue = 0;
@@ -1490,7 +1489,7 @@ export async function collectFeePayment(paymentData: {
     }
 
     // Generate formatted unique serial receipt number atomically: MR-YYYY-XXXXX
-    const currentYear = new Date().getFullYear();
+    const currentYear = getDhakaYear();
     const receiptNo = await generateNextReceiptNumber(adminClient, madrasaId, currentYear);
 
     const resolveFund = (
@@ -2981,9 +2980,10 @@ export async function getFeeDashboardOverview() {
 
     // Dates for current month and today
     const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonthNum = now.getMonth() + 1;
-    const currentMonthStr = `${currentYear}-${String(currentMonthNum).padStart(2, "0")}`; // "YYYY-MM"
+    // P2-Fix: চলতি বছর/মাস ঢাকা টাইমজোনে
+    const currentMonthStr = toDhakaMonthString(now); // "YYYY-MM"
+    const currentYear = Number(currentMonthStr.slice(0, 4));
+    const currentMonthNum = Number(currentMonthStr.slice(5, 7));
     const todayStr = toDhakaDateString(now);
 
     // Total Collection

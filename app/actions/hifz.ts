@@ -1,5 +1,6 @@
 "use server";
 
+import { getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -336,7 +337,7 @@ export async function getMonthlyHifzSummary(classId?: string, month?: string, ye
   if (!students || students.length === 0) {
     return {
       month: month || new Date().toISOString().slice(5, 7),
-      year: year || new Date().getFullYear().toString(),
+      year: year || String(getDhakaYear()),
       reports: [],
     };
   }
@@ -365,7 +366,7 @@ export async function getMonthlyHifzSummary(classId?: string, month?: string, ye
   });
 
   const targetMonth = month || new Date().toISOString().slice(5, 7);
-  const targetYear = year || new Date().getFullYear().toString();
+  const targetYear = year || String(getDhakaYear());
 
   const reports = students.map((student: any) => {
     const studentLogs = logsByStudent.get(student.id) || [];

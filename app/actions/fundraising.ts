@@ -1,7 +1,7 @@
 "use server";
 
 import { getDefaultMadrasaId } from "@/lib/madrasa-default";
-import { toDhakaDateStringFrom, toDhakaDateString, toDhakaMonthString } from "@/lib/date-utils";
+import { toDhakaDateStringFrom, toDhakaDateString, toDhakaMonthString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -399,7 +399,7 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
         id: mahfilId,
         madrasa_id: activeMadrasaId,
         title: "বার্ষিক ইসলামি মহাসম্মেলন",
-        year: new Date().getFullYear().toString(),
+        year: String(getDhakaYear()),
         start_date: toDhakaDateString(),
         end_date: toDhakaDateString(),
         venue: "মাদ্রাসা ময়দান",
@@ -2690,7 +2690,7 @@ export async function saveOnlineDonationSettings(settings: Partial<OnlineDonatio
   }
 }
 
-function generateNextOnlineDonationReceiptNo(donations: OnlineDonation[], year: number = new Date().getFullYear()): string {
+function generateNextOnlineDonationReceiptNo(donations: OnlineDonation[], year: number = getDhakaYear()): string {
   let maxSerial = 0;
   for (const d of donations) {
     if (d.receipt_no) {
@@ -2753,7 +2753,7 @@ export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
     const donations: OnlineDonation[] = meta.online_donations || [];
 
     const isGateway = Boolean(donation.is_gateway);
-    const currentYear = new Date().getFullYear();
+    const currentYear = getDhakaYear();
     const receiptNo = generateNextOnlineDonationReceiptNo(donations, currentYear);
 
     const nowIso = new Date().toISOString();
@@ -2900,7 +2900,7 @@ export async function initiateOnlineDonationGateway(params: {
     }
 
     const nowIso = new Date().toISOString();
-    const dateStr = new Date().getFullYear().toString() + String(new Date().getMonth() + 1).padStart(2, "0");
+    const dateStr = toDhakaMonthString().replace("-", ""); // P2-Fix: YYYYMM ঢাকা টাইমজোনে
     const randSuffix = Math.floor(100000 + Math.random() * 900000);
     const transactionId = `DON-TXN-${dateStr}-${randSuffix}`;
 
@@ -2934,7 +2934,7 @@ export async function initiateOnlineDonationGateway(params: {
 
     // Save pending donation record
     const donations: OnlineDonation[] = meta.online_donations || [];
-    const receiptNo = generateNextOnlineDonationReceiptNo(donations, new Date().getFullYear());
+    const receiptNo = generateNextOnlineDonationReceiptNo(donations, getDhakaYear());
 
     const pendingDonation: OnlineDonation = {
       id: `onl_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,

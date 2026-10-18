@@ -1,6 +1,6 @@
 "use server";
 
-import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateStringFrom, toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
@@ -100,7 +100,7 @@ async function syncAndGetStaffMembers(
   });
 
   const prefix = meta.staff_id_prefix || "STF";
-  const currentYear = new Date().getFullYear();
+  const currentYear = getDhakaYear();
 
   // Deduplicate and ensure clean unique serials for all existing staff
   const assignedCodes = new Set<string>();
@@ -488,7 +488,7 @@ export async function createStaffMember(payload: {
     let existingStaff: StaffMember[] = meta.staff_members || [];
 
     // Increment serial and generate unique Staff ID without collisions
-    const currentYear = new Date().getFullYear();
+    const currentYear = getDhakaYear();
     const prefix = meta.staff_id_prefix || "STF";
     const existingCodes = new Set(existingStaff.map((s) => s.staff_id_code).filter(Boolean));
     let serial = (meta.staff_id_serial_counter || existingStaff.length || 0) + 1;
@@ -1496,7 +1496,7 @@ export async function generateStaffIdCard(staffId: string) {
     if (index === -1) return { error: "কর্মী পাওয়া যায়নি।" };
 
     const staff = staffList[index];
-    const currentYear = new Date().getFullYear();
+    const currentYear = getDhakaYear();
     const token = generateStaffVerificationToken(madrasaId, staffId);
 
     staff.id_card = {

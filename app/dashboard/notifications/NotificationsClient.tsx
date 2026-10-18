@@ -1,6 +1,6 @@
 "use client";
 
-import { toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateString, startOfDhakaDay } from "@/lib/date-utils";
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -183,8 +183,7 @@ export default function NotificationsClient({
   // FILTERED ACTIVITY LOGS
   // ==========================================
   const filteredActivityLogs = useMemo(() => {
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfToday = startOfDhakaDay().getTime(); // P2-Fix: ঢাকা দিন-শুরুর timestamp
     const startOfWeek = startOfToday - 7 * 24 * 60 * 60 * 1000;
     const startOfMonth = Date.now() - 30 * 24 * 60 * 60 * 1000;
 

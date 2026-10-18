@@ -1,6 +1,6 @@
 "use server";
 
-import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateStringFrom, toDhakaDateString, getDhakaYear, toDhakaMonthString } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
@@ -173,7 +173,7 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
     const hasYear = !!filters?.year;
 
     if (hasMonth || hasYear) {
-      const currentYear = new Date().getFullYear();
+      const currentYear = getDhakaYear();
       const parsedMonth = hasMonth ? parseInt(String(filters!.month), 10) : null;
       const parsedYear = hasYear ? parseInt(String(filters!.year), 10) : currentYear;
 
@@ -260,18 +260,20 @@ export async function getNextExpenseVoucherNo(expenseDate?: string): Promise<str
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    const d = expenseDate ? new Date(expenseDate) : new Date();
-    const yy = String(d.getFullYear()).slice(-2);
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const d = expenseDate ? new Date(expenseDate) : undefined; // P2-Fix: now-পথ ঢাকা-ভিত্তিক
+    const yy = d ? String(d.getFullYear()).slice(-2) : String(getDhakaYear()).slice(-2);
+    const mm = d ? String(d.getMonth() + 1).padStart(2, "0") : toDhakaMonthString().slice(5, 7);
     const currentPrefix = `EXP-${yy}${mm}-`;
 
     if (!user) return `${currentPrefix}001`;
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return `${currentPrefix}001`;
 
-    const monthStart = `${d.getFullYear()}-${mm}-01`;
-    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-    const monthEnd = `${d.getFullYear()}-${mm}-${String(lastDay).padStart(2, "0")}`;
+    const yFull = d ? d.getFullYear() : getDhakaYear();
+    const mFull = d ? d.getMonth() + 1 : Number(mm);
+    const monthStart = `${yFull}-${mm}-01`;
+    const lastDay = new Date(yFull, mFull, 0).getDate();
+    const monthEnd = `${yFull}-${mm}-${String(lastDay).padStart(2, "0")}`;
 
     // MAX(voucher_no) থেকে পরবর্তী ক্রম — count() নয়
     const { data } = await supabase
@@ -291,9 +293,9 @@ export async function getNextExpenseVoucherNo(expenseDate?: string): Promise<str
     }
     return `${currentPrefix}${String(next).padStart(3, "0")}`;
   } catch {
-    const d = expenseDate ? new Date(expenseDate) : new Date();
-    const yy = String(d.getFullYear()).slice(-2);
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const d = expenseDate ? new Date(expenseDate) : undefined; // P2-Fix: now-পথ ঢাকা-ভিত্তিক
+    const yy = d ? String(d.getFullYear()).slice(-2) : String(getDhakaYear()).slice(-2);
+    const mm = d ? String(d.getMonth() + 1).padStart(2, "0") : toDhakaMonthString().slice(5, 7);
     return `EXP-${yy}${mm}-001`;
   }
 }

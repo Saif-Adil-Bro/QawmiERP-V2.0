@@ -1,3 +1,4 @@
+import { getDhakaYear } from "@/lib/date-utils";
 // Staff Management Type Definitions, Constants & Helper Utilities
 
 export type StaffCategoryCode = "teaching" | "administration" | "support" | "management" | "custom";
@@ -486,7 +487,7 @@ export function generateStaffVerificationToken(madrasaId: string, staffId: strin
  * Format: [PREFIX]-[YY][XXXX] where YY is the last 2 digits of the current English year,
  * and XXXX is a 4-digit auto-generated sequential number.
  */
-export function formatStaffIdCode(prefix: string = "STF", year: number = new Date().getFullYear(), serial: number): string {
+export function formatStaffIdCode(prefix: string = "STF", year: number = getDhakaYear(), serial: number): string {
   const shortYear = String(year).slice(-2);
   const padSerial = String(serial).padStart(4, "0");
   return `${prefix}-${shortYear}${padSerial}`;

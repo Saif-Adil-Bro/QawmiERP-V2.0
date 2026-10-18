@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useEffect } from "react";
 import {
   FileText,
@@ -159,10 +160,10 @@ export default function LetterpadNoticeBuilder({ madrasaInfo }: LetterpadNoticeB
   const [selectedPresetId, setSelectedPresetId] = useState("general_notice");
   const [memoNo, setMemoNo] = useState(() => generateAutoMemoNumber("নোটিশ", prefix));
   const [customDate, setCustomDate] = useState(() => {
-    const today = new Date();
-    const d = toBanglaNumber(today.getDate());
-    const m = toBanglaNumber(today.getMonth() + 1);
-    const y = toBanglaNumber(today.getFullYear());
+    const [yEn, mEn, dEn] = toDhakaDateString().split("-"); // P2-Fix: ঢাকা টাইমজোনের তারিখ
+    const d = toBanglaNumber(dEn);
+    const m = toBanglaNumber(mEn);
+    const y = toBanglaNumber(yEn);
     return `${d}/${m}/${y} খ্রি. (১৪৪৭ হিজরি)`;
   });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { 
@@ -185,7 +185,7 @@ export default function HolidaysClient({
       applicable_to: "all",
       applicable_classes: [],
       description: "",
-      notice_number: `মাদ/ছুটি/${toBanglaNumber(new Date().getFullYear())}/${toBanglaNumber(String(holidays.length + 1).padStart(2, "0"))}`,
+      notice_number: `মাদ/ছুটি/${toBanglaNumber(getDhakaYear())}/${toBanglaNumber(String(holidays.length + 1).padStart(2, "0"))}`,
       publish_to_portal: true,
     });
     setIsModalOpen(true);
@@ -1176,7 +1176,7 @@ export default function HolidaysClient({
                     <button
                       type="button"
                       onClick={() => {
-                        const freshNotice = `মাদ/ছুটি/${toBanglaNumber(new Date().getFullYear())}/${toBanglaNumber(String(holidays.length + 1).padStart(2, "0"))}`;
+                        const freshNotice = `মাদ/ছুটি/${toBanglaNumber(getDhakaYear())}/${toBanglaNumber(String(holidays.length + 1).padStart(2, "0"))}`;
                         setFormData({ ...formData, notice_number: freshNotice });
                       }}
                       className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 cursor-pointer"

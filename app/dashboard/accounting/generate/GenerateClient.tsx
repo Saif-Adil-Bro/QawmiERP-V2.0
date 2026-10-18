@@ -1,6 +1,6 @@
 "use client";
 
-import { toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { useState } from "react";
 import { AcademicSession } from "@/lib/sessions";
 import { FeeType, HIJRI_MONTHS, GREGORIAN_MONTHS, FeeCategory, FeeFrequency } from "@/lib/fee-management";
@@ -43,7 +43,7 @@ export default function GenerateClient({
   initialBatches = [],
 }: GenerateClientProps) {
   const router = useRouter();
-  const currentYear = new Date().getFullYear();
+  const currentYear = getDhakaYear();
   const currentMonthIdx = new Date().getMonth();
 
   const [feeTypesList, setFeeTypesList] = useState<FeeType[]>(initialFeeTypes);

@@ -1,7 +1,7 @@
 "use server";
 
 import { getDefaultMadrasaId } from "@/lib/madrasa-default";
-import { toDhakaDateStringFrom } from "@/lib/date-utils";
+import { toDhakaDateStringFrom, getDhakaYear, toDhakaMonthString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
@@ -156,7 +156,7 @@ export async function initiateOnlinePayment(params: {
 
     // Generate unique transaction reference
     const now = new Date();
-    const dateStr = now.getFullYear().toString() + String(now.getMonth() + 1).padStart(2, "0");
+    const dateStr = toDhakaMonthString(now).replace("-", ""); // P2-Fix: YYYYMM ঢাকা টাইমজোনে
     const randSuffix = Math.floor(100000 + Math.random() * 900000);
     const transactionId = `TXN-${dateStr}-${randSuffix}`;
 
@@ -451,7 +451,7 @@ export async function verifyAndCompleteOnlinePayment(params: {
     const now = new Date().toISOString();
 
     // 1. Generate Atomic Unique Serial Receipt Number from relational table
-    const currentYear = new Date().getFullYear();
+    const currentYear = getDhakaYear();
     const receiptNo = await generateNextReceiptNumber(adminClient, madrasaId, currentYear);
 
     // 2. Update Student Fees

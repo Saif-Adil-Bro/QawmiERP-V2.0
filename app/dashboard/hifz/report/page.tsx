@@ -1,5 +1,6 @@
 "use client";
 
+import { getDhakaYear } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { getMonthlyHifzSummary } from "@/app/actions/hifz";
 import { getClasses } from "@/app/actions/students";
@@ -9,7 +10,7 @@ import { ArrowLeft, BookOpen, Printer, Calendar, Award, CheckCircle2, AlertCircl
 export default function HifzReportPage() {
   const [classId, setClassId] = useState<string>("All");
   const [month, setMonth] = useState<string>(() => (new Date().getMonth() + 1).toString().padStart(2, "0"));
-  const [year, setYear] = useState<string>(() => new Date().getFullYear().toString());
+  const [year, setYear] = useState<string>(() => String(getDhakaYear()));
   const [classes, setClasses] = useState<any[]>([]);
   const [summaryData, setSummaryData] = useState<any>(null);
   const [loading, setLoading] = useState(true);

@@ -1,6 +1,6 @@
 "use server";
 
-import { toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -704,7 +704,7 @@ export async function seedDefaultQawmiHolidays(year?: string) {
     const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
 
-    const currentYear = year || new Date().getFullYear().toString();
+    const currentYear = year || String(getDhakaYear());
     const meta = await getMadrasaMetadata(madrasaId);
     if (!meta.academic_holidays) {
       meta.academic_holidays = [];

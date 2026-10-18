@@ -31,10 +31,9 @@ export async function getClassSubjects(classId: string) {
 export async function assignSubjectToClass(classId: string, subjectId: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("classes");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  // P2-Fix: function-scope — try-ব্লকের by-ID tenant guard-ও __authz.madrasaId ব্যবহার করবে
+  const __authz = await writeGuard("classes");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const adminClient = await createAdminClient();
@@ -60,6 +59,11 @@ export async function assignSubjectToClass(classId: string, subjectId: string) {
     if (!madrasaId) {
       // P2-Fix: first-madrasa fallback সরানো — tenant resolve না হলে fail-closed
       return { error: "মাদরাসা পাওয়া যায়নি।" };
+    }
+
+    // P2-Fix: cross-tenant guard — classId অন্য মাদ্রাসার হলে সেখানে row insert করা যাবে না
+    if (clsData?.madrasa_id && clsData.madrasa_id !== __authz.madrasaId) {
+      return { error: "জামাত খুঁজে পাওয়া যায়নি।" };
     }
 
     // 2. Check if already assigned
@@ -121,13 +125,24 @@ export async function assignSubjectToClass(classId: string, subjectId: string) {
 export async function removeSubjectFromClass(classSubjectId: string, classId: string, subjectId?: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("classes");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  // P2-Fix: function-scope — try-ব্লকের by-ID tenant guard-ও __authz.madrasaId ব্যবহার করবে
+  const __authz = await writeGuard("classes");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const adminClient = await createAdminClient();
+
+    // P2-Fix: cross-tenant guard — by-ID/by-class ডিলিটের আগে জামাতটিই নিজের মাদ্রাসার কিনা যাচাই
+    const { data: clsRow, error: clsErr } = await adminClient
+      .from("classes")
+      .select("id, madrasa_id")
+      .eq("id", classId)
+      .maybeSingle();
+    if (clsErr || !clsRow) return { error: "জামাত খুঁজে পাওয়া যায়নি।" };
+    if (clsRow.madrasa_id && clsRow.madrasa_id !== __authz.madrasaId) {
+      return { error: "অন্য মাদ্রাসার বিষয় ডিলিট করা যাবে না।" };
+    }
+
     const isUuid = Boolean(classSubjectId) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(classSubjectId);
     
     let error: any = null;
@@ -136,7 +151,8 @@ export async function removeSubjectFromClass(classSubjectId: string, classId: st
       const res = await adminClient
         .from("class_subjects")
         .delete()
-        .eq("id", classSubjectId);
+        .eq("id", classSubjectId)
+        .eq("class_id", classId); // P2-Fix: verified class-এর scope-এই ডিলিট
       error = res.error;
     }
 

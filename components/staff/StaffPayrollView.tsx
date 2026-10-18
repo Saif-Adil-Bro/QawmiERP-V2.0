@@ -1,5 +1,6 @@
 "use client";
 
+import { getDhakaYear } from "@/lib/date-utils";
 import React, { useState } from "react";
 import {
   StaffMember,
@@ -58,7 +59,7 @@ export default function StaffPayrollView({
   onRefresh,
 }: StaffPayrollViewProps) {
   const currentMonth = String(new Date().getMonth() + 1).padStart(2, "0");
-  const currentYear = String(new Date().getFullYear());
+  const currentYear = String(getDhakaYear());
 
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [selectedYear, setSelectedYear] = useState(currentYear);

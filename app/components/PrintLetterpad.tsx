@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaMonthString } from "@/lib/date-utils";
 import React, { useState, useEffect } from "react";
 import { 
   Settings, Check, Printer, FileText, Sliders, ChevronDown, 
@@ -51,9 +52,9 @@ function getMadrasaPrefix(madrasa: any): string {
 
 // Smart automatic memo number generator
 export function generateAutoMemoNumber(docTitle?: string, customPrefix?: string): string {
-  const now = new Date();
-  const yearBn = toBanglaNumber(now.getFullYear());
-  const monthBn = toBanglaNumber(String(now.getMonth() + 1).padStart(2, "0"));
+  const nowMonth = toDhakaMonthString(); // P2-Fix: memo নম্বরের বছর/মাস ঢাকা টাইমজোনে
+  const yearBn = toBanglaNumber(nowMonth.slice(0, 4));
+  const monthBn = toBanglaNumber(nowMonth.slice(5, 7));
   const serialBn = toBanglaNumber(String(Math.floor(100 + Math.random() * 900)));
 
   let prefixTag = "মাপ্র"; // মাদরাসা প্রশাসন

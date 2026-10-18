@@ -1,6 +1,6 @@
 "use client";
 
-import { toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createExam } from "@/app/actions/exams";
 import { Calendar, Clock, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
@@ -73,7 +73,7 @@ export default function AddExamForm() {
   const [selectedTitle, setSelectedTitle] = useState("");
   const [customTitle, setCustomTitle] = useState("");
 
-  const currentYear = new Date().getFullYear();
+  const currentYear = getDhakaYear();
   const years = Array.from({ length: 3 }, (_, i) => currentYear - 1 + i);
 
   useEffect(() => {
