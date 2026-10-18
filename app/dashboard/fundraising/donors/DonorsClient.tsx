@@ -1,6 +1,6 @@
 "use client";
 
-import { toDhakaDateString, toDhakaMonthString } from "@/lib/date-utils";
+import { toDhakaDateString, toDhakaMonthString, getDhakaYear } from "@/lib/date-utils";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -119,7 +119,7 @@ export default function DonorsClient({
   const [paymentFormData, setPaymentFormData] = useState({
     amount: 1000,
     month: selectedMonth,
-    selectedYear: selectedMonth.split("-")[0] || new Date().getFullYear().toString(),
+    selectedYear: selectedMonth.split("-")[0] || String(getDhakaYear()),
     selectedMonthNum: selectedMonth.split("-")[1] || String(new Date().getMonth() + 1).padStart(2, "0"),
     payment_method: "Cash",
     trx_id: "",
@@ -145,7 +145,7 @@ export default function DonorsClient({
       return preferredMonth;
     }
     const [yStr, mStr] = preferredMonth.split("-");
-    const y = parseInt(yStr, 10) || new Date().getFullYear();
+    const y = parseInt(yStr, 10) || getDhakaYear();
     const startM = parseInt(mStr, 10) || 1;
     // Check later months in current year
     for (let m = startM + 1; m <= 12; m++) {
@@ -283,7 +283,7 @@ export default function DonorsClient({
     setPaymentFormData({
       amount: donor.committed_amount || donor.pledge_amount || 1000,
       month: suggestedMonth,
-      selectedYear: sYear || new Date().getFullYear().toString(),
+      selectedYear: sYear || String(getDhakaYear()),
       selectedMonthNum: sMonth || String(new Date().getMonth() + 1).padStart(2, "0"),
       payment_method: "Cash",
       trx_id: "",

@@ -1,6 +1,6 @@
 "use server";
 
-import { toDhakaDateStringFrom } from "@/lib/date-utils";
+import { toDhakaDateStringFrom, getDhakaYear, toDhakaMonthString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -201,9 +201,9 @@ function parseExpenseMetadata(rawDetails: string | null | undefined, fallbackId:
 
   // Fallback auto-generated voucher number if none found
   if (!voucherNo) {
-    const d = expenseDate ? new Date(expenseDate) : new Date();
-    const yy = String(d.getFullYear()).slice(-2);
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const d = expenseDate ? new Date(expenseDate) : undefined; // P2-Fix: now-পথ ঢাকা-ভিত্তিক
+    const yy = d ? String(d.getFullYear()).slice(-2) : String(getDhakaYear()).slice(-2);
+    const mm = d ? String(d.getMonth() + 1).padStart(2, "0") : toDhakaMonthString().slice(5, 7);
     const suffix = fallbackId ? fallbackId.replace(/-/g, "").substring(0, 4).toUpperCase() : String(index + 1).padStart(3, "0");
     voucherNo = `BV-${yy}${mm}${suffix}`;
   }
@@ -222,18 +222,18 @@ export async function getNextBazarVoucherNo(): Promise<string> {
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return `BV-${new Date().toISOString().slice(2, 7).replace("-", "")}001`;
+    if (!user) return `BV-${toDhakaMonthString().slice(2, 7)}001`;
 
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-    if (!finalMadrasaId) return `BV-${new Date().toISOString().slice(2, 7).replace("-", "")}001`;
+    if (!finalMadrasaId) return `BV-${toDhakaMonthString().slice(2, 7)}001`;
 
-    const now = new Date();
-    const yy = String(now.getFullYear()).slice(-2);
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const nowMonth = toDhakaMonthString(); // P2-Fix: চলতি মাস ঢাকা টাইমজোনে
+    const yy = nowMonth.slice(2, 4);
+    const mm = nowMonth.slice(5, 7);
     const currentPrefix = `BV-${yy}${mm}`;
 
     // Get count of expenses in current month
-    const startOfMonth = `${now.getFullYear()}-${mm}-01`;
+    const startOfMonth = `${nowMonth}-01`;
     const { count } = await supabase
       .from("bazar_expenses")
       .select("id", { count: "exact", head: true })
@@ -243,10 +243,8 @@ export async function getNextBazarVoucherNo(): Promise<string> {
     const nextSeq = String((count || 0) + 1).padStart(3, "0");
     return `${currentPrefix}${nextSeq}`;
   } catch (e) {
-    const now = new Date();
-    const yy = String(now.getFullYear()).slice(-2);
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    return `BV-${yy}${mm}001`;
+    const nowMonth = toDhakaMonthString(); // P2-Fix: চলতি মাস ঢাকা টাইমজোনে
+    return `BV-${nowMonth.slice(2, 7)}001`;
   }
 }
 
@@ -323,9 +321,9 @@ export async function saveBazarExpense(expense: {
   // Determine or generate voucher number
   let voucherNo = (expense.voucher_no || "").trim();
   if (!voucherNo) {
-    const d = expense.expense_date ? new Date(expense.expense_date) : new Date();
-    const yy = String(d.getFullYear()).slice(-2);
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const d = expense.expense_date ? new Date(expense.expense_date) : undefined; // P2-Fix: now-পথ ঢাকা-ভিত্তিক
+    const yy = d ? String(d.getFullYear()).slice(-2) : String(getDhakaYear()).slice(-2);
+    const mm = d ? String(d.getMonth() + 1).padStart(2, "0") : toDhakaMonthString().slice(5, 7);
     const rand = Math.floor(100 + Math.random() * 900);
     voucherNo = `BV-${yy}${mm}${rand}`;
   }
@@ -486,7 +484,7 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
 
   // Format month and build date range boundaries
   // E.g., year = "2026", month = "08" (August)
-  const numYear = parseInt(year, 10) || new Date().getFullYear();
+  const numYear = parseInt(year, 10) || getDhakaYear();
   const numMonth = parseInt(month, 10) || (new Date().getMonth() + 1);
   const formattedMonth = String(numMonth).padStart(2, "0");
   const startDate = `${numYear}-${formattedMonth}-01`;
@@ -1031,7 +1029,7 @@ export async function addBoardingMealPayment(params: {
 
     // 2. Create fee_payments entry in relational database table & feeMetadata
     const { generateNextReceiptNumber } = await import("./fee-management");
-    const receiptNo = await generateNextReceiptNumber(adminClient, finalMadrasaId, new Date().getFullYear());
+    const receiptNo = await generateNextReceiptNumber(adminClient, finalMadrasaId, getDhakaYear());
     const newPayment: any = {
       id: `pay_bdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       madrasa_id: finalMadrasaId,

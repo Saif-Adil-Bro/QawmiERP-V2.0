@@ -1,6 +1,6 @@
 "use server";
 
-import { toDhakaDateStringFrom } from "@/lib/date-utils";
+import { toDhakaDateStringFrom, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -171,7 +171,7 @@ export async function saveAuditSettings(
 }
 
 export async function getAnnualAuditStatement(
-  year: string = new Date().getFullYear().toString(),
+  year: string = String(getDhakaYear()),
   startDateCustom?: string,
   endDateCustom?: string
 ): Promise<AnnualAuditStatement | null> {

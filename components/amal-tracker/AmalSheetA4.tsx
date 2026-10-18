@@ -1,5 +1,6 @@
 "use client";
 
+import { getDhakaYear } from "@/lib/date-utils";
 import React from "react";
 import Image from "next/image";
 import {
@@ -40,7 +41,7 @@ export const AmalSheetA4: React.FC<AmalSheetA4Props> = ({
 
   const startFormatted = daysList[0]?.formattedDateBangla || "";
   const endFormatted = daysList[daysList.length - 1]?.formattedDateBangla || "";
-  const yearBangla = toBanglaNumber(new Date(startDateStr || new Date()).getFullYear());
+  const yearBangla = toBanglaNumber(startDateStr ? getDhakaYear(new Date(startDateStr)) : getDhakaYear());
 
   // Group items by category
   const categoriesWithItems = template.categories

@@ -1,6 +1,6 @@
 "use server";
 
-import { toDhakaDateStringFrom, toDhakaMonthString } from "@/lib/date-utils";
+import { toDhakaDateStringFrom, toDhakaMonthString, getDhakaYear } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents, getClasses } from "./students";
 import { getMadrasaMetadata } from "@/lib/sessions";
@@ -119,7 +119,7 @@ export async function getMonthlyExecutiveSummary(
   const monthNameBn = `${MONTH_NAMES_BN[monthNumStr] || monthNumStr} ${yearStr}`;
 
   // Calculate correct date boundaries for any month (e.g. 30 for Sep, 28/29 for Feb)
-  const yearNum = parseInt(yearStr, 10) || new Date().getFullYear();
+  const yearNum = parseInt(yearStr, 10) || getDhakaYear();
   const monthNum = parseInt(monthNumStr, 10) || new Date().getMonth() + 1;
   const lastDayOfMonth = new Date(yearNum, monthNum, 0).getDate();
   const monthStartDate = `${currentMonth}-01`;

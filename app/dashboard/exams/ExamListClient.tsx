@@ -1,6 +1,6 @@
 "use client";
 
-import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateStringFrom, toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -121,7 +121,7 @@ export default function ExamListClient({ initialExams }: { initialExams: ExamIte
   const [deleteError, setDeleteError] = useState("");
 
   // Years for filter and edit
-  const currentYear = new Date().getFullYear();
+  const currentYear = getDhakaYear();
   const yearsList = Array.from(new Set(exams.map((e) => e.year).concat([currentYear.toString()]))).sort().reverse();
   const yearOptions = Array.from({ length: 5 }, (_, i) => (currentYear - 2 + i).toString());
 

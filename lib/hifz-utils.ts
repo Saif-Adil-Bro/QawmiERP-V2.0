@@ -1,3 +1,4 @@
+import { getDhakaYear } from "@/lib/date-utils";
 export interface HifzLogMeta {
   stage?: "QAIDA" | "NAZERA" | "HIFZ" | "DAWR";
   sabak_page_from?: number | null;
@@ -195,7 +196,7 @@ export function buildStudentHifzReportFromLogs(params: {
   const { student, allStudentLogs, studentProfile, targetMonth, targetYear } = params;
 
   const monthStr = targetMonth || new Date().toISOString().slice(5, 7);
-  const yearStr = targetYear || new Date().getFullYear().toString();
+  const yearStr = targetYear || String(getDhakaYear());
 
   const startDate = `${yearStr}-${monthStr.padStart(2, "0")}-01`;
   const endDate = new Date(Date.UTC(parseInt(yearStr), parseInt(monthStr), 0)).toISOString().split("T")[0];

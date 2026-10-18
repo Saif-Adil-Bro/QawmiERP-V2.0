@@ -1,5 +1,6 @@
 "use client";
 
+import { getDhakaYear } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { getAttendanceReport } from "@/app/actions/attendance";
 import { format } from "date-fns";
@@ -10,7 +11,7 @@ import PrintLetterpad from "@/app/components/PrintLetterpad";
 
 export default function AttendanceReportPage() {
   const currentMonth = new Date().getMonth() + 1;
-  const currentYear = new Date().getFullYear();
+  const currentYear = getDhakaYear();
   
   const [month, setMonth] = useState<string>(currentMonth.toString());
   const [year, setYear] = useState<string>(currentYear.toString());

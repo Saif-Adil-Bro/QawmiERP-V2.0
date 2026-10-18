@@ -1,5 +1,6 @@
 "use client";
 
+import { getDhakaYear } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { getAccountingReport } from "@/app/actions/accounting";
 import { getFunds } from "@/app/actions/zakat";
@@ -12,7 +13,7 @@ import { printElementIsolated } from "@/lib/printUtils";
 
 export default function AccountingReportPage() {
   const currentMonth = new Date().getMonth() + 1;
-  const currentYear = new Date().getFullYear();
+  const currentYear = getDhakaYear();
   
   const [month, setMonth] = useState<string>(currentMonth.toString());
   const [year, setYear] = useState<string>(currentYear.toString());

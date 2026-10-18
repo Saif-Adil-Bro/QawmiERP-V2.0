@@ -1,5 +1,6 @@
 "use client";
 
+import { toDhakaMonthString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import {
   getBazarExpenses,
@@ -88,9 +89,9 @@ export default function BazarExpensesPage() {
       const nextVoucher = await getNextBazarVoucherNo();
       setFormVoucherNo(nextVoucher);
     } catch (e) {
-      const now = new Date();
-      const yy = String(now.getFullYear()).slice(-2);
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const nowMonth = toDhakaMonthString(); // P2-Fix: ঢাকা টাইমজোনের চলমান মাস (BV fallback)
+      const yy = nowMonth.slice(2, 4);
+      const mm = nowMonth.slice(5, 7);
       const rand = Math.floor(100 + Math.random() * 900);
       setFormVoucherNo(`BV-${yy}${mm}${rand}`);
     }

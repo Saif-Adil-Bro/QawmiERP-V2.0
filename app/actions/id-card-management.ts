@@ -1,6 +1,6 @@
 "use server";
 
-import { toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents } from "@/app/actions/students";
@@ -278,7 +278,9 @@ export async function issueStudentIdCard(payload: {
 
     const today = payload.issue_date || toDhakaDateString();
     // Default 1 year expiry
-    const expiry = payload.expiry_date || toDhakaDateString(new Date(new Date().setFullYear(new Date().getFullYear() + 1)));
+    // P2-Fix: expiry = ঢাকা-আজ + ১ বছর (UTC Date-গণনা বাদ)
+    const dhakaToday = toDhakaDateString();
+    const expiry = payload.expiry_date || `${Number(dhakaToday.slice(0, 4)) + 1}${dhakaToday.slice(4)}`;
 
     // Deactivate previous ACTIVE card for same student and session
     cards.forEach((c) => {
@@ -393,8 +395,10 @@ export async function bulkGenerateIdCards(payload: {
     const cards: StudentIDCard[] = meta.id_cards || [];
     let counter = meta.id_card_counter || cards.length + 100;
     const today = payload.issue_date || toDhakaDateString();
-    const expiry = payload.expiry_date || toDhakaDateString(new Date(new Date().setFullYear(new Date().getFullYear() + 1)));
-    const yearShort = targetSession?.academic_year?.split("-")?.[0]?.slice(-2) || new Date().getFullYear().toString().slice(-2);
+    // P2-Fix: expiry = ঢাকা-আজ + ১ বছর (UTC Date-গণনা বাদ)
+    const dhakaToday = toDhakaDateString();
+    const expiry = payload.expiry_date || `${Number(dhakaToday.slice(0, 4)) + 1}${dhakaToday.slice(4)}`;
+    const yearShort = targetSession?.academic_year?.split("-")?.[0]?.slice(-2) || String(getDhakaYear()).slice(-2);
 
     const madrasaPrefix = (
       meta.prefix ||
@@ -515,12 +519,14 @@ export async function reissueStudentIdCard(cardId: string, reason?: string) {
     counter += 1;
     meta.id_card_counter = counter;
 
-    const yearShort = new Date().getFullYear().toString().slice(-2);
+    const yearShort = String(getDhakaYear()).slice(-2);
     const cardNumber = formatCardNumber(yearShort, counter);
     const verificationId = generateVerificationToken();
 
     const today = toDhakaDateString();
-    const expiry = toDhakaDateString(new Date(new Date().setFullYear(new Date().getFullYear() + 1)));
+    // P2-Fix: expiry = ঢাকা-আজ + ১ বছর (UTC Date-গণনা বাদ)
+    const dhakaToday = toDhakaDateString();
+    const expiry = `${Number(dhakaToday.slice(0, 4)) + 1}${dhakaToday.slice(4)}`;
 
     const newCard: StudentIDCard = {
       ...oldCard,

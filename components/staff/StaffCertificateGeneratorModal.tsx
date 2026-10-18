@@ -1,6 +1,6 @@
 "use client";
 
-import { toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import React, { useState, useEffect } from "react";
 import { StaffMember } from "@/lib/staff-management";
 import { 
@@ -75,7 +75,7 @@ export default function StaffCertificateGeneratorModal({
   const [customSubject, setCustomSubject] = useState("");
   const [issueDate, setIssueDate] = useState(toDhakaDateString());
   const [referenceNo, setReferenceNo] = useState(
-    `QM/DOC/${new Date().getFullYear()}/${(staff.staff_id_code || "0001").replace(/[^0-9]/g, "").slice(-4) || "0001"}`
+    `QM/DOC/${getDhakaYear()}/${(staff.staff_id_code || "0001").replace(/[^0-9]/g, "").slice(-4) || "0001"}`
   );
   const [remarks, setRemarks] = useState("");
   const [isPrinting, setIsPrinting] = useState(false);

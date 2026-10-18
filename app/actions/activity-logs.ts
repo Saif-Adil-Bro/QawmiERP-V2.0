@@ -1,5 +1,6 @@
 "use server";
 
+import { startOfDhakaDay } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
@@ -478,7 +479,7 @@ export async function getActivityLogs(filters?: ActivityLogFilters): Promise<{
 
     // Compute accurate stats
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfToday = startOfDhakaDay().getTime(); // P2-Fix: 'আজ' = ঢাকা দিন
     const startOfWeek = startOfToday - 7 * 24 * 60 * 60 * 1000;
 
     let todayCount = 0;

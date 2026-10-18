@@ -1,6 +1,6 @@
 "use server";
 
-import { toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents } from "@/app/actions/students";
@@ -224,7 +224,7 @@ export async function issueStudentCertificate(payload: {
     const sessions: AcademicSession[] = meta.sessions || getDefaultSessions(madrasaId);
     const currentSession = sessions.find((s) => s.is_current) || sessions[0];
 
-    const yearShort = new Date().getFullYear().toString();
+    const yearShort = String(getDhakaYear());
     const rawStudentIdCode = normalizeStudentIdCode(
       student.student_id || student.id_number || (student.roll_number ? `480${String(student.roll_number).padStart(3, "0")}` : `${480000 + counter}`),
       counter

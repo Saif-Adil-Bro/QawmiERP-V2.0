@@ -1,6 +1,6 @@
 "use server";
 
-import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateStringFrom, toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -18,7 +18,7 @@ const customFundsStore: Map<string, FundItem[]> = new Map();
 export async function getNextDonationReceiptNo(madrasaId: string, prefix = "ZR"): Promise<string> {
   try {
     const adminClient = await createAdminClient();
-    const currentYear = new Date().getFullYear();
+    const currentYear = getDhakaYear();
     const { data: donations } = await adminClient
       .from("donations")
       .select("receipt_no")
@@ -46,7 +46,7 @@ export async function getNextDonationReceiptNo(madrasaId: string, prefix = "ZR")
     const nextSeq = maxSeq + 1;
     return `${prefix}-${currentYear}-${String(nextSeq).padStart(4, "0")}`;
   } catch {
-    const currentYear = new Date().getFullYear();
+    const currentYear = getDhakaYear();
     return `${prefix}-${currentYear}-0001`;
   }
 }
@@ -55,7 +55,7 @@ export async function getNextDonationReceiptNo(madrasaId: string, prefix = "ZR")
 export async function getNextMahfilVoucherNo(madrasaId: string, type: "SURPLUS" | "DEFICIT"): Promise<string> {
   try {
     const adminClient = await createAdminClient();
-    const currentYear = new Date().getFullYear();
+    const currentYear = getDhakaYear();
     const prefix = "MHF";
     
     let maxSeq = 0;
@@ -108,7 +108,7 @@ export async function getNextMahfilVoucherNo(madrasaId: string, type: "SURPLUS" 
     const nextSeq = maxSeq + 1;
     return `MHF-${currentYear}-${String(nextSeq).padStart(4, "0")}`;
   } catch {
-    const currentYear = new Date().getFullYear();
+    const currentYear = getDhakaYear();
     return `MHF-${currentYear}-0001`;
   }
 }

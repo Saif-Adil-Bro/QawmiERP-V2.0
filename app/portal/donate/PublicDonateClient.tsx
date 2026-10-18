@@ -1,6 +1,6 @@
 "use client";
 
-import { toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
@@ -1101,7 +1101,7 @@ export default function PublicDonateClient({
 
         {/* Footer info */}
         <div className="text-center text-xs text-slate-400 py-4">
-          <p>© {new Date().getFullYear()} {madrasaTitle} • সার্বিক সহযোগিতায় কওমি ম্যানেজার</p>
+          <p>© {getDhakaYear()} {madrasaTitle} • সার্বিক সহযোগিতায় কওমি ম্যানেজার</p>
         </div>
       </div>
 
