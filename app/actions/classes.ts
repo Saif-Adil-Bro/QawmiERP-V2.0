@@ -211,10 +211,9 @@ export async function getClasses(): Promise<EnrichedClassItem[]> {
 export async function assignClassTeacher(classId: string, teacherId: string | null) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("classes");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  // P2-Fix: function-scope — try-ব্লকের by-ID tenant guard-ও __authz.madrasaId ব্যবহার করবে
+  const __authz = await writeGuard("classes");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
@@ -232,6 +231,16 @@ export async function assignClassTeacher(classId: string, teacherId: string | nu
     if (!teacherId || teacherId === "NONE") {
       delete meta.class_teachers[classId];
     } else {
+      // P2-Fix: cross-tenant guard — foreign classId নিজের মাদ্রাসার metadata-তে পুশ করা যাবে না
+      const { data: clsRow, error: clsErr } = await adminClient
+        .from("classes")
+        .select("id, madrasa_id")
+        .eq("id", classId)
+        .maybeSingle();
+      if (clsErr || !clsRow) return { error: "জামাত খুঁজে পাওয়া যায়নি।" };
+      if (clsRow.madrasa_id && clsRow.madrasa_id !== madrasaId) {
+        return { error: "অন্য মাদ্রাসার জামাতে শিক্ষক নির্ধারণ করা যাবে না।" };
+      }
       const teachers = await getTeachersForClassAssignment();
       const teacher = teachers.find((t) => t.id === teacherId);
 
@@ -262,10 +271,9 @@ export async function assignClassTeacher(classId: string, teacherId: string | nu
 export async function createClass(prevState: any, formData: FormData) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("classes");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  // P2-Fix: function-scope — try-ব্লকের by-ID tenant guard-ও __authz.madrasaId ব্যবহার করবে
+  const __authz = await writeGuard("classes");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
@@ -351,14 +359,24 @@ export async function updateClass(
 ) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("classes");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  // P2-Fix: function-scope — try-ব্লকের by-ID tenant guard-ও __authz.madrasaId ব্যবহার করবে
+  const __authz = await writeGuard("classes");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
+
+    // P2-Fix: cross-tenant guard — by-ID আপডেটের আগে জামাতটিই নিজের মাদ্রাসার কিনা যাচাই
+    const { data: clsRow, error: clsErr } = await adminClient
+      .from("classes")
+      .select("id, madrasa_id")
+      .eq("id", classId)
+      .maybeSingle();
+    if (clsErr || !clsRow) return { error: "জামাত খুঁজে পাওয়া যায়নি।" };
+    if (clsRow.madrasa_id && clsRow.madrasa_id !== __authz.madrasaId) {
+      return { error: "অন্য মাদ্রাসার জামাতে পরিবর্তন করা যাবে না।" };
+    }
 
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -406,14 +424,25 @@ export async function updateClass(
 export async function deleteClass(classId: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("classes");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  // P2-Fix: function-scope — try-ব্লকের by-ID tenant guard-ও __authz.madrasaId ব্যবহার করবে
+  const __authz = await writeGuard("classes");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
+
+    // P2-Fix: cross-tenant guard — by-ID ডিলিটের আগে জামাতটিই নিজের মাদ্রাসার কিনা যাচাই
+    // (ডিলিটে ON DELETE CASCADE আছে — অন্য মাদ্রাসার জামাত মুছে গেলে সব লিংকড ডেটাও হারাই)
+    const { data: clsRow, error: clsErr } = await adminClient
+      .from("classes")
+      .select("id, madrasa_id")
+      .eq("id", classId)
+      .maybeSingle();
+    if (clsErr || !clsRow) return { error: "জামাত খুঁজে পাওয়া যায়নি।" };
+    if (clsRow.madrasa_id && clsRow.madrasa_id !== __authz.madrasaId) {
+      return { error: "অন্য মাদ্রাসার জামাত ডিলিট করা যাবে না।" };
+    }
 
     const { error: userError } = await supabase
       .from("classes")
@@ -461,10 +490,9 @@ export async function deleteClass(classId: string) {
 export async function updateClassSequences(sequences: { id: string; sequence: number }[]) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("classes");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  // P2-Fix: function-scope — try-ব্লকের by-ID tenant guard-ও __authz.madrasaId ব্যবহার করবে
+  const __authz = await writeGuard("classes");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
@@ -549,10 +577,9 @@ export async function getStudentsByClass(classId: string) {
 export async function promoteStudents(studentIds: string[], nextClassId: string | null) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("classes");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  // P2-Fix: function-scope — try-ব্লকের by-ID tenant guard-ও __authz.madrasaId ব্যবহার করবে
+  const __authz = await writeGuard("classes");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     if (!studentIds || studentIds.length === 0) {
