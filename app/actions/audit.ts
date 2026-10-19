@@ -5,7 +5,7 @@ import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
-import { parseExpenseFund } from "@/lib/fund-utils";
+import { parseExpenseFund, isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFeeMetadata } from "./fee-management";
@@ -297,6 +297,7 @@ export async function getAnnualAuditStatement(
 
 
     (priorDonationsRes.data || []).forEach((d: any) => {
+      if (isVoidDonation(d)) return;
       const amt = Number(d.amount || 0);
       const target = classifyAuditFund(d.donation_type, d.notes, d.fund_id);
       if (target === "zakat") pZakIn += amt;
@@ -369,6 +370,7 @@ export async function getAnnualAuditStatement(
     });
 
     (priorExpRes.data || []).forEach((e: any) => {
+      if (isVoidedExpense(e)) return;
       const amt = Number(e.amount || 0);
       const parsed = parseExpenseFund(e.description);
       const fund = (parsed.fundId || "").toLowerCase();
@@ -488,6 +490,7 @@ export async function getAnnualAuditStatement(
 
   // Process Database Donations
   (donationsData || []).forEach((don: any) => {
+    if (isVoidDonation(don)) return;
     const amt = Number(don.amount || 0);
     const target = classifyAuditFund(don.donation_type, don.notes, don.fund_id);
     const label = don.donation_type || "দান / অনুদান";
@@ -635,6 +638,7 @@ export async function getAnnualAuditStatement(
 
   // Process Expenses
   (expensesData || []).forEach((exp: any) => {
+    if (isVoidedExpense(exp)) return;
     const amt = Number(exp.amount || 0);
     const explicitFundId = exp.fund_id ? String(exp.fund_id).toLowerCase() : "";
     const parsed = parseExpenseFund(exp.description);

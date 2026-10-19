@@ -354,10 +354,10 @@ export function ExecutiveSummaryModal({
                 <div class="kpi-sub">মেস বাজার: ৳${toBn(m.boardingBazarExpense)} | সাধারণ: ৳${toBn(m.generalExpenses)}</div>
               </div>
 
-              <div class="kpi-box" style="background:${m.netBalance >= 0 ? '#eff6ff' : '#fffbeb'}; border-color:${m.netBalance >= 0 ? '#bfdbfe' : '#fde68a'};">
-                <div class="kpi-title" style="color:${m.netBalance >= 0 ? '#1e40af' : '#92400e'};">মাসিক নিট স্থিতি</div>
-                <div class="kpi-value" style="color:${m.netBalance >= 0 ? '#2563eb' : '#d97706'};">৳ ${toBn(Math.abs(m.netBalance))} ${m.netBalance >= 0 ? '(উদ্বৃত্ত)' : '(ঘাটতি)'}</div>
-                <div class="kpi-sub">বকেয়া ফি: ৳${toBn(m.totalDueAmount)} (${toBn(m.studentsWithDueCount)} জন)</div>
+              <div class="kpi-box" style="background:${(m.adjustedClosingBalance || 0) >= 0 ? '#eff6ff' : '#fffbeb'}; border-color:${(m.adjustedClosingBalance || 0) >= 0 ? '#bfdbfe' : '#fde68a'};">
+                <div class="kpi-title" style="color:${(m.adjustedClosingBalance || 0) >= 0 ? '#1e40af' : '#92400e'};">${(m.adjustedClosingBalance || 0) >= 0 ? 'সমন্বয়কৃত সমাপনী স্থিতি' : 'সমন্বয়কৃত মোট ঘাটতি/ঋণ'}</div>
+                <div class="kpi-value" style="color:${(m.adjustedClosingBalance || 0) >= 0 ? '#2563eb' : '#d97706'};">৳ ${toBn(Math.abs(m.adjustedClosingBalance || 0))} ${(m.adjustedClosingBalance || 0) >= 0 ? '(উদ্বৃত্ত)' : '(ঘাটতি/ঋণ)'}</div>
+                <div class="kpi-sub">চলতি: ৳${toBn(m.netBalance)} | ${m.previousBalance !== 0 ? (m.isDebt ? `পূর্বের ঋণ: -৳${toBn(Math.abs(m.previousBalance))}` : `পূর্বের উদ্বৃত্ত: +৳${toBn(m.previousBalance)}`) : 'পূর্বের স্থিতি: ৳০'}</div>
               </div>
             </div>
 
@@ -369,6 +369,7 @@ export function ExecutiveSummaryModal({
                   <th class="text-center" style="width:30px;">ক্র.</th>
                   <th>ফান্ডের নাম ও কোড</th>
                   <th>ক্যাটাগরি</th>
+                  <th class="text-right">প্রারম্ভিক স্থিতি / ঋণ (৳)</th>
                   <th class="text-right">চলতি মাসের জমা (৳)</th>
                   <th class="text-right">চলতি মাসের ব্যয় (৳)</th>
                   <th class="text-right">চলতি মাসের স্থিতি (৳)</th>
@@ -381,20 +382,20 @@ export function ExecutiveSummaryModal({
                     <td class="text-center">${toBn(idx + 1)}</td>
                     <td class="font-bold">${f.fundName} <span style="font-size:9px; color:#64748b;">[${f.code || 'FUND'}]</span></td>
                     <td>${f.category || 'সাধারণ'}</td>
+                    <td class="text-right font-bold" style="color:${f.previousBalance >= 0 ? '#475569' : '#b45309'};">${f.previousBalance < 0 ? '-' : ''}৳ ${toBn(Math.abs(f.previousBalance || 0))}</td>
                     <td class="text-right text-green font-bold">৳ ${toBn(f.income)}</td>
                     <td class="text-right text-red font-bold">৳ ${toBn(f.expense)}</td>
-                    <td class="text-right font-bold" style="color:${f.balance >= 0 ? '#1e293b' : '#b45309'};">৳ ${toBn(f.balance)}</td>
-                    <td class="text-right font-bold" style="color:#0f172a; background:#f8fafc;">৳ ${toBn(f.totalReserve)}</td>
+                    <td class="text-right font-bold" style="color:${f.totalReserve >= 0 ? '#0f172a' : '#b45309'}; background:#f8fafc;">${f.totalReserve < 0 ? '-' : ''}৳ ${toBn(Math.abs(f.totalReserve))}</td>
                   </tr>
                 `).join('')}
               </tbody>
               <tfoot>
                 <tr style="background:#f1f5f9; font-weight:bold;">
                   <td colspan="3" class="text-right">সর্বমোট তহবিল হিসাব:</td>
+                  <td class="text-right" style="color:${(m.previousBalance || 0) >= 0 ? '#475569' : '#b45309'};">${(m.previousBalance || 0) < 0 ? '-' : ''}৳ ${toBn(Math.abs(m.previousBalance || 0))}</td>
                   <td class="text-right text-green">৳ ${toBn(totalFundsIncome)}</td>
                   <td class="text-right text-red">৳ ${toBn(totalFundsExpense)}</td>
-                  <td class="text-right" style="color:${totalFundsBalance >= 0 ? '#1e293b' : '#b45309'};">৳ ${toBn(totalFundsBalance)}</td>
-                  <td class="text-right" style="color:#0f172a; background:#e2e8f0;">৳ ${toBn(totalFundsReserve)}</td>
+                  <td class="text-right" style="color:${totalFundsReserve >= 0 ? '#0f172a' : '#b45309'}; background:#e2e8f0;">${totalFundsReserve < 0 ? '-' : ''}৳ ${toBn(Math.abs(totalFundsReserve))}</td>
                 </tr>
               </tfoot>
             </table>
@@ -651,25 +652,34 @@ export function ExecutiveSummaryModal({
 
                 <div
                   className={`p-3.5 rounded-xl border ${
-                    (m?.netBalance || 0) >= 0
+                    (m?.adjustedClosingBalance || 0) >= 0
                       ? "bg-blue-50/70 border-blue-200 dark:bg-blue-950/30 dark:border-blue-900"
                       : "bg-amber-50/70 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900"
                   }`}
                 >
                   <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
                     <TrendingUp className="w-3.5 h-3.5 text-blue-600" />
-                    <span>{(m?.netBalance || 0) >= 0 ? "মাসিক নিট উদ্বৃত্ত" : "মাসিক নিট ঘাটতি"}</span>
+                    <span>{(m?.adjustedClosingBalance || 0) >= 0 ? "সমন্বয়কৃত সমাপনী স্থিতি" : "সমন্বয়কৃত মোট ঘাটতি/ঋণ"}</span>
                   </p>
                   <p
                     className={`text-xl font-bold mt-1 ${
-                      (m?.netBalance || 0) >= 0 ? "text-blue-700 dark:text-blue-400" : "text-amber-700 dark:text-amber-400"
+                      (m?.adjustedClosingBalance || 0) >= 0 ? "text-blue-700 dark:text-blue-400" : "text-amber-700 dark:text-amber-400"
                     }`}
                   >
-                    ৳ {toBn(Math.abs(m?.netBalance || 0))}
+                    ৳ {toBn(Math.abs(m?.adjustedClosingBalance || 0))}
                   </p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">
-                    বকেয়া ফি: ৳{toBn(m?.totalDueAmount)} ({toBn(m?.studentsWithDueCount)} জন)
-                  </p>
+                  <div className="text-[10px] mt-0.5 space-y-0.5">
+                    <p className="text-slate-600 dark:text-slate-300 font-medium truncate">
+                      চলতি নিট: ৳{toBn(m?.netBalance)} | {m?.previousBalance && m.previousBalance !== 0 ? (
+                        <span className={m.isDebt ? "text-amber-700 dark:text-amber-400 font-bold" : "text-emerald-700 dark:text-emerald-400 font-bold"}>
+                          {m.isDebt ? `পূর্বের ঋণ: -৳${toBn(Math.abs(m.previousBalance))}` : `পূর্বের উদ্বৃত্ত: +৳${toBn(m.previousBalance)}`}
+                        </span>
+                      ) : (
+                        "পূর্বের স্থিতি: ৳০"
+                      )}
+                    </p>
+                    <p className="text-slate-500">বকেয়া ফি: ৳{toBn(m?.totalDueAmount)} ({toBn(m?.studentsWithDueCount)} জন)</p>
+                  </div>
                 </div>
               </div>
 
@@ -691,6 +701,7 @@ export function ExecutiveSummaryModal({
                         <th className="p-2.5 font-semibold text-center w-10">ক্র.</th>
                         <th className="p-2.5 font-semibold">ফান্ডের নাম ও কোড</th>
                         <th className="p-2.5 font-semibold">ক্যাটাগরি</th>
+                        <th className="p-2.5 font-semibold text-right">প্রারম্ভিক স্থিতি / ঋণ</th>
                         <th className="p-2.5 font-semibold text-right">চলতি মাসের আদায়</th>
                         <th className="p-2.5 font-semibold text-right">চলতি মাসের খরচ</th>
                         <th className="p-2.5 font-semibold text-right">চলতি মাসের স্থিতি</th>
@@ -708,6 +719,9 @@ export function ExecutiveSummaryModal({
                             </span>
                           </td>
                           <td className="p-2.5 text-slate-600 dark:text-slate-400">{f.category || "সাধারণ"}</td>
+                          <td className={`p-2.5 text-right font-bold ${f.previousBalance >= 0 ? "text-slate-600 dark:text-slate-300" : "text-amber-600"}`}>
+                            {f.previousBalance < 0 ? "-" : ""}৳ {toBn(Math.abs(f.previousBalance || 0))}
+                          </td>
                           <td className="p-2.5 text-right font-bold text-emerald-600">
                             ৳ {toBn(f.income)}
                           </td>
@@ -719,10 +733,10 @@ export function ExecutiveSummaryModal({
                               f.balance >= 0 ? "text-slate-800 dark:text-slate-100" : "text-amber-600"
                             }`}
                           >
-                            ৳ {toBn(f.balance)}
+                            {f.balance < 0 ? "-" : ""}৳ {toBn(Math.abs(f.balance))}
                           </td>
-                          <td className="p-2.5 text-right font-black text-slate-900 dark:text-white bg-slate-50/70 dark:bg-slate-800/30">
-                            ৳ {toBn(f.totalReserve)}
+                          <td className={`p-2.5 text-right font-black ${f.totalReserve >= 0 ? "text-slate-900 dark:text-white" : "text-amber-600 dark:text-amber-400"} bg-slate-50/70 dark:bg-slate-800/30`}>
+                            {f.totalReserve < 0 ? "-" : ""}৳ {toBn(Math.abs(f.totalReserve))}
                           </td>
                         </tr>
                       ))}
@@ -730,6 +744,9 @@ export function ExecutiveSummaryModal({
                     <tfoot>
                       <tr className="border-t-2 border-slate-300 bg-slate-100/80 font-bold text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white">
                         <td colSpan={3} className="p-2.5 text-right font-bold">সর্বমোট তহবিল হিসাব:</td>
+                        <td className={`p-2.5 text-right font-black ${(m?.previousBalance || 0) >= 0 ? "text-slate-700 dark:text-slate-200" : "text-amber-600"}`}>
+                          {(m?.previousBalance || 0) < 0 ? "-" : ""}৳ {toBn(Math.abs(m?.previousBalance || 0))}
+                        </td>
                         <td className="p-2.5 text-right text-emerald-700 dark:text-emerald-400 font-black">
                           ৳ {toBn(totalFundsIncome)}
                         </td>
@@ -737,10 +754,10 @@ export function ExecutiveSummaryModal({
                           ৳ {toBn(totalFundsExpense)}
                         </td>
                         <td className="p-2.5 text-right font-black">
-                          ৳ {toBn(totalFundsBalance)}
+                          {totalFundsBalance < 0 ? "-" : ""}৳ {toBn(Math.abs(totalFundsBalance))}
                         </td>
-                        <td className="p-2.5 text-right font-black bg-slate-200/80 dark:bg-slate-700">
-                          ৳ {toBn(totalFundsReserve)}
+                        <td className={`p-2.5 text-right font-black ${totalFundsReserve >= 0 ? "text-slate-900 dark:text-white" : "text-amber-600 dark:text-amber-400"} bg-slate-200/80 dark:bg-slate-700`}>
+                          {totalFundsReserve < 0 ? "-" : ""}৳ {toBn(Math.abs(totalFundsReserve))}
                         </td>
                       </tr>
                     </tfoot>

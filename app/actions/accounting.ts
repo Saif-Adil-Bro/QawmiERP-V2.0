@@ -275,23 +275,25 @@ export async function getNextExpenseVoucherNo(expenseDate?: string): Promise<str
     const lastDay = new Date(yFull, mFull, 0).getDate();
     const monthEnd = `${yFull}-${mm}-${String(lastDay).padStart(2, "0")}`;
 
-    // MAX(voucher_no) থেকে পরবর্তী ক্রম — count() নয়
+    // MAX(voucher_no) থেকে পরবর্তী ক্রম — description-এর [VOUCHER: ...] ট্যাগ বা voucher_no
     const { data } = await supabase
       .from("expenses")
-      .select("voucher_no")
+      .select("description")
       .eq("madrasa_id", finalMadrasaId)
       .gte("expense_date", monthStart)
       .lte("expense_date", monthEnd)
-      .not("voucher_no", "is", null)
-      .order("voucher_no", { ascending: false })
-      .limit(1);
+      .order("expense_date", { ascending: false });
 
-    let next = 1;
-    if (data && data.length > 0 && data[0].voucher_no) {
-      const m = String(data[0].voucher_no).match(/(\d+)\s*$/);
-      if (m) next = parseInt(m[1], 10) + 1;
-    }
-    return `${currentPrefix}${String(next).padStart(3, "0")}`;
+    let maxSeq = 0;
+    (data || []).forEach((row: any) => {
+      const vStr = row.voucher_no || row.description?.match(/\[VOUCHER:\s*([^\]]+)\]/i)?.[1] || "";
+      const m = String(vStr).match(/(\d+)\s*$/);
+      if (m) {
+        const seq = parseInt(m[1], 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+      }
+    });
+    return `${currentPrefix}${String(maxSeq + 1).padStart(3, "0")}`;
   } catch {
     const d = expenseDate ? new Date(expenseDate) : undefined; // P2-Fix: now-পথ ঢাকা-ভিত্তিক
     const yy = d ? String(d.getFullYear()).slice(-2) : String(getDhakaYear()).slice(-2);
@@ -316,20 +318,22 @@ async function resolveNextVoucherNo(
 
   const { data } = await supabase
     .from("expenses")
-    .select("voucher_no")
+    .select("description")
     .eq("madrasa_id", madrasaId)
     .gte("expense_date", monthStart)
     .lte("expense_date", monthEnd)
-    .not("voucher_no", "is", null)
-    .order("voucher_no", { ascending: false })
-    .limit(1);
+    .order("expense_date", { ascending: false });
 
-  let seq = 1;
-  if (data && data.length > 0 && data[0].voucher_no) {
-    const m = String(data[0].voucher_no).match(/(\d+)\s*$/);
-    if (m) seq = parseInt(m[1], 10) + 1;
-  }
-  return `${prefix}${String(seq).padStart(3, "0")}`;
+  let maxSeq = 0;
+  (data || []).forEach((row: any) => {
+    const vStr = row.voucher_no || row.description?.match(/\[VOUCHER:\s*([^\]]+)\]/i)?.[1] || "";
+    const m = String(vStr).match(/(\d+)\s*$/);
+    if (m) {
+      const s = parseInt(m[1], 10);
+      if (!isNaN(s) && s > maxSeq) maxSeq = s;
+    }
+  });
+  return `${prefix}${String(maxSeq + 1).padStart(3, "0")}`;
 }
 
 export async function createExpense(prevState: ExpenseActionState, formData: FormData): Promise<ExpenseActionState> {
@@ -470,7 +474,7 @@ export async function updateExpense(formData: FormData) {
   // বিদ্যমান ভাউচার নম্বর সংরক্ষণ
   const { data: existingExp } = await supabase
     .from("expenses")
-    .select("description, voucher_no")
+    .select("description")
     .eq("id", id)
     .eq("madrasa_id", finalMadrasaId)
     .single();
@@ -672,7 +676,6 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     .from("donations")
     .select("id, amount, donation_type, donation_date, notes, receipt_no, created_at")
     .eq('madrasa_id', finalMadrasaId)
-    .gte("donation_date", startDate)
     .lte("donation_date", endDate);
 
   if (donErr) {
@@ -682,28 +685,34 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       totalIncome: 0,
       totalExpense: 0,
       netBalance: 0,
+      previousBalance: 0,
+      isDebt: false,
+      adjustedClosingBalance: 0,
       fundStats: [],
       error: "অনুদানের তথ্য লোড করা যায়নি: " + donErr.message,
     } as any;
   }
 
   // Exclude VOID donations from calculations and balances
-  // status কলামটি স্কিমায় না থাকলেও বাতিল অনুদান সঠিকভাবে বাদ পড়ে (notes ট্যাগ ভিত্তিক)
-  const monthlyDonations = (donationsData || []).filter((d: any) => !isVoidDonation(d));
+  const validDonations = (donationsData || []).filter((d: any) => !isVoidDonation(d));
+  const monthlyDonations = validDonations.filter((d: any) => isWithinRange(d.donation_date));
+  const prevDonations = validDonations.filter((d: any) => d.donation_date && d.donation_date < startDate);
 
   // 3. Fetch Fee Payments via getFeeMetadata (Relational Tables with Fallback) & Metadata
   let meta: any = {};
   let metaPayments: any[] = [];
+  let prevPayments: any[] = [];
   try {
     const feeMeta = await getFeeMetadata(finalMadrasaId);
     meta = await getMadrasaMetadata(finalMadrasaId);
-    metaPayments = (feeMeta.payments || []).filter((p: any) => {
+    (feeMeta.payments || []).forEach((p: any) => {
+      if (p.status === "REVERSED" || p.status === "VOID") return;
       const dateStr = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
-      return (
-        isWithinRange(dateStr) &&
-        p.status !== "REVERSED" &&
-        p.status !== "VOID"
-      );
+      if (isWithinRange(dateStr)) {
+        metaPayments.push(p);
+      } else if (dateStr && dateStr < startDate) {
+        prevPayments.push(p);
+      }
     });
   } catch (e) {
     console.warn("Could not fetch fee data for report:", e);
@@ -714,21 +723,37 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     .from("expenses")
     .select("id, amount, description, category, expense_date, created_at")
     .eq('madrasa_id', finalMadrasaId)
-    .gte("expense_date", startDate)
     .lte("expense_date", endDate);
 
   // HI-5: VOID করা খরচ বাদ — নাহলে বাতিল করা খরচ এখনো ব্যয় হিসেবে গোনা হতো
-  const monthlyExpenses = (expensesData || []).filter((exp: any) => !isVoidedExpense(exp));
+  const validExpenses = (expensesData || []).filter((exp: any) => !isVoidedExpense(exp));
+  const monthlyExpenses = validExpenses.filter((exp: any) => isWithinRange(exp.expense_date));
+  const prevExpenses = validExpenses.filter((exp: any) => exp.expense_date && exp.expense_date < startDate);
 
   // 5. Fetch Bazar Expenses with Database Date Filter
   const { data: bazarData } = await supabase
     .from("bazar_expenses")
     .select("id, amount, items_details, expense_date, created_at")
     .eq('madrasa_id', finalMadrasaId)
-    .gte("expense_date", startDate)
     .lte("expense_date", endDate);
 
-  const monthlyBazar = bazarData || [];
+  const monthlyBazar = (bazarData || []).filter((b: any) => isWithinRange(b.expense_date));
+  const prevBazar = (bazarData || []).filter((b: any) => b.expense_date && b.expense_date < startDate);
+
+  // Calculate prior history totals for opening balance (Previous surplus or debt)
+  let prevIncome = 0;
+  let prevExpense = 0;
+
+  prevDonations.forEach((d: any) => { prevIncome += Number(d.amount || 0); });
+  prevPayments.forEach((p: any) => { prevIncome += Number(p.total_amount_received || 0); });
+  prevExpenses.forEach((e: any) => { prevExpense += Number(e.amount || 0); });
+  prevBazar.forEach((b: any) => { prevExpense += Number(b.amount || 0); });
+
+  (meta.boarding_bazar_logs || []).forEach((b: any) => {
+    if (b.date && b.date < startDate) {
+      prevExpense += Number(b.amount || b.total_cost || 0);
+    }
+  });
 
   // Setup Fund Map with Registered Funds
   const fundMap = new Map<string, { fund_id: string; fund_name: string; income: number; expense: number }>();
@@ -1051,6 +1076,10 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   const totalExpense = fundStats.reduce((sum, f) => sum + f.expense, 0);
   const netBalance = totalIncome - totalExpense;
 
+  const previousBalance = prevIncome - prevExpense;
+  const isDebt = previousBalance < 0;
+  const adjustedClosingBalance = previousBalance + netBalance;
+
   // If specific fund filtered
   if (fundId && fundId !== "all") {
     let target = fundMap.get(fundId);
@@ -1086,6 +1115,9 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       totalIncome: finalTarget.income,
       totalExpense: finalTarget.expense,
       netBalance: finalTarget.income - finalTarget.expense,
+      previousBalance,
+      isDebt,
+      adjustedClosingBalance,
       fundStats: [singleStat],
     };
   }
@@ -1094,6 +1126,9 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     totalIncome,
     totalExpense,
     netBalance,
+    previousBalance,
+    isDebt,
+    adjustedClosingBalance,
     fundStats,
   };
 }
@@ -1487,14 +1522,17 @@ export async function getUnifiedIncomeHistory(): Promise<UnifiedIncomeOverview> 
     // Calculate totalIncome directly from transactions list sum
     const totalIncome = transactions.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
 
-    // Update funds with live collected total from transactions
+    // Update funds with live collected total and transaction count from transactions
     const fundTotals: Record<string, number> = {};
+    const fundCounts: Record<string, number> = {};
     for (const t of transactions) {
       fundTotals[t.fund_id] = (fundTotals[t.fund_id] || 0) + Number(t.amount || 0);
+      fundCounts[t.fund_id] = (fundCounts[t.fund_id] || 0) + 1;
     }
     const updatedFunds = funds.map((f: any) => ({
       ...f,
       total_collected: fundTotals[f.id] !== undefined ? fundTotals[f.id] : Number(f.total_collected || 0),
+      donations_count: fundCounts[f.id] !== undefined ? fundCounts[f.id] : Number(f.donations_count || 0),
     }));
 
     return {

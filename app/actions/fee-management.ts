@@ -157,17 +157,27 @@ export async function getFeeMetadata(madrasaId: string): Promise<MadrasaFeeData>
       // CR-8 ফিক্স: ফান্ড ম্যাপিং (fund_id/fund_name) এখন পড়া হয় — আগে এই দুটি ফিল্ড
       // বাদ পড়ত, ফলে রিপোর্টে `alloc.fund_id || p.fund_id` সর্বদা undefined হয়ে
       // ফি-প্রকারের নাম দেখে অনুমান করে ফান্ড ঠিক করা হতো (সব ফি General/Lillah-এ যেত)।
-      allocations: (p.fee_payment_allocations || []).map((a: any) => ({
-        student_fee_id: a.student_fee_id,
-        fee_type_id: a.fee_type_id,
-        fee_type_name: a.fee_type_name,
-        billing_period: a.billing_period,
-        allocated_amount: Number(a.allocated_amount) || 0,
-        discount_applied: Number(a.discount_applied) || 0,
-        fine_applied: Number(a.fine_applied) || 0,
-        fund_id: a.fund_id || undefined,
-        fund_name: a.fund_name || undefined,
-      })),
+      allocations: (() => {
+        const seen = new Set<string>();
+        const deduped: any[] = [];
+        for (const a of p.fee_payment_allocations || []) {
+          const key = `${a.student_fee_id || ""}|${a.fee_type_id || ""}|${a.billing_period || ""}|${Number(a.allocated_amount) || 0}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          deduped.push({
+            student_fee_id: a.student_fee_id,
+            fee_type_id: a.fee_type_id,
+            fee_type_name: a.fee_type_name,
+            billing_period: a.billing_period,
+            allocated_amount: Number(a.allocated_amount) || 0,
+            discount_applied: Number(a.discount_applied) || 0,
+            fine_applied: Number(a.fine_applied) || 0,
+            fund_id: a.fund_id || undefined,
+            fund_name: a.fund_name || undefined,
+          });
+        }
+        return deduped;
+      })(),
       discount_total: Number(p.discount_total) || 0,
       fine_total: Number(p.fine_total) || 0,
       advance_amount: Number(p.advance_amount) || 0,
@@ -431,7 +441,11 @@ export async function saveFeeMetadata(madrasaId: string, feeData: Partial<Madras
       const allocRows: any[] = [];
       for (const p of payments) {
         if (!Array.isArray(p.allocations)) continue;
+        const seenAlloc = new Set<string>();
         for (const a of p.allocations) {
+          const key = `${a.student_fee_id || ""}|${a.fee_type_id || ""}|${a.billing_period || ""}|${Number(a.allocated_amount) || 0}`;
+          if (seenAlloc.has(key)) continue;
+          seenAlloc.add(key);
           allocRows.push({
             payment_id: p.id,
             student_fee_id: a.student_fee_id || null,

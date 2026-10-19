@@ -86,11 +86,12 @@ export async function getNextMahfilVoucherNo(madrasaId: string, type: "SURPLUS" 
 
     const { data: expenses } = await adminClient
       .from("expenses")
-      .select("voucher_no")
+      .select("description")
       .eq("madrasa_id", madrasaId);
 
     (expenses || []).forEach((e: any) => {
-      const rec = (e.voucher_no || "").trim();
+      const parsed = parseExpenseFund(e.description);
+      const rec = (e.voucher_no || parsed.voucherNo || e.description || "").trim();
       const match = rec.match(mhfPattern);
       if (match) {
         const yearOrSeq = match[1];
@@ -146,12 +147,22 @@ export async function getActiveMadrasaHeaderInfo() {
 }
 
 // Helper to get all funds (Defaults + Relational Table zakat_funds + Custom funds) with real-time financial balances
-export async function getFunds(): Promise<FundItem[]> {
+export async function getFunds(madrasaIdParam?: string): Promise<FundItem[]> {
   try {
     const adminClient = await createAdminClient();
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    let finalMadrasaId = madrasaIdParam || "";
+    if (!finalMadrasaId) {
+      const supabase = await createClient();
+      const user = await getAuthUser(supabase);
+      finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : "";
+      if (!finalMadrasaId && user?.id) {
+        const { data: u } = await adminClient.from("users").select("madrasa_id").eq("id", user.id).maybeSingle();
+        if (u?.madrasa_id) finalMadrasaId = u.madrasa_id;
+      }
+    }
+    if (!finalMadrasaId) {
+      return DEFAULT_FUNDS;
+    }
 
     let baseFunds: FundItem[] = [];
 
@@ -226,13 +237,10 @@ export async function getFunds(): Promise<FundItem[]> {
     }
 
     // Fetch dynamic live collections & expenses to calculate real-time balances for all funds
-    const [donationsRes, expensesRes, meta, feeMeta, dbFeesRes] = await Promise.all([
-      // ⛔ CR-10 ক্লাসের বাগ: `donations.status` কলামটি supabase_schema.sql-এ নেই, অথচ
-      // এখানে সেটি সিলেক্ট করা হচ্ছিল — কলাম না থাকলে পুরো query ফেল করে এবং *সব*
-      // অনুদান আয় হারিয়ে গিয়ে ফান্ডের ব্যালেন্স শূন্য/ভুল দেখায়। এখন কলামটি
-      // থাকলে status সহ, না থাকলে ছাড়াই — দুই ক্ষেত্রেই কাজ করে (বিস্তারিত ফিক্স নিচে)।
+    const [donationsRes, expensesRes, bazarRes, meta, feeMeta, dbFeesRes] = await Promise.all([
       adminClient.from("donations").select("id, amount, donation_type, donor_id, receipt_no, notes").eq("madrasa_id", finalMadrasaId),
-      adminClient.from("expenses").select("id, amount, description, category, voucher_no").eq("madrasa_id", finalMadrasaId),
+      adminClient.from("expenses").select("id, amount, description, category, expense_date").eq("madrasa_id", finalMadrasaId),
+      adminClient.from("bazar_expenses").select("id, amount, items_details, expense_date").eq("madrasa_id", finalMadrasaId),
       getMadrasaMetadata(finalMadrasaId),
       getFeeMetadata(finalMadrasaId),
       adminClient.from("fees").select("*").eq("madrasa_id", finalMadrasaId),
@@ -501,9 +509,11 @@ export async function getFunds(): Promise<FundItem[]> {
     }
 
     for (const e of allExpenses) {
-      const isMahfilDeficit = e.voucher_no?.startsWith("EXP-MHF") || (e.description && e.description.includes("মাহফিল"));
+      const parsed = parseExpenseFund(e.description);
+      const vNo = e.voucher_no || parsed.voucherNo || "";
+      const isMahfilDeficit = vNo.startsWith("EXP-MHF") || (e.description && e.description.includes("মাহফিল"));
       if (isMahfilDeficit) {
-        const isValid = (e.voucher_no && validMahfilVouchers.has(e.voucher_no)) || validMahfilRecordIds.has(e.id);
+        const isValid = (vNo && validMahfilVouchers.has(vNo)) || validMahfilRecordIds.has(e.id);
         if (!isValid) {
           try {
             await adminClient.from("expenses").delete().eq("id", e.id);
@@ -513,11 +523,35 @@ export async function getFunds(): Promise<FundItem[]> {
       }
 
       const amt = Number(e.amount || 0);
-      const parsed = parseExpenseFund(e.description);
       const targetFundName = parsed.fundName || parsed.fundId || e.category;
-      const matched = baseFunds.find((f) => isTransactionInFund(f, parsed.fundId, targetFundName, baseFunds));
+      const matched = baseFunds.find((f) => isTransactionInFund(f, parsed.fundId, targetFundName, baseFunds)) || baseFunds[0];
       if (matched) {
         const stat = fundStats.get(matched.name);
+        if (stat) {
+          stat.expense += amt;
+        }
+      }
+    }
+
+    // Merge bazar expenses (food/mess) into Lillah Boarding Fund expenses
+    const allBazar = bazarRes.data || [];
+    const lillahFund = baseFunds.find((f) => isTransactionInFund(f, "fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড", baseFunds));
+    for (const b of allBazar) {
+      const amt = Number(b.amount || 0);
+      if (amt > 0 && lillahFund) {
+        const stat = fundStats.get(lillahFund.name);
+        if (stat) {
+          stat.expense += amt;
+        }
+      }
+    }
+
+    // Merge boarding_bazar_logs from metadata
+    const boardingBazarLogs = meta.boarding_bazar_logs || [];
+    for (const bl of boardingBazarLogs) {
+      const amt = Number(bl.amount || bl.total_cost || 0);
+      if (amt > 0 && lillahFund) {
+        const stat = fundStats.get(lillahFund.name);
         if (stat) {
           stat.expense += amt;
         }
@@ -530,7 +564,7 @@ export async function getFunds(): Promise<FundItem[]> {
         ...f,
         total_collected: st.collected,
         total_expense: st.expense,
-        current_balance: Math.max(0, st.collected - st.expense),
+        current_balance: st.collected - st.expense,
         donations_count: st.count,
         unique_donors_count: st.donors.size,
       };
@@ -1605,6 +1639,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
 
     // Process Donations
     for (const d of dbDonations || []) {
+      if (isVoidDonation(d)) continue;
       if (isTransactionInFund(targetFund, d.fund_id, d.donation_type, funds)) {
         let isMahfil = false;
         let sourceName = d.donors?.name || "সাধারণ দাতা";
@@ -1844,6 +1879,7 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
 
     // Process Expenses
     for (const e of dbExpenses || []) {
+      if (isVoidedExpense(e)) continue;
       const parsed = parseExpenseFund(e.description);
       const expFundId = e.fund_id || parsed.fundId;
       const expFundName = e.fund_name || parsed.fundName || e.category;

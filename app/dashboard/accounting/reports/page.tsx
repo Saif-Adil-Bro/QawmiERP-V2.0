@@ -20,7 +20,7 @@ export default function AccountingReportPage() {
   const [selectedFundId, setSelectedFundId] = useState<string>("all");
   const [funds, setFunds] = useState<FundItem[]>(DEFAULT_FUNDS);
   
-  const [report, setReport] = useState<{ totalIncome: number; totalExpense: number; netBalance: number; fundStats?: any[] } | null>(null);
+  const [report, setReport] = useState<{ totalIncome: number; totalExpense: number; netBalance: number; previousBalance?: number; isDebt?: boolean; adjustedClosingBalance?: number; fundStats?: any[] } | null>(null);
   const [loading, setLoading] = useState(false);
   
   const [madrasaInfo, setMadrasaInfo] = useState<any>(null);
@@ -157,35 +157,69 @@ export default function AccountingReportPage() {
             <div className="py-12 text-center text-slate-500">রিপোর্ট তৈরি হচ্ছে...</div>
           ) : report ? (
             <div className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-6 print:border-2 print:border-black print:bg-white">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="text-emerald-600 print:text-black font-medium">মোট আয় (Income)</div>
-                    <TrendingUp className="w-6 h-6 text-emerald-600 print:text-black" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-5 print:border-2 print:border-black print:bg-white">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-emerald-700 print:text-black font-semibold text-sm">মোট আয় (Income)</div>
+                    <TrendingUp className="w-5 h-5 text-emerald-600 print:text-black" />
                   </div>
-                  <div className="text-3xl font-bold text-emerald-900 print:text-black">
+                  <div className="text-2xl font-bold text-emerald-950 print:text-black">
                     ৳ {report.totalIncome.toLocaleString('bn-BD')}
                   </div>
+                  <p className="text-xs text-emerald-700/80 mt-1">চলতি মাসের সমুদয় আদায়</p>
                 </div>
 
-                <div className="bg-red-50 border border-red-100 rounded-xl p-6 print:border-2 print:border-black print:bg-white">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="text-red-600 print:text-black font-medium">মোট ব্যয় (Expense)</div>
-                    <TrendingDown className="w-6 h-6 text-red-600 print:text-black" />
+                <div className="bg-red-50 border border-red-100 rounded-xl p-5 print:border-2 print:border-black print:bg-white">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-red-700 print:text-black font-semibold text-sm">মোট ব্যয় (Expense)</div>
+                    <TrendingDown className="w-5 h-5 text-red-600 print:text-black" />
                   </div>
-                  <div className="text-3xl font-bold text-red-900 print:text-black">
+                  <div className="text-2xl font-bold text-red-950 print:text-black">
                     ৳ {report.totalExpense.toLocaleString('bn-BD')}
                   </div>
+                  <p className="text-xs text-red-700/80 mt-1">চলতি মাসের সমুদয় খরচ</p>
                 </div>
 
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-6 print:border-2 print:border-black print:bg-white">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="text-blue-600 print:text-black font-medium">নিট ব্যালেন্স (Balance)</div>
-                    <Wallet className="w-6 h-6 text-blue-600 print:text-black" />
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 print:border-2 print:border-black print:bg-white">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-slate-700 print:text-black font-semibold text-sm">চলতি মাসের নিট স্থিতি</div>
+                    <Wallet className="w-5 h-5 text-slate-600 print:text-black" />
                   </div>
-                  <div className={`text-3xl font-bold ${report.netBalance >= 0 ? 'text-blue-900 print:text-black' : 'text-red-600 print:text-black'}`}>
+                  <div className={`text-2xl font-bold ${report.netBalance >= 0 ? 'text-slate-900 print:text-black' : 'text-red-600 print:text-black'}`}>
                     {report.netBalance < 0 ? '-' : ''}৳ {Math.abs(report.netBalance).toLocaleString('bn-BD')}
                   </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {report.netBalance >= 0 ? "চলতি মাসের নিট উদ্বৃত্ত" : "চলতি মাসের নিট ঘাটতি"}
+                  </p>
+                </div>
+
+                <div className={`border rounded-xl p-5 print:border-2 print:border-black print:bg-white ${
+                  (report.adjustedClosingBalance ?? report.netBalance) >= 0
+                    ? 'bg-blue-50 border-blue-200'
+                    : 'bg-amber-50 border-amber-200'
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className={`font-semibold text-sm print:text-black ${
+                      (report.adjustedClosingBalance ?? report.netBalance) >= 0 ? 'text-blue-800' : 'text-amber-800'
+                    }`}>
+                      {(report.adjustedClosingBalance ?? report.netBalance) >= 0 ? "সমন্বয়কৃত সমাপনী স্থিতি" : "সমন্বয়কৃত মোট ঋণ/ঘাটতি"}
+                    </div>
+                    <Landmark className="w-5 h-5 text-blue-700 print:text-black" />
+                  </div>
+                  <div className={`text-2xl font-bold print:text-black ${
+                    (report.adjustedClosingBalance ?? report.netBalance) >= 0 ? 'text-blue-950' : 'text-amber-900'
+                  }`}>
+                    {(report.adjustedClosingBalance ?? report.netBalance) < 0 ? '-' : ''}৳ {Math.abs(report.adjustedClosingBalance ?? report.netBalance).toLocaleString('bn-BD')}
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1 truncate">
+                    {report.previousBalance !== undefined && report.previousBalance !== 0 ? (
+                      report.isDebt
+                        ? `পূর্বের ঋণ সমন্বয়: -৳ ${Math.abs(report.previousBalance).toLocaleString('bn-BD')}`
+                        : `পূর্বের উদ্বৃত্ত: +৳ ${report.previousBalance.toLocaleString('bn-BD')}`
+                    ) : (
+                      "পূর্বের স্থিতি: ৳ ০"
+                    )}
+                  </p>
                 </div>
               </div>
 

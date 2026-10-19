@@ -10,6 +10,7 @@ import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
 import { getFunds } from "@/app/actions/zakat";
+import { isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
 import { BookOpen, CheckSquare, ArrowRight } from "lucide-react";
 
 
@@ -101,8 +102,8 @@ export default async function DashboardPage() {
         supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Late"),
 
         supabase.from("fees").select("amount, payment_date").eq("madrasa_id", profile.madrasa_id),
-        supabase.from("donations").select("amount, donation_date").eq("madrasa_id", profile.madrasa_id),
-        supabase.from("expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
+        supabase.from("donations").select("id, amount, donation_date, receipt_no, notes").eq("madrasa_id", profile.madrasa_id),
+        supabase.from("expenses").select("amount, expense_date, description").eq("madrasa_id", profile.madrasa_id),
         supabase.from("bazar_expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
         supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", toDhakaDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))).lte("date", today),
         supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
@@ -121,13 +122,15 @@ export default async function DashboardPage() {
 
 
       const feesSum = (feesData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-      const donationsSum = (donationsData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+      const validDonations = (donationsData || []).filter((d: any) => !isVoidDonation(d));
+      const donationsSum = validDonations.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       
       // Calculate definitive Total Income directly from funds source of truth
       const fundsTotalCollected = (fundsData || []).reduce((sum: number, f: any) => sum + Number(f.total_collected || 0), 0);
-      totalIncome = fundsTotalCollected;
+      totalIncome = fundsTotalCollected > 0 ? fundsTotalCollected : (feesSum + donationsSum);
 
-      expensesSum = (expensesData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+      const validExpenses = (expensesData || []).filter((e: any) => !isVoidedExpense(e));
+      expensesSum = validExpenses.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       bazarSum = (bazarData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       totalExpense = expensesSum + bazarSum;
 
@@ -141,7 +144,7 @@ export default async function DashboardPage() {
       });
 
       const trackedDonationKeys = new Set<string>();
-      (donationsData || []).forEach((d: any) => {
+      validDonations.forEach((d: any) => {
         if (d.id) trackedDonationKeys.add(d.id);
         if (d.receipt_no) trackedDonationKeys.add(d.receipt_no);
         const rMatch = d.notes?.match(/\[(?:চালান|রিসিট|কুরবানির চামড়া বিক্রয়|দানবাক্স কালেকশন):\s*([^\]|,]+)/)?.[1];
@@ -159,8 +162,8 @@ export default async function DashboardPage() {
       };
 
       (feesData || []).forEach((f: any) => addMonthly(f.payment_date, f.amount, 'income'));
-      (donationsData || []).forEach((d: any) => addMonthly(d.donation_date, d.amount, 'income'));
-      (expensesData || []).forEach((e: any) => addMonthly(e.expense_date, e.amount, 'expense'));
+      validDonations.forEach((d: any) => addMonthly(d.donation_date, d.amount, 'income'));
+      validExpenses.forEach((e: any) => addMonthly(e.expense_date, e.amount, 'expense'));
       (bazarData || []).forEach((b: any) => addMonthly(b.expense_date, b.amount, 'expense'));
 
       // Include all Madrasa Metadata Live Collections ONLY if not already tracked in DB tables
@@ -298,8 +301,8 @@ export default async function DashboardPage() {
         }
       });
 
-      // Ensure Total Income is the definitive sum of all funds collections
-      totalIncome = fundsTotalCollected;
+      // Ensure Total Income is the definitive sum of all funds collections, or preserved sum
+      totalIncome = fundsTotalCollected > 0 ? fundsTotalCollected : totalIncome;
 
       // Process Attendance Rate
       let presentTotal = 0;
