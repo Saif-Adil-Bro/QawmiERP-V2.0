@@ -345,7 +345,7 @@ export function ExecutiveSummaryModal({
               <div class="kpi-box" style="background:#f0fdf4; border-color:#bbf7d0;">
                 <div class="kpi-title" style="color:#166534;">চলতি মাসের মোট আয়</div>
                 <div class="kpi-value" style="color:#15803d;">৳ ${toBn(m.totalIncome)}</div>
-                <div class="kpi-sub">ফি: ৳${toBn(m.feeCollection)} | অনুদান: ৳${toBn(m.generalDonations + m.zakatCollection)}</div>
+                <div class="kpi-sub">ফি: ৳${toBn(m.feeCollection)} | অনুদান: ৳${toBn((m.generalDonations || 0) + (m.zakatCollection || 0) + (m.mahfilCollection || 0))}</div>
               </div>
 
               <div class="kpi-box" style="background:#fef2f2; border-color:#fecaca;">
@@ -635,7 +635,7 @@ export function ExecutiveSummaryModal({
                     ৳ {toBn(m?.totalIncome)}
                   </p>
                   <p className="text-[10px] text-emerald-600 dark:text-emerald-400/80 mt-0.5 truncate">
-                    ফি: ৳{toBn(m?.feeCollection)} | অনুদান: ৳{toBn((m?.generalDonations || 0) + (m?.zakatCollection || 0))}
+                    ফি: ৳{toBn(m?.feeCollection)} | অনুদান: ৳{toBn((m?.generalDonations || 0) + (m?.zakatCollection || 0) + (m?.mahfilCollection || 0))}
                   </p>
                 </div>
 
