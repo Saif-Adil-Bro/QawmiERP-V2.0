@@ -510,7 +510,7 @@ export async function getFunds(madrasaIdParam?: string): Promise<FundItem[]> {
 
     for (const e of allExpenses) {
       const parsed = parseExpenseFund(e.description);
-      const vNo = e.voucher_no || parsed.voucherNo || "";
+      const vNo = parsed.voucherNo || "";
       const isMahfilDeficit = vNo.startsWith("EXP-MHF") || (e.description && e.description.includes("মাহফিল"));
       if (isMahfilDeficit) {
         const isValid = (vNo && validMahfilVouchers.has(vNo)) || validMahfilRecordIds.has(e.id);

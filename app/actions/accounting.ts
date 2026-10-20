@@ -286,7 +286,7 @@ export async function getNextExpenseVoucherNo(expenseDate?: string): Promise<str
 
     let maxSeq = 0;
     (data || []).forEach((row: any) => {
-      const vStr = row.voucher_no || row.description?.match(/\[VOUCHER:\s*([^\]]+)\]/i)?.[1] || "";
+      const vStr = row.description?.match(/\[VOUCHER:\s*([^\]]+)\]/i)?.[1] || "";
       const m = String(vStr).match(/(\d+)\s*$/);
       if (m) {
         const seq = parseInt(m[1], 10);
@@ -326,7 +326,7 @@ async function resolveNextVoucherNo(
 
   let maxSeq = 0;
   (data || []).forEach((row: any) => {
-    const vStr = row.voucher_no || row.description?.match(/\[VOUCHER:\s*([^\]]+)\]/i)?.[1] || "";
+    const vStr = row.description?.match(/\[VOUCHER:\s*([^\]]+)\]/i)?.[1] || "";
     const m = String(vStr).match(/(\d+)\s*$/);
     if (m) {
       const s = parseInt(m[1], 10);
@@ -479,7 +479,7 @@ export async function updateExpense(formData: FormData) {
     .eq("madrasa_id", finalMadrasaId)
     .single();
 
-  let voucherNo = (formData.get("voucher_no") as string) || existingExp?.voucher_no || "";
+  let voucherNo = (formData.get("voucher_no") as string) || "";
   if (!voucherNo && existingExp?.description) {
     const vMatch = existingExp.description.match(/\[VOUCHER:\s*([^\]]+)\]/i);
     if (vMatch && vMatch[1]) {
@@ -740,36 +740,21 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   const monthlyBazar = (bazarData || []).filter((b: any) => isWithinRange(b.expense_date));
   const prevBazar = (bazarData || []).filter((b: any) => b.expense_date && b.expense_date < startDate);
 
-  // Calculate prior history totals for opening balance (Previous surplus or debt)
-  let prevIncome = 0;
-  let prevExpense = 0;
-
-  prevDonations.forEach((d: any) => { prevIncome += Number(d.amount || 0); });
-  prevPayments.forEach((p: any) => { prevIncome += Number(p.total_amount_received || 0); });
-  prevExpenses.forEach((e: any) => { prevExpense += Number(e.amount || 0); });
-  prevBazar.forEach((b: any) => { prevExpense += Number(b.amount || 0); });
-
-  (meta.boarding_bazar_logs || []).forEach((b: any) => {
-    if (b.date && b.date < startDate) {
-      prevExpense += Number(b.amount || b.total_cost || 0);
-    }
-  });
-
-  // Setup Fund Map with Registered Funds
-  const fundMap = new Map<string, { fund_id: string; fund_name: string; income: number; expense: number }>();
+  // Setup Fund Map with Registered Funds (tracking both prior history and current month)
+  const fundMap = new Map<string, { fund_id: string; fund_name: string; prevIncome: number; prevExpense: number; income: number; expense: number }>();
 
   registeredFunds.forEach(f => {
     fundMap.set(f.id, {
       fund_id: f.id,
       fund_name: f.name,
+      prevIncome: 0,
+      prevExpense: 0,
       income: 0,
       expense: 0,
     });
   });
 
-  // Helper to safely add income to fundMap
-  function addIncomeToFund(fId: string, fName: string, amt: number) {
-    if (amt <= 0) return;
+  function resolveTargetFundKey(fId: string, fName: string): string {
     let targetKey = fId;
     if (!fundMap.has(targetKey)) {
       const matched = registeredFunds.find(rf => 
@@ -787,34 +772,31 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       }
     }
     if (!fundMap.has(targetKey)) {
-      fundMap.set(targetKey, { fund_id: targetKey, fund_name: fName, income: 0, expense: 0 });
+      fundMap.set(targetKey, { fund_id: targetKey, fund_name: fName, prevIncome: 0, prevExpense: 0, income: 0, expense: 0 });
     }
-    fundMap.get(targetKey)!.income += amt;
+    return targetKey;
+  }
+
+  // Helper to safely add income to fundMap
+  function addIncomeToFund(fId: string, fName: string, amt: number, isPrior = false) {
+    if (amt <= 0) return;
+    const targetKey = resolveTargetFundKey(fId, fName);
+    if (isPrior) {
+      fundMap.get(targetKey)!.prevIncome += amt;
+    } else {
+      fundMap.get(targetKey)!.income += amt;
+    }
   }
 
   // Helper to safely add expense to fundMap
-  function addExpenseToFund(fId: string, fName: string, amt: number) {
+  function addExpenseToFund(fId: string, fName: string, amt: number, isPrior = false) {
     if (amt <= 0) return;
-    let targetKey = fId;
-    if (!fundMap.has(targetKey)) {
-      const matched = registeredFunds.find(rf => 
-        rf.id === fId || 
-        rf.code?.toLowerCase() === fId.toLowerCase() ||
-        rf.name.toLowerCase().trim() === fName.toLowerCase().trim() ||
-        (fId === "fund-zakat" && (rf.category === "Zakat" || rf.name.includes("যাকাত"))) ||
-        (fId === "fund-lillah" && (rf.category === "Lillah" || rf.name.includes("লিল্লাহ"))) ||
-        (fId === "fund-fitra" && (rf.category === "Fitra" || rf.name.includes("ফিতরা"))) ||
-        (fId === "fund-dev" && (rf.category === "Development" || rf.name.includes("উন্নয়ন") || rf.name.includes("মসজিদ"))) ||
-        (fId === "fund-orphan" && (rf.category === "Education" || rf.name.includes("এতিম")))
-      );
-      if (matched && fundMap.has(matched.id)) {
-        targetKey = matched.id;
-      }
+    const targetKey = resolveTargetFundKey(fId, fName);
+    if (isPrior) {
+      fundMap.get(targetKey)!.prevExpense += amt;
+    } else {
+      fundMap.get(targetKey)!.expense += amt;
     }
-    if (!fundMap.has(targetKey)) {
-      fundMap.set(targetKey, { fund_id: targetKey, fund_name: fName, income: 0, expense: 0 });
-    }
-    fundMap.get(targetKey)!.expense += amt;
   }
 
   // Helper to map a donation type or label to a Fund ID & Name
@@ -865,24 +847,29 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     return { id: "fund-general", name: fallbackName };
   }
 
-  // Sets to track IDs and receipt numbers already in database tables
+  // Sets to track IDs and receipt numbers already in database tables (both prior and monthly)
   const trackedDonationKeys = new Set<string>();
-  monthlyDonations.forEach((d: any) => {
+  validDonations.forEach((d: any) => {
     if (d.id) trackedDonationKeys.add(d.id);
     if (d.receipt_no) trackedDonationKeys.add(d.receipt_no);
     const rMatch = d.notes?.match(/\[(?:চালান|রিসিট|কুরবানির চামড়া বিক্রয়|দানবাক্স কালেকশন):\s*([^\]|,]+)/)?.[1];
     if (rMatch) trackedDonationKeys.add(rMatch.trim());
   });
 
-  // A. Add Donations income to Fund Map
+  // A. Add Donations income to Fund Map (monthly + prior)
   monthlyDonations.forEach((don: any) => {
     const amt = Number(don.amount || 0);
     const { id: fId, name: fName } = resolveDonationFund(don.donation_type, don.notes, don.fund_id, don.fund_name);
-    addIncomeToFund(fId, fName, amt);
+    addIncomeToFund(fId, fName, amt, false);
+  });
+  prevDonations.forEach((don: any) => {
+    const amt = Number(don.amount || 0);
+    const { id: fId, name: fName } = resolveDonationFund(don.donation_type, don.notes, don.fund_id, don.fund_name);
+    addIncomeToFund(fId, fName, amt, true);
   });
 
-  // B. Add Fee Payments to General Fund or Lillah/Boarding Fund based on fee allocations
-  metaPayments.forEach((p: any) => {
+  // B. Helper to allocate fee payment to funds
+  function processPaymentToFund(p: any, isPrior: boolean) {
     let allocatedSum = 0;
     if (p.allocations && p.allocations.length > 0) {
       p.allocations.forEach((alloc: any) => {
@@ -890,18 +877,17 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
         if (amt <= 0) return;
         allocatedSum += amt;
 
-        // Prioritize explicit alloc.fund_id or p.fund_id
         const targetFundId = alloc.fund_id || p.fund_id;
         if (targetFundId) {
           const targetFundName = alloc.fund_name || p.fund_name || (targetFundId === "fund-lillah" ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)");
-          addIncomeToFund(targetFundId, targetFundName, amt);
+          addIncomeToFund(targetFundId, targetFundName, amt, isPrior);
         } else {
           const name = alloc.fee_type_name || "মাসিক বেতন";
           const combined = `${name} ${p.notes || ""}`.toLowerCase();
           if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
-            addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt);
+            addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt, isPrior);
           } else {
-            addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
+            addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt, isPrior);
           }
         }
       });
@@ -911,31 +897,33 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       const remainder = Math.max(0, totalRec - allocatedSum);
       const extra = (extraAdvance + fineTotal > 0) ? (extraAdvance + fineTotal) : remainder;
       if (extra > 0) {
-        addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", extra);
+        addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", extra, isPrior);
       }
     } else {
       const amt = Number(p.total_amount_received || 0);
       const targetFundId = p.fund_id;
       if (targetFundId) {
         const targetFundName = p.fund_name || (targetFundId === "fund-lillah" ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)");
-        addIncomeToFund(targetFundId, targetFundName, amt);
+        addIncomeToFund(targetFundId, targetFundName, amt, isPrior);
       } else {
         const combined = `${p.notes || ""}`.toLowerCase();
         if (combined.includes("বোর্ডিং") || combined.includes("খাবার") || combined.includes("hostel") || combined.includes("lillah")) {
-          addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt);
+          addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt, isPrior);
         } else {
-          addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt);
+          addIncomeToFund("fund-general", "সাধারণ ফান্ড (General Fund)", amt, isPrior);
         }
       }
     }
-  });
+  }
+
+  metaPayments.forEach((p: any) => processPaymentToFund(p, false));
+  prevPayments.forEach((p: any) => processPaymentToFund(p, true));
 
   // D. Add Mahfil Receipt Book Collections & Transactions from Metadata (untracked)
   const mahfils = meta.mahfils || [];
   mahfils.forEach((m: any) => {
     const isSettled = Boolean(m.settlement || (m.settlements && m.settlements.length > 0));
 
-    // 1. Receipt books (collected amounts from deposits) - only if not already settled/tracked
     if (!isSettled) {
       const books = m.receipt_books || [];
       books.forEach((bk: any) => {
@@ -943,21 +931,28 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
         if (Array.isArray(bk.deposit_history) && bk.deposit_history.length > 0) {
           bk.deposit_history.forEach((dep: any) => {
             const recNo = dep.receipt_no || bk.receipt_no || dep.id;
-            if (isWithinRange(dep.date) && !trackedDonationKeys.has(recNo)) {
-              addIncomeToFund(fundInfo.id, fundInfo.name, Number(dep.amount || 0));
+            if (!trackedDonationKeys.has(recNo)) {
+              if (isWithinRange(dep.date)) {
+                addIncomeToFund(fundInfo.id, fundInfo.name, Number(dep.amount || 0), false);
+              } else if (dep.date && dep.date < startDate) {
+                addIncomeToFund(fundInfo.id, fundInfo.name, Number(dep.amount || 0), true);
+              }
             }
           });
         } else if (Number(bk.total_collected || 0) > 0) {
           const d = bk.return_date || bk.issued_date || m.start_date || "";
           const recNo = bk.receipt_no || bk.id;
-          if (isWithinRange(d) && !trackedDonationKeys.has(recNo)) {
-            addIncomeToFund(fundInfo.id, fundInfo.name, Number(bk.total_collected || 0));
+          if (!trackedDonationKeys.has(recNo)) {
+            if (isWithinRange(d)) {
+              addIncomeToFund(fundInfo.id, fundInfo.name, Number(bk.total_collected || 0), false);
+            } else if (d && d < startDate) {
+              addIncomeToFund(fundInfo.id, fundInfo.name, Number(bk.total_collected || 0), true);
+            }
           }
         }
       });
     }
 
-    // 2. Direct Mahfil Transactions (Income & Expense vouchers)
     const txns = m.transactions || [];
     txns.forEach((t: any) => {
       const d = t.date || m.start_date || "";
@@ -969,13 +964,14 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
 
       if (isInternalSettlement) return;
 
-      if (isWithinRange(d)) {
+      const isPrior = Boolean(d && d < startDate);
+      if (isWithinRange(d) || isPrior) {
         if (t.type === "INCOME" && !isSettled && !trackedDonationKeys.has(tKey)) {
           const fundInfo = resolveDonationFund(t.category, t.description);
-          addIncomeToFund(fundInfo.id, fundInfo.name, Number(t.amount || 0));
+          addIncomeToFund(fundInfo.id, fundInfo.name, Number(t.amount || 0), isPrior);
         } else if (t.type === "EXPENSE" && !isSettled) {
           const parsed = parseExpenseFund(t.description || t.category);
-          addExpenseToFund(parsed.fundId || "fund-general", parsed.fundName || "সাধারণ ফান্ড", Number(t.amount || 0));
+          addExpenseToFund(parsed.fundId || "fund-general", parsed.fundName || "সাধারণ ফান্ড", Number(t.amount || 0), isPrior);
         }
       }
     });
@@ -986,9 +982,14 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   donorPayments.forEach((p: any) => {
     const d = p.payment_date || p.date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
     const pKey = p.id || p.receipt_no;
-    if (isWithinRange(d) && !trackedDonationKeys.has(pKey)) {
-      const fundInfo = resolveDonationFund(p.fund_name || p.fund_category, p.notes);
-      addIncomeToFund(fundInfo.id, fundInfo.name, Number(p.amount || 0));
+    if (!trackedDonationKeys.has(pKey)) {
+      if (isWithinRange(d)) {
+        const fundInfo = resolveDonationFund(p.fund_name || p.fund_category, p.notes);
+        addIncomeToFund(fundInfo.id, fundInfo.name, Number(p.amount || 0), false);
+      } else if (d && d < startDate) {
+        const fundInfo = resolveDonationFund(p.fund_name || p.fund_category, p.notes);
+        addIncomeToFund(fundInfo.id, fundInfo.name, Number(p.amount || 0), true);
+      }
     }
   });
 
@@ -997,9 +998,14 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   boxLogs.forEach((l: any) => {
     const d = l.collection_date || l.date || (l.created_at ? toDhakaDateStringFrom(l.created_at) : "");
     const lKey = l.receipt_no || l.id;
-    if (isWithinRange(d) && !trackedDonationKeys.has(lKey)) {
-      const fundInfo = resolveDonationFund(l.fund_name || "দানবাক্স ফান্ড", l.notes);
-      addIncomeToFund(fundInfo.id, fundInfo.name, Number(l.amount || 0));
+    if (!trackedDonationKeys.has(lKey)) {
+      if (isWithinRange(d)) {
+        const fundInfo = resolveDonationFund(l.fund_name || "দানবাক্স ফান্ড", l.notes);
+        addIncomeToFund(fundInfo.id, fundInfo.name, Number(l.amount || 0), false);
+      } else if (d && d < startDate) {
+        const fundInfo = resolveDonationFund(l.fund_name || "দানবাক্স ফান্ড", l.notes);
+        addIncomeToFund(fundInfo.id, fundInfo.name, Number(l.amount || 0), true);
+      }
     }
   });
 
@@ -1009,9 +1015,14 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     if (d.status === "COMPLETED" || d.status === "VERIFIED" || d.status === "SUCCESS") {
       const dt = d.payment_date || (d.created_at ? toDhakaDateStringFrom(d.created_at) : "");
       const dKey = d.receipt_no || d.transaction_id || d.id;
-      if (isWithinRange(dt) && !trackedDonationKeys.has(dKey)) {
-        const fundInfo = resolveDonationFund(d.fund_category || d.fund_name || d.purpose, d.notes);
-        addIncomeToFund(fundInfo.id, fundInfo.name, Number(d.amount || 0));
+      if (!trackedDonationKeys.has(dKey)) {
+        if (isWithinRange(dt)) {
+          const fundInfo = resolveDonationFund(d.fund_category || d.fund_name || d.purpose, d.notes);
+          addIncomeToFund(fundInfo.id, fundInfo.name, Number(d.amount || 0), false);
+        } else if (dt && dt < startDate) {
+          const fundInfo = resolveDonationFund(d.fund_category || d.fund_name || d.purpose, d.notes);
+          addIncomeToFund(fundInfo.id, fundInfo.name, Number(d.amount || 0), true);
+        }
       }
     }
   });
@@ -1021,16 +1032,21 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
   leatherRecords.forEach((r: any) => {
     const d = r.collection_date || r.sale_date || r.date || (r.created_at ? toDhakaDateStringFrom(r.created_at) : "");
     const rKey = r.receipt_no || r.id;
-    if (isWithinRange(d) && !trackedDonationKeys.has(rKey)) {
+    if (!trackedDonationKeys.has(rKey)) {
       const inc = Number(r.received_amount || r.total_sale_price || r.total_sale_amount || 0);
       const exp = Number(r.transport_labour_cost || r.transport_labor_cost || 0);
-      if (inc > 0) addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", inc);
-      if (exp > 0) addExpenseToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", exp);
+      if (isWithinRange(d)) {
+        if (inc > 0) addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", inc, false);
+        if (exp > 0) addExpenseToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", exp, false);
+      } else if (d && d < startDate) {
+        if (inc > 0) addIncomeToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", inc, true);
+        if (exp > 0) addExpenseToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", exp, true);
+      }
     }
   });
 
-  // I. Add Expenses to Fund Map
-  monthlyExpenses.forEach((exp: any) => {
+  // I. Add Expenses to Fund Map (monthly + prior)
+  function processExpenseToFund(exp: any, isPrior: boolean) {
     const amt = Number(exp.amount || 0);
     let fId = exp.fund_id;
     let fName = exp.fund_name;
@@ -1042,11 +1058,13 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     if (!fName) {
       fName = fId === "fund-lillah" ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)";
     }
-    addExpenseToFund(fId, fName, amt);
-  });
+    addExpenseToFund(fId, fName, amt, isPrior);
+  }
+  monthlyExpenses.forEach((exp: any) => processExpenseToFund(exp, false));
+  prevExpenses.forEach((exp: any) => processExpenseToFund(exp, true));
 
   // J. Add Bazar Expenses to Fund Map (Default: Lillah Boarding Fund)
-  monthlyBazar.forEach((b: any) => {
+  function processBazarToFund(b: any, isPrior: boolean) {
     const amt = Number(b.amount || 0);
     const details = b.items_details || "";
     let fId = "fund-lillah";
@@ -1063,20 +1081,42 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
       }
     }
 
-    addExpenseToFund(fId, fName, amt);
+    addExpenseToFund(fId, fName, amt, isPrior);
+  }
+  monthlyBazar.forEach((b: any) => processBazarToFund(b, false));
+  prevBazar.forEach((b: any) => processBazarToFund(b, true));
+
+  (meta.boarding_bazar_logs || []).forEach((b: any) => {
+    const amt = Number(b.amount || b.total_cost || 0);
+    if (amt <= 0) return;
+    if (b.date && isWithinRange(b.date)) {
+      addExpenseToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt, false);
+    } else if (b.date && b.date < startDate) {
+      addExpenseToFund("fund-lillah", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", amt, true);
+    }
   });
 
   // Aggregate totals
-  const fundStats = Array.from(fundMap.values()).map(f => ({
-    ...f,
-    balance: f.income - f.expense,
-  }));
+  const fundStats = Array.from(fundMap.values()).map(f => {
+    const previousBalance = f.prevIncome - f.prevExpense;
+    const balance = f.income - f.expense;
+    const closingBalance = previousBalance + balance;
+    return {
+      fund_id: f.fund_id,
+      fund_name: f.fund_name,
+      previousBalance,
+      income: f.income,
+      expense: f.expense,
+      balance,
+      closingBalance,
+    };
+  });
 
   const totalIncome = fundStats.reduce((sum, f) => sum + f.income, 0);
   const totalExpense = fundStats.reduce((sum, f) => sum + f.expense, 0);
   const netBalance = totalIncome - totalExpense;
 
-  const previousBalance = prevIncome - prevExpense;
+  const previousBalance = fundStats.reduce((sum, f) => sum + f.previousBalance, 0);
   const isDebt = previousBalance < 0;
   const adjustedClosingBalance = previousBalance + netBalance;
 
@@ -1102,22 +1142,33 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
     const finalTarget = target || {
       fund_id: fundId,
       fund_name: registeredFunds.find(f => f.id === fundId)?.name || "ফান্ড",
+      prevIncome: 0,
+      prevExpense: 0,
       income: 0,
       expense: 0,
     };
 
+    const singlePrevBalance = finalTarget.prevIncome - finalTarget.prevExpense;
+    const singleNetBalance = finalTarget.income - finalTarget.expense;
+    const singleClosingBalance = singlePrevBalance + singleNetBalance;
+
     const singleStat = {
-      ...finalTarget,
-      balance: finalTarget.income - finalTarget.expense,
+      fund_id: finalTarget.fund_id,
+      fund_name: finalTarget.fund_name,
+      previousBalance: singlePrevBalance,
+      income: finalTarget.income,
+      expense: finalTarget.expense,
+      balance: singleNetBalance,
+      closingBalance: singleClosingBalance,
     };
 
     return {
       totalIncome: finalTarget.income,
       totalExpense: finalTarget.expense,
-      netBalance: finalTarget.income - finalTarget.expense,
-      previousBalance,
-      isDebt,
-      adjustedClosingBalance,
+      netBalance: singleNetBalance,
+      previousBalance: singlePrevBalance,
+      isDebt: singlePrevBalance < 0,
+      adjustedClosingBalance: singleClosingBalance,
       fundStats: [singleStat],
     };
   }

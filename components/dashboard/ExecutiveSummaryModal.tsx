@@ -385,6 +385,7 @@ export function ExecutiveSummaryModal({
                     <td class="text-right font-bold" style="color:${f.previousBalance >= 0 ? '#475569' : '#b45309'};">${f.previousBalance < 0 ? '-' : ''}৳ ${toBn(Math.abs(f.previousBalance || 0))}</td>
                     <td class="text-right text-green font-bold">৳ ${toBn(f.income)}</td>
                     <td class="text-right text-red font-bold">৳ ${toBn(f.expense)}</td>
+                    <td class="text-right font-bold" style="color:${f.balance >= 0 ? '#0f172a' : '#b45309'};">${f.balance < 0 ? '-' : ''}৳ ${toBn(Math.abs(f.balance))}</td>
                     <td class="text-right font-bold" style="color:${f.totalReserve >= 0 ? '#0f172a' : '#b45309'}; background:#f8fafc;">${f.totalReserve < 0 ? '-' : ''}৳ ${toBn(Math.abs(f.totalReserve))}</td>
                   </tr>
                 `).join('')}
@@ -395,6 +396,7 @@ export function ExecutiveSummaryModal({
                   <td class="text-right" style="color:${(m.previousBalance || 0) >= 0 ? '#475569' : '#b45309'};">${(m.previousBalance || 0) < 0 ? '-' : ''}৳ ${toBn(Math.abs(m.previousBalance || 0))}</td>
                   <td class="text-right text-green">৳ ${toBn(totalFundsIncome)}</td>
                   <td class="text-right text-red">৳ ${toBn(totalFundsExpense)}</td>
+                  <td class="text-right" style="color:${totalFundsBalance >= 0 ? '#0f172a' : '#b45309'};">${totalFundsBalance < 0 ? '-' : ''}৳ ${toBn(Math.abs(totalFundsBalance))}</td>
                   <td class="text-right" style="color:${totalFundsReserve >= 0 ? '#0f172a' : '#b45309'}; background:#e2e8f0;">${totalFundsReserve < 0 ? '-' : ''}৳ ${toBn(Math.abs(totalFundsReserve))}</td>
                 </tr>
               </tfoot>

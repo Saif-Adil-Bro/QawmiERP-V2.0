@@ -245,40 +245,58 @@ export default function AccountingReportPage() {
                     <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 print:bg-slate-200 print:border-black">
                       <tr>
                         <th className="py-2.5 px-4">ফান্ডের নাম</th>
-                        <th className="py-2.5 px-4 text-right">আদায় / জমা (৳)</th>
-                        <th className="py-2.5 px-4 text-right">ব্যয় / খরচ (৳)</th>
-                        <th className="py-2.5 px-4 text-right">অবশিষ্ট ব্যালেন্স (৳)</th>
+                        <th className="py-2.5 px-4 text-right">পূর্বের জের (৳)</th>
+                        <th className="py-2.5 px-4 text-right">চলতি জমা (৳)</th>
+                        <th className="py-2.5 px-4 text-right">চলতি খরচ (৳)</th>
+                        <th className="py-2.5 px-4 text-right">চলতি স্থিতি (৳)</th>
+                        <th className="py-2.5 px-4 text-right">সমাপনী স্থিতি (৳)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 print:divide-black">
-                      {report.fundStats.map((f: any) => (
-                        <tr key={f.fund_id} className="hover:bg-slate-50/60 transition">
-                          <td className="py-2.5 px-4 font-semibold text-slate-900 print:text-black">
-                            {f.fund_name}
-                          </td>
-                          <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-800 print:text-black">
-                            ৳ {f.income.toLocaleString('bn-BD')}
-                          </td>
-                          <td className="py-2.5 px-4 text-right font-mono font-bold text-red-700 print:text-black">
-                            ৳ {f.expense.toLocaleString('bn-BD')}
-                          </td>
-                          <td className={`py-2.5 px-4 text-right font-mono font-bold ${f.balance >= 0 ? "text-blue-900" : "text-red-600"} print:text-black`}>
-                            {f.balance < 0 ? "-" : ""}৳ {Math.abs(f.balance).toLocaleString('bn-BD')}
-                          </td>
-                        </tr>
-                      ))}
+                      {report.fundStats.map((f: any) => {
+                        const prevBal = f.previousBalance ?? 0;
+                        const closeBal = f.closingBalance ?? f.balance;
+                        return (
+                          <tr key={f.fund_id} className="hover:bg-slate-50/60 transition">
+                            <td className="py-2.5 px-4 font-semibold text-slate-900 print:text-black">
+                              {f.fund_name}
+                            </td>
+                            <td className={`py-2.5 px-4 text-right font-mono font-bold ${prevBal >= 0 ? "text-slate-600" : "text-amber-700"} print:text-black`}>
+                              {prevBal < 0 ? "-" : ""}৳ {Math.abs(prevBal).toLocaleString('bn-BD')}
+                            </td>
+                            <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-800 print:text-black">
+                              ৳ {f.income.toLocaleString('bn-BD')}
+                            </td>
+                            <td className="py-2.5 px-4 text-right font-mono font-bold text-red-700 print:text-black">
+                              ৳ {f.expense.toLocaleString('bn-BD')}
+                            </td>
+                            <td className={`py-2.5 px-4 text-right font-mono font-bold ${f.balance >= 0 ? "text-slate-800" : "text-red-600"} print:text-black`}>
+                              {f.balance < 0 ? "-" : ""}৳ {Math.abs(f.balance).toLocaleString('bn-BD')}
+                            </td>
+                            <td className={`py-2.5 px-4 text-right font-mono font-bold ${closeBal >= 0 ? "text-blue-900" : "text-amber-700"} bg-slate-50/60 print:text-black`}>
+                              {closeBal < 0 ? "-" : ""}৳ {Math.abs(closeBal).toLocaleString('bn-BD')}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 print:border-black">
                         <td className="py-2.5 px-4 text-slate-900 print:text-black">সর্বমোট:</td>
+                        <td className={`py-2.5 px-4 text-right font-mono font-black ${(report.previousBalance ?? 0) >= 0 ? "text-slate-800" : "text-amber-800"} print:text-black`}>
+                          {(report.previousBalance ?? 0) < 0 ? "-" : ""}৳ {Math.abs(report.previousBalance ?? 0).toLocaleString('bn-BD')}
+                        </td>
                         <td className="py-2.5 px-4 text-right font-mono text-emerald-900 font-black print:text-black">
                           ৳ {report.totalIncome.toLocaleString('bn-BD')}
                         </td>
                         <td className="py-2.5 px-4 text-right font-mono text-red-950 font-black print:text-black">
                           ৳ {report.totalExpense.toLocaleString('bn-BD')}
                         </td>
-                        <td className={`py-2.5 px-4 text-right font-mono font-black ${report.netBalance >= 0 ? "text-blue-950" : "text-red-700"} print:text-black`}>
+                        <td className={`py-2.5 px-4 text-right font-mono font-black ${report.netBalance >= 0 ? "text-slate-900" : "text-red-700"} print:text-black`}>
                           {report.netBalance < 0 ? "-" : ""}৳ {Math.abs(report.netBalance).toLocaleString('bn-BD')}
+                        </td>
+                        <td className={`py-2.5 px-4 text-right font-mono font-black ${(report.adjustedClosingBalance ?? report.netBalance) >= 0 ? "text-blue-950" : "text-amber-800"} bg-slate-200/70 print:text-black`}>
+                          {(report.adjustedClosingBalance ?? report.netBalance) < 0 ? "-" : ""}৳ {Math.abs(report.adjustedClosingBalance ?? report.netBalance).toLocaleString('bn-BD')}
                         </td>
                       </tr>
                     </tfoot>
@@ -292,15 +310,19 @@ export default function AccountingReportPage() {
                   {selectedFundId !== "all" ? (
                     <>
                       {month}/{year} মাসে <strong>{funds.find((f) => f.id === selectedFundId)?.name || "ফান্ডে"}</strong> মোট আদায় হয়েছে <strong>৳{report.totalIncome.toLocaleString('bn-BD')}</strong> এবং ব্যয় হয়েছে <strong>৳{report.totalExpense.toLocaleString('bn-BD')}</strong>। 
-                      ফান্ডের নিট ব্যালেন্স দাঁড়াচ্ছে <strong className={report.netBalance >= 0 ? 'text-emerald-600 print:text-black' : 'text-red-600 print:text-black'}>
+                      চলতি মাসের নিট স্থিতি <strong className={report.netBalance >= 0 ? 'text-emerald-600 print:text-black' : 'text-red-600 print:text-black'}>
                         {report.netBalance < 0 ? '-' : ''}৳{Math.abs(report.netBalance).toLocaleString('bn-BD')}
+                      </strong> এবং পূর্বের জের (<strong>{(report.previousBalance ?? 0) < 0 ? '-' : ''}৳{Math.abs(report.previousBalance ?? 0).toLocaleString('bn-BD')}</strong>) সমন্বয় শেষে সমাপনী স্থিতি দাঁড়াচ্ছে <strong className={(report.adjustedClosingBalance ?? report.netBalance) >= 0 ? 'text-blue-700 print:text-black' : 'text-amber-700 print:text-black'}>
+                        {(report.adjustedClosingBalance ?? report.netBalance) < 0 ? '-' : ''}৳{Math.abs(report.adjustedClosingBalance ?? report.netBalance).toLocaleString('bn-BD')}
                       </strong>।
                     </>
                   ) : (
                     <>
                       {month}/{year} মাসে মাদরাসার মোট আয় হয়েছে <strong>৳{report.totalIncome.toLocaleString('bn-BD')}</strong> এবং মোট ব্যয় হয়েছে <strong>৳{report.totalExpense.toLocaleString('bn-BD')}</strong>। 
-                      মাসের শেষে নিট ব্যালেন্স দাঁড়াচ্ছে <strong className={report.netBalance >= 0 ? 'text-emerald-600 print:text-black' : 'text-red-600 print:text-black'}>
+                      চলতি মাসের নিট স্থিতি <strong className={report.netBalance >= 0 ? 'text-emerald-600 print:text-black' : 'text-red-600 print:text-black'}>
                         {report.netBalance < 0 ? '-' : ''}৳{Math.abs(report.netBalance).toLocaleString('bn-BD')}
+                      </strong> এবং পূর্ববর্তী মাসের জের (<strong>{(report.previousBalance ?? 0) < 0 ? '-' : ''}৳{Math.abs(report.previousBalance ?? 0).toLocaleString('bn-BD')}</strong>) সমন্বয় শেষে সমাপনী স্থিতি দাঁড়াচ্ছে <strong className={(report.adjustedClosingBalance ?? report.netBalance) >= 0 ? 'text-blue-700 print:text-black' : 'text-amber-700 print:text-black'}>
+                        {(report.adjustedClosingBalance ?? report.netBalance) < 0 ? '-' : ''}৳{Math.abs(report.adjustedClosingBalance ?? report.netBalance).toLocaleString('bn-BD')}
                       </strong>।
                     </>
                   )}
