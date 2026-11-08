@@ -27,11 +27,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         setThemeState(savedTheme);
         applyTheme(savedTheme);
       } else {
-        // Check system preference
-        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-        const initial = prefersDark ? "dark" : "light";
-        setThemeState(initial);
-        applyTheme(initial);
+        // ডিফল্ট থিম সর্বদা "কওমি স্ট্যান্ডার্ড" (light)
+        setThemeState("light");
+        applyTheme("light");
       }
     } catch {
       applyTheme("light");

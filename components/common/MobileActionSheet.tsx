@@ -200,7 +200,7 @@ export function MobileActionSheet({
                 }`}
               >
                 <Sun className="w-3.5 h-3.5" />
-                <span>কওমি ডে</span>
+                <span>কওমি স্ট্যান্ডার্ড</span>
               </button>
               <button
                 type="button"

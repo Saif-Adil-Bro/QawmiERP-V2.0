@@ -38,8 +38,9 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
                             (function() {
                                 try {
                                     var t = localStorage.getItem('qawmi_theme');
-                                    if (!t) {
-                                        t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                                    // ডিফল্ট থিম সর্বদা "কওমি স্ট্যান্ডার্ড" (light)
+                                    if (!t || (t !== 'dark' && t !== 'sepia' && t !== 'light')) {
+                                        t = 'light';
                                     }
                                     var r = document.documentElement;
                                     if (t === 'dark') {
