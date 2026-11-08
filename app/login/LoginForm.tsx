@@ -105,23 +105,23 @@ export default function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4 text-slate-900 dark:text-slate-100">
       {error && (
-        <div className="p-3.5 text-sm text-rose-700 bg-rose-50 rounded-xl border border-rose-200 leading-relaxed animate-in fade-in duration-200">
+        <div className="p-3.5 text-sm font-medium text-rose-800 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/60 rounded-xl border border-rose-300 dark:border-rose-800 leading-relaxed animate-in fade-in duration-200">
           {error}
         </div>
       )}
 
       {/* Guardian Quick Helper Notice */}
-      <div className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-100/90 text-xs text-emerald-900 leading-relaxed flex items-start gap-2.5">
-        <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-        <div>
-          <span className="font-semibold text-emerald-950">শিক্ষার্থী ও অভিভাবক লগইন:</span> প্রাতিষ্ঠানিক পরিচিতি আইডি (Student ID) এবং মাদরাসা থেকে নির্ধারিত পাসওয়ার্ড ব্যবহার করে লগইন সম্পন্ন করুন।
+      <div className="notice-banner p-3.5 rounded-xl border text-xs leading-relaxed flex items-start gap-2.5">
+        <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700 dark:text-emerald-400" />
+        <div className="text-emerald-950 dark:text-emerald-100">
+          <span className="font-bold text-emerald-950 dark:text-white">শিক্ষার্থী ও অভিভাবক লগইন:</span> প্রাতিষ্ঠানিক পরিচিতি আইডি (Student ID) এবং মাদরাসা থেকে নির্ধারিত পাসওয়ার্ড ব্যবহার করে লগইন সম্পন্ন করুন।
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+        <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-1.5">
           শিক্ষার্থী আইডি অথবা ইমেইল
         </label>
         <div className="relative">
@@ -130,15 +130,15 @@ export default function LoginForm() {
             type="text"
             required
             autoComplete="username"
-            className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-800 text-sm transition-all"
+            className="w-full pl-9 pr-3 py-2.5 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm font-medium transition-all"
             placeholder="শিক্ষার্থী আইডি অথবা ইমেইল ঠিকানা"
           />
-          <User className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+          <User className="w-4 h-4 text-slate-500 dark:text-slate-400 absolute left-3 top-3 pointer-events-none" />
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+        <label className="block text-sm font-bold text-slate-800 dark:text-slate-200 mb-1.5">
           পাসওয়ার্ড
         </label>
         <div className="relative">
@@ -147,14 +147,14 @@ export default function LoginForm() {
             type={showPassword ? "text" : "password"}
             required
             autoComplete="current-password"
-            className="w-full pl-9 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-800 text-sm transition-all"
+            className="w-full pl-9 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm font-medium transition-all"
             placeholder="আপনার গোপন পাসওয়ার্ড দিন"
           />
-          <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+          <KeyRound className="w-4 h-4 text-slate-500 dark:text-slate-400 absolute left-3 top-3 pointer-events-none" />
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none p-0.5"
+            className="absolute right-3 top-2.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 focus:outline-none p-0.5 cursor-pointer"
             tabIndex={-1}
             title={showPassword ? "পাসওয়ার্ড লুকান" : "পাসওয়ার্ড দেখুন"}
           >
@@ -166,7 +166,7 @@ export default function LoginForm() {
       <button
         type="submit"
         disabled={loading || demoLoading}
-        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded-xl transition duration-200 disabled:opacity-50 text-sm cursor-pointer shadow-sm active:scale-[0.99] flex items-center justify-center gap-2"
+        className="w-full bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl transition duration-200 disabled:opacity-50 text-sm cursor-pointer shadow-md active:scale-[0.99] flex items-center justify-center gap-2"
       >
         {loading ? (
           <>
@@ -179,27 +179,27 @@ export default function LoginForm() {
       </button>
 
       {/* 1-Click Interactive Live Demo Profile Card */}
-      <div className="pt-3 border-t border-slate-100 mt-2">
-        <div className="p-3.5 bg-gradient-to-br from-indigo-50/90 via-purple-50/60 to-emerald-50/70 rounded-2xl border border-indigo-100 text-xs space-y-2.5 shadow-xs">
+      <div className="pt-3 border-t border-slate-200 dark:border-slate-800 mt-2">
+        <div className="demo-card-box p-3.5 rounded-2xl border text-xs space-y-2.5 shadow-sm">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 font-bold text-indigo-950">
-              <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+            <div className="flex items-center gap-1.5 font-bold text-indigo-950 dark:text-indigo-300">
+              <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>সফটওয়্যারটির লাইভ ডেমো দেখতে চান?</span>
             </div>
-            <span className="text-[10px] bg-indigo-600/10 text-indigo-700 px-2 py-0.5 rounded-full font-bold">
+            <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded-full font-bold">
               ১-ক্লিক ডেমো
             </span>
           </div>
 
-          <p className="text-[11px] text-slate-600 leading-relaxed">
-            <strong>মাদ্রাসাতুল মুসলিমিন</strong>-এর বাস্তবসম্মত শিক্ষার্থী, শিক্ষক, জামাত, আয়-ব্যয়, ক্যাশবুক, ইনভেন্টরি ও পরীক্ষার পূর্ণাঙ্গ ডাটাবেজসহ সরাসরি সিস্টেমটি ঘুরে দেখুন।
+          <p className="text-[11px] leading-relaxed font-medium">
+            <strong className="font-bold">মাদ্রাসাতুল মুসলিমিন</strong>-এর বাস্তবসম্মত শিক্ষার্থী, শিক্ষক, জামাত, আয়-ব্যয়, ক্যাশবুক, ইনভেন্টরি ও পরীক্ষার পূর্ণাঙ্গ ডাটাবেজসহ সরাসরি সিস্টেমটি ঘুরে দেখুন।
           </p>
 
           <button
             type="button"
             onClick={handleDemoLogin}
             disabled={demoLoading || loading}
-            className="w-full py-2.5 px-4 bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.99] cursor-pointer disabled:opacity-50"
+            className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.99] cursor-pointer disabled:opacity-50"
           >
             {demoLoading ? (
               <>
@@ -214,9 +214,9 @@ export default function LoginForm() {
             )}
           </button>
 
-          <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-indigo-100/60 font-mono">
-            <span>ইউজার: demo@qawmierp.com</span>
-            <span>পাসওয়ার্ড: demo@qawmierp.com</span>
+          <div className="flex items-center justify-between text-[11px] pt-2 border-t border-slate-200 dark:border-slate-700 font-mono font-medium">
+            <span>ইউজার: <strong>demo@qawmierp.com</strong></span>
+            <span>পাসওয়ার্ড: <strong>demo@qawmierp.com</strong></span>
           </div>
         </div>
       </div>

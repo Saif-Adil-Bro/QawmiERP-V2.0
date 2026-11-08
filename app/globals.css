@@ -1490,4 +1490,112 @@ body[data-theme="sepia"] {
   }
 }
 
+/* ==========================================================================
+   Login Page High-Contrast Guarantee (Light & Dark Theme Immunity)
+   ========================================================================== */
+.login-card-container {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+.login-card-container label {
+  color: #1e293b !important;
+}
+
+.login-card-container input {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.login-card-container input::placeholder {
+  color: #64748b !important;
+}
+
+.login-card-container .notice-banner {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #064e3b !important;
+}
+
+.login-card-container .notice-banner * {
+  color: #064e3b !important;
+}
+
+.login-card-container .demo-card-box {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.login-card-container .demo-card-box p,
+.login-card-container .demo-card-box span,
+.login-card-container .demo-card-box strong {
+  color: #1e293b !important;
+}
+
+/* Dark Theme Overrides for Login Card */
+html.dark .login-card-container,
+html[data-theme="dark"] .login-card-container,
+.theme-dark .login-card-container {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #1e293b !important;
+}
+
+html.dark .login-card-container label,
+html[data-theme="dark"] .login-card-container label,
+.theme-dark .login-card-container label {
+  color: #e2e8f0 !important;
+}
+
+html.dark .login-card-container input,
+html[data-theme="dark"] .login-card-container input,
+.theme-dark .login-card-container input {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+html.dark .login-card-container input::placeholder,
+html[data-theme="dark"] .login-card-container input::placeholder,
+.theme-dark .login-card-container input::placeholder {
+  color: #94a3b8 !important;
+}
+
+html.dark .login-card-container .notice-banner,
+html[data-theme="dark"] .login-card-container .notice-banner,
+.theme-dark .login-card-container .notice-banner {
+  background-color: rgba(6, 78, 59, 0.4) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  color: #a7f3d0 !important;
+}
+
+html.dark .login-card-container .notice-banner *,
+html[data-theme="dark"] .login-card-container .notice-banner *,
+.theme-dark .login-card-container .notice-banner * {
+  color: #a7f3d0 !important;
+}
+
+html.dark .login-card-container .demo-card-box,
+html[data-theme="dark"] .login-card-container .demo-card-box,
+.theme-dark .login-card-container .demo-card-box {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+html.dark .login-card-container .demo-card-box p,
+html.dark .login-card-container .demo-card-box span,
+html.dark .login-card-container .demo-card-box strong,
+html[data-theme="dark"] .login-card-container .demo-card-box p,
+html[data-theme="dark"] .login-card-container .demo-card-box span,
+html[data-theme="dark"] .login-card-container .demo-card-box strong,
+.theme-dark .login-card-container .demo-card-box p,
+.theme-dark .login-card-container .demo-card-box span,
+.theme-dark .login-card-container .demo-card-box strong {
+  color: #e2e8f0 !important;
+}
+
 
