@@ -307,14 +307,14 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             />
           )}
 
-            {/* Sidebar Drawer: w-72 sm:w-80 on mobile/tablet, w-72 lg:w-80 (320px) on desktop */}
+            {/* Sidebar Drawer: w-72 sm:w-80 on mobile/tablet, w-80 on desktop when open */}
             <aside
-              className={`fixed inset-y-0 left-0 z-50 w-72 sm:w-80 lg:w-80 bg-slate-900 text-slate-300 flex flex-col transition-all duration-200 ease-in-out lg:static print:hidden shrink-0 select-none dark:bg-slate-950 dark:border-r dark:border-slate-800 ${
+              className={`fixed inset-y-0 left-0 z-50 w-72 sm:w-80 bg-slate-900 text-slate-300 flex flex-col transition-all duration-200 ease-in-out print:hidden shrink-0 select-none dark:bg-slate-950 dark:border-r dark:border-slate-800 ${
                 sidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
               } ${
                 desktopSidebarOpen
-                  ? "lg:translate-x-0 lg:w-80"
-                  : "lg:-translate-x-full lg:w-0 lg:overflow-hidden"
+                  ? "lg:static lg:translate-x-0 lg:w-80"
+                  : "lg:hidden"
               }`}
             >
               {/* Sidebar Brand Header */}
@@ -443,7 +443,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
               <ArchivedSessionBanner />
 
               {/* Page Content: Dedicated smooth scrolling main viewport */}
-              <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8 print:p-0 print:overflow-visible">
+              <main className="flex-1 w-full overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8 print:p-0 print:overflow-visible">
                 {children}
               </main>
 
