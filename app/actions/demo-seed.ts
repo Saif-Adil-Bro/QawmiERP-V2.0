@@ -25,29 +25,43 @@ export async function ensureDemoMadrasaExists(): Promise<{
     // 1. Check if demo madrasa already exists
     let { data: existingMadrasa } = await admin
       .from("madrasas")
-      .select("id, name, metadata")
-      .or(`contact_email.eq.${DEMO_ADMIN_EMAIL},name.eq.${DEMO_MADRASA_NAME}`)
+      .select("id, name, registration_no")
+      .eq("name", DEMO_MADRASA_NAME)
       .maybeSingle();
 
     let madrasaId = existingMadrasa?.id;
 
     if (!madrasaId) {
-      // Create new demo madrasa
+      // Create new demo madrasa using registration_no for broad schema compatibility
+      const initialMeta = { prefix: DEMO_MADRASA_PREFIX, short_code: DEMO_MADRASA_PREFIX };
       const { data: created, error: mErr } = await admin
         .from("madrasas")
         .insert({
           name: DEMO_MADRASA_NAME,
-          contact_email: DEMO_ADMIN_EMAIL,
           subscription_plan: "pro",
-          metadata: { prefix: DEMO_MADRASA_PREFIX, short_code: DEMO_MADRASA_PREFIX },
+          registration_no: JSON.stringify(initialMeta),
         })
         .select("id")
         .single();
 
       if (mErr || !created) {
-        throw new Error(mErr?.message || "ডেমো মাদরাসা তৈরিতে ব্যর্থ হয়েছে।");
+        // Fallback without subscription_plan if table has different constraints
+        const { data: fbCreated, error: fbErr } = await admin
+          .from("madrasas")
+          .insert({
+            name: DEMO_MADRASA_NAME,
+            registration_no: JSON.stringify(initialMeta),
+          })
+          .select("id")
+          .single();
+
+        if (fbErr || !fbCreated) {
+          throw new Error(fbErr?.message || mErr?.message || "ডেমো মাদরাসা তৈরিতে ব্যর্থ হয়েছে।");
+        }
+        madrasaId = fbCreated.id;
+      } else {
+        madrasaId = created.id;
       }
-      madrasaId = created.id;
     }
 
     // 2. Ensure Demo Auth user exists
@@ -102,22 +116,46 @@ export async function ensureDemoMadrasaExists(): Promise<{
     const dataset = getFullDemoDataset(madrasaId, authUserId);
 
     // Upsert Classes
-    await admin.from("classes").upsert(dataset.classes, { onConflict: "id" });
+    try {
+      await admin.from("classes").upsert(dataset.classes, { onConflict: "id" });
+    } catch (e) {
+      console.warn("Classes seed warning:", e);
+    }
 
     // Upsert Subjects
-    await admin.from("subjects").upsert(dataset.subjects, { onConflict: "id" });
+    try {
+      await admin.from("subjects").upsert(dataset.subjects, { onConflict: "id" });
+    } catch (e) {
+      console.warn("Subjects seed warning:", e);
+    }
 
     // Upsert Teachers
-    await admin.from("teachers").upsert(dataset.teachers, { onConflict: "id" });
+    try {
+      await admin.from("teachers").upsert(dataset.teachers, { onConflict: "id" });
+    } catch (e) {
+      console.warn("Teachers seed warning:", e);
+    }
 
     // Upsert Students
-    await admin.from("students").upsert(dataset.students, { onConflict: "id" });
+    try {
+      await admin.from("students").upsert(dataset.students, { onConflict: "id" });
+    } catch (e) {
+      console.warn("Students seed warning:", e);
+    }
 
     // Upsert Hifz Logs
-    await admin.from("hifz_logs").upsert(dataset.hifz_logs, { onConflict: "id" });
+    try {
+      await admin.from("hifz_logs").upsert(dataset.hifz_logs, { onConflict: "id" });
+    } catch (e) {
+      console.warn("Hifz logs seed warning:", e);
+    }
 
     // Upsert Attendance
-    await admin.from("attendance").upsert(dataset.attendance, { onConflict: "id" });
+    try {
+      await admin.from("attendance").upsert(dataset.attendance, { onConflict: "id" });
+    } catch (e) {
+      console.warn("Attendance seed warning:", e);
+    }
 
     // Upsert Expenses
     try {
