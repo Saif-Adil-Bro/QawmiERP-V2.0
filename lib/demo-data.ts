@@ -1,8 +1,9 @@
 /**
  * QawmiERP Demo Profile Data Generator
- * দারুল উলূম আল-ইসলামিয়া মডেল মাদরাসা — একটি সম্পূর্ণ ও বাস্তবসম্মত ডেমো ডেটাসেট
+ * মাদ্রাসাতুল মুসলিমিন — একটি সম্পূর্ণ ও বাস্তবসম্মত ডেমো ডেটাসেট
  */
 
+import { toDhakaDateString } from "./date-utils";
 import type { AcademicSession } from "./sessions";
 import { getDefaultInventorySeed } from "./inventory";
 
@@ -12,40 +13,78 @@ export const DEMO_ADMIN_EMAIL = "demo@qawmierp.com";
 export const DEMO_ADMIN_PASSWORD = "demo@qawmierp.com";
 export const DEMO_ADMIN_NAME = "মাওলানা আহমাদ ওসামা (মুহতামিম)";
 
+/**
+ * Valid RFC4122 v4 deterministic UUID generator for stable demo records
+ */
+export function makeDemoUuid(prefix: number, index: number): string {
+  const pStr = String(prefix).padStart(8, "0");
+  const iStr = String(index).padStart(12, "0");
+  return `${pStr}-0000-4000-8000-${iStr}`;
+}
+
 export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
   const now = new Date().toISOString();
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toDhakaDateString(new Date());
 
-  // 1. Classes
+  // Past dates in YYYY-MM-DD for attendance history
+  const d1 = new Date();
+  d1.setDate(d1.getDate() - 1);
+  const dayMinus1 = toDhakaDateString(d1);
+
+  const d2 = new Date();
+  d2.setDate(d2.getDate() - 2);
+  const dayMinus2 = toDhakaDateString(d2);
+
+  const d3 = new Date();
+  d3.setDate(d3.getDate() - 3);
+  const dayMinus3 = toDhakaDateString(d3);
+
+  // 1. Classes (UUIDs & standard SQL columns: id, madrasa_id, name, description)
+  const classNooraniId = makeDemoUuid(1, 1);
+  const classHifzId = makeDemoUuid(1, 2);
+  const classIbtedayiId = makeDemoUuid(1, 3);
+  const classMizanId = makeDemoUuid(1, 4);
+  const classNahbemirId = makeDemoUuid(1, 5);
+  const classHedayahId = makeDemoUuid(1, 6);
+  const classJalalainId = makeDemoUuid(1, 7);
+  const classDawrahId = makeDemoUuid(1, 8);
+
   const classes = [
-    { id: "cls_noorani", madrasa_id: madrasaId, name: "নূরানী ও নাজেরা", code: "NOOR", order_index: 1 },
-    { id: "cls_hifz", madrasa_id: madrasaId, name: "হিফজুল কুরআন বিভাগ", code: "HIFZ", order_index: 2 },
-    { id: "cls_ibtedayi", madrasa_id: madrasaId, name: "ইবতেদায়ি ১ম বর্ষ", code: "IBT-1", order_index: 3 },
-    { id: "cls_mizan", madrasa_id: madrasaId, name: "মিজান জামাত", code: "MIZAN", order_index: 4 },
-    { id: "cls_nahbemir", madrasa_id: madrasaId, name: "নাহবেমীর জামাত", code: "NAHB", order_index: 5 },
-    { id: "cls_hedayah", madrasa_id: madrasaId, name: "হেদায়াতুন্নাহব জামাত", code: "HEDAYAH", order_index: 6 },
-    { id: "cls_jalalain", madrasa_id: madrasaId, name: "জালালাইন জামাত", code: "JALAL", order_index: 7 },
-    { id: "cls_dawrah", madrasa_id: madrasaId, name: "দাওরায়ে হাদিস (তাকমীল)", code: "DAWRAH", order_index: 8 },
+    { id: classNooraniId, madrasa_id: madrasaId, name: "নূরানী ও নাজেরা", description: "নূরানী ও নাজেরা কুরআন প্রশিক্ষণ বিভাগ" },
+    { id: classHifzId, madrasa_id: madrasaId, name: "হিফজুল কুরআন বিভাগ", description: "হিফজুল কুরআন ও হুসনে সওত বিভাগ" },
+    { id: classIbtedayiId, madrasa_id: madrasaId, name: "ইবতেদায়ি ১ম বর্ষ", description: "কওমি ইবতেদায়ি প্রাথমিক শিক্ষা বিভাগ" },
+    { id: classMizanId, madrasa_id: madrasaId, name: "মিজান জামাত", description: "আরবি ব্যাকরণ ও সরফ প্রাথমিক" },
+    { id: classNahbemirId, madrasa_id: madrasaId, name: "নাহবেমীর জামাত", description: "আরবি নাহু ও ব্যাকরণ বিভাগ" },
+    { id: classHedayahId, madrasa_id: madrasaId, name: "হেদায়াতুন্নাহব জামাত", description: "উচ্চতর আরবি নাহু ও সাহিত্য" },
+    { id: classJalalainId, madrasa_id: madrasaId, name: "জালালাইন জামাত", description: "তাফসির ও উসুলুল হাদিস বিভাগ" },
+    { id: classDawrahId, madrasa_id: madrasaId, name: "দাওরায়ে হাদিস (তাকমীল)", description: "মাস্টার্স সমমান সর্বোচ্চ হাদিস গবেষণা বিভাগ" },
   ];
 
-  // 2. Subjects
+  // 2. Subjects (UUIDs & standard SQL columns: id, madrasa_id, name, code, description)
   const subjects = [
-    { id: "sub_quran", madrasa_id: madrasaId, name: "কুরআন মাজিদ ও তাজবীদ", code: "QUR", full_marks: 100 },
-    { id: "sub_urdu", madrasa_id: madrasaId, name: "উর্দু ও ফার্সি", code: "URDU", full_marks: 100 },
-    { id: "sub_mizan", madrasa_id: madrasaId, name: "মিযানুস সরফ ও মুনশাইব", code: "MIZ", full_marks: 100 },
-    { id: "sub_nahb", madrasa_id: madrasaId, name: "নাহবেমীর ও কাফিয়া", code: "NAH", full_marks: 100 },
-    { id: "sub_fiqh", madrasa_id: madrasaId, name: "ফিকহ (আল-হিদায়াহ ও কুদূরী)", code: "FQH", full_marks: 100 },
-    { id: "sub_tafsir", madrasa_id: madrasaId, name: "তাফসীরে জালালাইন শরীফ", code: "TAF", full_marks: 100 },
-    { id: "sub_bukhari", madrasa_id: madrasaId, name: "সহীহ বুখারী শরীফ", code: "BUK", full_marks: 100 },
-    { id: "sub_bangla", madrasa_id: madrasaId, name: "বাংলা ব্যাকরণ ও সাহিত্য", code: "BEN", full_marks: 100 },
-    { id: "sub_math", madrasa_id: madrasaId, name: "সাধারণ গণিত", code: "MTH", full_marks: 100 },
-    { id: "sub_eng", madrasa_id: madrasaId, name: "বেসিক ইংলিশ", code: "ENG", full_marks: 100 },
+    { id: makeDemoUuid(2, 1), madrasa_id: madrasaId, name: "কুরআন মাজিদ ও তাজবীদ", code: "QUR", description: "তাজবীদসহ পূর্ণাঙ্গ কুরআন মাজিদ তেলাওয়াত" },
+    { id: makeDemoUuid(2, 2), madrasa_id: madrasaId, name: "উর্দু ও ফার্সি", code: "URDU", description: "উর্দু কি পহেলি কিতাব ও ফার্সি সাহিত্য" },
+    { id: makeDemoUuid(2, 3), madrasa_id: madrasaId, name: "মিযানুস সরফ ও মুনশাইব", code: "MIZ", description: "ইলমুস সরফ ও সিগাহ গবেষণা" },
+    { id: makeDemoUuid(2, 4), madrasa_id: madrasaId, name: "নাহবেমীর ও কাফিয়া", code: "NAH", description: "ইলমুন নাহু ও বাক্য বিশ্লেষণ" },
+    { id: makeDemoUuid(2, 5), madrasa_id: madrasaId, name: "ফিকহ (আল-হিদায়াহ ও কুদূরী)", code: "FQH", description: "হানাফি ফিকহ ও মাসায়েল বিশ্লেষণ" },
+    { id: makeDemoUuid(2, 6), madrasa_id: madrasaId, name: "তাফসীরে জালালাইন শরীফ", code: "TAF", description: "উচ্চতর তাফসীর ও শানে নুযুল" },
+    { id: makeDemoUuid(2, 7), madrasa_id: madrasaId, name: "সহীহ বুখারী শরীফ", code: "BUK", description: "সিহাহ সিত্তাহ এর প্রধান কিতাব হাদিস পাঠ" },
+    { id: makeDemoUuid(2, 8), madrasa_id: madrasaId, name: "বাংলা ব্যাকরণ ও সাহিত্য", code: "BEN", description: "মাতৃভাষা বাংলা রচনা ও ব্যাকরণ" },
+    { id: makeDemoUuid(2, 9), madrasa_id: madrasaId, name: "সাধারণ গণিত", code: "MTH", description: "পাটীগণিত ও হিসাবরক্ষণ শিক্ষা" },
+    { id: makeDemoUuid(2, 10), madrasa_id: madrasaId, name: "বেসিক ইংলিশ", code: "ENG", description: "দৈনন্দিন স্পোকেন ও মৌলিক ইংরেজি গ্রামার" },
   ];
 
-  // 3. Teachers & Staff
+  // 3. Teachers & Staff (UUIDs & standard SQL columns: id, madrasa_id, first_name, last_name, phone, email, designation)
+  const teacherMuhtamimId = makeDemoUuid(3, 1);
+  const teacherNaibId = makeDemoUuid(3, 2);
+  const teacherHifz1Id = makeDemoUuid(3, 3);
+  const teacherHifz2Id = makeDemoUuid(3, 4);
+  const teacherKitabId = makeDemoUuid(3, 5);
+  const teacherAccId = makeDemoUuid(3, 6);
+
   const teachers = [
     {
-      id: "tch_muhtamim",
+      id: teacherMuhtamimId,
       madrasa_id: madrasaId,
       first_name: "মাওলানা আহমাদ",
       last_name: "ওসামা",
@@ -54,7 +93,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       designation: "মুহতামিম ও শায়খুল হাদিস",
     },
     {
-      id: "tch_naib",
+      id: teacherNaibId,
       madrasa_id: madrasaId,
       first_name: "মাওলানা মুশতাক",
       last_name: "আহমদ",
@@ -63,7 +102,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       designation: "নায়েবে মুহতামিম ও শিক্ষাসচিব",
     },
     {
-      id: "tch_hifz1",
+      id: teacherHifz1Id,
       madrasa_id: madrasaId,
       first_name: "হাফেজ ক্বারী সাঈদ",
       last_name: "হাসান",
@@ -72,7 +111,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       designation: "প্রধান হিফজ শিক্ষক",
     },
     {
-      id: "tch_hifz2",
+      id: teacherHifz2Id,
       madrasa_id: madrasaId,
       first_name: "হাফেজ ইমরান",
       last_name: "বিন কাসেম",
@@ -81,7 +120,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       designation: "সহকারী হিফজ শিক্ষক",
     },
     {
-      id: "tch_kitab",
+      id: teacherKitabId,
       madrasa_id: madrasaId,
       first_name: "মাওলানা হাবিবুর",
       last_name: "রহমান",
@@ -90,7 +129,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       designation: "সিনিয়র কিতাব শিক্ষক",
     },
     {
-      id: "tch_accountant",
+      id: teacherAccId,
       madrasa_id: madrasaId,
       first_name: "মুহাম্মদ শরিফুল",
       last_name: "ইসলাম",
@@ -100,133 +139,135 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     },
   ];
 
-  // 4. Students
+  // 4. Students (UUIDs & standard SQL columns: id, madrasa_id, first_name, last_name, roll_number, class_name, class_id, parent_phone, father_name, address)
+  const studentIds = Array.from({ length: 10 }, (_, i) => makeDemoUuid(4, i + 1));
+
   const students = [
     {
-      id: "std_01",
+      id: studentIds[0],
       madrasa_id: madrasaId,
-      student_id: `${DEMO_MADRASA_PREFIX}-480001`,
       first_name: "আহমেদ",
       last_name: "আবদুল্লাহ",
       roll_number: "১",
       class_name: "হিফজুল কুরআন বিভাগ",
+      class_id: classHifzId,
       father_name: "আলহাজ্ব মোজাম্মেল হক",
       parent_phone: "01711-220011",
       address: "ইসলামপুর, ঢাকা",
     },
     {
-      id: "std_02",
+      id: studentIds[1],
       madrasa_id: madrasaId,
-      student_id: `${DEMO_MADRASA_PREFIX}-480002`,
       first_name: "মাহমুদ",
       last_name: "হাসান",
       roll_number: "২",
       class_name: "হিফজুল কুরআন বিভাগ",
+      class_id: classHifzId,
       father_name: "মাওলানা রফিকুল ইসলাম",
       parent_phone: "01811-220022",
       address: "কেরানীগঞ্জ, ঢাকা",
     },
     {
-      id: "std_03",
+      id: studentIds[2],
       madrasa_id: madrasaId,
-      student_id: `${DEMO_MADRASA_PREFIX}-480003`,
       first_name: "আব্দুর",
       last_name: "রহমান",
       roll_number: "৩",
       class_name: "হিফজুল কুরআন বিভাগ",
+      class_id: classHifzId,
       father_name: "মোঃ শহিদুল্লাহ",
       parent_phone: "01911-220033",
       address: "সোনারগাঁও, নারায়ণগঞ্জ",
     },
     {
-      id: "std_04",
+      id: studentIds[3],
       madrasa_id: madrasaId,
-      student_id: `${DEMO_MADRASA_PREFIX}-480004`,
       first_name: "মুয়াজ",
       last_name: "বিন জাহিদ",
       roll_number: "৪",
       class_name: "হিফজুল কুরআন বিভাগ",
+      class_id: classHifzId,
       father_name: "জাহিদুল ইসলাম",
       parent_phone: "01611-220044",
       address: "মিরপুর-১, ঢাকা",
     },
     {
-      id: "std_05",
+      id: studentIds[4],
       madrasa_id: madrasaId,
-      student_id: `${DEMO_MADRASA_PREFIX}-480005`,
       first_name: "সাজিদুর",
       last_name: "রহমান",
       roll_number: "১",
       class_name: "নাহবেমীর জামাত",
+      class_id: classNahbemirId,
       father_name: "হাফেজ নুর মোহাম্মদ",
       parent_phone: "01511-220055",
       address: "যাত্রাবাড়ী, ঢাকা",
     },
     {
-      id: "std_06",
+      id: studentIds[5],
       madrasa_id: madrasaId,
-      student_id: `${DEMO_MADRASA_PREFIX}-480006`,
       first_name: "তৌহিদুল",
       last_name: "ইসলাম",
       roll_number: "২",
       class_name: "হেদায়াতুন্নাহব জামাত",
+      class_id: classHedayahId,
       father_name: "মোঃ আনোয়ার হোসেন",
       parent_phone: "01722-330066",
       address: "গাজীপুর সদর",
     },
     {
-      id: "std_07",
+      id: studentIds[6],
       madrasa_id: madrasaId,
-      student_id: `${DEMO_MADRASA_PREFIX}-480007`,
       first_name: "আনাস ইবনে",
       last_name: "মালিক",
       roll_number: "১",
       class_name: "জালালাইন জামাত",
+      class_id: classJalalainId,
       father_name: "মাওলানা ফজলুল করীম",
       parent_phone: "01822-330077",
       address: "টঙ্গী, গাজীপুর",
     },
     {
-      id: "std_08",
+      id: studentIds[7],
       madrasa_id: madrasaId,
-      student_id: `${DEMO_MADRASA_PREFIX}-480008`,
       first_name: "জুবায়ের",
       last_name: "আহমেদ",
       roll_number: "১",
       class_name: "দাওরায়ে হাদিস (তাকমীল)",
+      class_id: classDawrahId,
       father_name: "মাওলানা মনসুরুল হক",
       parent_phone: "01922-330088",
       address: "লালবাগ, ঢাকা",
     },
     {
-      id: "std_09",
+      id: studentIds[8],
       madrasa_id: madrasaId,
-      student_id: `${DEMO_MADRASA_PREFIX}-480009`,
       first_name: "তালহা",
       last_name: "জুবায়ের",
       roll_number: "৫",
       class_name: "মিজান জামাত",
+      class_id: classMizanId,
       father_name: "মোঃ হারুনুর রশিদ",
       parent_phone: "01622-330099",
       address: "উত্তরা, ঢাকা",
     },
     {
-      id: "std_10",
+      id: studentIds[9],
       madrasa_id: madrasaId,
-      student_id: `${DEMO_MADRASA_PREFIX}-480010`,
       first_name: "খালিদ",
       last_name: "সাইফুল্লাহ",
       roll_number: "৩",
       class_name: "ইবতেদায়ি ১ম বর্ষ",
+      class_id: classIbtedayiId,
       father_name: "মোঃ এনামুল হক",
       parent_phone: "01733-440010",
       address: "ধানমন্ডি, ঢাকা",
     },
   ];
 
-  // 5. Extended Student Profiles (Residential, Fees, Discounts)
-  const student_profiles: Record<string, any> = {
-    std_01: {
+  // 5. Extended Student Profiles (Mapped both by UUID and by MM-48000x code)
+  const rawProfiles = [
+    {
       student_id: `${DEMO_MADRASA_PREFIX}-480001`,
       residential_status: "আবাসিক",
       boarding_type: "সাধারণ পেইং",
@@ -238,7 +279,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       total_monthly_fee: 4000,
       completed_hifz_paras: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
     },
-    std_02: {
+    {
       student_id: `${DEMO_MADRASA_PREFIX}-480002`,
       residential_status: "আবাসিক",
       boarding_type: "হাফ-ফ্রি",
@@ -250,7 +291,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       total_monthly_fee: 2750,
       completed_hifz_paras: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
     },
-    std_03: {
+    {
       student_id: `${DEMO_MADRASA_PREFIX}-480003`,
       residential_status: "আবাসিক",
       boarding_type: "লিল্লাহ",
@@ -264,7 +305,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       total_monthly_fee: 0,
       completed_hifz_paras: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24],
     },
-    std_04: {
+    {
       student_id: `${DEMO_MADRASA_PREFIX}-480004`,
       residential_status: "অনাবাসিক",
       boarding_type: "অনাবাসিক",
@@ -276,7 +317,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       total_monthly_fee: 1500,
       completed_hifz_paras: [1, 2, 3, 4, 5, 6, 7],
     },
-    std_05: {
+    {
       student_id: `${DEMO_MADRASA_PREFIX}-480005`,
       residential_status: "আবাসিক",
       boarding_type: "সাধারণ পেইং",
@@ -285,7 +326,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       khoraki_fee: 2500,
       total_monthly_fee: 4300,
     },
-    std_06: {
+    {
       student_id: `${DEMO_MADRASA_PREFIX}-480006`,
       residential_status: "আবাসিক",
       boarding_type: "সাধারণ পেইং",
@@ -294,7 +335,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       khoraki_fee: 2500,
       total_monthly_fee: 4500,
     },
-    std_07: {
+    {
       student_id: `${DEMO_MADRASA_PREFIX}-480007`,
       residential_status: "আবাসিক",
       boarding_type: "হাফ-ফ্রি",
@@ -303,7 +344,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       khoraki_fee: 1500,
       total_monthly_fee: 3700,
     },
-    std_08: {
+    {
       student_id: `${DEMO_MADRASA_PREFIX}-480008`,
       residential_status: "আবাসিক",
       boarding_type: "সাধারণ পেইং",
@@ -312,7 +353,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       khoraki_fee: 2500,
       total_monthly_fee: 5000,
     },
-    std_09: {
+    {
       student_id: `${DEMO_MADRASA_PREFIX}-480009`,
       residential_status: "অনাবাসিক",
       boarding_type: "অনাবাসিক",
@@ -321,7 +362,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       khoraki_fee: 0,
       total_monthly_fee: 1600,
     },
-    std_10: {
+    {
       student_id: `${DEMO_MADRASA_PREFIX}-480010`,
       residential_status: "অনাবাসিক",
       boarding_type: "অনাবাসিক",
@@ -330,15 +371,22 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       khoraki_fee: 0,
       total_monthly_fee: 1200,
     },
-  };
+  ];
+
+  const student_profiles: Record<string, any> = {};
+  rawProfiles.forEach((p, idx) => {
+    const uuid = studentIds[idx];
+    student_profiles[uuid] = { ...p, id: uuid };
+    student_profiles[p.student_id] = { ...p, id: uuid };
+  });
 
   // 6. Hifz Daily Logs
   const hifz_logs = [
     {
-      id: "hifz_log_01",
+      id: makeDemoUuid(6, 1),
       madrasa_id: madrasaId,
-      student_id: "std_01",
-      teacher_id: "tch_hifz1",
+      student_id: studentIds[0],
+      teacher_id: teacherHifz1Id,
       log_date: todayStr,
       sabak_para: 19,
       sabak_page: 4,
@@ -348,23 +396,23 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       notes: "মাশাআল্লাহ, অত্যন্ত সুন্দর মাখরাজ ও সাবলীল তেলাওয়াত।",
     },
     {
-      id: "hifz_log_02",
+      id: makeDemoUuid(6, 2),
       madrasa_id: madrasaId,
-      student_id: "std_02",
-      teacher_id: "tch_hifz1",
+      student_id: studentIds[1],
+      teacher_id: teacherHifz1Id,
       log_date: todayStr,
       sabak_para: 13,
-      sabak_page: 8,
+      sabak_page: 10,
       saboki_para: 12,
-      amukhta_para: 5,
+      amukhta_para: 6,
       performance_rating: "Good",
-      notes: "তাজবীদের গুন্নাহগুলো আরও শক্ত করতে হবে।",
+      notes: "তাজবীদ ও গুন্নায় মনোযোগ বৃদ্ধি করতে হবে।",
     },
     {
-      id: "hifz_log_03",
+      id: makeDemoUuid(6, 3),
       madrasa_id: madrasaId,
-      student_id: "std_03",
-      teacher_id: "tch_hifz2",
+      student_id: studentIds[2],
+      teacher_id: teacherHifz1Id,
       log_date: todayStr,
       sabak_para: 25,
       sabak_page: 2,
@@ -374,10 +422,10 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       notes: "দ্রুততম সময়ে কুরআন হেফজ সমাপ্তির দিকে অগ্রসর হচ্ছে।",
     },
     {
-      id: "hifz_log_04",
+      id: makeDemoUuid(6, 4),
       madrasa_id: madrasaId,
-      student_id: "std_04",
-      teacher_id: "tch_hifz2",
+      student_id: studentIds[3],
+      teacher_id: teacherHifz2Id,
       log_date: todayStr,
       sabak_para: 8,
       sabak_page: 1,
@@ -388,24 +436,50 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     },
   ];
 
-  // 7. Attendance (বাস্তবসম্মত উপস্থিতি, অনুপস্থিতি ও ছুটি রেজিস্ট্রি)
+  // 7. Attendance (Today + recent days history)
   const attendance = [
-    { id: "att_01", madrasa_id: madrasaId, student_id: "std_01", date: todayStr, status: "Present", notes: "হাজির" },
-    { id: "att_02", madrasa_id: madrasaId, student_id: "std_02", date: todayStr, status: "Present", notes: "হাজির" },
-    { id: "att_03", madrasa_id: madrasaId, student_id: "std_03", date: todayStr, status: "Absent", notes: "অনুপস্থিত (জ্বর ও অসুস্থতা)" },
-    { id: "att_04", madrasa_id: madrasaId, student_id: "std_04", date: todayStr, status: "Present", notes: "হাজির" },
-    { id: "att_05", madrasa_id: madrasaId, student_id: "std_05", date: todayStr, status: "Present", notes: "হাজির" },
-    { id: "att_06", madrasa_id: madrasaId, student_id: "std_06", date: todayStr, status: "Present", notes: "হাজির" },
-    { id: "att_07", madrasa_id: madrasaId, student_id: "std_07", date: todayStr, status: "Absent", notes: "অনুপস্থিত (দেরিতে আগমন/অনুপস্থিত)" },
-    { id: "att_08", madrasa_id: madrasaId, student_id: "std_08", date: todayStr, status: "Present", notes: "হাজির" },
-    { id: "att_09", madrasa_id: madrasaId, student_id: "std_09", date: todayStr, status: "Leave", notes: "অনুমোদিত পারিবারিক ছুটি" },
-    { id: "att_10", madrasa_id: madrasaId, student_id: "std_10", date: todayStr, status: "Present", notes: "হাজির" },
+    // Today
+    { id: makeDemoUuid(5, 1), madrasa_id: madrasaId, student_id: studentIds[0], date: todayStr, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 2), madrasa_id: madrasaId, student_id: studentIds[1], date: todayStr, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 3), madrasa_id: madrasaId, student_id: studentIds[2], date: todayStr, status: "Absent", notes: "অনুপস্থিত (জ্বর ও অসুস্থতা)" },
+    { id: makeDemoUuid(5, 4), madrasa_id: madrasaId, student_id: studentIds[3], date: todayStr, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 5), madrasa_id: madrasaId, student_id: studentIds[4], date: todayStr, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 6), madrasa_id: madrasaId, student_id: studentIds[5], date: todayStr, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 7), madrasa_id: madrasaId, student_id: studentIds[6], date: todayStr, status: "Absent", notes: "অনুপস্থিত (ছুটি ব্যতিরেকে)" },
+    { id: makeDemoUuid(5, 8), madrasa_id: madrasaId, student_id: studentIds[7], date: todayStr, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 9), madrasa_id: madrasaId, student_id: studentIds[8], date: todayStr, status: "Leave", notes: "অনুমোদিত পারিবারিক ছুটি" },
+    { id: makeDemoUuid(5, 10), madrasa_id: madrasaId, student_id: studentIds[9], date: todayStr, status: "Late", notes: "দেরিতে উপস্থিত" },
+
+    // Day Minus 1
+    { id: makeDemoUuid(5, 11), madrasa_id: madrasaId, student_id: studentIds[0], date: dayMinus1, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 12), madrasa_id: madrasaId, student_id: studentIds[1], date: dayMinus1, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 13), madrasa_id: madrasaId, student_id: studentIds[2], date: dayMinus1, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 14), madrasa_id: madrasaId, student_id: studentIds[3], date: dayMinus1, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 15), madrasa_id: madrasaId, student_id: studentIds[4], date: dayMinus1, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 16), madrasa_id: madrasaId, student_id: studentIds[5], date: dayMinus1, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 17), madrasa_id: madrasaId, student_id: studentIds[6], date: dayMinus1, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 18), madrasa_id: madrasaId, student_id: studentIds[7], date: dayMinus1, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 19), madrasa_id: madrasaId, student_id: studentIds[8], date: dayMinus1, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 20), madrasa_id: madrasaId, student_id: studentIds[9], date: dayMinus1, status: "Present", notes: "হাজির" },
+
+    // Day Minus 2
+    { id: makeDemoUuid(5, 21), madrasa_id: madrasaId, student_id: studentIds[0], date: dayMinus2, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 22), madrasa_id: madrasaId, student_id: studentIds[1], date: dayMinus2, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 23), madrasa_id: madrasaId, student_id: studentIds[2], date: dayMinus2, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 24), madrasa_id: madrasaId, student_id: studentIds[3], date: dayMinus2, status: "Absent", notes: "অনুপস্থিত" },
+    { id: makeDemoUuid(5, 25), madrasa_id: madrasaId, student_id: studentIds[4], date: dayMinus2, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 26), madrasa_id: madrasaId, student_id: studentIds[5], date: dayMinus2, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 27), madrasa_id: madrasaId, student_id: studentIds[6], date: dayMinus2, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 28), madrasa_id: madrasaId, student_id: studentIds[7], date: dayMinus2, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 29), madrasa_id: madrasaId, student_id: studentIds[8], date: dayMinus2, status: "Present", notes: "হাজির" },
+    { id: makeDemoUuid(5, 30), madrasa_id: madrasaId, student_id: studentIds[9], date: dayMinus2, status: "Present", notes: "হাজির" },
   ];
 
   // 8. Academic Session
+  const sessionId = makeDemoUuid(14, 1);
   const sessions: AcademicSession[] = [
     {
-      id: "sess_1447",
+      id: sessionId,
       madrasa_id: madrasaId,
       name: "১৪৪৭-৪৮ হিজরি শিক্ষাবর্ষ",
       academic_year: "২০২৬-২৭",
@@ -420,145 +494,288 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     },
   ];
 
-  // 9. Funds
-  const funds = [
-    { id: "fund_general", name: "সাধারণ সাধারণ তহবিল (General Fund)", code: "GEN", balance: 145000 },
-    { id: "fund_lillah", name: "লিল্লাহ বোর্ডিং ও যাকাত তহবিল (Zakat / Lillah)", code: "ZAKAT", balance: 380000 },
-    { id: "fund_construction", name: "মাদরাসা ভবন নির্মাণ ও উন্নয়ন তহবিল", code: "BLD", balance: 250000 },
-    { id: "fund_mahfil", name: "বার্ষিক ওয়াজ মাহফিল ও সম্মেলন তহবিল", code: "MHF", balance: 85000 },
+  const academic_sessions = [
+    {
+      id: sessionId,
+      madrasa_id: madrasaId,
+      name: "১৪৪৭-৪৮ হিজরি শিক্ষাবর্ষ",
+      code: "1447-48",
+      hijri_year: "১৪৪৭-৪৮",
+      start_date: "2026-01-01",
+      end_date: "2026-12-31",
+      is_active: true,
+      status: "ACTIVE",
+    },
   ];
 
-  // 10. Expenses (ব্যয় খাত)
+  // 9. Funds
+  const fundGenId = makeDemoUuid(16, 1);
+  const fundLillahId = makeDemoUuid(16, 2);
+  const fundBldId = makeDemoUuid(16, 3);
+  const fundMhfId = makeDemoUuid(16, 4);
+
+  const funds = [
+    { id: fundGenId, name: "সাধারণ তহবিল (General Fund)", code: "GEN", balance: 145000, total_collected: 185000 },
+    { id: fundLillahId, name: "লিল্লাহ বোর্ডিং ও যাকাত তহবিল (Zakat / Lillah)", code: "ZAKAT", balance: 380000, total_collected: 380000 },
+    { id: fundBldId, name: "মাদরাসা ভবন নির্মাণ ও উন্নয়ন তহবিল", code: "BLD", balance: 250000, total_collected: 250000 },
+    { id: fundMhfId, name: "বার্ষিক ওয়াজ মাহফিল ও সম্মেলন তহবিল", code: "MHF", balance: 85000, total_collected: 85000 },
+  ];
+
+  // 10. Expenses (Standard SQL columns: id, madrasa_id, category, amount, expense_date, description)
   const expenses = [
     {
-      id: "exp_01",
+      id: makeDemoUuid(7, 1),
       madrasa_id: madrasaId,
-      voucher_no: "V-2026-0001",
       category: "Salary",
-      title: "শিক্ষক ও খাদেমবৃন্দের শাওয়াল মাসের বেতনভাতা",
       amount: 145000,
-      fund_id: "fund_general",
-      fund_name: "সাধারণ তহবিল",
       expense_date: todayStr,
-      description: "৬ জন শিক্ষক ও ২ জন স্টাফের মাসিক বেতন ব্যাংক ট্রান্সফার ও ক্যাশ প্রদান",
+      description: "[ভাউচার: V-2026-0001 | সাধারণ তহবিল] শিক্ষক ও খাদেমবৃন্দের শাওয়াল মাসের বেতনভাতা ব্যাংক ও ক্যাশে পরিশোধ",
     },
     {
-      id: "exp_02",
+      id: makeDemoUuid(7, 2),
       madrasa_id: madrasaId,
-      voucher_no: "V-2026-0002",
       category: "Food",
-      title: "ছাত্রাবাস মেস বাজার ও চাল-ডাল ক্রয়",
       amount: 48500,
-      fund_id: "fund_lillah",
-      fund_name: "লিল্লাহ বোর্ডিং ও যাকাত তহবিল",
       expense_date: todayStr,
-      description: "৫০ বস্তা মিনিকেট চাল, ডাল, সয়াবিন তেল ও মসলা বাজার",
+      description: "[ভাউচার: V-2026-0002 | লিল্লাহ বোর্ডিং ফান্ড] ছাত্রাবাস মেস বাজার ও ৫০ বস্তা চাল-ডাল ক্রয়",
     },
     {
-      id: "exp_03",
+      id: makeDemoUuid(7, 3),
       madrasa_id: madrasaId,
-      voucher_no: "V-2026-0003",
       category: "Utility",
-      title: "ডেসকো বিদ্যুৎ বিল ও পানির পাম্প বিল",
       amount: 12800,
-      fund_id: "fund_general",
-      fund_name: "সাধারণ তহবিল",
       expense_date: todayStr,
-      description: "মাদরাসা মূল ভবন ও ছাত্রাবাসের মাসিক বিদ্যুৎ বিল পরিশোধ",
+      description: "[ভাউচার: V-2026-0003 | সাধারণ তহবিল] ডেসকো বিদ্যুৎ বিল ও পানির পাম্প বিল পরিশোধ",
     },
     {
-      id: "exp_04",
+      id: makeDemoUuid(7, 4),
       madrasa_id: madrasaId,
-      voucher_no: "V-2026-0004",
       category: "Maintenance",
-      title: "হিফজখানার সিলিং ফ্যান ও লাইট ওয়্যারিং মেরামত",
       amount: 6500,
-      fund_id: "fund_construction",
-      fund_name: "মাদরাসা ভবন উন্নয়ন তহবিল",
       expense_date: todayStr,
-      description: "নতুন ৪টি ফ্যান ও এলইডি টিউবলাইট স্থাপন",
+      description: "[ভাউচার: V-2026-0004 | ভবন উন্নয়ন তহবিল] হিফজখানা ও মাদরাসা কক্ষের সিলিং ফ্যান ও লাইট ওয়্যারিং",
     },
     {
-      id: "exp_05",
+      id: makeDemoUuid(7, 5),
       madrasa_id: madrasaId,
-      voucher_no: "V-2026-0005",
-      category: "Academic",
-      title: "১ম সাময়িক পরীক্ষার খাতা ও প্রশ্নপত্র প্রিন্টিং",
+      category: "Other",
       amount: 18200,
-      fund_id: "fund_general",
-      fund_name: "সাধারণ তহবিল",
       expense_date: todayStr,
-      description: "সকল জামাতের পরীক্ষার উত্তরপত্র ও প্রশ্ন ফটোকপি বিল",
+      description: "[ভাউচার: V-2026-0005 | সাধারণ তহবিল] ১ম সাময়িক পরীক্ষার খাতা ও প্রশ্নপত্র প্রিন্টিং বিল",
     },
   ];
 
-  // 11. Donations & Zakat (আয় খাত)
+  // 11. Donors & Donations (Relational SQL tables: donors & donations)
+  const donor1Id = makeDemoUuid(8, 1);
+  const donor2Id = makeDemoUuid(8, 2);
+  const donor3Id = makeDemoUuid(8, 3);
+  const donor4Id = makeDemoUuid(8, 4);
+
+  const donors = [
+    { id: donor1Id, madrasa_id: madrasaId, name: "আলহাজ্ব হারুনুর রশিদ", phone: "01711-554433", address: "চকবাজার, ঢাকা", donor_type: "Zakat" },
+    { id: donor2Id, madrasa_id: madrasaId, name: "মোঃ আকতারুজ্জামান (প্রবাসী)", phone: "01811-998877", address: "দুবাই / মিরপুর, ঢাকা", donor_type: "General" },
+    { id: donor3Id, madrasa_id: madrasaId, name: "হাফেজ মাওলানা আবুল বাশার", phone: "01911-776655", address: "উত্তরা, ঢাকা", donor_type: "Lillah" },
+    { id: donor4Id, madrasa_id: madrasaId, name: "কেন্দ্রীয় দানবাক্স কালেকশন", phone: "01700-000000", address: "মাদরাসা ফটক", donor_type: "General" },
+  ];
+
   const donations = [
     {
-      id: "don_01",
-      receipt_no: "DON-2026-0001",
-      donor_name: "আলহাজ্ব হারুনুর রশিদ",
-      donor_phone: "01711-554433",
+      id: makeDemoUuid(9, 1),
+      madrasa_id: madrasaId,
+      donor_id: donor1Id,
       amount: 100000,
-      fund_id: "fund_lillah",
-      fund_name: "লিল্লাহ বোর্ডিং ও যাকাত তহবিল",
+      donation_type: "Zakat",
       donation_date: todayStr,
-      type: "ZAKAT",
-      payment_method: "Bank",
-      notes: "ব্যবসায়ী সমিতির বার্ষিক যাকাত ফান্ড থেকে এতিম ছাত্রদের জন্য",
+      receipt_no: "DON-2026-0001",
+      notes: "[রিসিট: DON-2026-0001 | ব্যাংক ট্রান্সফার] ব্যবসায়ী সমিতির বার্ষিক যাকাত ফান্ড থেকে লিল্লাহ বোর্ডিং",
     },
     {
-      id: "don_02",
-      receipt_no: "DON-2026-0002",
-      donor_name: "মোঃ আকতারুজ্জামান (প্রবাসী, দুবাই)",
-      donor_phone: "01811-998877",
+      id: makeDemoUuid(9, 2),
+      madrasa_id: madrasaId,
+      donor_id: donor2Id,
       amount: 50000,
-      fund_id: "fund_construction",
-      fund_name: "মাদরাসা ভবন উন্নয়ন তহবিল",
+      donation_type: "General",
       donation_date: todayStr,
-      type: "GENERAL",
-      payment_method: "bKash",
-      notes: "৩য় তলা সম্প্রসারণের জন্য অনুদান",
+      receipt_no: "DON-2026-0002",
+      notes: "[রিসিট: DON-2026-0002 | bKash] মাদরাসা ৩য় তলা সম্প্রসারণের জন্য নির্মাণ অনুদান",
     },
     {
-      id: "don_03",
-      receipt_no: "DON-2026-0003",
-      donor_name: "হাফেজ মাওলানা আবুল বাশার",
-      donor_phone: "01911-776655",
+      id: makeDemoUuid(9, 3),
+      madrasa_id: madrasaId,
+      donor_id: donor3Id,
       amount: 25000,
-      fund_id: "fund_general",
-      fund_name: "সাধারণ তহবিল",
+      donation_type: "Lillah",
       donation_date: todayStr,
-      type: "SADAQAH",
-      payment_method: "Cash",
-      notes: "পিতার ইছালে সাওয়াবের নিয়তে মাদরাসায় সাধারণ সদকা",
+      receipt_no: "DON-2026-0003",
+      notes: "[রিসিট: DON-2026-0003 | ক্যাশ] পিতার ইছালে সাওয়াবের নিয়তে মাদরাসায় সাধারণ সদকা",
     },
     {
-      id: "don_04",
-      receipt_no: "DON-2026-0004",
-      donor_name: "মসজিদ ও মাদরাসা কেন্দ্রীয় দানবাক্স",
-      donor_phone: "01700-000000",
+      id: makeDemoUuid(9, 4),
+      madrasa_id: madrasaId,
+      donor_id: donor4Id,
       amount: 34500,
-      fund_id: "fund_general",
-      fund_name: "সাধারণ তহবিল",
+      donation_type: "General",
       donation_date: todayStr,
-      type: "BOX",
-      payment_method: "Cash",
-      notes: "জুমার নামাজের পর প্রধান ফটকের দানবাক্স উন্মুক্তকরণ",
+      receipt_no: "DON-2026-0004",
+      notes: "[দানবাক্স কালেকশন: DON-2026-0004] জুমার নামাজের পর প্রধান ফটকের দানবাক্স উন্মুক্তকরণ",
     },
   ];
 
-  // 12. Fee Payments (ছাত্রদের ফি আদায়)
+  // 12. Student Fees (Relational SQL table: fees)
+  const fees = [
+    {
+      id: makeDemoUuid(10, 1),
+      madrasa_id: madrasaId,
+      student_id: studentIds[0],
+      fee_type: "Monthly",
+      amount: 1500,
+      payment_date: todayStr,
+      fee_month: "শাওয়াল",
+      fee_year: "১৪৪৭",
+      notes: "[রিসিট: MR-2026-0001] মাসিক পড়াশোনা বেতন",
+    },
+    {
+      id: makeDemoUuid(10, 2),
+      madrasa_id: madrasaId,
+      student_id: studentIds[0],
+      fee_type: "Monthly",
+      amount: 2500,
+      payment_date: todayStr,
+      fee_month: "শাওয়াল",
+      fee_year: "১৪৪৭",
+      notes: "[রিসিট: MR-2026-0001] ছাত্রাবাস খোরাকি ফি",
+    },
+    {
+      id: makeDemoUuid(10, 3),
+      madrasa_id: madrasaId,
+      student_id: studentIds[4],
+      fee_type: "Monthly",
+      amount: 1800,
+      payment_date: todayStr,
+      fee_month: "শাওয়াল",
+      fee_year: "১৪৪৭",
+      notes: "[রিসিট: MR-2026-0002] মাসিক পড়াশোনা ফি",
+    },
+    {
+      id: makeDemoUuid(10, 4),
+      madrasa_id: madrasaId,
+      student_id: studentIds[5],
+      fee_type: "Monthly",
+      amount: 1000,
+      payment_date: todayStr,
+      fee_month: "শাওয়াল",
+      fee_year: "১৪৪৭",
+      notes: "[রিসিট: MR-2026-0003] মাসিক ফি আংশিক পরিশোধ",
+    },
+  ];
+
+  // 13. Bazar Expenses (Relational SQL table: bazar_expenses)
+  const bazar_expenses = [
+    {
+      id: makeDemoUuid(11, 1),
+      madrasa_id: madrasaId,
+      amount: 8600,
+      expense_date: todayStr,
+      items_details: "মিনিকেট চাল ৫০ কেজি ২ বস্তা ও মসুর ডাল ১০ কেজি (ক্রেতা: হাফেজ ইমরান বিন কাসেম)",
+    },
+    {
+      id: makeDemoUuid(11, 2),
+      madrasa_id: madrasaId,
+      amount: 5400,
+      expense_date: todayStr,
+      items_details: "রুই মাছ ১২ কেজি, আলু, পেঁয়াজ, কাঁচামরিচ ও শাকসবজি (ক্রেতা: হাফেজ ইমরান বিন কাসেম)",
+    },
+  ];
+
+  // 14. Boarding Meals (Relational SQL table: meal_entries)
+  const meal_entries = [
+    studentIds[0],
+    studentIds[1],
+    studentIds[2],
+    studentIds[4],
+    studentIds[5],
+    studentIds[6],
+    studentIds[7],
+  ].map((sid, idx) => ({
+    id: makeDemoUuid(15, idx + 1),
+    madrasa_id: madrasaId,
+    student_id: sid,
+    entry_date: todayStr,
+    meal_status: "On",
+  }));
+
+  // 15. Exams & Results (Relational SQL tables: exams, exam_results)
+  const examId = makeDemoUuid(12, 1);
+  const exams = [
+    {
+      id: examId,
+      madrasa_id: madrasaId,
+      title: "১ম সাময়িক পরীক্ষা ১৪৪৭ হিজরি",
+      year: "১৪৪৭",
+      start_date: todayStr,
+      status: "Completed",
+    },
+  ];
+
+  const exam_results = [
+    {
+      id: makeDemoUuid(13, 1),
+      madrasa_id: madrasaId,
+      exam_id: examId,
+      student_id: studentIds[4],
+      subject_name: "নাহবেমীর ও কাফিয়া",
+      marks_obtained: 95,
+      total_marks: 100,
+    },
+    {
+      id: makeDemoUuid(13, 2),
+      madrasa_id: madrasaId,
+      exam_id: examId,
+      student_id: studentIds[4],
+      subject_name: "মিযানুস সরফ ও মুনশাইব",
+      marks_obtained: 92,
+      total_marks: 100,
+    },
+    {
+      id: makeDemoUuid(13, 3),
+      madrasa_id: madrasaId,
+      exam_id: examId,
+      student_id: studentIds[5],
+      subject_name: "ফিকহ (আল-হিদায়াহ ও কুদূরী)",
+      marks_obtained: 88,
+      total_marks: 100,
+    },
+    {
+      id: makeDemoUuid(13, 4),
+      madrasa_id: madrasaId,
+      exam_id: examId,
+      student_id: studentIds[6],
+      subject_name: "তাফসীরে জালালাইন শরীফ",
+      marks_obtained: 94,
+      total_marks: 100,
+    },
+    {
+      id: makeDemoUuid(13, 5),
+      madrasa_id: madrasaId,
+      exam_id: examId,
+      student_id: studentIds[7],
+      subject_name: "সহীহ বুখারী শরীফ",
+      marks_obtained: 98,
+      total_marks: 100,
+    },
+  ];
+
+  // 16. Fee Types & Invoices for Metadata
   const fee_types = [
-    { id: "ft_monthly", name: "মাসিক পড়াশোনা ফি (Tuition)", default_amount: 1500, fund_id: "fund_general", fund_name: "সাধারণ তহবিল" },
-    { id: "ft_khoraki", name: "ছাত্রাবাস খোরাকি ও মেস ফি", default_amount: 2500, fund_id: "fund_lillah", fund_name: "লিল্লাহ বোর্ডিং ও যাকাত তহবিল" },
-    { id: "ft_exam", name: "১ম সাময়িক পরীক্ষা ফি", default_amount: 500, fund_id: "fund_general", fund_name: "সাধারণ তহবিল" },
+    { id: "ft_monthly", name: "মাসিক পড়াশোনা ফি (Tuition)", default_amount: 1500, fund_id: fundGenId, fund_name: "সাধারণ তহবিল" },
+    { id: "ft_khoraki", name: "ছাত্রাবাস খোরাকি ও মেস ফি", default_amount: 2500, fund_id: fundLillahId, fund_name: "লিল্লাহ বোর্ডিং ও যাকাত তহবিল" },
+    { id: "ft_exam", name: "১ম সাময়িক পরীক্ষা ফি", default_amount: 500, fund_id: fundGenId, fund_name: "সাধারণ তহবিল" },
   ];
 
   const student_fees = [
     {
-      id: "fee_inv_01",
-      student_id: "std_01",
+      id: makeDemoUuid(17, 1),
+      student_id: studentIds[0],
       student_name: "আহমেদ আবদুল্লাহ",
       student_roll: "১",
       class_name: "হিফজুল কুরআন বিভাগ",
@@ -572,8 +789,8 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       due_date: todayStr,
     },
     {
-      id: "fee_inv_02",
-      student_id: "std_01",
+      id: makeDemoUuid(17, 2),
+      student_id: studentIds[0],
       student_name: "আহমেদ আবদুল্লাহ",
       student_roll: "১",
       class_name: "হিফজুল কুরআন বিভাগ",
@@ -587,8 +804,8 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       due_date: todayStr,
     },
     {
-      id: "fee_inv_03",
-      student_id: "std_05",
+      id: makeDemoUuid(17, 3),
+      student_id: studentIds[4],
       student_name: "সাজিদুর রহমান",
       student_roll: "১",
       class_name: "নাহবেমীর জামাত",
@@ -602,8 +819,8 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       due_date: todayStr,
     },
     {
-      id: "fee_inv_04",
-      student_id: "std_06",
+      id: makeDemoUuid(17, 4),
+      student_id: studentIds[5],
       student_name: "তৌহিদুল ইসলাম",
       student_roll: "২",
       class_name: "হেদায়াতুন্নাহব জামাত",
@@ -620,9 +837,9 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
 
   const fee_payments = [
     {
-      id: "pay_01",
+      id: makeDemoUuid(18, 1),
       receipt_no: "MR-2026-0001",
-      student_id: "std_01",
+      student_id: studentIds[0],
       student_name: "আহমেদ আবদুল্লাহ",
       class_name: "হিফজুল কুরআন বিভাগ",
       total_amount: 4000,
@@ -630,14 +847,14 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       payment_method: "Cash",
       collected_by: "মুহাম্মদ শরিফুল ইসলাম",
       allocations: [
-        { fee_id: "fee_inv_01", fee_type_name: "মাসিক বেতন", allocated_amount: 1500, fund_name: "সাধারণ তহবিল" },
-        { fee_id: "fee_inv_02", fee_type_name: "খোরাকি ফি", allocated_amount: 2500, fund_name: "লিল্লাহ বোর্ডিং ও যাকাত তহবিল" },
+        { fee_id: makeDemoUuid(17, 1), fee_type_name: "মাসিক বেতন", allocated_amount: 1500, fund_name: "সাধারণ তহবিল" },
+        { fee_id: makeDemoUuid(17, 2), fee_type_name: "খোরাকি ফি", allocated_amount: 2500, fund_name: "লিল্লাহ বোর্ডিং ও যাকাত তহবিল" },
       ],
     },
     {
-      id: "pay_02",
+      id: makeDemoUuid(18, 2),
       receipt_no: "MR-2026-0002",
-      student_id: "std_05",
+      student_id: studentIds[4],
       student_name: "সাজিদুর রহমান",
       class_name: "নাহবেমীর জামাত",
       total_amount: 1800,
@@ -645,99 +862,199 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       payment_method: "bKash",
       collected_by: "মুহাম্মদ শরিফুল ইসলাম",
       allocations: [
-        { fee_id: "fee_inv_03", fee_type_name: "মাসিক বেতন", allocated_amount: 1800, fund_name: "সাধারণ তহবিল" },
+        { fee_id: makeDemoUuid(17, 3), fee_type_name: "মাসিক বেতন", allocated_amount: 1800, fund_name: "সাধারণ তহবিল" },
       ],
     },
   ];
 
-  // 13. Exams & Marks
-  const exams = [
+  // 17. Staff Members Metadata (For /dashboard/staff full HR module)
+  const staff_members = [
     {
-      id: "ex_sem1",
+      id: teacherMuhtamimId,
       madrasa_id: madrasaId,
-      title: "১ম সাময়িক পরীক্ষা ১৪৪৭ হিজরি",
-      year: "১৪৪৭",
-      status: "Completed",
+      staff_id_code: `${DEMO_MADRASA_PREFIX}-STF-001`,
+      verification_token: "STF-TOK-001",
+      personal_info: {
+        first_name: "মাওলানা আহমাদ",
+        last_name: "ওসামা",
+        full_name_bn: "মাওলানা আহমাদ ওসামা",
+        gender: "MALE" as const,
+        phone: "01711-987654",
+        email: "demo@qawmierp.com",
+        father_name: "মুহাম্মদ মুস্তাফিজুর রহমান",
+        address: "ঢাকা, বাংলাদেশ",
+      },
+      employment_info: {
+        status: "ACTIVE" as const,
+        employment_type: "FULL_TIME" as const,
+        joining_date: "2020-01-01",
+        category_code: "teaching" as const,
+        category_name: "শিক্ষক / ওস্তাদ",
+        designation_name: "মুহতামিম ও শায়খুল হাদিস",
+        department_name: "শিক্ষা ও প্রশাসন",
+      },
+      financial_info: {
+        basic_salary: 45000,
+        gross_salary: 50000,
+        payment_method: "BANK_TRANSFER" as const,
+      },
+    },
+    {
+      id: teacherNaibId,
+      madrasa_id: madrasaId,
+      staff_id_code: `${DEMO_MADRASA_PREFIX}-STF-002`,
+      verification_token: "STF-TOK-002",
+      personal_info: {
+        first_name: "মাওলানা মুশতাক",
+        last_name: "আহমদ",
+        full_name_bn: "মাওলানা মুশতাক আহমদ",
+        gender: "MALE" as const,
+        phone: "01712-112233",
+        email: "mushtaq@qawmi.app",
+        father_name: "মুহাম্মদ সামিউল্লাহ",
+        address: "ঢাকা",
+      },
+      employment_info: {
+        status: "ACTIVE" as const,
+        employment_type: "FULL_TIME" as const,
+        joining_date: "2021-03-01",
+        category_code: "teaching" as const,
+        category_name: "শিক্ষক / ওস্তাদ",
+        designation_name: "নায়েবে মুহতামিম ও শিক্ষাসচিব",
+        department_name: "শিক্ষা বিভাগ",
+      },
+      financial_info: {
+        basic_salary: 35000,
+        gross_salary: 38000,
+        payment_method: "BANK_TRANSFER" as const,
+      },
+    },
+    {
+      id: teacherHifz1Id,
+      madrasa_id: madrasaId,
+      staff_id_code: `${DEMO_MADRASA_PREFIX}-STF-003`,
+      verification_token: "STF-TOK-003",
+      personal_info: {
+        first_name: "হাফেজ ক্বারী সাঈদ",
+        last_name: "হাসান",
+        full_name_bn: "হাফেজ ক্বারী সাঈদ হাসান",
+        gender: "MALE" as const,
+        phone: "01819-223344",
+        email: "sayeed.hifz@qawmi.app",
+        father_name: "হাফেজ আব্দুল ওয়াহহাব",
+        address: "ঢাকা",
+      },
+      employment_info: {
+        status: "ACTIVE" as const,
+        employment_type: "FULL_TIME" as const,
+        joining_date: "2022-01-15",
+        category_code: "teaching" as const,
+        category_name: "শিক্ষক / ওস্তাদ",
+        designation_name: "প্রধান হিফজ শিক্ষক",
+        department_name: "হিফজুল কুরআন বিভাগ",
+      },
+      financial_info: {
+        basic_salary: 22000,
+        gross_salary: 25000,
+        payment_method: "CASH" as const,
+      },
+    },
+    {
+      id: teacherHifz2Id,
+      madrasa_id: madrasaId,
+      staff_id_code: `${DEMO_MADRASA_PREFIX}-STF-004`,
+      verification_token: "STF-TOK-004",
+      personal_info: {
+        first_name: "হাফেজ ইমরান",
+        last_name: "বিন কাসেম",
+        full_name_bn: "হাফেজ ইমরান বিন কাসেম",
+        gender: "MALE" as const,
+        phone: "01911-334455",
+        email: "imran.hifz@qawmi.app",
+        father_name: "কাসেম আলী",
+        address: "ঢাকা",
+      },
+      employment_info: {
+        status: "ACTIVE" as const,
+        employment_type: "FULL_TIME" as const,
+        joining_date: "2023-05-01",
+        category_code: "teaching" as const,
+        category_name: "শিক্ষক / ওস্তাদ",
+        designation_name: "সহকারী হিফজ শিক্ষক",
+        department_name: "হিফজুল কুরআন বিভাগ",
+      },
+      financial_info: {
+        basic_salary: 18000,
+        gross_salary: 20000,
+        payment_method: "CASH" as const,
+      },
+    },
+    {
+      id: teacherKitabId,
+      madrasa_id: madrasaId,
+      staff_id_code: `${DEMO_MADRASA_PREFIX}-STF-005`,
+      verification_token: "STF-TOK-005",
+      personal_info: {
+        first_name: "মাওলানা হাবিবুর",
+        last_name: "রহমান",
+        full_name_bn: "মাওলানা হাবিবুর রহমান",
+        gender: "MALE" as const,
+        phone: "01611-445566",
+        email: "habib.kitab@qawmi.app",
+        father_name: "মাওলানা নুরুল্লাহ",
+        address: "ঢাকা",
+      },
+      employment_info: {
+        status: "ACTIVE" as const,
+        employment_type: "FULL_TIME" as const,
+        joining_date: "2021-08-01",
+        category_code: "teaching" as const,
+        category_name: "শিক্ষক / ওস্তাদ",
+        designation_name: "সিনিয়র কিতাব শিক্ষক",
+        department_name: "কিতাব বিভাগ",
+      },
+      financial_info: {
+        basic_salary: 25000,
+        gross_salary: 28000,
+        payment_method: "BANK_TRANSFER" as const,
+      },
+    },
+    {
+      id: teacherAccId,
+      madrasa_id: madrasaId,
+      staff_id_code: `${DEMO_MADRASA_PREFIX}-STF-006`,
+      verification_token: "STF-TOK-006",
+      personal_info: {
+        first_name: "মুহাম্মদ শরিফুল",
+        last_name: "ইসলাম",
+        full_name_bn: "মুহাম্মদ শরিফুল ইসলাম",
+        gender: "MALE" as const,
+        phone: "01511-556677",
+        email: "accounts@qawmi.app",
+        father_name: "মোহাম্মদ গোলাম মোস্তফা",
+        address: "ঢাকা",
+      },
+      employment_info: {
+        status: "ACTIVE" as const,
+        employment_type: "FULL_TIME" as const,
+        joining_date: "2022-02-01",
+        category_code: "administration" as const,
+        category_name: "প্রশাসন ও কর্মকর্তা",
+        designation_name: "প্রধান হিসাবরক্ষক",
+        department_name: "হিসাব বিভাগ",
+      },
+      financial_info: {
+        basic_salary: 24000,
+        gross_salary: 26000,
+        payment_method: "BANK_TRANSFER" as const,
+      },
     },
   ];
 
-  const exam_results = [
-    {
-      id: "res_01",
-      madrasa_id: madrasaId,
-      exam_id: "ex_sem1",
-      student_id: "std_05",
-      subject_name: "নাহবেমীর ও কাফিয়া",
-      marks_obtained: 95,
-      grade: "মুমতাজ (A+)",
-      is_absent: false,
-    },
-    {
-      id: "res_02",
-      madrasa_id: madrasaId,
-      exam_id: "ex_sem1",
-      student_id: "std_05",
-      subject_name: "মিযানুস সরফ ও মুনশাইব",
-      marks_obtained: 92,
-      grade: "মুমতাজ (A+)",
-      is_absent: false,
-    },
-    {
-      id: "res_03",
-      madrasa_id: madrasaId,
-      exam_id: "ex_sem1",
-      student_id: "std_06",
-      subject_name: "ফিকহ (আল-হিদায়াহ ও কুদূরী)",
-      marks_obtained: 88,
-      grade: "জিয়্যিদ জিদ্দান (A)",
-      is_absent: false,
-    },
-    {
-      id: "res_04",
-      madrasa_id: madrasaId,
-      exam_id: "ex_sem1",
-      student_id: "std_07",
-      subject_name: "তাফসীরে জালালাইন শরীফ",
-      marks_obtained: 94,
-      grade: "মুমতাজ (A+)",
-      is_absent: false,
-    },
-    {
-      id: "res_05",
-      madrasa_id: madrasaId,
-      exam_id: "ex_sem1",
-      student_id: "std_08",
-      subject_name: "সহীহ বুখারী শরীফ",
-      marks_obtained: 98,
-      grade: "মুমতাজ (A+)",
-      is_absent: false,
-    },
-  ];
-
-  // 14. Boarding & Bazar
-  const bazar_expenses = [
-    {
-      id: "bz_01",
-      bazar_date: todayStr,
-      item_name: "মিনিকেট চাল ৫০ কেজি ২ বস্তা ও মসুর ডাল ১০ কেজি",
-      buyer_name: "হাফেজ ইমরান বিন কাসেম",
-      cost_amount: 8600,
-      meal_session: "রাত ও সকাল",
-    },
-    {
-      id: "bz_02",
-      bazar_date: todayStr,
-      item_name: "রুই মাছ ১২ কেজি, আলু, কাঁচামরিচ ও শাকসবজি",
-      buyer_name: "হাফেজ ইমরান বিন কাসেম",
-      cost_amount: 5400,
-      meal_session: "দুপুর",
-    },
-  ];
-
-  // 15. Fundraising Special (Mahfil & Donation Box)
+  // 18. Fundraising Special (Mahfil & Donation Box)
   const mahfils = [
     {
-      id: "mhf_2026",
+      id: makeDemoUuid(19, 1),
       title: "৩১তম ঐতিহাসিক বার্ষিক ইসলামী মহাসম্মেলন ও ওয়াজ মাহফিল",
       hijri_year: "১৪৪৭",
       gregorian_date: "২০২৬-১২-২৫",
@@ -748,34 +1065,35 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
   ];
 
   const donation_boxes = [
-    { id: "box_01", location_name: "মাদরাসা প্রধান ফটক (Main Gate)", custodian_name: "মুহাম্মদ শরিফুল ইসলাম", total_collection: 42500 },
-    { id: "box_02", location_name: "কেন্দ্রীয় জামে মসজিদ বারান্দা", custodian_name: "মাওলানা মুশতাক আহমদ", total_collection: 28000 },
+    { id: makeDemoUuid(20, 1), location_name: "মাদরাসা প্রধান ফটক (Main Gate)", custodian_name: "মুহাম্মদ শরিফুল ইসলাম", total_collection: 42500 },
+    { id: makeDemoUuid(20, 2), location_name: "কেন্দ্রীয় জামে মসজিদ বারান্দা", custodian_name: "মাওলানা মুশতাক আহমদ", total_collection: 28000 },
   ];
 
-  // 16. Full Inventory Data (আসবাবপত্র, সাউন্ড সিস্টেম, কিচেন, ইলেকট্রনিক্স ও মেইনটেন্যান্স)
+  // 19. Inventory Data
   const inventoryData = getDefaultInventorySeed(madrasaId);
 
-  // 17. Library Books (কিতাব স্টক)
+  // 20. Library Books
   const library_books = [
-    { id: "bk_01", title: "সহীহুল বুখারী (পূর্ণাঙ্গ মাকতাবাতুল বুশরা)", author: "ইমাম বুখারী (রহ.)", isbn: "978-01", stock: 10, available: 8 },
-    { id: "bk_02", title: "তাফসীরে ইবনে কাসীর (ইসলামিক ফাউন্ডেশন)", author: "আল্লামা ইবনে কাসীর (রহ.)", isbn: "978-02", stock: 6, available: 5 },
-    { id: "bk_03", title: "আল-হিদায়াহ শরহুল বিদায়াহ", author: "ইমাম মারগিনানী (রহ.)", isbn: "978-03", stock: 15, available: 12 },
-    { id: "bk_04", title: "মিরকাতুল মাফাতীহ শরহে মিশকাতুল মাসাবীহ", author: "মোল্লা আলী কারী (রহ.)", isbn: "978-04", stock: 8, available: 7 },
+    { id: makeDemoUuid(21, 1), title: "সহীহুল বুখারী (পূর্ণাঙ্গ মাকতাবাতুল বুশরা)", author: "ইমাম বুখারী (রহ.)", isbn: "978-01", stock: 10, available: 8 },
+    { id: makeDemoUuid(21, 2), title: "তাফসীরে ইবনে কাসীর (ইসলামিক ফাউন্ডেশন)", author: "আল্লামা ইবনে কাসীর (রহ.)", isbn: "978-02", stock: 6, available: 5 },
+    { id: makeDemoUuid(21, 3), title: "আল-হিদায়াহ শরহুল বিদায়াহ", author: "ইমাম মারগিনানী (রহ.)", isbn: "978-03", stock: 15, available: 12 },
+    { id: makeDemoUuid(21, 4), title: "মিরকাতুল মাফাতীহ শরহে মিশকাতুল মাসাবীহ", author: "মোল্লা আলী কারী (রহ.)", isbn: "978-04", stock: 8, available: 7 },
   ];
 
-  // 18. Teacher Attendance (শিক্ষক উপস্থিতি রেজিস্ট্রি)
+  // 21. Teacher Attendance
   const teacher_attendance = [
-    { id: "tatt_01", teacher_id: "tch_muhtamim", teacher_name: "মাওলানা আহমাদ ওসামা", date: todayStr, status: "Present", check_in: "08:15 AM", notes: "হাজির" },
-    { id: "tatt_02", teacher_id: "tch_naib", teacher_name: "মাওলানা মুশতাক আহমদ", date: todayStr, status: "Present", check_in: "08:30 AM", notes: "হাজির" },
-    { id: "tatt_03", teacher_id: "tch_hifz1", teacher_name: "হাফেজ ক্বারী সাঈদ হাসান", date: todayStr, status: "Present", check_in: "07:30 AM", notes: "হাজির" },
-    { id: "tatt_04", teacher_id: "tch_hifz2", teacher_name: "হাফেজ মুহাম্মদ ইকবাল", date: todayStr, status: "Leave", check_in: "-", notes: "অনুমোদিত ছুটি" },
-    { id: "tatt_05", teacher_id: "tch_accountant", teacher_name: "মুহাম্মদ শরিফুল ইসলাম", date: todayStr, status: "Present", check_in: "08:50 AM", notes: "হাজির" },
+    { id: makeDemoUuid(22, 1), teacher_id: teacherMuhtamimId, teacher_name: "মাওলানা আহমাদ ওসামা", date: todayStr, status: "Present", check_in: "08:15 AM", notes: "হাজির" },
+    { id: makeDemoUuid(22, 2), teacher_id: teacherNaibId, teacher_name: "মাওলানা মুশতাক আহমদ", date: todayStr, status: "Present", check_in: "08:30 AM", notes: "হাজির" },
+    { id: makeDemoUuid(22, 3), teacher_id: teacherHifz1Id, teacher_name: "হাফেজ ক্বারী সাঈদ হাসান", date: todayStr, status: "Present", check_in: "07:30 AM", notes: "হাজির" },
+    { id: makeDemoUuid(22, 4), teacher_id: teacherHifz2Id, teacher_name: "হাফেজ ইমরান বিন কাসেম", date: todayStr, status: "Present", check_in: "07:45 AM", notes: "হাজির" },
+    { id: makeDemoUuid(22, 5), teacher_id: teacherKitabId, teacher_name: "মাওলানা হাবিবুর রহমান", date: todayStr, status: "Present", check_in: "08:45 AM", notes: "হাজির" },
+    { id: makeDemoUuid(22, 6), teacher_id: teacherAccId, teacher_name: "মুহাম্মদ শরিফুল ইসলাম", date: todayStr, status: "Present", check_in: "08:50 AM", notes: "হাজির" },
   ];
 
-  // 19. Institutional Notices (নোটিশ বোর্ড)
+  // 22. Institutional Notices
   const notices = [
     {
-      id: "not_01",
+      id: makeDemoUuid(23, 1),
       title: "১৪৪৭ হিজরি শিক্ষাবর্ষের ১ম সাময়িক পরীক্ষার ফলাফল প্রকাশ প্রসঙ্গে",
       content: "মাদ্রাসাতুল মুসলিমিন-এর সকল অভিভাবক ও শিক্ষার্থীদের আনন্দের সাথে জানানো যাচ্ছে যে, ১ম সাময়িক পরীক্ষার ফলাফল প্রকাশিত হয়েছে। রেজাল্ট কার্ড অনলাইন পোর্টাল ও মাদরাসা অফিস থেকে সংগ্রহ করা যাবে।",
       category: "ACADEMIC",
@@ -784,7 +1102,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       is_pinned: true,
     },
     {
-      id: "not_02",
+      id: makeDemoUuid(23, 2),
       title: "মাসিক লিল্লাহ বোর্ডিং ও বেতন পরিশোধ সংক্রান্ত নোটিশ",
       content: "সকল অভিভাবককে চলতি মাসের ১০ তারিখের মধ্যে মাদরাসার হিসাব বিভাগে অথবা অনলাইন পোর্টালের মাধ্যমে বেতন ও বোর্ডিং ফি পরিশোধের জন্য বিনীত অনুরোধ করা হচ্ছে।",
       category: "ACCOUNTS",
@@ -794,11 +1112,11 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     },
   ];
 
-  // 20. Routines (ক্লাস ও দরস রুটিন)
+  // 23. Routines
   const routines = [
     {
-      id: "rt_01",
-      class_id: "cls_hifz",
+      id: makeDemoUuid(24, 1),
+      class_id: classHifzId,
       class_name: "হিফজুল কুরআন বিভাগ",
       day: "শনিবার",
       period: 1,
@@ -807,8 +1125,8 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       teacher_name: "হাফেজ ক্বারী সাঈদ হাসান",
     },
     {
-      id: "rt_02",
-      class_id: "cls_hedayah",
+      id: makeDemoUuid(24, 2),
+      class_id: classHedayahId,
       class_name: "হেদায়াতুন্নাহব জামাত",
       day: "শনিবার",
       period: 2,
@@ -817,8 +1135,8 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
       teacher_name: "মাওলানা আহমাদ ওসামা (মুহতামিম)",
     },
     {
-      id: "rt_03",
-      class_id: "cls_dawrah",
+      id: makeDemoUuid(24, 3),
+      class_id: classDawrahId,
       class_name: "দাওরায়ে হাদিস (তাকমীল)",
       day: "শনিবার",
       period: 3,
@@ -828,12 +1146,13 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     },
   ];
 
-  // Root metadata object to be merged into madrasas.metadata / registration_no
+  // Root metadata object to be merged into madrasas registration_no
   const metadata = {
     prefix: DEMO_MADRASA_PREFIX,
     short_code: DEMO_MADRASA_PREFIX,
     sessions,
     student_profiles,
+    staff_members,
     funds,
     fee_types,
     student_fees,
@@ -849,7 +1168,7 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     notices,
     routines,
     published_exams: {
-      ex_sem1: {
+      [examId]: {
         is_published: true,
         published_at: now,
         published_by: "মাওলানা আহমাদ ওসামা (মুহতামিম)",
@@ -868,11 +1187,17 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     subjects,
     teachers,
     students,
-    hifz_logs,
     attendance,
+    hifz_logs,
     expenses,
+    donors,
+    donations,
+    fees,
+    bazar_expenses,
+    meal_entries,
     exams,
     exam_results,
+    academic_sessions,
     metadata,
   };
 }

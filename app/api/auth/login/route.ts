@@ -6,6 +6,8 @@ import {
   ensureStudentGuardianAuthUser,
   banglaToEnglishDigits,
 } from "@/lib/student-auth";
+import { DEMO_ADMIN_EMAIL } from "@/lib/demo-data";
+import { ensureDemoMadrasaExists } from "@/app/actions/demo-seed";
 
 export async function POST(req: NextRequest) {
   try {
@@ -54,6 +56,15 @@ export async function POST(req: NextRequest) {
           },
           { status: 404 }
         );
+      }
+    }
+
+    // If logging into demo account, automatically ensure all relational tables and profile exist
+    if (targetEmail.toLowerCase() === DEMO_ADMIN_EMAIL.toLowerCase()) {
+      try {
+        await ensureDemoMadrasaExists();
+      } catch (seedErr) {
+        console.warn("Auto-seed demo madrasa error:", seedErr);
       }
     }
 

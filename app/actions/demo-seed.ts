@@ -10,6 +10,35 @@ import {
   getFullDemoDataset,
 } from "@/lib/demo-data";
 import { saveMadrasaMetadata } from "@/lib/sessions";
+import { revalidatePath } from "next/cache";
+
+async function safeSeedTable(
+  admin: any,
+  table: string,
+  records: any[],
+  madrasaId: string,
+  onConflict = "id"
+) {
+  if (!records || records.length === 0) return;
+  try {
+    const { error: upErr } = await admin.from(table).upsert(records, { onConflict });
+    if (upErr) {
+      console.warn(`Upsert into ${table} failed (${upErr.message}). Falling back to delete + insert...`);
+      // Delete existing records for this demo madrasa and insert cleanly
+      await admin.from(table).delete().eq("madrasa_id", madrasaId);
+      const { error: inErr } = await admin.from(table).insert(records);
+      if (inErr) {
+        console.error(`Fallback insert into ${table} also failed: ${inErr.message}`);
+      } else {
+        console.log(`Successfully inserted ${records.length} records into ${table}.`);
+      }
+    } else {
+      console.log(`Successfully upserted ${records.length} records into ${table}.`);
+    }
+  } catch (err: any) {
+    console.error(`Exception while seeding ${table}:`, err?.message || err);
+  }
+}
 
 export async function ensureDemoMadrasaExists(): Promise<{
   success: boolean;
@@ -118,7 +147,7 @@ export async function ensureDemoMadrasaExists(): Promise<{
       authUserId = newUser.user.id;
     }
 
-    // 3. Ensure public.users entry exists
+    // 3. Ensure public.users entry exists with correct madrasa_id
     await admin.from("users").upsert(
       {
         id: authUserId,
@@ -133,65 +162,35 @@ export async function ensureDemoMadrasaExists(): Promise<{
     // 4. Generate & Seed complete demo tables and metadata
     const dataset = getFullDemoDataset(madrasaId, authUserId);
 
-    // Upsert Classes
-    try {
-      await admin.from("classes").upsert(dataset.classes, { onConflict: "id" });
-    } catch (e) {
-      console.warn("Classes seed warning:", e);
-    }
+    // Seed master tables first
+    await safeSeedTable(admin, "classes", dataset.classes, madrasaId);
+    await safeSeedTable(admin, "subjects", dataset.subjects, madrasaId);
+    await safeSeedTable(admin, "teachers", dataset.teachers, madrasaId);
+    await safeSeedTable(admin, "donors", dataset.donors, madrasaId);
+    await safeSeedTable(admin, "exams", dataset.exams, madrasaId);
+    await safeSeedTable(admin, "academic_sessions", dataset.academic_sessions, madrasaId);
 
-    // Upsert Subjects
-    try {
-      await admin.from("subjects").upsert(dataset.subjects, { onConflict: "id" });
-    } catch (e) {
-      console.warn("Subjects seed warning:", e);
-    }
-
-    // Upsert Teachers
-    try {
-      await admin.from("teachers").upsert(dataset.teachers, { onConflict: "id" });
-    } catch (e) {
-      console.warn("Teachers seed warning:", e);
-    }
-
-    // Upsert Students
-    try {
-      await admin.from("students").upsert(dataset.students, { onConflict: "id" });
-    } catch (e) {
-      console.warn("Students seed warning:", e);
-    }
-
-    // Upsert Hifz Logs
-    try {
-      await admin.from("hifz_logs").upsert(dataset.hifz_logs, { onConflict: "id" });
-    } catch (e) {
-      console.warn("Hifz logs seed warning:", e);
-    }
-
-    // Upsert Attendance
-    try {
-      await admin.from("attendance").upsert(dataset.attendance, { onConflict: "id" });
-    } catch (e) {
-      console.warn("Attendance seed warning:", e);
-    }
-
-    // Upsert Expenses
-    try {
-      await admin.from("expenses").upsert(dataset.expenses, { onConflict: "id" });
-    } catch (expErr) {
-      console.warn("Expenses upsert warning (handled gracefully):", expErr);
-    }
-
-    // Upsert Exams & Results
-    try {
-      await admin.from("exams").upsert(dataset.exams, { onConflict: "id" });
-      await admin.from("exam_results").upsert(dataset.exam_results, { onConflict: "id" });
-    } catch (examErr) {
-      console.warn("Exam upsert warning (handled gracefully):", examErr);
-    }
+    // Seed dependent tables
+    await safeSeedTable(admin, "students", dataset.students, madrasaId);
+    await safeSeedTable(admin, "attendance", dataset.attendance, madrasaId, "id");
+    await safeSeedTable(admin, "hifz_logs", dataset.hifz_logs, madrasaId, "id");
+    await safeSeedTable(admin, "expenses", dataset.expenses, madrasaId);
+    await safeSeedTable(admin, "donations", dataset.donations, madrasaId);
+    await safeSeedTable(admin, "fees", dataset.fees, madrasaId);
+    await safeSeedTable(admin, "bazar_expenses", dataset.bazar_expenses, madrasaId);
+    await safeSeedTable(admin, "meal_entries", dataset.meal_entries, madrasaId, "id");
+    await safeSeedTable(admin, "exam_results", dataset.exam_results, madrasaId, "id");
 
     // 5. Save all metadata (financials, donations, fee structures, bazar, boarding, sessions)
     await saveMadrasaMetadata(madrasaId, dataset.metadata);
+
+    // 6. Revalidate key dashboard paths
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/students");
+    revalidatePath("/dashboard/staff");
+    revalidatePath("/dashboard/attendance");
+    revalidatePath("/dashboard/accounting/expenses");
+    revalidatePath("/dashboard/accounting/income");
 
     return {
       success: true,
