@@ -67,6 +67,19 @@ export async function ensureDemoMadrasaExists(): Promise<{
       } else {
         madrasaId = created.id;
       }
+    } else {
+      // Ensure name is updated to "মাদ্রাসাতুল মুসলিমিন"
+      try {
+        await admin
+          .from("madrasas")
+          .update({
+            name: DEMO_MADRASA_NAME,
+            contact_email: DEMO_ADMIN_EMAIL,
+          })
+          .eq("id", madrasaId);
+      } catch (upErr) {
+        console.warn("Madrasa name update warning:", upErr);
+      }
     }
 
     // 2. Ensure Demo Auth user exists

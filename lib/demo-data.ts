@@ -4,12 +4,13 @@
  */
 
 import type { AcademicSession } from "./sessions";
+import { getDefaultInventorySeed } from "./inventory";
 
-export const DEMO_MADRASA_NAME = "দারুল উলূম আল-ইসলামিয়া মডেল মাদরাসা";
-export const DEMO_MADRASA_PREFIX = "DUM";
+export const DEMO_MADRASA_NAME = "মাদ্রাসাতুল মুসলিমিন";
+export const DEMO_MADRASA_PREFIX = "MM";
 export const DEMO_ADMIN_EMAIL = "demo@qawmierp.com";
 export const DEMO_ADMIN_PASSWORD = "demo@qawmierp.com";
-export const DEMO_ADMIN_NAME = "মাওলানা মুফতি আব্দুল্লাহ মাহমুদ (মুহতামিম)";
+export const DEMO_ADMIN_NAME = "মাওলানা আহমাদ ওসামা (মুহতামিম)";
 
 export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
   const now = new Date().toISOString();
@@ -46,8 +47,8 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     {
       id: "tch_muhtamim",
       madrasa_id: madrasaId,
-      first_name: "মুফতি আব্দুল্লাহ",
-      last_name: "মাহমুদ",
+      first_name: "মাওলানা আহমাদ",
+      last_name: "ওসামা",
       phone: "01711-987654",
       email: "demo@qawmierp.com",
       designation: "মুহতামিম ও শায়খুল হাদিস",
@@ -387,15 +388,15 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     },
   ];
 
-  // 7. Attendance
+  // 7. Attendance (বাস্তবসম্মত উপস্থিতি, অনুপস্থিতি ও ছুটি রেজিস্ট্রি)
   const attendance = [
     { id: "att_01", madrasa_id: madrasaId, student_id: "std_01", date: todayStr, status: "Present", notes: "হাজির" },
     { id: "att_02", madrasa_id: madrasaId, student_id: "std_02", date: todayStr, status: "Present", notes: "হাজির" },
-    { id: "att_03", madrasa_id: madrasaId, student_id: "std_03", date: todayStr, status: "Present", notes: "হাজির" },
+    { id: "att_03", madrasa_id: madrasaId, student_id: "std_03", date: todayStr, status: "Absent", notes: "অনুপস্থিত (জ্বর ও অসুস্থতা)" },
     { id: "att_04", madrasa_id: madrasaId, student_id: "std_04", date: todayStr, status: "Present", notes: "হাজির" },
     { id: "att_05", madrasa_id: madrasaId, student_id: "std_05", date: todayStr, status: "Present", notes: "হাজির" },
     { id: "att_06", madrasa_id: madrasaId, student_id: "std_06", date: todayStr, status: "Present", notes: "হাজির" },
-    { id: "att_07", madrasa_id: madrasaId, student_id: "std_07", date: todayStr, status: "Present", notes: "হাজির" },
+    { id: "att_07", madrasa_id: madrasaId, student_id: "std_07", date: todayStr, status: "Absent", notes: "অনুপস্থিত (দেরিতে আগমন/অনুপস্থিত)" },
     { id: "att_08", madrasa_id: madrasaId, student_id: "std_08", date: todayStr, status: "Present", notes: "হাজির" },
     { id: "att_09", madrasa_id: madrasaId, student_id: "std_09", date: todayStr, status: "Leave", notes: "অনুমোদিত পারিবারিক ছুটি" },
     { id: "att_10", madrasa_id: madrasaId, student_id: "std_10", date: todayStr, status: "Present", notes: "হাজির" },
@@ -751,15 +752,10 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     { id: "box_02", location_name: "কেন্দ্রীয় জামে মসজিদ বারান্দা", custodian_name: "মাওলানা মুশতাক আহমদ", total_collection: 28000 },
   ];
 
-  // 16. Inventory Items
-  const inventory_items = [
-    { id: "inv_01", item_name: "হেফজখানা পড়ার রেহাল (কাঠের)", quantity: 60, unit: "টি", category: "আসবাবপত্র", status: "ভালো" },
-    { id: "inv_02", item_name: "ছাত্রদের ডবল ডেকার লোহার খাট", quantity: 30, unit: "টি", category: "আসবাবপত্র", status: "ভালো" },
-    { id: "inv_03", item_name: "সিলিং ফ্যান (জিএফসি)", quantity: 24, unit: "টি", category: "ইলেকট্রনিক্স", status: "সচল" },
-    { id: "inv_04", item_name: "সাউন্ড সিস্টেম ও মাইক ইউনিট", quantity: 2, unit: "সেট", category: "ইলেকট্রনিক্স", status: "সচল" },
-  ];
+  // 16. Full Inventory Data (আসবাবপত্র, সাউন্ড সিস্টেম, কিচেন, ইলেকট্রনিক্স ও মেইনটেন্যান্স)
+  const inventoryData = getDefaultInventorySeed(madrasaId);
 
-  // 17. Library Books
+  // 17. Library Books (কিতাব স্টক)
   const library_books = [
     { id: "bk_01", title: "সহীহুল বুখারী (পূর্ণাঙ্গ মাকতাবাতুল বুশরা)", author: "ইমাম বুখারী (রহ.)", isbn: "978-01", stock: 10, available: 8 },
     { id: "bk_02", title: "তাফসীরে ইবনে কাসীর (ইসলামিক ফাউন্ডেশন)", author: "আল্লামা ইবনে কাসীর (রহ.)", isbn: "978-02", stock: 6, available: 5 },
@@ -767,7 +763,72 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     { id: "bk_04", title: "মিরকাতুল মাফাতীহ শরহে মিশকাতুল মাসাবীহ", author: "মোল্লা আলী কারী (রহ.)", isbn: "978-04", stock: 8, available: 7 },
   ];
 
-  // Root metadata object to be merged into madrasas.metadata
+  // 18. Teacher Attendance (শিক্ষক উপস্থিতি রেজিস্ট্রি)
+  const teacher_attendance = [
+    { id: "tatt_01", teacher_id: "tch_muhtamim", teacher_name: "মাওলানা আহমাদ ওসামা", date: todayStr, status: "Present", check_in: "08:15 AM", notes: "হাজির" },
+    { id: "tatt_02", teacher_id: "tch_naib", teacher_name: "মাওলানা মুশতাক আহমদ", date: todayStr, status: "Present", check_in: "08:30 AM", notes: "হাজির" },
+    { id: "tatt_03", teacher_id: "tch_hifz1", teacher_name: "হাফেজ ক্বারী সাঈদ হাসান", date: todayStr, status: "Present", check_in: "07:30 AM", notes: "হাজির" },
+    { id: "tatt_04", teacher_id: "tch_hifz2", teacher_name: "হাফেজ মুহাম্মদ ইকবাল", date: todayStr, status: "Leave", check_in: "-", notes: "অনুমোদিত ছুটি" },
+    { id: "tatt_05", teacher_id: "tch_accountant", teacher_name: "মুহাম্মদ শরিফুল ইসলাম", date: todayStr, status: "Present", check_in: "08:50 AM", notes: "হাজির" },
+  ];
+
+  // 19. Institutional Notices (নোটিশ বোর্ড)
+  const notices = [
+    {
+      id: "not_01",
+      title: "১৪৪৭ হিজরি শিক্ষাবর্ষের ১ম সাময়িক পরীক্ষার ফলাফল প্রকাশ প্রসঙ্গে",
+      content: "মাদ্রাসাতুল মুসলিমিন-এর সকল অভিভাবক ও শিক্ষার্থীদের আনন্দের সাথে জানানো যাচ্ছে যে, ১ম সাময়িক পরীক্ষার ফলাফল প্রকাশিত হয়েছে। রেজাল্ট কার্ড অনলাইন পোর্টাল ও মাদরাসা অফিস থেকে সংগ্রহ করা যাবে।",
+      category: "ACADEMIC",
+      published_by: "মাওলানা আহমাদ ওসামা (মুহতামিম)",
+      created_at: now,
+      is_pinned: true,
+    },
+    {
+      id: "not_02",
+      title: "মাসিক লিল্লাহ বোর্ডিং ও বেতন পরিশোধ সংক্রান্ত নোটিশ",
+      content: "সকল অভিভাবককে চলতি মাসের ১০ তারিখের মধ্যে মাদরাসার হিসাব বিভাগে অথবা অনলাইন পোর্টালের মাধ্যমে বেতন ও বোর্ডিং ফি পরিশোধের জন্য বিনীত অনুরোধ করা হচ্ছে।",
+      category: "ACCOUNTS",
+      published_by: "হিসাব বিভাগ",
+      created_at: now,
+      is_pinned: false,
+    },
+  ];
+
+  // 20. Routines (ক্লাস ও দরস রুটিন)
+  const routines = [
+    {
+      id: "rt_01",
+      class_id: "cls_hifz",
+      class_name: "হিফজুল কুরআন বিভাগ",
+      day: "শনিবার",
+      period: 1,
+      time: "০৭:০০ - ০৮:৩০",
+      subject: "কুরআন মাজিদ সবক ও তাসমী",
+      teacher_name: "হাফেজ ক্বারী সাঈদ হাসান",
+    },
+    {
+      id: "rt_02",
+      class_id: "cls_hedayah",
+      class_name: "হেদায়াতুন্নাহব জামাত",
+      day: "শনিবার",
+      period: 2,
+      time: "০৯:০০ - ১০:০০",
+      subject: "ফিকহ (আল-হিদায়াহ)",
+      teacher_name: "মাওলানা আহমাদ ওসামা (মুহতামিম)",
+    },
+    {
+      id: "rt_03",
+      class_id: "cls_dawrah",
+      class_name: "দাওরায়ে হাদিস (তাকমীল)",
+      day: "শনিবার",
+      period: 3,
+      time: "১০:১৫ - ১১:১৫",
+      subject: "সহীহ বুখারী শরীফ",
+      teacher_name: "মাওলানা আহমাদ ওসামা (মুহতামিম)",
+    },
+  ];
+
+  // Root metadata object to be merged into madrasas.metadata / registration_no
   const metadata = {
     prefix: DEMO_MADRASA_PREFIX,
     short_code: DEMO_MADRASA_PREFIX,
@@ -781,13 +842,17 @@ export function getFullDemoDataset(madrasaId: string, adminUserId: string) {
     donations,
     mahfils,
     donation_boxes,
-    inventory_items,
+    inventory: inventoryData,
+    inventory_items: inventoryData.items,
     library_books,
+    teacher_attendance,
+    notices,
+    routines,
     published_exams: {
       ex_sem1: {
         is_published: true,
         published_at: now,
-        published_by: "মাওলানা মুশতাক আহমদ (শিক্ষাসচিব)",
+        published_by: "মাওলানা আহমাদ ওসামা (মুহতামিম)",
         note: "সকল অভিভাবক ও ছাত্রদের দৃষ্টি আকর্ষণ: ১ম সাময়িক পরীক্ষার ফলাফল প্রকাশিত হয়েছে।",
       },
     },
