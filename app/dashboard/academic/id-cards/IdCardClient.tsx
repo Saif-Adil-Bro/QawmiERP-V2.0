@@ -1789,7 +1789,7 @@ export default function IdCardClient({
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                        <span>ক্যানভাস প্রিভিউতে টেস্ট মান পরীক্ষা করুন (Interactive Preview Overrides):</span>
+                        <span>লাইভ ক্যানভাস প্রিভিউ কাস্টমাইজেশন (Live Preview Overrides):</span>
                       </span>
                       {(sampleCustomBloodGroup || sampleCustomFatherName || sampleCustomPhone || sampleCustomDob) && (
                         <button
@@ -1802,20 +1802,20 @@ export default function IdCardClient({
                           }}
                           className="text-[10px] text-rose-600 font-bold hover:underline cursor-pointer"
                         >
-                          রিসেট টেস্ট মান
+                          প্রিভিউ ফিল্ড রিসেট
                         </button>
                       )}
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600 block mb-1">রক্তের গ্রুপ (টেস্ট):</label>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">রক্তের গ্রুপ (নমুনা):</label>
                         <select
                           value={sampleCustomBloodGroup}
                           onChange={(e) => setSampleCustomBloodGroup(e.target.value)}
                           className="w-full p-2 bg-white border border-slate-200 rounded-xl font-bold text-slate-800 text-xs"
                         >
-                          <option value="">-- শিক্ষার্থীর আসল গ্রুপ --</option>
+                          <option value="">-- শিক্ষার্থীর ডাটাবেজ মান --</option>
                           <option value="A+">A+ (A Positive)</option>
                           <option value="A-">A- (A Negative)</option>
                           <option value="B+">B+ (B Positive)</option>
@@ -1828,10 +1828,10 @@ export default function IdCardClient({
                       </div>
 
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600 block mb-1">পিতার নাম (টেস্ট):</label>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">পিতার নাম (নমুনা):</label>
                         <input
                           type="text"
-                          placeholder="যেমন: মুহাম্মদ উসমান"
+                          placeholder="মুহাম্মদ উসমান"
                           value={sampleCustomFatherName}
                           onChange={(e) => setSampleCustomFatherName(e.target.value)}
                           className="w-full p-2 bg-white border border-slate-200 rounded-xl text-xs font-medium"
@@ -1839,7 +1839,7 @@ export default function IdCardClient({
                       </div>
 
                       <div>
-                        <label className="text-[11px] font-bold text-slate-600 block mb-1">অভিভাবকের ফোন (টেস্ট):</label>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">অভিভাবকের ফোন (নমুনা):</label>
                         <input
                           type="text"
                           placeholder="যেমন: 01711-223344"

@@ -740,9 +740,15 @@ export default function SettingsClient({
                     </div>
                   )}
 
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    এই ২ বা ৩ অক্ষরের প্রিফিক্স কোড এবং হাইফেন (-) আপনার মাদ্রাসার শিক্ষার্থী আইডি ও লগইনের জন্য ব্যবহৃত হবে (যেমন: <strong>{prefix || "AH"}-{idYearFormat === "gregorian" ? "26" : "48"}0001</strong>)। হাইফেনসহ (যেমন: {prefix || "AH"}-{idYearFormat === "gregorian" ? "26" : "48"}0001) কিংবা হাইফেন ছাড়া সরাসরি প্রিফিক্স ও কোড দিয়েও স্টুডেন্ট ও অভিভাবকরা অনায়াসে লগইন করতে পারবেন। এটি সকল মাদ্রাসার মধ্যে স্বতন্ত্র ও ইউনিক রাখা আবশ্যক।
-                  </p>
+                  <div className="text-xs text-slate-600 bg-emerald-50/50 border border-emerald-100 rounded-xl p-3 space-y-1">
+                    <div className="flex items-center gap-2 font-semibold text-emerald-950 text-xs">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>স্বতন্ত্র প্রাতিষ্ঠানিক প্রিফিক্স কোড</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      এটি আপনার মাদরাসার প্রতিটি শিক্ষার্থীর স্বয়ংক্রিয় পরিচিতি কোড (ID) তৈরিতে ব্যবহৃত হয়। শিক্ষার্থী ও অভিভাবকগণ সরাসরি আইডি নম্বর (যেমন: <strong className="font-mono text-emerald-800">{prefix || "JMD"}-{idYearFormat === "gregorian" ? "26" : "48"}0001</strong>) কিংবা হাইফেন ব্যতীতও পোর্টালে অনায়াসে লগইন করতে পারবেন।
+                    </p>
+                  </div>
                 </div>
 
                 {/* Student ID Year Format Card */}

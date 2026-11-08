@@ -36,7 +36,7 @@ export default function ChangePasswordModal({ isOpen, onClose, user, userData }:
     setSuccess(null);
 
     if (!currentPassword) {
-      setError("বর্তমান পাসওয়ার্ড প্রদান করুন (ডিফল্ট পাসওয়ার্ড: 123456)");
+      setError("আপনার বর্তমান পাসওয়ার্ড প্রদান করুন।");
       return;
     }
 
@@ -51,7 +51,7 @@ export default function ChangePasswordModal({ isOpen, onClose, user, userData }:
     }
 
     if (newPassword === "123456") {
-      setError("ডিফল্ট পাসওয়ার্ড (123456) ছাড়া অন্য কোনো নতুন পাসওয়ার্ড সেট করুন।");
+      setError("সহজ বা অনুমানযোগ্য পাসওয়ার্ড ছাড়া একটি সুরক্ষিত নতুন পাসওয়ার্ড নির্ধারণ করুন।");
       return;
     }
 
@@ -139,7 +139,7 @@ export default function ChangePasswordModal({ isOpen, onClose, user, userData }:
           {/* Current Password */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              বর্তমান পাসওয়ার্ড <span className="text-slate-400 font-normal">(প্রথমবার হলে 123456)</span>
+              বর্তমান পাসওয়ার্ড
             </label>
             <div className="relative">
               <input
@@ -147,7 +147,7 @@ export default function ChangePasswordModal({ isOpen, onClose, user, userData }:
                 required
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="যেমন: 123456"
+                placeholder="বর্তমান পাসওয়ার্ড লিখুন"
                 className="w-full pl-9 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-900"
               />
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />

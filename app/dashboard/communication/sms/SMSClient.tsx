@@ -722,7 +722,7 @@ export default function SMSClient({
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                      সিমুলেশন মোড (ডেমো)
+                      সিমুলেশন মোড (Sandbox)
                     </span>
                   )}
                 </div>
@@ -1655,7 +1655,7 @@ export default function SMSClient({
               {/* Modal Live Preview */}
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1">
                 <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                  <span>লাইভ টেস্ট প্রিভিউ:</span>
+                  <span>লাইভ বার্তা প্রিভিউ:</span>
                   <span className="text-indigo-600">
                     {toBengaliNumber(modalSmsStats.charCount)} অক্ষর ({toBengaliNumber(modalSmsStats.smsCount)} টি এসএমএস)
                   </span>

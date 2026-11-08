@@ -93,8 +93,8 @@ export async function POST(req: NextRequest) {
       try {
         const meta = JSON.parse(m.registration_no);
         const devices: BiometricDevice[] = meta.biometric_devices || [];
-        const found = devices.find(
-          (d) => (sn && d.serial_number === sn) || d.protocol === "cloud_push"
+        const found = devices.find((d) =>
+          sn ? d.serial_number === sn : d.protocol === "cloud_push"
         );
         if (found) {
           matchedMadrasaId = m.id;

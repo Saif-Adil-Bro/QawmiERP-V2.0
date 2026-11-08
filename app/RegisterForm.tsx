@@ -146,10 +146,10 @@ export default function RegisterForm() {
                 value={prefix}
                 onChange={(e) => handlePrefixChange(e.target.value)}
                 className="w-28 p-2 border border-slate-300 rounded-lg text-sm font-mono font-bold uppercase tracking-wider text-center bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                placeholder="AH"
+                placeholder="JMD"
               />
               <div className="text-xs text-slate-500">
-                আইডি দেখতে হবে: <span className="font-mono font-bold text-emerald-700 bg-emerald-100/60 px-1.5 py-0.5 rounded">{prefix || "AH"}-480001</span>
+                আইডি ফরম্যাট: <span className="font-mono font-bold text-emerald-700 bg-emerald-100/60 px-1.5 py-0.5 rounded">{prefix || "JMD"}-480001</span>
               </div>
             </div>
 
@@ -158,8 +158,8 @@ export default function RegisterForm() {
                 {prefixStatus.message}
               </p>
             )}
-            <p className="text-[11px] text-slate-400">
-              ২ বা ৩ অক্ষরের ইউনিক কোড যা ছাত্র আইডি ও লগইনে সরাসরি প্রিফিক্স ও হাইফেনসহ থাকবে (যেমন: {prefix || "AH"}-480001)।
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              আপনার মাদ্রাসার প্রতিটি শিক্ষার্থীর স্বয়ংক্রিয় পরিচিতি কোড নির্ধারণের জন্য ২-৩ অক্ষরের স্বতন্ত্র প্রাতিষ্ঠানিক কোড।
             </p>
           </div>
 

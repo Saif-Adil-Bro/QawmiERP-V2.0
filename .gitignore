@@ -35,3 +35,4 @@ yarn-error.log*
 # Backups / অস্থায়ী আউটপুট
 backups/
 *.backup.json
+tmp/

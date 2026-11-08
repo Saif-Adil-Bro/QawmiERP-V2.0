@@ -94,47 +94,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If student login failed with default password (123456), force password sync on auth user and retry
-    if (error && isStudentLogin && (rawPassword === "123456" || normalizedPassword === "123456")) {
-      try {
-        const adminClient = await createAdminClient();
-        const { data: authUsers } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
-        const authUser = authUsers?.users?.find(
-          (u) =>
-            u.email?.toLowerCase() === targetEmail.toLowerCase() ||
-            u.email?.toLowerCase() === canonicalEmail.toLowerCase() ||
-            u.email?.toLowerCase() === legacyEmail.toLowerCase()
-        );
-        if (authUser) {
-          await adminClient.auth.admin.updateUserById(authUser.id, {
-            password: "123456",
-            email_confirm: true,
-          });
-          const reSync = await supabase.auth.signInWithPassword({
-            email: authUser.email || targetEmail,
-            password: "123456",
-          });
-          if (!reSync.error && reSync.data.user) {
-            data = reSync.data;
-            error = null;
-            targetEmail = authUser.email || targetEmail;
-          }
-        }
-      } catch (syncPassErr) {
-        console.warn("Password sync on login error:", syncPassErr);
-      }
-    }
-
     if (error || !data || !data.user) {
       if (isStudentLogin) {
         return NextResponse.json(
           {
-            error: "পাসওয়ার্ড সঠিক নয়। ডিফল্ট পাসওয়ার্ড 123456 অথবা আপনার পরিবর্তিত পাসওয়ার্ড ব্যবহার করুন।",
+            error: "প্রদত্ত শিক্ষার্থী আইডি অথবা পাসওয়ার্ড সঠিক নয়। অনুগ্রহ করে তথ্য যাচাই করে পুনরায় চেষ্টা করুন।",
           },
           { status: 401 }
         );
       }
-      return NextResponse.json({ error: error?.message || "লগইন ব্যর্থ হয়েছে।" }, { status: 401 });
+      return NextResponse.json({ error: error?.message || "লগইন ব্যর্থ হয়েছে। তথ্য যাচাই করে আবার চেষ্টা করুন।" }, { status: 401 });
     }
 
     // Resolve user role

@@ -547,10 +547,10 @@ export default function FeeAlertsClient({ initialData, classes }: Props) {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="px-2 py-1 bg-white border border-slate-200 rounded text-blue-700 hover:bg-blue-50 flex items-center gap-1 font-bold text-xs"
-                          title="পেমেন্ট পোর্টাল নতুন ট্যাবে টেস্ট করুন"
+                          title="পেমেন্ট পোর্টাল প্রিভিউ দেখুন"
                         >
                           <ExternalLink className="w-3 h-3" />
-                          পোর্টাল টেস্ট
+                          পোর্টাল প্রিভিউ
                         </a>
                         <button
                           onClick={() =>

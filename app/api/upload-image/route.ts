@@ -157,7 +157,8 @@ export async function POST(req: NextRequest) {
 
     // Helper functions for providers
     const tryUploadIili = async (): Promise<string | null> => {
-      const freeimageKey = process.env.FREEIMAGE_API_KEY || "6d207e02198a847aa98d0a2a901485a5";
+      const freeimageKey = (process.env.FREEIMAGE_API_KEY || process.env.NEXT_PUBLIC_FREEIMAGE_API_KEY || "").trim();
+      if (!freeimageKey) return null;
       try {
         const freeimageFormData = new URLSearchParams();
         freeimageFormData.append("key", freeimageKey);
@@ -190,7 +191,8 @@ export async function POST(req: NextRequest) {
     };
 
     const tryUploadImgbb = async (): Promise<string | null> => {
-      const imgbbKey = process.env.IMGBB_API_KEY || "f68764a897def42cdf7b39a839307ef8";
+      const imgbbKey = (process.env.IMGBB_API_KEY || process.env.NEXT_PUBLIC_IMGBB_API_KEY || "").trim();
+      if (!imgbbKey) return null;
       try {
         const imgbbFormData = new URLSearchParams();
         imgbbFormData.append("key", imgbbKey);

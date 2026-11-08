@@ -428,7 +428,7 @@ export default function UserManagementClient({
 
       showToast(
         "success",
-        `আলহামদুলিল্লাহ! সর্বমোট ${res.total} জন শিক্ষার্থীর অভিভাবক লগইন সিঙ্ক সম্পন্ন হয়েছে (${res.created} নতুন তৈরি, ${res.existing} বিদ্যমান)। ডিফল্ট পাসওয়ার্ড: 123456`
+        `আলহামদুলিল্লাহ! সর্বমোট ${res.total} জন শিক্ষার্থীর অভিভাবক পোর্টাল অ্যাকাউন্ট সফলভাবে সিঙ্ক সম্পন্ন হয়েছে (${res.created} টি নতুন সক্রিয়, ${res.existing} টি পূর্বে সক্রিয়)।`
       );
     } catch (e: any) {
       showToast("error", e?.message || "সিঙ্ক এরর হয়েছে।");
@@ -504,10 +504,10 @@ export default function UserManagementClient({
             onClick={handleSyncAllStudentLogins}
             disabled={isSyncingStudents}
             className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 shadow-lg shadow-indigo-950/40 transition active:scale-95 cursor-pointer disabled:opacity-50"
-            title="সকল শিক্ষার্থীর আইডি (যেমন: 480001) ও ডিফল্ট পাসওয়ার্ড 123456 দিয়ে অভিভাবক লগইন একাউন্ট সক্রিয় করুন"
+            title="সকল শিক্ষার্থীর প্রাতিষ্ঠানিক আইডি দিয়ে অভিভাবক পোর্টাল একাউন্ট সক্রিয় ও হালনাগাদ করুন"
           >
             <Sparkles className="w-4 h-4" />
-            <span>{isSyncingStudents ? "সিঙ্ক হচ্ছে..." : "শিক্ষার্থী আইডি সিঙ্ক (123456)"}</span>
+            <span>{isSyncingStudents ? "সিঙ্ক হচ্ছে..." : "অভিভাবক অ্যাকাউন্ট সিঙ্ক"}</span>
           </button>
           <button
             type="button"
@@ -1337,9 +1337,9 @@ export default function UserManagementClient({
                       type="button"
                       onClick={() => setPassword("123456")}
                       className="text-[11px] font-bold text-amber-800 hover:text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 flex items-center gap-1 cursor-pointer"
-                      title="ডিফল্ট পাসওয়ার্ড 123456 সেট করুন"
+                      title="প্রাথমিক নিরাপত্তা পিন (123456) সেট করুন"
                     >
-                      <span>ডিফল্ট (123456)</span>
+                      <span>প্রাথমিক পিন</span>
                     </button>
                     <button
                       type="button"

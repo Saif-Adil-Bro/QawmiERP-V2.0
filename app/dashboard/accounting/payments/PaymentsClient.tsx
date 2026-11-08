@@ -279,7 +279,7 @@ export default function PaymentsClient({
               setIsResetHubOpen(true);
             }}
             className="px-3.5 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/40 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition cursor-pointer"
-            title="পেছনের কালেকশন বা টেস্ট ডাটা রিসেট/মুছে ফেলার অপশন"
+            title="কালেকশন রেকর্ড রিসেট বা ডাটা পরিষ্কার হাব"
           >
             <Trash2 className="w-4 h-4 text-red-300" />
             <span>ডাটা রিসেট ও ডিলিট</span>
@@ -761,7 +761,7 @@ export default function PaymentsClient({
                 <AlertTriangle className="w-6 h-6" />
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">ফি ডাটা রিসেট ও ডিলিট হাব</h3>
-                  <p className="text-xs text-slate-500">পেছনের টেস্ট কালেকশন বা ডাটা পরিষ্কার করুন</p>
+                  <p className="text-xs text-slate-500">পূর্ববর্তী অব্যাবহৃত কালেকশন রেকর্ড বা ডাটা পরিষ্কার করুন</p>
                 </div>
               </div>
               <button

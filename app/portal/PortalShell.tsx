@@ -284,7 +284,7 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
             <div className="flex items-center gap-2 min-w-0">
               <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
               <span className="truncate font-medium">
-                আপনি ডিফল্ট পাসওয়ার্ড (123456) ব্যবহার করছেন। অ্যাকাউন্টের সুরক্ষার জন্য নতুন পাসওয়ার্ড সেট করুন।
+                আপনার অ্যাকাউন্টের সুরক্ষার জন্য প্রাথমিক পাসওয়ার্ড পরিবর্তন করে একটি শক্তিশালী নতুন পাসওয়ার্ড সেট করুন।
               </span>
             </div>
             <div className="flex items-center gap-2 shrink-0">

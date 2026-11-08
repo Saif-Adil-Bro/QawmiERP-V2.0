@@ -306,7 +306,7 @@ export default function GatewaySettingsClient({
             )}
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block">
-            {config.environment === "LIVE" ? "আসল টাকার লেনদেন" : "টেস্টিং ও ডেমো ট্রানজেকশন"}
+            {config.environment === "LIVE" ? "প্রোডাকশন লাইভ ট্রানজেকশন" : "স্যান্ডবক্স সিমুলেশন মোড"}
           </span>
         </div>
 
@@ -533,7 +533,7 @@ export default function GatewaySettingsClient({
                       : "bg-white text-slate-600 border border-slate-200"
                   }`}
                 >
-                  Sandbox (ডেমো টেস্টিং)
+                  Sandbox (সিমুলেশন ও যাচাই)
                 </button>
 
                 <button
@@ -1313,8 +1313,8 @@ export default function GatewaySettingsClient({
       <OnlinePaymentCheckoutModal
         isOpen={isTestModalOpen}
         onClose={() => setIsTestModalOpen(false)}
-        studentId={sampleStudent?.id || "test_student_1"}
-        studentName={sampleStudent?.name || "মুহাম্মাদ আব্দুল্লাহ (টেস্ট শিক্ষার্থী)"}
+        studentId={sampleStudent?.id || "sample_student_1"}
+        studentName={sampleStudent?.name || "মুহাম্মাদ আব্দুল্লাহ (নমুনা শিক্ষার্থী)"}
         studentRoll={sampleStudent?.roll || "১"}
         className={sampleStudent?.className || "হিফজুল কুরআন জামাত"}
         totalDue={2500}
@@ -1336,7 +1336,7 @@ export default function GatewaySettingsClient({
         onPaymentSuccess={(receipt) => {
           setAlert({
             type: "success",
-            text: `টেস্ট পেমেন্ট সফলভাবে সম্পন্ন হয়েছে! রসিদ নং: ${receipt.receipt_no}`,
+            text: `পেমেন্ট সিমুলেশন সফলভাবে সম্পন্ন হয়েছে! রসিদ নং: ${receipt.receipt_no}`,
           });
         }}
       />

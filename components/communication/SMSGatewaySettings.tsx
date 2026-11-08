@@ -66,7 +66,7 @@ export default function SMSGatewaySettings({
   // Live Testing State
   const [testPhone, setTestPhone] = useState("01812345678");
   const [testMessage, setTestMessage] = useState(
-    "টেস্ট এসএমএস: কওমি ম্যানেজার এসএমএস গেটওয়ে সফলভাবে কানেক্ট হয়েছে।"
+    "কওমি ইআরপি এসএমএস গেটওয়ে সংযোগ সফলভাবে স্থাপিত হয়েছে।"
   );
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -143,7 +143,7 @@ export default function SMSGatewaySettings({
   // Handle Test SMS Dispatch
   const handleRunTest = async () => {
     if (!testPhone) {
-      alert("অনুগ্রহ করে টেস্ট মোবাইল নম্বর প্রদান করুন।");
+      alert("অনুগ্রহ করে যাচাইকরণ মোবাইল নম্বর প্রদান করুন।");
       return;
     }
     if (!config.apiKey && config.provider !== "custom") {
@@ -158,7 +158,7 @@ export default function SMSGatewaySettings({
       const res = await testSMSGateway(config, testPhone, testMessage);
       setTestResult(res);
       if (res.success) {
-        setSaveSuccess("টেস্ট এসএমএস সফলভাবে গেটওয়েতে পাঠানো হয়েছে!");
+        setSaveSuccess("যাচাইকরণ এসএমএস সফলভাবে গেটওয়েতে পাঠানো হয়েছে!");
       }
     } catch (err: any) {
       setTestResult({
@@ -655,21 +655,21 @@ export default function SMSGatewaySettings({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-500" />
-                লাইভ কানেকশন ও টেস্ট এসএমএস
+                লাইভ গেটওয়ে সংযোগ যাচাই
               </h3>
               <span className="text-[11px] bg-amber-50 text-amber-800 px-2 py-0.5 rounded-full font-semibold border border-amber-200">
-                রিয়েল-টাইম টেস্ট
+                রিয়েল-টাইম ভেরিফিকেশন
               </span>
             </div>
 
             <p className="text-xs text-slate-500">
-              আপনার প্রবেশকৃত এপিআই কী ও গেটওয়ে সঠিকভাবে কাজ করছে কিনা দেখতে নিচের নম্বরে একটি টেস্ট এসএমএস পাঠিয়ে যাচাই করুন।
+              আপনার কনফিগারকৃত এসএমএস গেটওয়ে সক্রিয় রয়েছে কিনা দেখতে নিচের নম্বরে একটি পরীক্ষামূলক বার্তা পাঠিয়ে যাচাই করুন।
             </p>
 
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  টেস্ট প্রাপকের মোবাইল নম্বর:
+                  প্রাপকের মোবাইল নম্বর:
                 </label>
                 <input
                   type="text"
@@ -682,7 +682,7 @@ export default function SMSGatewaySettings({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  টেস্ট মেসেজ:
+                  বার্তা টেক্সট:
                 </label>
                 <textarea
                   rows={3}
@@ -699,7 +699,7 @@ export default function SMSGatewaySettings({
                 className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
               >
                 <Send className={`w-4 h-4 ${isTesting ? "animate-spin text-amber-400" : "text-amber-400"}`} />
-                <span>{isTesting ? "টেস্ট এসএমএস পাঠানো হচ্ছে..." : "টেস্ট এসএমএস পাঠান"}</span>
+                <span>{isTesting ? "বার্তা পাঠানো হচ্ছে..." : "যাচাইকরণ এসএমএস পাঠান"}</span>
               </button>
             </div>
 

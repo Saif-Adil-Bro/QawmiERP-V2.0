@@ -1034,13 +1034,13 @@ export function AIQuestionScannerModal({
               <div className="flex flex-col sm:flex-row items-center justify-between p-3.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl gap-3 text-xs">
                 <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
                   <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>এখনই কোনো ছবি না থাকলে এআই ডেমো স্যাম্পল দিয়ে টেস্ট করে দেখতে পারেন:</span>
+                  <span>এখনই কোনো প্রশ্নপত্রের ছবি না থাকলে নমুনা দিয়ে কার্যকারিতা যাচাই করতে পারেন:</span>
                 </div>
                 <button
                   onClick={loadSampleDemo}
                   className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg shrink-0 transition-colors shadow-xs"
                 >
-                  ডেমো প্রশ্নপত্র লোড করুন
+                  নমুনা প্রশ্নপত্র লোড করুন
                 </button>
               </div>
 

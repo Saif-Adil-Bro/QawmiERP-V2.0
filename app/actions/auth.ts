@@ -201,7 +201,7 @@ export async function changeGuardianPassword(
     const conf = (confirmPassword || "").trim();
 
     if (!cur) {
-      return { success: false, error: "বর্তমান পাসওয়ার্ড প্রদান করুন (ডিফল্ট: 123456)।" };
+      return { success: false, error: "আপনার বর্তমান পাসওয়ার্ড প্রদান করুন।" };
     }
 
     if (!next || next.length < 6) {
@@ -213,7 +213,7 @@ export async function changeGuardianPassword(
     }
 
     if (next === "123456") {
-      return { success: false, error: "ডিফল্ট পাসওয়ার্ড (123456) ছাড়া অন্য কোনো গোপন পাসওয়ার্ড দিন।" };
+      return { success: false, error: "সহজ বা অনুমানযোগ্য পাসওয়ার্ড ছাড়া একটি সুরক্ষিত পাসওয়ার্ড নির্ধারণ করুন।" };
     }
 
     // Verify current password by test sign-in if email exists
@@ -226,7 +226,7 @@ export async function changeGuardianPassword(
       if (verifyErr) {
         return {
           success: false,
-          error: "আপনার বর্তমান পাসওয়ার্ডটি সঠিক নয়। ডিফল্ট পাসওয়ার্ড 123456 অথবা আপনার পূর্বে সেট করা পাসওয়ার্ড দিন।",
+          error: "আপনার বর্তমান পাসওয়ার্ডটি সঠিক নয়। অনুগ্রহ করে তথ্য যাচাই করে সঠিক পাসওয়ার্ড দিন।",
         };
       }
     }
