@@ -26,7 +26,7 @@ export async function ensureDemoMadrasaExists(): Promise<{
     let { data: existingMadrasa } = await admin
       .from("madrasas")
       .select("id, name, registration_no")
-      .eq("name", DEMO_MADRASA_NAME)
+      .or(`name.eq.${DEMO_MADRASA_NAME},contact_email.eq.${DEMO_ADMIN_EMAIL}`)
       .maybeSingle();
 
     let madrasaId = existingMadrasa?.id;
@@ -38,6 +38,9 @@ export async function ensureDemoMadrasaExists(): Promise<{
         .from("madrasas")
         .insert({
           name: DEMO_MADRASA_NAME,
+          contact_email: DEMO_ADMIN_EMAIL,
+          contact_phone: "01711-987654",
+          address: "ঢাকা, বাংলাদেশ",
           subscription_plan: "pro",
           registration_no: JSON.stringify(initialMeta),
         })
@@ -45,11 +48,13 @@ export async function ensureDemoMadrasaExists(): Promise<{
         .single();
 
       if (mErr || !created) {
-        // Fallback without subscription_plan if table has different constraints
+        // Fallback without subscription_plan or optional columns
         const { data: fbCreated, error: fbErr } = await admin
           .from("madrasas")
           .insert({
             name: DEMO_MADRASA_NAME,
+            contact_email: DEMO_ADMIN_EMAIL,
+            subscription_plan: "free",
             registration_no: JSON.stringify(initialMeta),
           })
           .select("id")
