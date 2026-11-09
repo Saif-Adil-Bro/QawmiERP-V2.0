@@ -848,6 +848,1661 @@ body[data-theme="sepia"] {
 /* ==========================================================================
    DOCUMENT & PRINT IMMUNITY SYSTEM (Universal Light-Mode Lock)
    Official Documents, Certificates, Admit Cards, Invoices, Vouchers, Marksheets,
+   Student Profiles, Application Forms, Amal Trackers, Print Hub & Academic Reports
+   are 100% immune to Dark Mode / Sepia Mode both on-screen in preview and during
+   print / PDF export. They strictly retain pure Qawmi Standard (Light Mode).
+   ========================================================================== */
+
+/* Universal Print & Document Isolation Roots */
+:is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) {
+  color-scheme: light !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Ensure all child elements stay in light color-scheme */
+:is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) * {
+  color-scheme: light !important;
+}
+
+/* Force pure paper backgrounds on document surfaces under Dark/Sepia Mode */
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) :is(.bg-white, [class*="bg-white/"], [class*="bg-white"]) {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) :is(.bg-slate-50, .bg-gray-50, [class*="bg-slate-50/"], [class*="bg-gray-50/"]) {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) :is(.bg-slate-100, .bg-gray-100, [class*="bg-slate-100/"], [class*="bg-gray-100/"]) {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) :is(.bg-slate-200, .bg-gray-200) {
+  background-color: #e2e8f0 !important;
+}
+
+/* Force light-mode dark typography inside document papers */
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) :is(.text-slate-900, .text-gray-900, .text-black, .text-slate-800, .text-gray-800, .text-slate-700, .text-gray-700, .text-slate-600, .text-gray-600) {
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) :is(.text-slate-500, .text-gray-500, .text-slate-400, .text-gray-400) {
+  color: #64748b !important;
+}
+
+/* Force light-mode borders & dividers inside document papers */
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) :is(.border, .border-slate-100, .border-slate-200, .border-slate-300, .border-gray-200, [class*="border-slate-200/"]) {
+  border-color: #cbd5e1 !important;
+}
+
+/* Neutralize tailwind dark utilities inside document papers */
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) :is([class*="dark:bg-slate-9"], [class*="dark:bg-gray-9"], [class*="dark:bg-slate-8"], [class*="dark:bg-gray-8"]) {
+  background-color: #ffffff !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) :is([class*="dark:text-white"], [class*="dark:text-slate-1"], [class*="dark:text-slate-2"], [class*="dark:text-gray-1"]) {
+  color: #0f172a !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) thead th {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+:is(.dark, .theme-dark, .sepia-mode, [data-theme="dark"], [data-theme="sepia"]) :is(
+  .qawmi-print-paper,
+  .print-strict-light,
+  .print-clean,
+  .printable-document,
+  .print-document,
+  .a4-sheet,
+  .a4-document,
+  .a4-page,
+  .amal-single-page,
+  .amal-sheet,
+  .admission-print-container,
+  .certificate-view,
+  .certificate-card,
+  .report-card,
+  .admit-card,
+  .id-card-sheet,
+  .voucher-print,
+  .invoice-print,
+  .money-receipt,
+  .print-preview-paper,
+  .official-document-sheet,
+  .force-light-mode,
+  .is-printable-doc,
+  .student-id-card-render,
+  .bazar-voucher-printable-area,
+  .print-pad-container,
+  [data-printable],
+  [data-print-paper],
+  [data-document-paper],
+  [data-print-container],
+  [id*="-printable"],
+  [id*="-print-root"],
+  [id*="-print-sheet"],
+  [id*="-print-area"],
+  [id*="-print-view"],
+  [class*="-printable"],
+  #printable-official-certificate,
+  #temp-print-frame,
+  #amal-tracker-printable-area,
+  #blank-admission-form-printable,
+  #blank-receipt-printable,
+  #examiner-sheet-printable,
+  #custom-table-sheet-printable,
+  #preset-sheets-printable,
+  #letterpad-notice-printable,
+  #accounting-report-print-root,
+  #zakat-reports-print-root,
+  #madrasa-income-history-print-root,
+  #collections-audit-report-sheet,
+  #mahfil-audit-report-sheet,
+  #fund-statement-print-area,
+  #online-receipt-print-area,
+  #audit-statement-print-root,
+  #printable-holiday-notice,
+  #exam-paper-print-view,
+  #question-paper-print,
+  #donor-certificate-sheet,
+  #dual-money-receipt-sheet,
+  #printable-student-list,
+  #bazar-voucher-sheet,
+  #word-editor-print-sheet,
+  #staff-certificate-printable-area,
+  #staff-id-card-printable-area,
+  #printable-pay-slip-element,
+  #printable-payroll-sheet-element,
+  #staff-report-printable-area
+) tbody td {
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 6mm;
+  }
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-sizing: border-box !important;
+  }
+  html, body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    font-size: 12pt;
+  }
+
+  /* Universal Mobile & Desktop Print Isolation Rules */
+  body.is-printing-now {
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.is-printing-now > *:not(#temp-print-frame) {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  #temp-print-frame {
+    display: block !important;
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+    z-index: 99999999 !important;
+    overflow: visible !important;
+  }
+
+  #temp-print-frame, #temp-print-frame * {
+    visibility: visible !important;
+  }
+  .print-pad-container {
+    box-sizing: border-box !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+  /* Page break helpers */
+  .page-break-after, .break-after-page {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+  .page-break-after:last-child, .break-after-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  .page-break-avoid, .print-break-inside-avoid, .break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  /* Single-page fit container */
+  .print-single-page, .amal-single-page {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    max-height: 278mm !important;
+    box-sizing: border-box !important;
+  }
+  .amal-single-page {
+    width: 100% !important;
+    max-width: 202mm !important;
+    height: 278mm !important;
+    min-height: 270mm !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    background: #ffffff !important;
+  }
+  .amal-single-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  /* A4 ID Card Sheet: 6 cards per page (2 columns x 3 rows) */
+  .a4-id-card-sheet {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    width: 100% !important;
+    max-height: 282mm !important;
+    box-sizing: border-box !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    justify-items: center !important;
+    align-content: flex-start !important;
+    gap: 5mm 8mm !important;
+    padding: 6mm 4mm !important;
+    overflow: hidden !important;
+  }
+  .a4-id-card-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  .id-card-print-item {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  /* A4 Admit Card Sheet: 2 admit cards per page */
+  .a4-admit-card-sheet {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    width: 100% !important;
+    min-height: 275mm !important;
+    max-height: 285mm !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    gap: 6mm !important;
+    padding: 4mm !important;
+    box-sizing: border-box !important;
+  }
+  .a4-admit-card-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  /* A4 Marksheet Page: exactly 1 marksheet per A4 page */
+  .a4-marksheet-sheet {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    width: 100% !important;
+    min-height: 270mm !important;
+    max-height: 285mm !important;
+    padding: 4mm 6mm !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+  }
+  .a4-marksheet-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  /* Landscape auto-centering helper */
+  .print-landscape-fit {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+  }
+}
+
+/* Neon Top Loader Keyframes & Custom Styling */
+@keyframes neonShimmer {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+#nprogress .bar {
+  background: linear-gradient(90deg, #10b981, #06b6d4, #3b82f6, #6366f1) !important;
+  height: 3.5px !important;
+  box-shadow: 0 0 12px #06b6d4, 0 0 6px #3b82f6 !important;
+}
+
+#nprogress .peg {
+  box-shadow: 0 0 15px #06b6d4, 0 0 8px #38bdf8, 0 0 25px #06b6d4 !important;
+}
+
+/* ==========================================================================
+   Qawmi Islamic Dynamic Themes (Dark Oasis & Sepia Kitab Mode)
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. ISLAMIC OASIS DARK THEME (Night/Tahajjud Mode)
+   -------------------------------------------------------------------------- */
+html.dark,
+html.theme-dark,
+html[data-theme="dark"],
+body.dark,
+body.theme-dark,
+body[data-theme="dark"] {
+  background-color: #0b1120 !important;
+  color: #f1f5f9 !important;
+  color-scheme: dark;
+}
+
+/* Base Surfaces & Containers */
+[data-theme="dark"] .bg-white,
+.dark .bg-white,
+.theme-dark .bg-white,
+[data-theme="dark"] [class*="bg-white/"],
+.dark [class*="bg-white/"],
+.theme-dark [class*="bg-white/"] {
+  background-color: #131d31 !important;
+  color: #f1f5f9;
+}
+
+[data-theme="dark"] .bg-slate-50,
+.dark .bg-slate-50,
+.theme-dark .bg-slate-50,
+[data-theme="dark"] .bg-gray-50,
+.dark .bg-gray-50,
+.theme-dark .bg-gray-50,
+[data-theme="dark"] [class*="bg-slate-50/"],
+.dark [class*="bg-slate-50/"],
+.theme-dark [class*="bg-slate-50/"] {
+  background-color: #0b1120 !important;
+}
+
+[data-theme="dark"] .bg-slate-100,
+.dark .bg-slate-100,
+.theme-dark .bg-slate-100,
+[data-theme="dark"] .bg-gray-100,
+.dark .bg-gray-100,
+.theme-dark .bg-gray-100,
+[data-theme="dark"] [class*="bg-slate-100/"],
+.dark [class*="bg-slate-100/"],
+.theme-dark [class*="bg-slate-100/"] {
+  background-color: #1e293b !important;
+}
+
+[data-theme="dark"] .bg-slate-200,
+.dark .bg-slate-200,
+.theme-dark .bg-slate-200,
+[data-theme="dark"] .bg-gray-200,
+.dark .bg-gray-200,
+.theme-dark .bg-gray-200 {
+  background-color: #334155 !important;
+}
+
+/* Borders & Dividers */
+[data-theme="dark"] .border,
+.dark .border,
+.theme-dark .border,
+[data-theme="dark"] .border-slate-100,
+.dark .border-slate-100,
+.theme-dark .border-slate-100,
+[data-theme="dark"] .border-slate-200,
+.dark .border-slate-200,
+.theme-dark .border-slate-200,
+[data-theme="dark"] .border-slate-300,
+.dark .border-slate-300,
+.theme-dark .border-slate-300,
+[data-theme="dark"] .border-gray-200,
+.dark .border-gray-200,
+.theme-dark .border-gray-200,
+[data-theme="dark"] [class*="border-slate-200/"],
+.dark [class*="border-slate-200/"],
+.theme-dark [class*="border-slate-200/"],
+[data-theme="dark"] .divide-slate-100 > * + *,
+.dark .divide-slate-100 > * + *,
+.theme-dark .divide-slate-100 > * + *,
+[data-theme="dark"] .divide-slate-200 > * + *,
+.dark .divide-slate-200 > * + *,
+.theme-dark .divide-slate-200 > * + * {
+  border-color: #1e293b !important;
+}
+
+/* Typography Hierarchy */
+[data-theme="dark"] .text-slate-900,
+.dark .text-slate-900,
+.theme-dark .text-slate-900,
+[data-theme="dark"] .text-slate-800,
+.dark .text-slate-800,
+.theme-dark .text-slate-800,
+[data-theme="dark"] .text-gray-900,
+.dark .text-gray-900,
+.theme-dark .text-gray-900,
+[data-theme="dark"] .text-gray-800,
+.dark .text-gray-800,
+.theme-dark .text-gray-800,
+[data-theme="dark"] .text-black,
+.dark .text-black,
+.theme-dark .text-black {
+  color: #f8fafc !important;
+}
+
+[data-theme="dark"] .text-slate-700,
+.dark .text-slate-700,
+.theme-dark .text-slate-700,
+[data-theme="dark"] .text-slate-600,
+.dark .text-slate-600,
+.theme-dark .text-slate-600,
+[data-theme="dark"] .text-gray-700,
+.dark .text-gray-700,
+.theme-dark .text-gray-700,
+[data-theme="dark"] .text-gray-600,
+.dark .text-gray-600,
+.theme-dark .text-gray-600 {
+  color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .text-slate-500,
+.dark .text-slate-500,
+.theme-dark .text-slate-500,
+[data-theme="dark"] .text-slate-400,
+.dark .text-slate-400,
+.theme-dark .text-slate-400,
+[data-theme="dark"] .text-gray-500,
+.dark .text-gray-500,
+.theme-dark .text-gray-500,
+[data-theme="dark"] .text-gray-400,
+.dark .text-gray-400,
+.theme-dark .text-gray-400 {
+  color: #94a3b8 !important;
+}
+
+/* Colored Text Adjustments for Dark Mode */
+[data-theme="dark"] .text-amber-700,
+.dark .text-amber-700,
+[data-theme="dark"] .text-amber-800,
+.dark .text-amber-800,
+[data-theme="dark"] .text-amber-900,
+.dark .text-amber-900 {
+  color: #fcd34d !important;
+}
+
+[data-theme="dark"] .text-emerald-700,
+.dark .text-emerald-700,
+[data-theme="dark"] .text-emerald-800,
+.dark .text-emerald-800,
+[data-theme="dark"] .text-emerald-900,
+.dark .text-emerald-900 {
+  color: #34d399 !important;
+}
+
+[data-theme="dark"] .text-blue-700,
+.dark .text-blue-700,
+[data-theme="dark"] .text-blue-800,
+.dark .text-blue-800 {
+  color: #60a5fa !important;
+}
+
+[data-theme="dark"] .text-rose-700,
+.dark .text-rose-700,
+[data-theme="dark"] .text-rose-800,
+.dark .text-rose-800,
+[data-theme="dark"] .text-red-700,
+.dark .text-red-700 {
+  color: #fb7185 !important;
+}
+
+[data-theme="dark"] .text-purple-700,
+.dark .text-purple-700,
+[data-theme="dark"] .text-indigo-700,
+.dark .text-indigo-700 {
+  color: #c084fc !important;
+}
+
+/* Tinted Badge / Pill Backgrounds in Dark Mode */
+[data-theme="dark"] .bg-emerald-50,
+.dark .bg-emerald-50,
+[data-theme="dark"] .bg-emerald-100,
+.dark .bg-emerald-100 {
+  background-color: rgba(6, 78, 59, 0.4) !important;
+  color: #6ee7b7 !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+[data-theme="dark"] .bg-amber-50,
+.dark .bg-amber-50,
+[data-theme="dark"] .bg-amber-100,
+.dark .bg-amber-100 {
+  background-color: rgba(120, 53, 15, 0.4) !important;
+  color: #fcd34d !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+[data-theme="dark"] .bg-blue-50,
+.dark .bg-blue-50,
+[data-theme="dark"] .bg-blue-100,
+.dark .bg-blue-100,
+[data-theme="dark"] .bg-sky-50,
+.dark .bg-sky-50 {
+  background-color: rgba(30, 58, 138, 0.4) !important;
+  color: #93c5fd !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+[data-theme="dark"] .bg-rose-50,
+.dark .bg-rose-50,
+[data-theme="dark"] .bg-rose-100,
+.dark .bg-rose-100,
+[data-theme="dark"] .bg-red-50,
+.dark .bg-red-50 {
+  background-color: rgba(136, 19, 55, 0.4) !important;
+  color: #fda4af !important;
+  border-color: rgba(244, 63, 94, 0.3) !important;
+}
+
+[data-theme="dark"] .bg-purple-50,
+.dark .bg-purple-50,
+[data-theme="dark"] .bg-purple-100,
+.dark .bg-purple-100,
+[data-theme="dark"] .bg-indigo-50,
+.dark .bg-indigo-50 {
+  background-color: rgba(88, 28, 135, 0.4) !important;
+  color: #d8b4fe !important;
+  border-color: rgba(168, 85, 247, 0.3) !important;
+}
+
+/* Interactive Form Elements */
+[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+.theme-dark input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+[data-theme="dark"] textarea,
+.dark textarea,
+.theme-dark textarea,
+[data-theme="dark"] select,
+.dark select,
+.theme-dark select {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+[data-theme="dark"] input::placeholder,
+.dark input::placeholder,
+.theme-dark input::placeholder,
+[data-theme="dark"] textarea::placeholder,
+.dark textarea::placeholder,
+.theme-dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+[data-theme="dark"] select option,
+.dark select option,
+.theme-dark select option {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+}
+
+/* Tables in Dark Mode */
+[data-theme="dark"] table,
+.dark table,
+.theme-dark table {
+  background-color: #131d31 !important;
+  color: #f1f5f9 !important;
+}
+
+[data-theme="dark"] thead,
+.dark thead,
+.theme-dark thead,
+[data-theme="dark"] thead tr,
+.dark thead tr,
+.theme-dark thead tr,
+[data-theme="dark"] thead th,
+.dark thead th,
+.theme-dark thead th {
+  background-color: #0f172a !important;
+  color: #94a3b8 !important;
+  border-color: #1e293b !important;
+}
+
+[data-theme="dark"] tbody tr,
+.dark tbody tr,
+.theme-dark tbody tr,
+[data-theme="dark"] tbody td,
+.dark tbody td,
+.theme-dark tbody td {
+  border-color: #1e293b !important;
+}
+
+[data-theme="dark"] tbody tr:hover,
+.dark tbody tr:hover,
+.theme-dark tbody tr:hover,
+[data-theme="dark"] tbody tr:hover > td,
+.dark tbody tr:hover > td,
+.theme-dark tbody tr:hover > td {
+  background-color: #1e293b !important;
+}
+
+/* Hover States for Buttons & Lists */
+[data-theme="dark"] [class*="hover:bg-slate-50"]:hover,
+.dark [class*="hover:bg-slate-50"]:hover,
+.theme-dark [class*="hover:bg-slate-50"]:hover,
+[data-theme="dark"] [class*="hover:bg-slate-100"]:hover,
+.dark [class*="hover:bg-slate-100"]:hover,
+.theme-dark [class*="hover:bg-slate-100"]:hover,
+[data-theme="dark"] [class*="hover:bg-gray-50"]:hover,
+.dark [class*="hover:bg-gray-50"]:hover,
+.theme-dark [class*="hover:bg-gray-50"]:hover,
+[data-theme="dark"] [class*="hover:bg-gray-100"]:hover,
+.dark [class*="hover:bg-gray-100"]:hover,
+.theme-dark [class*="hover:bg-gray-100"]:hover,
+[data-theme="dark"] [class*="hover:bg-white"]:hover,
+.dark [class*="hover:bg-white"]:hover,
+.theme-dark [class*="hover:bg-white"]:hover {
+  background-color: #1e293b !important;
+}
+
+/* --------------------------------------------------------------------------
+   2. SEPIA KITAB MODE (Ancient Manuscript / Comfortable Mutala'ah)
+   -------------------------------------------------------------------------- */
+html.theme-sepia,
+html.sepia-mode,
+html[data-theme="sepia"],
+body.theme-sepia,
+body.sepia-mode,
+body[data-theme="sepia"] {
+  background-color: #f6f0e4 !important;
+  color: #382414 !important;
+  color-scheme: light;
+}
+
+[data-theme="sepia"] .bg-slate-50,
+.theme-sepia .bg-slate-50,
+.sepia-mode .bg-slate-50,
+[data-theme="sepia"] .bg-gray-50,
+.theme-sepia .bg-gray-50,
+.sepia-mode .bg-gray-50,
+[data-theme="sepia"] [class*="bg-slate-50/"],
+.theme-sepia [class*="bg-slate-50/"],
+.sepia-mode [class*="bg-slate-50/"] {
+  background-color: #f6f0e4 !important;
+}
+
+[data-theme="sepia"] .bg-white,
+.theme-sepia .bg-white,
+.sepia-mode .bg-white,
+[data-theme="sepia"] [class*="bg-white/"],
+.theme-sepia [class*="bg-white/"],
+.sepia-mode [class*="bg-white/"] {
+  background-color: #fcf8f2 !important;
+  color: #382414;
+}
+
+[data-theme="sepia"] .bg-slate-100,
+.theme-sepia .bg-slate-100,
+.sepia-mode .bg-slate-100,
+[data-theme="sepia"] [class*="bg-slate-100/"],
+.theme-sepia [class*="bg-slate-100/"],
+.sepia-mode [class*="bg-slate-100/"] {
+  background-color: #ede4d4 !important;
+}
+
+[data-theme="sepia"] .bg-slate-200,
+.theme-sepia .bg-slate-200,
+.sepia-mode .bg-slate-200 {
+  background-color: #e0d5c1 !important;
+}
+
+[data-theme="sepia"] .border,
+.theme-sepia .border,
+.sepia-mode .border,
+[data-theme="sepia"] .border-slate-100,
+.theme-sepia .border-slate-100,
+.sepia-mode .border-slate-100,
+[data-theme="sepia"] .border-slate-200,
+.theme-sepia .border-slate-200,
+.sepia-mode .border-slate-200,
+[data-theme="sepia"] .border-gray-200,
+.theme-sepia .border-gray-200,
+.sepia-mode .border-gray-200,
+[data-theme="sepia"] [class*="border-slate-200/"],
+.theme-sepia [class*="border-slate-200/"],
+.sepia-mode [class*="border-slate-200/"],
+[data-theme="sepia"] .divide-slate-100 > * + *,
+.theme-sepia .divide-slate-100 > * + *,
+.sepia-mode .divide-slate-100 > * + *,
+[data-theme="sepia"] .divide-slate-200 > * + *,
+.theme-sepia .divide-slate-200 > * + *,
+.sepia-mode .divide-slate-200 > * + * {
+  border-color: #e5dac6 !important;
+}
+
+[data-theme="sepia"] .text-slate-900,
+.theme-sepia .text-slate-900,
+.sepia-mode .text-slate-900,
+[data-theme="sepia"] .text-slate-800,
+.theme-sepia .text-slate-800,
+.sepia-mode .text-slate-800,
+[data-theme="sepia"] .text-gray-900,
+.theme-sepia .text-gray-900,
+.sepia-mode .text-gray-900,
+[data-theme="sepia"] .text-black,
+.theme-sepia .text-black,
+.sepia-mode .text-black {
+  color: #2c1a0c !important;
+}
+
+[data-theme="sepia"] .text-slate-700,
+.theme-sepia .text-slate-700,
+.sepia-mode .text-slate-700,
+[data-theme="sepia"] .text-slate-600,
+.theme-sepia .text-slate-600,
+.sepia-mode .text-slate-600,
+[data-theme="sepia"] .text-gray-700,
+.theme-sepia .text-gray-700,
+.sepia-mode .text-gray-700,
+[data-theme="sepia"] .text-gray-600,
+.theme-sepia .text-gray-600,
+.sepia-mode .text-gray-600 {
+  color: #4a3320 !important;
+}
+
+[data-theme="sepia"] .text-slate-500,
+.theme-sepia .text-slate-500,
+.sepia-mode .text-slate-500,
+[data-theme="sepia"] .text-slate-400,
+.theme-sepia .text-slate-400,
+.sepia-mode .text-slate-400,
+[data-theme="sepia"] .text-gray-500,
+.theme-sepia .text-gray-500,
+.sepia-mode .text-gray-500,
+[data-theme="sepia"] .text-gray-400,
+.theme-sepia .text-gray-400,
+.sepia-mode .text-gray-400 {
+  color: #7c6248 !important;
+}
+
+[data-theme="sepia"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+.theme-sepia input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+.sepia-mode input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]),
+[data-theme="sepia"] textarea,
+.theme-sepia textarea,
+.sepia-mode textarea,
+[data-theme="sepia"] select,
+.theme-sepia select,
+.sepia-mode select {
+  background-color: #fcf8f2 !important;
+  color: #2c1a0c !important;
+  border-color: #d8c8af !important;
+}
+
+[data-theme="sepia"] select option,
+.theme-sepia select option,
+.sepia-mode select option {
+  background-color: #fcf8f2 !important;
+  color: #2c1a0c !important;
+}
+
+[data-theme="sepia"] table,
+.theme-sepia table,
+.sepia-mode table {
+  background-color: #fcf8f2 !important;
+  color: #382414 !important;
+}
+
+[data-theme="sepia"] thead,
+.theme-sepia thead,
+.sepia-mode thead,
+[data-theme="sepia"] thead tr,
+.theme-sepia thead tr,
+.sepia-mode thead tr,
+[data-theme="sepia"] thead th,
+.theme-sepia thead th,
+.sepia-mode thead th {
+  background-color: #ede4d4 !important;
+  color: #5a3825 !important;
+  border-color: #e5dac6 !important;
+}
+
+[data-theme="sepia"] tbody tr,
+.theme-sepia tbody tr,
+.sepia-mode tbody tr,
+[data-theme="sepia"] tbody td,
+.theme-sepia tbody td,
+.sepia-mode tbody td {
+  border-color: #e5dac6 !important;
+}
+
+[data-theme="sepia"] tbody tr:hover,
+.theme-sepia tbody tr:hover,
+.sepia-mode tbody tr:hover,
+[data-theme="sepia"] tbody tr:hover > td,
+.theme-sepia tbody tr:hover > td,
+.sepia-mode tbody tr:hover > td {
+  background-color: #f3ecd9 !important;
+}
+
+[data-theme="sepia"] [class*="hover:bg-slate-50"]:hover,
+.theme-sepia [class*="hover:bg-slate-50"]:hover,
+.sepia-mode [class*="hover:bg-slate-50"]:hover,
+[data-theme="sepia"] [class*="hover:bg-slate-100"]:hover,
+.theme-sepia [class*="hover:bg-slate-100"]:hover,
+.sepia-mode [class*="hover:bg-slate-100"]:hover,
+[data-theme="sepia"] [class*="hover:bg-white"]:hover,
+.theme-sepia [class*="hover:bg-white"]:hover,
+.sepia-mode [class*="hover:bg-white"]:hover {
+  background-color: #f0e8da !important;
+}
+
+/* ==========================================================================
+   Comprehensive Print System & Isolated Official Memo & Certificate Printing
+   ========================================================================== */
+
+/* ==========================================================================
+   DOCUMENT & PRINT IMMUNITY SYSTEM (Universal Light-Mode Lock)
+   Official Documents, Certificates, Admit Cards, Invoices, Vouchers, Marksheets,
    Student Profiles, Application Forms & Academic Reports are 100% immune to
    Dark Mode / Sepia Mode both on-screen in preview and during print / PDF export.
    ========================================================================== */

@@ -55,7 +55,7 @@ export const AmalSheetA4: React.FC<AmalSheetA4Props> = ({
 
   return (
     <div
-      className={`bg-white text-slate-900 mx-auto transition-all select-none amal-single-page ${
+      className={`bg-white text-slate-900 mx-auto transition-all select-none amal-single-page print-strict-light qawmi-print-paper ${
         isPreview
           ? "w-full max-w-[800px] min-h-[960px] p-5 sm:p-7 rounded-2xl shadow-xl border border-slate-300 relative"
           : "w-full max-w-[200mm] p-0 relative"

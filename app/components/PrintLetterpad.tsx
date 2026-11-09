@@ -426,7 +426,7 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
       {/* 2. Main Printable Area Wrapper */}
       {/* If padEnabled is active, on print we insert the pad wrapper. We can also show it on screen if desired, or let it only render elegantly on paper.
           Let's render it on screen inside a clean border box so it acts as an authentic live preview! */}
-      <div className={`relative ${selectedFont} ${padEnabled ? 'bg-white shadow-sm border border-slate-200 rounded-xl p-6 sm:p-10 print:p-0 print:border-none print:shadow-none print-pad-container' : ''}`}>
+      <div className={`relative ${selectedFont} print-strict-light qawmi-print-paper ${padEnabled ? 'bg-white shadow-sm border border-slate-200 rounded-xl p-6 sm:p-10 print:p-0 print:border-none print:shadow-none print-pad-container' : 'print-pad-container'}`}>
         
         {/* Dynamic Watermark in center (only shown if padEnabled) */}
         {padEnabled && (

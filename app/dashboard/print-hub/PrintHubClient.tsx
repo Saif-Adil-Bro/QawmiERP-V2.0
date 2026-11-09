@@ -393,7 +393,7 @@ export default function PrintHubClient({
 
           {/* Printable Container */}
           <div className="bg-slate-100 p-4 sm:p-8 rounded-2xl border border-slate-300 shadow-inner overflow-x-auto flex justify-center">
-            <div id="blank-admission-form-printable" className="bg-white rounded-xl shadow-md p-1 sm:p-2 w-full max-w-[216mm]">
+            <div id="blank-admission-form-printable" className="bg-white rounded-xl shadow-md p-1 sm:p-2 w-full max-w-[216mm] print-strict-light qawmi-print-paper">
               <BlankAdmissionForm
                 madrasaInfo={madrasaInfo}
                 customSession={admissionSession}
@@ -484,7 +484,7 @@ export default function PrintHubClient({
 
           {/* Printable Container */}
           <div className="bg-slate-100 p-4 sm:p-8 rounded-2xl border border-slate-300 shadow-inner overflow-x-auto">
-            <div id="blank-receipt-printable" className="bg-white rounded-xl shadow-md p-4 max-w-3xl mx-auto">
+            <div id="blank-receipt-printable" className="bg-white rounded-xl shadow-md p-4 max-w-3xl mx-auto print-strict-light qawmi-print-paper">
               <BlankMoneyReceipt
                 madrasaInfo={madrasaInfo}
                 receiptType={receiptLayout}
@@ -617,7 +617,7 @@ export default function PrintHubClient({
 
           {/* Printable Container */}
           <div className="bg-slate-100 p-4 sm:p-8 rounded-2xl border border-slate-300 shadow-inner overflow-x-auto">
-            <div id="examiner-sheet-printable" className="bg-white rounded-xl shadow-md p-2">
+            <div id="examiner-sheet-printable" className="bg-white rounded-xl shadow-md p-2 print-strict-light qawmi-print-paper">
               <ExaminerEvaluationSheet
                 madrasaInfo={madrasaInfo}
                 examTitle={examinerExamTitle}
@@ -787,7 +787,7 @@ export default function PrintHubClient({
 
           {/* Printable Container */}
           <div className="bg-slate-100 p-4 sm:p-8 rounded-2xl border border-slate-300 shadow-inner overflow-x-auto">
-            <div id="preset-sheets-printable" className="bg-white rounded-xl shadow-md p-2">
+            <div id="preset-sheets-printable" className="bg-white rounded-xl shadow-md p-2 print-strict-light qawmi-print-paper">
               <PresetMadrasaSheets
                 madrasaInfo={madrasaInfo}
                 sheetType={presetType}

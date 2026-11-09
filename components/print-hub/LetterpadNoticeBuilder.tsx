@@ -690,7 +690,7 @@ export default function LetterpadNoticeBuilder({ madrasaInfo }: LetterpadNoticeB
           {/* PRINTABLE CONTAINER */}
           <div
             id="letterpad-notice-printable"
-            className={`bg-white text-slate-900 w-full max-w-[210mm] min-h-[297mm] p-8 sm:p-12 border border-slate-300 shadow-md print:shadow-none print:border-none print:p-0 print:m-0 flex flex-col justify-between ${fontClass}`}
+            className={`bg-white text-slate-900 w-full max-w-[210mm] min-h-[297mm] p-8 sm:p-12 border border-slate-300 shadow-md print:shadow-none print:border-none print:p-0 print:m-0 flex flex-col justify-between print-strict-light qawmi-print-paper ${fontClass}`}
             style={{
               paddingTop: !useOfficialPad ? `${padMarginTop}mm` : undefined,
             }}

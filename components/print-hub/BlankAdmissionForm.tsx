@@ -31,7 +31,7 @@ export default function BlankAdmissionForm({
 
   return (
     <div
-      className={`admission-print-container ${isLetter ? "is-letter" : ""} bg-white text-slate-900 w-full mx-auto font-sans print:border-none print:p-0 print:m-0 flex flex-col justify-between ${
+      className={`admission-print-container print-strict-light qawmi-print-paper ${isLetter ? "is-letter" : ""} bg-white text-slate-900 w-full mx-auto font-sans print:border-none print:p-0 print:m-0 flex flex-col justify-between ${
         isLetter
           ? "max-w-[214mm] text-[11px] leading-snug p-3"
           : "max-w-[210mm] text-[11.5px] leading-relaxed p-4"

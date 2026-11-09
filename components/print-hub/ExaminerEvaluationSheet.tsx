@@ -81,7 +81,7 @@ export default function ExaminerEvaluationSheet({
         }));
 
   return (
-    <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-4 sm:p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-xs">
+    <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-4 sm:p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-xs print-strict-light qawmi-print-paper">
       {/* Header */}
       <div className="text-center border-b-2 border-slate-800 pb-2 mb-2 space-y-0.5">
         <p className="text-[10px] font-serif text-slate-600">

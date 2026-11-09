@@ -714,7 +714,7 @@ export default function CustomTableSheetBuilder({
       <div className="bg-slate-100 p-4 sm:p-8 rounded-2xl border border-slate-300 shadow-inner overflow-x-auto">
         <div
           id="custom-table-sheet-printable"
-          className={`bg-white text-slate-900 border border-slate-400 p-4 sm:p-5 print:border-none print:p-0 print:m-0 rounded-xl shadow-md mx-auto ${
+          className={`bg-white text-slate-900 border border-slate-400 p-4 sm:p-5 print:border-none print:p-0 print:m-0 rounded-xl shadow-md mx-auto print-strict-light qawmi-print-paper ${
             orientation === "landscape" ? "max-w-[297mm]" : "max-w-[210mm]"
           } text-xs`}
         >

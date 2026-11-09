@@ -47,7 +47,7 @@ export default function PresetMadrasaSheets({
           }));
 
     return (
-      <div className="bg-white text-slate-900 w-full max-w-[297mm] mx-auto p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-[10px]">
+      <div className="bg-white text-slate-900 w-full max-w-[297mm] mx-auto p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-[10px] print-strict-light qawmi-print-paper">
         {/* Header */}
         <div className="text-center border-b-2 border-slate-800 pb-2 mb-2 space-y-0.5">
           <p className="text-[10px] font-serif text-slate-500">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
@@ -194,7 +194,7 @@ export default function PresetMadrasaSheets({
     );
 
     return (
-      <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-4 space-y-4 border border-slate-300 print:border-none print:p-0">
+      <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-4 space-y-4 border border-slate-300 print:border-none print:p-0 print-strict-light qawmi-print-paper">
         {renderSingleLeaveForm("মাদরাসা কপি")}
         <div className="relative my-2 flex items-center justify-center">
           <div className="absolute inset-0 flex items-center">
@@ -224,7 +224,7 @@ export default function PresetMadrasaSheets({
           }));
 
     return (
-      <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-4 sm:p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-xs">
+      <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-4 sm:p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-xs print-strict-light qawmi-print-paper">
         <div className="text-center border-b-2 border-slate-800 pb-2 mb-2 space-y-0.5">
           <p className="text-[10px] font-serif text-slate-500">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
           <h1 className="text-lg sm:text-xl font-black text-slate-900">{mName}</h1>
@@ -295,7 +295,7 @@ export default function PresetMadrasaSheets({
           }));
 
     return (
-      <div className="bg-white text-slate-900 w-full max-w-[297mm] mx-auto p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-[10px]">
+      <div className="bg-white text-slate-900 w-full max-w-[297mm] mx-auto p-5 border border-slate-300 print:border-none print:p-0 print:m-0 text-[10px] print-strict-light qawmi-print-paper">
         <div className="text-center border-b-2 border-slate-800 pb-2 mb-2 space-y-0.5">
           <h1 className="text-lg font-black text-slate-900">{mName}</h1>
           <span className="inline-block bg-slate-900 text-white px-3 py-0.5 rounded text-xs font-bold print:bg-black">
@@ -346,7 +346,7 @@ export default function PresetMadrasaSheets({
 
   // 5. DUE NOTICE SLIPS (3 slips per A4 page)
   return (
-    <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-4 space-y-4 border border-slate-300 print:border-none print:p-0">
+    <div className="bg-white text-slate-900 w-full max-w-[210mm] mx-auto p-4 space-y-4 border border-slate-300 print:border-none print:p-0 print-strict-light qawmi-print-paper">
       {[1, 2, 3].map((num) => (
         <div key={num} className="border border-slate-400 rounded-lg p-4 bg-white space-y-2 text-xs">
           <div className="flex items-start justify-between border-b pb-1.5">

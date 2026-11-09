@@ -32,7 +32,7 @@ export default function BlankMoneyReceipt({
 
     return (
       <div
-        className={`receipt-card bg-white border border-slate-300 rounded-lg p-3 sm:p-4 print:p-2.5 relative flex flex-col justify-between text-slate-800 ${
+        className={`receipt-card print-strict-light qawmi-print-paper bg-white border border-slate-300 rounded-lg p-3 sm:p-4 print:p-2.5 relative flex flex-col justify-between text-slate-800 ${
           isStudent ? "bg-white" : "bg-slate-50/40"
         }`}
         style={{ minHeight: "114mm", maxHeight: "124mm" }}
