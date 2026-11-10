@@ -33,6 +33,8 @@ import { ThemeSwitcher } from "@/components/common/ThemeSwitcher";
 import { UniversalCommandPalette } from "@/components/common/UniversalCommandPalette";
 import { MobileActionSheet } from "@/components/common/MobileActionSheet";
 import { ExecutiveSummaryModal } from "@/components/dashboard/ExecutiveSummaryModal";
+import { ModeProvider } from "@/components/mode/ModeContext";
+import { ModeToggleSwitch } from "@/components/mode/ModeToggleSwitch";
 
 function HeaderUserProfile() {
   const { profile, summary } = usePermissions();
@@ -278,8 +280,9 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   }, [pathname]);
 
   return (
-    <PermissionProvider>
-      <SessionProvider>
+    <ModeProvider>
+      <PermissionProvider>
+        <SessionProvider>
         {/* Universal Modals */}
         <UniversalCommandPalette
           isOpen={commandPaletteOpen}
@@ -426,6 +429,9 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                     <span className="hidden sm:inline">নির্বাহী সামারি</span>
                   </button>
 
+                  {/* Basic / Advanced Mode Switcher */}
+                  <ModeToggleSwitch />
+
                   {/* Islamic Theme Switcher */}
                   <ThemeSwitcher />
 
@@ -457,6 +463,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
           </div>
         </SessionProvider>
       </PermissionProvider>
+    </ModeProvider>
   );
 }
 

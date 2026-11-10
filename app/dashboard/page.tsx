@@ -12,6 +12,7 @@ import { getPortalRedirectUrl } from "@/lib/role-redirect";
 import { getFunds } from "@/app/actions/zakat";
 import { isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
 import { BookOpen, CheckSquare, ArrowRight } from "lucide-react";
+import DashboardViewSwitcher from "./components/DashboardViewSwitcher";
 
 
 
@@ -359,99 +360,113 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white p-6 sm:p-8 rounded-xl border shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800 mb-1">স্বাগতম, {profile?.full_name || 'এডমিন'}</h2>
-          <p className="text-slate-600 text-sm">
-            আপনি <span className="font-semibold text-slate-900">{profile?.madrasas?.name || 'আপনার মাদ্রাসা'}</span>-এ <span className="font-semibold capitalize text-slate-900">{profile?.role?.replace("_", " ") || 'সুপার এডমিন'}</span> হিসেবে লগইন করেছেন।
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Link
-            href="/dashboard/assignments"
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition flex items-center gap-2"
-          >
-            <BookOpen className="w-4 h-4" />
-            <span>দৈনিক পড়া ও অ্যাসাইনমেন্ট</span>
-          </Link>
-          <Link
-            href="/dashboard/attendance/students"
-            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-xl transition flex items-center gap-2"
-          >
-            <CheckSquare className="w-4 h-4" />
-            <span>হাজিরা গ্রহণ</span>
-          </Link>
-        </div>
-      </div>
-
-      {error && (
-        <div className="bg-red-50 p-4 rounded-xl border border-red-100 text-red-700 text-sm">
-          ডাটাবেস কানেকশন সমস্যা।
-          <br/>
-          Error: {error.message}
-        </div>
-      )}
-
-      {/* Early Warning System Alert Widget */}
-      <EarlyWarningWidget initialData={earlyWarningData} isTeacherView={false} />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Link href="/dashboard/students" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
-          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট শিক্ষার্থী</h3>
-          <p className="text-3xl font-bold text-slate-800 mt-2">{studentsCount}</p>
-        </Link>
-        <Link href="/dashboard/staff" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
-          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট শিক্ষক ও স্টাফ</h3>
-          <p className="text-3xl font-bold text-slate-800 mt-2">{teachersCount}</p>
-        </Link>
-        <Link href="/dashboard/classes" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
-          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">সক্রিয় জামাত (ক্লাস)</h3>
-          <p className="text-3xl font-bold text-slate-800 mt-2">{classesCount}</p>
-        </Link>
-        <Link href="/dashboard/attendance/students" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
-          <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">আজকের উপস্থিতি (শিক্ষার্থী)</h3>
-          <p className="text-3xl font-bold text-slate-800 mt-2 text-emerald-600">{todayPresent}</p>
-          <p className="text-sm text-rose-500 mt-1">অনুপস্থিত: {todayAbsent}</p>
-        </Link>
-        
-        <Link href="/dashboard/accounting/income" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-400 hover:shadow-md transition block group">
-          <div className="flex items-center justify-between">
-            <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট আয় (ফান্ড কালেকশন)</h3>
-            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 group-hover:bg-emerald-100 transition">
-              <span>আয় হিস্ট্রি দেখুন</span>
-              <ArrowRight className="w-3 h-3" />
-            </span>
-          </div>
-          <p className="text-3xl font-bold text-emerald-600 mt-2">৳ {totalIncome.toLocaleString('en-IN')}</p>
-          <p className="text-xs text-slate-400 mt-1 font-medium">সকল ফান্ডের সর্বমোট কালেকশন</p>
-        </Link>
-        <Link href="/dashboard/accounting/expenses" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
-          <div className="flex items-center justify-between">
-            <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট ব্যয়</h3>
-            {bazarSum > 0 && (
-              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-                বোর্ডিং বাজার সহ
-              </span>
-            )}
-          </div>
-          <p className="text-3xl font-bold text-rose-600 mt-2">৳ {totalExpense.toLocaleString('en-IN')}</p>
-          {bazarSum > 0 && (
-            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5">
-              <span>বোর্ডিং বাজার: ৳ {bazarSum.toLocaleString('en-IN')}</span>
-              {expensesSum > 0 && <span>• সাধারণ খরচ: ৳ {expensesSum.toLocaleString('en-IN')}</span>}
+    <DashboardViewSwitcher
+      stats={{
+        studentsCount,
+        teachersCount,
+        classesCount,
+        todayPresent,
+        todayAbsent,
+        totalIncome,
+        totalExpense,
+        expensesSum,
+        bazarSum,
+      }}
+    >
+      <div className="space-y-6">
+        <div className="bg-white p-6 sm:p-8 rounded-xl border shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800 mb-1">স্বাগতম, {profile?.full_name || 'এডমিন'}</h2>
+            <p className="text-slate-600 text-sm">
+              আপনি <span className="font-semibold text-slate-900">{profile?.madrasas?.name || 'আপনার মাদ্রাসা'}</span>-এ <span className="font-semibold capitalize text-slate-900">{profile?.role?.replace("_", " ") || 'সুপার এডমিন'}</span> হিসেবে লগইন করেছেন।
             </p>
-          )}
-        </Link>
-      </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Link
+              href="/dashboard/assignments"
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition flex items-center gap-2"
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>দৈনিক পড়া ও অ্যাসাইনমেন্ট</span>
+            </Link>
+            <Link
+              href="/dashboard/attendance/students"
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-xl transition flex items-center gap-2"
+            >
+              <CheckSquare className="w-4 h-4" />
+              <span>হাজিরা গ্রহণ</span>
+            </Link>
+          </div>
+        </div>
 
-      <ReportingCharts 
-        incomeExpenseData={incomeExpenseData} 
-        attendanceData={attendanceData} 
-        todayAttendanceData={todayAttendanceData}
-        examPassRateData={examPassRateData} 
-      />
-    </div>
+        {error && (
+          <div className="bg-red-50 p-4 rounded-xl border border-red-100 text-red-700 text-sm">
+            ডাটাবেস কানেকশন সমস্যা।
+            <br/>
+            Error: {error.message}
+          </div>
+        )}
+
+        {/* Early Warning System Alert Widget */}
+        <EarlyWarningWidget initialData={earlyWarningData} isTeacherView={false} />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Link href="/dashboard/students" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
+            <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট শিক্ষার্থী</h3>
+            <p className="text-3xl font-bold text-slate-800 mt-2">{studentsCount}</p>
+          </Link>
+          <Link href="/dashboard/staff" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
+            <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট শিক্ষক ও স্টাফ</h3>
+            <p className="text-3xl font-bold text-slate-800 mt-2">{teachersCount}</p>
+          </Link>
+          <Link href="/dashboard/classes" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
+            <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">সক্রিয় জামাত (ক্লাস)</h3>
+            <p className="text-3xl font-bold text-slate-800 mt-2">{classesCount}</p>
+          </Link>
+          <Link href="/dashboard/attendance/students" className="bg-white p-6 rounded-xl border shadow-sm hover:border-emerald-300 hover:shadow transition block group">
+            <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">আজকের উপস্থিতি (শিক্ষার্থী)</h3>
+            <p className="text-3xl font-bold text-slate-800 mt-2 text-emerald-600">{todayPresent}</p>
+            <p className="text-sm text-rose-500 mt-1">অনুপস্থিত: {todayAbsent}</p>
+          </Link>
+          
+          <Link href="/dashboard/accounting/income" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-400 hover:shadow-md transition block group">
+            <div className="flex items-center justify-between">
+              <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট আয় (ফান্ড কালেকশন)</h3>
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 group-hover:bg-emerald-100 transition">
+                <span>আয় হিস্ট্রি দেখুন</span>
+                <ArrowRight className="w-3 h-3" />
+              </span>
+            </div>
+            <p className="text-3xl font-bold text-emerald-600 mt-2">৳ {totalIncome.toLocaleString('en-IN')}</p>
+            <p className="text-xs text-slate-400 mt-1 font-medium">সকল ফান্ডের সর্বমোট কালেকশন</p>
+          </Link>
+          <Link href="/dashboard/accounting/expenses" className="bg-white p-6 rounded-xl border shadow-sm lg:col-span-2 hover:border-emerald-300 hover:shadow transition block group">
+            <div className="flex items-center justify-between">
+              <h3 className="text-slate-500 text-sm font-medium group-hover:text-emerald-700 transition">মোট ব্যয়</h3>
+              {bazarSum > 0 && (
+                <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                  বোর্ডিং বাজার সহ
+                </span>
+              )}
+            </div>
+            <p className="text-3xl font-bold text-rose-600 mt-2">৳ {totalExpense.toLocaleString('en-IN')}</p>
+            {bazarSum > 0 && (
+              <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5">
+                <span>বোর্ডিং বাজার: ৳ {bazarSum.toLocaleString('en-IN')}</span>
+                {expensesSum > 0 && <span>• সাধারণ খরচ: ৳ {expensesSum.toLocaleString('en-IN')}</span>}
+              </p>
+            )}
+          </Link>
+        </div>
+
+        <ReportingCharts 
+          incomeExpenseData={incomeExpenseData} 
+          attendanceData={attendanceData} 
+          todayAttendanceData={todayAttendanceData}
+          examPassRateData={examPassRateData} 
+        />
+      </div>
+    </DashboardViewSwitcher>
   );
 
 }

@@ -36,8 +36,13 @@ import {
   Database,
   Printer,
   Bus,
+  SlidersHorizontal,
+  UserPlus,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/PermissionContext";
+import { useAppMode } from "@/components/mode/ModeContext";
+import { AdvancedMenuCustomizerModal } from "@/components/mode/AdvancedMenuCustomizerModal";
+import { getIconComponent } from "@/components/mode/iconRegistry";
 
 interface NavSubItem {
   name: string;
@@ -94,14 +99,24 @@ const navGroups: NavGroup[] = [
         keywords: ["student", "shikkharthi", "talika", "profile", "ছাত্র", "তালিকা"],
       },
       {
-        name: "ভর্তি ব্যবস্থাপনা ও আবেদন",
+        name: "নতুন শিক্ষার্থী যোগ (Add Student)",
+        href: "/dashboard/students/new",
+        icon: UserPlus,
+        permission: "student.edit",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "education_secretary"],
+        badge: "অ্যাডমিন এন্ট্রি",
+        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        keywords: ["add student", "new student", "notun shatro", "ছাত্র যোগ", "নতুন ছাত্র", "ভর্তি"],
+      },
+      {
+        name: "অনলাইন ভর্তি আবেদন ও যাচাই",
         href: "/dashboard/admissions",
         icon: GraduationCap,
         permission: "student.view",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "education_secretary"],
-        badge: "ভর্তি",
-        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-        keywords: ["admission", "vorti", "abedon", "ভর্তি", "আবেদন", "নতুন ছাত্র"],
+        badge: "অনলাইন পোর্টাল",
+        badgeColor: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+        keywords: ["admission", "vorti", "abedon", "ভর্তি", "আবেদন", "অনলাইন ভর্তি"],
       },
       {
         name: "শিক্ষার্থী প্রমোশন ও জামাত পরিবর্তন",
@@ -630,8 +645,26 @@ interface DashboardNavProps {
 export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
   const pathname = usePathname();
   const { hasPermission, summary, loading } = usePermissions();
+  const { customNavGroups, mode } = useAppMode();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
+  const [customizerModalOpen, setCustomizerModalOpen] = useState(false);
+
+  // Compute active nav groups (either user-customized tree or default tree)
+  const activeNavGroups = useMemo(() => {
+    if (customNavGroups && customNavGroups.length > 0) {
+      return customNavGroups.map((g: any) => ({
+        id: g.id,
+        title: g.title,
+        icon: typeof g.iconName === "string" ? getIconComponent(g.iconName) : g.icon || FolderOpen,
+        items: g.items.map((it: any) => ({
+          ...it,
+          icon: typeof it.iconName === "string" ? getIconComponent(it.iconName) : it.icon || FileText,
+        })),
+      }));
+    }
+    return navGroups;
+  }, [customNavGroups]);
 
   const isItemActive = (item: { href: string; exact?: boolean }) => {
     if (item.exact) {
@@ -673,13 +706,13 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
 
   // Automatically expand group that contains currently active route
   useEffect(() => {
-    navGroups.forEach((group) => {
-      const hasActiveChild = group.items.some((item) => isItemActive(item));
+    activeNavGroups.forEach((group: any) => {
+      const hasActiveChild = group.items.some((item: any) => isItemActive(item));
       if (hasActiveChild) {
         setOpenGroups((prev) => ({ ...prev, [group.id]: true }));
       }
     });
-  }, [pathname]);
+  }, [pathname, activeNavGroups]);
 
   const toggleGroup = (groupId: string) => {
     setOpenGroups((prev) => ({
@@ -690,7 +723,7 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
 
   const toggleAllGroups = (expand: boolean) => {
     const next: Record<string, boolean> = {};
-    navGroups.forEach((g) => {
+    activeNavGroups.forEach((g: any) => {
       next[g.id] = expand;
     });
     setOpenGroups(next);
@@ -705,14 +738,14 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
       return item.name.toLowerCase().includes(q);
     });
 
-    const visibleGroups = navGroups
-      .map((group) => {
+    const visibleGroups = activeNavGroups
+      .map((group: any) => {
         const allowedItems = group.items.filter(isItemAllowed);
-        const matchedItems = allowedItems.filter((item) => {
+        const matchedItems = allowedItems.filter((item: any) => {
           if (!q) return true;
           const matchName = item.name.toLowerCase().includes(q);
           const matchGroup = group.title.toLowerCase().includes(q);
-          const matchKeywords = item.keywords?.some((k) => k.toLowerCase().includes(q));
+          const matchKeywords = item.keywords?.some((k: string) => k.toLowerCase().includes(q));
           return matchName || matchGroup || !!matchKeywords;
         });
 
@@ -720,19 +753,41 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
           ...group,
           allowedItems,
           matchedItems,
-          hasActiveChild: allowedItems.some((item) => isItemActive(item)),
+          hasActiveChild: allowedItems.some((item: any) => isItemActive(item)),
         };
       })
-      .filter((group) => group.matchedItems.length > 0);
+      .filter((group: any) => group.matchedItems.length > 0);
 
     return { visibleDirectItems, visibleGroups };
-  }, [searchQuery, summary, loading, pathname]);
+  }, [searchQuery, summary, loading, pathname, activeNavGroups]);
 
   const isAllExpanded = Object.keys(openGroups).length > 0 && 
-    navGroups.every((g) => openGroups[g.id]);
+    activeNavGroups.every((g: any) => openGroups[g.id]);
 
   return (
     <nav className="p-3 space-y-2.5">
+      {/* Advanced Menu Customizer Modal */}
+      <AdvancedMenuCustomizerModal
+        isOpen={customizerModalOpen}
+        onClose={() => setCustomizerModalOpen(false)}
+      />
+
+      {/* Customize Menu Button (Drag & Drop Organizer) */}
+      <button
+        type="button"
+        onClick={() => setCustomizerModalOpen(true)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/40 hover:border-emerald-400 rounded-xl text-emerald-300 hover:text-emerald-100 transition-all text-xs font-bold group shadow-sm cursor-pointer active:scale-98"
+        title="মেনু টেনে টেনে সাজান অথবা একটিকে অন্যটির অধীনে সাব-মেনু করুন"
+      >
+        <span className="flex items-center gap-2">
+          <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400 group-hover:rotate-45 transition-transform" />
+          <span>মেনু সাজান ও ড্র্যাগ-ড্রপ</span>
+        </span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30">
+          কাস্টমাইজ
+        </span>
+      </button>
+
       {/* Quick Menu Search */}
       <div className="relative">
         <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -866,7 +921,7 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
               {/* Sub-menu items indented cleanly */}
               {isOpen && (
                 <div className="pl-3.5 pr-1.5 pb-2 pt-0.5 ml-3 border-l-2 border-slate-700/60 space-y-0.5">
-                  {group.matchedItems.map((item) => {
+                  {group.matchedItems.map((item: any) => {
                     const active = isItemActive(item);
                     const SubIcon = item.icon;
 
