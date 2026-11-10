@@ -35,6 +35,7 @@ import {
   Sparkles,
   Database,
   Printer,
+  Bus,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/PermissionContext";
 
@@ -458,9 +459,18 @@ const navGroups: NavGroup[] = [
   },
   {
     id: "admin_assets",
-    title: "হোস্টেল ও সম্পত্তি",
+    title: "হোস্টেল, পরিবহন ও সম্পত্তি",
     icon: Briefcase,
     items: [
+      {
+        name: "যানবাহন ও পরিবহন বহর (Transport)",
+        href: "/dashboard/transport",
+        icon: Bus,
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff"],
+        badge: "পরিবহন",
+        badgeColor: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+        keywords: ["transport", "van", "bus", "gari", "driver", "যানবাহন", "ভ্যান", "বাস", "পরিবহন", "ড্রাইভার"],
+      },
       {
         name: "বোর্ডিং ও মিল ব্যবস্থাপনা",
         href: "/dashboard/boarding",

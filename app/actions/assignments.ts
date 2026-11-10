@@ -322,6 +322,7 @@ export async function saveAssignment(data: {
   due_date?: string | null;
   teacher_name?: string;
   status?: "ACTIVE" | "COMPLETED" | "ARCHIVED";
+  kids_care?: import("@/lib/assignmentTypes").KidsCareDetails;
   // Syllabus Auto-Sync payload
   sync_to_syllabus?: boolean;
   syllabus_id?: string;
@@ -488,6 +489,7 @@ export async function saveAssignment(data: {
         is_syllabus_synced: syllabusSynced || existing.is_syllabus_synced,
         page_from: data.page_from || existing.page_from,
         page_to: data.page_to || existing.page_to,
+        kids_care: data.kids_care !== undefined ? data.kids_care : existing.kids_care,
         updated_at: new Date().toISOString(),
       };
     } else {
@@ -521,6 +523,7 @@ export async function saveAssignment(data: {
         is_syllabus_synced: syllabusSynced,
         page_from: data.page_from || null,
         page_to: data.page_to || null,
+        kids_care: data.kids_care || undefined,
       };
 
       meta.assignments.unshift(newAssignment);

@@ -13,6 +13,7 @@ import {
   Clock,
   Printer,
   RotateCw,
+  Heart,
 } from "lucide-react";
 import {
   AssignmentItem,
@@ -22,6 +23,7 @@ import { getAssignments } from "@/app/actions/assignments";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import AssignmentCard from "@/components/assignments/AssignmentCard";
 import AssignmentFormModal from "@/components/assignments/AssignmentFormModal";
+import KidsDailyDiaryModal from "@/components/assignments/KidsDailyDiaryModal";
 
 interface AssignmentsClientProps {
   initialAssignments: AssignmentItem[];
@@ -48,6 +50,7 @@ export default function AssignmentsClient({
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isKidsDiaryOpen, setIsKidsDiaryOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AssignmentItem | null>(null);
 
   const refreshData = async () => {
@@ -140,6 +143,15 @@ export default function AssignmentsClient({
           >
             <Printer className="w-4 h-4" />
             <span>প্রিন্ট শিট</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsKidsDiaryOpen(true)}
+            className="px-3.5 py-2.5 bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer"
+          >
+            <Heart className="w-4 h-4" />
+            <span>ছোটদের ডায়েরি ও কেয়ার</span>
           </button>
 
           <button
@@ -323,6 +335,16 @@ export default function AssignmentsClient({
         teachers={teachersList}
         defaultTeacherName={currentTeacherName}
         initialData={editingItem}
+      />
+
+      {/* Kids Daily Diary & Care Modal */}
+      <KidsDailyDiaryModal
+        isOpen={isKidsDiaryOpen}
+        onClose={() => setIsKidsDiaryOpen(false)}
+        classes={classes}
+        teachers={teachersList}
+        defaultTeacherName={currentTeacherName}
+        onSuccess={refreshData}
       />
     </div>
   );

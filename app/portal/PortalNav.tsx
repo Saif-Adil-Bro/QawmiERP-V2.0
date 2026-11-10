@@ -14,6 +14,7 @@ import {
   IdCard,
   MessageSquarePlus,
   BookOpen,
+  Volume2,
 } from "lucide-react";
 
 interface PortalNavProps {
@@ -27,6 +28,7 @@ export default function PortalNav({ onItemClick }: PortalNavProps) {
 
   const links = [
     { href: "/portal", label: "ড্যাশবোর্ড ও ওভারভিউ", icon: LayoutDashboard, exact: true },
+    { href: "/portal/tajweed", label: "নূরানী কায়দা ও ১৭ মাখরাজ অডিও", icon: Volume2 },
     { href: "/portal/assignments", label: "দৈনিক পড়া ও অ্যাসাইনমেন্ট", icon: BookOpen },
     { href: "/portal/id-card", label: "ডিজিটাল আইডি কার্ড", icon: IdCard },
     { href: "/portal/certificates", label: "সনদপত্র ও প্রত্যয়ন", icon: Award },

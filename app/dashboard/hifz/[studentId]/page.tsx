@@ -1,4 +1,6 @@
 import { getHifzLogs } from "@/app/actions/hifz";
+import { getStudentNooraniProgress } from "@/app/actions/noorani";
+import NooraniMakhrajTracker from "@/components/hifz/NooraniMakhrajTracker";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { ArrowLeft, Plus } from "lucide-react";
@@ -20,7 +22,10 @@ export default async function StudentHifzLogsPage({ params }: { params: Promise<
     return <div>শিক্ষার্থী পাওয়া যায়নি।</div>;
   }
 
-  const logs = await getHifzLogs(studentId);
+  const [logs, nooraniProgress] = await Promise.all([
+    getHifzLogs(studentId),
+    getStudentNooraniProgress(studentId),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -35,6 +40,13 @@ export default async function StudentHifzLogsPage({ params }: { params: Promise<
           <p className="text-slate-500 text-sm">রোল নম্বর: {student.roll_number || 'N/A'}</p>
         </div>
       </div>
+
+      {/* Noorani Qaida 27 Takhtis & 17 Makharij Milestones Tracker */}
+      <NooraniMakhrajTracker 
+        studentId={student.id} 
+        studentName={`${student.first_name} ${student.last_name}`} 
+        initialProgress={nooraniProgress} 
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 space-y-6">

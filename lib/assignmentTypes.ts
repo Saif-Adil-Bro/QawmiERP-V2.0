@@ -4,9 +4,20 @@ export type AssignmentType =
   | "HOMEWORK"         // হোমওয়ার্ক
   | "MEMORIZATION"     // হিফজ / সবক / মুখস্থ
   | "EXAM_REVISION"    // পরীক্ষার রিভিশন
+  | "KIDS_DIARY"       // ছোটদের দৈনিক ডায়েরি ও কেয়ার
   | "OTHER";           // অন্যান্য
 
 export type AssignmentTargetType = "CLASS" | "STUDENT";
+
+export interface KidsCareDetails {
+  meal_status?: "FULL" | "PARTIAL" | "MINIMAL" | "SKIPPED";
+  nap_status?: "SLEPT_WELL" | "RESTLESS" | "NO_NAP";
+  mood_status?: "HAPPY" | "CALM" | "CRYING" | "PLAYFUL";
+  hygiene_notes?: string;
+  handwriting_rating?: "EXCELLENT" | "GOOD" | "NEEDS_PRACTICE";
+  quran_qaida_page?: string;
+  teacher_remarks?: string;
+}
 
 export interface AssignmentItem {
   id: string;
@@ -38,6 +49,7 @@ export interface AssignmentItem {
   is_syllabus_synced?: boolean;
   page_from?: string | null;
   page_to?: string | null;
+  kids_care?: KidsCareDetails;
 }
 
 export const ASSIGNMENT_TYPE_MAP: Record<AssignmentType, string> = {
@@ -46,5 +58,6 @@ export const ASSIGNMENT_TYPE_MAP: Record<AssignmentType, string> = {
   HOMEWORK: "হোমওয়ার্ক",
   MEMORIZATION: "হিফজ সবক ও মুখস্থ",
   EXAM_REVISION: "পরীক্ষার প্রস্তুতি ও রিভিশন",
+  KIDS_DIARY: "ছোটদের দৈনিক ডায়েরি ও কেয়ার",
   OTHER: "সাধারণ অ্যাসাইনমেন্ট",
 };

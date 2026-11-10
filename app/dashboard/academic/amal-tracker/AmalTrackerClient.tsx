@@ -14,6 +14,7 @@ import {
   buildAmalStudentSnapshot,
 } from "@/lib/amal-tracker";
 import { AmalSheetA4 } from "@/components/amal-tracker/AmalSheetA4";
+import TarbiyahBadgeModal from "@/components/amal-tracker/TarbiyahBadgeModal";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { extractMadrasaPrefix } from "@/lib/madrasa-prefix";
 import { getActiveMadrasaPrefix } from "@/lib/student-utils";
@@ -141,6 +142,7 @@ export default function AmalTrackerClient({
 
   // Evaluation Form Modal State
   const [isEvalModalOpen, setIsEvalModalOpen] = useState(false);
+  const [isBadgeModalOpen, setIsBadgeModalOpen] = useState(false);
   const [evalForm, setEvalForm] = useState<Partial<AmalEvaluationLog>>({
     grade: "মুমতাজ",
     totalDays: 7,
@@ -396,6 +398,15 @@ export default function AmalTrackerClient({
           </div>
 
           <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsBadgeModalOpen(true)}
+              className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2 shadow-lg shadow-amber-600/25 transition cursor-pointer active:scale-95"
+            >
+              <Award className="w-4 h-4 text-amber-200" />
+              <span>🌟 ছোটদের তারবিয়াহ স্টার প্রদান</span>
+            </button>
+
             <button
               type="button"
               onClick={() => handleOpenTemplateModal()}
@@ -1514,6 +1525,17 @@ export default function AmalTrackerClient({
           </div>
         </div>
       )}
+
+      {/* Tarbiyah Badge Modal for Kids */}
+      <TarbiyahBadgeModal
+        isOpen={isBadgeModalOpen}
+        onClose={() => setIsBadgeModalOpen(false)}
+        students={students.map((s: any) => ({
+          id: s.id,
+          name: `${s.first_name || ""} ${s.last_name || ""}`.trim(),
+          className: classes.find((c: any) => c.id === s.class_id)?.name || "সাধারণ",
+        }))}
+      />
     </div>
   );
 }

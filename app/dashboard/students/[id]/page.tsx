@@ -1,5 +1,6 @@
 import { getStudentById, getStudents } from "@/app/actions/students";
 import { getStudentAcademicHistory } from "@/app/actions/sessions";
+import { getStudentSafetyAndHealth } from "@/app/actions/child-safety";
 import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import StudentProfileClient from "./StudentProfileClient";
 import Link from "next/link";
@@ -15,10 +16,11 @@ export default async function StudentDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [historyData, allStudents, madrasaInfo] = await Promise.all([
+  const [historyData, allStudents, madrasaInfo, safetyAndHealth] = await Promise.all([
     getStudentAcademicHistory(id),
     getStudents(),
     getMadrasaInfo(),
+    getStudentSafetyAndHealth(id),
   ]);
 
   if (!historyData.student) {
@@ -42,6 +44,7 @@ export default async function StudentDetailPage({
       academicHistory={historyData.history}
       allStudents={allStudents}
       madrasaInfo={toPublicMadrasaInfo(madrasaInfo)}
+      safetyAndHealth={safetyAndHealth}
     />
   );
 }

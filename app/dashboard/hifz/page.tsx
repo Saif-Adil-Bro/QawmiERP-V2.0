@@ -2,14 +2,18 @@
 
 import { getHifzStudents } from "@/app/actions/hifz";
 import { getClasses } from "@/app/actions/students";
+import { getAllNooraniProgressMap } from "@/app/actions/noorani";
+import { NOORANI_TAKHTIS } from "@/lib/noorani-utils";
 import Link from "next/link";
-import { BookOpen, Search, Users, Sparkles, Filter, ChevronRight } from "lucide-react";
+import { BookOpen, Search, Users, Sparkles, Filter, ChevronRight, Award } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
+import { toBanglaNumber } from "@/lib/numberToBangla";
 
 export default function HifzPage() {
   const [classId, setClassId] = useState<string>("All");
   const [classes, setClasses] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
+  const [nooraniMap, setNooraniMap] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -29,8 +33,12 @@ export default function HifzPage() {
     async function loadStudents() {
       setLoading(true);
       try {
-        const data = await getHifzStudents(classId);
+        const [data, nMap] = await Promise.all([
+          getHifzStudents(classId),
+          getAllNooraniProgressMap(),
+        ]);
         setStudents(data || []);
+        setNooraniMap(nMap || {});
       } catch (err) {
         console.error("getHifzStudents failed:", err);
       } finally {
@@ -158,35 +166,59 @@ export default function HifzPage() {
                   <th className="px-6 py-3.5 font-bold text-xs">রোল নম্বর</th>
                   <th className="px-6 py-3.5 font-bold text-xs">শিক্ষার্থীর নাম</th>
                   <th className="px-6 py-3.5 font-bold text-xs">জামাত</th>
+                  <th className="px-6 py-3.5 font-bold text-xs">নূরানী তখতি / তাজবীদ</th>
                   <th className="px-6 py-3.5 font-bold text-xs text-right">পদক্ষেপ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredStudents.map((student) => (
-                  <tr key={student.id} className="hover:bg-slate-50/70 transition">
-                    <td className="px-6 py-4 text-slate-900 font-bold font-mono">
-                      {student.roll_number || "-"}
-                    </td>
-                    <td className="px-6 py-4 text-slate-900 font-bold">
-                      {student.first_name} {student.last_name}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
-                        {getClassName(student)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <Link 
-                        href={`/dashboard/hifz/${student.id}`}
-                        className="inline-flex items-center space-x-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-1.5 rounded-xl border border-emerald-200 transition"
-                      >
-                        <BookOpen className="w-3.5 h-3.5" />
-                        <span>লগ দেখুন ও এন্ট্রি করুন</span>
-                        <ChevronRight className="w-3 h-3" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {filteredStudents.map((student) => {
+                  const nProg = nooraniMap[student.id];
+                  const currentTakhti = nProg?.currentTakhtiId 
+                    ? NOORANI_TAKHTIS.find(t => t.id === nProg.currentTakhtiId) 
+                    : null;
+
+                  return (
+                    <tr key={student.id} className="hover:bg-slate-50/70 transition">
+                      <td className="px-6 py-4 text-slate-900 font-bold font-mono">
+                        {student.roll_number || "-"}
+                      </td>
+                      <td className="px-6 py-4 text-slate-900 font-bold">
+                        {student.first_name} {student.last_name}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                          {getClassName(student)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        {currentTakhti ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-md border border-emerald-200">
+                              তখতি {toBanglaNumber(currentTakhti.id)}: {currentTakhti.title}
+                            </span>
+                            {nProg?.makhrajWeaknesses?.length > 0 && (
+                              <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                                {toBanglaNumber(nProg.makhrajWeaknesses.length)} মাখরাজ
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400 italic">প্রারম্ভিক / নির্ধারিত নয়</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <Link 
+                          href={`/dashboard/hifz/${student.id}`}
+                          className="inline-flex items-center space-x-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-1.5 rounded-xl border border-emerald-200 transition"
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          <span>লগ ও কায়দা ট্র্যাকার</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

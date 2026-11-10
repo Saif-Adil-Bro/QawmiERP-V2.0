@@ -189,6 +189,32 @@ export default function AssignmentCard({
           )}
         </div>
 
+        {/* Kids Care Details Feed */}
+        {assignment.kids_care && (
+          <div className="flex flex-wrap items-center gap-2 p-2.5 bg-rose-50/60 border border-rose-200/70 rounded-xl text-xs">
+            {assignment.kids_care.meal_status && (
+              <span className="bg-amber-100/90 text-amber-900 px-2.5 py-0.5 rounded-md font-bold text-[11px]">
+                🍛 খাবার: {assignment.kids_care.meal_status === "FULL" ? "সম্পূর্ণ খেয়েছে" : assignment.kids_care.meal_status === "PARTIAL" ? "অর্ধেক খেয়েছে" : assignment.kids_care.meal_status === "MINIMAL" ? "খুব সামান্য" : "খেতে চায়নি"}
+              </span>
+            )}
+            {assignment.kids_care.mood_status && (
+              <span className="bg-pink-100/90 text-pink-900 px-2.5 py-0.5 rounded-md font-bold text-[11px]">
+                মুড: {assignment.kids_care.mood_status === "HAPPY" ? "হাসিখুশি 😊" : assignment.kids_care.mood_status === "PLAYFUL" ? "চঞ্চল 🤸" : assignment.kids_care.mood_status === "CALM" ? "শান্ত 😌" : "কান্নাকাটি 😢"}
+              </span>
+            )}
+            {assignment.kids_care.nap_status && (
+              <span className="bg-indigo-100/90 text-indigo-900 px-2.5 py-0.5 rounded-md font-bold text-[11px]">
+                বিশ্রাম: {assignment.kids_care.nap_status === "SLEPT_WELL" ? "ঘুমিয়েছে 😴" : assignment.kids_care.nap_status === "RESTLESS" ? "সামান্য 🥱" : "ঘুমায়নি ⚡"}
+              </span>
+            )}
+            {assignment.kids_care.quran_qaida_page && (
+              <span className="bg-emerald-100/90 text-emerald-900 px-2.5 py-0.5 rounded-md font-bold text-[11px]">
+                📖 কায়দা: {assignment.kids_care.quran_qaida_page}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Description Body */}
         <div className="p-3 bg-slate-50/80 rounded-xl text-xs sm:text-sm text-slate-700 leading-relaxed font-normal whitespace-pre-line border border-slate-100">
           {assignment.description}

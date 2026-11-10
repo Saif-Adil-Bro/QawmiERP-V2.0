@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { getStudentReportCard } from "@/app/actions/exams";
-import { Printer, Type, Award, User, CheckCircle, GraduationCap } from "lucide-react";
+import { Printer, Type, Award, User, CheckCircle, GraduationCap, Sparkles } from "lucide-react";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import ExamPublishToggle from "@/app/dashboard/exams/ExamPublishToggle";
+import KidsVisualReportCard from "@/components/exams/KidsVisualReportCard";
 
 export default function ReportCardsClient({ 
   examId, 
@@ -34,6 +35,7 @@ export default function ReportCardsClient({
   const [loading, setLoading] = useState(false);
   const [profileAndLogo, setProfileAndLogo] = useState<any>(null);
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
+  const [cardStyle, setCardStyle] = useState<"standard" | "kids">("standard");
 
   useEffect(() => {
     async function load() {
@@ -134,6 +136,18 @@ export default function ReportCardsClient({
             </select>
           </div>
 
+          <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 shadow-xs">
+            <Award className="w-4 h-4 text-amber-500 shrink-0" />
+            <select 
+              value={cardStyle} 
+              onChange={(e) => setCardStyle(e.target.value as any)}
+              className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none"
+            >
+              <option value="standard">স্টাইল: ক্লাসিক্যাল মার্কশিট</option>
+              <option value="kids">স্টাইল: শিশু-বান্ধব / নূরানী প্রগ্রেস রিপোর্ট 🌟</option>
+            </select>
+          </div>
+
           <button 
             onClick={loadResults}
             disabled={loading || !classId}
@@ -163,6 +177,26 @@ export default function ReportCardsClient({
       <div className={`hidden print:block print:w-full ${banglaFont}`}>
         {filteredResults.map((student, index) => {
           const meritRank = results.findIndex(r => r.id === student.id) + 1;
+
+          if (cardStyle === "kids") {
+            return (
+              <div key={student.id} className="break-after-page mb-8 print:mb-0">
+                <KidsVisualReportCard
+                  student={student}
+                  examTitle={examTitle}
+                  examYear={examYear}
+                  madrasaName={madrasaName}
+                  madrasaAddress={madrasaAddress}
+                  logoUrl={logoUrl}
+                  principalName={principalName}
+                  principalSignUrl={principalSignUrl}
+                  meritRank={meritRank}
+                  banglaFont={banglaFont}
+                />
+              </div>
+            );
+          }
+
           return (
             <div key={student.id} className="a4-marksheet-sheet bg-white text-slate-900 font-sans">
               <div className="border-2 border-slate-900 rounded-xl p-5 h-full flex flex-col justify-between relative">
@@ -340,81 +374,104 @@ export default function ReportCardsClient({
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {filteredResults.map((student, index) => {
-              const meritRank = results.findIndex(r => r.id === student.id) + 1;
-              return (
-                <div key={student.id} className="bg-white border border-slate-200 p-5 rounded-xl shadow-xs hover:shadow-md transition flex flex-col justify-between">
-                  <div>
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h3 className="font-bold text-slate-900 text-base">
-                          {student.first_name} {student.last_name}
-                        </h3>
-                        <p className="text-xs text-slate-500 font-medium mt-0.5">ক্লাস: {student.class_name}</p>
-                      </div>
-                      <span className="bg-slate-100 text-slate-800 text-xs px-2.5 py-1 rounded-full font-bold">
-                        রোল: {toBanglaNumber(student.roll_number || '১')}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-2.5 rounded-lg mb-3">
-                      <div>
-                        <span className="text-slate-500 block">মেধা স্থান:</span>
-                        <span className="font-bold text-slate-900 text-sm">{toBanglaNumber(meritRank)} তম</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block">প্রাপ্ত বিভাগ:</span>
-                        <span className={`font-bold text-sm ${student.is_failed || student.grade.includes('রাসিব') ? 'text-red-700' : 'text-emerald-700'}`}>
-                          {student.grade}
+          {cardStyle === "kids" ? (
+            <div className="space-y-6">
+              {filteredResults.map((student) => {
+                const meritRank = results.findIndex(r => r.id === student.id) + 1;
+                return (
+                  <KidsVisualReportCard
+                    key={student.id}
+                    student={student}
+                    examTitle={examTitle}
+                    examYear={examYear}
+                    madrasaName={madrasaName}
+                    madrasaAddress={madrasaAddress}
+                    logoUrl={logoUrl}
+                    principalName={principalName}
+                    principalSignUrl={principalSignUrl}
+                    meritRank={meritRank}
+                    banglaFont={banglaFont}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filteredResults.map((student, index) => {
+                const meritRank = results.findIndex(r => r.id === student.id) + 1;
+                return (
+                  <div key={student.id} className="bg-white border border-slate-200 p-5 rounded-xl shadow-xs hover:shadow-md transition flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h3 className="font-bold text-slate-900 text-base">
+                            {student.first_name} {student.last_name}
+                          </h3>
+                          <p className="text-xs text-slate-500 font-medium mt-0.5">ক্লাস: {student.class_name}</p>
+                        </div>
+                        <span className="bg-slate-100 text-slate-800 text-xs px-2.5 py-1 rounded-full font-bold">
+                          রোল: {toBanglaNumber(student.roll_number || '১')}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-slate-500 block">প্রাপ্ত নম্বর:</span>
-                        <span className="font-bold text-slate-900">{toBanglaNumber(student.totalObtained)} / {toBanglaNumber(student.totalMax)}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block">শতকরা:</span>
-                        <span className="font-bold text-blue-700">{toBanglaNumber(student.percentage)}%</span>
-                      </div>
-                    </div>
 
-                    {student.fail_reason && (
-                      <div className="mb-3 px-2.5 py-1.5 bg-red-50 border border-red-200 rounded-lg text-[11px] text-red-700 font-semibold flex items-center justify-between">
-                        <span>কারণ: {student.fail_reason}</span>
+                      <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-2.5 rounded-lg mb-3">
+                        <div>
+                          <span className="text-slate-500 block">মেধা স্থান:</span>
+                          <span className="font-bold text-slate-900 text-sm">{toBanglaNumber(meritRank)} তম</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block">প্রাপ্ত বিভাগ:</span>
+                          <span className={`font-bold text-sm ${student.is_failed || student.grade.includes('রাসিব') ? 'text-red-700' : 'text-emerald-700'}`}>
+                            {student.grade}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block">প্রাপ্ত নম্বর:</span>
+                          <span className="font-bold text-slate-900">{toBanglaNumber(student.totalObtained)} / {toBanglaNumber(student.totalMax)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block">শতকরা:</span>
+                          <span className="font-bold text-blue-700">{toBanglaNumber(student.percentage)}%</span>
+                        </div>
                       </div>
-                    )}
 
-                    <div className="space-y-1">
-                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">বিষয়ভিত্তিক নম্বর:</p>
-                      {student.marks && student.marks.length > 0 ? (
-                        student.marks.map((m: any, i: number) => (
-                          <div key={i} className="flex justify-between text-xs py-1 border-b border-slate-100 last:border-none">
-                            <div className="flex items-center gap-1.5 truncate max-w-[170px]">
-                              <span className="text-slate-700 font-medium truncate" title={m.subject_name}>{m.subject_name}</span>
-                              {m.is_compulsory && (
-                                <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded">আবশ্যক</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <span className={`font-bold ${m.is_failed ? 'text-red-600' : 'text-slate-900'}`}>
-                                {toBanglaNumber(m.marks_obtained)} / {toBanglaNumber(m.total_marks)}
-                              </span>
-                              {m.is_failed && (
-                                <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1 rounded">ফেল</span>
-                              )}
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-xs text-slate-400 italic">কোনো নম্বর যুক্ত করা হয়নি</p>
+                      {student.fail_reason && (
+                        <div className="mb-3 px-2.5 py-1.5 bg-red-50 border border-red-200 rounded-lg text-[11px] text-red-700 font-semibold flex items-center justify-between">
+                          <span>কারণ: {student.fail_reason}</span>
+                        </div>
                       )}
+
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">বিষয়ভিত্তিক নম্বর:</p>
+                        {student.marks && student.marks.length > 0 ? (
+                          student.marks.map((m: any, i: number) => (
+                            <div key={i} className="flex justify-between text-xs py-1 border-b border-slate-100 last:border-none">
+                              <div className="flex items-center gap-1.5 truncate max-w-[170px]">
+                                <span className="text-slate-700 font-medium truncate" title={m.subject_name}>{m.subject_name}</span>
+                                {m.is_compulsory && (
+                                  <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded">আবশ্যক</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className={`font-bold ${m.is_failed ? 'text-red-600' : 'text-slate-900'}`}>
+                                  {toBanglaNumber(m.marks_obtained)} / {toBanglaNumber(m.total_marks)}
+                                </span>
+                                {m.is_failed && (
+                                  <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1 rounded">ফেল</span>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-slate-400 italic">কোনো নম্বর যুক্ত করা হয়নি</p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

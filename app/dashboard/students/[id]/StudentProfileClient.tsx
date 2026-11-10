@@ -28,6 +28,8 @@ import { getStudentDigitalId, issueStudentIdCard } from "@/app/actions/id-card-m
 import { getStudentCertificates } from "@/app/actions/certificates";
 import DigitalIdCardView from "@/app/components/DigitalIdCardView";
 import CertificateDocumentView from "@/app/components/CertificateDocumentView";
+import KidsSafetyAndHealthCard from "@/components/students/KidsSafetyAndHealthCard";
+import { ShieldCheck } from "lucide-react";
 
 interface StudentProfileClientProps {
   student: any;
@@ -35,6 +37,10 @@ interface StudentProfileClientProps {
   academicHistory: StudentEnrollment[];
   allStudents: any[];
   madrasaInfo?: any;
+  safetyAndHealth?: {
+    authorizedPickups: any[];
+    healthProfile: any;
+  };
 }
 
 export default function StudentProfileClient({
@@ -43,8 +49,9 @@ export default function StudentProfileClient({
   academicHistory,
   allStudents,
   madrasaInfo,
+  safetyAndHealth,
 }: StudentProfileClientProps) {
-  const [activeTab, setActiveTab] = useState<"history" | "personal" | "fees" | "idcard" | "certificates">("history");
+  const [activeTab, setActiveTab] = useState<"history" | "personal" | "fees" | "idcard" | "certificates" | "safety">("history");
   const [digitalIdData, setDigitalIdData] = useState<any>(null);
   const [loadingIdCard, setLoadingIdCard] = useState(false);
   const [studentCertificates, setStudentCertificates] = useState<any[]>([]);
@@ -266,6 +273,19 @@ export default function StudentProfileClient({
           <Award className="w-4 h-4 text-emerald-400" />
           <span>সনদপত্র ও প্রত্যয়ন</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("safety")}
+          className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeTab === "safety"
+              ? "bg-slate-900 text-white shadow-2xs"
+              : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 text-rose-500" />
+          <span>শিশু নিরাপত্তা ও স্বাস্থ্য</span>
+        </button>
       </div>
 
       {/* Tab Content: Academic History */}
@@ -393,9 +413,22 @@ export default function StudentProfileClient({
 
       {/* Tab Content: Personal & Guardian Details */}
       {activeTab === "personal" && (
-        <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-6 animate-in fade-in duration-150">
-          {/* আবাসিক ও বোর্ডিং তথ্য */}
-          <div className="space-y-3">
+        <div className="space-y-6 animate-in fade-in duration-150">
+          {/* Kids Health & Safety Card */}
+          <KidsSafetyAndHealthCard
+            studentId={student.id}
+            studentName={`${student.first_name || ""} ${student.last_name || ""}`.trim()}
+            studentRoll={student.roll_number}
+            className={currentEnrollment?.class_name || student.classes?.name || "অনির্ধারিত"}
+            parentPhone={student.parent_phone}
+            bloodGroup={student.blood_group}
+            initialPickups={safetyAndHealth?.authorizedPickups || []}
+            initialHealth={safetyAndHealth?.healthProfile || { foodAllergies: [], chronicConditions: [] }}
+          />
+
+          <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-6">
+            {/* আবাসিক ও বোর্ডিং তথ্য */}
+            <div className="space-y-3">
             <div className="flex items-center justify-between pb-2 border-b">
               <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <span>🏠 আবাসিক ও বোর্ডিং তথ্য (Hostel & Boarding)</span>
@@ -560,6 +593,7 @@ export default function StudentProfileClient({
               )}
             </div>
           </div>
+        </div>
         </div>
       )}
 
@@ -816,6 +850,22 @@ export default function StudentProfileClient({
               </Link>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Tab Content: Child Safety & Health */}
+      {activeTab === "safety" && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          <KidsSafetyAndHealthCard
+            studentId={student.id}
+            studentName={`${student.first_name || ""} ${student.last_name || ""}`.trim()}
+            studentRoll={student.roll_number}
+            className={currentEnrollment?.class_name || student.classes?.name || "অনির্ধারিত"}
+            parentPhone={student.parent_phone}
+            bloodGroup={student.blood_group}
+            initialPickups={safetyAndHealth?.authorizedPickups || []}
+            initialHealth={safetyAndHealth?.healthProfile || { foodAllergies: [], chronicConditions: [] }}
+          />
         </div>
       )}
     </div>
