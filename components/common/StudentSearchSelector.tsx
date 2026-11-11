@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Search, User, X, Check, GraduationCap, ChevronDown, Sparkles, Plus, RefreshCw } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { getStudentIdNumber, isUuid } from "@/lib/student-utils";
 
 export interface StudentItem {
   id: string;
@@ -13,6 +14,9 @@ export interface StudentItem {
   roll_number?: string | number | null;
   roll?: string | number | null;
   student_id?: string | null;
+  student_id_formatted?: string | null;
+  student_code?: string | null;
+  admission_no?: string | null;
   class_id?: string | null;
   class_name?: string | null;
   classes?: { id?: string; name?: string } | null;
@@ -52,6 +56,23 @@ function normalizeSearchText(text: string | number | null | undefined): string {
   const engForm = str.replace(/[০-৯]/g, (ch) => banglaToEng[ch] || ch);
   const bngForm = str.replace(/[0-9]/g, (ch) => engToBangla[ch] || ch);
   return `${str} ${engForm} ${bngForm}`;
+}
+
+export function resolveStudentOfficialId(s: StudentItem, allStudents?: StudentItem[]): string {
+  if (!s) return "";
+  if (s.student_id_formatted && !isUuid(s.student_id_formatted)) {
+    return String(s.student_id_formatted).trim();
+  }
+  if (s.student_code && !isUuid(s.student_code)) {
+    return String(s.student_code).trim();
+  }
+  if (s.student_id && !isUuid(s.student_id)) {
+    return String(s.student_id).trim();
+  }
+  if (s.admission_no && !isUuid(s.admission_no)) {
+    return String(s.admission_no).trim();
+  }
+  return getStudentIdNumber(s, allStudents);
 }
 
 export default function StudentSearchSelector({
@@ -98,9 +119,18 @@ export default function StudentSearchSelector({
     return students.find((s) => s.id === selectedId) || null;
   }, [students, selectedId]);
 
+  const currentOfficialId = useMemo(() => {
+    return currentStudent ? resolveStudentOfficialId(currentStudent, students) : "";
+  }, [currentStudent, students]);
+
   // Filter students based on query and class filter
   const filteredStudents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const banglaToEngMap: Record<string, string> = {
+      "০": "0", "১": "1", "২": "2", "৩": "3", "৪": "4",
+      "৫": "5", "৬": "6", "৭": "7", "৮": "8", "৯": "9",
+    };
+
     return students.filter((s) => {
       // Class filter check
       const studentClass = (s.class_name || s.classes?.name || "").trim();
@@ -120,9 +150,21 @@ export default function StudentSearchSelector({
       const rollNorm = normalizeSearchText(s.roll_number ?? s.roll);
       if (rollNorm.includes(normQuery)) return true;
 
-      // Student ID / Reg ID search
-      const studentIdNorm = normalizeSearchText(s.student_id || s.id);
-      if (studentIdNorm.includes(normQuery)) return true;
+      // Official Student ID search
+      const officialId = resolveStudentOfficialId(s, students);
+      const officialIdNorm = normalizeSearchText(officialId);
+      if (officialIdNorm.includes(normQuery)) return true;
+
+      // Match raw numbers without prefix/symbols (e.g. searching "12" or "480012" or "৪৮০০১২")
+      const cleanOfficialDigits = officialId.replace(/\D/g, "");
+      const cleanQueryDigits = normQuery.replace(/[^0-9০-৯]/g, "");
+      const queryInEngDigits = cleanQueryDigits.replace(/[০-৯]/g, (ch) => banglaToEngMap[ch] || ch);
+      if (queryInEngDigits && cleanOfficialDigits.includes(queryInEngDigits)) return true;
+
+      // Alphanumeric search without hyphens (e.g. "ah480012" matches "AH-480012")
+      const cleanOfficialAlnum = officialId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      const cleanQueryAlnum = normQuery.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      if (cleanQueryAlnum && cleanOfficialAlnum.includes(cleanQueryAlnum)) return true;
 
       // Class Name search
       if (studentClass.toLowerCase().includes(normQuery)) return true;
@@ -229,6 +271,11 @@ export default function StudentSearchSelector({
                 <span className="font-bold text-slate-900 text-sm truncate">
                   {currentStudent.first_name ? `${currentStudent.first_name} ${currentStudent.last_name || ""}`.trim() : (currentStudent.name || "শিক্ষার্থী")}
                 </span>
+                {currentOfficialId && (
+                  <span className="text-[11px] font-mono font-bold text-emerald-900 bg-white px-2 py-0.5 rounded-md border border-emerald-300">
+                    আইডি: {currentOfficialId}
+                  </span>
+                )}
                 {currentStudent.roll_number !== undefined && currentStudent.roll_number !== null && currentStudent.roll_number !== "" && (
                   <span className="text-[11px] font-bold text-emerald-800 bg-white px-2 py-0.5 rounded-md border border-emerald-300">
                     রোল: {toBanglaNumber(currentStudent.roll_number)}
@@ -258,52 +305,39 @@ export default function StudentSearchSelector({
             >
               <X className="w-4 h-4" />
             </button>
+            <ChevronDown className="w-4 h-4 text-emerald-600 group-hover:translate-y-0.5 transition" />
           </div>
         </div>
       )}
 
-      {/* Search & Selection Modal Pop-up Box */}
+      {/* Full Floating Modal Dialog */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div
-            className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] sm:max-h-[85vh] animate-in zoom-in-95 duration-150"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
             {/* Modal Header */}
-            <div className="px-4 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-white/10 rounded-lg">
-                  <Search className="w-4 h-4 text-emerald-400" />
+            <div className="p-3.5 sm:p-4 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                  <Search className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="font-bold text-sm sm:text-base">শিক্ষার্থী নির্বাচন করুন</h3>
-                  <p className="text-[11px] text-slate-300">নাম, রোল নম্বর বা জামাত লিখে খুঁজুন</p>
+                  <p className="text-[11px] text-slate-300">
+                    নাম, অফিশিয়াল আইডি নম্বর, রোল বা জামাত লিখে খুঁজুন
+                  </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {onRefresh && (
-                  <button
-                    type="button"
-                    onClick={onRefresh}
-                    title="রিফ্রেশ করুন"
-                    disabled={isRefreshing}
-                    className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin text-emerald-400" : ""}`} />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setIsOpen(false)}
-                  className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Search Input Bar */}
-            <div className="p-3 bg-slate-50 border-b border-slate-200 shrink-0 space-y-2.5">
+            {/* Search Input Box */}
+            <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50 shrink-0 space-y-2.5">
               <div className="relative">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -311,27 +345,27 @@ export default function StudentSearchSelector({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="শিক্ষার্থীর নাম / রোল (যেমন: ১১ বা 11) / জামাত..."
-                  className="w-full pl-10 pr-9 py-2.5 bg-white border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition shadow-inner"
+                  placeholder="শিক্ষার্থীর নাম / আইডি নম্বর (যেমন: 480001 বা ৪৮০০০১) / রোল..."
+                  className="w-full pl-10 pr-9 py-2.5 bg-white border border-slate-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 rounded-xl text-xs sm:text-sm text-slate-900 font-medium placeholder-slate-400 transition focus:outline-none"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery("")}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 rounded-md transition"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 )}
               </div>
 
-              {/* Class Filter Chips (if multiple classes exist) */}
-              {availableClasses.length > 1 && (
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+              {/* Class Filter Pills */}
+              {availableClasses.length > 0 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
                   <button
                     type="button"
                     onClick={() => setSelectedClassFilter("all")}
-                    className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition cursor-pointer ${
+                    className={`px-3 py-1 rounded-lg font-semibold transition shrink-0 cursor-pointer ${
                       selectedClassFilter === "all"
                         ? "bg-slate-900 text-white"
                         : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
@@ -341,16 +375,16 @@ export default function StudentSearchSelector({
                   </button>
                   {availableClasses.map((cls) => {
                     const count = students.filter(
-                      (s) => (s.class_name || s.classes?.name) === cls
+                      (s) => (s.class_name || s.classes?.name || "").trim() === cls
                     ).length;
                     return (
                       <button
                         key={cls}
                         type="button"
                         onClick={() => setSelectedClassFilter(cls)}
-                        className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition cursor-pointer ${
+                        className={`px-3 py-1 rounded-lg font-semibold transition shrink-0 cursor-pointer ${
                           selectedClassFilter === cls
-                            ? "bg-slate-900 text-white"
+                            ? "bg-emerald-600 text-white shadow-xs"
                             : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
                         }`}
                       >
@@ -362,20 +396,15 @@ export default function StudentSearchSelector({
               )}
             </div>
 
-            {/* Results Count Banner */}
-            <div className="px-4 py-1.5 bg-slate-100/70 border-b border-slate-200 flex items-center justify-between text-[11px] text-slate-500 font-medium shrink-0">
-              <span>পাওয়া গেছে: {toBanglaNumber(filteredStudents.length)} জন শিক্ষার্থী</span>
+            {/* Results Count Summary */}
+            <div className="px-4 py-2 bg-slate-100/70 border-b border-slate-200 text-xs text-slate-500 flex items-center justify-between shrink-0">
+              <span>
+                পাওয়া গেছে: <strong className="text-slate-800">{toBanglaNumber(filteredStudents.length)}</strong> জন শিক্ষার্থী
+              </span>
               {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery("");
-                    setSelectedClassFilter("all");
-                  }}
-                  className="text-blue-600 hover:underline font-semibold"
-                >
-                  ফিল্টার মুছুন
-                </button>
+                <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  ফিল্টার সক্রিয়
+                </span>
               )}
             </div>
 
@@ -418,13 +447,13 @@ export default function StudentSearchSelector({
                   </div>
                   <h4 className="font-bold text-slate-700 text-sm">কোন শিক্ষার্থী খুঁজে পাওয়া যায়নি</h4>
                   <p className="text-xs text-slate-500 mt-1">
-                    বানান বা রোল নম্বর সঠিক আছে কিনা যাচাই করুন
+                    শিক্ষার্থীর নাম, অফিশিয়াল আইডি নম্বর (যেমন: 480001) বা রোল নম্বর সঠিক আছে কিনা যাচাই করুন
                   </p>
                   {searchQuery && (
                     <button
                       type="button"
                       onClick={() => setSearchQuery("")}
-                      className="mt-3 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition"
+                      className="mt-3 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer"
                     >
                       সার্চ রিসেট করুন
                     </button>
@@ -439,6 +468,7 @@ export default function StudentSearchSelector({
                     : null;
                   const classStr = s.class_name || s.classes?.name || "";
                   const displayName = s.first_name ? `${s.first_name} ${s.last_name || ""}`.trim() : (s.name || "শিক্ষার্থী");
+                  const officialId = resolveStudentOfficialId(s, students);
 
                   return (
                     <div
@@ -465,22 +495,26 @@ export default function StudentSearchSelector({
                             <span className="text-sm font-bold text-slate-900 truncate">
                               {displayName}
                             </span>
+                            {officialId && (
+                              <span className="text-[11px] font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-300">
+                                আইডি: {officialId}
+                              </span>
+                            )}
                             {rollStr && (
-                              <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.2 rounded border border-slate-200">
+                              <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                                 রোল: {rollStr}
                               </span>
                             )}
                             {classStr && (
-                              <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded">
+                              <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded">
                                 {classStr}
                               </span>
                             )}
                           </div>
-                          {(s.father_name || s.parent_phone || s.phone || s.student_id) && (
+                          {(s.father_name || s.parent_phone || s.phone) && (
                             <p className="text-[11px] text-slate-500 truncate mt-0.5">
                               {s.father_name ? `পিতা: ${s.father_name}` : ""}
                               {(s.parent_phone || s.phone) ? ` • মোবা: ${toBanglaNumber(s.parent_phone || s.phone)}` : ""}
-                              {s.student_id ? ` • আইডি: ${s.student_id}` : ""}
                             </p>
                           )}
                         </div>
@@ -488,7 +522,7 @@ export default function StudentSearchSelector({
 
                       <div className="shrink-0 ml-2">
                         {isSelected ? (
-                          <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center">
+                          <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xs">
                             <Check className="w-3.5 h-3.5" />
                           </div>
                         ) : (
@@ -505,13 +539,20 @@ export default function StudentSearchSelector({
 
             {/* Modal Footer */}
             <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-              <span className="text-xs text-slate-500">
-                {currentStudent ? `নির্বাচিত: ${currentStudent.first_name ? `${currentStudent.first_name} ${currentStudent.last_name || ""}`.trim() : (currentStudent.name || "শিক্ষার্থী")}` : "কোন শিক্ষার্থী নির্বাচিত হয়নি"}
+              <span className="text-xs text-slate-500 truncate mr-2">
+                {currentStudent ? (
+                  <>
+                    নির্বাচিত: <strong className="text-slate-800">{currentStudent.first_name ? `${currentStudent.first_name} ${currentStudent.last_name || ""}`.trim() : (currentStudent.name || "শিক্ষার্থী")}</strong>
+                    {currentOfficialId && <span className="font-mono text-emerald-700 ml-1">({currentOfficialId})</span>}
+                  </>
+                ) : (
+                  "কোন শিক্ষার্থী নির্বাচিত হয়নি"
+                )}
               </span>
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="px-4 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                className="px-4 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition cursor-pointer shrink-0"
               >
                 সম্পন্ন করুন
               </button>

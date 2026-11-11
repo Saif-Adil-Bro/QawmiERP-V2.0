@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSMSTemplates, getSMSGatewayConfig } from "@/app/actions/communication";
 import { getMadrasaDetails } from "@/app/actions/tenant";
 import { getStudents, getClasses } from "@/app/actions/students";
+import { getStudentIdNumber, isUuid } from "@/lib/student-utils";
 import SMSClient from "./SMSClient";
 
 export const metadata = {
@@ -55,7 +56,8 @@ export default async function SMSPage() {
     last_name: s.last_name || "",
     name: `${s.first_name || ""} ${s.last_name || ""}`.trim() || s.name || "শিক্ষার্থী",
     roll_number: s.roll_number !== undefined && s.roll_number !== null ? s.roll_number : s.roll ?? "",
-    student_id: s.student_id || s.id,
+    student_id: (!s.student_id || isUuid(s.student_id)) ? getStudentIdNumber(s, rawStudents) : s.student_id,
+    student_id_formatted: getStudentIdNumber(s, rawStudents),
     parent_phone: s.parent_phone || s.phone || s.guardian_phone || s.emergency_contact || "",
     phone: s.parent_phone || s.phone || s.guardian_phone || s.emergency_contact || "",
     father_name: s.father_name || s.guardian_name || "",

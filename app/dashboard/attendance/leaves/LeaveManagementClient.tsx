@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { parsePhoneContact } from "@/lib/utils";
+import { getStudentIdNumber, isUuid } from "@/lib/student-utils";
 import {
   StudentLeaveApplication,
   TeacherLeaveApplication,
@@ -312,7 +313,8 @@ export default function LeaveManagementClient({
       const cls = String(
         (Array.isArray(s.classes) ? s.classes[0]?.name : s.classes?.name) || s.class_name || ""
       ).toLowerCase();
-      return name.includes(q) || roll.includes(q) || cls.includes(q);
+      const idCode = getStudentIdNumber(s, students).toLowerCase();
+      return name.includes(q) || roll.includes(q) || cls.includes(q) || idCode.includes(q);
     });
   }, [students, modalStudentSearch]);
 
@@ -1049,9 +1051,10 @@ export default function LeaveManagementClient({
                         const name = [s.first_name, s.last_name].filter(Boolean).join(" ").trim() || s.name || "শিক্ষার্থী";
                         const roll = s.roll_number !== undefined && s.roll_number !== null ? `(রোল: ${toBanglaNumber(s.roll_number)})` : "";
                         const cls = s.class_name || (Array.isArray(s.classes) ? s.classes[0]?.name : s.classes?.name) || "";
+                        const stuId = getStudentIdNumber(s, students);
                         return (
                           <option key={s.id} value={s.id}>
-                            {name} {roll} {cls ? `- ${cls}` : ""}
+                            [আইডি: {stuId}] {name} {roll} {cls ? `- ${cls}` : ""}
                           </option>
                         );
                       })}

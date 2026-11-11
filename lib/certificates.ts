@@ -1,3 +1,5 @@
+import { isUuid } from "./student-utils";
+
 export type CertificateStatus = "DRAFT" | "PENDING_APPROVAL" | "ISSUED" | "REVOKED" | "VOIDED" | "REISSUED";
 
 export interface CertificateTypeConfig {
@@ -344,7 +346,7 @@ export function generateCertificateToken(): string {
  * Normalizes any student ID, roll number, or legacy certificate string into standard 6-digit student ID (e.g. 480001)
  */
 export function normalizeStudentIdCode(rawInput?: any, fallbackCounter = 1): string {
-  if (rawInput === undefined || rawInput === null) {
+  if (rawInput === undefined || rawInput === null || isUuid(rawInput)) {
     const cnt = typeof fallbackCounter === "number" && fallbackCounter > 0 ? fallbackCounter : 1;
     return String(480000 + cnt);
   }

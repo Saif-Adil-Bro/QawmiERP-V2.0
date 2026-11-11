@@ -11,6 +11,7 @@ import {
   getDefaultSessions,
   hydrateStudentWithMetadata,
 } from "@/lib/sessions";
+import { getStudentIdNumber, isUuid, getActiveMadrasaPrefix } from "@/lib/student-utils";
 
 export async function getStudents() {
   try {
@@ -62,13 +63,29 @@ export async function getStudents() {
       const madrasaId = rawStudents[0]?.madrasa_id || (await getAuthMadrasaId(supabase));
       if (madrasaId) {
         const meta = await getMadrasaMetadata(madrasaId);
-        return rawStudents.map((std: any) => hydrateStudentWithMetadata(std, meta));
+        const prefix = getActiveMadrasaPrefix() || meta?.madrasa_info?.prefix || "";
+        const hydrated = rawStudents.map((std: any) => hydrateStudentWithMetadata(std, meta));
+        return hydrated.map((st: any) => {
+          const officialId = getStudentIdNumber(st, hydrated, prefix);
+          return {
+            ...st,
+            student_id: (!st.student_id || isUuid(st.student_id)) ? officialId : st.student_id,
+            student_id_formatted: officialId,
+          };
+        });
       }
     } catch (hydrateErr) {
       console.warn("Hydrate students metadata warning:", hydrateErr);
     }
 
-    return rawStudents;
+    return rawStudents.map((st: any) => {
+      const officialId = getStudentIdNumber(st, rawStudents);
+      return {
+        ...st,
+        student_id: (!st.student_id || isUuid(st.student_id)) ? officialId : st.student_id,
+        student_id_formatted: officialId,
+      };
+    });
   } catch (err) {
     console.error("Exception in getStudents:", err);
     return [];
@@ -582,8 +599,10 @@ export async function createStudent(prevState: any, formData: FormData) {
 
       // 1. Save extended student profile
       if (!meta.student_profiles) meta.student_profiles = {};
+      const officialStudentId = getStudentIdNumber({ id: insertedStudent.id, ...studentPayload }, undefined, getActiveMadrasaPrefix());
       meta.student_profiles[insertedStudent.id] = {
-        student_id: insertedStudent.id,
+        student_id: officialStudentId,
+        student_id_formatted: officialStudentId,
         first_name: firstName,
         last_name: lastName,
         roll_number: rollNumber,
@@ -834,9 +853,13 @@ export async function updateStudent(prevState: any, formData: FormData) {
       // 4a. Save extended student profile in metadata
       if (!meta.student_profiles) meta.student_profiles = {};
       const existingProfile = meta.student_profiles[id] || {};
+      const safeOldId = existingProfile.student_id && !isUuid(existingProfile.student_id)
+        ? existingProfile.student_id
+        : getStudentIdNumber({ id, ...existingProfile, first_name: firstName, last_name: lastName, roll_number: rollNumber }, undefined, getActiveMadrasaPrefix());
       meta.student_profiles[id] = {
         ...existingProfile,
-        student_id: id,
+        student_id: safeOldId,
+        student_id_formatted: safeOldId,
         first_name: firstName,
         last_name: lastName,
         roll_number: rollNumber,

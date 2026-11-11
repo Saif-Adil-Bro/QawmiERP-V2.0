@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AcademicHoliday, HOLIDAY_CATEGORIES } from "./holidays";
+import { getStudentIdNumber, isUuid } from "./student-utils";
 
 export * from "./holidays";
 
@@ -144,6 +145,8 @@ export function deduplicateSessions(sessions: AcademicSession[]): AcademicSessio
 
 export interface ExtendedStudentProfile {
   student_id?: string;
+  student_id_formatted?: string;
+  student_code?: string;
   first_name?: string;
   last_name?: string;
   roll_number?: string;
@@ -284,11 +287,26 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
   const resolvedClassId = profile.class_id || student.class_id || "";
   const resolvedClassName = profile.class_name || (Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) || student.class_name || "";
 
+  const rawExplicitId =
+    profile.student_code ||
+    profile.student_id_formatted ||
+    (!isUuid(profile.student_id) ? profile.student_id : "") ||
+    student.student_code ||
+    student.student_id_formatted ||
+    (!isUuid(student.student_id) ? student.student_id : "") ||
+    (!isUuid(student.id_number) ? student.id_number : "") ||
+    admission?.student_id ||
+    admission?.admission_no ||
+    "";
+
+  const resolvedStudentId = rawExplicitId || getStudentIdNumber(student);
+
   return {
     ...student,
     first_name: profile.first_name || student.first_name || "",
     last_name: profile.last_name || student.last_name || "",
-    student_id: profile.student_id || student.student_id || student.id_number || "",
+    student_id: resolvedStudentId,
+    student_id_formatted: resolvedStudentId,
     roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (student.roll_number || ""),
     class_id: resolvedClassId,
     class_name: resolvedClassName,

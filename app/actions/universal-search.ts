@@ -4,6 +4,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata } from "@/lib/sessions";
 import { getFeeMetadata } from "./fee-management";
+import { getStudentIdNumber } from "@/lib/student-utils";
 
 export interface UniversalSearchResultItem {
   id: string;
@@ -22,6 +23,13 @@ export async function searchUniversalCommand(query: string): Promise<UniversalSe
 
   const results: UniversalSearchResultItem[] = [];
 
+  const banglaToEngMap: Record<string, string> = {
+    "০": "0", "১": "1", "২": "2", "৩": "3", "৪": "4",
+    "৫": "5", "৬": "6", "৭": "7", "৮": "8", "৯": "9",
+  };
+  const cleanQueryDigits = cleanQuery.replace(/[^0-9০-৯]/g, "");
+  const queryInEngDigits = cleanQueryDigits.replace(/[০-৯]/g, (ch) => banglaToEngMap[ch] || ch);
+
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
@@ -31,7 +39,7 @@ export async function searchUniversalCommand(query: string): Promise<UniversalSe
     try {
       const { data: students } = await adminClient
         .from("students")
-        .select("id, first_name, last_name, roll_number, parent_phone, classes(name)")
+        .select("id, first_name, last_name, roll_number, parent_phone, created_at, classes(name)")
         .eq("madrasa_id", madrasaId)
         .limit(200);
 
@@ -40,22 +48,29 @@ export async function searchUniversalCommand(query: string): Promise<UniversalSe
         const roll = String(s.roll_number || "").toLowerCase();
         const phone = String(s.parent_phone || "").toLowerCase();
         const className = String(s.classes?.name || "").toLowerCase();
+        const officialId = getStudentIdNumber(s, students || []);
+        const cleanOfficialDigits = officialId.replace(/\D/g, "");
+
+        const matchesId =
+          officialId.toLowerCase().includes(cleanQuery) ||
+          (queryInEngDigits !== "" && cleanOfficialDigits.includes(queryInEngDigits));
 
         if (
           fullName.includes(cleanQuery) ||
           roll.includes(cleanQuery) ||
           phone.includes(cleanQuery) ||
-          className.includes(cleanQuery)
+          className.includes(cleanQuery) ||
+          matchesId
         ) {
           results.push({
             id: `student-${s.id}`,
             title: `${s.first_name} ${s.last_name || ""}`,
-            subtitle: `রোল: ${s.roll_number || "—"} | জামাত: ${s.classes?.name || "অনির্দিষ্ট"} | মোবা: ${s.parent_phone || "—"}`,
+            subtitle: `আইডি: ${officialId} | রোল: ${s.roll_number || "—"} | জামাত: ${s.classes?.name || "অনির্দিষ্ট"} | মোবা: ${s.parent_phone || "—"}`,
             category: "student",
             categoryLabel: "শিক্ষার্থী",
             href: `/dashboard/students/${s.id}`,
-            badge: s.classes?.name,
-            badgeColor: "bg-emerald-50 text-emerald-700 border-emerald-200",
+            badge: officialId,
+            badgeColor: "bg-emerald-50 text-emerald-700 border-emerald-200 font-mono",
           });
         }
       });

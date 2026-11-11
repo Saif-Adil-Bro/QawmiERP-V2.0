@@ -23,6 +23,7 @@ import {
   Square,
   GraduationCap,
 } from "lucide-react";
+import { getStudentIdNumber } from "@/lib/student-utils";
 import {
   AssignmentItem,
   AssignmentType,
@@ -440,7 +441,7 @@ export default function AssignmentFormModal({
                   <option value="">-- শিক্ষার্থী নির্বাচন করুন --</option>
                   {classStudents.map((s) => (
                     <option key={s.id} value={s.id}>
-                      রোল: {s.roll_number || "নাই"} - {s.first_name} {s.last_name}
+                      [আইডি: {getStudentIdNumber(s, classStudents)}] রোল: {s.roll_number || "নাই"} - {s.first_name} {s.last_name}
                     </option>
                   ))}
                 </select>

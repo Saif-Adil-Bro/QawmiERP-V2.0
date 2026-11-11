@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { getStudentIdNumber, isUuid } from "@/lib/student-utils";
 
 interface CertificateClientProps {
   selectedStudent: any;
@@ -641,11 +642,11 @@ export default function CertificateClient({
                     const roll = (s.roll_number || "").toString().toLowerCase();
                     const father = (s.father_name || "").toLowerCase();
                     const className = (s.classes?.name || "").toLowerCase();
-                    const studentId = (s.student_id || `480${String(s.roll_number || 1).padStart(3, "0")}`).toLowerCase();
-                    return name.includes(q) || roll.includes(q) || father.includes(q) || className.includes(q) || studentId.includes(q);
+                    const officialId = getStudentIdNumber(s, students).toLowerCase();
+                    return name.includes(q) || roll.includes(q) || father.includes(q) || className.includes(q) || officialId.includes(q);
                   })
                   .map((s) => {
-                    const stuId = normalizeStudentIdCode(s.student_id || (s.roll_number ? `480${String(s.roll_number).padStart(3, "0")}` : "480001"), 1);
+                    const stuId = getStudentIdNumber(s, students);
                     return (
                       <option key={s.id} value={s.id}>
                         [আইডি: {stuId}] {s.first_name} {s.last_name || ""} {s.classes?.name ? `(${s.classes.name})` : ""} - রোল: {s.roll_number || "—"} - পিতা: {s.father_name || "—"}
@@ -659,7 +660,7 @@ export default function CertificateClient({
                   <p>
                     <strong>নির্বাচিত শিক্ষার্থী:</strong> {currentStudentObj.first_name} {currentStudentObj.last_name || ""}{" "}
                     <span className="font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[11px] font-bold ml-1">
-                      আইডি: {normalizeStudentIdCode(currentStudentObj.student_id || (currentStudentObj.roll_number ? `480${String(currentStudentObj.roll_number).padStart(3, "0")}` : "480001"), 1)}
+                      আইডি: {getStudentIdNumber(currentStudentObj, students)}
                     </span>
                   </p>
                   <p>

@@ -1,3 +1,5 @@
+import { isUuid } from "./student-utils";
+
 export type IDCardStatus = "ACTIVE" | "EXPIRED" | "LOST" | "BLOCKED" | "REISSUED";
 
 export interface IDCardSnapshot {
@@ -241,7 +243,7 @@ export function normalizeStudentIdCode(rawInput?: any, fallbackCounter = 1, defa
   const cleanPrefix = String(defaultYearPrefix || "48").replace(/\D/g, "").slice(-2) || "48";
   const baseNumber = parseInt(cleanPrefix, 10) * 10000;
 
-  if (rawInput === undefined || rawInput === null) {
+  if (rawInput === undefined || rawInput === null || isUuid(rawInput)) {
     const cnt = typeof fallbackCounter === "number" && fallbackCounter > 0 ? fallbackCounter : 1;
     return String(baseNumber + cnt);
   }
