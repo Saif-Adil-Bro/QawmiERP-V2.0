@@ -465,31 +465,33 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
                 </>
               )}
 
-              {/* Universal Search Bar Trigger (Visible on md+ screens) */}
+            </div>
+
+            {/* Center Flexible Search Bar (Never overlaps, adjusts smoothly to available space) */}
+            <div className="flex-1 max-w-xs lg:max-w-sm xl:max-w-md min-w-0 mx-2 hidden md:block">
               <button
                 type="button"
                 onClick={() => setCommandPaletteOpen(true)}
-                className="hidden md:flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 bg-slate-100/90 hover:bg-slate-200/80 text-slate-600 rounded-xl text-xs font-medium transition border border-slate-200/80 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:border-[#E8DFD1] sepia-mode:text-[#5A3825] shrink-0 cursor-pointer"
+                className="w-full flex items-center justify-between px-3 py-1.5 bg-slate-100/90 hover:bg-slate-200/80 text-slate-600 rounded-xl text-xs font-medium transition border border-slate-200/80 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:border-[#E8DFD1] sepia-mode:text-[#5A3825] cursor-pointer shadow-2xs group"
                 title="কমান্ড প্যালেট ও অনুসন্ধান (Ctrl + K)"
               >
-                <Search className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span className="hidden lg:inline">খুঁজুন বা কমান্ড দিন...</span>
-                <kbd className="hidden lg:inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold text-slate-500 bg-white rounded border border-slate-300 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-400">
+                <div className="flex items-center gap-2 min-w-0 truncate">
+                  <Search className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span className="truncate">খুঁজুন বা কমান্ড দিন...</span>
+                </div>
+                <kbd className="hidden lg:inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold text-slate-500 bg-white dark:bg-slate-900 rounded border border-slate-300 dark:border-slate-700 shrink-0 ml-2">
                   Ctrl + K
                 </kbd>
               </button>
             </div>
 
             {/* Right Header Controls */}
-            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-              {/* Basic / Advanced Mode Switcher (Always visible) */}
+            <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 ml-auto">
+              {/* Basic / Advanced Mode Switcher */}
               <ModeToggleSwitch />
 
-              {/* Notification Bell (Always visible) */}
-              <GlobalNotificationBell />
-
-              {/* Desktop Full Controls (Visible on XL+ screens) */}
-              <div className="hidden xl:flex items-center gap-2 shrink-0">
+              {/* Desktop Full Controls (Visible on 2XL+ screens) */}
+              <div className="hidden 2xl:flex items-center gap-2 shrink-0">
                 {/* Executive Summary Button */}
                 <button
                   type="button"
@@ -506,16 +508,22 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
 
                 {/* Global Academic Session Selector */}
                 <SessionSelector />
-
-                <HeaderUserProfile />
               </div>
 
-              {/* Mobile / Tablet 3-Dot More Dropdown (Visible below XL screens) */}
-              <div className="xl:hidden">
+              {/* 3-Dot More Dropdown (Visible on screens below 2XL to keep header uncluttered) */}
+              <div className="2xl:hidden">
                 <HeaderMoreMenuDropdown
                   onOpenExecutiveSummary={() => setExecutiveSummaryOpen(true)}
                   onOpenCommandPalette={() => setCommandPaletteOpen(true)}
                 />
+              </div>
+
+              {/* Notification Bell (Positioned on the side right before User Profile) */}
+              <GlobalNotificationBell />
+
+              {/* User Profile (Always on the far right on desktop) */}
+              <div className="hidden sm:block">
+                <HeaderUserProfile />
               </div>
             </div>
           </header>

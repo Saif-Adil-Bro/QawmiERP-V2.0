@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useState, useEffect, useMemo } from "react";
+import { useActionState, useState, useEffect, useMemo, Suspense } from "react";
 import { createStudent, getClasses, getNextClassRoll, checkRollAvailability } from "@/app/actions/students";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import ImageUploader from "@/components/ImageUploader";
+import BulkStudentImportClient from "@/components/students/BulkStudentImportClient";
 import {
   ArrowLeft,
   User,
@@ -26,16 +27,20 @@ import {
   RefreshCw,
   Gift,
   Percent,
+  FileSpreadsheet,
 } from "lucide-react";
 
 const initialState: { error?: string; success?: boolean } = {};
 
-export default function NewStudentPage() {
+function NewStudentContent() {
   const [state, formAction, isPending] = useActionState(
     createStudent,
     initialState,
   );
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialTab = searchParams?.get("tab") === "bulk" ? "bulk" : "single";
+  const [activeTab, setActiveTab] = useState<"single" | "bulk">(initialTab);
   const [classes, setClasses] = useState<any[]>([]);
 
   // Class & Roll Auto-increment & Duplicate check states
@@ -205,8 +210,42 @@ export default function NewStudentPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200/90 overflow-hidden">
-        <form action={formAction} className="p-6 sm:p-8 space-y-8">
+      {/* Admission Mode Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setActiveTab("single")}
+          className={`pb-3 px-3.5 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition cursor-pointer ${
+            activeTab === "single"
+              ? "border-emerald-600 text-emerald-800"
+              : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+          }`}
+        >
+          <User className="w-4 h-4" />
+          <span>একক শিক্ষার্থী ভর্তি (বিস্তারিত ফরম)</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("bulk")}
+          className={`pb-3 px-3.5 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition cursor-pointer ${
+            activeTab === "bulk"
+              ? "border-emerald-600 text-emerald-800"
+              : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+          <span>এক্সেল / জেসন বাল্ক শিক্ষার্থী যোগ</span>
+          <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold border border-emerald-200">
+            নতুন
+          </span>
+        </button>
+      </div>
+
+      {activeTab === "bulk" ? (
+        <BulkStudentImportClient classes={classes} />
+      ) : (
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-200/90 overflow-hidden">
+          <form action={formAction} className="p-6 sm:p-8 space-y-8">
           {state?.error && (
             <div className="p-4 bg-red-50 text-red-700 border border-red-200 rounded-2xl text-sm flex items-start gap-2.5">
               <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
@@ -1098,6 +1137,21 @@ export default function NewStudentPage() {
           </div>
         </form>
       </div>
+      )}
     </div>
+  );
+}
+
+export default function NewStudentPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-4xl mx-auto p-12 text-center text-slate-500 font-semibold">
+          লোড হচ্ছে...
+        </div>
+      }
+    >
+      <NewStudentContent />
+    </Suspense>
   );
 }

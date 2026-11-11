@@ -1073,3 +1073,332 @@ export async function deleteStudent(studentId: string) {
   revalidatePath("/dashboard/students");
   return { success: true };
 }
+
+export interface BulkStudentRowInput {
+  name: string;
+  father_name?: string;
+  parent_phone?: string;
+  class_name?: string;
+  class_id?: string;
+  roll_number?: string | number;
+  gender?: string;
+  residential_status?: string;
+  address?: string;
+  monthly_fee?: number;
+}
+
+export async function bulkCreateStudents(
+  rows: BulkStudentRowInput[],
+  defaultClassId?: string
+): Promise<{
+  success: boolean;
+  count: number;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    const __authz = await writeGuard("students");
+    if (!__authz.allowed) {
+      return { success: false, count: 0, error: "অননুমোদিত অ্যাক্সেস (Unauthorized)" };
+    }
+
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) {
+      return { success: false, count: 0, error: "অনুগ্রহ করে সিস্টেমে লগইন করুন।" };
+    }
+
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) {
+      return { success: false, count: 0, error: "কোনো সক্রিয় মাদ্রাসা পাওয়া যায়নি।" };
+    }
+
+    // Clean & filter rows
+    const validRows = (rows || []).filter(
+      (r) => r && typeof r.name === "string" && r.name.trim().length > 0
+    );
+
+    if (validRows.length === 0) {
+      return { success: false, count: 0, error: "কোনো বৈধ শিক্ষার্থীর নাম খুঁজে পাওয়া যায়নি।" };
+    }
+
+    const adminClient = await createAdminClient();
+
+    // 1. Fetch classes for matching
+    const { data: dbClasses } = await adminClient
+      .from("classes")
+      .select("id, name")
+      .or(`madrasa_id.eq.${finalMadrasaId},madrasa_id.is.null`);
+
+    const classList = dbClasses || [];
+    const classMapByName = new Map<string, string>();
+    const classMapById = new Map<string, string>();
+    classList.forEach((c) => {
+      classMapByName.set(c.name.trim().toLowerCase(), c.id);
+      classMapById.set(c.id, c.id);
+    });
+
+    const fallbackClassId =
+      (defaultClassId && classMapById.has(defaultClassId) ? defaultClassId : null) ||
+      (classList.length > 0 ? classList[0].id : "");
+
+    if (!fallbackClassId && classList.length === 0) {
+      return {
+        success: false,
+        count: 0,
+        error: "মাদ্রাসায় কোনো শ্রেণি বা জামাত তৈরি করা নেই। আগে শ্রেণি তৈরি করুন।",
+      };
+    }
+
+    // Identify target class for each row
+    const resolvedRows = validRows.map((row) => {
+      let targetClassId = "";
+      if (row.class_id && classMapById.has(row.class_id)) {
+        targetClassId = row.class_id;
+      } else if (row.class_name && row.class_name.trim()) {
+        const rawClassName = row.class_name.trim().toLowerCase();
+        // Exact match
+        if (classMapByName.has(rawClassName)) {
+          targetClassId = classMapByName.get(rawClassName)!;
+        } else {
+          // Partial/fuzzy match
+          const found = classList.find((c) =>
+            c.name.toLowerCase().includes(rawClassName) || rawClassName.includes(c.name.toLowerCase())
+          );
+          if (found) targetClassId = found.id;
+        }
+      }
+
+      if (!targetClassId) {
+        targetClassId = fallbackClassId;
+      }
+
+      return {
+        ...row,
+        resolvedClassId: targetClassId,
+      };
+    });
+
+    // 2. Fetch existing rolls for all referenced classes
+    const uniqueClassIds = Array.from(new Set(resolvedRows.map((r) => r.resolvedClassId)));
+    const { data: existingClassStudents } = await adminClient
+      .from("students")
+      .select("id, class_id, roll_number")
+      .in("class_id", uniqueClassIds);
+
+    // Initialize roll trackers per class
+    const classRollTracker: Record<
+      string,
+      { maxRoll: number; usedRolls: Set<string> }
+    > = {};
+
+    uniqueClassIds.forEach((cid) => {
+      classRollTracker[cid] = { maxRoll: 0, usedRolls: new Set<string>() };
+    });
+
+    (existingClassStudents || []).forEach((s) => {
+      if (s.class_id && s.roll_number !== undefined && s.roll_number !== null) {
+        const rollStr = String(s.roll_number).trim();
+        if (rollStr && classRollTracker[s.class_id]) {
+          classRollTracker[s.class_id].usedRolls.add(rollStr.toLowerCase());
+          // Bengali to ASCII number conversion
+          const num = parseInt(
+            rollStr.replace(/[০-৯]/g, (d) => "০১২৩৪৫৬৭৮৯".indexOf(d).toString()),
+            10
+          );
+          if (!isNaN(num) && num > classRollTracker[s.class_id].maxRoll) {
+            classRollTracker[s.class_id].maxRoll = num;
+          }
+        }
+      }
+    });
+
+    // 3. Assign sequential non-conflicting rolls and build payloads
+    const studentPayloads: any[] = [];
+    const preparedMetadataList: any[] = [];
+
+    for (const r of resolvedRows) {
+      const tracker = classRollTracker[r.resolvedClassId];
+      let assignedRoll = "";
+
+      const rawRoll = r.roll_number !== undefined && r.roll_number !== null ? String(r.roll_number).trim() : "";
+      const isAuto =
+        !rawRoll ||
+        rawRoll.toLowerCase() === "auto" ||
+        rawRoll === "অটো" ||
+        rawRoll === "0";
+
+      if (!isAuto) {
+        // Explicit roll requested
+        const norm = rawRoll.toLowerCase();
+        if (!tracker.usedRolls.has(norm)) {
+          assignedRoll = rawRoll;
+          tracker.usedRolls.add(norm);
+          const num = parseInt(
+            rawRoll.replace(/[০-৯]/g, (d) => "০১২৩৪৫৬৭৮৯".indexOf(d).toString()),
+            10
+          );
+          if (!isNaN(num) && num > tracker.maxRoll) {
+            tracker.maxRoll = num;
+          }
+        } else {
+          // Conflict: generate next sequential auto roll
+          tracker.maxRoll += 1;
+          assignedRoll = tracker.maxRoll.toString();
+          tracker.usedRolls.add(assignedRoll);
+        }
+      } else {
+        // Auto sequential roll
+        tracker.maxRoll += 1;
+        assignedRoll = tracker.maxRoll.toString();
+        tracker.usedRolls.add(assignedRoll);
+      }
+
+      // Name parsing
+      const fullName = r.name.trim();
+      const parts = fullName.split(/\s+/);
+      const firstName = parts[0] || fullName;
+      const lastName = parts.slice(1).join(" ") || "";
+
+      const payload = {
+        madrasa_id: finalMadrasaId,
+        first_name: firstName,
+        last_name: lastName,
+        roll_number: assignedRoll,
+        class_id: r.resolvedClassId,
+        gender: r.gender && ["MALE", "FEMALE"].includes(r.gender.toUpperCase()) ? r.gender.toUpperCase() : "MALE",
+        parent_phone: r.parent_phone ? String(r.parent_phone).trim() : "",
+        father_name: r.father_name ? String(r.father_name).trim() : "",
+        address: r.address ? String(r.address).trim() : "",
+      };
+
+      studentPayloads.push(payload);
+      preparedMetadataList.push({
+        rawRow: r,
+        assignedRoll,
+        firstName,
+        lastName,
+        classId: r.resolvedClassId,
+      });
+    }
+
+    // 4. Batch insert into students table
+    let insertedStudents: any[] = [];
+    const { data: inserted, error: insertError } = await adminClient
+      .from("students")
+      .insert(studentPayloads)
+      .select("id, first_name, last_name, roll_number, class_id, father_name, parent_phone, address, gender");
+
+    if (insertError) {
+      console.warn("Primary batch student insert failed, attempting safe payload insert:", insertError.message);
+      // Fallback without gender if column not in schema
+      const safePayloads = studentPayloads.map(({ gender, ...rest }) => rest);
+      const { data: fallbackInserted, error: fallbackError } = await adminClient
+        .from("students")
+        .insert(safePayloads)
+        .select("id, first_name, last_name, roll_number, class_id, father_name, parent_phone, address");
+
+      if (fallbackError) {
+        console.error("Critical error inserting bulk students:", fallbackError);
+        return { success: false, count: 0, error: fallbackError.message };
+      }
+      insertedStudents = fallbackInserted || [];
+    } else {
+      insertedStudents = inserted || [];
+    }
+
+    if (insertedStudents.length === 0) {
+      return { success: false, count: 0, error: "কোনো শিক্ষার্থী ডেটাবেজে সংরক্ষণ করা যায়নি।" };
+    }
+
+    // 5. Hydrate metadata profiles, official IDs, and session enrollments
+    try {
+      const meta = await getMadrasaMetadata(finalMadrasaId);
+      const studentProfiles = meta.student_profiles || {};
+      const sessions = meta.sessions || getDefaultSessions(finalMadrasaId);
+      const currentSession = sessions.find((s) => s.is_current) || sessions[0];
+      const enrollments = meta.enrollments || [];
+      const prefix = getActiveMadrasaPrefix() || meta?.madrasa_info?.prefix || "";
+
+      // Fetch all students for standard ID formatting calculation
+      const { data: allMadrasaStudents } = await adminClient
+        .from("students")
+        .select("id, created_at, student_id")
+        .eq("madrasa_id", finalMadrasaId);
+
+      const allList = allMadrasaStudents || [];
+
+      insertedStudents.forEach((st, idx) => {
+        const prep = preparedMetadataList[idx];
+        const officialId = getStudentIdNumber(st, allList, prefix);
+
+        studentProfiles[st.id] = {
+          student_id: officialId,
+          student_id_formatted: officialId,
+          first_name: st.first_name,
+          last_name: st.last_name,
+          roll_number: st.roll_number,
+          class_id: st.class_id,
+          father_name: st.father_name || "",
+          parent_phone: st.parent_phone || "",
+          address: st.address || "",
+          gender: (st.gender || "MALE") as any,
+          residential_status: (prep?.rawRow?.residential_status || "অনাবাসিক") as any,
+          is_boarding: prep?.rawRow?.residential_status === "আবাসিক",
+          monthly_fee: Number(prep?.rawRow?.monthly_fee || 0),
+          student_status: "ACTIVE",
+          updated_at: new Date().toISOString(),
+        };
+
+        if (currentSession) {
+          enrollments.push({
+            id: `enr_${st.id}_${currentSession.id}`,
+            madrasa_id: finalMadrasaId,
+            student_id: st.id,
+            session_id: currentSession.id,
+            class_id: st.class_id,
+            roll_number: st.roll_number,
+            status: "ACTIVE",
+            enrollment_date: toDhakaDateString(),
+            created_at: new Date().toISOString(),
+          });
+        }
+      });
+
+      meta.enrollments = enrollments;
+      meta.student_profiles = studentProfiles;
+      await saveMadrasaMetadata(finalMadrasaId, meta);
+    } catch (metaErr) {
+      console.warn("Bulk import metadata hydration warning:", metaErr);
+    }
+
+    // 6. Record activity log
+    try {
+      const { recordActivityLog } = await import("@/app/actions/activity-logs");
+      await recordActivityLog({
+        action_type: "CREATE",
+        module: "STUDENTS",
+        title: "বাল্ক শিক্ষার্থী ভর্তি সম্পন্ন",
+        description: `এক্সেল/জেসন থেকে মোট ${insertedStudents.length} জন নতুন শিক্ষার্থীকে একসাথে সফলভাবে নিবন্ধন ও ভর্তি করা হয়েছে।`,
+        severity: "SUCCESS",
+      });
+    } catch (actErr) {
+      console.warn("Bulk import activity log error:", actErr);
+    }
+
+    revalidatePath("/dashboard/students");
+    revalidatePath("/dashboard/students/new");
+    revalidatePath("/dashboard/academic/id-cards");
+    revalidatePath("/dashboard/academic/sessions");
+
+    return {
+      success: true,
+      count: insertedStudents.length,
+      message: `সফলভাবে মোট ${insertedStudents.length} জন শিক্ষার্থীকে সিস্টেমে যুক্ত করা হয়েছে!`,
+    };
+  } catch (err: any) {
+    console.error("Exception in bulkCreateStudents:", err);
+    return { success: false, count: 0, error: err?.message || "বাল্ক আমদানিতে অপ্রত্যাশিত ত্রুটি ঘটেছে।" };
+  }
+}
+

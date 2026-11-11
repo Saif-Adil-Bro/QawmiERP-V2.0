@@ -31,6 +31,7 @@ import {
   UserCheck,
   Building2,
   Sparkles,
+  FileSpreadsheet,
 } from "lucide-react";
 import { getStudentIdNumber, convertToBanglaNumber } from "@/lib/student-utils";
 import { deleteStudent } from "@/app/actions/students";
@@ -647,6 +648,17 @@ export default function StudentsListClient({
           >
             <GraduationCap className="w-4 h-4 text-emerald-600" />
             <span>শিক্ষার্থী প্রমোশন</span>
+          </Link>
+
+          {/* Bulk Student Admission */}
+          <Link
+            href="/dashboard/students/new?tab=bulk"
+            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center space-x-1.5 transition shadow-2xs"
+            title="এক্সেল বা জেসন দিয়ে একসাথে একাধিক শিক্ষার্থী ভর্তি"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span className="hidden sm:inline">বাল্ক ভর্তি (Excel/JSON)</span>
+            <span className="sm:hidden">বাল্ক ভর্তি</span>
           </Link>
 
           {/* New Student Registration */}

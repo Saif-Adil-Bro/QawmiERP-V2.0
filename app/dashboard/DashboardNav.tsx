@@ -38,6 +38,7 @@ import {
   Bus,
   SlidersHorizontal,
   UserPlus,
+  FileSpreadsheet,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/PermissionContext";
 import { useAppMode } from "@/components/mode/ModeContext";
@@ -107,6 +108,16 @@ const navGroups: NavGroup[] = [
         badge: "অ্যাডমিন এন্ট্রি",
         badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
         keywords: ["add student", "new student", "notun shatro", "ছাত্র যোগ", "নতুন ছাত্র", "ভর্তি"],
+      },
+      {
+        name: "বাল্ক শিক্ষার্থী যোগ (Excel/JSON)",
+        href: "/dashboard/students/new?tab=bulk",
+        icon: FileSpreadsheet,
+        permission: "student.edit",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "education_secretary"],
+        badge: "অটো-রোল",
+        badgeColor: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+        keywords: ["bulk student", "excel import", "json", "বাল্ক ভর্তি", "এক্সেল", "আমদানি", "অটো রোল"],
       },
       {
         name: "অনলাইন ভর্তি আবেদন ও যাচাই",
