@@ -35,6 +35,7 @@ import { MobileActionSheet } from "@/components/common/MobileActionSheet";
 import { ExecutiveSummaryModal } from "@/components/dashboard/ExecutiveSummaryModal";
 import { ModeProvider } from "@/components/mode/ModeContext";
 import { ModeToggleSwitch } from "@/components/mode/ModeToggleSwitch";
+import { WindowsStartScreen } from "@/components/mode/WindowsStartScreen";
 
 function HeaderUserProfile() {
   const { profile, summary } = usePermissions();
@@ -299,6 +300,8 @@ export default function DashboardShell({ children }: { children: React.ReactNode
           isOpen={executiveSummaryOpen}
           onClose={() => setExecutiveSummaryOpen(false)}
         />
+        {/* Windows 10 Start Menu Full Floating Screen Overlay */}
+        <WindowsStartScreen />
 
         {/* Fixed screen wrapper: h-screen overflow-hidden ensures fixed viewport on big screens */}
         <div className="flex h-screen w-full bg-slate-50 print:bg-white print:h-auto overflow-hidden dark:bg-slate-950 sepia-mode:bg-[#F6F0E4]">

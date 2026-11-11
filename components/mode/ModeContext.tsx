@@ -9,6 +9,11 @@ interface ModeContextType {
   mode: AppMode;
   setMode: (mode: AppMode) => void;
   toggleMode: () => void;
+  // Windows 10 Start Menu Floating Screen state
+  isStartMenuOpen: boolean;
+  openStartMenu: () => void;
+  closeStartMenu: () => void;
+  toggleStartMenu: () => void;
   // Basic Mode Tiles state
   pinnedTileIds: string[];
   pinnedTiles: BasicTileItem[];
@@ -64,8 +69,28 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const [isStartMenuOpen, setIsStartMenuOpen] = useState<boolean>(false);
+
+  const openStartMenu = () => setIsStartMenuOpen(true);
+  const closeStartMenu = () => setIsStartMenuOpen(false);
+  const toggleStartMenu = () => setIsStartMenuOpen((prev) => !prev);
+
+  // Close start menu with Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isStartMenuOpen) {
+        setIsStartMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isStartMenuOpen]);
+
   const setMode = (newMode: AppMode) => {
     setModeState(newMode);
+    if (newMode === "basic") {
+      setIsStartMenuOpen(true);
+    }
     try {
       localStorage.setItem("qawmi_app_mode", newMode);
     } catch (e) {
@@ -147,6 +172,10 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
         mode,
         setMode,
         toggleMode,
+        isStartMenuOpen,
+        openStartMenu,
+        closeStartMenu,
+        toggleStartMenu,
         pinnedTileIds,
         pinnedTiles,
         addTile,

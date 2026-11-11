@@ -56,6 +56,8 @@ export default async function DashboardPage() {
   let classesCount = 0;
   let todayPresent = 0;
   let todayAbsent = 0;
+  let todayIncome = 0;
+  let todayExpense = 0;
   let totalIncome = 0;
   let totalExpense = 0;
   let expensesSum = 0;
@@ -135,6 +137,30 @@ export default async function DashboardPage() {
       bazarSum = (bazarData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       totalExpense = expensesSum + bazarSum;
 
+      // Calculate Strictly Today's Income & Expenses (matching today date string)
+      const todayFeesSum = (feesData || []).reduce((sum: number, item: any) => {
+        const itemDate = item.payment_date || (item.created_at ? toDhakaDateStringFrom(item.created_at) : "");
+        return itemDate === today ? sum + Number(item.amount || 0) : sum;
+      }, 0);
+
+      const todayDonationsSum = validDonations.reduce((sum: number, item: any) => {
+        const itemDate = item.donation_date || (item.created_at ? toDhakaDateStringFrom(item.created_at) : "");
+        return itemDate === today ? sum + Number(item.amount || 0) : sum;
+      }, 0);
+
+      const todayExpensesSum = validExpenses.reduce((sum: number, item: any) => {
+        const itemDate = item.expense_date || (item.created_at ? toDhakaDateStringFrom(item.created_at) : "");
+        return itemDate === today ? sum + Number(item.amount || 0) : sum;
+      }, 0);
+
+      const todayBazarSum = (bazarData || []).reduce((sum: number, item: any) => {
+        const itemDate = item.expense_date || (item.created_at ? toDhakaDateStringFrom(item.created_at) : "");
+        return itemDate === today ? sum + Number(item.amount || 0) : sum;
+      }, 0);
+
+      todayIncome = todayFeesSum + todayDonationsSum;
+      todayExpense = todayExpensesSum + todayBazarSum;
+
       // Sets to track IDs, receipt numbers, and transaction IDs to strictly avoid double counting
       const trackedFeeKeys = new Set<string>();
       (feesData || []).forEach((f: any) => {
@@ -189,6 +215,9 @@ export default async function DashboardPage() {
           if (amt > 0) {
             totalIncome += amt;
             addMonthly(dt, amt, 'income');
+            if (dt === today) {
+              todayIncome += amt;
+            }
           }
         }
       });
@@ -367,6 +396,8 @@ export default async function DashboardPage() {
         classesCount,
         todayPresent,
         todayAbsent,
+        todayIncome,
+        todayExpense,
         totalIncome,
         totalExpense,
         expensesSum,
