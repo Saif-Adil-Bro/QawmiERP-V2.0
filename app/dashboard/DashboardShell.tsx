@@ -236,7 +236,7 @@ function MobileBottomNav({
 }
 
 function DashboardShellContent({ children }: { children: React.ReactNode }) {
-  const { mode, openStartMenu } = useAppMode();
+  const { mode, isStartMenuOpen, toggleStartMenu, openStartMenu } = useAppMode();
   const isBasic = mode === "basic";
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -401,14 +401,40 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
             {/* Left Header Controls */}
             <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
               {isBasic ? (
-                /* In Basic Mode, show brand and quick Start Launcher */
-                <div className="flex items-center gap-2">
+                /* In Basic Mode, show brand and Windows 10 Start Menu floating trigger on the left */
+                <div className="flex items-center gap-2 shrink-0">
                   <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-sm shadow-xs shrink-0">
                     Q
                   </div>
-                  <span className="font-black text-slate-900 dark:text-white text-base hidden sm:inline tracking-tight">
+                  <span className="font-black text-slate-900 dark:text-white text-base hidden md:inline tracking-tight">
                     QawmiERP
                   </span>
+
+                  {/* Windows 10 Start Menu Launcher Button */}
+                  <button
+                    type="button"
+                    onClick={toggleStartMenu}
+                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black transition-all duration-150 shadow-xs cursor-pointer border shrink-0 ${
+                      isStartMenuOpen
+                        ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-500 shadow-rose-600/25"
+                        : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white border-amber-400/80 shadow-amber-500/20 active:scale-95"
+                    }`}
+                    title="উইন্ডোজ স্টার্ট মেনু ফুল স্ক্রিন অন/অফ করুন"
+                  >
+                    {isStartMenuOpen ? (
+                      <>
+                        <X className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">মেনু বন্ধ</span>
+                        <span className="sm:hidden">বন্ধ</span>
+                      </>
+                    ) : (
+                      <>
+                        <LayoutGrid className="w-3.5 h-3.5 animate-pulse" />
+                        <span className="hidden sm:inline">স্টার্ট মেনু</span>
+                        <span className="sm:hidden">স্টার্ট</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               ) : (
                 /* Advanced Mode: Sidebar toggle and search */
