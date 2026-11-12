@@ -30,13 +30,22 @@ export async function POST() {
       );
     }
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       success: true,
       message: "ডেমো অ্যাকাউন্টে সফলভাবে লগইন হয়েছে!",
       redirectUrl: "/dashboard",
       session: data.session,
       user: data.user,
     });
+
+    res.cookies.set("qawmi_remember_me", "1", {
+      path: "/",
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+
+    return res;
   } catch (err: any) {
     console.error("Demo login error:", err);
     return NextResponse.json(

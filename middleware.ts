@@ -21,6 +21,8 @@ const PUBLIC_ROUTE_PREFIXES = [
   "/portal",
   "/fonts",
   "/login",
+  "/signup",
+  "/register",
   "/auth",
 ];
 
@@ -46,7 +48,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const isAuthRoute = isSameOrChildPath(pathname, "/login") || pathname === "/";
+  const isAuthRoute =
+    isSameOrChildPath(pathname, "/login") ||
+    isSameOrChildPath(pathname, "/signup") ||
+    isSameOrChildPath(pathname, "/register") ||
+    pathname === "/";
   const isApiRoute = isSameOrChildPath(pathname, "/api");
   const isPublicRoute = PUBLIC_ROUTE_PREFIXES.some((prefix) =>
     isSameOrChildPath(pathname, prefix)
@@ -68,6 +74,9 @@ export async function middleware(request: NextRequest) {
   let user: { id: string; email?: string | null; user_metadata?: any } | null = null;
 
   try {
+    const rememberVal = request.cookies.get("qawmi_remember_me")?.value;
+    const persistentMaxAge = rememberVal === "0" ? 60 * 60 * 24 * 1 : 60 * 60 * 24 * 365;
+
     const supabase = createServerClient(supabaseUrl, supabaseKey, {
       cookies: {
         getAll() {
@@ -83,7 +92,7 @@ export async function middleware(request: NextRequest) {
               path: options?.path ?? "/",
               sameSite: "lax",
               secure: process.env.NODE_ENV === "production",
-              maxAge: options?.maxAge ?? 60 * 60 * 24 * 30, // 30 days persistent cookie
+              maxAge: options?.maxAge ?? persistentMaxAge, // persistent cookie
             });
           });
         },

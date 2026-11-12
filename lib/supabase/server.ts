@@ -29,13 +29,17 @@ export const createClient = cache(async () => {
         },
         setAll(cookiesToSet) {
           try {
+            const rememberCookie = cookieStore.get("qawmi_remember_me")?.value;
+            // If explicitly "0", set session/short (1 day); otherwise default to 365 days
+            const persistentMaxAge = rememberCookie === "0" ? 60 * 60 * 24 * 1 : 60 * 60 * 24 * 365;
+
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, {
                 ...options,
                 path: options?.path ?? "/",
                 sameSite: options?.sameSite ?? "lax",
                 secure: process.env.NODE_ENV === "production",
-                maxAge: options?.maxAge ?? 60 * 60 * 24 * 30, // 30 days
+                maxAge: options?.maxAge ?? persistentMaxAge,
               });
             });
           } catch (error) {

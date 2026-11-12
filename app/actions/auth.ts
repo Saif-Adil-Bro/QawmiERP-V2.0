@@ -294,7 +294,7 @@ export async function logout() {
   try {
     const cookieStore = await cookies();
     for (const cookie of cookieStore.getAll()) {
-      if (cookie.name.startsWith("sb-")) {
+      if (cookie.name.startsWith("sb-") || cookie.name === "qawmi_remember_me") {
         try {
           cookieStore.delete(cookie.name);
         } catch {

@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const rawIdentifier = (body.identifier || body.email || "").trim();
     let rawPassword = (body.password || "").trim();
+    const remember = body.remember !== false;
 
     if (!rawIdentifier || !rawPassword) {
       return NextResponse.json(
@@ -169,7 +170,7 @@ export async function POST(req: NextRequest) {
 
     const redirectUrl = getPortalRedirectUrl(userRole, roles);
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       success: true,
       user: data.user,
       session: data.session,
@@ -178,7 +179,17 @@ export async function POST(req: NextRequest) {
       resolvedEmail: targetEmail,
       studentIdCode: studentIdCode || data.user?.user_metadata?.student_id_code || null,
       isDefaultPassword: Boolean(data.user?.user_metadata?.is_default_password ?? true),
+      remember,
     });
+
+    res.cookies.set("qawmi_remember_me", remember ? "1" : "0", {
+      path: "/",
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: remember ? 60 * 60 * 24 * 365 : 60 * 60 * 24 * 1,
+    });
+
+    return res;
   } catch (err: any) {
     console.error("Login API error:", err);
     return NextResponse.json(

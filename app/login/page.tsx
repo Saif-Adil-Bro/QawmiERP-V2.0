@@ -1,7 +1,18 @@
 import LoginForm from "./LoginForm";
 import { BookOpen } from "lucide-react";
+import { getAuthUser } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { getPortalRedirectUrl } from "@/lib/role-redirect";
 
-export default function LoginPage() {
+export const dynamic = "force-dynamic";
+
+export default async function LoginPage() {
+  const user = await getAuthUser();
+  if (user) {
+    const role = user.user_metadata?.role;
+    const targetUrl = getPortalRedirectUrl(role);
+    redirect(targetUrl || "/dashboard");
+  }
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 px-4">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
