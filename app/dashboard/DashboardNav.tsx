@@ -664,15 +664,19 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
   // Compute active nav groups (either user-customized tree or default tree)
   const activeNavGroups = useMemo(() => {
     if (customNavGroups && customNavGroups.length > 0) {
-      return customNavGroups.map((g: any) => ({
-        id: g.id,
-        title: g.title,
-        icon: typeof g.iconName === "string" ? getIconComponent(g.iconName) : g.icon || FolderOpen,
-        items: g.items.map((it: any) => ({
-          ...it,
-          icon: typeof it.iconName === "string" ? getIconComponent(it.iconName) : it.icon || FileText,
-        })),
-      }));
+      return customNavGroups
+        .filter((g: any) => !g.hidden)
+        .map((g: any) => ({
+          id: g.id,
+          title: g.title,
+          icon: typeof g.iconName === "string" ? getIconComponent(g.iconName) : g.icon || FolderOpen,
+          items: g.items
+            .filter((it: any) => !it.hidden)
+            .map((it: any) => ({
+              ...it,
+              icon: typeof it.iconName === "string" ? getIconComponent(it.iconName) : it.icon || FileText,
+            })),
+        }));
     }
     return navGroups;
   }, [customNavGroups]);

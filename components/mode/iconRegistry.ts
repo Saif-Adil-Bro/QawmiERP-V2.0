@@ -27,12 +27,14 @@ import {
   Bus,
   ArrowUpRight,
   UserPlus,
+  FileSpreadsheet,
 } from "lucide-react";
 
 export const ICON_MAP: Record<string, any> = {
   LayoutDashboard,
   Users,
   UserPlus,
+  FileSpreadsheet,
   BookOpen,
   CheckSquare,
   Wallet,

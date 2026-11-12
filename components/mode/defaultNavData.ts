@@ -9,12 +9,14 @@ export interface SerializedNavItem {
   badge?: string;
   badgeColor?: string;
   keywords?: string[];
+  hidden?: boolean;
 }
 
 export interface SerializedNavGroup {
   id: string;
   title: string;
   iconName: string;
+  hidden?: boolean;
   items: SerializedNavItem[];
 }
 
@@ -43,6 +45,17 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         badge: "অ্যাডমিন এন্ট্রি",
         badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
         keywords: ["add student", "new student", "notun shatro", "ছাত্র যোগ", "নতুন ছাত্র", "ভর্তি"],
+      },
+      {
+        id: "student_bulk",
+        name: "বাল্ক শিক্ষার্থী যোগ (Excel/JSON)",
+        href: "/dashboard/students/new?tab=bulk",
+        iconName: "FileSpreadsheet",
+        permission: "student.edit",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "education_secretary"],
+        badge: "অটো-রোল",
+        badgeColor: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+        keywords: ["bulk student", "excel import", "json", "বাল্ক ভর্তি", "এক্সেল", "আমদানি", "অটো রোল"],
       },
       {
         id: "admissions",
