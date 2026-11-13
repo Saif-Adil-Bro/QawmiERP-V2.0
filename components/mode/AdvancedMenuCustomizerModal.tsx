@@ -189,8 +189,6 @@ export function AdvancedMenuCustomizerModal({
   // Success toast state
   const [savedToast, setSavedToast] = useState(false);
 
-  if (!isOpen) return null;
-
   // Toggle group expand/collapse
   const toggleGroupExpand = (groupId: string) => {
     setExpandedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
@@ -457,6 +455,8 @@ export function AdvancedMenuCustomizerModal({
       0
     );
   }, [groups]);
+
+  if (!isOpen) return null;
 
   return (
     <MenuCustomizerErrorBoundary onReset={handleReset} onClose={onClose}>

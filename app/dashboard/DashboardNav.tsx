@@ -682,6 +682,7 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
   }, [customNavGroups]);
 
   const isItemActive = (item: { href: string; exact?: boolean }) => {
+    if (!pathname || !item?.href) return false;
     if (item.exact) {
       return pathname === item.href;
     }
@@ -782,10 +783,12 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
   return (
     <nav className="p-3 space-y-2.5">
       {/* Advanced Menu Customizer Modal */}
-      <AdvancedMenuCustomizerModal
-        isOpen={customizerModalOpen}
-        onClose={() => setCustomizerModalOpen(false)}
-      />
+      {customizerModalOpen && (
+        <AdvancedMenuCustomizerModal
+          isOpen={customizerModalOpen}
+          onClose={() => setCustomizerModalOpen(false)}
+        />
+      )}
 
       {/* Customize Menu Button (Drag & Drop Organizer) */}
       <button
