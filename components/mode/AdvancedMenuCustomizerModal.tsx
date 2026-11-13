@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   X,
   GripVertical,
@@ -30,6 +30,7 @@ import {
   INITIAL_NAV_GROUPS,
   SerializedNavGroup,
   SerializedNavItem,
+  sanitizeNavGroups,
 } from "./defaultNavData";
 import { getIconComponent, ICON_MAP } from "./iconRegistry";
 import { useAppMode } from "./ModeContext";
@@ -37,6 +38,71 @@ import { useAppMode } from "./ModeContext";
 interface AdvancedMenuCustomizerModalProps {
   isOpen: boolean;
   onClose: () => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+class MenuCustomizerErrorBoundary extends React.Component<
+  { children: React.ReactNode; onReset: () => void; onClose: () => void },
+  ErrorBoundaryState
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("MenuCustomizer caught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 text-center space-y-4">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/20 shadow-xs">
+              <AlertCircle className="w-7 h-7" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                কাস্টমাইজেশন লোড হতে সমস্যা হয়েছে
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                ব্রাউজারে সংরক্ষিত পুরোনো ক্যাশ তথ্যের কারণে এই সমস্যা হতে পারে। ডিফল্ট মেনু রূপ রিস্টোর করলেই এটি তাৎক্ষণিক ঠিক হয়ে যাবে।
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  this.setState({ hasError: false });
+                  this.props.onReset();
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+              >
+                ডিফল্ট মেনু রিস্টোর করুন
+              </button>
+              <button
+                type="button"
+                onClick={this.props.onClose}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                বন্ধ করুন
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 const AVAILABLE_GROUP_ICONS = [
@@ -65,12 +131,17 @@ export function AdvancedMenuCustomizerModal({
   const { customNavGroups, saveCustomNavGroups, resetCustomNavGroups } =
     useAppMode();
 
-  // Local state initialized with custom groups or default groups
+  // Local state initialized with sanitized custom groups or default groups
   const [groups, setGroups] = useState<SerializedNavGroup[]>(() => {
-    return customNavGroups && customNavGroups.length > 0
-      ? JSON.parse(JSON.stringify(customNavGroups))
-      : JSON.parse(JSON.stringify(INITIAL_NAV_GROUPS));
+    return sanitizeNavGroups(customNavGroups);
   });
+
+  // Keep local groups synchronized with customNavGroups when modal opens or customNavGroups changes
+  useEffect(() => {
+    if (isOpen) {
+      setGroups(sanitizeNavGroups(customNavGroups));
+    }
+  }, [isOpen, customNavGroups]);
 
   const [activeTab, setActiveTab] = useState<"organize" | "preview">("organize");
   const [searchQuery, setSearchQuery] = useState("");
@@ -78,11 +149,25 @@ export function AdvancedMenuCustomizerModal({
 
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
-    (customNavGroups || INITIAL_NAV_GROUPS).forEach((g: SerializedNavGroup) => {
-      initial[g.id] = true;
+    const source = sanitizeNavGroups(customNavGroups);
+    source.forEach((g: SerializedNavGroup) => {
+      if (g && g.id) initial[g.id] = true;
     });
     return initial;
   });
+
+  // Sync expanded groups when groups change
+  useEffect(() => {
+    setExpandedGroups((prev) => {
+      const next = { ...prev };
+      groups.forEach((g) => {
+        if (g?.id && next[g.id] === undefined) {
+          next[g.id] = true;
+        }
+      });
+      return next;
+    });
+  }, [groups]);
 
   // New Group Form state
   const [showAddGroup, setShowAddGroup] = useState(false);
@@ -114,7 +199,7 @@ export function AdvancedMenuCustomizerModal({
   const expandAll = () => {
     const next: Record<string, boolean> = {};
     groups.forEach((g) => {
-      next[g.id] = true;
+      if (g?.id) next[g.id] = true;
     });
     setExpandedGroups(next);
   };
@@ -122,10 +207,11 @@ export function AdvancedMenuCustomizerModal({
   const collapseAll = () => {
     const next: Record<string, boolean> = {};
     groups.forEach((g) => {
-      next[g.id] = false;
+      if (g?.id) next[g.id] = false;
     });
     setExpandedGroups(next);
   };
+
 
   // Group Drag Handlers
   const handleGroupDragStart = (index: number) => {
@@ -274,10 +360,11 @@ export function AdvancedMenuCustomizerModal({
     const group = groups.find((g) => g.id === groupId);
     if (!group) return;
 
-    if (group.items.length > 0) {
+    const groupItems = Array.isArray(group.items) ? group.items : [];
+    if (groupItems.length > 0) {
       if (
         !confirm(
-          `'${group.title}' গ্রুপে ${group.items.length} টি মেনু রয়েছে। গ্রুপটি মুছে ফেললে এর ভেতরে থাকা মেনুগুলো অন্য একটি গ্রুপে স্থানান্তরিত না হওয়া পর্যন্ত সাইডবারে দেখা যাবে না। আপনি কি নিশ্চিত?`
+          `'${group.title}' গ্রুপে ${groupItems.length} টি মেনু রয়েছে। গ্রুপটি মুছে ফেললে এর ভেতরে থাকা মেনুগুলো অন্য একটি গ্রুপে স্থানান্তরিত না হওয়া পর্যন্ত সাইডবারে দেখা যাবে না। আপনি কি নিশ্চিত?`
         )
       ) {
         return;
@@ -328,20 +415,22 @@ export function AdvancedMenuCustomizerModal({
 
     return groups
       .map((g, gIdx) => {
-        let items = g.items;
+        const rawItems = Array.isArray(g?.items) ? g.items : [];
+        let items = rawItems;
 
         if (filterVisibility === "visible") {
-          items = items.filter((it) => !it.hidden);
+          items = items.filter((it) => it && !it.hidden);
         } else if (filterVisibility === "hidden") {
-          items = items.filter((it) => it.hidden);
+          items = items.filter((it) => it && it.hidden);
         }
 
         if (q) {
           items = items.filter(
             (it) =>
-              it.name.toLowerCase().includes(q) ||
-              g.title.toLowerCase().includes(q) ||
-              it.keywords?.some((k) => k.toLowerCase().includes(q))
+              (it?.name && it.name.toLowerCase().includes(q)) ||
+              (g?.title && g.title.toLowerCase().includes(q)) ||
+              (Array.isArray(it?.keywords) &&
+                it.keywords.some((k) => typeof k === "string" && k.toLowerCase().includes(q)))
           );
         }
 
@@ -349,7 +438,7 @@ export function AdvancedMenuCustomizerModal({
           group: g,
           groupIdx: gIdx,
           items,
-          matchesGroupTitle: q ? g.title.toLowerCase().includes(q) : false,
+          matchesGroupTitle: Boolean(q && g?.title && g.title.toLowerCase().includes(q)),
         };
       })
       .filter((entry) => {
@@ -359,25 +448,26 @@ export function AdvancedMenuCustomizerModal({
   }, [groups, searchQuery, filterVisibility]);
 
   const totalItemsCount = useMemo(() => {
-    return groups.reduce((acc, g) => acc + g.items.length, 0);
+    return groups.reduce((acc, g) => acc + (Array.isArray(g?.items) ? g.items.length : 0), 0);
   }, [groups]);
 
   const visibleItemsCount = useMemo(() => {
     return groups.reduce(
-      (acc, g) => acc + g.items.filter((it) => !it.hidden).length,
+      (acc, g) => acc + (Array.isArray(g?.items) ? g.items.filter((it) => it && !it.hidden).length : 0),
       0
     );
   }, [groups]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200"
-      onClick={onClose}
-    >
+    <MenuCustomizerErrorBoundary onReset={handleReset} onClose={onClose}>
       <div
-        className="relative w-full max-w-4xl max-h-[92vh] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/90 dark:border-slate-800 flex flex-col overflow-hidden text-slate-800 dark:text-slate-100"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200"
+        onClick={onClose}
       >
+        <div
+          className="relative w-full max-w-4xl max-h-[92vh] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200/90 dark:border-slate-800 flex flex-col overflow-hidden text-slate-800 dark:text-slate-100"
+          onClick={(e) => e.stopPropagation()}
+        >
         {/* Header */}
         <div className="p-4 sm:p-6 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-slate-50 via-white to-emerald-50/30 dark:from-slate-900 dark:via-slate-900 dark:to-emerald-950/20 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -549,10 +639,11 @@ export function AdvancedMenuCustomizerModal({
 
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
                 {groups
-                  .filter((g) => !g.hidden)
+                  .filter((g) => g && !g.hidden)
                   .map((group) => {
-                    const GroupIcon = getIconComponent(group.iconName, FolderOpen);
-                    const visibleItems = group.items.filter((it) => !it.hidden);
+                    const GroupIcon = getIconComponent(group?.iconName, FolderOpen);
+                    const groupItems = Array.isArray(group?.items) ? group.items : [];
+                    const visibleItems = groupItems.filter((it) => it && !it.hidden);
 
                     return (
                       <div key={group.id} className="space-y-1">
@@ -604,10 +695,11 @@ export function AdvancedMenuCustomizerModal({
               </div>
             ) : (
               filteredGroups.map(({ group, groupIdx, items }) => {
-                const GroupIcon = getIconComponent(group.iconName, FolderOpen);
-                const isExpanded = expandedGroups[group.id] ?? true;
-                const isCustomGroup = group.id.startsWith("custom_");
+                const GroupIcon = getIconComponent(group?.iconName, FolderOpen);
+                const isExpanded = group?.id ? (expandedGroups[group.id] ?? true) : true;
+                const isCustomGroup = typeof group?.id === "string" && group.id.startsWith("custom_");
                 const isDragOver = dragOverGroupIndex === groupIdx;
+                const groupItems = Array.isArray(group?.items) ? group.items : [];
 
                 return (
                   <div
@@ -775,30 +867,33 @@ export function AdvancedMenuCustomizerModal({
                       >
                         {items.length === 0 ? (
                           <div className="py-6 px-4 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-400 bg-white dark:bg-slate-900/40">
-                            {group.items.length === 0
+                            {groupItems.length === 0
                               ? "এই গ্রুপে কোনো মেনু নেই। অন্য গ্রুপ থেকে টেনে এখানে ছাড়ুন।"
                               : "কোনো মেনু ফিল্টারের সাথে মেলেনি।"}
                           </div>
                         ) : (
-                          items.map((item) => {
-                            const actualItemIdx = group.items.findIndex(
-                              (it) => it.id === item.id || it.href === item.href
+                          items.map((item, itemDisplayIdx) => {
+                            const actualItemIdx = groupItems.findIndex(
+                              (it) =>
+                                (Boolean(it?.id && item?.id) && it.id === item.id) ||
+                                (Boolean(it?.href && item?.href) && it.href === item.href)
                             );
-                            const ItemIcon = getIconComponent(item.iconName);
+                            const safeIdx = actualItemIdx !== -1 ? actualItemIdx : itemDisplayIdx;
+                            const ItemIcon = getIconComponent(item?.iconName);
                             const isDraggingThis =
                               draggedItem?.groupIndex === groupIdx &&
-                              draggedItem?.itemIndex === actualItemIdx;
+                              draggedItem?.itemIndex === safeIdx;
 
                             return (
                               <div
-                                key={item.id || item.href}
+                                key={item.id || item.href || `item_${groupIdx}_${itemDisplayIdx}`}
                                 draggable
                                 onDragStart={(e) =>
-                                  handleItemDragStart(e, groupIdx, actualItemIdx)
+                                  handleItemDragStart(e, groupIdx, safeIdx)
                                 }
                                 onDragOver={(e) => handleItemDragOver(e, groupIdx)}
                                 onDrop={(e) =>
-                                  handleItemDrop(e, groupIdx, actualItemIdx)
+                                  handleItemDrop(e, groupIdx, safeIdx)
                                 }
                                 className={`p-2 sm:p-2.5 rounded-xl border flex items-center justify-between gap-3 transition-all ${
                                   isDraggingThis
@@ -841,8 +936,8 @@ export function AdvancedMenuCustomizerModal({
                                   {/* Item Move Up / Down */}
                                   <button
                                     type="button"
-                                    disabled={actualItemIdx === 0}
-                                    onClick={() => moveItem(groupIdx, actualItemIdx, "up")}
+                                    disabled={safeIdx === 0}
+                                    onClick={() => moveItem(groupIdx, safeIdx, "up")}
                                     className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-20 disabled:pointer-events-none transition"
                                     title="উপরে নিন"
                                   >
@@ -850,8 +945,8 @@ export function AdvancedMenuCustomizerModal({
                                   </button>
                                   <button
                                     type="button"
-                                    disabled={actualItemIdx === group.items.length - 1}
-                                    onClick={() => moveItem(groupIdx, actualItemIdx, "down")}
+                                    disabled={safeIdx === groupItems.length - 1}
+                                    onClick={() => moveItem(groupIdx, safeIdx, "down")}
                                     className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-20 disabled:pointer-events-none transition"
                                     title="নিচে নিন"
                                   >
@@ -861,7 +956,7 @@ export function AdvancedMenuCustomizerModal({
                                   {/* Item Visibility Toggle */}
                                   <button
                                     type="button"
-                                    onClick={() => toggleItemVisibility(groupIdx, actualItemIdx)}
+                                    onClick={() => toggleItemVisibility(groupIdx, safeIdx)}
                                     className={`p-1 rounded transition ${
                                       item.hidden
                                         ? "text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
@@ -879,7 +974,7 @@ export function AdvancedMenuCustomizerModal({
                                       onChange={(e) =>
                                         handleMoveItemToGroup(
                                           groupIdx,
-                                          actualItemIdx,
+                                          safeIdx,
                                           e.target.value
                                         )
                                       }
@@ -953,5 +1048,7 @@ export function AdvancedMenuCustomizerModal({
         </div>
       </div>
     </div>
+    </MenuCustomizerErrorBoundary>
   );
 }
+

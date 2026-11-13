@@ -625,3 +625,91 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
     ],
   },
 ];
+
+/**
+ * Robust sanitizer function that heals any missing, corrupt or legacy navigation group data.
+ * Guarantees every group has valid id, title, iconName, hidden boolean and an array of valid items.
+ */
+export function sanitizeNavGroups(raw: any): SerializedNavGroup[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return JSON.parse(JSON.stringify(INITIAL_NAV_GROUPS));
+  }
+
+  // Create a fallback dictionary of default items by href and id for recovering metadata
+  const defaultItemsMap = new Map<string, SerializedNavItem>();
+  for (const group of INITIAL_NAV_GROUPS) {
+    for (const item of group.items) {
+      if (item.id) defaultItemsMap.set(item.id, item);
+      if (item.href) defaultItemsMap.set(item.href, item);
+    }
+  }
+
+  const sanitized: SerializedNavGroup[] = [];
+
+  for (let gIdx = 0; gIdx < raw.length; gIdx++) {
+    const rawG = raw[gIdx];
+    if (!rawG || typeof rawG !== "object") continue;
+
+    const groupId = typeof rawG.id === "string" && rawG.id.trim() ? rawG.id.trim() : `group_${gIdx}`;
+    const groupTitle = typeof rawG.title === "string" && rawG.title.trim() ? rawG.title.trim() : `গ্রুপ ${gIdx + 1}`;
+    const groupIconName = typeof rawG.iconName === "string" && rawG.iconName.trim() ? rawG.iconName.trim() : "FolderOpen";
+    const groupHidden = Boolean(rawG.hidden);
+
+    const rawItems = Array.isArray(rawG.items) ? rawG.items : [];
+    const sanitizedItems: SerializedNavItem[] = [];
+
+    for (let itIdx = 0; itIdx < rawItems.length; itIdx++) {
+      const rawItem = rawItems[itIdx];
+      if (!rawItem || typeof rawItem !== "object") continue;
+
+      const href = typeof rawItem.href === "string" && rawItem.href.trim() ? rawItem.href.trim() : "";
+      const id = typeof rawItem.id === "string" && rawItem.id.trim()
+        ? rawItem.id.trim()
+        : href ? href.replace(/\//g, "_").replace(/[^a-zA-Z0-9_]/g, "") : `item_${groupId}_${itIdx}`;
+
+      const fallbackDefaults = (id ? defaultItemsMap.get(id) : null) || (href ? defaultItemsMap.get(href) : null);
+
+      const name = typeof rawItem.name === "string" && rawItem.name.trim()
+        ? rawItem.name.trim()
+        : (fallbackDefaults?.name || `মেনু ${itIdx + 1}`);
+
+      const iconName = typeof rawItem.iconName === "string" && rawItem.iconName.trim()
+        ? rawItem.iconName.trim()
+        : (fallbackDefaults?.iconName || "FileText");
+
+      const item: SerializedNavItem = {
+        id,
+        name,
+        href: href || (fallbackDefaults?.href || "/dashboard"),
+        iconName,
+        hidden: Boolean(rawItem.hidden),
+        permission: typeof rawItem.permission === "string" ? rawItem.permission : fallbackDefaults?.permission,
+        roles: Array.isArray(rawItem.roles) ? rawItem.roles : fallbackDefaults?.roles,
+        badge: typeof rawItem.badge === "string" ? rawItem.badge : fallbackDefaults?.badge,
+        badgeColor: typeof rawItem.badgeColor === "string" ? rawItem.badgeColor : fallbackDefaults?.badgeColor,
+        keywords: Array.isArray(rawItem.keywords)
+          ? rawItem.keywords.filter((k: any): k is string => typeof k === "string")
+          : (fallbackDefaults?.keywords || []),
+        exact: Boolean(rawItem.exact ?? fallbackDefaults?.exact),
+      };
+
+      sanitizedItems.push(item);
+    }
+
+    sanitized.push({
+      id: groupId,
+      title: groupTitle,
+      iconName: groupIconName,
+      hidden: groupHidden,
+      items: sanitizedItems,
+    });
+  }
+
+  // If after sanitization no valid groups remain, fallback to INITIAL_NAV_GROUPS
+  if (sanitized.length === 0) {
+    return JSON.parse(JSON.stringify(INITIAL_NAV_GROUPS));
+  }
+
+  return sanitized;
+}
+

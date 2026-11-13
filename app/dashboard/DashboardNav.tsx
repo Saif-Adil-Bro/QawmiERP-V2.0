@@ -665,13 +665,13 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
   const activeNavGroups = useMemo(() => {
     if (customNavGroups && customNavGroups.length > 0) {
       return customNavGroups
-        .filter((g: any) => !g.hidden)
+        .filter((g: any) => g && !g.hidden)
         .map((g: any) => ({
-          id: g.id,
-          title: g.title,
+          id: g.id || `group_${Math.random()}`,
+          title: g.title || "",
           icon: typeof g.iconName === "string" ? getIconComponent(g.iconName) : g.icon || FolderOpen,
-          items: g.items
-            .filter((it: any) => !it.hidden)
+          items: (Array.isArray(g.items) ? g.items : [])
+            .filter((it: any) => it && !it.hidden)
             .map((it: any) => ({
               ...it,
               icon: typeof it.iconName === "string" ? getIconComponent(it.iconName) : it.icon || FileText,

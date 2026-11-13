@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { ALL_BASIC_TILES, BasicTileItem } from "./menuCatalog";
+import { sanitizeNavGroups } from "./defaultNavData";
 
 export type AppMode = "basic" | "advanced";
 
@@ -61,7 +62,7 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
       if (savedNav) {
         const parsedNav = JSON.parse(savedNav);
         if (Array.isArray(parsedNav)) {
-          setCustomNavGroups(parsedNav);
+          setCustomNavGroups(sanitizeNavGroups(parsedNav));
         }
       }
     } catch (e) {
@@ -145,9 +146,10 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
 
   // Advanced Menu Actions
   const saveCustomNavGroups = (groups: any[]) => {
-    setCustomNavGroups(groups);
+    const sanitized = sanitizeNavGroups(groups);
+    setCustomNavGroups(sanitized);
     try {
-      localStorage.setItem("qawmi_advanced_nav_groups", JSON.stringify(groups));
+      localStorage.setItem("qawmi_advanced_nav_groups", JSON.stringify(sanitized));
     } catch (e) {
       console.warn("Failed to save custom nav groups", e);
     }

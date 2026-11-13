@@ -28,6 +28,9 @@ import {
   ArrowUpRight,
   UserPlus,
   FileSpreadsheet,
+  FolderOpen,
+  FolderMinus,
+  SlidersHorizontal,
 } from "lucide-react";
 
 export const ICON_MAP: Record<string, any> = {
@@ -60,8 +63,15 @@ export const ICON_MAP: Record<string, any> = {
   Printer,
   Bus,
   ArrowUpRight,
+  FolderOpen,
+  FolderMinus,
+  SlidersHorizontal,
 };
 
-export function getIconComponent(iconName: string, fallback = FileText) {
+export function getIconComponent(iconName?: string | null, fallback = FileText) {
+  if (!iconName || typeof iconName !== "string") {
+    return fallback;
+  }
   return ICON_MAP[iconName] || fallback;
 }
+
