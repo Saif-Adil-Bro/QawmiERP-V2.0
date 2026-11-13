@@ -11,6 +11,7 @@ import {
   Calendar,
   Layers,
   LayoutGrid,
+  LayoutDashboard,
 } from "lucide-react";
 import { useAppMode } from "./ModeContext";
 import { BasicTileLibraryModal } from "./BasicTileLibraryModal";
@@ -61,7 +62,7 @@ export function WindowsStartScreen({ stats }: WindowsStartScreenProps) {
                 <h1 className="text-lg sm:text-xl font-black tracking-tight text-white flex items-center gap-2">
                   <span>স্টার্ট মেনু</span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
-                    বেসিক মোড
+                    সহজ মোড
                   </span>
                 </h1>
               </div>
@@ -73,7 +74,7 @@ export function WindowsStartScreen({ stats }: WindowsStartScreenProps) {
           </div>
 
           {/* Quick Metrics & Close Controls */}
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3">
             {stats && (
               <div className="hidden md:flex items-center gap-3 bg-white/5 border border-white/10 px-3 py-1.5 rounded-2xl backdrop-blur-md">
                 <div className="text-center px-2">
@@ -96,6 +97,17 @@ export function WindowsStartScreen({ stats }: WindowsStartScreenProps) {
                 </div>
               </div>
             )}
+
+            {/* Direct Back to Main Dashboard Home Link */}
+            <Link
+              href="/dashboard"
+              onClick={closeStartMenu}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500/40 shadow-sm transition cursor-pointer active:scale-95"
+              title="মূল ড্যাশবোর্ডে ফিরে যান"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>মূল ড্যাশবোর্ড</span>
+            </Link>
 
             {/* Customization Edit Mode */}
             <button

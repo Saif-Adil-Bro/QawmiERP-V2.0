@@ -26,10 +26,10 @@ export function ModeToggleSwitch({ compact = false }: ModeToggleSwitchProps) {
             ? "bg-amber-500 text-white shadow-xs shadow-amber-500/30 scale-[1.02]"
             : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
         }`}
-        title="সহজ ও ঝামেলামুক্ত বেসিক মোড"
+        title="সহজ ও ঝামেলামুক্ত মোড"
       >
         <Zap className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${isBasic ? "fill-white" : "text-amber-500"}`} />
-        <span>বেসিক</span>
+        <span>সহজ</span>
         <span className="hidden md:inline"> মোড</span>
       </button>
 

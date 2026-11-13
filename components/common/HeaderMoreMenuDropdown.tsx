@@ -164,7 +164,7 @@ export function HeaderMoreMenuDropdown({
                   {isBasic ? (
                     <>
                       <Zap className="w-3 h-3 fill-amber-500 text-amber-500" />
-                      <span>বেসিক মোড</span>
+                      <span>সহজ মোড</span>
                     </>
                   ) : (
                     <>
@@ -191,7 +191,7 @@ export function HeaderMoreMenuDropdown({
                       : "text-slate-600 dark:text-slate-300 hover:text-slate-900"
                   }`}
                 >
-                  বেসিক
+                  সহজ
                 </button>
                 <button
                   type="button"

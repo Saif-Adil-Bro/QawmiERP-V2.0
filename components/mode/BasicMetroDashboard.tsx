@@ -54,7 +54,7 @@ export function BasicMetroDashboard({ stats }: BasicMetroDashboardProps) {
           <div className="space-y-1.5">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-semibold backdrop-blur-md">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>সহজ বেসিক মোড সক্রিয়</span>
+              <span>সহজ মোড সক্রিয়</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
               আস-সালামু আলাইকুম, স্বাগতম!

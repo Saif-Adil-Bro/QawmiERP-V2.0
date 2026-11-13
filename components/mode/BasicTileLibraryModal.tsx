@@ -60,7 +60,7 @@ export function BasicTileLibraryModal({ isOpen, onClose }: BasicTileLibraryModal
             </div>
             <div>
               <h2 className="text-lg sm:text-xl font-bold tracking-tight">
-                বেসিক ড্যাশবোর্ডে নতুন মেনু ও কার্ড যোগ করুন
+                সহজ মোডে নতুন মেনু ও কার্ড যোগ করুন
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 আপনার প্রয়োজনমতো যেকোনো কার্ড স্ক্রিনে যুক্ত করুন বা বাদ দিন

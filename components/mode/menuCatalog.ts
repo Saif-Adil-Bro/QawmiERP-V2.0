@@ -19,6 +19,7 @@ import {
   FileSpreadsheet,
   IdCard,
   UserPlus,
+  LayoutDashboard,
 } from "lucide-react";
 
 export interface BasicTileItem {
@@ -38,6 +39,20 @@ export interface BasicTileItem {
 }
 
 export const ALL_BASIC_TILES: BasicTileItem[] = [
+  {
+    id: "dashboard_home",
+    title: "মূল ড্যাশবোর্ড",
+    subtitle: "মাদরাসার সাধারণ ওভারভিউ, হিসাব-নিকাশ ও গুরুত্বপূর্ণ পরিসংখ্যান",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+    gradient: "from-emerald-600 to-teal-700",
+    borderColor: "border-emerald-400/40",
+    shadowColor: "shadow-emerald-500/25",
+    accentBg: "bg-emerald-500/20 text-emerald-200",
+    badge: "হোম",
+    category: "management",
+    defaultPinned: true,
+  },
   {
     id: "students",
     title: "শিক্ষার্থী তালিকা ও প্রোফাইল",

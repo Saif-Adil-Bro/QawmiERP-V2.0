@@ -39,7 +39,7 @@ export default function DashboardViewSwitcher({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-extrabold text-sm sm:text-base text-white">
-                  বেসিক মোড সক্রিয় আছে
+                  সহজ মোড সক্রিয় আছে
                 </h3>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
                   স্টার্ট স্ক্রিন

@@ -21,6 +21,7 @@ import {
   Sparkles,
   GraduationCap,
   LayoutGrid,
+  ArrowLeft,
 } from "lucide-react";
 import DashboardNav from "./DashboardNav";
 import { logout } from "@/app/actions/auth";
@@ -401,14 +402,20 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
             {/* Left Header Controls */}
             <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
               {isBasic ? (
-                /* In Basic Mode, show brand and Windows 10 Start Menu floating trigger on the left */
-                <div className="flex items-center gap-2 shrink-0">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-sm shadow-xs shrink-0">
-                    Q
-                  </div>
-                  <span className="font-black text-slate-900 dark:text-white text-base hidden md:inline tracking-tight">
-                    QawmiERP
-                  </span>
+                /* In Basic Mode (সহজ মোড), show brand link, Windows 10 Start Menu floating trigger, and Back to Dashboard button */
+                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  <Link
+                    href="/dashboard"
+                    className="flex items-center gap-2 shrink-0 group"
+                    title="মূল ড্যাশবোর্ড"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-sm shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                      Q
+                    </div>
+                    <span className="font-black text-slate-900 dark:text-white text-base hidden md:inline tracking-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                      QawmiERP
+                    </span>
+                  </Link>
 
                   {/* Windows 10 Start Menu Launcher Button */}
                   <button
@@ -419,7 +426,7 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
                         ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-500 shadow-rose-600/25"
                         : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white border-amber-400/80 shadow-amber-500/20 active:scale-95"
                     }`}
-                    title="উইন্ডোজ স্টার্ট মেনু ফুল স্ক্রিন অন/অফ করুন"
+                    title="সহজ মোড স্টার্ট মেনু ফুল স্ক্রিন অন/অফ করুন"
                   >
                     {isStartMenuOpen ? (
                       <>
@@ -435,6 +442,28 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
                       </>
                     )}
                   </button>
+
+                  {/* Back to Dashboard Button in Basic Mode (Always available when on any inner page) */}
+                  {pathname !== "/dashboard" ? (
+                    <Link
+                      href="/dashboard"
+                      className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all duration-150 shrink-0 cursor-pointer active:scale-95 border border-emerald-500/30"
+                      title="মূল ড্যাশবোর্ডে ফিরে যান"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">ড্যাশবোর্ডে ফিরুন</span>
+                      <span className="sm:hidden">ড্যাশবোর্ড</span>
+                    </Link>
+                  ) : (
+                    <Link
+                      href="/dashboard"
+                      className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors shrink-0"
+                      title="ড্যাশবোর্ড হোম"
+                    >
+                      <LayoutDashboard className="w-3.5 h-3.5" />
+                      <span>হোম</span>
+                    </Link>
+                  )}
                 </div>
               ) : (
                 /* Advanced Mode: Sidebar toggle and search */
