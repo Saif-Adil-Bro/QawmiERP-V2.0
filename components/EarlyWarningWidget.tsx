@@ -31,14 +31,14 @@ export default function EarlyWarningWidget({ initialData, isTeacherView = false 
 
   if (totalAlerts === 0) {
     return (
-      <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-5 flex items-center justify-between">
+      <div className="bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 rounded-2xl p-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+          <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-700 dark:text-emerald-400">
             <CheckCircle2 className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="font-bold text-emerald-950 text-sm">আলহামদুলিল্লাহ! কোনো শিক্ষার্থী ঝুঁকিপূর্ণ তালিকায় নেই</h4>
-            <p className="text-xs text-emerald-700 mt-0.5">সব শিক্ষার্থীর হাজিরা ও পরীক্ষার ফলাফল সন্তোষজনক গতিতে চলছে।</p>
+            <h4 className="font-bold text-emerald-950 dark:text-emerald-200 text-sm">আলহামদুলিল্লাহ! কোনো শিক্ষার্থী ঝুঁকিপূর্ণ তালিকায় নেই</h4>
+            <p className="text-xs text-emerald-700 dark:text-emerald-400/90 mt-0.5">সব শিক্ষার্থীর হাজিরা ও পরীক্ষার ফলাফল সন্তোষজনক গতিতে চলছে।</p>
           </div>
         </div>
       </div>
@@ -52,7 +52,7 @@ export default function EarlyWarningWidget({ initialData, isTeacherView = false 
   };
 
   return (
-    <div className="bg-white rounded-2xl border-2 border-rose-200/80 shadow-md shadow-rose-950/5 overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border-2 border-rose-200/80 dark:border-rose-900/60 shadow-md shadow-rose-950/5 overflow-hidden">
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 text-white p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
