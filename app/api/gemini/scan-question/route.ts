@@ -88,38 +88,6 @@ Return ONLY a valid JSON object matching this exact schema (no markdown, no expl
 
     const endpoint = "https://openrouter.ai/api/v1/chat/completions";
 
-    const buildRequestBody = (useAutoFreeRouter = false) => ({
-      model: useAutoFreeRouter ? "openrouter/free" : "google/gemma-4-31b-it:free",
-      ...(useAutoFreeRouter
-        ? {}
-        : {
-            models: [
-              "google/gemma-4-31b-it:free",
-              "google/gemma-4-26b-a4b-it:free",
-              "nvidia/nemotron-3.5-super-vl:free",
-            ],
-          }),
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: promptText,
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${resolvedMimeType};base64,${cleanBase64}`,
-              },
-            },
-          ],
-        },
-      ],
-      temperature: 0.05,
-      max_tokens: 4096,
-    });
-
     const headers = {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
@@ -127,77 +95,132 @@ Return ONLY a valid JSON object matching this exact schema (no markdown, no expl
       "X-Title": "QawmiERP Question Scanner",
     };
 
-    let apiResponse = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(buildRequestBody(false)),
-    });
+    const candidateModels = [
+      "google/gemma-4-26b-a4b-it:free",
+      "google/gemma-4-31b-it:free",
+      "nvidia/nemotron-3.5-super-vl:free",
+      "openrouter/free",
+    ];
 
-    if (apiResponse.status === 404) {
-      console.warn("Primary OpenRouter vision models returned 404, retrying with openrouter/free...");
-      apiResponse = await fetch(endpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(buildRequestBody(true)),
-      });
-    }
+    const extractTextFromResponse = (responseJson: any): string | undefined => {
+      const msg = responseJson?.choices?.[0]?.message;
+      const rawContent = msg?.content;
+      let text = Array.isArray(rawContent)
+        ? rawContent.map((part: any) => (typeof part?.text === "string" ? part.text : "")).join("")
+        : typeof rawContent === "string"
+          ? rawContent
+          : "";
 
-    if (!apiResponse.ok) {
-      const errorText = await apiResponse.text().catch(() => "");
-      console.error(
-        `AI Question Scanner HTTP ${apiResponse.status} error from OpenRouter:`,
-        errorText
-      );
-      return NextResponse.json(
-        {
-          error: `OpenRouter API থেকে ত্রুটি পাওয়া গেছে (HTTP ${apiResponse.status})। অনুগ্রহ করে OPENROUTER_API_KEY ও ছবির ফরম্যাট যাচাই করুন।`,
-          details: errorText.slice(0, 500),
-        },
-        { status: apiResponse.status >= 400 && apiResponse.status < 600 ? apiResponse.status : 502 }
-      );
-    }
+      if (!text.trim() && typeof msg?.reasoning === "string" && msg.reasoning.includes("{")) {
+        text = msg.reasoning;
+      }
+      return text.trim() || undefined;
+    };
 
-    const responseJson = await apiResponse.json();
-    const rawContent = responseJson?.choices?.[0]?.message?.content;
-    const responseText: string | undefined = Array.isArray(rawContent)
-      ? rawContent.map((part: any) => (typeof part?.text === "string" ? part.text : "")).join("")
-      : typeof rawContent === "string"
-        ? rawContent
-        : undefined;
+    const parseJsonFromText = (responseText: string) => {
+      const cleaned = responseText
+        .replace(/^```(?:json|html)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .replace(/```(?:json|html)?/gi, "")
+        .replace(/```/g, "")
+        .trim();
 
-    if (!responseText) {
-      console.error("AI Question Scanner empty response payload:", JSON.stringify(responseJson).slice(0, 500));
-      return NextResponse.json(
-        { error: "এআই থেকে কোনো উত্তর পাওয়া যায়নি।" },
-        { status: 502 }
-      );
-    }
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        const firstBrace = cleaned.indexOf("{");
+        const lastBrace = cleaned.lastIndexOf("}");
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+          return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+        }
+        throw new Error("Invalid JSON");
+      }
+    };
 
-    // Clean any markdown code block wrappers (```json, ```html, ```)
-    const cleaned = responseText
-      .replace(/^```(?:json|html)?\s*/i, "")
-      .replace(/\s*```$/i, "")
-      .replace(/```(?:json|html)?/gi, "")
-      .replace(/```/g, "")
-      .trim();
+    let lastStatus = 502;
+    let lastErrorDetail = "";
 
-    let parsedData: any;
-    try {
-      parsedData = JSON.parse(cleaned);
-    } catch {
-      const firstBrace = cleaned.indexOf("{");
-      const lastBrace = cleaned.lastIndexOf("}");
-      if (firstBrace !== -1 && lastBrace > firstBrace) {
-        parsedData = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
-      } else {
-        throw new Error("এআই থেকে প্রাপ্ত ডেটা সঠিক JSON ফরম্যাটে ছিল না। অনুগ্রহ করে আবার চেষ্টা করুন।");
+    for (const modelId of candidateModels) {
+      try {
+        const apiResponse = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            model: modelId,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: promptText },
+                  {
+                    type: "image_url",
+                    image_url: { url: `data:${resolvedMimeType};base64,${cleanBase64}` },
+                  },
+                ],
+              },
+            ],
+            temperature: 0.05,
+            max_tokens: 8192,
+          }),
+        });
+
+        if (!apiResponse.ok) {
+          lastStatus = apiResponse.status;
+          lastErrorDetail = await apiResponse.text().catch(() => "");
+          console.warn(
+            `AI Question Scanner model ${modelId} failed with HTTP ${apiResponse.status}:`,
+            lastErrorDetail.slice(0, 300)
+          );
+          if (apiResponse.status === 401 || apiResponse.status === 403) {
+            return NextResponse.json(
+              {
+                error: `OpenRouter API Key সঠিক নয় বা অনুমতি নেই (HTTP ${apiResponse.status})।`,
+                details: lastErrorDetail.slice(0, 500),
+              },
+              { status: apiResponse.status }
+            );
+          }
+          continue;
+        }
+
+        const responseJson = await apiResponse.json();
+        if (responseJson?.error) {
+          lastErrorDetail = JSON.stringify(responseJson.error);
+          console.warn(`AI Question Scanner model ${modelId} returned error object:`, lastErrorDetail.slice(0, 300));
+          continue;
+        }
+
+        const responseText = extractTextFromResponse(responseJson);
+        if (!responseText) {
+          lastErrorDetail = JSON.stringify(responseJson).slice(0, 300);
+          console.warn(`AI Question Scanner model ${modelId} returned empty content:`, lastErrorDetail);
+          continue;
+        }
+
+        try {
+          const parsedData = parseJsonFromText(responseText);
+          return NextResponse.json({
+            success: true,
+            data: parsedData,
+          });
+        } catch {
+          console.warn(`AI Question Scanner model ${modelId} returned non-JSON output:`, responseText.slice(0, 300));
+          lastErrorDetail = "মডেল সঠিক JSON ফরম্যাটে উত্তর দেয়নি।";
+          continue;
+        }
+      } catch (fetchErr: any) {
+        lastErrorDetail = fetchErr?.message || "Network error";
+        console.warn(`AI Question Scanner model ${modelId} threw error:`, lastErrorDetail);
       }
     }
 
-    return NextResponse.json({
-      success: true,
-      data: parsedData,
-    });
+    return NextResponse.json(
+      {
+        error: "এআই থেকে কোনো উত্তর পাওয়া যায়নি। অনুগ্রহ করে আবার চেষ্টা করুন অথবা নিচের Tesseract অফলাইন স্ক্যান ব্যবহার করুন।",
+        details: lastErrorDetail.slice(0, 500),
+      },
+      { status: lastStatus >= 400 && lastStatus < 600 ? lastStatus : 502 }
+    );
   } catch (error: any) {
     console.error("AI Question Scanner error:", error);
     return NextResponse.json(
