@@ -403,13 +403,13 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
               {isBasic ? (
                 /* In Basic Mode (সহজ মোড), show brand link, Windows 10 Start Menu floating trigger, and Back to Dashboard button */
-                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <div className="flex items-center gap-1 sm:gap-2 min-w-0">
                   <Link
                     href="/dashboard"
                     className="flex items-center gap-2 shrink-0 group"
                     title="মূল ড্যাশবোর্ড"
                   >
-                    <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-sm shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-xs sm:text-sm shadow-xs shrink-0 group-hover:scale-105 transition-transform">
                       Q
                     </div>
                     <span className="font-black text-slate-900 dark:text-white text-base hidden md:inline tracking-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
@@ -421,7 +421,7 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={toggleStartMenu}
-                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black transition-all duration-150 shadow-xs cursor-pointer border shrink-0 ${
+                    className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all duration-150 shadow-xs cursor-pointer border shrink-0 ${
                       isStartMenuOpen
                         ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-500 shadow-rose-600/25"
                         : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white border-amber-400/80 shadow-amber-500/20 active:scale-95"
@@ -447,12 +447,11 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
                   {pathname !== "/dashboard" ? (
                     <Link
                       href="/dashboard"
-                      className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all duration-150 shrink-0 cursor-pointer active:scale-95 border border-emerald-500/30"
+                      className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all duration-150 shrink-0 cursor-pointer active:scale-95 border border-emerald-500/30"
                       title="মূল ড্যাশবোর্ডে ফিরে যান"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">ড্যাশবোর্ডে ফিরুন</span>
-                      <span className="sm:hidden">ড্যাশবোর্ড</span>
                     </Link>
                   ) : (
                     <Link

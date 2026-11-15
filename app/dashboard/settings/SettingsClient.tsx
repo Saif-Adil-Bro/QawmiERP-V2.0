@@ -681,11 +681,11 @@ export default function SettingsClient({
                 </div>
 
                 {/* Madrasa Prefix Configuration Card */}
-                <div className="bg-gradient-to-r from-emerald-50/70 via-teal-50/50 to-slate-50 p-4 rounded-xl border border-emerald-200/80 space-y-3">
+                <div className="bg-gradient-to-r from-emerald-50/70 via-teal-50/50 to-slate-50 dark:from-emerald-950/40 dark:via-slate-900 dark:to-slate-900 p-4 rounded-xl border border-emerald-200/80 dark:border-emerald-800/60 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <Fingerprint className="w-4 h-4 text-emerald-700" />
-                      <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      <Fingerprint className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
+                      <label className="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider">
                         মাদ্রাসা প্রিফিক্স কোড (Unique Prefix) <span className="text-red-500">*</span>
                       </label>
                     </div>
@@ -693,9 +693,9 @@ export default function SettingsClient({
                       type="button"
                       disabled={isSuggestingPrefix || !name}
                       onClick={handleAutoSuggestPrefix}
-                      className="text-xs font-medium text-emerald-800 hover:text-emerald-900 bg-white hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+                      className="text-xs font-medium text-emerald-800 dark:text-emerald-300 hover:text-emerald-900 dark:hover:text-emerald-200 bg-white dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-700 px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
                     >
-                      <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                       {isSuggestingPrefix ? "সাজেস্ট হচ্ছে..." : "স্বয়ংক্রিয় সাজেস্ট"}
                     </button>
                   </div>
@@ -708,24 +708,24 @@ export default function SettingsClient({
                         maxLength={4}
                         value={prefix}
                         onChange={(e) => handlePrefixChange(e.target.value)}
-                        className="w-full text-center font-mono text-base font-bold tracking-wider uppercase px-3 py-2 bg-white border-2 border-emerald-300 rounded-xl text-emerald-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none shadow-sm"
+                        className="w-full text-center font-mono text-base font-bold tracking-wider uppercase px-3 py-2 bg-white dark:bg-slate-950 border-2 border-emerald-300 dark:border-emerald-700 rounded-xl text-emerald-900 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500 focus:outline-none shadow-sm"
                         placeholder="AH"
                       />
                     </div>
-                    <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-white/80 px-3 py-2 rounded-xl border border-slate-200 shadow-sm">
-                      <span className="text-slate-500">আইডি ফরম্যাট প্রিভিউ:</span>
-                      <span className="font-mono font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 bg-white/80 dark:bg-slate-900/90 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                      <span className="text-slate-500 dark:text-slate-400">আইডি ফরম্যাট প্রিভিউ:</span>
+                      <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded">
                         {prefix || "AH"}-480001
                       </span>
                     </div>
                   </div>
 
                   {prefixStatus && (
-                    <div className={`text-xs font-medium flex items-center gap-1.5 ${prefixStatus.available ? "text-emerald-700" : "text-amber-700"}`}>
+                    <div className={`text-xs font-medium flex items-center gap-1.5 ${prefixStatus.available ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
                       {prefixStatus.available ? (
-                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                       ) : (
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                       )}
                       <span>{prefixStatus.message}</span>
                       {prefixStatus.suggested && (
@@ -740,27 +740,27 @@ export default function SettingsClient({
                     </div>
                   )}
 
-                  <div className="text-xs text-slate-600 bg-emerald-50/50 border border-emerald-100 rounded-xl p-3 space-y-1">
-                    <div className="flex items-center gap-2 font-semibold text-emerald-950 text-xs">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div className="text-xs text-slate-600 dark:text-slate-300 bg-emerald-50/50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-800/50 rounded-xl p-3 space-y-1">
+                    <div className="flex items-center gap-2 font-semibold text-emerald-950 dark:text-emerald-200 text-xs">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                       <span>স্বতন্ত্র প্রাতিষ্ঠানিক প্রিফিক্স কোড</span>
                     </div>
-                    <p className="text-[11px] text-slate-600 leading-relaxed">
-                      এটি আপনার মাদরাসার প্রতিটি শিক্ষার্থীর স্বয়ংক্রিয় পরিচিতি কোড (ID) তৈরিতে ব্যবহৃত হয়। শিক্ষার্থী ও অভিভাবকগণ সরাসরি আইডি নম্বর (যেমন: <strong className="font-mono text-emerald-800">{prefix || "JMD"}-{idYearFormat === "gregorian" ? "26" : "48"}0001</strong>) কিংবা হাইফেন ব্যতীতও পোর্টালে অনায়াসে লগইন করতে পারবেন।
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      এটি আপনার মাদরাসার প্রতিটি শিক্ষার্থীর স্বয়ংক্রিয় পরিচিতি কোড (ID) তৈরিতে ব্যবহৃত হয়। শিক্ষার্থী ও অভিভাবকগণ সরাসরি আইডি নম্বর (যেমন: <strong className="font-mono text-emerald-800 dark:text-emerald-300">{prefix || "JMD"}-{idYearFormat === "gregorian" ? "26" : "48"}0001</strong>) কিংবা হাইফেন ব্যতীতও পোর্টালে অনায়াসে লগইন করতে পারবেন।
                     </p>
                   </div>
                 </div>
 
                 {/* Student ID Year Format Card */}
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/90 space-y-3">
-                  <div className="flex items-center justify-between">
+                <div className="bg-slate-50 dark:bg-slate-900/80 p-4 rounded-xl border border-slate-200/90 dark:border-slate-800 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-emerald-700" />
-                      <label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      <Calendar className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                      <label className="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider">
                         স্টুডেন্ট আইডি বর্ষ নির্ধারণ পদ্ধতি (Student ID Year Format)
                       </label>
                     </div>
-                    <div className="text-[11px] font-mono font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-lg border border-emerald-200">
+                    <div className="text-[11px] font-mono font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/70 px-2.5 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 shrink-0">
                       লাইভ প্রিভিউ: {prefix || "AH"}-{idYearFormat === "gregorian" ? "26" : "48"}0001
                     </div>
                   </div>
@@ -770,8 +770,8 @@ export default function SettingsClient({
                     <label
                       className={`relative flex flex-col p-3 rounded-xl border cursor-pointer transition ${
                         idYearFormat === "hijri"
-                          ? "bg-emerald-50/80 border-emerald-500 ring-1 ring-emerald-500 text-emerald-950"
-                          : "bg-white border-slate-200 hover:border-slate-300 text-slate-700"
+                          ? "bg-emerald-50/80 dark:bg-emerald-950/50 border-emerald-500 ring-1 ring-emerald-500 text-emerald-950 dark:text-emerald-100"
+                          : "bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 dark:text-slate-200"
                       }`}
                     >
                       <input
@@ -787,11 +787,11 @@ export default function SettingsClient({
                           <span>🌙 হিজরি সন (ডিফল্ট)</span>
                         </span>
                         {idYearFormat === "hijri" && (
-                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-500 leading-snug">
-                        যেমন: ১৪৪৮ হিজরির জন্য <strong>{prefix || "AH"}-480001</strong> (কওমি শাওয়াল-টু-শাবান সেশনের জন্য আদর্শ)।
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                        যেমন: ১৪৪৮ হিজরির জন্য <strong className="text-slate-700 dark:text-slate-200">{prefix || "AH"}-480001</strong> (কওমি শাওয়াল-টু-শাবান সেশনের জন্য আদর্শ)।
                       </p>
                     </label>
 
@@ -799,8 +799,8 @@ export default function SettingsClient({
                     <label
                       className={`relative flex flex-col p-3 rounded-xl border cursor-pointer transition ${
                         idYearFormat === "gregorian"
-                          ? "bg-emerald-50/80 border-emerald-500 ring-1 ring-emerald-500 text-emerald-950"
-                          : "bg-white border-slate-200 hover:border-slate-300 text-slate-700"
+                          ? "bg-emerald-50/80 dark:bg-emerald-950/50 border-emerald-500 ring-1 ring-emerald-500 text-emerald-950 dark:text-emerald-100"
+                          : "bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 dark:text-slate-200"
                       }`}
                     >
                       <input
@@ -816,11 +816,11 @@ export default function SettingsClient({
                           <span>📅 ইংরেজি / খ্রিষ্টাব্দ</span>
                         </span>
                         {idYearFormat === "gregorian" && (
-                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-500 leading-snug">
-                        যেমন: ২০২৬ সনের জন্য <strong>{prefix || "AH"}-260001</strong> (জানুয়ারি-ডিসেম্বর সেশনের জন্য আদর্শ)।
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                        যেমন: ২০২৬ সনের জন্য <strong className="text-slate-700 dark:text-slate-200">{prefix || "AH"}-260001</strong> (জানুয়ারি-ডিসেম্বর সেশনের জন্য আদর্শ)।
                       </p>
                     </label>
 
@@ -828,8 +828,8 @@ export default function SettingsClient({
                     <label
                       className={`relative flex flex-col p-3 rounded-xl border cursor-pointer transition ${
                         idYearFormat === "auto"
-                          ? "bg-emerald-50/80 border-emerald-500 ring-1 ring-emerald-500 text-emerald-950"
-                          : "bg-white border-slate-200 hover:border-slate-300 text-slate-700"
+                          ? "bg-emerald-50/80 dark:bg-emerald-950/50 border-emerald-500 ring-1 ring-emerald-500 text-emerald-950 dark:text-emerald-100"
+                          : "bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 dark:text-slate-200"
                       }`}
                     >
                       <input
@@ -845,10 +845,10 @@ export default function SettingsClient({
                           <span>⚙️ সেশন অনুযায়ী স্বয়ংক্রিয়</span>
                         </span>
                         {idYearFormat === "auto" && (
-                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-500 leading-snug">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
                         সক্রিয় শিক্ষাবর্ষের নাম অনুযায়ী স্বয়ংক্রিয়ভাবে হিজরি বা ইংরেজি সন নির্ধারণ করবে।
                       </p>
                     </label>

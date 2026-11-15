@@ -21,7 +21,7 @@ export function ModeToggleSwitch({ compact = false }: ModeToggleSwitchProps) {
       <button
         type="button"
         onClick={() => setMode("basic")}
-        className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all duration-200 cursor-pointer ${
+        className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-xl text-[10px] sm:text-xs font-bold transition-all duration-200 cursor-pointer ${
           isBasic
             ? "bg-amber-500 text-white shadow-xs shadow-amber-500/30 scale-[1.02]"
             : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
@@ -36,7 +36,7 @@ export function ModeToggleSwitch({ compact = false }: ModeToggleSwitchProps) {
       <button
         type="button"
         onClick={() => setMode("advanced")}
-        className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all duration-200 cursor-pointer ${
+        className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-xl text-[10px] sm:text-xs font-bold transition-all duration-200 cursor-pointer ${
           !isBasic
             ? "bg-emerald-600 text-white shadow-xs shadow-emerald-600/30 scale-[1.02]"
             : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
