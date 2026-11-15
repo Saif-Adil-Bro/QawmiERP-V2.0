@@ -23,22 +23,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Read API key securely from server environment variable (supports AQ. prefixed Google AI Platform keys)
-    const customKeyFromHeader = req.headers.get("x-gemini-api-key");
-    const apiKey = (process.env.GEMINI_API_KEY || customKeyFromHeader || body.customApiKey || "").trim();
+    // Read OpenRouter API key securely from server environment variable
+    const apiKey = (process.env.OPENROUTER_API_KEY || "").trim();
 
     if (!apiKey) {
       return NextResponse.json(
         {
-          error: "জেমিনি এআই কনফিগারেশন অনুপস্থিত (GEMINI_API_KEY পাওয়া যায়নি)।",
+          error: "OpenRouter AI কনফিগারেশন অনুপস্থিত (OPENROUTER_API_KEY পাওয়া যায়নি)।",
           isMissingApiKey: true,
-          details: "সার্ভার এনভায়রনমেন্টে GEMINI_API_KEY কনফিগার করা হয়নি। Railway ড্যাশবোর্ডের Variables ট্যাবে GEMINI_API_KEY যোগ করুন অথবা স্ক্যানার পেজে সরাসরি আপনার ফ্রি গুগল এআই কি প্রদান করুন।"
+          details: "সার্ভার এনভায়রনমেন্টে OPENROUTER_API_KEY কনফিগার করা হয়নি। অনুগ্রহ করে .env.local বা Railway ড্যাশবোর্ডের Variables ট্যাবে OPENROUTER_API_KEY যোগ করুন।"
         },
         { status: 500 }
       );
     }
 
     // Clean base64 data string
+    const resolvedMimeType = mimeType || "image/jpeg";
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-z0-9+.-]+;base64,/, "").trim();
 
     const promptText = `Extract all text, questions, marks, headers, and Arabic/Bengali/Urdu scripts accurately from this Qawmi Madrasa question paper image (printed or handwritten). Preserve Arabic diacritics (Harakat) and return the output strictly matching the existing schema/format expected by the Question Scanner PDF builder.
@@ -92,34 +92,41 @@ You must return ONLY a valid JSON object matching the following schema without a
   "rawSummary": "string describing what subject/exam this paper is about"
 }`;
 
-    const endpoint = `https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const endpoint = "https://openrouter.ai/api/v1/chat/completions";
 
     const requestBody = {
-      contents: [
+      model: "qwen/qwen2.5-vl-72b-instruct:free",
+      models: [
+        "qwen/qwen2.5-vl-72b-instruct:free",
+        "google/gemini-2.0-flash-exp:free",
+      ],
+      messages: [
         {
           role: "user",
-          parts: [
+          content: [
             {
+              type: "text",
               text: promptText,
             },
             {
-              inline_data: {
-                mime_type: mimeType || "image/jpeg",
-                data: cleanBase64,
+              type: "image_url",
+              image_url: {
+                url: `data:${resolvedMimeType};base64,${cleanBase64}`,
               },
             },
           ],
         },
       ],
-      generationConfig: {
-        temperature: 0.1,
-      },
+      temperature: 0.1,
     };
 
     const apiResponse = await fetch(endpoint, {
       method: "POST",
       headers: {
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+        "X-Title": "QawmiERP Question Scanner",
       },
       body: JSON.stringify(requestBody),
     });
@@ -127,12 +134,12 @@ You must return ONLY a valid JSON object matching the following schema without a
     if (!apiResponse.ok) {
       const errorText = await apiResponse.text().catch(() => "");
       console.error(
-        `AI Question Scanner HTTP ${apiResponse.status} error from Google AI Platform:`,
+        `AI Question Scanner HTTP ${apiResponse.status} error from OpenRouter:`,
         errorText
       );
       return NextResponse.json(
         {
-          error: `এআই API থেকে ত্রুটি পাওয়া গেছে (HTTP ${apiResponse.status})। অনুগ্রহ করে API Key ও ছবির ফরম্যাট যাচাই করুন।`,
+          error: `OpenRouter API থেকে ত্রুটি পাওয়া গেছে (HTTP ${apiResponse.status})। অনুগ্রহ করে OPENROUTER_API_KEY ও ছবির ফরম্যাট যাচাই করুন।`,
           details: errorText.slice(0, 500),
         },
         { status: apiResponse.status >= 400 && apiResponse.status < 600 ? apiResponse.status : 502 }
@@ -140,8 +147,12 @@ You must return ONLY a valid JSON object matching the following schema without a
     }
 
     const responseJson = await apiResponse.json();
-    const responseText: string | undefined =
-      responseJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const rawContent = responseJson?.choices?.[0]?.message?.content;
+    const responseText: string | undefined = Array.isArray(rawContent)
+      ? rawContent.map((part: any) => (typeof part?.text === "string" ? part.text : "")).join("")
+      : typeof rawContent === "string"
+        ? rawContent
+        : undefined;
 
     if (!responseText) {
       console.error("AI Question Scanner empty response payload:", JSON.stringify(responseJson).slice(0, 500));
