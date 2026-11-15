@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 
 export const maxDuration = 60; // Allow sufficient time for vision OCR
@@ -24,7 +23,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Prefer server-configured environment variable, fallback to client-supplied key if hosting lacks env vars
+    // Read API key securely from server environment variable (supports AQ. prefixed Google AI Platform keys)
     const customKeyFromHeader = req.headers.get("x-gemini-api-key");
     const apiKey = (process.env.GEMINI_API_KEY || customKeyFromHeader || body.customApiKey || "").trim();
 
@@ -39,22 +38,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-
     // Clean base64 data string
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-z0-9+.-]+;base64,/, "").trim();
 
-    const ai = new GoogleGenAI({ apiKey });
+    const promptText = `Extract all text, questions, marks, headers, and Arabic/Bengali/Urdu scripts accurately from this Qawmi Madrasa question paper image (printed or handwritten). Preserve Arabic diacritics (Harakat) and return the output strictly matching the existing schema/format expected by the Question Scanner PDF builder.
 
-    const promptText = `
 You are an expert Qawmi Madrasa Examination Paper Digitizer, Arabic Calligraphy Specialist, and Optical Character Recognition (OCR) Engine.
-Your task is to analyze the provided image of a handwritten or printed examination question paper and convert it into a completely structured, high-fidelity JSON object.
 
 CRITICAL INSTRUCTIONS:
-1. Bengali Text: Preserve authentic Bengali orthography, punctuation, and terms.
+1. Bengali & Urdu Text: Preserve authentic Bengali and Urdu orthography, punctuation, and terms.
 2. Arabic & Quranic Text: If there are Arabic verses, Hadith, or syntax, preserve full Tashkeel/Harakat (diacritics: fatha, kasra, damma, sukun, shaddah) and correct Uthmani spelling.
 3. Tables / Matrix / Matching: If the question contains a table, matching column (যেমন: ক-স্তম্ভ ও খ-স্তম্ভ মিলকরণ), fill-in-the-blank grid, or vocabulary matrix, reconstruct it faithfully as a structured table with "headers" and "rows".
 4. Sub-questions: If questions have subdivisions (ক, খ, গ, ঘ, ১, ২, etc.), extract them cleanly with their specific marks.
-5. Header Metadata: Extract Madrasa name, Exam name (সাময়িক/বার্ষিক/নেহায়ী), Subject (বিষয়), Class/Jamat (জামাত), Time (সময়), Full Marks (পূর্ণমান). If the image doesn't show a madrasa name, use "${madrasaName || 'কওমি মাদরাসা'}".
+5. Header Metadata: Extract Madrasa name, Exam name (সাময়িক/বার্ষিক/নেহায়ী), Subject (বিষয়), Class/Jamat (জামাত), Time (সময়), Full Marks (পূর্ণমান). If the image doesn't show a madrasa name, use "${madrasaName || "কওমি মাদরাসা"}".
 6. Question Marks: Extract numerical marks for each question and sub-question (in Bengali numbers like ১০, ৫, ২).
 
 You must return ONLY a valid JSON object matching the following schema without any markdown formatting or surrounding text:
@@ -94,52 +90,80 @@ You must return ONLY a valid JSON object matching the following schema without a
     }
   ],
   "rawSummary": "string describing what subject/exam this paper is about"
-}
-`;
+}`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: mimeType || "image/jpeg",
-              data: cleanBase64,
+    const endpoint = `https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const requestBody = {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: promptText,
             },
-          },
-          {
-            text: promptText,
-          },
-        ],
+            {
+              inline_data: {
+                mime_type: mimeType || "image/jpeg",
+                data: cleanBase64,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.1,
       },
-      config: {
-        responseMimeType: "application/json",
+    };
+
+    const apiResponse = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify(requestBody),
     });
 
-    const responseText = response.text;
+    if (!apiResponse.ok) {
+      const errorText = await apiResponse.text().catch(() => "");
+      console.error(
+        `AI Question Scanner HTTP ${apiResponse.status} error from Google AI Platform:`,
+        errorText
+      );
+      return NextResponse.json(
+        {
+          error: `এআই API থেকে ত্রুটি পাওয়া গেছে (HTTP ${apiResponse.status})। অনুগ্রহ করে API Key ও ছবির ফরম্যাট যাচাই করুন।`,
+          details: errorText.slice(0, 500),
+        },
+        { status: apiResponse.status >= 400 && apiResponse.status < 600 ? apiResponse.status : 502 }
+      );
+    }
+
+    const responseJson = await apiResponse.json();
+    const responseText: string | undefined =
+      responseJson?.candidates?.[0]?.content?.parts?.[0]?.text;
+
     if (!responseText) {
+      console.error("AI Question Scanner empty response payload:", JSON.stringify(responseJson).slice(0, 500));
       return NextResponse.json(
         { error: "এআই থেকে কোনো উত্তর পাওয়া যায়নি।" },
         { status: 502 }
       );
     }
 
-    try {
-      const parsedData = JSON.parse(responseText);
-      return NextResponse.json({
-        success: true,
-        data: parsedData,
-      });
-    } catch {
-      // If response has markdown backticks despite instruction
-      const cleaned = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-      const parsedData = JSON.parse(cleaned);
-      return NextResponse.json({
-        success: true,
-        data: parsedData,
-      });
-    }
+    // Clean any markdown code block wrappers (```json, ```html, ```)
+    const cleaned = responseText
+      .replace(/^```(?:json|html)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .replace(/```(?:json|html)?/gi, "")
+      .replace(/```/g, "")
+      .trim();
+
+    const parsedData = JSON.parse(cleaned);
+    return NextResponse.json({
+      success: true,
+      data: parsedData,
+    });
   } catch (error: any) {
     console.error("AI Question Scanner error:", error);
     return NextResponse.json(
