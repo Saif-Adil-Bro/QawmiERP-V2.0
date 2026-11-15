@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { toBanglaNumber } from "@/lib/numberToBangla";
 import {
   Camera,
   Upload,
@@ -169,6 +170,7 @@ export function AIQuestionScannerModal({
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanStep, setScanStep] = useState<number>(0);
+  const [aiProgress, setAiProgress] = useState<number>(0);
   const [scanError, setScanError] = useState<string | null>(null);
 
   // Free Tesseract.js OCR Engine states
@@ -263,10 +265,19 @@ export function AIQuestionScannerModal({
     setIsScanning(true);
     setScanError(null);
     setScanStep(1);
+    setAiProgress(12);
 
     const stepInterval = setInterval(() => {
       setScanStep((prev) => (prev < 3 ? prev + 1 : prev));
     }, 1800);
+
+    const progressInterval = setInterval(() => {
+      setAiProgress((prev) => {
+        if (prev >= 92) return prev;
+        const step = prev < 45 ? 7 : prev < 75 ? 4 : 2;
+        return Math.min(92, prev + step);
+      });
+    }, 550);
 
     try {
       const response = await fetch("/api/gemini/scan-question", {
@@ -284,7 +295,9 @@ export function AIQuestionScannerModal({
       });
 
       clearInterval(stepInterval);
+      clearInterval(progressInterval);
       setScanStep(4);
+      setAiProgress(100);
 
       const result = await response.json();
 
@@ -296,6 +309,7 @@ export function AIQuestionScannerModal({
       setActiveTab("editor");
     } catch (err: any) {
       clearInterval(stepInterval);
+      clearInterval(progressInterval);
       setScanError(err.message || "ছবি প্রসেস করার সময় ত্রুটি ঘটেছে।");
     } finally {
       setIsScanning(false);
@@ -750,7 +764,7 @@ export function AIQuestionScannerModal({
                   ? "bg-emerald-800/80 hover:bg-emerald-800 text-emerald-100 border border-emerald-400/40"
                   : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/30"
               }`}
-              title="Gemini API Key কনফিগারেশন"
+              title="OpenRouter API Key কনফিগারেশন"
             >
               <Key className="w-3.5 h-3.5 text-amber-300" />
               <span className="hidden md:inline">{customApiKey ? "API Key সক্রিয়" : "API Key সেটআপ"}</span>
@@ -773,7 +787,7 @@ export function AIQuestionScannerModal({
           {activeTab === "scan" && (
             <div className="max-w-3xl mx-auto space-y-6">
               {/* API Key Configuration Panel */}
-              {(showApiKeyConfig || (scanError && scanError.includes("GEMINI_API_KEY"))) && (
+              {(showApiKeyConfig || (scanError && scanError.includes("OPENROUTER_API_KEY"))) && (
                 <div className="p-4 sm:p-5 bg-amber-50/90 dark:bg-amber-950/40 border-2 border-amber-400/80 dark:border-amber-700 rounded-2xl shadow-sm space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2.5">
@@ -782,10 +796,10 @@ export function AIQuestionScannerModal({
                       </div>
                       <div>
                         <h4 className="text-xs sm:text-sm font-bold text-amber-900 dark:text-amber-100">
-                          গুগল জেমিনি (Gemini) API Key কনফিগারেশন
+                          OpenRouter Vision AI কনফিগারেশন
                         </h4>
                         <p className="text-[11px] text-amber-700 dark:text-amber-300">
-                          রেলওয়ে (Railway) বা লাইভ সার্ভারে GEMINI_API_KEY ভ্যারিয়েবল অনুপস্থিত থাকলে নিচের বক্সে সরাসরি এপিআই কি দিন।
+                          রেলওয়ে (Railway) বা লাইভ সার্ভারে <code className="font-mono font-bold">OPENROUTER_API_KEY</code> সেট করা থাকলে আলাদাভাবে এখানে কিছু দেওয়ার প্রয়োজন নেই।
                         </p>
                       </div>
                     </div>
@@ -798,60 +812,6 @@ export function AIQuestionScannerModal({
                     </button>
                   </div>
 
-                  {/* Key Input Field */}
-                  <div className="space-y-2 pt-1">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-semibold text-slate-700 dark:text-slate-300">
-                        আপনার Gemini API Key পেস্ট করুন:
-                      </span>
-                      <a
-                        href="https://aistudio.google.com/app/apikey"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1 font-bold"
-                      >
-                        <span>ফ্রি API Key তৈরি করুন</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        type="password"
-                        value={apiKeyInput}
-                        onChange={(e) => setApiKeyInput(e.target.value)}
-                        placeholder="AIzaSy... (গুগল এআই স্টুডিও API Key)"
-                        className="flex-1 px-3 py-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-inner"
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleSaveApiKey()}
-                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 shrink-0"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>সংরক্ষণ করুন</span>
-                        </button>
-                        {customApiKey && (
-                          <button
-                            onClick={() => {
-                              setApiKeyInput("");
-                              handleSaveApiKey("");
-                            }}
-                            className="px-3 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-rose-100 text-slate-700 hover:text-rose-600 rounded-xl text-xs font-semibold transition-all shrink-0"
-                            title="মুছে ফেলুন"
-                          >
-                            রিমুভ
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {apiKeySaveSuccess && (
-                      <div className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span>API Key সফলভাবে ব্রাউজারে সংরক্ষিত হয়েছে! এখন নিশ্চিন্তে স্ক্যান করতে পারবেন।</span>
-                      </div>
-                    )}
-                  </div>
-
                   {/* Railway Permanent Setup Guide Accordion */}
                   <div className="pt-2 border-t border-amber-200 dark:border-amber-800">
                     <button
@@ -860,7 +820,7 @@ export function AIQuestionScannerModal({
                     >
                       <span className="flex items-center gap-1.5">
                         <HelpCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span>রেলওয়ে (Railway.app)-তে স্থায়ীভাবে GEMINI_API_KEY সেট করার সহজ নিয়ম (সব শিক্ষক/ডিভাইসের জন্য)</span>
+                        <span>রেলওয়ে (Railway.app)-তে স্থায়ীভাবে OPENROUTER_API_KEY সেট করার সহজ নিয়ম</span>
                       </span>
                       {showRailwayGuide ? <ChevronUp className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
                     </button>
@@ -876,16 +836,10 @@ export function AIQuestionScannerModal({
                           </li>
                           <li>উপরের মেনু থেকে <b>Variables</b> ট্যাবে যান।</li>
                           <li>
-                            <b>+ New Variable</b> বাটনে চাপ দিন।
+                            <b>+ New Variable</b> বাটনে চাপ দিন এবং Name লিখুন: <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-rose-600 font-mono font-bold">OPENROUTER_API_KEY</code>
                           </li>
                           <li>
-                            Name লিখুন: <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-rose-600 font-mono font-bold">GEMINI_API_KEY</code>
-                          </li>
-                          <li>
-                            Value বক্সে আপনার গুগল এআই স্টুডিও API Key পেস্ট করুন।
-                          </li>
-                          <li>
-                            <b>Add</b> দিলে রেলওয়ে নিজে থেকেই সার্ভার আপডেট করে সক্রিয় করে দেবে।
+                            Value বক্সে আপনার OpenRouter API Key (<code className="font-mono">sk-or-v1-...</code>) পেস্ট করে <b>Add</b> দিন।
                           </li>
                         </ol>
                       </div>
@@ -907,7 +861,7 @@ export function AIQuestionScannerModal({
                     }`}
                   >
                     <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>ইঞ্জিন ১: Gemini Vision AI</span>
+                    <span>ইঞ্জিন ১: OpenRouter Vision AI</span>
                     <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.5 rounded-full font-semibold">
                       টেবিল ও হরকত
                     </span>
@@ -960,17 +914,15 @@ export function AIQuestionScannerModal({
                   </div>
                 ) : (
                   <div className="px-3 py-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                    <span>গুগল ক্লাউড ভিশন এআই দিয়ে জটিল টেবিল ও হরকত সহজে গঠন করে।</span>
-                    {!customApiKey && (
-                      <button
-                        type="button"
-                        onClick={() => setShowApiKeyConfig(true)}
-                        className="text-amber-700 dark:text-amber-400 font-bold hover:underline flex items-center gap-1"
-                      >
-                        <Key className="w-3 h-3" />
-                        <span>API Key সেটআপ</span>
-                      </button>
-                    )}
+                    <span>OpenRouter ফ্রি ভিশন এআই দিয়ে জটিল টেবিল, বাংলা ও আরবি হরকত সহজে গঠন করে।</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKeyConfig(!showApiKeyConfig)}
+                      className="text-emerald-700 dark:text-emerald-400 font-bold hover:underline flex items-center gap-1"
+                    >
+                      <Key className="w-3 h-3" />
+                      <span>সেটআপ গাইড</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1098,20 +1050,31 @@ export function AIQuestionScannerModal({
                       </div>
                     )}
 
-                    {/* Gemini AI Progress Overlay */}
+                    {/* OpenRouter Vision AI Live Progress Overlay */}
                     {isScanning && !tesseractProgress && (
-                      <div className="absolute inset-0 bg-emerald-950/60 backdrop-blur-xs flex flex-col items-center justify-center text-white p-4 text-center z-20">
-                        <div className="relative w-16 h-16 mb-3">
-                          <div className="w-16 h-16 rounded-full border-4 border-emerald-400 border-t-transparent animate-spin" />
-                          <Sparkles className="w-6 h-6 text-amber-300 absolute inset-0 m-auto" />
+                      <div className="absolute inset-0 bg-emerald-950/85 backdrop-blur-xs flex flex-col items-center justify-center text-white p-6 text-center z-20">
+                        <div className="relative w-14 h-14 mb-3">
+                          <div className="w-14 h-14 rounded-full border-4 border-emerald-400 border-t-transparent animate-spin" />
+                          <Sparkles className="w-5 h-5 text-amber-300 absolute inset-0 m-auto" />
                         </div>
-                        <h4 className="font-bold text-sm mb-1">জেমিনি এআই প্রশ্নপত্র স্ক্যান করছে...</h4>
-                        <p className="text-xs text-emerald-200 animate-pulse">
-                          {scanStep === 1 && "১. ছবির রেজোলিউশন ও টেক্সট স্পষ্টকরণ..."}
-                          {scanStep === 2 && "২. বাংলা ও আরবি হরকত ভিশন ওসিআর বিশ্লেষণ..."}
-                          {scanStep === 3 && "৩. টেবিল ও ক-স্তম্ভ/খ-স্তম্ভ কাঠামো রিকনস্ট্রাকশন..."}
+                        <h4 className="font-bold text-sm sm:text-base mb-1">
+                          OpenRouter Vision AI প্রশ্নপত্র স্ক্যান করছে...
+                        </h4>
+                        <p className="text-xs text-emerald-200 mb-3 max-w-sm animate-pulse">
+                          {scanStep === 1 && "১. ছবি প্রস্তুত ও OpenRouter Vision AI-তে পাঠানো হচ্ছে..."}
+                          {scanStep === 2 && "২. বাংলা, আরবি হরকত ও উর্দু লেখা শনাক্ত করা হচ্ছে..."}
+                          {scanStep === 3 && "৩. প্রশ্ন নম্বর, মান ও টেবিল কাঠামো সাজানো হচ্ছে..."}
                           {scanStep >= 4 && "৪. এডিটেবল প্রশ্নপত্রে রূপান্তর সম্পন্ন হচ্ছে..."}
                         </p>
+                        <div className="w-64 max-w-full bg-emerald-900/80 rounded-full h-3 overflow-hidden border border-emerald-700 shadow-inner">
+                          <div
+                            className="bg-gradient-to-r from-emerald-400 via-teal-300 to-amber-300 h-3 rounded-full transition-all duration-300 shadow-sm"
+                            style={{ width: `${Math.max(8, aiProgress)}%` }}
+                          />
+                        </div>
+                        <span className="text-[11px] text-emerald-200 mt-1.5 font-mono font-bold">
+                          {toBanglaNumber(aiProgress)}% সম্পন্ন
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1123,13 +1086,13 @@ export function AIQuestionScannerModal({
                           <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
                           <span className="font-bold">{scanError}</span>
                         </div>
-                        {scanError.includes("GEMINI_API_KEY") && (
+                        {scanError.includes("OPENROUTER_API_KEY") && (
                           <button
                             type="button"
                             onClick={() => setShowApiKeyConfig(true)}
                             className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[11px] font-bold shrink-0 transition-colors shadow-xs"
                           >
-                            Key বসান
+                            সেটআপ গাইড
                           </button>
                         )}
                       </div>
@@ -1137,7 +1100,7 @@ export function AIQuestionScannerModal({
                       {/* One-click Tesseract Free OCR Fallback Button */}
                       <div className="pt-1 border-t border-rose-200/80 flex flex-col sm:flex-row items-center justify-between gap-2">
                         <span className="text-[11px] text-slate-700 font-medium">
-                          গুগল এপিআই ছাড়া কাজ করতে চান?
+                          অনলাইন API ছাড়া অফলাইনে কাজ করতে চান?
                         </span>
                         <button
                           type="button"
@@ -1184,7 +1147,7 @@ export function AIQuestionScannerModal({
                           className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1.5 font-semibold py-1"
                         >
                           <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>অথবা জেমিনি এআই দিয়ে স্ক্যান করুন (উন্নত টেবিল ও কাঠামো)</span>
+                          <span>অথবা OpenRouter Vision AI দিয়ে স্ক্যান করুন (উন্নত টেবিল ও কাঠামো)</span>
                         </button>
                       </div>
                     </div>
@@ -1198,12 +1161,12 @@ export function AIQuestionScannerModal({
                         {isScanning ? (
                           <>
                             <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>এআই স্ক্যানিং ও ডিজিটাইজেশন চলছে...</span>
+                            <span>এআই স্ক্যানিং চলছে ({toBanglaNumber(aiProgress)}%)...</span>
                           </>
                         ) : (
                           <>
                             <Sparkles className="w-4 h-4 text-amber-300" />
-                            <span>জেমিনি এআই দিয়ে স্ক্যান করুন (টেবিল ও ফরমেট)</span>
+                            <span>OpenRouter Vision AI দিয়ে স্ক্যান করুন (টেবিল ও ফরমেট)</span>
                           </>
                         )}
                       </button>
@@ -1253,7 +1216,7 @@ export function AIQuestionScannerModal({
                   ) : (
                     <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>Gemini Vision AI</span>
+                      <span>OpenRouter Vision AI</span>
                     </span>
                   )}
 

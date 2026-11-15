@@ -41,20 +41,20 @@ export async function POST(req: NextRequest) {
     const resolvedMimeType = mimeType || "image/jpeg";
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-z0-9+.-]+;base64,/, "").trim();
 
-    const promptText = `Extract all text, questions, marks, headers, and Arabic/Bengali/Urdu scripts accurately from this Qawmi Madrasa question paper image (printed or handwritten). Preserve Arabic diacritics (Harakat) and return the output strictly matching the existing schema/format expected by the Question Scanner PDF builder.
+    const promptText = `You are an expert Qawmi Madrasa Examination Paper Digitizer, Arabic Calligraphy Specialist, and high-precision Optical Character Recognition (OCR) Engine.
 
-You are an expert Qawmi Madrasa Examination Paper Digitizer, Arabic Calligraphy Specialist, and Optical Character Recognition (OCR) Engine.
+TASK: Carefully read the entire uploaded question paper image (printed or handwritten) and transcribe EVERY visible word, question, sub-question, mark, header, and table verbatim into the exact JSON schema below.
 
-CRITICAL INSTRUCTIONS:
-1. Bengali & Urdu Text: Preserve authentic Bengali and Urdu orthography, punctuation, and terms.
-2. Arabic & Quranic Text: If there are Arabic verses, Hadith, or syntax, preserve full Tashkeel/Harakat (diacritics: fatha, kasra, damma, sukun, shaddah) and correct Uthmani spelling.
-3. Tables / Matrix / Matching: If the question contains a table, matching column (যেমন: ক-স্তম্ভ ও খ-স্তম্ভ মিলকরণ), fill-in-the-blank grid, or vocabulary matrix, reconstruct it faithfully as a structured table with "headers" and "rows".
-4. Sub-questions: If questions have subdivisions (ক, খ, গ, ঘ, ১, ২, etc.), extract them cleanly with their specific marks.
-5. Header Metadata: Extract Madrasa name, Exam name (সাময়িক/বার্ষিক/নেহায়ী), Subject (বিষয়), Class/Jamat (জামাত), Time (সময়), Full Marks (পূর্ণমান). If the image doesn't show a madrasa name, use "${madrasaName || "কওমি মাদরাসা"}".
-6. Question Marks: Extract numerical marks for each question and sub-question (in Bengali numbers like ১০, ৫, ২).
+STRICT ACCURACY RULES:
+1. Verbatim Transcription: Do NOT summarize, skip, paraphrase, or invent any question or text. Extract every line in exact reading order.
+2. Bengali & Urdu Script: Preserve exact Bengali spelling, punctuation, and Bengali numerals (০-৯), as well as Urdu words if present.
+3. Arabic & Quranic/Hadith Text: Preserve full Tashkeel / Harakat (َ ِ ُ ْ ّ ً ٍ ٌ ٰ) and exact Uthmani/Arabic spelling. If a question has an Arabic verse/hadith/phrase alongside Bengali instructions, put the Arabic part in "arabicText" (or keep inline if short) and do NOT duplicate it unnecessarily. If there is no Arabic text, set "arabicText": null.
+4. Sub-questions: Extract all subdivisions (ক, খ, গ, ঘ, ১, ২, ৩, أ, ب, ج, etc.) in "subQuestions" with their exact labels, text, and marks.
+5. Tables / Matching Columns: If there is a table or matching column (e.g., ক-স্তম্ভ ও খ-স্তম্ভ), reconstruct all headers and rows faithfully in "table". If a question has NO table, set "table": null.
+6. Header Metadata: Extract Madrasa name, Exam name (সাময়িক/বার্ষিক/নেহায়ী), Subject (বিষয়), Class/Jamat (জামাত), Time (সময়), Full Marks (পূর্ণমান). If not visible in the image, use "${madrasaName || "কওমি মাদরাসা"}" for madrasaName and "" for missing fields.
+7. Marks: Extract exact marks for each question and sub-question (e.g. "১০", "৫", "২").
 
-You must return ONLY a valid JSON object matching the following schema without any markdown formatting or surrounding text:
-
+Return ONLY a valid JSON object matching this exact schema (no markdown, no explanation):
 {
   "header": {
     "madrasaName": "string",
@@ -65,7 +65,7 @@ You must return ONLY a valid JSON object matching the following schema without a
     "totalMarks": "string",
     "bismillahText": "بِسْمِ اللَّهِ الرَّحْمٰنِ الرَّحِيمِ"
   },
-  "generalInstructions": "string (যেমন: 'যেকোনো ৫টি প্রশ্নের উত্তর দাও। ডানপাশের সংখ্যা পূর্ণমান জ্ঞাপক')",
+  "generalInstructions": "string",
   "questions": [
     {
       "id": "1",
@@ -80,16 +80,10 @@ You must return ONLY a valid JSON object matching the following schema without a
           "marks": "২"
         }
       ],
-      "table": {
-        "title": "string or null",
-        "headers": ["ক-স্তম্ভ", "খ-স্তম্ভ"],
-        "rows": [
-          ["বাক্যাংশ ১", "বাক্যাংশ ২"]
-        ]
-      }
+      "table": null
     }
   ],
-  "rawSummary": "string describing what subject/exam this paper is about"
+  "rawSummary": "string"
 }`;
 
     const endpoint = "https://openrouter.ai/api/v1/chat/completions";
@@ -122,7 +116,8 @@ You must return ONLY a valid JSON object matching the following schema without a
           ],
         },
       ],
-      temperature: 0.1,
+      temperature: 0.05,
+      max_tokens: 4096,
     });
 
     const headers = {
@@ -186,7 +181,19 @@ You must return ONLY a valid JSON object matching the following schema without a
       .replace(/```/g, "")
       .trim();
 
-    const parsedData = JSON.parse(cleaned);
+    let parsedData: any;
+    try {
+      parsedData = JSON.parse(cleaned);
+    } catch {
+      const firstBrace = cleaned.indexOf("{");
+      const lastBrace = cleaned.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        parsedData = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+      } else {
+        throw new Error("এআই থেকে প্রাপ্ত ডেটা সঠিক JSON ফরম্যাটে ছিল না। অনুগ্রহ করে আবার চেষ্টা করুন।");
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: parsedData,
