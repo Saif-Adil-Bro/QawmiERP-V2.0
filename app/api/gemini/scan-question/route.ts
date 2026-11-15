@@ -94,12 +94,17 @@ You must return ONLY a valid JSON object matching the following schema without a
 
     const endpoint = "https://openrouter.ai/api/v1/chat/completions";
 
-    const requestBody = {
-      model: "qwen/qwen2.5-vl-72b-instruct:free",
-      models: [
-        "qwen/qwen2.5-vl-72b-instruct:free",
-        "google/gemini-2.0-flash-exp:free",
-      ],
+    const buildRequestBody = (useAutoFreeRouter = false) => ({
+      model: useAutoFreeRouter ? "openrouter/free" : "google/gemma-4-31b-it:free",
+      ...(useAutoFreeRouter
+        ? {}
+        : {
+            models: [
+              "google/gemma-4-31b-it:free",
+              "google/gemma-4-26b-a4b-it:free",
+              "nvidia/nemotron-3.5-super-vl:free",
+            ],
+          }),
       messages: [
         {
           role: "user",
@@ -118,18 +123,29 @@ You must return ONLY a valid JSON object matching the following schema without a
         },
       ],
       temperature: 0.1,
+    });
+
+    const headers = {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+      "X-Title": "QawmiERP Question Scanner",
     };
 
-    const apiResponse = await fetch(endpoint, {
+    let apiResponse = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-        "X-Title": "QawmiERP Question Scanner",
-      },
-      body: JSON.stringify(requestBody),
+      headers,
+      body: JSON.stringify(buildRequestBody(false)),
     });
+
+    if (apiResponse.status === 404) {
+      console.warn("Primary OpenRouter vision models returned 404, retrying with openrouter/free...");
+      apiResponse = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(buildRequestBody(true)),
+      });
+    }
 
     if (!apiResponse.ok) {
       const errorText = await apiResponse.text().catch(() => "");
