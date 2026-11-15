@@ -31,12 +31,16 @@ interface ActionState {
   message?: string;
 }
 
+const CHAT_STORAGE_KEY = "qawmi_ai_chat_history";
+const ACTION_STORAGE_KEY = "qawmi_ai_action_states";
+
 export function ErpAiAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [actionStates, setActionStates] = useState<Record<string, ActionState>>({});
+  const [hydrated, setHydrated] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigatedIdsRef = useRef<Set<string>>(new Set());
   const recognitionRef = useRef<any>(null);
@@ -50,6 +54,66 @@ export function ErpAiAssistant() {
   });
 
   const isLoading = status === "submitted" || status === "streaming";
+
+  // Restore saved chat history & action states on mount
+  useEffect(() => {
+    try {
+      const savedMsgs = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (savedMsgs) {
+        const parsed = JSON.parse(savedMsgs);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Mark historical navigate tool calls as already handled so refresh won't redirect
+          for (const m of parsed) {
+            for (const part of (m.parts || []) as any[]) {
+              if (
+                part.type?.startsWith("tool-") &&
+                part.state === "output-available" &&
+                part.output?.type === "navigate" &&
+                part.output?.path
+              ) {
+                const key = part.toolCallId || `${m.id}-${part.output.path}`;
+                navigatedIdsRef.current.add(key);
+              }
+            }
+          }
+          setMessages(parsed);
+        }
+      }
+
+      const savedActions = localStorage.getItem(ACTION_STORAGE_KEY);
+      if (savedActions) {
+        const parsedActions = JSON.parse(savedActions);
+        if (parsedActions && typeof parsedActions === "object") {
+          setActionStates(parsedActions);
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    } finally {
+      setHydrated(true);
+    }
+  }, [setMessages]);
+
+  // Save chat history whenever messages update
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      const trimmed = messages.slice(-40);
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(trimmed));
+    } catch {
+      // Ignore quota errors
+    }
+  }, [messages, hydrated]);
+
+  // Save action states whenever they update
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(ACTION_STORAGE_KEY, JSON.stringify(actionStates));
+    } catch {
+      // Ignore quota errors
+    }
+  }, [actionStates, hydrated]);
 
   useEffect(() => {
     if (isOpen) {
@@ -231,6 +295,10 @@ export function ErpAiAssistant() {
                   onClick={() => {
                     setMessages([]);
                     setActionStates({});
+                    try {
+                      localStorage.removeItem(CHAT_STORAGE_KEY);
+                      localStorage.removeItem(ACTION_STORAGE_KEY);
+                    } catch {}
                   }}
                   className="p-1.5 rounded-xl hover:bg-white/15 text-emerald-100 transition cursor-pointer"
                   title="চ্যাট মুছুন"
