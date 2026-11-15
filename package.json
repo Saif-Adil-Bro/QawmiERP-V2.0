@@ -9,6 +9,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.118",
+    "@ai-sdk/react": "^4.0.177",
     "@base-ui/react": "^1.0.0-alpha.5",
     "@google/genai": "^2.29.0",
     "@hookform/resolvers": "^5.2.1",
@@ -19,6 +21,7 @@
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.39.3",
     "@types/qrcode": "^1.5.6",
+    "ai": "^7.0.173",
     "autoprefixer": "^10.4.21",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -36,7 +39,8 @@
     "recharts": "^2.15.0",
     "tailwind-merge": "^3.3.1",
     "tesseract.js": "^7.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.11",

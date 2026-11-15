@@ -36,6 +36,7 @@ import { UniversalCommandPalette } from "@/components/common/UniversalCommandPal
 import { MobileActionSheet } from "@/components/common/MobileActionSheet";
 import { ExecutiveSummaryModal } from "@/components/dashboard/ExecutiveSummaryModal";
 import { ModeProvider, useAppMode, AppMode } from "@/components/mode/ModeContext";
+import { ErpAiAssistant } from "@/components/ai/ErpAiAssistant";
 import { ModeToggleSwitch } from "@/components/mode/ModeToggleSwitch";
 import { WindowsStartScreen } from "@/components/mode/WindowsStartScreen";
 import { HeaderMoreMenuDropdown } from "@/components/common/HeaderMoreMenuDropdown";
@@ -572,6 +573,7 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
           />
         </div>
       </div>
+      <ErpAiAssistant />
     </>
   );
 }
