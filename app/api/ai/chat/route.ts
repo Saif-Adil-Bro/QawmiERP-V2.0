@@ -29,7 +29,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const madrasaId = await getAuthMadrasaId();
+    const madrasaId = await getAuthMadrasaId(undefined, user);
     if (!madrasaId) {
       return Response.json(
         { error: "আপনার অ্যাকাউন্টের সাথে কোনো মাদ্রাসা যুক্ত পাওয়া যায়নি।" },

@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       return Response.json({ error: "অননুমোদিত প্রবেশ।" }, { status: 401 });
     }
 
-    const madrasaId = await getAuthMadrasaId();
+    const madrasaId = await getAuthMadrasaId(undefined, user);
     if (!madrasaId) {
       return Response.json({ error: "মাদ্রাসা পাওয়া যায়নি।" }, { status: 403 });
     }
