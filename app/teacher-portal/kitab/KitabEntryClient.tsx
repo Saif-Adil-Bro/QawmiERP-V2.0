@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { resolveStudentIdBn } from "@/lib/student-utils";
+import { apiUrl } from "@/lib/api-url";
 
 interface Props {
   classes: any[];
@@ -176,7 +177,7 @@ export default function KitabEntryClient({
         };
       });
 
-      const res = await fetch("/api/teacher/save-kitab", {
+      const res = await fetch(apiUrl("/api/teacher/save-kitab"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

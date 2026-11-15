@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { resolveStudentIdBn } from "@/lib/student-utils";
+import { apiUrl } from "@/lib/api-url";
 
 export default function ExamMarksForm({
   exams,
@@ -124,7 +125,7 @@ export default function ExamMarksForm({
 
       // Try server API first with admin privileges
       try {
-        const res = await fetch("/api/teacher/save-marks", {
+        const res = await fetch(apiUrl("/api/teacher/save-marks"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

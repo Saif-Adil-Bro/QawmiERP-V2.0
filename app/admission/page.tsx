@@ -37,6 +37,7 @@ import {
 } from "@/app/actions/admissions";
 import { getClasses } from "@/app/actions/students";
 import { calculateBanglaAge, ADMISSION_STATUS_MAP, curateClassList } from "@/lib/admissions";
+import { apiUrl } from "@/lib/api-url";
 
 function PublicAdmissionContent() {
   const searchParams = useSearchParams();
@@ -195,7 +196,7 @@ function PublicAdmissionContent() {
         setUploadProvider("");
 
         try {
-          const res = await fetch("/api/upload-image", {
+          const res = await fetch(apiUrl("/api/upload-image"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

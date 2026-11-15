@@ -60,6 +60,7 @@ import {
   WipeMadrasaOptions,
 } from "@/app/actions/backup";
 import { resolveBackupSelection, isTableSelected } from "@/lib/backup-modules";
+import { apiUrl } from "@/lib/api-url";
 
 export interface ModuleDefinition {
   key: BackupModuleKey;
@@ -706,7 +707,7 @@ export default function BackupClient({
       setRestoreResult(null);
 
       // Dedicated high-capacity streaming API route (supports up to 100MB with 120s timeout)
-      const res = await fetch("/api/backup/restore", {
+      const res = await fetch(apiUrl("/api/backup/restore"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

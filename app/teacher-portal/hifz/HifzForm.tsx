@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { resolveStudentIdBn } from "@/lib/student-utils";
+import { apiUrl } from "@/lib/api-url";
 
 export default function HifzForm({
   classes,
@@ -130,7 +131,7 @@ export default function HifzForm({
         };
       });
 
-      const res = await fetch("/api/teacher/save-hifz", {
+      const res = await fetch(apiUrl("/api/teacher/save-hifz"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

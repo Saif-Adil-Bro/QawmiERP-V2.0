@@ -2,6 +2,7 @@ import './globals.css';
 import TopProgressBar from '@/components/TopProgressBar';
 import ChunkErrorReloader from '@/components/ChunkErrorReloader';
 import DynamicFavicon from '@/components/DynamicFavicon';
+import CapacitorProvider from '@/components/CapacitorProvider';
 import { ThemeProvider } from '@/components/common/ThemeContext';
 import type { Metadata } from 'next';
 
@@ -61,6 +62,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
             </head>
             <body suppressHydrationWarning>
                 <ThemeProvider>
+                    <CapacitorProvider />
                     <ChunkErrorReloader />
                     <TopProgressBar />
                     <DynamicFavicon />

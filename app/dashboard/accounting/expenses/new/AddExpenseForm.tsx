@@ -9,6 +9,7 @@ import { Landmark, FileText, CheckCircle2, ArrowRight, List, Plus, Trash2, Layer
 import Link from "next/link";
 import ExpenseVoucher, { ExpenseItem, MadrasaInfo } from "@/components/accounting/ExpenseVoucher";
 import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
+import { apiUrl } from "@/lib/api-url";
 
 const initialState: ExpenseActionState = {};
 
@@ -40,7 +41,7 @@ export default function AddExpenseForm() {
       try {
         const [fundsList, madrasaRes] = await Promise.all([
           getFunds(),
-          fetch("/api/madrasa-info").then(r => r.ok ? r.json() : null).catch(() => null)
+          fetch(apiUrl("/api/madrasa-info")).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
 
         if (fundsList && fundsList.length > 0) {

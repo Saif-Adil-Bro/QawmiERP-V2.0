@@ -1,3 +1,4 @@
+import { apiUrl } from "./api-url";
 export const FREEIMAGE_API_KEY =
   process.env.NEXT_PUBLIC_FREEIMAGE_API_KEY ||
   process.env.FREEIMAGE_API_KEY ||
@@ -230,7 +231,7 @@ export async function uploadImageAuto(
     formData.append("provider", preferredProvider);
     formData.append("filename", compressedFile.name || file.name || "student_image.jpg");
 
-    const res = await fetch("/api/upload-image", {
+    const res = await fetch(apiUrl("/api/upload-image"), {
       method: "POST",
       body: formData,
       signal: AbortSignal.timeout(18000),

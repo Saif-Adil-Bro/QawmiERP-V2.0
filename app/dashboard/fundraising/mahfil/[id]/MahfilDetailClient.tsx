@@ -49,6 +49,7 @@ import {
 import DonationReceipt from "@/components/zakat/DonationReceipt";
 import { DonationItem } from "@/lib/fund-utils";
 import { printElementIsolated } from "@/lib/printUtils";
+import { apiUrl } from "@/lib/api-url";
 import {
   saveMahfilSpeaker,
   deleteMahfilSpeaker,
@@ -136,7 +137,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
         } catch {}
 
         if (!funds || funds.length === 0) {
-          const apiRes = await fetch("/api/fundraising/mahfil/settlement");
+          const apiRes = await fetch(apiUrl("/api/fundraising/mahfil/settlement"));
           const data = await apiRes.json();
           if (data.funds && data.funds.length > 0) funds = data.funds;
         }
@@ -326,7 +327,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     try {
       let res = await saveMahfilSpeaker(mahfil.id, editingSpeaker);
       if (res && "error" in res && res.error) {
-        const apiRes = await fetch("/api/fundraising/mahfil/speakers", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/mahfil/speakers"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mahfilId: mahfil.id, speaker: editingSpeaker }),
@@ -345,7 +346,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       setMahfil(prev => ({ ...prev, speakers: updatedSpeakers }));
     } catch (err: any) {
       try {
-        const apiRes = await fetch("/api/fundraising/mahfil/speakers", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/mahfil/speakers"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mahfilId: mahfil.id, speaker: editingSpeaker }),
@@ -372,7 +373,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     try {
       let res = await deleteMahfilSpeaker(mahfil.id, speakerId);
       if (res && "error" in res && res.error) {
-        await fetch(`/api/fundraising/mahfil/speakers?mahfilId=${mahfil.id}&speakerId=${speakerId}`, {
+        await fetch(apiUrl(`/api/fundraising/mahfil/speakers?mahfilId=${mahfil.id}&speakerId=${speakerId}`), {
           method: "DELETE",
         });
       }
@@ -710,7 +711,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       // 2. If Server Action returned error, fallback to API route
       if (res && "error" in res && res.error) {
         console.warn("Server action issue, trying API route fallback:", res.error);
-        const apiRes = await fetch("/api/fundraising/mahfil/receipt-book", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/mahfil/receipt-book"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mahfilId: mahfil.id, book: payload }),
@@ -739,7 +740,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     } catch (err: any) {
       // Direct API fallback if network or Next.js server action failed
       try {
-        const apiRes = await fetch("/api/fundraising/mahfil/receipt-book", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/mahfil/receipt-book"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mahfilId: mahfil.id, book: payload }),
@@ -771,7 +772,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       let res = await deleteMahfilReceiptBook(mahfil.id, bookId);
       if (res && "error" in res && res.error) {
         // API fallback
-        await fetch(`/api/fundraising/mahfil/receipt-book?mahfilId=${mahfil.id}&bookId=${bookId}`, {
+        await fetch(apiUrl(`/api/fundraising/mahfil/receipt-book?mahfilId=${mahfil.id}&bookId=${bookId}`), {
           method: "DELETE",
         });
       }
@@ -825,7 +826,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       // 2. If Server Action had issue, fallback to API
       if (res && "error" in res && res.error) {
         console.warn("Server action error, trying bulk API route fallback:", res.error);
-        const apiRes = await fetch("/api/fundraising/mahfil/receipt-book/bulk", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/mahfil/receipt-book/bulk"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mahfilId: mahfil.id, ...bulkForm }),
@@ -884,7 +885,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     try {
       let res = await saveMahfilTransaction(mahfil.id, editingTxn);
       if (res && "error" in res && res.error) {
-        const apiRes = await fetch("/api/fundraising/mahfil/transactions", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/mahfil/transactions"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mahfilId: mahfil.id, transaction: editingTxn }),
@@ -903,7 +904,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       setMahfil(prev => ({ ...prev, transactions: updatedTxns }));
     } catch (err: any) {
       try {
-        const apiRes = await fetch("/api/fundraising/mahfil/transactions", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/mahfil/transactions"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mahfilId: mahfil.id, transaction: editingTxn }),
@@ -930,7 +931,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     try {
       let res = await deleteMahfilTransaction(mahfil.id, txnId);
       if (res && "error" in res && res.error) {
-        await fetch(`/api/fundraising/mahfil/transactions?mahfilId=${mahfil.id}&txnId=${txnId}`, {
+        await fetch(apiUrl(`/api/fundraising/mahfil/transactions?mahfilId=${mahfil.id}&txnId=${txnId}`), {
           method: "DELETE",
         });
       }
@@ -998,7 +999,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       let res = await settleMahfilFund(mahfil.id, payload);
       if (res && "error" in res && res.error) {
         // Try fallback via API route
-        const apiRes = await fetch("/api/fundraising/mahfil/settlement", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/mahfil/settlement"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mahfil_id: mahfil.id, ...payload }),
@@ -1066,7 +1067,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     try {
       let res = await deleteMahfilSettlement(mahfil.id, settlementId);
       if (res && "error" in res && res.error) {
-        const apiRes = await fetch(`/api/fundraising/mahfil/settlement?mahfil_id=${mahfil.id}&settlement_id=${settlementId}`, {
+        const apiRes = await fetch(apiUrl(`/api/fundraising/mahfil/settlement?mahfil_id=${mahfil.id}&settlement_id=${settlementId}`), {
           method: "DELETE",
         });
         const apiData = await apiRes.json();

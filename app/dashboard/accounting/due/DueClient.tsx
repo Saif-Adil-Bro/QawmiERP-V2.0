@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { apiUrl } from "@/lib/api-url";
 
 interface DueClientProps {
   initialData: any;
@@ -62,7 +63,7 @@ export default function DueClient({
 
     setDeletingFeeId(feeId);
     try {
-      const res = await fetch("/api/fees/delete", {
+      const res = await fetch(apiUrl("/api/fees/delete"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -5,11 +5,16 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
+    "build:android": "next build && node scripts/prepare-capacitor-out.mjs && npx cap sync android",
     "start": "next start",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0-alpha.5",
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/status-bar": "^8.0.4",
     "@google/genai": "^2.29.0",
     "@hookform/resolvers": "^5.2.1",
     "@radix-ui/react-dialog": "^1.1.4",
@@ -39,6 +44,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
     "@tailwindcss/postcss": "4.1.11",
     "@tailwindcss/typography": "^0.5.19",
     "@types/node": "^20",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { apiUrl } from "@/lib/api-url";
 
 function applyFaviconToDocument(url: string) {
   if (!url || typeof document === "undefined") return;
@@ -31,7 +32,7 @@ function applyFaviconToDocument(url: string) {
 export default function DynamicFavicon() {
   useEffect(() => {
     // 1. Initial Load: Fetch current madrasa info to get real logo URL & ensure 100% full-circle favicon
-    fetch("/api/madrasa-info")
+    fetch(apiUrl("/api/madrasa-info"))
       .then((res) => res.json())
       .then((data) => {
         const faviconUrl = `/api/favicon?v=${data?.logo_url ? encodeURIComponent(data.logo_url) : "default"}`;

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { resolveStudentIdBn } from "@/lib/student-utils";
+import { apiUrl } from "@/lib/api-url";
 
 interface AttendanceFormProps {
   classes?: any[];
@@ -182,7 +183,7 @@ export default function AttendanceForm({
         };
       });
 
-      const res = await fetch("/api/attendance/bulk", {
+      const res = await fetch(apiUrl("/api/attendance/bulk"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ records: recordsToUpsert }),
