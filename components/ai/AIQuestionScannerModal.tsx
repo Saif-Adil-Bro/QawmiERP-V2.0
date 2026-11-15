@@ -34,7 +34,7 @@ import {
   FileCode,
   Layers,
 } from "lucide-react";
-import { runTesseractOCR, parseRawTextToQuestionPaper, OCRProgress } from "@/lib/tesseract-ocr";
+import { parseRawTextToQuestionPaper, OCRProgress } from "@/lib/tesseract-ocr";
 
 export interface QuestionTable {
   title?: string | null;
@@ -72,7 +72,7 @@ export interface QuestionPaperData {
   questions: QuestionItem[];
   rawSummary?: string;
   rawText?: string;
-  engineUsed?: "gemini" | "tesseract";
+  engineUsed?: "gemini" | "paddle";
 }
 
 const SAMPLE_DEMO_DATA: QuestionPaperData = {
@@ -173,10 +173,10 @@ export function AIQuestionScannerModal({
   const [aiProgress, setAiProgress] = useState<number>(0);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  // Free Tesseract.js OCR Engine states
-  const [selectedEngine, setSelectedEngine] = useState<"gemini" | "tesseract">("gemini");
-  const [tesseractLang, setTesseractLang] = useState<string>("ben+eng");
-  const [tesseractProgress, setTesseractProgress] = useState<OCRProgress | null>(null);
+  // PaddleOCR Engine states
+  const [selectedEngine, setSelectedEngine] = useState<"gemini" | "paddle">("gemini");
+  const [paddleLang, setPaddleLang] = useState<"bn" | "ar" | "en">("bn");
+  const [paddleProgress, setPaddleProgress] = useState<OCRProgress | null>(null);
   const [rawExtractedText, setRawExtractedText] = useState<string | null>(null);
   const [showRawText, setShowRawText] = useState<boolean>(false);
 
@@ -316,7 +316,7 @@ export function AIQuestionScannerModal({
     }
   };
 
-  const handleStartTesseractScan = async () => {
+  const handleStartPaddleScan = async () => {
     if (!imageBase64 && !imageFile) {
       setScanError("অনুগ্রহ করে প্রথমে একটি প্রশ্নপত্রের ছবি আপলোড করুন বা ছবি তুলুন।");
       return;
@@ -324,31 +324,67 @@ export function AIQuestionScannerModal({
 
     setIsScanning(true);
     setScanError(null);
-    setTesseractProgress({ status: "Tesseract OCR ইঞ্জিন প্রস্তুত হচ্ছে...", progress: 5 });
+    setPaddleProgress({ status: "PaddleOCR সার্ভারে ছবি পাঠানো হচ্ছে...", progress: 15 });
+
+    const progressTimer = setInterval(() => {
+      setPaddleProgress((prev) => {
+        if (!prev || prev.progress >= 90) return prev;
+        const nextProg = Math.min(90, prev.progress + (prev.progress < 50 ? 12 : 5));
+        const nextStatus =
+          nextProg < 45
+            ? "PaddleOCR ইঞ্জিনে ছবি প্রক্রিয়াকরণ চলছে..."
+            : "বাংলা / আরবি / ইংরেজি টেক্সট ও লাইন বিন্যাস শনাক্ত হচ্ছে...";
+        return { status: nextStatus, progress: nextProg };
+      });
+    }, 500);
 
     try {
-      const imageSource = imageFile || imageBase64!;
-      const result = await runTesseractOCR(imageSource, tesseractLang, (p) => {
-        setTesseractProgress(p);
+      const formData = new FormData();
+      if (imageFile) {
+        formData.append("file", imageFile, imageFile.name || "question.jpg");
+      } else if (imageBase64) {
+        const resBlob = await fetch(imageBase64).then((r) => r.blob());
+        formData.append("file", resBlob, "question.jpg");
+      }
+      formData.append("lang", paddleLang);
+
+      const response = await fetch("/api/ocr/paddle", {
+        method: "POST",
+        body: formData,
       });
 
-      if (!result.text || result.text.trim().length === 0) {
+      clearInterval(progressTimer);
+      setPaddleProgress({ status: "প্রশ্নপত্র কাঠামো তৈরি হচ্ছে...", progress: 100 });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.error ||
+            "PaddleOCR সার্ভিস থেকে উত্তর পাওয়া যায়নি। সার্ভার চালু আছে কি না যাচাই করুন।"
+        );
+      }
+
+      const fullText = result.full_text || "";
+      if (!fullText.trim()) {
         throw new Error("ছবি থেকে কোনো লেখা শনাক্ত করা সম্ভব হয়নি। অনুগ্রহ করে পরিষ্কার ও পর্যাপ্ত আলোর ছবি দিন।");
       }
 
-      setRawExtractedText(result.text);
+      setRawExtractedText(fullText);
 
-      const parsedData = parseRawTextToQuestionPaper(result.text, madrasaName);
+      const parsedData = parseRawTextToQuestionPaper(fullText, madrasaName);
       setQuestionData(parsedData);
       setActiveTab("editor");
     } catch (err: any) {
-      console.error("Tesseract scan error:", err);
+      clearInterval(progressTimer);
+      console.error("PaddleOCR scan error:", err);
       setScanError(
-        err.message || "Tesseract OCR প্রসেসিংয়ে সমস্যা হয়েছে। ইন্টারনেট সংযোগ চেক করুন বা অন্য ছবি দিয়ে চেষ্টা করুন।"
+        err.message ||
+          "PaddleOCR সার্ভিসের সাথে সংযোগ করা যায়নি। সার্ভার চালু আছে কি না যাচাই করুন।"
       );
     } finally {
       setIsScanning(false);
-      setTesseractProgress(null);
+      setPaddleProgress(null);
     }
   };
 
@@ -869,31 +905,31 @@ export function AIQuestionScannerModal({
 
                   <button
                     type="button"
-                    onClick={() => setSelectedEngine("tesseract")}
+                    onClick={() => setSelectedEngine("paddle")}
                     className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-                      selectedEngine === "tesseract"
+                      selectedEngine === "paddle"
                         ? "bg-white dark:bg-slate-800 text-indigo-800 dark:text-indigo-300 shadow-xs border border-indigo-400 dark:border-indigo-600"
                         : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                     }`}
                   >
                     <Cpu className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                    <span>ইঞ্জিন ২: Tesseract.js (ফ্রি OCR)</span>
+                    <span>ইঞ্জিন ২: PaddleOCR (ফ্রি OCR)</span>
                     <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold">
-                      ১০০% ফ্রি ও অফলাইন
+                      সেল্ফ-হোস্টেড
                     </span>
                   </button>
                 </div>
 
                 {/* Engine Info & Controls */}
-                {selectedEngine === "tesseract" ? (
+                {selectedEngine === "paddle" ? (
                   <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/30 rounded-xl border border-indigo-200/60 dark:border-indigo-900/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs">
                     <div className="space-y-0.5">
                       <div className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
                         <Cpu className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>Tesseract.js OCR — কোনো API Key ছাড়াই ব্রাউজারে সম্পূর্ণ ফ্রি</span>
+                        <span>PaddleOCR ইঞ্জিন — বাংলা, আরবি ও ইংরেজি হাই-একুরেসি OCR</span>
                       </div>
                       <p className="text-[11px] text-indigo-700 dark:text-indigo-300">
-                        সরাসরি ব্রাউজারে অফলাইনে বাংলা ও ইংরেজি টেক্সট রিকগনাইজ করে প্রশ্নপত্রে রূপান্তর করে।
+                        লোকাল বা হোস্টেড PaddleOCR FastAPI সার্ভিসের মাধ্যমে ছবি থেকে লেখা শনাক্ত করে প্রশ্নপত্রে রূপান্তর করে।
                       </p>
                     </div>
 
@@ -901,14 +937,13 @@ export function AIQuestionScannerModal({
                       <Globe className="w-3.5 h-3.5 text-indigo-600" />
                       <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">ভাষা:</span>
                       <select
-                        value={tesseractLang}
-                        onChange={(e) => setTesseractLang(e.target.value)}
+                        value={paddleLang}
+                        onChange={(e) => setPaddleLang(e.target.value as "bn" | "ar" | "en")}
                         className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-inner"
                       >
-                        <option value="ben+eng">বাংলা + ইংরেজি (ডিফল্ট)</option>
-                        <option value="ara+ben">আরবি + বাংলা</option>
-                        <option value="ben">শুধুমাত্র বাংলা</option>
-                        <option value="eng">শুধুমাত্র ইংরেজি</option>
+                        <option value="bn">বাংলা (bn)</option>
+                        <option value="ar">আরবি (ar)</option>
+                        <option value="en">ইংরেজি (en)</option>
                       </select>
                     </div>
                   </div>
@@ -1026,32 +1061,32 @@ export function AIQuestionScannerModal({
                       className="max-h-72 w-auto object-contain mx-auto"
                     />
                     
-                    {/* Tesseract OCR Live Progress Overlay */}
-                    {isScanning && tesseractProgress && (
+                    {/* PaddleOCR Live Progress Overlay */}
+                    {isScanning && paddleProgress && (
                       <div className="absolute inset-0 bg-indigo-950/85 backdrop-blur-xs flex flex-col items-center justify-center text-white p-6 text-center z-20">
                         <div className="w-14 h-14 rounded-2xl bg-indigo-600/50 border-2 border-indigo-400 flex items-center justify-center mb-3 animate-pulse">
                           <Cpu className="w-7 h-7 text-amber-300 animate-spin" />
                         </div>
                         <h4 className="font-bold text-sm sm:text-base mb-1">
-                          Tesseract.js ফ্রি OCR স্ক্যান চলছে...
+                          PaddleOCR স্ক্যান চলছে...
                         </h4>
                         <p className="text-xs text-indigo-200 mb-3 max-w-sm">
-                          {tesseractProgress.status}
+                          {paddleProgress.status}
                         </p>
                         <div className="w-64 max-w-full bg-indigo-900/80 rounded-full h-3 overflow-hidden border border-indigo-700 shadow-inner">
                           <div
                             className="bg-gradient-to-r from-emerald-400 via-teal-300 to-indigo-300 h-3 rounded-full transition-all duration-300 shadow-sm"
-                            style={{ width: `${Math.max(5, tesseractProgress.progress)}%` }}
+                            style={{ width: `${Math.max(5, paddleProgress.progress)}%` }}
                           />
                         </div>
                         <span className="text-[11px] text-indigo-300 mt-1.5 font-mono font-bold">
-                          {tesseractProgress.progress}% সম্পন্ন (১০০% ফ্রি)
+                          {toBanglaNumber(paddleProgress.progress)}% সম্পন্ন (সেল্ফ-হোস্টেড)
                         </span>
                       </div>
                     )}
 
                     {/* OpenRouter Vision AI Live Progress Overlay */}
-                    {isScanning && !tesseractProgress && (
+                    {isScanning && !paddleProgress && (
                       <div className="absolute inset-0 bg-emerald-950/85 backdrop-blur-xs flex flex-col items-center justify-center text-white p-6 text-center z-20">
                         <div className="relative w-14 h-14 mb-3">
                           <div className="w-14 h-14 rounded-full border-4 border-emerald-400 border-t-transparent animate-spin" />
@@ -1097,41 +1132,41 @@ export function AIQuestionScannerModal({
                         )}
                       </div>
                       
-                      {/* One-click Tesseract Free OCR Fallback Button */}
+                      {/* One-click PaddleOCR Self-Hosted Fallback Button */}
                       <div className="pt-1 border-t border-rose-200/80 flex flex-col sm:flex-row items-center justify-between gap-2">
                         <span className="text-[11px] text-slate-700 font-medium">
-                          অনলাইন API ছাড়া অফলাইনে কাজ করতে চান?
+                          অনলাইন AI ছাড়া সেল্ফ-হোস্টেড OCR দিয়ে কাজ করতে চান?
                         </span>
                         <button
                           type="button"
-                          onClick={handleStartTesseractScan}
+                          onClick={handleStartPaddleScan}
                           disabled={isScanning}
                           className="w-full sm:w-auto px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors shrink-0"
                         >
                           <Cpu className="w-3.5 h-3.5 text-amber-300" />
-                          <span>Tesseract.js দিয়ে এখনই ফ্রি স্ক্যান করুন</span>
+                          <span>PaddleOCR দিয়ে এখনই স্ক্যান করুন</span>
                         </button>
                       </div>
                     </div>
                   )}
 
                   {/* Dual Action Scan Buttons */}
-                  {selectedEngine === "tesseract" ? (
+                  {selectedEngine === "paddle" ? (
                     <div className="space-y-2">
                       <button
-                        onClick={handleStartTesseractScan}
+                        onClick={handleStartPaddleScan}
                         disabled={isScanning}
                         className="w-full py-3.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-bold rounded-xl text-sm shadow-md flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
                       >
                         {isScanning ? (
                           <>
                             <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>Tesseract.js দিয়ে ফ্রি ওসিআর স্ক্যান চলছে...</span>
+                            <span>PaddleOCR দিয়ে ওসিআর স্ক্যান চলছে...</span>
                           </>
                         ) : (
                           <>
                             <Cpu className="w-4 h-4 text-amber-300" />
-                            <span>Tesseract.js দিয়ে সম্পূর্ণ ফ্রি স্ক্যান করুন (কোনো Key ছাড়াই)</span>
+                            <span>PaddleOCR দিয়ে স্ক্যান করুন (সেল্ফ-হোস্টেড)</span>
                           </>
                         )}
                       </button>
@@ -1174,12 +1209,12 @@ export function AIQuestionScannerModal({
                       <div className="flex items-center justify-center pt-1">
                         <button
                           type="button"
-                          onClick={handleStartTesseractScan}
+                          onClick={handleStartPaddleScan}
                           disabled={isScanning}
                           className="text-xs text-indigo-700 dark:text-indigo-300 hover:underline flex items-center gap-1.5 font-bold py-1 bg-indigo-50 dark:bg-indigo-950/50 px-3 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
                         >
                           <Cpu className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>অথবা Tesseract.js (১০০% ফ্রি ও অফলাইন) দিয়ে স্ক্যান করুন</span>
+                          <span>অথবা PaddleOCR (সেল্ফ-হোস্টেড) দিয়ে স্ক্যান করুন</span>
                         </button>
                       </div>
                     </div>
@@ -1208,10 +1243,10 @@ export function AIQuestionScannerModal({
                   </button>
 
                   {/* Engine Badge */}
-                  {questionData.engineUsed === "tesseract" ? (
+                  {questionData.engineUsed === "paddle" ? (
                     <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold flex items-center gap-1.5">
                       <Cpu className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>Tesseract.js OCR (ফ্রি)</span>
+                      <span>PaddleOCR (সেল্ফ-হোস্টেড)</span>
                     </span>
                   ) : (
                     <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold flex items-center gap-1.5">

@@ -27,11 +27,11 @@ export default function AIScannerPage() {
                 <span>OpenRouter Vision AI</span>
               </span>
               <span className="text-[11px] bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                <span>Tesseract.js (১০০% ফ্রি)</span>
+                <span>PaddleOCR (ফ্রি ও হাই-একুরেসি)</span>
               </span>
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              হাতে লেখা বা প্রিন্ট করা প্রশ্নের ছবি দিয়ে বিনামূল্যে অফলাইনে (Tesseract.js) অথবা OpenRouter Vision AI দিয়ে স্বয়ংক্রিয়ভাবে প্রশ্নপত্র তৈরি করুন
+              হাতে লেখা বা প্রিন্ট করা প্রশ্নের ছবি দিয়ে PaddleOCR অথবা OpenRouter Vision AI দিয়ে স্বয়ংক্রিয়ভাবে প্রশ্নপত্র তৈরি করুন
             </p>
           </div>
         </div>

@@ -216,7 +216,7 @@ Return ONLY a valid JSON object matching this exact schema (no markdown, no expl
 
     return NextResponse.json(
       {
-        error: "এআই থেকে কোনো উত্তর পাওয়া যায়নি। অনুগ্রহ করে আবার চেষ্টা করুন অথবা নিচের Tesseract অফলাইন স্ক্যান ব্যবহার করুন।",
+        error: "এআই থেকে কোনো উত্তর পাওয়া যায়নি। অনুগ্রহ করে আবার চেষ্টা করুন অথবা নিচের PaddleOCR ইঞ্জিন ব্যবহার করুন।",
         details: lastErrorDetail.slice(0, 500),
       },
       { status: lastStatus >= 400 && lastStatus < 600 ? lastStatus : 502 }
