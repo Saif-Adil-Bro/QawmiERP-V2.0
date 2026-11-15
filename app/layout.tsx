@@ -3,6 +3,8 @@ import TopProgressBar from '@/components/TopProgressBar';
 import ChunkErrorReloader from '@/components/ChunkErrorReloader';
 import DynamicFavicon from '@/components/DynamicFavicon';
 import CapacitorProvider from '@/components/CapacitorProvider';
+import OfflineSyncProvider from '@/components/OfflineSyncProvider';
+import OfflineStatusBanner from '@/components/OfflineStatusBanner';
 import { ThemeProvider } from '@/components/common/ThemeContext';
 import type { Metadata } from 'next';
 
@@ -62,11 +64,14 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
             </head>
             <body suppressHydrationWarning>
                 <ThemeProvider>
-                    <CapacitorProvider />
-                    <ChunkErrorReloader />
-                    <TopProgressBar />
-                    <DynamicFavicon />
-                    {children}
+                    <OfflineSyncProvider>
+                        <CapacitorProvider />
+                        <ChunkErrorReloader />
+                        <TopProgressBar />
+                        <DynamicFavicon />
+                        {children}
+                        <OfflineStatusBanner />
+                    </OfflineSyncProvider>
                 </ThemeProvider>
             </body>
         </html>

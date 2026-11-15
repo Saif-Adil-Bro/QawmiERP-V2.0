@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { offlineMutate } from "@/lib/syncManager";
 import {
   Calendar,
   CheckCircle2,
@@ -183,19 +184,27 @@ export default function AttendanceForm({
         };
       });
 
-      const res = await fetch(apiUrl("/api/attendance/bulk"), {
+      const result = await offlineMutate({
+        entity: "attendance",
+        action: "CREATE",
+        endpoint: "/api/attendance/bulk",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ records: recordsToUpsert }),
+        payload: { records: recordsToUpsert },
       });
 
-      if (!res.ok) {
-        throw new Error("Failed to save attendance");
+      if (!result.success) {
+        throw new Error(result.error || "Failed to save attendance");
       }
 
-      setMessage("আজকের হাজিরা সফলভাবে সংরক্ষিত হয়েছে!");
+      setMessage(
+        result.offlineQueued
+          ? "অফলাইনে হাজিরা সংরক্ষিত হয়েছে! ইন্টারনেট এলে স্বয়ংক্রিয়ভাবে সিঙ্ক হবে।"
+          : "আজকের হাজিরা সফলভাবে সংরক্ষিত হয়েছে!"
+      );
       setTimeout(() => setMessage(""), 4000);
-      router.refresh();
+      if (!result.offlineQueued) {
+        router.refresh();
+      }
     } catch (err: any) {
       setMessage("হাজিরা সংরক্ষণ করতে সমস্যা হয়েছে। অনুগ্রহ করে পুনরায় চেষ্টা করুন।");
     } finally {

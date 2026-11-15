@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { offlineMutate } from "@/lib/syncManager";
 import {
   Save,
   CheckCircle2,
@@ -131,25 +132,32 @@ export default function HifzForm({
         };
       });
 
-      const res = await fetch(apiUrl("/api/teacher/save-hifz"), {
+      const result = await offlineMutate({
+        entity: "hifzLogs",
+        action: "CREATE",
+        endpoint: "/api/teacher/save-hifz",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        payload: {
           madrasa_id: madrasaId,
           current_class_id: currentClassId,
           current_date: currentDate,
           records: recordsToSave,
-        }),
+        },
       });
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "সংরক্ষণ ব্যর্থ হয়েছে");
+      if (!result.success) {
+        throw new Error(result.error || "সংরক্ষণ ব্যর্থ হয়েছে");
       }
 
-      setMessage("আজকের হিফজ সবক ও আমুখতা রেকর্ড সফলভাবে সংরক্ষিত হয়েছে!");
+      setMessage(
+        result.offlineQueued
+          ? "অফলাইনে হিফজ সবক সংরক্ষিত হয়েছে! ইন্টারনেট এলে স্বয়ংক্রিয়ভাবে সিঙ্ক হবে।"
+          : "আজকের হিফজ সবক ও আমুখতা রেকর্ড সফলভাবে সংরক্ষিত হয়েছে!"
+      );
       setTimeout(() => setMessage(""), 4000);
-      router.refresh();
+      if (!result.offlineQueued) {
+        router.refresh();
+      }
     } catch (err: any) {
       console.error(err);
       setMessage("সবক রেকর্ড সংরক্ষণে ত্রুটি ঘটেছে।");

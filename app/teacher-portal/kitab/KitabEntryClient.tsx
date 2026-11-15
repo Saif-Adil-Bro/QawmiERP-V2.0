@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { offlineMutate } from "@/lib/syncManager";
 import {
   Save,
   CheckCircle2,
@@ -177,25 +178,32 @@ export default function KitabEntryClient({
         };
       });
 
-      const res = await fetch(apiUrl("/api/teacher/save-kitab"), {
+      const result = await offlineMutate({
+        entity: "kitabLogs",
+        action: "CREATE",
+        endpoint: "/api/teacher/save-kitab",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        payload: {
           madrasa_id: madrasaId,
           current_class_id: currentClassId,
           current_date: currentDate,
           records: recordsToSave,
-        }),
+        },
       });
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "সংরক্ষণ ব্যর্থ হয়েছে");
+      if (!result.success) {
+        throw new Error(result.error || "সংরক্ষণ ব্যর্থ হয়েছে");
       }
 
-      setMessage("আজকের কিতাব পাঠ ও দরস ডায়েরি সফলভাবে সংরক্ষিত হয়েছে!");
+      setMessage(
+        result.offlineQueued
+          ? "অফলাইনে কিতাব পাঠ সংরক্ষিত হয়েছে! ইন্টারনেট এলে স্বয়ংক্রিয়ভাবে সিঙ্ক হবে।"
+          : "আজকের কিতাব পাঠ ও দরস ডায়েরি সফলভাবে সংরক্ষিত হয়েছে!"
+      );
       setTimeout(() => setMessage(""), 4000);
-      router.refresh();
+      if (!result.offlineQueued) {
+        router.refresh();
+      }
     } catch (err: any) {
       console.error(err);
       setMessage("কিতাব রেকর্ড সংরক্ষণে সমস্যা হয়েছে।");
