@@ -157,15 +157,15 @@ export default function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 text-slate-900 dark:text-slate-100">
+    <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4 text-slate-900 dark:text-slate-100">
       {error && (
-        <div className="p-3.5 text-sm font-medium text-rose-800 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/60 rounded-xl border border-rose-300 dark:border-rose-800 leading-relaxed animate-in fade-in duration-200">
+        <div className="p-2.5 sm:p-3.5 text-xs sm:text-sm font-medium text-rose-800 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/60 rounded-xl border border-rose-300 dark:border-rose-800 leading-relaxed animate-in fade-in duration-200">
           {error}
         </div>
       )}
 
-      {/* Guardian Quick Helper Notice */}
-      <div className="notice-banner p-3.5 rounded-xl border text-xs leading-relaxed flex items-start gap-2.5">
+      {/* Guardian Quick Helper Notice (Desktop only for compact mobile fit) */}
+      <div className="hidden sm:flex notice-banner p-3.5 rounded-xl border text-xs leading-relaxed items-start gap-2.5">
         <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-emerald-700 dark:text-emerald-400" />
         <div className="text-emerald-950 dark:text-emerald-100">
           <span className="font-bold text-emerald-950 dark:text-white">শিক্ষার্থী ও অভিভাবক লগইন:</span> প্রাতিষ্ঠানিক পরিচিতি আইডি (Student ID) এবং মাদরাসা থেকে নির্ধারিত পাসওয়ার্ড ব্যবহার করে লগইন সম্পন্ন করুন।
@@ -265,9 +265,9 @@ export default function LoginForm() {
       </div>
 
       {/* 1-Click Interactive Live Demo Profile Card */}
-      <div className="pt-3 border-t border-slate-200 dark:border-slate-800 mt-2">
-        <div className="demo-card-box p-3.5 rounded-2xl border text-xs space-y-2.5 shadow-sm">
-          <div className="flex items-center justify-between">
+      <div className="pt-2.5 sm:pt-3 border-t border-slate-200 dark:border-slate-800 mt-1 sm:mt-2">
+        <div className="demo-card-box p-2.5 sm:p-3.5 rounded-2xl border text-xs space-y-2 sm:space-y-2.5 shadow-sm">
+          <div className="hidden sm:flex items-center justify-between">
             <div className="flex items-center gap-1.5 font-bold text-indigo-950 dark:text-indigo-300">
               <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>সফটওয়্যারটির লাইভ ডেমো দেখতে চান?</span>
@@ -277,7 +277,7 @@ export default function LoginForm() {
             </span>
           </div>
 
-          <p className="text-[11px] leading-relaxed font-medium">
+          <p className="hidden sm:block text-[11px] leading-relaxed font-medium">
             <strong className="font-bold">মাদ্রাসাতুল মুসলিমিন</strong>-এর বাস্তবসম্মত শিক্ষার্থী, শিক্ষক, জামাত, আয়-ব্যয়, ক্যাশবুক, ইনভেন্টরি ও পরীক্ষার পূর্ণাঙ্গ ডাটাবেজসহ সরাসরি সিস্টেমটি ঘুরে দেখুন।
           </p>
 
@@ -300,7 +300,7 @@ export default function LoginForm() {
             )}
           </button>
 
-          <div className="flex items-center justify-between text-[11px] pt-2 border-t border-slate-200 dark:border-slate-700 font-mono font-medium">
+          <div className="hidden sm:flex items-center justify-between text-[11px] pt-2 border-t border-slate-200 dark:border-slate-700 font-mono font-medium">
             <span>ইউজার: <strong>demo@qawmierp.com</strong></span>
             <span>পাসওয়ার্ড: <strong>demo@qawmierp.com</strong></span>
           </div>
