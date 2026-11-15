@@ -57,7 +57,7 @@ export async function POST(req: Request) {
 
     const baseURL = process.env.AI_BASE_URL?.trim() || "https://openrouter.ai/api/v1";
     const modelName =
-      process.env.AI_MODEL_NAME?.trim() || "google/gemma-4-31b-it:free";
+      process.env.AI_MODEL_NAME?.trim() || "openrouter/free";
 
     const openrouter = createOpenAI({
       baseURL,
@@ -85,10 +85,12 @@ export async function POST(req: Request) {
     });
 
     return result.toUIMessageStreamResponse({
-      onError: (err: unknown) => {
-        console.error("AI stream error:", err);
-        if (err instanceof Error) return err.message;
-        return typeof err === "string" ? err : "এআই রেসপন্স তৈরি করতে সমস্যা হয়েছে।";
+      onError: (err: any) => {
+        console.error("AI stream error:", err?.responseBody || err);
+        const detail = err?.responseBody || err?.message;
+        return typeof detail === "string" && detail
+          ? detail
+          : "এআই রেসপন্স তৈরি করতে সমস্যা হয়েছে।";
       },
     });
   } catch (err: any) {
