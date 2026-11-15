@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { ALL_BASIC_TILES, BasicTileItem } from "./menuCatalog";
 import { sanitizeNavGroups } from "./defaultNavData";
+import { createClient } from "@/lib/supabase/client";
 
 export type AppMode = "basic" | "advanced";
 
@@ -34,20 +35,44 @@ const DEFAULT_PINNED_IDS = ALL_BASIC_TILES.filter((t) => t.defaultPinned).map((t
 
 const ModeContext = createContext<ModeContextType | undefined>(undefined);
 
-export function ModeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setModeState] = useState<AppMode>("advanced");
+function persistModeCookie(newMode: AppMode) {
+  try {
+    document.cookie = `qawmi_app_mode=${newMode}; path=/; max-age=31536000; SameSite=Lax`;
+  } catch {
+    // Ignore cookie errors
+  }
+}
+
+export function ModeProvider({
+  children,
+  initialMode = "advanced",
+}: {
+  children: React.ReactNode;
+  initialMode?: AppMode;
+}) {
+  const [mode, setModeState] = useState<AppMode>(initialMode);
   const [pinnedTileIds, setPinnedTileIds] = useState<string[]>(DEFAULT_PINNED_IDS);
   const [isCustomizingAdvanced, setIsCustomizingAdvanced] = useState<boolean>(false);
   const [customNavGroups, setCustomNavGroups] = useState<any[] | null>(null);
   const [isMounted, setIsMounted] = useState(false);
+  const [isStartMenuOpen, setIsStartMenuOpen] = useState<boolean>(false);
 
-  // Load saved preferences on mount
+  // Load saved preferences on mount and sync with Supabase user_metadata
   useEffect(() => {
     setIsMounted(true);
+    let activeMode: AppMode = initialMode;
+
     try {
       const savedMode = localStorage.getItem("qawmi_app_mode") as AppMode;
       if (savedMode === "basic" || savedMode === "advanced") {
+        activeMode = savedMode;
         setModeState(savedMode);
+        persistModeCookie(savedMode);
+      }
+
+      const savedStartOpen = localStorage.getItem("qawmi_start_menu_open");
+      if (activeMode === "basic" && savedStartOpen === "true") {
+        setIsStartMenuOpen(true);
       }
 
       const savedTiles = localStorage.getItem("qawmi_basic_tiles");
@@ -68,19 +93,54 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.warn("Failed to read from localStorage", e);
     }
-  }, []);
 
-  const [isStartMenuOpen, setIsStartMenuOpen] = useState<boolean>(false);
+    // Sync from Supabase user_metadata (cross-device persistence)
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then(({ data }) => {
+        const remoteMode = data?.user?.user_metadata?.app_mode;
+        if (remoteMode === "basic" || remoteMode === "advanced") {
+          setModeState(remoteMode);
+          try {
+            localStorage.setItem("qawmi_app_mode", remoteMode);
+            persistModeCookie(remoteMode);
+          } catch {}
+        }
+      }).catch(() => {});
+    } catch {
+      // Ignore auth sync errors
+    }
+  }, [initialMode]);
 
-  const openStartMenu = () => setIsStartMenuOpen(true);
-  const closeStartMenu = () => setIsStartMenuOpen(false);
-  const toggleStartMenu = () => setIsStartMenuOpen((prev) => !prev);
+  const openStartMenu = () => {
+    setIsStartMenuOpen(true);
+    try {
+      localStorage.setItem("qawmi_start_menu_open", "true");
+    } catch {}
+  };
+
+  const closeStartMenu = () => {
+    setIsStartMenuOpen(false);
+    try {
+      localStorage.setItem("qawmi_start_menu_open", "false");
+    } catch {}
+  };
+
+  const toggleStartMenu = () => {
+    setIsStartMenuOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("qawmi_start_menu_open", String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // Close start menu with Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isStartMenuOpen) {
-        setIsStartMenuOpen(false);
+        closeStartMenu();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -90,12 +150,23 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
   const setMode = (newMode: AppMode) => {
     setModeState(newMode);
     if (newMode === "basic") {
-      setIsStartMenuOpen(true);
+      openStartMenu();
+    } else {
+      closeStartMenu();
     }
     try {
       localStorage.setItem("qawmi_app_mode", newMode);
     } catch (e) {
       console.warn("Failed to save mode", e);
+    }
+    persistModeCookie(newMode);
+
+    // Persist to Supabase user_metadata so it stays saved across devices & sessions
+    try {
+      const supabase = createClient();
+      supabase.auth.updateUser({ data: { app_mode: newMode } }).catch(() => {});
+    } catch {
+      // Ignore remote sync error
     }
   };
 

@@ -35,7 +35,7 @@ import { ThemeSwitcher } from "@/components/common/ThemeSwitcher";
 import { UniversalCommandPalette } from "@/components/common/UniversalCommandPalette";
 import { MobileActionSheet } from "@/components/common/MobileActionSheet";
 import { ExecutiveSummaryModal } from "@/components/dashboard/ExecutiveSummaryModal";
-import { ModeProvider, useAppMode } from "@/components/mode/ModeContext";
+import { ModeProvider, useAppMode, AppMode } from "@/components/mode/ModeContext";
 import { ModeToggleSwitch } from "@/components/mode/ModeToggleSwitch";
 import { WindowsStartScreen } from "@/components/mode/WindowsStartScreen";
 import { HeaderMoreMenuDropdown } from "@/components/common/HeaderMoreMenuDropdown";
@@ -577,9 +577,15 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function DashboardShell({ children }: { children: React.ReactNode }) {
+export default function DashboardShell({
+  children,
+  initialMode = "advanced",
+}: {
+  children: React.ReactNode;
+  initialMode?: AppMode;
+}) {
   return (
-    <ModeProvider>
+    <ModeProvider initialMode={initialMode}>
       <PermissionProvider>
         <SessionProvider>
           <DashboardShellContent>{children}</DashboardShellContent>
