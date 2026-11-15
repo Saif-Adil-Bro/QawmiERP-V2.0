@@ -19,9 +19,9 @@ import {
 
 const QUICK_SUGGESTIONS = [
   "আজকের হাজিরা ও হিসাবের সামারি দাও",
-  "নতুন ছাত্র ভর্তি করার নিয়ম কী?",
   "বকেয়া ফি-র তালিকা দেখাও",
   "৫০০ টাকা বিদ্যুৎ বিল খরচ এন্ট্রি করো",
+  "আমাকে শিক্ষার্থী তালিকায় নিয়ে যাও",
 ];
 
 interface ActionState {
@@ -34,6 +34,7 @@ export function ErpAiAssistant() {
   const [input, setInput] = useState("");
   const [actionStates, setActionStates] = useState<Record<string, ActionState>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const navigatedIdsRef = useRef<Set<string>>(new Set());
   const router = useRouter();
 
   const { messages, sendMessage, setMessages, status, error } = useChat({
@@ -49,6 +50,26 @@ export function ErpAiAssistant() {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, isOpen, isLoading]);
+
+  // Auto-navigate when AI agent invokes navigateToPage
+  useEffect(() => {
+    for (const msg of messages) {
+      for (const part of (msg.parts || []) as any[]) {
+        if (
+          part.type?.startsWith("tool-") &&
+          part.state === "output-available" &&
+          part.output?.type === "navigate" &&
+          part.output?.path
+        ) {
+          const key = part.toolCallId || `${msg.id}-${part.output.path}`;
+          if (!navigatedIdsRef.current.has(key)) {
+            navigatedIdsRef.current.add(key);
+            router.push(part.output.path);
+          }
+        }
+      }
+    }
+  }, [messages, router]);
 
   const handleSend = async (text?: string) => {
     const content = (text ?? input).trim();

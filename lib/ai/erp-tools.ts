@@ -34,11 +34,28 @@ export async function createErpTools(ctx: ServerPermissionContext) {
   const madrasaId = ctx.madrasaId;
 
   return {
+    getClasses: tool({
+      description: "মাদ্রাসার সকল জামাত/ক্লাসের তালিকা (id ও নাম) দেখুন।",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!hasPerm(ctx, "student.view", STAFF_ACADEMIC_ROLES)) {
+          return { error: "আপনার রোলে জামাত তালিকা দেখার অনুমতি নেই।" };
+        }
+        const { data, error } = await adminClient
+          .from("classes")
+          .select("id, name")
+          .eq("madrasa_id", madrasaId)
+          .order("name");
+        if (error) return { error: error.message };
+        return { classes: data || [] };
+      },
+    }),
+
     searchStudents: tool({
       description:
-        "মাদ্রাসার শিক্ষার্থীদের নাম, স্টুডেন্ট আইডি (যেমন AHM-480001) বা মোবাইল নম্বর দিয়ে খুঁজুন।",
+        "মাদ্রাসার শিক্ষার্থীদের নাম, রোল/স্টুডেন্ট আইডি বা অভিভাবকের মোবাইল নম্বর দিয়ে খুঁজুন।",
       inputSchema: z.object({
-        query: z.string().min(1).describe("শিক্ষার্থীর নাম, আইডি বা ফোন নম্বর"),
+        query: z.string().min(1).describe("শিক্ষার্থীর নাম, রোল নম্বর বা ফোন নম্বর"),
         limit: z.number().int().min(1).max(15).optional().default(8),
       }),
       execute: async ({ query, limit }) => {
@@ -48,9 +65,9 @@ export async function createErpTools(ctx: ServerPermissionContext) {
         const q = query.trim();
         const { data, error } = await adminClient
           .from("students")
-          .select("id, full_name, student_id, guardian_phone, status, classes(name)")
+          .select("id, first_name, last_name, roll_number, parent_phone, father_name, classes(name)")
           .eq("madrasa_id", madrasaId)
-          .or(`full_name.ilike.%${q}%,student_id.ilike.%${q}%,guardian_phone.ilike.%${q}%`)
+          .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,roll_number.ilike.%${q}%,parent_phone.ilike.%${q}%`)
           .limit(limit ?? 8);
 
         if (error) return { error: error.message };
@@ -58,11 +75,11 @@ export async function createErpTools(ctx: ServerPermissionContext) {
           count: data?.length || 0,
           students: (data || []).map((s: any) => ({
             id: s.id,
-            name: s.full_name,
-            studentId: s.student_id,
+            name: `${s.first_name || ""} ${s.last_name || ""}`.trim(),
+            rollNumber: s.roll_number || "-",
             className: s.classes?.name || "অনির্ধারিত",
-            phone: s.guardian_phone || "-",
-            status: s.status || "active",
+            fatherName: s.father_name || "-",
+            phone: s.parent_phone || "-",
             profileUrl: `/dashboard/students/${s.id}`,
           })),
         };
@@ -80,13 +97,13 @@ export async function createErpTools(ctx: ServerPermissionContext) {
         }
         let dbQuery = adminClient
           .from("teachers")
-          .select("id, full_name, designation, phone, email, status")
+          .select("id, first_name, last_name, designation, phone, email")
           .eq("madrasa_id", madrasaId)
           .limit(10);
 
         const q = (query || "").trim();
         if (q) {
-          dbQuery = dbQuery.or(`full_name.ilike.%${q}%,designation.ilike.%${q}%,phone.ilike.%${q}%`);
+          dbQuery = dbQuery.or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,designation.ilike.%${q}%,phone.ilike.%${q}%`);
         }
 
         const { data, error } = await dbQuery;
@@ -95,10 +112,9 @@ export async function createErpTools(ctx: ServerPermissionContext) {
           count: data?.length || 0,
           teachers: (data || []).map((t: any) => ({
             id: t.id,
-            name: t.full_name,
+            name: `${t.first_name || ""} ${t.last_name || ""}`.trim(),
             designation: t.designation || "শিক্ষক",
             phone: t.phone || "-",
-            status: t.status || "active",
           })),
         };
       },
@@ -133,9 +149,9 @@ export async function createErpTools(ctx: ServerPermissionContext) {
         ]);
 
         const attRows = attendanceRes.data || [];
-        const present = attRows.filter((a: any) => a.status === "present").length;
-        const absent = attRows.filter((a: any) => a.status === "absent").length;
-        const leave = attRows.filter((a: any) => a.status === "leave").length;
+        const present = attRows.filter((a: any) => String(a.status).toLowerCase() === "present").length;
+        const absent = attRows.filter((a: any) => String(a.status).toLowerCase() === "absent").length;
+        const leave = attRows.filter((a: any) => String(a.status).toLowerCase() === "leave").length;
 
         const summary: Record<string, any> = {
           date: today,
@@ -197,7 +213,7 @@ export async function createErpTools(ctx: ServerPermissionContext) {
         if (mode === "recent_payments") {
           const { data, error } = await adminClient
             .from("fee_payments")
-            .select("id, receipt_no, amount_paid, payment_date, payment_method, students(full_name, student_id)")
+            .select("id, receipt_no, amount_paid, payment_date, payment_method, students(first_name, last_name, roll_number)")
             .eq("madrasa_id", madrasaId)
             .order("created_at", { ascending: false })
             .limit(limit ?? 8);
@@ -210,15 +226,15 @@ export async function createErpTools(ctx: ServerPermissionContext) {
               amount: Number(p.amount_paid || 0),
               date: p.payment_date,
               method: p.payment_method || "cash",
-              studentName: p.students?.full_name || "অজানা",
-              studentId: p.students?.student_id || "-",
+              studentName: `${p.students?.first_name || ""} ${p.students?.last_name || ""}`.trim() || "অজানা",
+              rollNumber: p.students?.roll_number || "-",
             })),
           };
         }
 
         const { data, error } = await adminClient
           .from("student_fees")
-          .select("id, title, total_amount, paid_amount, status, students(full_name, student_id)")
+          .select("id, title, total_amount, paid_amount, status, students(first_name, last_name, roll_number)")
           .eq("madrasa_id", madrasaId)
           .in("status", ["unpaid", "partial"])
           .limit(limit ?? 8);
@@ -230,8 +246,8 @@ export async function createErpTools(ctx: ServerPermissionContext) {
             title: f.title,
             dueAmount: Math.max(0, Number(f.total_amount || 0) - Number(f.paid_amount || 0)),
             status: f.status,
-            studentName: f.students?.full_name || "অজানা",
-            studentId: f.students?.student_id || "-",
+            studentName: `${f.students?.first_name || ""} ${f.students?.last_name || ""}`.trim() || "অজানা",
+            rollNumber: f.students?.roll_number || "-",
           })),
         };
       },
@@ -239,7 +255,7 @@ export async function createErpTools(ctx: ServerPermissionContext) {
 
     navigateToPage: tool({
       description:
-        "ব্যবহারকারীকে সরাসরি QawmiERP-এর নির্দিষ্ট কোনো পেজে যাওয়ার বাটন দেখাতে এটি কল করুন।",
+        "ব্যবহারকারীকে সরাসরি QawmiERP-এর নির্দিষ্ট কোনো পেজে নিয়ে যেতে বা পেজ খুলতে এটি কল করুন।",
       inputSchema: z.object({
         path: z.string().startsWith("/dashboard").describe("টার্গেট পেজের URL পাথ, যেমন /dashboard/students"),
         label: z.string().describe("বাটনের বাংলা নাম, যেমন 'শিক্ষার্থী তালিকায় যান'"),
@@ -255,21 +271,34 @@ export async function createErpTools(ctx: ServerPermissionContext) {
 
     proposeWriteAction: tool({
       description:
-        "নতুন খরচ এন্ট্রি (create_expense) বা নতুন নোটিশ প্রকাশ (create_notice) করার আগে ব্যবহারকারীর কনফার্মেশন কার্ড দেখাতে এটি ব্যবহার করুন। কখনোই সরাসরি ডেটাবেজে লিখবেন না।",
+        "যেকোনো রাইট অ্যাকশন — খরচ এন্ট্রি (create_expense), নোটিশ প্রকাশ (create_notice), হাজিরা মার্ক (mark_attendance), বা নতুন শিক্ষার্থী ভর্তি (create_student) — করার আগে ব্যবহারকারীর কনফার্মেশন কার্ড দেখাতে এটি কল করুন।",
       inputSchema: z.object({
-        actionType: z.enum(["create_expense", "create_notice"]),
+        actionType: z.enum(["create_expense", "create_notice", "mark_attendance", "create_student"]),
         title: z.string().describe("কনফার্মেশন কার্ডের শিরোনাম"),
         summary: z.string().describe("কী কাজ করা হবে তার সংক্ষিপ্ত বাংলা বিবরণ"),
         payload: z.object({
-          // For create_expense:
+          // create_expense
           category: z.string().optional().describe("খরচের খাত, যেমন: বিদ্যুৎ বিল, বাজার, মেরামত"),
           amount: z.number().positive().optional().describe("খরচের পরিমাণ (টাকা)"),
           description: z.string().optional().describe("খরচের বিবরণ"),
           expenseDate: z.string().optional().describe("তারিখ YYYY-MM-DD ফরম্যাটে"),
-          // For create_notice:
+          // create_notice
           noticeTitle: z.string().optional().describe("নোটিশের শিরোনাম"),
           noticeContent: z.string().optional().describe("নোটিশের বিস্তারিত"),
           targetAudience: z.enum(["all", "teachers", "students", "parents"]).optional().default("all"),
+          // mark_attendance
+          studentId: z.string().optional().describe("শিক্ষার্থীর UUID (searchStudents থেকে পাওয়া)"),
+          studentName: z.string().optional().describe("শিক্ষার্থীর নাম"),
+          attendanceDate: z.string().optional().describe("তারিখ YYYY-MM-DD (ডিফল্ট আজ)"),
+          attendanceStatus: z.enum(["Present", "Absent", "Leave"]).optional(),
+          // create_student
+          firstName: z.string().optional().describe("শিক্ষার্থীর প্রথম নাম"),
+          lastName: z.string().optional().describe("শিক্ষার্থীর শেষ নাম (ঐচ্ছিক)"),
+          fatherName: z.string().optional().describe("পিতার নাম"),
+          parentPhone: z.string().optional().describe("অভিভাবকের মোবাইল নম্বর"),
+          classId: z.string().optional().describe("জামাতের UUID (getClasses থেকে পাওয়া)"),
+          className: z.string().optional().describe("জামাতের নাম"),
+          address: z.string().optional().describe("ঠিকানা"),
         }),
       }),
       execute: async ({ actionType, title, summary, payload }) => {
@@ -280,13 +309,26 @@ export async function createErpTools(ctx: ServerPermissionContext) {
           if (!payload.amount || !payload.category) {
             return { error: "খরচ এন্ট্রির জন্য খাত (category) এবং টাকার পরিমাণ (amount) প্রয়োজন।" };
           }
-        }
-        if (actionType === "create_notice") {
+        } else if (actionType === "create_notice") {
           if (!hasPerm(ctx, "notification.view", STAFF_ACADEMIC_ROLES)) {
             return { error: "আপনার রোলে নোটিশ প্রকাশ করার অনুমতি নেই।" };
           }
           if (!payload.noticeTitle || !payload.noticeContent) {
             return { error: "নোটিশের জন্য শিরোনাম ও বিস্তারিত বিবরণ প্রয়োজন।" };
+          }
+        } else if (actionType === "mark_attendance") {
+          if (!hasPerm(ctx, "attendance.view", STAFF_ACADEMIC_ROLES)) {
+            return { error: "আপনার রোলে হাজিরা দেওয়ার অনুমতি নেই।" };
+          }
+          if (!payload.studentId || !payload.attendanceStatus) {
+            return { error: "হাজিরা মার্ক করতে শিক্ষার্থীর ID এবং উপস্থিতি স্ট্যাটাস প্রয়োজন।" };
+          }
+        } else if (actionType === "create_student") {
+          if (!hasPerm(ctx, "student.edit", STAFF_ACADEMIC_ROLES)) {
+            return { error: "আপনার রোলে নতুন শিক্ষার্থী ভর্তি করার অনুমতি নেই।" };
+          }
+          if (!payload.firstName || !payload.classId) {
+            return { error: "নতুন শিক্ষার্থী ভর্তি করতে নাম ও জামাত নির্বাচন প্রয়োজন।" };
           }
         }
 

@@ -2,6 +2,7 @@ import { getAuthUser, createAdminClient } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { loadServerPermissions } from "@/lib/permissions-server";
 import { toDhakaDateString } from "@/lib/date-utils";
+import { generateNextUniqueStudentId } from "@/lib/student-utils";
 import { revalidatePath } from "next/cache";
 
 const PORTAL_ROLES = new Set(["student", "parent", "guardian"]);
@@ -14,6 +15,7 @@ const STAFF_ROLES = new Set([
   "office_staff",
   "teacher",
   "education_secretary",
+  "attendance_manager",
 ]);
 
 export async function POST(req: Request) {
@@ -119,6 +121,112 @@ export async function POST(req: Request) {
         success: true,
         id: data?.id,
         message: `নোটিশ সফলভাবে প্রকাশিত হয়েছে: "${title}"`,
+      });
+    }
+
+    if (actionType === "mark_attendance") {
+      const allowed =
+        permCtx.roles.some((r) => STAFF_ROLES.has(r)) ||
+        permCtx.summary.effectivePermissions.includes("attendance.view" as any);
+      if (!allowed) {
+        return Response.json({ error: "হাজিরা দেওয়ার অনুমতি আপনার রোলে নেই।" }, { status: 403 });
+      }
+
+      const studentId = String(payload?.studentId || "").trim();
+      const status = String(payload?.attendanceStatus || "").trim();
+      const date = String(payload?.attendanceDate || toDhakaDateString()).trim();
+
+      if (!studentId || !["Present", "Absent", "Leave"].includes(status)) {
+        return Response.json({ error: "সঠিক শিক্ষার্থী ও হাজিরা স্ট্যাটাস দিন।" }, { status: 400 });
+      }
+
+      const { error } = await adminClient
+        .from("attendance")
+        .upsert(
+          {
+            madrasa_id: madrasaId,
+            student_id: studentId,
+            date,
+            status,
+          },
+          { onConflict: "student_id, date" }
+        );
+
+      if (error) {
+        return Response.json({ error: error.message }, { status: 500 });
+      }
+
+      revalidatePath("/dashboard/attendance");
+      revalidatePath("/dashboard");
+
+      const statusBn = status === "Present" ? "উপস্থিত" : status === "Absent" ? "অনুপস্থিত" : "ছুটি";
+      return Response.json({
+        success: true,
+        message: `${payload?.studentName || "শিক্ষার্থী"}-এর ${date} তারিখের হাজিরা "${statusBn}" হিসেবে সেভ হয়েছে।`,
+      });
+    }
+
+    if (actionType === "create_student") {
+      const allowed =
+        permCtx.roles.some((r) => STAFF_ROLES.has(r)) ||
+        permCtx.summary.effectivePermissions.includes("student.edit" as any);
+      if (!allowed) {
+        return Response.json({ error: "নতুন শিক্ষার্থী ভর্তি করার অনুমতি আপনার রোলে নেই।" }, { status: 403 });
+      }
+
+      const firstName = String(payload?.firstName || "").trim();
+      const lastName = String(payload?.lastName || "").trim();
+      const classId = String(payload?.classId || "").trim();
+      const fatherName = String(payload?.fatherName || "").trim();
+      const parentPhone = String(payload?.parentPhone || "").trim();
+      const address = String(payload?.address || "").trim();
+
+      if (!firstName || !classId) {
+        return Response.json({ error: "শিক্ষার্থীর নাম ও জামাত প্রয়োজন।" }, { status: 400 });
+      }
+
+      const [{ data: madrasaRow }, { data: existingStudents }] = await Promise.all([
+        adminClient.from("madrasas").select("prefix").eq("id", madrasaId).maybeSingle(),
+        adminClient.from("students").select("id, roll_number, class_id").eq("madrasa_id", madrasaId),
+      ]);
+
+      const usedIds = new Set<string>(
+        (existingStudents || []).map((s: any) => String(s.roll_number || "").trim()).filter(Boolean)
+      );
+      const madrasaPrefix = (madrasaRow as any)?.prefix || "QM";
+      const rollNumber = generateNextUniqueStudentId(
+        existingStudents || [],
+        { class_id: classId },
+        madrasaPrefix,
+        usedIds
+      );
+
+      const { data, error } = await adminClient
+        .from("students")
+        .insert({
+          madrasa_id: madrasaId,
+          first_name: firstName,
+          last_name: lastName,
+          roll_number: rollNumber,
+          class_id: classId,
+          father_name: fatherName || null,
+          parent_phone: parentPhone || null,
+          address: address || null,
+        })
+        .select("id, roll_number")
+        .single();
+
+      if (error) {
+        return Response.json({ error: error.message }, { status: 500 });
+      }
+
+      revalidatePath("/dashboard/students");
+      revalidatePath("/dashboard");
+
+      return Response.json({
+        success: true,
+        id: data?.id,
+        message: `নতুন শিক্ষার্থী "${`${firstName} ${lastName}`.trim()}" সফলভাবে ভর্তি হয়েছে (আইডি: ${data?.roll_number || rollNumber})।`,
       });
     }
 
