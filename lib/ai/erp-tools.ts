@@ -51,6 +51,38 @@ export async function createErpTools(ctx: ServerPermissionContext) {
       },
     }),
 
+    getExamsAndSubjects: tool({
+      description: "মাদ্রাসার পরীক্ষার তালিকা (exams) এবং কিতাব/বিষয়ের তালিকা (subjects) দেখুন।",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!hasPerm(ctx, "exam.view", STAFF_ACADEMIC_ROLES)) {
+          return { error: "আপনার রোলে পরীক্ষা বা বিষয় দেখার অনুমতি নেই।" };
+        }
+        const [{ data: exams }, { data: subjects }] = await Promise.all([
+          adminClient
+            .from("exams")
+            .select("id, name, title, class_id")
+            .eq("madrasa_id", madrasaId)
+            .order("created_at", { ascending: false })
+            .limit(15),
+          adminClient
+            .from("subjects")
+            .select("id, name, class_id")
+            .eq("madrasa_id", madrasaId)
+            .order("name")
+            .limit(40),
+        ]);
+        return {
+          exams: (exams || []).map((e: any) => ({
+            id: e.id,
+            name: e.name || e.title || "পরীক্ষা",
+            classId: e.class_id,
+          })),
+          subjects: subjects || [],
+        };
+      },
+    }),
+
     searchStudents: tool({
       description:
         "মাদ্রাসার শিক্ষার্থীদের নাম, রোল/স্টুডেন্ট আইডি বা অভিভাবকের মোবাইল নম্বর দিয়ে খুঁজুন।",
@@ -271,9 +303,16 @@ export async function createErpTools(ctx: ServerPermissionContext) {
 
     proposeWriteAction: tool({
       description:
-        "যেকোনো রাইট অ্যাকশন — খরচ এন্ট্রি (create_expense), নোটিশ প্রকাশ (create_notice), হাজিরা মার্ক (mark_attendance), বা নতুন শিক্ষার্থী ভর্তি (create_student) — করার আগে ব্যবহারকারীর কনফার্মেশন কার্ড দেখাতে এটি কল করুন।",
+        "যেকোনো রাইট অ্যাকশন — খরচ এন্ট্রি (create_expense), নোটিশ প্রকাশ (create_notice), হাজিরা মার্ক (mark_attendance), নতুন শিক্ষার্থী ভর্তি (create_student), পরীক্ষার নম্বর এন্ট্রি (enter_exam_mark), বা প্রশ্নব্যাংকে প্রশ্ন সংরক্ষণ (create_question) — করার আগে ব্যবহারকারীর কনফার্মেশন কার্ড দেখাতে এটি কল করুন।",
       inputSchema: z.object({
-        actionType: z.enum(["create_expense", "create_notice", "mark_attendance", "create_student"]),
+        actionType: z.enum([
+          "create_expense",
+          "create_notice",
+          "mark_attendance",
+          "create_student",
+          "enter_exam_mark",
+          "create_question",
+        ]),
         title: z.string().describe("কনফার্মেশন কার্ডের শিরোনাম"),
         summary: z.string().describe("কী কাজ করা হবে তার সংক্ষিপ্ত বাংলা বিবরণ"),
         payload: z.object({
@@ -299,6 +338,19 @@ export async function createErpTools(ctx: ServerPermissionContext) {
           classId: z.string().optional().describe("জামাতের UUID (getClasses থেকে পাওয়া)"),
           className: z.string().optional().describe("জামাতের নাম"),
           address: z.string().optional().describe("ঠিকানা"),
+          // enter_exam_mark
+          examId: z.string().optional().describe("পরীক্ষার UUID (getExamsAndSubjects থেকে পাওয়া)"),
+          examName: z.string().optional().describe("পরীক্ষার নাম"),
+          subjectName: z.string().optional().describe("বিষয়/কিতাবের নাম"),
+          marksObtained: z.number().min(0).optional().describe("প্রাপ্ত নম্বর"),
+          totalMarks: z.number().positive().optional().default(100).describe("পূর্ণমান (ডিফল্ট ১০০)"),
+          // create_question
+          subjectId: z.string().optional().describe("বিষয়/কিতাবের UUID (getExamsAndSubjects থেকে পাওয়া)"),
+          questionType: z.enum(["short", "descriptive", "mcq", "ibarat", "tahqeeq"]).optional().default("short"),
+          questionText: z.string().optional().describe("প্রশ্নের মূল লেখা"),
+          marks: z.number().positive().optional().default(5),
+          difficulty: z.enum(["easy", "medium", "hard"]).optional().default("medium"),
+          chapter: z.string().optional(),
         }),
       }),
       execute: async ({ actionType, title, summary, payload }) => {
@@ -329,6 +381,20 @@ export async function createErpTools(ctx: ServerPermissionContext) {
           }
           if (!payload.firstName || !payload.classId) {
             return { error: "নতুন শিক্ষার্থী ভর্তি করতে নাম ও জামাত নির্বাচন প্রয়োজন।" };
+          }
+        } else if (actionType === "enter_exam_mark") {
+          if (!hasPerm(ctx, "exam.edit", STAFF_ACADEMIC_ROLES)) {
+            return { error: "আপনার রোলে পরীক্ষার নম্বর এন্ট্রি করার অনুমতি নেই।" };
+          }
+          if (!payload.examId || !payload.studentId || !payload.subjectName || payload.marksObtained === undefined) {
+            return { error: "নম্বর এন্ট্রির জন্য পরীক্ষা, শিক্ষার্থী, বিষয় এবং প্রাপ্ত নম্বর প্রয়োজন।" };
+          }
+        } else if (actionType === "create_question") {
+          if (!hasPerm(ctx, "exam.edit", STAFF_ACADEMIC_ROLES)) {
+            return { error: "আপনার রোলে প্রশ্নব্যাংকে প্রশ্ন যোগ করার অনুমতি নেই।" };
+          }
+          if (!payload.classId || !payload.subjectId || !payload.questionText) {
+            return { error: "প্রশ্ন সেভ করতে জামাত, বিষয় এবং প্রশ্নের লেখা প্রয়োজন।" };
           }
         }
 

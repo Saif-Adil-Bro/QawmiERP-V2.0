@@ -230,6 +230,109 @@ export async function POST(req: Request) {
       });
     }
 
+    if (actionType === "enter_exam_mark") {
+      const allowed =
+        permCtx.roles.some((r) => STAFF_ROLES.has(r)) ||
+        permCtx.summary.effectivePermissions.includes("exam.edit" as any);
+      if (!allowed) {
+        return Response.json({ error: "পরীক্ষার নম্বর এন্ট্রি করার অনুমতি আপনার রোলে নেই।" }, { status: 403 });
+      }
+
+      const examId = String(payload?.examId || "").trim();
+      const studentId = String(payload?.studentId || "").trim();
+      const subjectName = String(payload?.subjectName || "").trim();
+      const marksObtained = Number(payload?.marksObtained);
+      const totalMarks = Number(payload?.totalMarks || 100);
+
+      if (!examId || !studentId || !subjectName || isNaN(marksObtained) || marksObtained < 0) {
+        return Response.json({ error: "সঠিক পরীক্ষা, শিক্ষার্থী, বিষয় ও নম্বর দিন।" }, { status: 400 });
+      }
+
+      const { error } = await adminClient
+        .from("exam_results")
+        .upsert(
+          {
+            madrasa_id: madrasaId,
+            exam_id: examId,
+            student_id: studentId,
+            subject_name: subjectName,
+            marks_obtained: marksObtained,
+            total_marks: totalMarks,
+          },
+          { onConflict: "exam_id, student_id, subject_name" }
+        );
+
+      if (error) {
+        return Response.json({ error: error.message }, { status: 500 });
+      }
+
+      revalidatePath(`/dashboard/exams/${examId}/marks`);
+      revalidatePath("/dashboard/exams");
+
+      return Response.json({
+        success: true,
+        message: `${payload?.studentName || "শিক্ষার্থী"}-এর "${subjectName}" বিষয়ে ${marksObtained}/${totalMarks} নম্বর সেভ হয়েছে।`,
+      });
+    }
+
+    if (actionType === "create_question") {
+      const allowed =
+        permCtx.roles.some((r) => STAFF_ROLES.has(r)) ||
+        permCtx.summary.effectivePermissions.includes("exam.edit" as any);
+      if (!allowed) {
+        return Response.json({ error: "প্রশ্নব্যাংকে প্রশ্ন যোগ করার অনুমতি আপনার রোলে নেই।" }, { status: 403 });
+      }
+
+      const classId = String(payload?.classId || "").trim();
+      const subjectId = String(payload?.subjectId || "").trim();
+      const questionText = String(payload?.questionText || "").trim();
+      const questionType = String(payload?.questionType || "short").trim();
+      const marks = Number(payload?.marks || 5);
+      const difficulty = String(payload?.difficulty || "medium").trim();
+      const chapter = String(payload?.chapter || "সাধারণ").trim();
+
+      if (!classId || !subjectId || !questionText) {
+        return Response.json({ error: "প্রশ্ন সংরক্ষণের জন্য জামাত, বিষয় ও প্রশ্ন প্রয়োজন।" }, { status: 400 });
+      }
+
+      const optionsPayload = { chapter, difficulty };
+      let { error } = await adminClient.from("question_bank").insert({
+        madrasa_id: madrasaId,
+        class_id: classId,
+        subject_id: subjectId,
+        question_type: questionType,
+        question_text: questionText,
+        marks,
+        chapter,
+        difficulty,
+        options: optionsPayload,
+      });
+
+      if (error) {
+        const retry = await adminClient.from("question_bank").insert({
+          madrasa_id: madrasaId,
+          class_id: classId,
+          subject_id: subjectId,
+          question_type: questionType,
+          question_text: questionText,
+          marks,
+          options: optionsPayload,
+        });
+        error = retry.error;
+      }
+
+      if (error) {
+        return Response.json({ error: error.message }, { status: 500 });
+      }
+
+      revalidatePath("/dashboard/exams/question-bank");
+
+      return Response.json({
+        success: true,
+        message: `প্রশ্নটি সফলভাবে প্রশ্নব্যাংকে সংরক্ষিত হয়েছে (${marks} নম্বর)।`,
+      });
+    }
+
     return Response.json({ error: "অজানা অ্যাকশন টাইপ।" }, { status: 400 });
   } catch (err: any) {
     console.error("AI confirm error:", err);

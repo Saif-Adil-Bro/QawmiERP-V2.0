@@ -15,6 +15,8 @@ import {
   Loader2,
   Trash2,
   ShieldAlert,
+  Mic,
+  Square,
 } from "lucide-react";
 
 const QUICK_SUGGESTIONS = [
@@ -32,9 +34,13 @@ interface ActionState {
 export function ErpAiAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [actionStates, setActionStates] = useState<Record<string, ActionState>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigatedIdsRef = useRef<Set<string>>(new Set());
+  const recognitionRef = useRef<any>(null);
+  const baseInputRef = useRef<string>("");
   const router = useRouter();
 
   const { messages, sendMessage, setMessages, status, error } = useChat({
@@ -71,7 +77,85 @@ export function ErpAiAssistant() {
     }
   }, [messages, router]);
 
+  const stopVoice = () => {
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+    setIsListening(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
+    };
+  }, []);
+
+  const toggleVoiceInput = () => {
+    setVoiceError(null);
+    if (isListening) {
+      stopVoice();
+      return;
+    }
+
+    const SpeechRecognition =
+      typeof window !== "undefined"
+        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        : null;
+
+    if (!SpeechRecognition) {
+      setVoiceError("আপনার ব্রাউজার ভয়েস ইনপুট সাপোর্ট করে না (Chrome ব্যবহার করুন)।");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "bn-BD";
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      baseInputRef.current = input.trim() ? `${input.trim()} ` : "";
+
+      recognition.onresult = (event: any) => {
+        let finalTranscript = "";
+        let interimTranscript = "";
+        for (let i = 0; i < event.results.length; i++) {
+          const transcript = event.results[i][0]?.transcript || "";
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        const combined = `${baseInputRef.current}${finalTranscript}${interimTranscript}`.trimStart();
+        setInput(combined);
+      };
+
+      recognition.onerror = (event: any) => {
+        if (event?.error === "not-allowed") {
+          setVoiceError("মাইক্রোফোন ব্যবহারের অনুমতি দিন।");
+        } else if (event?.error !== "aborted") {
+          setVoiceError("ভয়েস বুঝতে সমস্যা হয়েছে, আবার চেষ্টা করুন।");
+        }
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsListening(true);
+    } catch {
+      setVoiceError("ভয়েস চালু করা যায়নি।");
+      setIsListening(false);
+    }
+  };
+
   const handleSend = async (text?: string) => {
+    if (isListening) stopVoice();
     const content = (text ?? input).trim();
     if (!content || isLoading) return;
     if (!text) setInput("");
@@ -337,6 +421,29 @@ export function ErpAiAssistant() {
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Voice Status / Error Strip */}
+          {(isListening || voiceError) && (
+            <div className="px-3.5 py-1.5 bg-slate-100 dark:bg-slate-800/90 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-[11px] shrink-0">
+              {isListening ? (
+                <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 font-bold">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                  <span>শুনছি... বাংলায় কথা বলুন (থামাতে লাল বাটনে চাপুন)</span>
+                </div>
+              ) : (
+                <span className="text-rose-600 dark:text-rose-400 font-medium">{voiceError}</span>
+              )}
+              {voiceError && (
+                <button
+                  type="button"
+                  onClick={() => setVoiceError(null)}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Input Bar */}
           <form
             onSubmit={(e) => {
@@ -345,11 +452,24 @@ export function ErpAiAssistant() {
             }}
             className="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2 shrink-0"
           >
+            <button
+              type="button"
+              onClick={toggleVoiceInput}
+              disabled={isLoading}
+              className={`p-2.5 rounded-2xl transition cursor-pointer shrink-0 ${
+                isListening
+                  ? "bg-rose-600 hover:bg-rose-700 text-white animate-pulse shadow-md shadow-rose-600/30"
+                  : "bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400"
+              }`}
+              title={isListening ? "ভয়েস থামান" : "ভয়েস দিয়ে লিখুন (বাংলা)"}
+            >
+              {isListening ? <Square className="w-4 h-4 fill-white" /> : <Mic className="w-4 h-4" />}
+            </button>
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="আপনার প্রশ্ন লিখুন..."
+              placeholder={isListening ? "কথা বলুন, টেক্সট লেখা হচ্ছে..." : "লিখুন বা মাইকে বলুন..."}
               className="flex-1 px-3.5 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <button
