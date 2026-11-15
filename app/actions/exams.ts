@@ -6,6 +6,15 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata, MadrasaMetaWithSessions, hydrateStudentWithMetadata } from "@/lib/sessions";
+import {
+  GradeRule,
+  DEFAULT_GRADE_RULES,
+  normalizeGradeRules,
+  resolveGradeFromGpa,
+  resolveSubjectGpa,
+  getFailRule,
+  getMinPassPercentage,
+} from "@/lib/exam-grading";
 
 function computeExamStatus(
   startDate?: string | null,
@@ -632,6 +641,9 @@ export async function getStudentReportCard(examId: string, classId?: string) {
   const examRules = madrasaMeta?.exam_evaluation_rules?.[examId] || {};
   const failPolicy = examRules?.fail_policy || "compulsory_subject_fail"; // "compulsory_subject_fail" | "any_subject_fail" | "percentage_only"
   const compulsoryMeta = madrasaMeta?.exam_compulsory_subjects?.[examId] || {};
+  const gradeRules = normalizeGradeRules(madrasaMeta?.exam_grade_scale);
+  const minPassPct = getMinPassPercentage(gradeRules);
+  const failRule = getFailRule(gradeRules);
 
   // Group students by class to resolve complete subject lists
   const classSubjectMap = new Map<string, { subject_name: string; total_marks: number; pass_marks: number; is_compulsory: boolean; exam_type: string }[]>();
@@ -741,16 +753,16 @@ export async function getStudentReportCard(examId: string, classId?: string) {
         isOverallFailed = true;
         failReason = `${failedAllSubjects.length}টি বিষয়ে অকৃতকার্য`;
       } else if (failPolicy === "percentage_only") {
-        isOverallFailed = percentage < 33;
-        failReason = isOverallFailed ? "নম্বর শতকরা ৩৩% এর কম" : "";
+        isOverallFailed = percentage < minPassPct;
+        failReason = isOverallFailed ? `নম্বর শতকরা ${minPassPct}% এর কম` : "";
       } else {
         // Default "compulsory_subject_fail"
         if (failedCompulsorySubjects.length > 0) {
           isOverallFailed = true;
           failReason = `আবশ্যক বিষয়ে অকৃতকার্য (${failedCompulsorySubjects.map(s => s.subject_name).join(", ")})`;
-        } else if (percentage < 33) {
+        } else if (percentage < minPassPct) {
           isOverallFailed = true;
-          failReason = "নম্বর শতকরা ৩৩% এর কম";
+          failReason = `নম্বর শতকরা ${minPassPct}% এর কম`;
         }
       }
     }
@@ -760,23 +772,17 @@ export async function getStudentReportCard(examId: string, classId?: string) {
 
     if (enteredMarksCount > 0) {
       if (isOverallFailed) {
-        calculatedGrade = "রাসিব (Fail)";
+        calculatedGrade = failRule.label;
         calculatedGpa = "০.০০";
       } else {
-        const compulsoryGpaSum = compulsorySubjects.reduce((sum, m) => sum + getSubjectGpa(m), 0);
-        const optionalGpaBonus = optionalSubjects.reduce((sum, m) => sum + Math.max(0, getSubjectGpa(m) - 2.0), 0);
+        const compulsoryGpaSum = compulsorySubjects.reduce((sum, m) => sum + resolveSubjectGpa(m, gradeRules), 0);
+        const optionalGpaBonus = optionalSubjects.reduce((sum, m) => sum + Math.max(0, resolveSubjectGpa(m, gradeRules) - 2.0), 0);
         const totalGpaPoints = compulsoryGpaSum + optionalGpaBonus;
 
         const mainCount = compulsorySubjects.length > 0 ? compulsorySubjects.length : studentMarks.length;
         const rawGpa = mainCount > 0 ? Math.min(5.0, totalGpaPoints / mainCount) : 0;
         calculatedGpa = rawGpa.toFixed(2);
-
-        if (rawGpa >= 5.0) calculatedGrade = "মুমতাজ (A+)";
-        else if (rawGpa >= 4.0) calculatedGrade = "জায়্যিদ জিদ্দান (A)";
-        else if (rawGpa >= 3.5) calculatedGrade = "জায়্যিদ (B)";
-        else if (rawGpa >= 2.0) calculatedGrade = "মাকবুল (C)";
-        else if (rawGpa >= 1.0) calculatedGrade = "উত্তীর্ণ (D)";
-        else calculatedGrade = "রাসিব (Fail)";
+        calculatedGrade = resolveGradeFromGpa(rawGpa, gradeRules, false).label;
       }
     }
 
@@ -799,25 +805,60 @@ export async function getStudentReportCard(examId: string, classId?: string) {
   return studentResults;
 }
 
-function getSubjectGpa(m: { marks_obtained: number; total_marks: number; pass_marks: number; is_failed: boolean; has_entered_marks: boolean }): number {
-  if (!m.has_entered_marks || m.is_failed) return 0;
-  const pct = m.total_marks > 0 ? (m.marks_obtained / m.total_marks) * 100 : 0;
-  if (pct >= 80) return 5.0;
-  if (pct >= 70) return 4.0;
-  if (pct >= 60) return 3.5;
-  if (pct >= 50) return 3.0;
-  if (pct >= 40) return 2.0;
-  if (pct >= 33) return 1.0;
-  return 0;
+export async function getExamGradeScale(explicitMadrasaId?: string): Promise<GradeRule[]> {
+  try {
+    let madrasaId = explicitMadrasaId || "";
+    if (!madrasaId) {
+      const supabase = await createClient();
+      const user = await getAuthUser(supabase);
+      madrasaId = user ? await getAuthMadrasaId(supabase, user) : "";
+    }
+    if (!madrasaId) return DEFAULT_GRADE_RULES;
+    const meta = await getMadrasaMetadata(madrasaId);
+    return normalizeGradeRules(meta?.exam_grade_scale);
+  } catch (err) {
+    console.warn("getExamGradeScale error:", err);
+    return DEFAULT_GRADE_RULES;
+  }
 }
 
-function calculateGrade(percentage: number) {
-  if (percentage >= 80) return "মুমতাজ (A+)";
-  if (percentage >= 70) return "জায়্যিদ জিদ্দান (A)";
-  if (percentage >= 60) return "জায়্যিদ (B)";
-  if (percentage >= 45) return "মাকবুল (C)";
-  if (percentage >= 33) return "উত্তীর্ণ (D)";
-  return "রাসিব (Fail)";
+export async function saveExamGradeScale(rules: GradeRule[]): Promise<{
+  success?: boolean;
+  rules?: GradeRule[];
+  error?: string;
+}> {
+  const __authz = await writeGuard("exams");
+  if (!__authz.allowed) return __authz.fallback as any;
+
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const madrasaId = user ? await getAuthMadrasaId(supabase, user) : "";
+    if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
+
+    if (!Array.isArray(rules) || rules.length < 2) {
+      return { error: "কমপক্ষে ২টি গ্রেড ধাপ (পাস ও ফেল) থাকতে হবে।" };
+    }
+
+    const normalized = normalizeGradeRules(rules);
+    const meta = await getMadrasaMetadata(madrasaId);
+    meta.exam_grade_scale = normalized;
+
+    const saved = await saveMadrasaMetadata(madrasaId, meta);
+    if (!saved) {
+      return { error: "গ্রেড স্কেল সংরক্ষণ করতে সমস্যা হয়েছে।" };
+    }
+
+    revalidatePath("/dashboard/exams");
+    revalidatePath("/dashboard/exams/grading");
+    revalidatePath("/portal/exams");
+    revalidatePath("/teacher-portal/exams");
+
+    return { success: true, rules: normalized };
+  } catch (err: any) {
+    console.error("saveExamGradeScale error:", err);
+    return { error: err?.message || "গ্রেড স্কেল সংরক্ষণে ত্রুটি হয়েছে।" };
+  }
 }
 
 export async function getAllExamSubjects(examId: string) {

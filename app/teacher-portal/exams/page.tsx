@@ -203,6 +203,11 @@ export default async function TeacherExamsPage(props: {
     }
   }
 
+  const madrasaMeta = madrasaId ? await getMadrasaMetadata(madrasaId) : {};
+  const gradeRules = Array.isArray((madrasaMeta as any)?.exam_grade_scale)
+    ? (madrasaMeta as any).exam_grade_scale
+    : undefined;
+
   return (
     <div className="space-y-6">
       <div>
@@ -221,6 +226,7 @@ export default async function TeacherExamsPage(props: {
         currentClassId={classId}
         currentSubject={subjectName}
         madrasaId={madrasaId}
+        gradeRules={gradeRules}
       />
     </div>
   );

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { resolveStudentIdBn } from "@/lib/student-utils";
+import { resolveGradeRule, getGradeBadgeClass } from "@/lib/exam-grading";
 
 export default function ExamMarksForm({
   exams,
@@ -24,6 +25,7 @@ export default function ExamMarksForm({
   currentClassId,
   currentSubject,
   madrasaId,
+  gradeRules,
 }: any) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -80,12 +82,11 @@ export default function ExamMarksForm({
   const getGradeInfo = (obtained: number, total: number) => {
     if (!total || isNaN(obtained)) return { grade: "-", color: "text-slate-400" };
     const pct = (obtained / total) * 100;
-    if (pct >= 80) return { grade: "A+ (মুমতাজ)", color: "text-emerald-700 bg-emerald-50 border-emerald-200" };
-    if (pct >= 70) return { grade: "A (জায়্যিদ জিদ্দান)", color: "text-blue-700 bg-blue-50 border-blue-200" };
-    if (pct >= 60) return { grade: "A- (জায়্যিদ)", color: "text-indigo-700 bg-indigo-50 border-indigo-200" };
-    if (pct >= 50) return { grade: "B (মাকবুল)", color: "text-amber-700 bg-amber-50 border-amber-200" };
-    if (pct >= 33) return { grade: "C (উত্তীর্ণ)", color: "text-orange-700 bg-orange-50 border-orange-200" };
-    return { grade: "F (অনুত্তীর্ণ)", color: "text-red-700 bg-red-50 border-red-200" };
+    const rule = resolveGradeRule(pct, gradeRules);
+    return {
+      grade: rule.label,
+      color: getGradeBadgeClass(rule.color),
+    };
   };
 
   const filteredStudents = useMemo(() => {

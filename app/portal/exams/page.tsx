@@ -16,6 +16,7 @@ import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { getMadrasaMetadata, MadrasaMetaWithSessions } from "@/lib/sessions";
 import { getPortalStudentData } from "@/lib/portal-data";
+import { normalizeGradeRules, resolveGradeRule, getGradeBadgeClass } from "@/lib/exam-grading";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,7 @@ export default async function ParentPortalExams(props: {
   ]);
 
   const publishedExams = madrasaMeta?.published_exams || {};
+  const gradeRules = normalizeGradeRules(madrasaMeta?.exam_grade_scale);
 
   // Enrich exams with published status
   const enrichedExams = (exams || []).map((e: any) => {
@@ -81,14 +83,13 @@ export default async function ParentPortalExams(props: {
   const totalMax = results.reduce((sum, r) => sum + (Number(r.total_marks) || 100), 0);
   const percentage = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : 0;
 
-  // Grade determination helper
+  // Grade determination helper using madrasa grade scale
   const getGrade = (pct: number) => {
-    if (pct >= 80) return { grade: "A+ (মুমতাজ)", color: "text-emerald-700 bg-emerald-50 border-emerald-200" };
-    if (pct >= 70) return { grade: "A (জায়্যিদ জিদ্দান)", color: "text-blue-700 bg-blue-50 border-blue-200" };
-    if (pct >= 60) return { grade: "A- (জায়্যিদ)", color: "text-indigo-700 bg-indigo-50 border-indigo-200" };
-    if (pct >= 50) return { grade: "B (মাকবুল)", color: "text-amber-700 bg-amber-50 border-amber-200" };
-    if (pct >= 33) return { grade: "C (উত্তীর্ণ)", color: "text-orange-700 bg-orange-50 border-orange-200" };
-    return { grade: "F (অনুত্তীর্ণ)", color: "text-red-700 bg-red-50 border-red-200" };
+    const rule = resolveGradeRule(pct, gradeRules);
+    return {
+      grade: rule.label,
+      color: getGradeBadgeClass(rule.color),
+    };
   };
 
   const gradeInfo = getGrade(percentage);
