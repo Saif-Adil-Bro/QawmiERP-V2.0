@@ -77,14 +77,20 @@ export async function POST(req: Request) {
     const tools = await createErpTools(permCtx);
 
     const result = streamText({
-      model: openrouter(modelName),
+      model: openrouter.chat(modelName),
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
       tools,
       stopWhen: stepCountIs(5),
     });
 
-    return result.toUIMessageStreamResponse();
+    return result.toUIMessageStreamResponse({
+      onError: (err: unknown) => {
+        console.error("AI stream error:", err);
+        if (err instanceof Error) return err.message;
+        return typeof err === "string" ? err : "এআই রেসপন্স তৈরি করতে সমস্যা হয়েছে।";
+      },
+    });
   } catch (err: any) {
     console.error("AI Chat API error:", err);
     return Response.json(
