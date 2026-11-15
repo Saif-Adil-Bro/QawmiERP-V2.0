@@ -57,7 +57,7 @@ export async function POST(req: Request) {
 
     const baseURL = process.env.AI_BASE_URL?.trim() || "https://openrouter.ai/api/v1";
     const modelName =
-      process.env.AI_MODEL_NAME?.trim() || "meta-llama/llama-3.3-70b-instruct:free";
+      process.env.AI_MODEL_NAME?.trim() || "google/gemma-4-31b-it:free";
 
     const openrouter = createOpenAI({
       baseURL,
