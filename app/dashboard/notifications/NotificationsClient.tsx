@@ -568,8 +568,13 @@ export default function NotificationsClient({
     }));
 
     try {
-      await markAllNotificationsAsRead();
-      setFeedbackMsg("সকল নোটিফিকেশন পঠিত হিসেবে চিহ্নিত করা হয়েছে!");
+      const ids = notifications.map((n) => n.id);
+      const res = await markAllNotificationsAsRead(undefined, ids);
+      if (res?.success) {
+        setFeedbackMsg("সকল নোটিফিকেশন পঠিত হিসেবে চিহ্নিত করা হয়েছে!");
+      } else {
+        setFeedbackMsg(res?.error || "সংরক্ষণ করতে সমস্যা হয়েছে।");
+      }
       setTimeout(() => setFeedbackMsg(""), 3000);
     } catch (err) {
       console.error("Error marking all read:", err);

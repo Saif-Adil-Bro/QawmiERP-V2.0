@@ -187,6 +187,16 @@ export async function getAllLeaveData() {
           endDate = dateMatch[2];
         }
 
+        // Deduplicate against already-present studentLeaves (e.g. from earlier dual-submission)
+        const fbTime = fb.created_at ? new Date(fb.created_at).getTime() : 0;
+        const isDuplicateLeave = studentLeaves.some((sl) => {
+          if (fb.student_id && sl.student_id !== fb.student_id) return false;
+          if (sl.start_date !== startDate || sl.end_date !== endDate) return false;
+          if (!fbTime || !sl.created_at) return false;
+          return Math.abs(new Date(sl.created_at).getTime() - fbTime) < 60000;
+        });
+        if (isDuplicateLeave) return;
+
         // Try to match student info from student list if missing or partial
         let matchedStudent = fb.student_id ? studentsMap.get(fb.student_id) : undefined;
         if (!matchedStudent && fb.student_name) {

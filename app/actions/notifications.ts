@@ -108,6 +108,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
     const readSet = new Set(persistentReadIds);
 
     // 1. Fetch Leaves Data (Both Student and Teacher)
+    const linkedLeaveFeedbackIds = new Set<string>();
     try {
       const leaveResult = await getAllLeaveData();
       if (leaveResult && !leaveResult.error) {
@@ -115,6 +116,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
         const teacherLeaves: TeacherLeaveApplication[] = leaveResult.teacherLeaves || [];
 
         studentLeaves.forEach((s) => {
+          if (s.feedback_id) linkedLeaveFeedbackIds.add(s.feedback_id);
           const isPending = s.status === "PENDING";
           items.push({
             id: `leave-student-${s.id}`,
@@ -162,10 +164,18 @@ export async function getGlobalNotifications(limit = 60): Promise<{
       console.warn("Notification error fetching leaves:", err);
     }
 
-    // 2. Fetch Parent Feedbacks & Complaints
+    // 2. Fetch Parent Feedbacks & Complaints (skip leave requests already shown in section 1)
     try {
       const feedbacks: ParentFeedbackItem[] = await getParentFeedbacks();
       feedbacks.forEach((f) => {
+        const isLeaveFeedback =
+          linkedLeaveFeedbackIds.has(f.id) ||
+          f.category === "ছুটির আবেদন" ||
+          (f.action_type as string) === "LEAVE_APPLICATION" ||
+          (f.action_type === "GENERAL" &&
+            (Boolean(f.subject?.includes("ছুটি")) || Boolean(f.description?.includes("ছুটি"))));
+        if (isLeaveFeedback) return;
+
         const isComplaint = f.action_type === "COMPLAINT";
         const isPending = f.status === "PENDING";
         items.push({
@@ -467,7 +477,10 @@ export async function markNotificationAsRead(notificationId: string): Promise<{
         existingReadIds.splice(0, existingReadIds.length - 2500);
       }
       meta.read_notification_ids = existingReadIds;
-      await saveMadrasaMetadata(madrasaId, meta);
+      const saved = await saveMadrasaMetadata(madrasaId, meta);
+      if (!saved) {
+        return { success: false, error: "পঠিত হিসেবে সংরক্ষণ ব্যর্থ হয়েছে।" };
+      }
     }
 
     revalidatePath("/dashboard");
@@ -481,9 +494,12 @@ export async function markNotificationAsRead(notificationId: string): Promise<{
 }
 
 /**
- * Persistently marks all notifications (or a given category) as read in the database
+ * Persistently marks all notifications (or a given category / explicit IDs) as read in the database
  */
-export async function markAllNotificationsAsRead(category?: NotificationCategory): Promise<{
+export async function markAllNotificationsAsRead(
+  category?: NotificationCategory,
+  explicitIds?: string[]
+): Promise<{
   success: boolean;
   readIds?: string[];
   error?: string;
@@ -497,18 +513,28 @@ export async function markAllNotificationsAsRead(category?: NotificationCategory
 
     if (!madrasaId) return { success: false, error: "মাদরাসা পাওয়া যায়নি।" };
 
-    // Fetch current notifications to gather all IDs
-    const res = await getGlobalNotifications(150);
-    const targetItems = category
-      ? res.notifications.filter((n) => n.category === category)
-      : res.notifications;
+    let idsToMark: string[] = [];
+    if (Array.isArray(explicitIds) && explicitIds.length > 0) {
+      idsToMark = explicitIds;
+    } else {
+      // Fetch current notifications to gather all IDs
+      const res = await getGlobalNotifications(150);
+      const targetItems = category
+        ? res.notifications.filter((n) =>
+            category === "PAYMENT"
+              ? n.category === "PAYMENT" || n.category === "FINANCE"
+              : n.category === category
+          )
+        : res.notifications;
+      idsToMark = targetItems.map((item) => item.id);
+    }
 
     const meta = await getMadrasaMetadata(madrasaId);
     const currentReadIds: string[] = Array.isArray(meta.read_notification_ids) ? meta.read_notification_ids : [];
     const readSet = new Set(currentReadIds);
 
-    targetItems.forEach((item) => {
-      readSet.add(item.id);
+    idsToMark.forEach((id) => {
+      if (id) readSet.add(id);
     });
 
     const updatedReadIds = Array.from(readSet);
@@ -517,7 +543,10 @@ export async function markAllNotificationsAsRead(category?: NotificationCategory
     }
 
     meta.read_notification_ids = updatedReadIds;
-    await saveMadrasaMetadata(madrasaId, meta);
+    const saved = await saveMadrasaMetadata(madrasaId, meta);
+    if (!saved) {
+      return { success: false, error: "সব পঠিত হিসেবে সংরক্ষণ ব্যর্থ হয়েছে।" };
+    }
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/notifications");

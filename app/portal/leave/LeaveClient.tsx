@@ -14,7 +14,6 @@ import {
   Plus,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-import { createParentFeedback } from "@/app/actions/parent-communication";
 import { submitStudentLeaveRequest } from "@/app/actions/leaves";
 
 interface Props {
@@ -43,19 +42,15 @@ export default function LeaveClient({ students, userProfile, initialApplications
     const selectedStudent = students.find((s) => s.id === selectedStudentId) || students[0];
 
     try {
-      const res = await createParentFeedback({
-        action_type: "GENERAL",
-        category: "ছুটির আবেদন",
-        subject: `${leaveType} - ${selectedStudent?.first_name || "শিক্ষার্থী"}`,
-        description: `ছুটির মেয়াদ: ${startDate} হতে ${endDate}\nকারণ: ${reason.trim()}`,
-        student_id: selectedStudent?.id,
-        student_name: `${selectedStudent?.first_name || ""} ${selectedStudent?.last_name || ""}`.trim(),
-        student_roll: String(selectedStudent?.roll_number || selectedStudent?.student_id || ""),
-        class_name: selectedStudent?.class_name || (Array.isArray(selectedStudent?.classes) ? selectedStudent?.classes[0]?.name : selectedStudent?.classes?.name) || "",
-        guardian_name: userProfile?.full_name || "সম্মানিত অভিভাবক",
-        guardian_phone: userProfile?.phone || "",
-        urgency: "Important",
-        preferred_date: startDate,
+      const res = await submitStudentLeaveRequest({
+        studentId: selectedStudent?.id,
+        leaveType,
+        startDate,
+        endDate,
+        reason: reason.trim(),
+        guardianName: userProfile?.full_name || "সম্মানিত অভিভাবক",
+        guardianPhone: userProfile?.phone || "",
+        source: "PORTAL",
       });
 
       if (res.error) {
@@ -64,31 +59,15 @@ export default function LeaveClient({ students, userProfile, initialApplications
         return;
       }
 
-      // Also register in leave management system
-      try {
-        await submitStudentLeaveRequest({
-          studentId: selectedStudent?.id,
-          leaveType,
-          startDate,
-          endDate,
-          reason: reason.trim(),
-          guardianName: userProfile?.full_name || "সম্মানিত অভিভাবক",
-          guardianPhone: userProfile?.phone || "",
-          source: "PORTAL",
-        });
-      } catch (leaveSysErr) {
-        console.warn("Non-blocking leave sync:", leaveSysErr);
-      }
-
       const newApp = {
-        id: res.id || `leave-${Date.now()}`,
+        id: res.application?.feedback_id || res.application?.id || `leave-${Date.now()}`,
         student_name: selectedStudent ? `${selectedStudent.first_name} ${selectedStudent.last_name}` : "শিক্ষার্থী",
-        subject: `${leaveType} - ${selectedStudent?.first_name || "শিক্ষার্থী"}`,
+        subject: `${leaveType} - ছুটির আবেদন`,
         category: "ছুটির আবেদন",
         description: `ছুটির মেয়াদ: ${startDate} হতে ${endDate}\nকারণ: ${reason.trim()}`,
         status: "PENDING",
         status_bangla: "অপেক্ষমান",
-        created_at: new Date().toISOString(),
+        created_at: res.application?.created_at || new Date().toISOString(),
       };
 
       setApplications((prev) => [newApp, ...prev]);

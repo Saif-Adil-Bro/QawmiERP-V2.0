@@ -123,20 +123,37 @@ export default function GlobalNotificationBell() {
   }).length;
 
   const handleMarkAllAsRead = async () => {
-    const allIds = new Set([...Array.from(readIds), ...notifications.map((n) => n.id)]);
-    setReadIds(allIds);
+    const prevReadIds = new Set(readIds);
+    const targetIds = (activeTab === "ALL" ? notifications : filteredItems).map((n) => n.id);
+    if (targetIds.length === 0) return;
+
+    const nextIds = new Set([...Array.from(readIds), ...targetIds]);
+    setReadIds(nextIds);
     try {
-      localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(Array.from(allIds)));
+      localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(Array.from(nextIds)));
     } catch {}
 
     // Persist to database
     try {
-      const res = await markAllNotificationsAsRead(activeTab === "ALL" ? undefined : activeTab);
-      if (res.readIds) {
+      const res = await markAllNotificationsAsRead(
+        activeTab === "ALL" ? undefined : activeTab,
+        targetIds
+      );
+      if (res.success && res.readIds) {
         setReadIds(new Set(res.readIds));
+        try {
+          localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(res.readIds));
+        } catch {}
+      } else {
+        console.error("Failed to persist mark all as read:", res.error);
+        setReadIds(prevReadIds);
+        try {
+          localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(Array.from(prevReadIds)));
+        } catch {}
       }
     } catch (err) {
       console.error("Error persisting mark all as read:", err);
+      setReadIds(prevReadIds);
     }
   };
 
@@ -148,9 +165,9 @@ export default function GlobalNotificationBell() {
       localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(Array.from(nextReadIds)));
     } catch {}
 
-    // Persist to server
+    // Persist to server before navigating
     try {
-      markNotificationAsRead(item.id);
+      await markNotificationAsRead(item.id);
     } catch {}
 
     setIsOpen(false);
