@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
 import { App as CapacitorApp } from "@capacitor/app";
 import { StatusBar, Style } from "@capacitor/status-bar";
+import { initWebNotificationBridge } from "@/lib/nativeNotifications";
 
 const HOME_ROUTES = new Set(["/", "/login", "/dashboard", "/portal", "/teacher-portal"]);
 
@@ -31,6 +32,7 @@ export default function CapacitorProvider() {
     };
 
     setupStatusBar();
+    const cleanupNotifications = initWebNotificationBridge();
 
     let backButtonListener: { remove: () => Promise<void> } | null = null;
 
@@ -52,6 +54,7 @@ export default function CapacitorProvider() {
       });
 
     return () => {
+      cleanupNotifications();
       backButtonListener?.remove().catch(() => {});
     };
   }, []);
