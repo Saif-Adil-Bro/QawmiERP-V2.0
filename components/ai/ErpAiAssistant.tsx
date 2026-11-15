@@ -112,23 +112,16 @@ export function ErpAiAssistant() {
     try {
       const recognition = new SpeechRecognition();
       recognition.lang = "bn-BD";
-      recognition.continuous = true;
+      recognition.continuous = false;
       recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
 
       baseInputRef.current = input.trim() ? `${input.trim()} ` : "";
 
       recognition.onresult = (event: any) => {
-        let finalTranscript = "";
-        let interimTranscript = "";
-        for (let i = 0; i < event.results.length; i++) {
-          const transcript = event.results[i][0]?.transcript || "";
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-        const combined = `${baseInputRef.current}${finalTranscript}${interimTranscript}`.trimStart();
+        const result = event.results?.[0];
+        const transcript = result?.[0]?.transcript || "";
+        const combined = `${baseInputRef.current}${transcript}`.trimStart();
         setInput(combined);
       };
 
