@@ -1,0 +1,176 @@
+import { NextRequest } from "next/server";
+import { authenticateMobileRequest, mobileError, mobileSuccess } from "@/lib/mobile-api";
+import { toDhakaDateString, toDhakaDateStringFrom } from "@/lib/date-utils";
+import { isVoidDonation, isVoidedExpense } from "@/lib/fund-utils";
+import { readJsonStore } from "@/lib/madrasa-store";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(req: NextRequest) {
+  const auth = await authenticateMobileRequest(req, {
+    requireWrite: false,
+    allowPortalRoles: true,
+  });
+  if (!auth.ok) return auth.response;
+
+  try {
+    const madrasaId = auth.ctx.madrasaId;
+    const today = toDhakaDateString();
+    const thirtyDaysAgo = toDhakaDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+
+    const [
+      { count: studentsCount },
+      { count: teachersCount },
+      { count: classesCount },
+      { count: todayPresent },
+      { count: todayAbsent },
+      { count: todayLeave },
+      { count: todayLate },
+      { data: feesData },
+      { data: donationsData },
+      { data: expensesData },
+      { data: bazarData },
+      { data: attendance30Data },
+      { data: examResultsData },
+      { data: fundsData },
+      metaStore,
+    ] = await Promise.all([
+      auth.adminClient.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      auth.adminClient.from("teachers").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      auth.adminClient.from("classes").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Present"),
+      auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Absent"),
+      auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Leave"),
+      auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Late"),
+      auth.adminClient.from("fees").select("amount, payment_date, created_at").eq("madrasa_id", madrasaId),
+      auth.adminClient.from("donations").select("amount, donation_date, notes, created_at").eq("madrasa_id", madrasaId),
+      auth.adminClient.from("expenses").select("amount, expense_date, description, created_at").eq("madrasa_id", madrasaId),
+      auth.adminClient.from("bazar_expenses").select("amount, expense_date, created_at").eq("madrasa_id", madrasaId),
+      auth.adminClient.from("attendance").select("status").eq("madrasa_id", madrasaId).gte("date", thirtyDaysAgo).lte("date", today),
+      auth.adminClient.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", madrasaId),
+      auth.adminClient.from("zakat_funds").select("total_collected").eq("madrasa_id", madrasaId),
+      readJsonStore(madrasaId, "meta"),
+    ]);
+
+    const staffMembers = Array.isArray(metaStore.staff_members) ? metaStore.staff_members : [];
+    const effectiveTeachersCount = Math.max(teachersCount || 0, staffMembers.length);
+
+    const feesSum = (feesData || []).reduce((s: number, i: any) => s + Number(i.amount || 0), 0);
+    const validDonations = (donationsData || []).filter((d: any) => !isVoidDonation(d));
+    const donationsSum = validDonations.reduce((s: number, i: any) => s + Number(i.amount || 0), 0);
+    const fundsCollected = (fundsData || []).reduce((s: number, f: any) => s + Number(f.total_collected || 0), 0);
+    const totalIncome = fundsCollected > 0 ? fundsCollected : feesSum + donationsSum;
+
+    const validExpenses = (expensesData || []).filter((e: any) => !isVoidedExpense(e));
+    const expensesSum = validExpenses.reduce((s: number, i: any) => s + Number(i.amount || 0), 0);
+    const bazarSum = (bazarData || []).reduce((s: number, i: any) => s + Number(i.amount || 0), 0);
+    const totalExpense = expensesSum + bazarSum;
+
+    const todayIncome =
+      (feesData || []).reduce((s: number, i: any) => {
+        const dt = i.payment_date || (i.created_at ? toDhakaDateStringFrom(i.created_at) : "");
+        return dt === today ? s + Number(i.amount || 0) : s;
+      }, 0) +
+      validDonations.reduce((s: number, i: any) => {
+        const dt = i.donation_date || (i.created_at ? toDhakaDateStringFrom(i.created_at) : "");
+        return dt === today ? s + Number(i.amount || 0) : s;
+      }, 0);
+
+    const todayExpense =
+      validExpenses.reduce((s: number, i: any) => {
+        const dt = i.expense_date || (i.created_at ? toDhakaDateStringFrom(i.created_at) : "");
+        return dt === today ? s + Number(i.amount || 0) : s;
+      }, 0) +
+      (bazarData || []).reduce((s: number, i: any) => {
+        const dt = i.expense_date || (i.created_at ? toDhakaDateStringFrom(i.created_at) : "");
+        return dt === today ? s + Number(i.amount || 0) : s;
+      }, 0);
+
+    // Monthly series (last 6 months)
+    const monthlyMap: Record<string, { income: number; expense: number }> = {};
+    const addMonth = (dt: string, amt: number, type: "income" | "expense") => {
+      if (!dt || amt <= 0) return;
+      const clean = dt.includes("T") ? toDhakaDateStringFrom(dt) : dt.trim();
+      const m = clean.substring(0, 7);
+      if (!monthlyMap[m]) monthlyMap[m] = { income: 0, expense: 0 };
+      monthlyMap[m][type] += Number(amt);
+    };
+    (feesData || []).forEach((f: any) => addMonth(f.payment_date, f.amount, "income"));
+    validDonations.forEach((d: any) => addMonth(d.donation_date, d.amount, "income"));
+    validExpenses.forEach((e: any) => addMonth(e.expense_date, e.amount, "expense"));
+    (bazarData || []).forEach((b: any) => addMonth(b.expense_date, b.amount, "expense"));
+
+    const monthly_income_expense = Object.keys(monthlyMap)
+      .sort()
+      .slice(-6)
+      .map((month) => ({
+        month,
+        income: monthlyMap[month].income,
+        expense: monthlyMap[month].expense,
+      }));
+
+    // 30-day attendance breakdown
+    const attCounts = { Present: 0, Absent: 0, Leave: 0, Late: 0 };
+    (attendance30Data || []).forEach((a: any) => {
+      if (a.status in attCounts) (attCounts as any)[a.status]++;
+    });
+
+    // Exam pass rate
+    const examStats: Record<string, { total: number; passed: number }> = {};
+    (examResultsData || []).forEach((r: any) => {
+      const title = r.exams?.title || "পরীক্ষা";
+      if (!examStats[title]) examStats[title] = { total: 0, passed: 0 };
+      examStats[title].total++;
+      if ((Number(r.marks_obtained) / Math.max(1, Number(r.total_marks))) * 100 >= 33) {
+        examStats[title].passed++;
+      }
+    });
+    const exam_pass_rate = Object.keys(examStats).map((exam) => ({
+      exam,
+      passRate: Number(((examStats[exam].passed / examStats[exam].total) * 100).toFixed(1)),
+    }));
+
+    return mobileSuccess(
+      {
+        stats: {
+          students_count: studentsCount || 0,
+          teachers_count: effectiveTeachersCount,
+          classes_count: classesCount || 0,
+          today_present: todayPresent || 0,
+          today_absent: todayAbsent || 0,
+          today_leave: todayLeave || 0,
+          today_late: todayLate || 0,
+          today_income: todayIncome,
+          today_expense: todayExpense,
+          total_income: totalIncome,
+          total_expense: totalExpense,
+          net_balance: totalIncome - totalExpense,
+          expenses_sum: expensesSum,
+          bazar_sum: bazarSum,
+        },
+        charts: {
+          monthly_income_expense,
+          today_attendance: [
+            { name: "উপস্থিত", value: todayPresent || 0 },
+            { name: "অনুপস্থিত", value: todayAbsent || 0 },
+            { name: "ছুটি", value: todayLeave || 0 },
+            { name: "বিলম্ব", value: todayLate || 0 },
+          ].filter((x) => x.value > 0),
+          thirty_day_attendance: [
+            { name: "উপস্থিত", value: attCounts.Present },
+            { name: "অনুপস্থিত", value: attCounts.Absent },
+            { name: "ছুটি", value: attCounts.Leave },
+            { name: "বিলম্ব", value: attCounts.Late },
+          ].filter((x) => x.value > 0),
+          exam_pass_rate,
+        },
+      },
+      "Success",
+      undefined,
+      200,
+      req
+    );
+  } catch (err: any) {
+    return mobileError(err?.message || "Server error", 500, "INTERNAL_ERROR");
+  }
+}
