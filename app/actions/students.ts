@@ -11,7 +11,7 @@ import {
   getDefaultSessions,
   hydrateStudentWithMetadata,
 } from "@/lib/sessions";
-import { getStudentIdNumber, isUuid, getActiveMadrasaPrefix } from "@/lib/student-utils";
+import { getStudentIdNumber, generateNextUniqueStudentId, isUuid, getActiveMadrasaPrefix } from "@/lib/student-utils";
 
 export async function getStudents() {
   try {
@@ -69,7 +69,7 @@ export async function getStudents() {
           const officialId = getStudentIdNumber(st, hydrated, prefix);
           return {
             ...st,
-            student_id: (!st.student_id || isUuid(st.student_id)) ? officialId : st.student_id,
+            student_id: officialId,
             student_id_formatted: officialId,
           };
         });
@@ -597,9 +597,27 @@ export async function createStudent(prevState: any, formData: FormData) {
       const { getMadrasaMetadata, saveMadrasaMetadata, getDefaultSessions } = await import("@/lib/sessions");
       const meta = await getMadrasaMetadata(finalMadrasaId);
 
-      // 1. Save extended student profile
+      // 1. Save extended student profile with strictly unique sequential student_id
       if (!meta.student_profiles) meta.student_profiles = {};
-      const officialStudentId = getStudentIdNumber({ id: insertedStudent.id, ...studentPayload }, undefined, getActiveMadrasaPrefix());
+      const adminForIds = await createAdminClient();
+      const { data: allMadrasaStudents } = await adminForIds
+        .from("students")
+        .select("id, created_at")
+        .eq("madrasa_id", finalMadrasaId);
+      const prefix = getActiveMadrasaPrefix() || meta?.madrasa_info?.prefix || "";
+      const usedIds = new Set<string>();
+      Object.values(meta.student_profiles).forEach((p: any) => {
+        const existingCode = p?.student_id_formatted || p?.student_id;
+        if (existingCode && typeof existingCode === "string" && !isUuid(existingCode)) {
+          usedIds.add(existingCode.trim().toUpperCase());
+        }
+      });
+      const officialStudentId = generateNextUniqueStudentId(
+        allMadrasaStudents || [{ id: insertedStudent.id, created_at: new Date().toISOString() }],
+        { id: insertedStudent.id, created_at: new Date().toISOString() },
+        prefix,
+        usedIds
+      );
       meta.student_profiles[insertedStudent.id] = {
         student_id: officialStudentId,
         student_id_formatted: officialStudentId,
@@ -853,9 +871,35 @@ export async function updateStudent(prevState: any, formData: FormData) {
       // 4a. Save extended student profile in metadata
       if (!meta.student_profiles) meta.student_profiles = {};
       const existingProfile = meta.student_profiles[id] || {};
-      const safeOldId = existingProfile.student_id && !isUuid(existingProfile.student_id)
-        ? existingProfile.student_id
-        : getStudentIdNumber({ id, ...existingProfile, first_name: firstName, last_name: lastName, roll_number: rollNumber }, undefined, getActiveMadrasaPrefix());
+      const otherUsedIds = new Set<string>();
+      Object.entries(meta.student_profiles).forEach(([sid, p]: [string, any]) => {
+        if (sid === id) return;
+        const code = p?.student_id_formatted || p?.student_id;
+        if (code && typeof code === "string" && !isUuid(code)) {
+          otherUsedIds.add(code.trim().toUpperCase());
+        }
+      });
+      const currentCandidate = existingProfile.student_id_formatted || existingProfile.student_id || "";
+      let safeOldId =
+        currentCandidate &&
+        !isUuid(currentCandidate) &&
+        !otherUsedIds.has(String(currentCandidate).trim().toUpperCase())
+          ? currentCandidate
+          : "";
+      if (!safeOldId) {
+        const adminForIds = await createAdminClient();
+        const { data: allMadrasaStudents } = await adminForIds
+          .from("students")
+          .select("id, created_at")
+          .eq("madrasa_id", madrasaId);
+        const prefix = getActiveMadrasaPrefix() || meta?.madrasa_info?.prefix || "";
+        safeOldId = generateNextUniqueStudentId(
+          allMadrasaStudents || [{ id, created_at: new Date().toISOString() }],
+          { id, created_at: (existingProfile as any).created_at || new Date().toISOString() },
+          prefix,
+          otherUsedIds
+        );
+      }
       meta.student_profiles[id] = {
         ...existingProfile,
         student_id: safeOldId,
@@ -1327,10 +1371,17 @@ export async function bulkCreateStudents(
         .eq("madrasa_id", finalMadrasaId);
 
       const allList = allMadrasaStudents || [];
+      const usedIds = new Set<string>();
+      Object.values(studentProfiles).forEach((p: any) => {
+        const existingCode = p?.student_id_formatted || p?.student_id;
+        if (existingCode && typeof existingCode === "string" && !isUuid(existingCode)) {
+          usedIds.add(existingCode.trim().toUpperCase());
+        }
+      });
 
       insertedStudents.forEach((st, idx) => {
         const prep = preparedMetadataList[idx];
-        const officialId = getStudentIdNumber(st, allList, prefix);
+        const officialId = generateNextUniqueStudentId(allList, st, prefix, usedIds);
 
         studentProfiles[st.id] = {
           student_id: officialId,

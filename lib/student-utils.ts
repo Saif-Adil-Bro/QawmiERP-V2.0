@@ -134,12 +134,10 @@ export function getStudentIdNumber(
     (id) => typeof id === "string" && id.trim() !== "" && !isUuid(id) && id.trim().length < 25
   );
 
-  if (explicitId) {
-    const cleanId = explicitId.trim().toUpperCase();
+  const normalizeExplicit = (raw: string): string => {
+    const cleanId = raw.trim().toUpperCase();
     if (prefix) {
-      if (cleanId.startsWith(`${prefix}-`)) {
-        return cleanId;
-      }
+      if (cleanId.startsWith(`${prefix}-`)) return cleanId;
       if (cleanId.startsWith(prefix)) {
         const remainder = cleanId.slice(prefix.length).replace(/^-+/, "");
         return remainder ? `${prefix}-${remainder}` : cleanId;
@@ -147,6 +145,40 @@ export function getStudentIdNumber(
       return `${prefix}-${cleanId.replace(/^-+/, "")}`;
     }
     return cleanId;
+  };
+
+  // Check if explicitId is duplicated by an earlier student in allStudents
+  let isExplicitIdDuplicated = false;
+  if (explicitId && allStudents && allStudents.length > 0) {
+    const normTarget = normalizeExplicit(explicitId);
+    const sortedAll = [...allStudents].sort((a, b) => {
+      const aTime = a?.created_at ? new Date(a.created_at).getTime() : 0;
+      const bTime = b?.created_at ? new Date(b.created_at).getTime() : 0;
+      if (aTime !== bTime) return aTime - bTime;
+      return String(a?.id || "").localeCompare(String(b?.id || ""));
+    });
+    for (const other of sortedAll) {
+      if (other?.id === student.id) break;
+      const otherCand = [
+        other?.student_code,
+        other?.admission_no,
+        other?.admission_number,
+        other?.student_id_number,
+        other?.student_id,
+        other?.custom_id,
+        other?.registration_no,
+        other?.reg_no,
+        other?.id_number,
+      ].find((v) => typeof v === "string" && v.trim() !== "" && !isUuid(v) && v.trim().length < 25);
+      if (otherCand && normalizeExplicit(otherCand) === normTarget) {
+        isExplicitIdDuplicated = true;
+        break;
+      }
+    }
+  }
+
+  if (explicitId && !isExplicitIdDuplicated) {
+    return normalizeExplicit(explicitId);
   }
 
   // 2. Resolve Year Format (hijri vs gregorian vs auto)
@@ -186,7 +218,6 @@ export function getStudentIdNumber(
   if (resolvedFormat === "gregorian") {
     firstTwoDigits = String(gregYear).slice(-2); // e.g. "26"
   } else if (resolvedFormat === "auto") {
-    // Check if session or metadata indicates an English January-December session
     const sessionName = String(
       student.session?.name ||
       student.session_name ||
@@ -220,7 +251,7 @@ export function getStudentIdNumber(
     return formatStudentIdWithPrefix(prefix, code);
   }
 
-  // Group and sort students of the same target year code
+  // Group and sort students of the same target year code (deterministic tie-breaker on id)
   const sameYearStudents = allStudents
     .filter((s) => {
       const sDate = s.created_at ? new Date(s.created_at) : new Date();
@@ -240,17 +271,70 @@ export function getStudentIdNumber(
     .sort((a, b) => {
       const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
       const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-      return aTime - bTime;
+      if (aTime !== bTime) return aTime - bTime;
+      return String(a.id || "").localeCompare(String(b.id || ""));
     });
 
-  // Find index of current student in the sorted list of same-year students
-  const index = sameYearStudents.findIndex((s) => s.id === student.id);
-  const sequenceNum =
-    index !== -1 ? index + 1 : parseInt(student.roll_number, 10) || sameYearStudents.length + 1;
-  const sequenceStr = String(sequenceNum).padStart(4, "0"); // Pad with leading zeros to make 4 digits
-  const code = `${firstTwoDigits}${sequenceStr}`;
+  // Collect IDs already claimed by earlier students in sameYearStudents to guarantee zero collisions
+  const claimedIds = new Set<string>();
+  for (const s of sameYearStudents) {
+    if (s.id === student.id) break;
+    const sCand = [
+      s.student_code,
+      s.admission_no,
+      s.admission_number,
+      s.student_id_number,
+      s.student_id,
+      s.custom_id,
+      s.registration_no,
+      s.reg_no,
+      s.id_number,
+    ].find((v) => typeof v === "string" && v.trim() !== "" && !isUuid(v) && v.trim().length < 25);
+    if (sCand) {
+      claimedIds.add(normalizeExplicit(sCand));
+    }
+  }
 
-  return formatStudentIdWithPrefix(prefix, code);
+  const index = sameYearStudents.findIndex((s) => s.id === student.id);
+  let seq = index !== -1 ? index + 1 : sameYearStudents.length + 1;
+  let formatted = formatStudentIdWithPrefix(prefix, `${firstTwoDigits}${String(seq).padStart(4, "0")}`);
+  while (claimedIds.has(formatted.toUpperCase())) {
+    seq += 1;
+    formatted = formatStudentIdWithPrefix(prefix, `${firstTwoDigits}${String(seq).padStart(4, "0")}`);
+  }
+
+  return formatted;
+}
+
+/**
+ * Generates a strictly unique sequential student ID on the server using a Set of already-used IDs.
+ */
+export function generateNextUniqueStudentId(
+  allStudents: any[],
+  targetStudent: any,
+  madrasaPrefix: string,
+  usedIds: Set<string>,
+  options?: { idYearFormat?: IdYearFormat | string }
+): string {
+  const cleanStudent = {
+    id: targetStudent?.id,
+    created_at: targetStudent?.created_at || new Date().toISOString(),
+  };
+  const candidate = getStudentIdNumber(cleanStudent, allStudents, madrasaPrefix, options);
+  const match = candidate.match(/^(.*?)(\d{2})(\d{4,})$/);
+  if (!usedIds.has(candidate.toUpperCase())) {
+    usedIds.add(candidate.toUpperCase());
+    return candidate;
+  }
+  const yearPart = match ? match[2] : candidate.replace(/[^0-9]/g, "").slice(0, 2) || "48";
+  let seq = match ? parseInt(match[3], 10) : 1;
+  let nextId = formatStudentIdWithPrefix(madrasaPrefix, `${yearPart}${String(seq).padStart(4, "0")}`);
+  while (usedIds.has(nextId.toUpperCase())) {
+    seq += 1;
+    nextId = formatStudentIdWithPrefix(madrasaPrefix, `${yearPart}${String(seq).padStart(4, "0")}`);
+  }
+  usedIds.add(nextId.toUpperCase());
+  return nextId;
 }
 
 /**

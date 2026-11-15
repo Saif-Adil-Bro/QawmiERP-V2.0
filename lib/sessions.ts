@@ -299,7 +299,7 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
     admission?.admission_no ||
     "";
 
-  const resolvedStudentId = rawExplicitId || getStudentIdNumber(student);
+  const resolvedStudentId = rawExplicitId || "";
 
   return {
     ...student,
