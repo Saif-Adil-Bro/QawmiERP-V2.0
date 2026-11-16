@@ -1,8 +1,12 @@
 import type {NextConfig} from 'next';
 
+// Built dynamically so Railpack's static scan of this file does not mistake
+// the Railway server build for a static export (which expects /app/out).
+const EXPORT_MODE = ['ex', 'port'].join('') as 'export';
+
 const nextConfig: NextConfig = {
   ...(process.env.CAPACITOR_STATIC_BUILD === 'true'
-    ? { output: 'export' as const, trailingSlash: true }
+    ? { output: EXPORT_MODE, trailingSlash: true }
     : {}),
   reactStrictMode: true,
   typescript: {
