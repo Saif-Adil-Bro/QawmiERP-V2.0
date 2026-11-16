@@ -17,6 +17,28 @@ export interface GradeRule {
   isFail?: boolean;
 }
 
+export type GradeCalculationMode = "average_percentage" | "subject_gpa";
+export type HighestMarksScope = "class" | "exam";
+
+export interface ExamGradingConfig {
+  calculationMode: GradeCalculationMode; // "average_percentage" (মোট শতকরা থেকে বিভাগ) | "subject_gpa" (প্রতি সাবজেক্ট জিপিএ গড় থেকে বিভাগ)
+  highestMarksScope: HighestMarksScope;  // "class" (শ্রেণি অনুযায়ী সর্বোচ্চ) | "exam" (পুরো পরীক্ষা অনুযায়ী সর্বোচ্চ)
+  rules: GradeRule[];
+}
+
+export const DEFAULT_GRADING_CONFIG: ExamGradingConfig = {
+  calculationMode: "subject_gpa",
+  highestMarksScope: "class",
+  rules: [
+    { id: "grade_a_plus", label: "মুমতাজ (A+)", minPercentage: 80, gpa: 5.0, color: "emerald" },
+    { id: "grade_a", label: "জায়্যিদ জিদ্দান (A)", minPercentage: 70, gpa: 4.0, color: "blue" },
+    { id: "grade_b", label: "জায়্যিদ (B)", minPercentage: 60, gpa: 3.5, color: "indigo" },
+    { id: "grade_c", label: "মাকবুল (C)", minPercentage: 45, gpa: 3.0, color: "amber" },
+    { id: "grade_d", label: "উত্তীর্ণ (D)", minPercentage: 33, gpa: 1.0, color: "slate" },
+    { id: "grade_f", label: "রাসিব (Fail)", minPercentage: 0, gpa: 0.0, color: "red", isFail: true },
+  ],
+};
+
 export const DEFAULT_GRADE_RULES: GradeRule[] = [
   { id: "grade_a_plus", label: "মুমতাজ (A+)", minPercentage: 80, gpa: 5.0, color: "emerald" },
   { id: "grade_a", label: "জায়্যিদ জিদ্দান (A)", minPercentage: 70, gpa: 4.0, color: "blue" },
@@ -83,6 +105,35 @@ export function normalizeGradeRules(rules?: GradeRule[] | null): GradeRule[] {
     .sort((a, b) => b.minPercentage - a.minPercentage);
 
   return cleaned.length > 0 ? cleaned : DEFAULT_GRADE_RULES;
+}
+
+export function normalizeGradingConfig(raw?: any): ExamGradingConfig {
+  if (!raw || typeof raw !== "object") {
+    return DEFAULT_GRADING_CONFIG;
+  }
+  // raw could be an array of GradeRule directly (legacy schema)
+  if (Array.isArray(raw)) {
+    return {
+      calculationMode: "average_percentage",
+      highestMarksScope: "class",
+      rules: normalizeGradeRules(raw)
+    };
+  }
+  const rules = normalizeGradeRules(raw.rules || raw.grade_rules || raw);
+  const calculationMode: GradeCalculationMode = 
+    raw.calculationMode === "average_percentage" || raw.mode === "average_percentage"
+      ? "average_percentage"
+      : "subject_gpa";
+  const highestMarksScope: HighestMarksScope = 
+    raw.highestMarksScope === "exam" || raw.scope === "exam"
+      ? "exam"
+      : "class";
+
+  return {
+    calculationMode,
+    highestMarksScope,
+    rules
+  };
 }
 
 export function getFailRule(rules?: GradeRule[] | null): GradeRule {

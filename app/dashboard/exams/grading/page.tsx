@@ -1,4 +1,4 @@
-import { getExamGradeScale } from "@/app/actions/exams";
+import { getExamGradingConfig } from "@/app/actions/exams";
 import GradingScaleClient from "./GradingScaleClient";
 
 export const metadata = {
@@ -9,6 +9,6 @@ export const metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function ExamGradingPage() {
-  const rules = await getExamGradeScale();
-  return <GradingScaleClient initialRules={rules} />;
+  const config = await getExamGradingConfig();
+  return <GradingScaleClient initialConfig={config} />;
 }

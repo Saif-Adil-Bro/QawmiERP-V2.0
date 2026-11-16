@@ -290,10 +290,14 @@ export default function ReportCardsClient({
                             <table className="w-full text-left border-collapse my-1 text-[11px]">
                               <thead>
                                 <tr className="bg-slate-200">
-                                  <th className="border border-slate-900 px-2 py-0.5 text-center font-black text-slate-950 w-10">ক্র. নং</th>
+                                  <th className="border border-slate-900 px-2 py-0.5 text-center font-black text-slate-950 w-8">ক্র. নং</th>
                                   <th className="border border-slate-900 px-2 py-0.5 font-black text-slate-950">বিষয়ের নাম</th>
-                                  <th className="border border-slate-900 px-2 py-0.5 text-center font-black text-slate-950 w-20">পূর্ণ নম্বর</th>
-                                  <th className="border border-slate-900 px-2 py-0.5 text-center font-black text-slate-950 w-20">প্রাপ্ত নম্বর</th>
+                                  <th className="border border-slate-900 px-1.5 py-0.5 text-center font-black text-slate-950 w-16">পূর্ণ নম্বর</th>
+                                  <th className="border border-slate-900 px-1.5 py-0.5 text-center font-black text-blue-900 bg-blue-50/60 w-16" title="ওই বিষয়ে সর্বোচ্চ নম্বর">সর্বোচ্চ</th>
+                                  <th className="border border-slate-900 px-1.5 py-0.5 text-center font-black text-slate-950 w-16">প্রাপ্ত নম্বর</th>
+                                  {student.grading_mode !== "average_percentage" && (
+                                    <th className="border border-slate-900 px-1.5 py-0.5 text-center font-black text-slate-950 w-20">গ্রেড / বিভাগ</th>
+                                  )}
                                 </tr>
                               </thead>
                               <tbody>
@@ -302,13 +306,21 @@ export default function ReportCardsClient({
                                     <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                                       <td className="border border-slate-800 px-2 py-0.5 text-center font-bold text-slate-800">{toBanglaNumber(i + 1)}</td>
                                       <td className="border border-slate-800 px-2 py-0.5 font-bold text-slate-950">{m.subject_name}</td>
-                                      <td className="border border-slate-800 px-2 py-0.5 text-center text-slate-800">{toBanglaNumber(m.total_marks || 100)}</td>
-                                      <td className="border border-slate-800 px-2 py-0.5 text-center font-black text-slate-950">{toBanglaNumber(m.marks_obtained || 0)}</td>
+                                      <td className="border border-slate-800 px-1.5 py-0.5 text-center text-slate-800">{toBanglaNumber(m.total_marks || 100)}</td>
+                                      <td className="border border-slate-800 px-1.5 py-0.5 text-center font-semibold text-blue-900 bg-blue-50/30">
+                                        {toBanglaNumber(m.highest_marks !== undefined ? m.highest_marks : (m.marks_obtained || 0))}
+                                      </td>
+                                      <td className="border border-slate-800 px-1.5 py-0.5 text-center font-black text-slate-950">{toBanglaNumber(m.marks_obtained || 0)}</td>
+                                      {student.grading_mode !== "average_percentage" && (
+                                        <td className="border border-slate-800 px-1.5 py-0.5 text-center font-bold text-slate-900 text-[10px]">
+                                          {m.grade || "-"}
+                                        </td>
+                                      )}
                                     </tr>
                                   ))
                                 ) : (
                                   <tr>
-                                    <td colSpan={4} className="border border-slate-800 px-2 py-2 text-center text-slate-500 italic">
+                                    <td colSpan={student.grading_mode !== "average_percentage" ? 6 : 5} className="border border-slate-800 px-2 py-2 text-center text-slate-500 italic">
                                       কোনো বিষয়ের নম্বর যুক্ত করা হয়নি
                                     </td>
                                   </tr>
@@ -319,12 +331,20 @@ export default function ReportCardsClient({
                                   <td colSpan={2} className="border border-slate-900 px-2 py-0.5 text-right uppercase text-slate-950 font-black text-[11px]">
                                     সর্বমোট:
                                   </td>
-                                  <td className="border border-slate-900 px-2 py-0.5 text-center text-slate-950 font-black">
+                                  <td className="border border-slate-900 px-1.5 py-0.5 text-center text-slate-950 font-black">
                                     {toBanglaNumber(student.totalMax)}
                                   </td>
-                                  <td className="border border-slate-900 px-2 py-0.5 text-center text-slate-950 font-black text-xs">
+                                  <td className="border border-slate-900 px-1.5 py-0.5 text-center text-slate-400 font-normal">
+                                    -
+                                  </td>
+                                  <td className="border border-slate-900 px-1.5 py-0.5 text-center text-slate-950 font-black text-xs">
                                     {toBanglaNumber(student.totalObtained)}
                                   </td>
+                                  {student.grading_mode !== "average_percentage" && (
+                                    <td className="border border-slate-900 px-1.5 py-0.5 text-center text-slate-950 font-black text-[10px]">
+                                      GPA {toBanglaNumber(student.gpa || "০.০০")}
+                                    </td>
+                                  )}
                                 </tr>
                               </tbody>
                             </table>
@@ -458,10 +478,14 @@ export default function ReportCardsClient({
                     <table className="w-full text-left border-collapse my-3 text-xs">
                       <thead>
                         <tr className="bg-slate-200">
-                          <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-12">ক্র. নং</th>
+                          <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-10">ক্র. নং</th>
                           <th className="border border-slate-900 px-3 py-1.5 font-black text-slate-950">বিষয়ের নাম</th>
-                          <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-24">পূর্ণ নম্বর</th>
-                          <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-28">প্রাপ্ত নম্বর</th>
+                          <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-20">পূর্ণ নম্বর</th>
+                          <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-blue-900 bg-blue-50/60 w-20" title="ওই বিষয়ে সর্বোচ্চ নম্বর">সর্বোচ্চ</th>
+                          <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-24">প্রাপ্ত নম্বর</th>
+                          {student.grading_mode !== "average_percentage" && (
+                            <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-28">গ্রেড / বিভাগ</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
@@ -471,12 +495,20 @@ export default function ReportCardsClient({
                               <td className="border border-slate-800 px-3 py-1 text-center font-bold text-slate-800">{toBanglaNumber(i + 1)}</td>
                               <td className="border border-slate-800 px-3 py-1 font-bold text-slate-950">{m.subject_name}</td>
                               <td className="border border-slate-800 px-3 py-1 text-center text-slate-800">{toBanglaNumber(m.total_marks || 100)}</td>
+                              <td className="border border-slate-800 px-3 py-1 text-center font-semibold text-blue-900 bg-blue-50/30">
+                                {toBanglaNumber(m.highest_marks !== undefined ? m.highest_marks : (m.marks_obtained || 0))}
+                              </td>
                               <td className="border border-slate-800 px-3 py-1 text-center font-black text-slate-950 text-sm">{toBanglaNumber(m.marks_obtained || 0)}</td>
+                              {student.grading_mode !== "average_percentage" && (
+                                <td className="border border-slate-800 px-3 py-1 text-center font-bold text-slate-900">
+                                  {m.grade || "-"}
+                                </td>
+                              )}
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={4} className="border border-slate-800 px-3 py-3 text-center text-slate-500 font-medium italic">
+                            <td colSpan={student.grading_mode !== "average_percentage" ? 6 : 5} className="border border-slate-800 px-3 py-3 text-center text-slate-500 font-medium italic">
                               কোনো বিষয়ের নম্বর যুক্ত করা হয়নি
                             </td>
                           </tr>
@@ -490,9 +522,17 @@ export default function ReportCardsClient({
                           <td className="border border-slate-900 px-3 py-1.5 text-center text-slate-950 font-black">
                             {toBanglaNumber(student.totalMax)}
                           </td>
+                          <td className="border border-slate-900 px-3 py-1.5 text-center text-slate-400 font-normal">
+                            -
+                          </td>
                           <td className="border border-slate-900 px-3 py-1.5 text-center text-slate-950 font-black text-sm">
                             {toBanglaNumber(student.totalObtained)}
                           </td>
+                          {student.grading_mode !== "average_percentage" && (
+                            <td className="border border-slate-900 px-3 py-1.5 text-center text-slate-950 font-black">
+                              GPA {toBanglaNumber(student.gpa || "০.০০")}
+                            </td>
+                          )}
                         </tr>
                       </tbody>
                     </table>
@@ -650,10 +690,18 @@ export default function ReportCardsClient({
                                   <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded">আবশ্যক</span>
                                 )}
                               </div>
-                              <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-blue-700 bg-blue-50 px-1 rounded font-medium" title="ওই বিষয়ে সর্বোচ্চ নম্বর">
+                                  সর্বোচ্চ: {toBanglaNumber(m.highest_marks !== undefined ? m.highest_marks : (m.marks_obtained || 0))}
+                                </span>
                                 <span className={`font-bold ${m.is_failed ? 'text-red-600' : 'text-slate-900'}`}>
                                   {toBanglaNumber(m.marks_obtained)} / {toBanglaNumber(m.total_marks)}
                                 </span>
+                                {student.grading_mode !== "average_percentage" && m.grade && (
+                                  <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-1 rounded">
+                                    {m.grade}
+                                  </span>
+                                )}
                                 {m.is_failed && (
                                   <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1 rounded">ফেল</span>
                                 )}

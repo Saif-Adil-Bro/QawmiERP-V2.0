@@ -8,8 +8,12 @@ import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata, MadrasaMetaWithSessions, hydrateStudentWithMetadata } from "@/lib/sessions";
 import {
   GradeRule,
+  ExamGradingConfig,
   DEFAULT_GRADE_RULES,
+  DEFAULT_GRADING_CONFIG,
   normalizeGradeRules,
+  normalizeGradingConfig,
+  resolveGradeRule,
   resolveGradeFromGpa,
   resolveSubjectGpa,
   getFailRule,
@@ -639,13 +643,55 @@ export async function getStudentReportCard(examId: string, classId?: string) {
     
   if (resultsError) return [];
 
-  // Evaluation rules and per-subject compulsory settings
+  // Evaluation rules, grading config, and per-subject compulsory settings
+  const gradingConfig = normalizeGradingConfig(madrasaMeta?.exam_grading_config || madrasaMeta?.exam_grade_scale);
   const examRules = madrasaMeta?.exam_evaluation_rules?.[examId] || {};
   const failPolicy = examRules?.fail_policy || "compulsory_subject_fail"; // "compulsory_subject_fail" | "any_subject_fail" | "percentage_only"
   const compulsoryMeta = madrasaMeta?.exam_compulsory_subjects?.[examId] || {};
-  const gradeRules = normalizeGradeRules(madrasaMeta?.exam_grade_scale);
+  const gradeRules = gradingConfig.rules;
   const minPassPct = getMinPassPercentage(gradeRules);
   const failRule = getFailRule(gradeRules);
+
+  // If highest marks scope is "exam" and a specific class was requested,
+  // we also fetch all results of this exam to compute the true exam-wide highest marks per subject.
+  let allExamResults = results || [];
+  if (classId && gradingConfig.highestMarksScope === "exam") {
+    try {
+      const { data: examWideResults } = await supabase
+        .from("exam_results")
+        .select("subject_name, marks_obtained, class_id")
+        .eq("exam_id", examId);
+      if (examWideResults && examWideResults.length > 0) {
+        allExamResults = examWideResults;
+      }
+    } catch (e) {
+      console.warn("Could not fetch exam-wide results for highest marks:", e);
+    }
+  }
+
+  // Pre-calculate highest marks per subject
+  // Key: subject_name or `${class_id}:${subject_name}`
+  const highestMarksMap = new Map<string, number>();
+  (allExamResults || []).forEach((r: any) => {
+    if (!r.subject_name || r.marks_obtained === null || r.marks_obtained === undefined) return;
+    const obtained = Number(r.marks_obtained) || 0;
+    
+    // Exam-wide highest
+    const currentExamMax = highestMarksMap.get(`exam:${r.subject_name}`) || 0;
+    if (obtained > currentExamMax) {
+      highestMarksMap.set(`exam:${r.subject_name}`, obtained);
+    }
+
+    // Class-wide highest (using r.class_id or matching student's class_id)
+    const rClassId = r.class_id || students.find(s => s.id === r.student_id)?.class_id;
+    if (rClassId) {
+      const classKey = `class:${rClassId}:${r.subject_name}`;
+      const currentClassMax = highestMarksMap.get(classKey) || 0;
+      if (obtained > currentClassMax) {
+        highestMarksMap.set(classKey, obtained);
+      }
+    }
+  });
 
   // Group students by class to resolve complete subject lists
   const classSubjectMap = new Map<string, { subject_name: string; total_marks: number; pass_marks: number; is_compulsory: boolean; exam_type: string }[]>();
@@ -717,6 +763,19 @@ export async function getStudentReportCard(examId: string, classId?: string) {
       // Unentered marks do not count as failed
       const isFailed = hasEntered ? (marksObtained < passMarks) : false;
 
+      // Subject percentage & grade
+      const subPct = totalMarks > 0 ? (marksObtained / totalMarks) * 100 : 0;
+      const subRule = hasEntered ? resolveGradeRule(subPct, gradeRules, isFailed) : null;
+      const subGrade = subRule ? subRule.label : "-";
+      const subGpa = subRule ? subRule.gpa : 0;
+
+      // Highest marks for this subject
+      const classKey = `class:${student.class_id}:${subDef.subject_name}`;
+      const examKey = `exam:${subDef.subject_name}`;
+      const highestMarks = gradingConfig.highestMarksScope === "exam"
+        ? (highestMarksMap.get(examKey) ?? marksObtained)
+        : (highestMarksMap.get(classKey) ?? marksObtained);
+
       return {
         id: existingResult?.id || `fallback_${student.id}_${subDef.subject_name}`,
         exam_id: examId,
@@ -728,7 +787,11 @@ export async function getStudentReportCard(examId: string, classId?: string) {
         is_compulsory: subDef.is_compulsory,
         is_failed: isFailed,
         has_entered_marks: hasEntered,
-        exam_type: subDef.exam_type
+        exam_type: subDef.exam_type,
+        highest_marks: highestMarks,
+        grade: subGrade,
+        gpa: subGpa,
+        percentage: subPct
       };
     });
     
@@ -776,7 +839,13 @@ export async function getStudentReportCard(examId: string, classId?: string) {
       if (isOverallFailed) {
         calculatedGrade = failRule.label;
         calculatedGpa = "০.০০";
+      } else if (gradingConfig.calculationMode === "average_percentage") {
+        // 'গড় মোড': মোট শতকরা থেকে সরাসরি বিভাগ নির্ধারণ
+        calculatedGrade = resolveGradeRule(percentage, gradeRules, false).label;
+        const matchingRule = resolveGradeRule(percentage, gradeRules, false);
+        calculatedGpa = matchingRule.gpa.toFixed(2);
       } else {
+        // 'বিষয়ভিত্তিক GPA মোড': প্রতিটি বিষয়ের GPA পয়েন্ট যোগ করে গড় থেকে বিভাগ নির্ধারণ
         const compulsoryGpaSum = compulsorySubjects.reduce((sum, m) => sum + resolveSubjectGpa(m, gradeRules), 0);
         const optionalGpaBonus = optionalSubjects.reduce((sum, m) => sum + Math.max(0, resolveSubjectGpa(m, gradeRules) - 2.0), 0);
         const totalGpaPoints = compulsoryGpaSum + optionalGpaBonus;
@@ -797,6 +866,8 @@ export async function getStudentReportCard(examId: string, classId?: string) {
       percentage: percentage.toFixed(2),
       grade: calculatedGrade,
       gpa: calculatedGpa,
+      grading_mode: gradingConfig.calculationMode,
+      highest_marks_scope: gradingConfig.highestMarksScope,
       is_failed: isOverallFailed,
       fail_reason: failReason,
       failed_compulsory_count: failedCompulsorySubjects.length,
@@ -807,7 +878,7 @@ export async function getStudentReportCard(examId: string, classId?: string) {
   return studentResults;
 }
 
-export async function getExamGradeScale(explicitMadrasaId?: string): Promise<GradeRule[]> {
+export async function getExamGradingConfig(explicitMadrasaId?: string): Promise<ExamGradingConfig> {
   try {
     let madrasaId = explicitMadrasaId || "";
     if (!madrasaId) {
@@ -815,18 +886,18 @@ export async function getExamGradeScale(explicitMadrasaId?: string): Promise<Gra
       const user = await getAuthUser(supabase);
       madrasaId = user ? await getAuthMadrasaId(supabase, user) : "";
     }
-    if (!madrasaId) return DEFAULT_GRADE_RULES;
+    if (!madrasaId) return DEFAULT_GRADING_CONFIG;
     const meta = await getMadrasaMetadata(madrasaId);
-    return normalizeGradeRules(meta?.exam_grade_scale);
+    return normalizeGradingConfig(meta?.exam_grading_config || meta?.exam_grade_scale);
   } catch (err) {
-    console.warn("getExamGradeScale error:", err);
-    return DEFAULT_GRADE_RULES;
+    console.warn("getExamGradingConfig error:", err);
+    return DEFAULT_GRADING_CONFIG;
   }
 }
 
-export async function saveExamGradeScale(rules: GradeRule[]): Promise<{
+export async function saveExamGradingConfig(config: ExamGradingConfig): Promise<{
   success?: boolean;
-  rules?: GradeRule[];
+  config?: ExamGradingConfig;
   error?: string;
 }> {
   const __authz = await writeGuard("exams");
@@ -838,17 +909,18 @@ export async function saveExamGradeScale(rules: GradeRule[]): Promise<{
     const madrasaId = user ? await getAuthMadrasaId(supabase, user) : "";
     if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
 
-    if (!Array.isArray(rules) || rules.length < 2) {
+    if (!Array.isArray(config.rules) || config.rules.length < 2) {
       return { error: "কমপক্ষে ২টি গ্রেড ধাপ (পাস ও ফেল) থাকতে হবে।" };
     }
 
-    const normalized = normalizeGradeRules(rules);
+    const normalizedConfig = normalizeGradingConfig(config);
     const meta = await getMadrasaMetadata(madrasaId);
-    meta.exam_grade_scale = normalized;
+    meta.exam_grading_config = normalizedConfig;
+    meta.exam_grade_scale = normalizedConfig.rules; // keep legacy synced
 
     const saved = await saveMadrasaMetadata(madrasaId, meta);
     if (!saved) {
-      return { error: "গ্রেড স্কেল সংরক্ষণ করতে সমস্যা হয়েছে।" };
+      return { error: "গ্রেড সেটিংস সংরক্ষণ করতে সমস্যা হয়েছে।" };
     }
 
     revalidatePath("/dashboard/exams");
@@ -856,11 +928,35 @@ export async function saveExamGradeScale(rules: GradeRule[]): Promise<{
     revalidatePath("/portal/exams");
     revalidatePath("/teacher-portal/exams");
 
-    return { success: true, rules: normalized };
+    return { success: true, config: normalizedConfig };
   } catch (err: any) {
-    console.error("saveExamGradeScale error:", err);
-    return { error: err?.message || "গ্রেড স্কেল সংরক্ষণে ত্রুটি হয়েছে।" };
+    console.error("saveExamGradingConfig error:", err);
+    return { error: err?.message || "গ্রেড সেটিংস সংরক্ষণে ত্রুটি হয়েছে।" };
   }
+}
+
+export async function getExamGradeScale(explicitMadrasaId?: string): Promise<GradeRule[]> {
+  try {
+    const config = await getExamGradingConfig(explicitMadrasaId);
+    return config.rules;
+  } catch (err) {
+    console.warn("getExamGradeScale error:", err);
+    return DEFAULT_GRADE_RULES;
+  }
+}
+
+export async function saveExamGradeScale(rules: GradeRule[]): Promise<{
+  success?: boolean;
+  rules?: GradeRule[];
+  error?: string;
+}> {
+  const existingConfig = await getExamGradingConfig();
+  const res = await saveExamGradingConfig({
+    ...existingConfig,
+    rules
+  });
+  if (res.error) return { error: res.error };
+  return { success: true, rules: res.config?.rules };
 }
 
 export async function getAllExamSubjects(examId: string) {

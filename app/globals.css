@@ -303,23 +303,25 @@ html, body, input, textarea, select, button {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     width: 100% !important;
-    min-height: 275mm !important;
-    max-height: 287mm !important;
-    padding: 3mm 5mm !important;
+    max-width: 100% !important;
+    min-height: 260mm !important;
+    max-height: 275mm !important;
+    padding: 2mm 4mm !important;
     margin: 0 auto !important;
     box-sizing: border-box !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
-    gap: 3mm !important;
+    gap: 2mm !important;
+    overflow: hidden !important;
   }
   .a4-marksheet-sheet-2up:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
   }
   .marksheet-half-item {
-    height: 136mm !important;
-    max-height: 139mm !important;
+    height: 128mm !important;
+    max-height: 130mm !important;
     box-sizing: border-box !important;
     display: flex !important;
     flex-direction: column !important;
@@ -330,7 +332,7 @@ html, body, input, textarea, select, button {
   }
   .marksheet-cut-divider {
     border-top: 1px dashed #94a3b8 !important;
-    margin: 1mm 0 !important;
+    margin: 0.5mm 0 !important;
     position: relative !important;
     text-align: center !important;
     height: 1px !important;
@@ -1997,23 +1999,25 @@ body[data-theme="sepia"] {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     width: 100% !important;
-    min-height: 275mm !important;
-    max-height: 287mm !important;
-    padding: 3mm 5mm !important;
+    max-width: 100% !important;
+    min-height: 260mm !important;
+    max-height: 275mm !important;
+    padding: 2mm 4mm !important;
     margin: 0 auto !important;
     box-sizing: border-box !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
-    gap: 3mm !important;
+    gap: 2mm !important;
+    overflow: hidden !important;
   }
   .a4-marksheet-sheet-2up:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
   }
   .marksheet-half-item {
-    height: 136mm !important;
-    max-height: 139mm !important;
+    height: 128mm !important;
+    max-height: 130mm !important;
     box-sizing: border-box !important;
     display: flex !important;
     flex-direction: column !important;
@@ -2024,7 +2028,7 @@ body[data-theme="sepia"] {
   }
   .marksheet-cut-divider {
     border-top: 1px dashed #94a3b8 !important;
-    margin: 1mm 0 !important;
+    margin: 0.5mm 0 !important;
     position: relative !important;
     text-align: center !important;
     height: 1px !important;

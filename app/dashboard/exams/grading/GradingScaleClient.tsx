@@ -18,12 +18,16 @@ import {
 import {
   GradeRule,
   GradeBadgeColor,
+  ExamGradingConfig,
+  GradeCalculationMode,
+  HighestMarksScope,
   DEFAULT_GRADE_RULES,
+  DEFAULT_GRADING_CONFIG,
   GRADE_PRESETS,
   resolveGradeRule,
   getGradeBadgeClass,
 } from "@/lib/exam-grading";
-import { saveExamGradeScale } from "@/app/actions/exams";
+import { saveExamGradingConfig } from "@/app/actions/exams";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
 const COLOR_OPTIONS: { value: GradeBadgeColor; label: string }[] = [
@@ -37,8 +41,22 @@ const COLOR_OPTIONS: { value: GradeBadgeColor; label: string }[] = [
   { value: "red", label: "লাল (Red)" },
 ];
 
-export default function GradingScaleClient({ initialRules }: { initialRules: GradeRule[] }) {
-  const [rules, setRules] = useState<GradeRule[]>(initialRules);
+export default function GradingScaleClient({ 
+  initialConfig,
+  initialRules 
+}: { 
+  initialConfig?: ExamGradingConfig;
+  initialRules?: GradeRule[];
+}) {
+  const [calculationMode, setCalculationMode] = useState<GradeCalculationMode>(
+    initialConfig?.calculationMode || "subject_gpa"
+  );
+  const [highestMarksScope, setHighestMarksScope] = useState<HighestMarksScope>(
+    initialConfig?.highestMarksScope || "class"
+  );
+  const [rules, setRules] = useState<GradeRule[]>(
+    initialConfig?.rules || initialRules || DEFAULT_GRADE_RULES
+  );
   const [saving, setSaving] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [previewMarks, setPreviewMarks] = useState<string>("75");
@@ -83,14 +101,22 @@ export default function GradingScaleClient({ initialRules }: { initialRules: Gra
     setSaving(true);
     setStatusMsg(null);
     try {
-      const res = await saveExamGradeScale(rules);
+      const res = await saveExamGradingConfig({
+        calculationMode,
+        highestMarksScope,
+        rules
+      });
       if (res.error) {
         setStatusMsg({ type: "error", text: res.error });
       } else {
-        if (res.rules) setRules(res.rules);
+        if (res.config) {
+          setCalculationMode(res.config.calculationMode);
+          setHighestMarksScope(res.config.highestMarksScope);
+          setRules(res.config.rules);
+        }
         setStatusMsg({
           type: "success",
-          text: "গ্রেড স্কেল সফলভাবে সংরক্ষণ হয়েছে! এখন অ্যাডমিন, শিক্ষক ও অভিভাবক পোর্টালে এই নিয়মে গ্রেড হিসাব হবে।",
+          text: "গ্রেড ও রেজাল্ট সেটিংস সফলভাবে সংরক্ষণ হয়েছে! এখন স্বতন্ত্র মার্কশিট ও পোর্টালে এই নিয়মে গ্রেড ও সর্বোচ্চ নম্বর হিসাব হবে।",
         });
       }
     } catch (err: any) {
@@ -118,10 +144,10 @@ export default function GradingScaleClient({ initialRules }: { initialRules: Gra
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2">
               <Award className="w-6 h-6 text-emerald-600" />
-              <span>পরীক্ষার মার্ক গ্রেড সেটিংস (Grade Scale)</span>
+              <span>পরীক্ষার মার্ক গ্রেড ও রেজাল্ট সেটিংস</span>
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              মাদ্রাসার নিজস্ব নিয়ম অনুযায়ী শতকরা নম্বর, গ্রেড/বিভাগ এবং GPA পয়েন্ট নির্ধারণ করুন। এটি ফলাফল, মার্কশিট, মেধা তালিকা, শিক্ষক ও অভিভাবক পোর্টালে স্বয়ংক্রিয়ভাবে প্রযোজ্য হবে।
+              মাদ্রাসার নিজস্ব নিয়ম অনুযায়ী গ্রেড হিসাব পদ্ধতি (গড় শতকরা বনাম বিষয়ভিত্তিক GPA), সর্বোচ্চ নম্বর স্কেল এবং কাস্টম গ্রেড স্কেল নির্ধারণ করুন।
             </p>
           </div>
         </div>
@@ -133,7 +159,7 @@ export default function GradingScaleClient({ initialRules }: { initialRules: Gra
           className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-sm transition flex items-center justify-center gap-2 disabled:opacity-60 shrink-0 cursor-pointer"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          <span>{saving ? "সংরক্ষণ হচ্ছে..." : "গ্রেড স্কেল সেভ করুন"}</span>
+          <span>{saving ? "সংরক্ষণ হচ্ছে..." : "সেটিংস সংরক্ষণ করুন"}</span>
         </button>
       </div>
 
@@ -153,6 +179,137 @@ export default function GradingScaleClient({ initialRules }: { initialRules: Gra
           <span>{statusMsg.text}</span>
         </div>
       )}
+
+      {/* Grade Calculation Mode & Highest Marks Options */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Grade Calculation Mode Card */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4 text-emerald-600" />
+            <h2 className="text-sm font-bold text-slate-800">গ্রেড সিস্টেম নির্ধারণ পদ্ধতি</h2>
+          </div>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            স্বতন্ত্র মার্কশিট ও রেজাল্টে গ্রেড কি প্রতি বিষয়ের আলাদা গ্রেড ও জিপিএ থেকে আসবে, নাকি সর্বমোট নম্বরের গড় শতকরা থেকে আসবে?
+          </p>
+
+          <div className="space-y-2 pt-1">
+            <label
+              onClick={() => setCalculationMode("subject_gpa")}
+              className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${
+                calculationMode === "subject_gpa"
+                  ? "border-emerald-500 bg-emerald-50/40 text-slate-900"
+                  : "border-slate-200 hover:bg-slate-50 text-slate-700"
+              }`}
+            >
+              <input
+                type="radio"
+                name="calc_mode"
+                checked={calculationMode === "subject_gpa"}
+                onChange={() => setCalculationMode("subject_gpa")}
+                className="mt-1 accent-emerald-600 w-4 h-4"
+              />
+              <div>
+                <div className="text-xs font-bold flex items-center gap-1.5">
+                  <span>প্রতি সাবজেক্ট অনুযায়ী (Subject-wise Grade & GPA)</span>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">প্রস্তাবিত</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                  মার্কশিটে প্রতিটি বিষয়ের পাশে আলাদা গ্রেড ও পয়েন্ট থাকবে। সব বিষয়ের জিপিএ গড়ের ভিত্তিতে চূড়ান্ত প্রাপ্ত বিভাগ ও মেধা স্থান নির্ধারিত হবে।
+                </p>
+              </div>
+            </label>
+
+            <label
+              onClick={() => setCalculationMode("average_percentage")}
+              className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${
+                calculationMode === "average_percentage"
+                  ? "border-emerald-500 bg-emerald-50/40 text-slate-900"
+                  : "border-slate-200 hover:bg-slate-50 text-slate-700"
+              }`}
+            >
+              <input
+                type="radio"
+                name="calc_mode"
+                checked={calculationMode === "average_percentage"}
+                onChange={() => setCalculationMode("average_percentage")}
+                className="mt-1 accent-emerald-600 w-4 h-4"
+              />
+              <div>
+                <div className="text-xs font-bold">
+                  গড় শতকরা অনুযায়ী (Overall Average Percentage)
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                  সব বিষয়ের মোট প্রাপ্ত নম্বরকে সর্বমোট দিয়ে ভাগ করে সামগ্রিক শতকরা (%) থেকে সরাসরি একটি চূড়ান্ত বিভাগ (যেমন: মুমতাজ বা ১ম বিভাগ) দেওয়া হবে।
+                </p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        {/* Highest Marks Scope Card */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+          <div className="flex items-center gap-2">
+            <Award className="w-4 h-4 text-blue-600" />
+            <h2 className="text-sm font-bold text-slate-800">সর্বোচ্চ নম্বর (Highest Marks) নির্ধারণের পরিধি</h2>
+          </div>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            স্বতন্ত্র রেজাল্ট শিটে প্রতিটি বিষয়ের প্রাপ্ত নম্বরের পূর্বে প্রদর্শিত "সর্বোচ্চ নম্বর" কার ভিত্তিতে গণনা হবে?
+          </p>
+
+          <div className="space-y-2 pt-1">
+            <label
+              onClick={() => setHighestMarksScope("class")}
+              className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${
+                highestMarksScope === "class"
+                  ? "border-blue-500 bg-blue-50/40 text-slate-900"
+                  : "border-slate-200 hover:bg-slate-50 text-slate-700"
+              }`}
+            >
+              <input
+                type="radio"
+                name="highest_scope"
+                checked={highestMarksScope === "class"}
+                onChange={() => setHighestMarksScope("class")}
+                className="mt-1 accent-blue-600 w-4 h-4"
+              />
+              <div>
+                <div className="text-xs font-bold flex items-center gap-1.5">
+                  <span>শ্রেণি / জামাত অনুযায়ী (Class-wise Highest)</span>
+                  <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold">প্রস্তাবিত</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                  শুধুমাত্র ওই শ্রেণি বা জামাতের শিক্ষার্থীদের মধ্যে ওই বিষয়ে যে ছাত্রটি সর্বোচ্চ নম্বর পেয়েছে, সেই নম্বরটি শো করবে।
+                </p>
+              </div>
+            </label>
+
+            <label
+              onClick={() => setHighestMarksScope("exam")}
+              className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${
+                highestMarksScope === "exam"
+                  ? "border-blue-500 bg-blue-50/40 text-slate-900"
+                  : "border-slate-200 hover:bg-slate-50 text-slate-700"
+              }`}
+            >
+              <input
+                type="radio"
+                name="highest_scope"
+                checked={highestMarksScope === "exam"}
+                onChange={() => setHighestMarksScope("exam")}
+                className="mt-1 accent-blue-600 w-4 h-4"
+              />
+              <div>
+                <div className="text-xs font-bold">
+                  পুরো পরীক্ষার ভিত্তিতে (Overall Exam Highest)
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                  সমগ্র পরীক্ষার সব বিভাগ ও শ্রেণির ভেতর যে ছাত্রটি ওই বিষয়ে সর্বোচ্চ নম্বর পেয়েছে, তা শো করবে।
+                </p>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
 
       {/* Presets */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
