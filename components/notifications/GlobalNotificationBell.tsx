@@ -30,6 +30,7 @@ import {
   NotificationCategory,
 } from "@/app/actions/notifications";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { sendNativeStatusBarNotification } from "@/lib/nativeNotifications";
 
 export default function GlobalNotificationBell() {
   const router = useRouter();
@@ -62,12 +63,40 @@ export default function GlobalNotificationBell() {
     }
   }, []);
 
+  const hasInitializedPollRef = useRef(false);
+  const pushedStatusBarIdsRef = useRef<Set<string>>(new Set());
+
   // Fetch notifications
   const loadNotifications = async () => {
     try {
       setLoading(true);
       const res = await getGlobalNotifications(45);
       if (res && res.notifications) {
+        const readSet = new Set<string>(
+          Array.isArray(res.readIds) ? res.readIds : Array.from(readIds)
+        );
+
+        if (!hasInitializedPollRef.current) {
+          res.notifications.forEach((n) => pushedStatusBarIdsRef.current.add(n.id));
+          hasInitializedPollRef.current = true;
+        } else {
+          const newlyArrived = res.notifications.filter(
+            (n) =>
+              !pushedStatusBarIdsRef.current.has(n.id) &&
+              !readSet.has(n.id) &&
+              n.status !== "READ" &&
+              !n.isRead
+          );
+          for (const item of newlyArrived.slice(0, 3)) {
+            pushedStatusBarIdsRef.current.add(item.id);
+            sendNativeStatusBarNotification({
+              title: item.title,
+              body: item.description,
+              route: item.link || "/dashboard/notifications",
+            }).catch(() => {});
+          }
+        }
+
         setNotifications(res.notifications);
         setStats(res.stats);
         if (res.readIds && Array.isArray(res.readIds)) {

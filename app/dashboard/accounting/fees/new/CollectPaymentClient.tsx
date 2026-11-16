@@ -28,6 +28,7 @@ import DualMoneyReceipt from "@/components/accounting/DualMoneyReceipt";
 import StudentSearchSelector from "@/components/common/StudentSearchSelector";
 
 import { DEFAULT_FUNDS } from "@/lib/fund-utils";
+import { apiUrl } from "@/lib/api-url";
 
 interface CollectPaymentClientProps {
   students: any[];
@@ -142,7 +143,7 @@ export default function CollectPaymentClient({
       try {
         let profile = null;
         try {
-          const res = await fetch(`/api/fees/student-profile?studentId=${encodeURIComponent(studentId)}`);
+          const res = await fetch(apiUrl(`/api/fees/student-profile?studentId=${encodeURIComponent(studentId)}`));
           if (res.ok) {
             const data = await res.json();
             profile = data.profile;

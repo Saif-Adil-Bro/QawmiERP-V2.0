@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AcademicSession } from "@/lib/sessions";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
+import { offlineMutate } from "@/lib/syncManager";
 import {
   AlertTriangle,
   Clock,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { apiUrl } from "@/lib/api-url";
 
 interface DueClientProps {
   initialData: any;
@@ -62,17 +64,19 @@ export default function DueClient({
 
     setDeletingFeeId(feeId);
     try {
-      const res = await fetch("/api/fees/delete", {
+      const result = await offlineMutate<{ success?: boolean }>({
+        entity: "fees",
+        action: "DELETE",
+        recordId: feeId,
+        endpoint: "/api/fees/delete",
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        payload: {
           action: "DELETE_SINGLE",
           feeId,
-        }),
+        },
       });
 
-      const data = await res.json();
-      if (data?.success) {
+      if (result.success && (result.offlineQueued || result.data?.success)) {
         // Update local state
         setStudentDueList((prevList) => {
           return prevList
@@ -105,9 +109,11 @@ export default function DueClient({
           }
         }
 
-        router.refresh();
+        if (!result.offlineQueued) {
+          router.refresh();
+        }
       } else {
-        alert(data?.error || "ফি মুছে ফেলা সম্ভব হয়নি।");
+        alert(result.error || (result.data as any)?.error || "ফি মুছে ফেলা সম্ভব হয়নি।");
       }
     } catch (err) {
       console.error("handleDeleteSingleFee error:", err);

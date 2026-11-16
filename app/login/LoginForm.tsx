@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Eye, EyeOff, KeyRound, User, Sparkles, Check } from "lucide-react";
 import Link from "next/link";
+import { apiUrl } from "@/lib/api-url";
 
 export default function LoginForm() {
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +52,7 @@ export default function LoginForm() {
     setDemoLoading(true);
 
     try {
-      const res = await fetch("/api/auth/demo-login", {
+      const res = await fetch(apiUrl("/api/auth/demo-login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -104,7 +105,7 @@ export default function LoginForm() {
 
     try {
       // 1. Server authentication & student ID resolver
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch(apiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

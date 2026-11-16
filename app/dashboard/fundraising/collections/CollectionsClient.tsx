@@ -40,6 +40,7 @@ import {
 } from "@/app/actions/fundraising";
 import { numberToBanglaWords } from "@/lib/utils";
 import { printElementIsolated } from "@/lib/printUtils";
+import { apiUrl } from "@/lib/api-url";
 
 function toBanglaNumber(val: number | string | undefined | null): string {
   if (val === undefined || val === null || val === "") return "০";
@@ -266,7 +267,7 @@ export default function CollectionsClient({
 
       let res = await saveLeatherCollection(payload);
       if (res && res.error) {
-        const apiRes = await fetch("/api/fundraising/collections/leather", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/collections/leather"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -311,7 +312,7 @@ export default function CollectionsClient({
     try {
       const res = await deleteLeatherCollection(id);
       if (res && res.error) {
-        await fetch(`/api/fundraising/collections/leather?id=${id}`, {
+        await fetch(apiUrl(`/api/fundraising/collections/leather?id=${id}`), {
           method: "DELETE",
         });
       }
@@ -319,7 +320,7 @@ export default function CollectionsClient({
       router.refresh();
     } catch (err) {
       try {
-        await fetch(`/api/fundraising/collections/leather?id=${id}`, {
+        await fetch(apiUrl(`/api/fundraising/collections/leather?id=${id}`), {
           method: "DELETE",
         });
         setLeathers((prev) => prev.filter((l) => l.id !== id));
@@ -379,7 +380,7 @@ export default function CollectionsClient({
       let res: any = await saveCollectionBox(payload);
 
       if (res && res.error) {
-        const apiRes = await fetch("/api/fundraising/collections/boxes", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/collections/boxes"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ box: payload }),
@@ -433,7 +434,7 @@ export default function CollectionsClient({
     try {
       const res = await deleteCollectionBox(id);
       if (res && res.error) {
-        await fetch(`/api/fundraising/collections/boxes?id=${id}`, {
+        await fetch(apiUrl(`/api/fundraising/collections/boxes?id=${id}`), {
           method: "DELETE",
         });
       }
@@ -441,7 +442,7 @@ export default function CollectionsClient({
       router.refresh();
     } catch (err) {
       try {
-        await fetch(`/api/fundraising/collections/boxes?id=${id}`, {
+        await fetch(apiUrl(`/api/fundraising/collections/boxes?id=${id}`), {
           method: "DELETE",
         });
         setBoxes((prev) => prev.filter((b) => b.id !== id));
@@ -496,7 +497,7 @@ export default function CollectionsClient({
       let res = await recordBoxOpening(logPayload);
 
       if (res && res.error) {
-        const apiRes = await fetch("/api/fundraising/collections/boxes", {
+        const apiRes = await fetch(apiUrl("/api/fundraising/collections/boxes"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "record_collection", log: logPayload }),

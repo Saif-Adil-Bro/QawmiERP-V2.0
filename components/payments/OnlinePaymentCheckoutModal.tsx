@@ -26,6 +26,7 @@ import { numberToBanglaWords } from "@/lib/utils";
 import { printElementIsolated } from "@/lib/printUtils";
 import type { IslamiBankConfig } from "@/lib/payment-gateway";
 import { PaymentBrandSymbol, CardBrandsIcon } from "@/components/payments/PaymentBrandLogos";
+import { apiUrl } from "@/lib/api-url";
 
 interface FeeInvoiceItem {
   id: string;
@@ -125,7 +126,7 @@ export default function OnlinePaymentCheckoutModal({
     setStep("GATEWAY_PROCESSING");
 
     try {
-      const res = await fetch("/api/payments/initiate", {
+      const res = await fetch(apiUrl("/api/payments/initiate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

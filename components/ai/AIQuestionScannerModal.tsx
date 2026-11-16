@@ -35,6 +35,7 @@ import {
   Layers,
 } from "lucide-react";
 import { parseRawTextToQuestionPaper, OCRProgress } from "@/lib/tesseract-ocr";
+import { apiUrl } from "@/lib/api-url";
 
 export interface QuestionTable {
   title?: string | null;
@@ -207,7 +208,7 @@ export function AIQuestionScannerModal({
   }, []);
 
   useEffect(() => {
-    fetch("/api/madrasa-info")
+    fetch(apiUrl("/api/madrasa-info"))
       .then((res) => res.json())
       .then((data) => {
         if (data?.name) setMadrasaName(data.name);
@@ -280,7 +281,7 @@ export function AIQuestionScannerModal({
     }, 550);
 
     try {
-      const response = await fetch("/api/gemini/scan-question", {
+      const response = await fetch(apiUrl("/api/gemini/scan-question"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

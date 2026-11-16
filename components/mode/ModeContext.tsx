@@ -1,9 +1,10 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { ALL_BASIC_TILES, BasicTileItem } from "./menuCatalog";
 import { sanitizeNavGroups } from "./defaultNavData";
 import { createClient } from "@/lib/supabase/client";
+import { apiUrl } from "@/lib/api-url";
 
 export type AppMode = "basic" | "advanced";
 
@@ -33,6 +34,9 @@ interface ModeContextType {
 
 const DEFAULT_PINNED_IDS = ALL_BASIC_TILES.filter((t) => t.defaultPinned).map((t) => t.id);
 
+const DIRTY_KEY = "qawmi_menu_prefs_dirty";
+const UPDATED_AT_KEY = "qawmi_menu_prefs_updated_at";
+
 const ModeContext = createContext<ModeContextType | undefined>(undefined);
 
 function persistModeCookie(newMode: AppMode) {
@@ -41,6 +45,21 @@ function persistModeCookie(newMode: AppMode) {
   } catch {
     // Ignore cookie errors
   }
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (typeof window !== "undefined") {
+    const token =
+      window.localStorage.getItem("qawmi_access_token") ||
+      window.localStorage.getItem("access_token");
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+  }
+  return headers;
 }
 
 export function ModeProvider({
@@ -56,12 +75,119 @@ export function ModeProvider({
   const [customNavGroups, setCustomNavGroups] = useState<any[] | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [isStartMenuOpen, setIsStartMenuOpen] = useState<boolean>(false);
+  const isSyncingRef = useRef(false);
 
-  // Load saved preferences on mount and sync with Supabase user_metadata
+  const persistPreferencesToServer = useCallback(
+    async (patch: {
+      mode?: AppMode;
+      pinnedTileIds?: string[] | null;
+      customNavGroups?: any[] | null;
+      updatedAt?: number;
+    }) => {
+      const updatedAt = patch.updatedAt ?? Date.now();
+      try {
+        localStorage.setItem(UPDATED_AT_KEY, String(updatedAt));
+      } catch {}
+
+      try {
+        const res = await fetch(apiUrl("/api/user/menu-preferences"), {
+          method: "POST",
+          headers: getAuthHeaders(),
+          credentials: "include",
+          body: JSON.stringify({ ...patch, updatedAt }),
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        try {
+          localStorage.removeItem(DIRTY_KEY);
+        } catch {}
+      } catch {
+        try {
+          localStorage.setItem(DIRTY_KEY, "1");
+        } catch {}
+      }
+    },
+    []
+  );
+
+  const syncPreferencesWithServer = useCallback(async () => {
+    if (typeof window === "undefined" || isSyncingRef.current) return;
+    isSyncingRef.current = true;
+    try {
+      const isDirty = localStorage.getItem(DIRTY_KEY) === "1";
+      if (isDirty) {
+        const localMode = localStorage.getItem("qawmi_app_mode") as AppMode | null;
+        const localTilesRaw = localStorage.getItem("qawmi_basic_tiles");
+        const localNavRaw = localStorage.getItem("qawmi_advanced_nav_groups");
+        const localUpdatedAt = Number(localStorage.getItem(UPDATED_AT_KEY) || Date.now());
+
+        await persistPreferencesToServer({
+          mode: localMode === "basic" || localMode === "advanced" ? localMode : undefined,
+          pinnedTileIds: localTilesRaw ? JSON.parse(localTilesRaw) : null,
+          customNavGroups: localNavRaw ? JSON.parse(localNavRaw) : null,
+          updatedAt: localUpdatedAt,
+        });
+        return;
+      }
+
+      const res = await fetch(apiUrl("/api/user/menu-preferences"), {
+        headers: getAuthHeaders(),
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      const prefs = json?.preferences;
+      if (!prefs || typeof prefs !== "object") return;
+
+      if (prefs.mode === "basic" || prefs.mode === "advanced") {
+        setModeState(prefs.mode);
+        try {
+          localStorage.setItem("qawmi_app_mode", prefs.mode);
+        } catch {}
+      }
+
+      if (Array.isArray(prefs.pinnedTileIds) && prefs.pinnedTileIds.length > 0) {
+        setPinnedTileIds(prefs.pinnedTileIds);
+        try {
+          localStorage.setItem("qawmi_basic_tiles", JSON.stringify(prefs.pinnedTileIds));
+        } catch {}
+      } else if (prefs.pinnedTileIds === null) {
+        setPinnedTileIds(DEFAULT_PINNED_IDS);
+        try {
+          localStorage.removeItem("qawmi_basic_tiles");
+        } catch {}
+      }
+
+      if (Array.isArray(prefs.customNavGroups)) {
+        const sanitized = sanitizeNavGroups(prefs.customNavGroups);
+        setCustomNavGroups(sanitized);
+        try {
+          localStorage.setItem("qawmi_advanced_nav_groups", JSON.stringify(sanitized));
+        } catch {}
+      } else if (prefs.customNavGroups === null) {
+        setCustomNavGroups(null);
+        try {
+          localStorage.removeItem("qawmi_advanced_nav_groups");
+        } catch {}
+      }
+
+      if (typeof prefs.updatedAt === "number") {
+        try {
+          localStorage.setItem(UPDATED_AT_KEY, String(prefs.updatedAt));
+        } catch {}
+      }
+    } catch {
+      // Offline or unauthenticated; keep localStorage state
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, [persistPreferencesToServer]);
+
+  // Load saved preferences from localStorage first, then sync with server
   useEffect(() => {
     setIsMounted(true);
     let activeMode: AppMode = initialMode;
-
     try {
       const savedMode = localStorage.getItem("qawmi_app_mode") as AppMode;
       if (savedMode === "basic" || savedMode === "advanced") {
@@ -93,6 +219,17 @@ export function ModeProvider({
     } catch (e) {
       console.warn("Failed to read from localStorage", e);
     }
+    syncPreferencesWithServer();
+
+    const handleOnline = () => syncPreferencesWithServer();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        syncPreferencesWithServer();
+      }
+    };
+
+    window.addEventListener("online", handleOnline);
+    document.addEventListener("visibilitychange", handleVisibility);
 
     // Sync from Supabase user_metadata (cross-device persistence)
     try {
@@ -110,7 +247,12 @@ export function ModeProvider({
     } catch {
       // Ignore auth sync errors
     }
-  }, [initialMode]);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [initialMode, syncPreferencesWithServer]);
 
   const openStartMenu = () => {
     setIsStartMenuOpen(true);
@@ -160,6 +302,7 @@ export function ModeProvider({
       console.warn("Failed to save mode", e);
     }
     persistModeCookie(newMode);
+    persistPreferencesToServer({ mode: newMode });
 
     // Persist to Supabase user_metadata so it stays saved across devices & sessions
     try {
@@ -184,6 +327,7 @@ export function ModeProvider({
       } catch (e) {
         console.warn("Failed to persist tiles", e);
       }
+      persistPreferencesToServer({ pinnedTileIds: next });
     }
   };
 
@@ -195,6 +339,7 @@ export function ModeProvider({
     } catch (e) {
       console.warn("Failed to persist tiles", e);
     }
+    persistPreferencesToServer({ pinnedTileIds: next });
   };
 
   const reorderTiles = (newIds: string[]) => {
@@ -204,6 +349,7 @@ export function ModeProvider({
     } catch (e) {
       console.warn("Failed to persist tiles", e);
     }
+    persistPreferencesToServer({ pinnedTileIds: newIds });
   };
 
   const resetTiles = () => {
@@ -213,6 +359,7 @@ export function ModeProvider({
     } catch (e) {
       console.warn("Failed to reset tiles", e);
     }
+    persistPreferencesToServer({ pinnedTileIds: null });
   };
 
   // Advanced Menu Actions
@@ -224,6 +371,7 @@ export function ModeProvider({
     } catch (e) {
       console.warn("Failed to save custom nav groups", e);
     }
+    persistPreferencesToServer({ customNavGroups: sanitized });
   };
 
   const resetCustomNavGroups = () => {
@@ -233,6 +381,7 @@ export function ModeProvider({
     } catch (e) {
       console.warn("Failed to reset custom nav groups", e);
     }
+    persistPreferencesToServer({ customNavGroups: null });
   };
 
   const pinnedTiles = pinnedTileIds

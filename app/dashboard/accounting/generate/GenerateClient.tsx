@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { apiUrl } from "@/lib/api-url";
 
 interface GenerateClientProps {
   sessions: AcademicSession[];
@@ -95,7 +96,7 @@ export default function GenerateClient({
 
   const fetchBatches = async () => {
     try {
-      const res = await fetch("/api/fees/batches");
+      const res = await fetch(apiUrl("/api/fees/batches"));
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) setBatchesList(data);
@@ -111,7 +112,7 @@ export default function GenerateClient({
     setBatchDeleteMsg(null);
 
     try {
-      const res = await fetch("/api/fees/delete", {
+      const res = await fetch(apiUrl("/api/fees/delete"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -320,7 +321,7 @@ export default function GenerateClient({
     try {
       let res: any = null;
       try {
-        const apiRes = await fetch("/api/fees/generate", {
+        const apiRes = await fetch(apiUrl("/api/fees/generate"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
