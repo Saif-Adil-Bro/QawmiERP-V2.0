@@ -15,6 +15,7 @@ import {
   getFailRule,
   getMinPassPercentage,
 } from "@/lib/exam-grading";
+import { sortStudentsByRoll } from "@/lib/student-utils";
 
 function computeExamStatus(
   startDate?: string | null,
@@ -532,8 +533,9 @@ export async function getStudentsByClass(classId: string) {
         photo_url: photoUrl
       };
     });
+    return sortStudentsByRoll(hydratedList);
   } catch (e) {
-    return rawStudents;
+    return sortStudentsByRoll(rawStudents);
   }
 }
 

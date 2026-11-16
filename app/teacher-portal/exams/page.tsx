@@ -2,6 +2,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import ExamMarksForm from "./ExamMarksForm";
 import { getMadrasaMetadata } from "@/lib/sessions";
 import { getAuthMadrasaId } from "@/app/actions/students";
+import { sortStudentsByRoll } from "@/lib/student-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -158,7 +159,7 @@ export default async function TeacherExamsPage(props: {
       }
     }
 
-    students = (rawStudents || []).map((s: any) => {
+    students = sortStudentsByRoll((rawStudents || []).map((s: any) => {
       const profile = meta?.student_profiles?.[s.id] || {};
       const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === s.id);
       const resolvedPhoto = profile.photo_url || s.photo_url || admission?.photo_url || "";
@@ -181,7 +182,7 @@ export default async function TeacherExamsPage(props: {
         phone: resolvedPhone,
         parent_phone: resolvedPhone,
       };
-    });
+    }));
 
     if (students.length > 0 && examId) {
       try {

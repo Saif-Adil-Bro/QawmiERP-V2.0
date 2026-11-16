@@ -11,9 +11,11 @@ import {
   BookOpen,
   Phone,
   Loader2,
+  ArrowUpDown,
+  Clock,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-import { resolveStudentIdBn } from "@/lib/student-utils";
+import { resolveStudentIdBn, sortStudentsByRoll } from "@/lib/student-utils";
 import { resolveGradeRule, getGradeBadgeClass } from "@/lib/exam-grading";
 import { apiUrl } from "@/lib/api-url";
 
@@ -33,6 +35,8 @@ export default function ExamMarksForm({
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "completed">("all");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [subjectInput, setSubjectInput] = useState(currentSubject || "কুরআন মাজীদ");
 
   useEffect(() => {
@@ -90,16 +94,52 @@ export default function ExamMarksForm({
     };
   };
 
+  const counts = useMemo(() => {
+    let completed = 0;
+    let pending = 0;
+    (students || []).forEach((s: any) => {
+      const state = marksState[s.id];
+      if (state && state.marks_obtained !== "" && state.marks_obtained !== undefined && state.marks_obtained !== null) {
+        completed++;
+      } else {
+        pending++;
+      }
+    });
+    return { all: (students || []).length, completed, pending };
+  }, [students, marksState]);
+
   const filteredStudents = useMemo(() => {
-    if (!searchQuery.trim()) return students || [];
-    const q = searchQuery.toLowerCase();
-    return (students || []).filter(
-      (s: any) =>
-        s.first_name?.toLowerCase().includes(q) ||
-        s.last_name?.toLowerCase().includes(q) ||
-        String(s.roll_number || "").includes(q)
-    );
-  }, [students, searchQuery]);
+    let list = students ? [...students] : [];
+
+    // Status Filter
+    if (statusFilter === "completed") {
+      list = list.filter((s: any) => {
+        const state = marksState[s.id];
+        return state && state.marks_obtained !== "" && state.marks_obtained !== undefined && state.marks_obtained !== null;
+      });
+    } else if (statusFilter === "pending") {
+      list = list.filter((s: any) => {
+        const state = marksState[s.id];
+        return !state || state.marks_obtained === "" || state.marks_obtained === undefined || state.marks_obtained === null;
+      });
+    }
+
+    // Search Query (name or roll)
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        (s: any) =>
+          s.first_name?.toLowerCase().includes(q) ||
+          s.last_name?.toLowerCase().includes(q) ||
+          String(s.roll_number || "").includes(q) ||
+          toBanglaNumber(s.roll_number || "").includes(q)
+      );
+    }
+
+    // Roll Sorting
+    const sorted = sortStudentsByRoll(list);
+    return sortOrder === "desc" ? sorted.reverse() : sorted;
+  }, [students, searchQuery, statusFilter, sortOrder, marksState]);
 
   const saveMarks = async () => {
     setLoading(true);
@@ -263,22 +303,76 @@ export default function ExamMarksForm({
           </div>
         </div>
 
-        {/* Student Search */}
-        <div className="relative pt-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                e.stopPropagation();
-              }
-            }}
-            placeholder="শিক্ষার্থীর নাম বা রোল লিখে সার্চ করুন..."
-            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
-          />
+        {/* Student Search, Status Filter & Sort Toolbar */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-1">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }}
+              placeholder="শিক্ষার্থীর নাম বা রোল লিখে সার্চ করুন..."
+              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Status Filter Pills */}
+            <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-0.5 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setStatusFilter("all")}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                  statusFilter === "all"
+                    ? "bg-purple-600 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                সকল ({toBanglaNumber(counts.all)})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("pending")}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all flex items-center gap-1 ${
+                  statusFilter === "pending"
+                    ? "bg-amber-600 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Clock className="w-3 h-3" />
+                <span>বাকি ({toBanglaNumber(counts.pending)})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("completed")}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all flex items-center gap-1 ${
+                  statusFilter === "completed"
+                    ? "bg-emerald-600 text-white shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                <span>সম্পন্ন ({toBanglaNumber(counts.completed)})</span>
+              </button>
+            </div>
+
+            {/* Sort Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}
+              className="px-2.5 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-700 flex items-center gap-1 shadow-2xs transition"
+              title="রোল অনুযায়ী সাজান"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
+              <span>রোল: {sortOrder === "asc" ? "১ → ১০" : "১০ → ১"}</span>
+            </button>
+          </div>
         </div>
       </div>
 

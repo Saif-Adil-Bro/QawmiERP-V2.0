@@ -296,6 +296,45 @@ html, body, input, textarea, select, button {
     page-break-after: auto !important;
     break-after: auto !important;
   }
+  /* A4 Marksheet Sheet: 2 marksheets per page (Top and Bottom) */
+  .a4-marksheet-sheet-2up {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    width: 100% !important;
+    min-height: 275mm !important;
+    max-height: 287mm !important;
+    padding: 3mm 5mm !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    gap: 3mm !important;
+  }
+  .a4-marksheet-sheet-2up:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  .marksheet-half-item {
+    height: 136mm !important;
+    max-height: 139mm !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
+  }
+  .marksheet-cut-divider {
+    border-top: 1px dashed #94a3b8 !important;
+    margin: 1mm 0 !important;
+    position: relative !important;
+    text-align: center !important;
+    height: 1px !important;
+  }
   /* Landscape auto-centering helper */
   .print-landscape-fit {
     width: 100% !important;
@@ -1950,6 +1989,45 @@ body[data-theme="sepia"] {
   .a4-marksheet-sheet:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
+  }
+  /* A4 Marksheet Sheet: 2 marksheets per page (Top and Bottom) */
+  .a4-marksheet-sheet-2up {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    width: 100% !important;
+    min-height: 275mm !important;
+    max-height: 287mm !important;
+    padding: 3mm 5mm !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    gap: 3mm !important;
+  }
+  .a4-marksheet-sheet-2up:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  .marksheet-half-item {
+    height: 136mm !important;
+    max-height: 139mm !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
+  }
+  .marksheet-cut-divider {
+    border-top: 1px dashed #94a3b8 !important;
+    margin: 1mm 0 !important;
+    position: relative !important;
+    text-align: center !important;
+    height: 1px !important;
   }
   /* Landscape auto-centering helper */
   .print-landscape-fit {

@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { getStudentReportCard } from "@/app/actions/exams";
-import { Printer, Type, Award, User, CheckCircle, GraduationCap, Sparkles } from "lucide-react";
+import { Printer, Type, Award, User, CheckCircle, GraduationCap, Sparkles, LayoutGrid } from "lucide-react";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { sortStudentsByRoll } from "@/lib/student-utils";
 import ExamPublishToggle from "@/app/dashboard/exams/ExamPublishToggle";
 import KidsVisualReportCard from "@/components/exams/KidsVisualReportCard";
 
@@ -36,6 +37,7 @@ export default function ReportCardsClient({
   const [profileAndLogo, setProfileAndLogo] = useState<any>(null);
   const [banglaFont, setBanglaFont] = useState("font-solaiman");
   const [cardStyle, setCardStyle] = useState<"standard" | "kids">("standard");
+  const [pageLayout, setPageLayout] = useState<"2-per-page" | "1-per-page">("2-per-page");
 
   useEffect(() => {
     async function load() {
@@ -51,9 +53,9 @@ export default function ReportCardsClient({
     if (!classId) return;
     setLoading(true);
     const data = await getStudentReportCard(examId, classId);
-    // Sort by percentage descending to figure out merit position
-    const sortedData = data.sort((a, b) => Number(b.percentage) - Number(a.percentage));
-    setResults(sortedData);
+    // Sort by roll number naturally (১, ২, ৩... ১০, ১১) for consistent printing and listing
+    const rollSorted = sortStudentsByRoll(data);
+    setResults(rollSorted);
     setLoading(false);
   };
 
@@ -137,6 +139,18 @@ export default function ReportCardsClient({
           </div>
 
           <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 shadow-xs">
+            <LayoutGrid className="w-4 h-4 text-indigo-600 shrink-0" />
+            <select 
+              value={pageLayout} 
+              onChange={(e) => setPageLayout(e.target.value as any)}
+              className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none"
+            >
+              <option value="2-per-page">২টি প্রতি A4 পেজ (অর্ধেক পাতা)</option>
+              <option value="1-per-page">১টি প্রতি A4 পেজ (পূর্ণ পাতা)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 shadow-xs">
             <Award className="w-4 h-4 text-amber-500 shrink-0" />
             <select 
               value={cardStyle} 
@@ -173,12 +187,11 @@ export default function ReportCardsClient({
         </div>
       )}
 
-      {/* PRINT VIEW: Strictly 1 A4 page per student report card */}
+      {/* PRINT VIEW: 2 per page (Default) or 1 per page */}
       <div className={`hidden print:block print:w-full ${banglaFont}`}>
-        {filteredResults.map((student, index) => {
-          const meritRank = results.findIndex(r => r.id === student.id) + 1;
-
-          if (cardStyle === "kids") {
+        {cardStyle === "kids" ? (
+          filteredResults.map((student) => {
+            const meritRank = results.findIndex(r => r.id === student.id) + 1;
             return (
               <div key={student.id} className="break-after-page mb-8 print:mb-0">
                 <KidsVisualReportCard
@@ -195,169 +208,354 @@ export default function ReportCardsClient({
                 />
               </div>
             );
-          }
-
-          return (
-            <div key={student.id} className="a4-marksheet-sheet bg-white text-slate-900 font-sans">
-              <div className="border-2 border-slate-900 rounded-xl p-5 h-full flex flex-col justify-between relative">
-                
-                {/* Header Section */}
-                <div>
-                  <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 mb-3">
-                    <div className="flex items-center gap-3">
-                      {logoUrl ? (
-                        <img 
-                          src={logoUrl} 
-                          alt="Logo" 
-                          className="w-14 h-14 object-contain rounded-full border border-slate-200 p-0.5" 
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div className="w-14 h-14 bg-emerald-50 rounded-full border-2 border-emerald-700 flex items-center justify-center">
-                          <GraduationCap className="w-8 h-8 text-emerald-800" />
+          })
+        ) : pageLayout === "2-per-page" ? (
+          // Chunk results into pairs of 2 for top-and-bottom half A4 printing
+          Array.from({ length: Math.ceil(filteredResults.length / 2) }, (_, pageIndex) => {
+            const pair = filteredResults.slice(pageIndex * 2, pageIndex * 2 + 2);
+            return (
+              <div key={`marksheet-page-${pageIndex}`} className="a4-marksheet-sheet-2up bg-white text-slate-900 font-sans">
+                {pair.map((student, itemIndex) => {
+                  const meritRank = results.findIndex(r => r.id === student.id) + 1;
+                  return (
+                    <div key={student.id} className="contents">
+                      {itemIndex > 0 && (
+                        <div className="marksheet-cut-divider">
+                          <span className="text-[9px] font-mono text-slate-400 bg-white px-2 relative -top-2">
+                            ✂ কাটার লাইন (Cut Here)
+                          </span>
                         </div>
                       )}
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-slate-500">স্থাপিত: {toBanglaNumber(establishedYear)} ইং | রেজি: {toBanglaNumber(regNo)}</span>
-                        <h1 className="text-2xl font-black text-slate-950 leading-tight">{madrasaName}</h1>
-                        <p className="text-xs text-slate-700 font-medium">{madrasaAddress}</p>
+                      <div className="marksheet-half-item">
+                        <div className="border border-slate-900 rounded-lg p-3 h-full flex flex-col justify-between relative bg-white">
+                          <div>
+                            {/* Compact Header */}
+                            <div className="flex items-center justify-between border-b border-slate-900 pb-1.5 mb-1.5">
+                              <div className="flex items-center gap-2">
+                                {logoUrl ? (
+                                  <img 
+                                    src={logoUrl} 
+                                    alt="Logo" 
+                                    className="w-10 h-10 object-contain rounded-full border border-slate-200 p-0.5 shrink-0" 
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div className="w-10 h-10 bg-emerald-50 rounded-full border border-emerald-700 flex items-center justify-center shrink-0">
+                                    <GraduationCap className="w-6 h-6 text-emerald-800" />
+                                  </div>
+                                )}
+                                <div>
+                                  <span className="text-[9px] uppercase font-bold text-slate-500 block leading-tight">
+                                    স্থাপিত: {toBanglaNumber(establishedYear)} ইং | রেজি: {toBanglaNumber(regNo)}
+                                  </span>
+                                  <h1 className="text-lg font-black text-slate-950 leading-tight">{madrasaName}</h1>
+                                  <p className="text-[10px] text-slate-700 font-medium leading-tight">{madrasaAddress}</p>
+                                </div>
+                              </div>
+                              <div className="text-right text-[10px] font-semibold text-slate-700 shrink-0">
+                                <p>সারক নং: মা/প্র/{toBanglaNumber(examYear)}/</p>
+                                <p>তারিখ: {toBanglaNumber(new Date().toLocaleDateString('bn-BD', { day: 'numeric', month: 'long', year: 'numeric' }))}</p>
+                              </div>
+                            </div>
+
+                            {/* Title Badge */}
+                            <div className="text-center my-1">
+                              <span className="inline-block bg-slate-900 text-white px-4 py-0.5 rounded-full font-black text-xs uppercase tracking-wider">
+                                প্রোগ্রেস রিপোর্ট / মার্কশিট
+                              </span>
+                              <p className="text-xs font-bold text-slate-800 mt-0.5">{examTitle} - {toBanglaNumber(examYear)}</p>
+                            </div>
+
+                            {/* Student Details Grid */}
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 my-1.5 p-2 bg-slate-50 rounded border border-slate-300 text-xs">
+                              <div className="flex">
+                                <span className="font-bold text-slate-700 w-24">ছাত্রের নাম:</span>
+                                <span className="font-black text-slate-950 flex-1 truncate">{student.first_name} {student.last_name}</span>
+                              </div>
+                              <div className="flex">
+                                <span className="font-bold text-slate-700 w-24">শ্রেণি / জামাত:</span>
+                                <span className="font-black text-slate-950 flex-1">{student.class_name || 'N/A'}</span>
+                              </div>
+                              <div className="flex">
+                                <span className="font-bold text-slate-700 w-24">রোল নম্বর:</span>
+                                <span className="font-black text-slate-950 flex-1">{toBanglaNumber(student.roll_number || '১')}</span>
+                              </div>
+                              <div className="flex">
+                                <span className="font-bold text-slate-700 w-24">মেধা স্থান:</span>
+                                <span className="font-black text-blue-900 flex-1">{toBanglaNumber(meritRank)} তম</span>
+                              </div>
+                            </div>
+
+                            {/* Marks Table */}
+                            <table className="w-full text-left border-collapse my-1 text-[11px]">
+                              <thead>
+                                <tr className="bg-slate-200">
+                                  <th className="border border-slate-900 px-2 py-0.5 text-center font-black text-slate-950 w-10">ক্র. নং</th>
+                                  <th className="border border-slate-900 px-2 py-0.5 font-black text-slate-950">বিষয়ের নাম</th>
+                                  <th className="border border-slate-900 px-2 py-0.5 text-center font-black text-slate-950 w-20">পূর্ণ নম্বর</th>
+                                  <th className="border border-slate-900 px-2 py-0.5 text-center font-black text-slate-950 w-20">প্রাপ্ত নম্বর</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {student.marks && student.marks.length > 0 ? (
+                                  student.marks.map((m: any, i: number) => (
+                                    <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                                      <td className="border border-slate-800 px-2 py-0.5 text-center font-bold text-slate-800">{toBanglaNumber(i + 1)}</td>
+                                      <td className="border border-slate-800 px-2 py-0.5 font-bold text-slate-950">{m.subject_name}</td>
+                                      <td className="border border-slate-800 px-2 py-0.5 text-center text-slate-800">{toBanglaNumber(m.total_marks || 100)}</td>
+                                      <td className="border border-slate-800 px-2 py-0.5 text-center font-black text-slate-950">{toBanglaNumber(m.marks_obtained || 0)}</td>
+                                    </tr>
+                                  ))
+                                ) : (
+                                  <tr>
+                                    <td colSpan={4} className="border border-slate-800 px-2 py-2 text-center text-slate-500 italic">
+                                      কোনো বিষয়ের নম্বর যুক্ত করা হয়নি
+                                    </td>
+                                  </tr>
+                                )}
+                                
+                                {/* Total Row */}
+                                <tr className="bg-slate-100 font-black">
+                                  <td colSpan={2} className="border border-slate-900 px-2 py-0.5 text-right uppercase text-slate-950 font-black text-[11px]">
+                                    সর্বমোট:
+                                  </td>
+                                  <td className="border border-slate-900 px-2 py-0.5 text-center text-slate-950 font-black">
+                                    {toBanglaNumber(student.totalMax)}
+                                  </td>
+                                  <td className="border border-slate-900 px-2 py-0.5 text-center text-slate-950 font-black text-xs">
+                                    {toBanglaNumber(student.totalObtained)}
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+
+                            {/* Final Grade & Percentage Summary */}
+                            <div className="grid grid-cols-2 gap-2 bg-slate-100 border border-slate-900 p-1.5 rounded text-xs my-1">
+                              <div className="flex items-center">
+                                <span className="font-bold text-slate-800">প্রাপ্ত বিভাগ:</span>
+                                <span className="font-black text-slate-950 ml-1.5 bg-white px-2 py-0.5 rounded border border-slate-300">
+                                  {student.grade}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-end">
+                                <span className="font-bold text-slate-800">শতকরা:</span>
+                                <span className="font-black text-slate-950 ml-1.5 bg-white px-2 py-0.5 rounded border border-slate-300">
+                                  {toBanglaNumber(student.percentage)}%
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Footer Signatures */}
+                          <div className="mt-2 pt-1 border-t border-slate-300">
+                            <div className="flex justify-between items-end">
+                              <div className="text-center w-28">
+                                <div className="border-t border-slate-900 pt-0.5">
+                                  <p className="font-bold text-slate-900 text-[10px]">শ্রেণী শিক্ষকের স্বাক্ষর</p>
+                                </div>
+                              </div>
+                              
+                              <div className="text-center w-28">
+                                <div className="border-t border-slate-900 pt-0.5">
+                                  <p className="font-bold text-slate-900 text-[10px]">পরীক্ষা নিয়ন্ত্রক</p>
+                                </div>
+                              </div>
+
+                              <div className="text-center w-32">
+                                {principalSignUrl ? (
+                                  <div className="h-6 flex items-center justify-center mb-0.5">
+                                    <img 
+                                      src={principalSignUrl} 
+                                      alt="Principal Signature" 
+                                      className="max-h-full max-w-[90px] object-contain"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="h-4"></div>
+                                )}
+                                <div className="border-t border-slate-900 pt-0.5">
+                                  <p className="font-bold text-slate-900 text-[10px] truncate">
+                                    {principalName}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right text-[11px] font-semibold text-slate-700">
-                      <p>সারক নং: মা/প্র/{toBanglaNumber(examYear)}/</p>
-                      <p>তারিখ: {toBanglaNumber(new Date().toLocaleDateString('bn-BD', { day: 'numeric', month: 'long', year: 'numeric' }))}</p>
-                    </div>
-                  </div>
-
-                  {/* Title Badge */}
-                  <div className="text-center my-2">
-                    <span className="inline-block bg-slate-900 text-white px-6 py-1 rounded-full font-black text-sm uppercase tracking-wider">
-                      প্রোগ্রেস রিপোর্ট / মার্কশিট
-                    </span>
-                    <p className="text-sm font-bold text-slate-800 mt-1">{examTitle} - {toBanglaNumber(examYear)}</p>
-                  </div>
-
-                  {/* Student Details Grid */}
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-2 my-3 p-3 bg-slate-50 rounded-lg border border-slate-300 text-xs sm:text-sm">
-                    <div className="flex">
-                      <span className="font-bold text-slate-700 w-28">ছাত্রের নাম:</span>
-                      <span className="font-black text-slate-950 flex-1">{student.first_name} {student.last_name}</span>
-                    </div>
-                    <div className="flex">
-                      <span className="font-bold text-slate-700 w-28">শ্রেণি / জামাত:</span>
-                      <span className="font-black text-slate-950 flex-1">{student.class_name || 'N/A'}</span>
-                    </div>
-                    <div className="flex">
-                      <span className="font-bold text-slate-700 w-28">রোল নম্বর:</span>
-                      <span className="font-black text-slate-950 flex-1">{toBanglaNumber(student.roll_number || '১')}</span>
-                    </div>
-                    <div className="flex">
-                      <span className="font-bold text-slate-700 w-28">মেধা স্থান (Merit):</span>
-                      <span className="font-black text-blue-900 flex-1">{toBanglaNumber(meritRank)} তম</span>
-                    </div>
-                  </div>
-
-                  {/* Marks Table */}
-                  <table className="w-full text-left border-collapse my-3 text-xs">
-                    <thead>
-                      <tr className="bg-slate-200">
-                        <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-12">ক্র. নং</th>
-                        <th className="border border-slate-900 px-3 py-1.5 font-black text-slate-950">বিষয়ের নাম</th>
-                        <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-24">পূর্ণ নম্বর</th>
-                        <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-28">প্রাপ্ত নম্বর</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {student.marks && student.marks.length > 0 ? (
-                        student.marks.map((m: any, i: number) => (
-                          <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                            <td className="border border-slate-800 px-3 py-1 text-center font-bold text-slate-800">{toBanglaNumber(i + 1)}</td>
-                            <td className="border border-slate-800 px-3 py-1 font-bold text-slate-950">{m.subject_name}</td>
-                            <td className="border border-slate-800 px-3 py-1 text-center text-slate-800">{toBanglaNumber(m.total_marks || 100)}</td>
-                            <td className="border border-slate-800 px-3 py-1 text-center font-black text-slate-950 text-sm">{toBanglaNumber(m.marks_obtained || 0)}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={4} className="border border-slate-800 px-3 py-3 text-center text-slate-500 font-medium italic">
-                            কোনো বিষয়ের নম্বর যুক্ত করা হয়নি
-                          </td>
-                        </tr>
-                      )}
-                      
-                      {/* Total Row */}
-                      <tr className="bg-slate-100 font-black">
-                        <td colSpan={2} className="border border-slate-900 px-3 py-1.5 text-right uppercase text-slate-950 font-black text-xs">
-                          সর্বমোট:
-                        </td>
-                        <td className="border border-slate-900 px-3 py-1.5 text-center text-slate-950 font-black">
-                          {toBanglaNumber(student.totalMax)}
-                        </td>
-                        <td className="border border-slate-900 px-3 py-1.5 text-center text-slate-950 font-black text-sm">
-                          {toBanglaNumber(student.totalObtained)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-
-                  {/* Final Grade & Percentage Summary */}
-                  <div className="grid grid-cols-2 gap-4 bg-slate-100 border border-slate-900 p-2.5 rounded-lg text-xs sm:text-sm my-2">
-                    <div className="flex items-center">
-                      <span className="font-bold text-slate-800">প্রাপ্ত বিভাগ (Grade):</span>
-                      <span className="font-black text-slate-950 text-sm ml-2 bg-white px-2.5 py-0.5 rounded border border-slate-300">
-                        {student.grade}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-end">
-                      <span className="font-bold text-slate-800">শতকরা (Percentage):</span>
-                      <span className="font-black text-slate-950 text-sm ml-2 bg-white px-2.5 py-0.5 rounded border border-slate-300">
-                        {toBanglaNumber(student.percentage)}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Footer Signatures */}
-                <div className="mt-4 pt-3 border-t border-slate-200">
-                  <div className="flex justify-between items-end">
-                    <div className="text-center w-36">
-                      <div className="border-t-2 border-slate-900 pt-1">
-                        <p className="font-bold text-slate-900 text-[11px]">শ্রেণী শিক্ষকের স্বাক্ষর</p>
-                      </div>
-                    </div>
-                    
-                    <div className="text-center w-36">
-                      <div className="border-t-2 border-slate-900 pt-1">
-                        <p className="font-bold text-slate-900 text-[11px]">পরীক্ষা নিয়ন্ত্রক</p>
-                      </div>
-                    </div>
-
-                    <div className="text-center w-40">
-                      {principalSignUrl ? (
-                        <div className="h-9 flex items-center justify-center mb-0.5">
+                  );
+                })}
+              </div>
+            );
+          })
+        ) : (
+          filteredResults.map((student) => {
+            const meritRank = results.findIndex(r => r.id === student.id) + 1;
+            return (
+              <div key={student.id} className="a4-marksheet-sheet bg-white text-slate-900 font-sans">
+                <div className="border-2 border-slate-900 rounded-xl p-5 h-full flex flex-col justify-between relative">
+                  
+                  {/* Header Section */}
+                  <div>
+                    <div className="flex items-center justify-between border-b-2 border-slate-900 pb-3 mb-3">
+                      <div className="flex items-center gap-3">
+                        {logoUrl ? (
                           <img 
-                            src={principalSignUrl} 
-                            alt="Principal Signature" 
-                            className="max-h-full max-w-[110px] object-contain"
+                            src={logoUrl} 
+                            alt="Logo" 
+                            className="w-14 h-14 object-contain rounded-full border border-slate-200 p-0.5" 
                             referrerPolicy="no-referrer"
                           />
+                        ) : (
+                          <div className="w-14 h-14 bg-emerald-50 rounded-full border-2 border-emerald-700 flex items-center justify-center">
+                            <GraduationCap className="w-8 h-8 text-emerald-800" />
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-slate-500">স্থাপিত: {toBanglaNumber(establishedYear)} ইং | রেজি: {toBanglaNumber(regNo)}</span>
+                          <h1 className="text-2xl font-black text-slate-950 leading-tight">{madrasaName}</h1>
+                          <p className="text-xs text-slate-700 font-medium">{madrasaAddress}</p>
                         </div>
-                      ) : (
-                        <div className="h-6"></div>
-                      )}
-                      <div className="border-t-2 border-slate-900 pt-1">
-                        <p className="font-bold text-slate-900 text-[11px]">
-                          {principalName}
-                        </p>
+                      </div>
+                      <div className="text-right text-[11px] font-semibold text-slate-700">
+                        <p>সারক নং: মা/প্র/{toBanglaNumber(examYear)}/</p>
+                        <p>তারিখ: {toBanglaNumber(new Date().toLocaleDateString('bn-BD', { day: 'numeric', month: 'long', year: 'numeric' }))}</p>
+                      </div>
+                    </div>
+
+                    {/* Title Badge */}
+                    <div className="text-center my-2">
+                      <span className="inline-block bg-slate-900 text-white px-6 py-1 rounded-full font-black text-sm uppercase tracking-wider">
+                        প্রোগ্রেস রিপোর্ট / মার্কশিট
+                      </span>
+                      <p className="text-sm font-bold text-slate-800 mt-1">{examTitle} - {toBanglaNumber(examYear)}</p>
+                    </div>
+
+                    {/* Student Details Grid */}
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 my-3 p-3 bg-slate-50 rounded-lg border border-slate-300 text-xs sm:text-sm">
+                      <div className="flex">
+                        <span className="font-bold text-slate-700 w-28">ছাত্রের নাম:</span>
+                        <span className="font-black text-slate-950 flex-1">{student.first_name} {student.last_name}</span>
+                      </div>
+                      <div className="flex">
+                        <span className="font-bold text-slate-700 w-28">শ্রেণি / জামাত:</span>
+                        <span className="font-black text-slate-950 flex-1">{student.class_name || 'N/A'}</span>
+                      </div>
+                      <div className="flex">
+                        <span className="font-bold text-slate-700 w-28">রোল নম্বর:</span>
+                        <span className="font-black text-slate-950 flex-1">{toBanglaNumber(student.roll_number || '১')}</span>
+                      </div>
+                      <div className="flex">
+                        <span className="font-bold text-slate-700 w-28">মেধা স্থান (Merit):</span>
+                        <span className="font-black text-blue-900 flex-1">{toBanglaNumber(meritRank)} তম</span>
+                      </div>
+                    </div>
+
+                    {/* Marks Table */}
+                    <table className="w-full text-left border-collapse my-3 text-xs">
+                      <thead>
+                        <tr className="bg-slate-200">
+                          <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-12">ক্র. নং</th>
+                          <th className="border border-slate-900 px-3 py-1.5 font-black text-slate-950">বিষয়ের নাম</th>
+                          <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-24">পূর্ণ নম্বর</th>
+                          <th className="border border-slate-900 px-3 py-1.5 text-center font-black text-slate-950 w-28">প্রাপ্ত নম্বর</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {student.marks && student.marks.length > 0 ? (
+                          student.marks.map((m: any, i: number) => (
+                            <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                              <td className="border border-slate-800 px-3 py-1 text-center font-bold text-slate-800">{toBanglaNumber(i + 1)}</td>
+                              <td className="border border-slate-800 px-3 py-1 font-bold text-slate-950">{m.subject_name}</td>
+                              <td className="border border-slate-800 px-3 py-1 text-center text-slate-800">{toBanglaNumber(m.total_marks || 100)}</td>
+                              <td className="border border-slate-800 px-3 py-1 text-center font-black text-slate-950 text-sm">{toBanglaNumber(m.marks_obtained || 0)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={4} className="border border-slate-800 px-3 py-3 text-center text-slate-500 font-medium italic">
+                              কোনো বিষয়ের নম্বর যুক্ত করা হয়নি
+                            </td>
+                          </tr>
+                        )}
+                        
+                        {/* Total Row */}
+                        <tr className="bg-slate-100 font-black">
+                          <td colSpan={2} className="border border-slate-900 px-3 py-1.5 text-right uppercase text-slate-950 font-black text-xs">
+                            সর্বমোট:
+                          </td>
+                          <td className="border border-slate-900 px-3 py-1.5 text-center text-slate-950 font-black">
+                            {toBanglaNumber(student.totalMax)}
+                          </td>
+                          <td className="border border-slate-900 px-3 py-1.5 text-center text-slate-950 font-black text-sm">
+                            {toBanglaNumber(student.totalObtained)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                    {/* Final Grade & Percentage Summary */}
+                    <div className="grid grid-cols-2 gap-4 bg-slate-100 border border-slate-900 p-2.5 rounded-lg text-xs sm:text-sm my-2">
+                      <div className="flex items-center">
+                        <span className="font-bold text-slate-800">প্রাপ্ত বিভাগ (Grade):</span>
+                        <span className="font-black text-slate-950 text-sm ml-2 bg-white px-2.5 py-0.5 rounded border border-slate-300">
+                          {student.grade}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-end">
+                        <span className="font-bold text-slate-800">শতকরা (Percentage):</span>
+                        <span className="font-black text-slate-950 text-sm ml-2 bg-white px-2.5 py-0.5 rounded border border-slate-300">
+                          {toBanglaNumber(student.percentage)}%
+                        </span>
                       </div>
                     </div>
                   </div>
-                </div>
 
+                  {/* Footer Signatures */}
+                  <div className="mt-4 pt-3 border-t border-slate-200">
+                    <div className="flex justify-between items-end">
+                      <div className="text-center w-36">
+                        <div className="border-t-2 border-slate-900 pt-1">
+                          <p className="font-bold text-slate-900 text-[11px]">শ্রেণী শিক্ষকের স্বাক্ষর</p>
+                        </div>
+                      </div>
+                      
+                      <div className="text-center w-36">
+                        <div className="border-t-2 border-slate-900 pt-1">
+                          <p className="font-bold text-slate-900 text-[11px]">পরীক্ষা নিয়ন্ত্রক</p>
+                        </div>
+                      </div>
+
+                      <div className="text-center w-40">
+                        {principalSignUrl ? (
+                          <div className="h-9 flex items-center justify-center mb-0.5">
+                            <img 
+                              src={principalSignUrl} 
+                              alt="Principal Signature" 
+                              className="max-h-full max-w-[110px] object-contain"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-6"></div>
+                        )}
+                        <div className="border-t-2 border-slate-900 pt-1">
+                          <p className="font-bold text-slate-900 text-[11px]">
+                            {principalName}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
       {/* Screen Preview */}
