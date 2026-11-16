@@ -407,7 +407,8 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
                       />
                     </td>
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
           </div>

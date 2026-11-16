@@ -508,7 +508,7 @@ export async function getStudentsByClass(classId: string) {
 
   try {
     const meta = await getMadrasaMetadata(finalMadrasaId);
-    return rawStudents.map((std: any) => {
+    const hydratedList = rawStudents.map((std: any) => {
       const hydrated: any = hydrateStudentWithMetadata(std, meta);
       const profile: any = meta?.student_profiles?.[std.id];
       const guardianPhone = 
