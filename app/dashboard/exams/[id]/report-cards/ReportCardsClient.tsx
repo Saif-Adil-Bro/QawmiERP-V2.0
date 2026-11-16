@@ -187,8 +187,44 @@ export default function ReportCardsClient({
         </div>
       )}
 
-      {/* PRINT VIEW: 2 per page (Default) or 1 per page */}
-      <div className={`hidden print:block print:w-full ${banglaFont}`}>
+      {/* Scoped @page reset for exact A4 2-per-page printing (zero browser margins/headers) */}
+      {cardStyle !== "kids" && pageLayout === "2-per-page" && (
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              @media print {
+                @page {
+                  size: A4 portrait;
+                  margin: 0 !important;
+                }
+                html, body {
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+              }
+            `,
+          }}
+        />
+      )}
+
+      {/* Screen Info Banner */}
+      {results.length > 0 && (
+        <div className="print:hidden flex justify-between items-center bg-blue-50 border border-blue-200 p-3 rounded-lg text-blue-900 text-sm font-medium">
+          <span>মোট {results.length} জন শিক্ষার্থীর মার্কশিট প্রস্তুত রয়েছে।</span>
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700 transition text-xs font-semibold shadow-xs"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            প্রিন্ট ভিউ দেখুন
+          </button>
+        </div>
+      )}
+
+      {/* PRINT & 2-UP A4 PREVIEW VIEW */}
+      <div className={`${cardStyle !== "kids" && pageLayout === "2-per-page" && filteredResults.length > 0 ? "a4-preview-wrapper" : "hidden print:block"} print:w-full ${banglaFont}`}>
         {cardStyle === "kids" ? (
           filteredResults.map((student) => {
             const meritRank = results.findIndex(r => r.id === student.id) + 1;
@@ -210,27 +246,21 @@ export default function ReportCardsClient({
             );
           })
         ) : pageLayout === "2-per-page" ? (
-          // Chunk results into pairs of 2 for top-and-bottom half A4 printing
+          // Chunk results into pairs of 2 for exact 210mm x 297mm A4 pages (two 210mm x 148.5mm slots with 10mm padding)
           Array.from({ length: Math.ceil(filteredResults.length / 2) }, (_, pageIndex) => {
             const pair = filteredResults.slice(pageIndex * 2, pageIndex * 2 + 2);
             return (
-              <div key={`marksheet-page-${pageIndex}`} className="a4-marksheet-sheet-2up bg-white text-slate-900 font-sans">
-                {pair.map((student, itemIndex) => {
+              <div key={`marksheet-page-${pageIndex}`} className="a4-page text-slate-900 font-sans">
+                {/* Center Cutting Guide at exact 148.5mm vertical midpoint */}
+                <div className="a4-cut-line" aria-hidden="true" />
+                {pair.map((student) => {
                   const meritRank = results.findIndex(r => r.id === student.id) + 1;
                   return (
-                    <div key={student.id} className="contents">
-                      {itemIndex > 0 && (
-                        <div className="marksheet-cut-divider">
-                          <span className="text-[9px] font-mono text-slate-400 bg-white px-2 relative -top-2">
-                            ✂ কাটার লাইন (Cut Here)
-                          </span>
-                        </div>
-                      )}
-                      <div className="marksheet-half-item">
-                        <div className="border border-slate-900 rounded-lg p-3 h-full flex flex-col justify-between relative bg-white">
-                          <div>
-                            {/* Compact Header */}
-                            <div className="flex items-center justify-between border-b border-slate-900 pb-1.5 mb-1.5">
+                    <div key={student.id} className="a4-page-slot">
+                      <div className="border border-slate-900 rounded-lg p-2.5 w-full h-full flex flex-col justify-between relative bg-white overflow-hidden">
+                        <div>
+                          {/* Compact Header */}
+                          <div className="flex items-center justify-between border-b border-slate-900 pb-1 mb-1">
                               <div className="flex items-center gap-2">
                                 {logoUrl ? (
                                   <img 
@@ -405,7 +435,6 @@ export default function ReportCardsClient({
 
                         </div>
                       </div>
-                    </div>
                   );
                 })}
               </div>
@@ -598,20 +627,9 @@ export default function ReportCardsClient({
         )}
       </div>
 
-      {/* Screen Preview */}
-      {results.length > 0 && (
+      {/* Screen Preview (for Kids / 1-per-page mode; 2-per-page already renders accurate A4 preview above) */}
+      {results.length > 0 && (cardStyle === "kids" || pageLayout === "1-per-page") && (
         <div className="print:hidden space-y-4">
-          <div className="flex justify-between items-center bg-blue-50 border border-blue-200 p-3 rounded-lg text-blue-900 text-sm font-medium">
-            <span>মোট {results.length} জন শিক্ষার্থীর মার্কশিট প্রস্তুত রয়েছে।</span>
-            <button 
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700 transition text-xs font-semibold shadow-xs"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              প্রিন্ট ভিউ দেখুন
-            </button>
-          </div>
-
           {cardStyle === "kids" ? (
             <div className="space-y-6">
               {filteredResults.map((student) => {

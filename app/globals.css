@@ -337,6 +337,58 @@ html, body, input, textarea, select, button {
     text-align: center !important;
     height: 1px !important;
   }
+
+  /* Exact A4 2-Up Result Sheet Geometry (210mm x 297mm, 2 slots of 210mm x 148.5mm with 10mm padding) */
+  .a4-preview-wrapper {
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+    overflow: visible !important;
+  }
+  .a4-page {
+    width: 210mm !important;
+    height: 297mm !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    position: relative !important;
+    display: grid !important;
+    grid-template-rows: 148.5mm 148.5mm !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .a4-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  .a4-page-slot {
+    width: 210mm !important;
+    height: 148.5mm !important;
+    padding: 10mm !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  .a4-cut-line {
+    position: absolute !important;
+    top: 148.5mm !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 0 !important;
+    border-bottom: 1px dashed #9ca3af !important;
+    pointer-events: none !important;
+    z-index: 10 !important;
+  }
+
   /* Landscape auto-centering helper */
   .print-landscape-fit {
     width: 100% !important;
@@ -347,6 +399,47 @@ html, body, input, textarea, select, button {
     flex-direction: column !important;
     justify-content: center !important;
     align-items: center !important;
+  }
+}
+
+@media screen {
+  .a4-preview-wrapper {
+    background-color: #f3f4f6;
+    padding: 1.5rem 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    overflow-x: auto;
+    border-radius: 0.75rem;
+  }
+  .a4-page {
+    width: 210mm;
+    height: 297mm;
+    box-sizing: border-box;
+    background-color: #ffffff;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    position: relative;
+    display: grid;
+    grid-template-rows: 148.5mm 148.5mm;
+    flex-shrink: 0;
+  }
+  .a4-page-slot {
+    width: 210mm;
+    height: 148.5mm;
+    padding: 10mm;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  .a4-cut-line {
+    position: absolute;
+    top: 148.5mm;
+    left: 0;
+    right: 0;
+    height: 0;
+    border-bottom: 1px dashed #9ca3af;
+    pointer-events: none;
+    z-index: 10;
   }
 }
 
