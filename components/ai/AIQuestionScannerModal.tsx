@@ -324,7 +324,7 @@ export function AIQuestionScannerModal({
 
     setIsScanning(true);
     setScanError(null);
-    setPaddleProgress({ status: "PaddleOCR সার্ভারে ছবি পাঠানো হচ্ছে...", progress: 15 });
+    setPaddleProgress({ status: "ওসিআর প্রো সার্ভারে ছবি পাঠানো হচ্ছে...", progress: 15 });
 
     const progressTimer = setInterval(() => {
       setPaddleProgress((prev) => {
@@ -332,7 +332,7 @@ export function AIQuestionScannerModal({
         const nextProg = Math.min(90, prev.progress + (prev.progress < 50 ? 12 : 5));
         const nextStatus =
           nextProg < 45
-            ? "PaddleOCR ইঞ্জিনে ছবি প্রক্রিয়াকরণ চলছে..."
+            ? "ওসিআর প্রো ইঞ্জিনে ছবি প্রক্রিয়াকরণ চলছে..."
             : "বাংলা / আরবি / ইংরেজি টেক্সট ও লাইন বিন্যাস শনাক্ত হচ্ছে...";
         return { status: nextStatus, progress: nextProg };
       });
@@ -361,7 +361,7 @@ export function AIQuestionScannerModal({
       if (!response.ok || !result.success) {
         throw new Error(
           result.error ||
-            "PaddleOCR সার্ভিস থেকে উত্তর পাওয়া যায়নি। সার্ভার চালু আছে কি না যাচাই করুন।"
+            "ওসিআর প্রো সার্ভিস থেকে উত্তর পাওয়া যায়নি। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।"
         );
       }
 
@@ -377,10 +377,10 @@ export function AIQuestionScannerModal({
       setActiveTab("editor");
     } catch (err: any) {
       clearInterval(progressTimer);
-      console.error("PaddleOCR scan error:", err);
+      console.error("OCR Pro scan error:", err);
       setScanError(
         err.message ||
-          "PaddleOCR সার্ভিসের সাথে সংযোগ করা যায়নি। সার্ভার চালু আছে কি না যাচাই করুন।"
+          "ওসিআর প্রো সার্ভিসের সাথে সংযোগ করা যায়নি। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।"
       );
     } finally {
       setIsScanning(false);
@@ -897,7 +897,7 @@ export function AIQuestionScannerModal({
                     }`}
                   >
                     <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>ইঞ্জিন ১: OpenRouter Vision AI</span>
+                    <span>এআই ভিশন স্ক্যানার</span>
                     <span className="text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.5 rounded-full font-semibold">
                       টেবিল ও হরকত
                     </span>
@@ -913,9 +913,9 @@ export function AIQuestionScannerModal({
                     }`}
                   >
                     <Cpu className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                    <span>ইঞ্জিন ২: PaddleOCR (ফ্রি OCR)</span>
+                    <span>ওসিআর প্রো</span>
                     <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-bold">
-                      সেল্ফ-হোস্টেড
+                      হাই-একুরেসি
                     </span>
                   </button>
                 </div>
@@ -926,10 +926,10 @@ export function AIQuestionScannerModal({
                     <div className="space-y-0.5">
                       <div className="font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
                         <Cpu className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>PaddleOCR ইঞ্জিন — বাংলা, আরবি ও ইংরেজি হাই-একুরেসি OCR</span>
+                        <span>ওসিআর প্রো — বাংলা, আরবি ও ইংরেজি হাই-একুরেসি স্ক্যানার</span>
                       </div>
                       <p className="text-[11px] text-indigo-700 dark:text-indigo-300">
-                        লোকাল বা হোস্টেড PaddleOCR FastAPI সার্ভিসের মাধ্যমে ছবি থেকে লেখা শনাক্ত করে প্রশ্নপত্রে রূপান্তর করে।
+                        ছবি থেকে দ্রুত ও নির্ভুলভাবে লেখা শনাক্ত করে সরাসরি এডিটেবল প্রশ্নপত্রে রূপান্তর করে।
                       </p>
                     </div>
 
@@ -949,7 +949,7 @@ export function AIQuestionScannerModal({
                   </div>
                 ) : (
                   <div className="px-3 py-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                    <span>OpenRouter ফ্রি ভিশন এআই দিয়ে জটিল টেবিল, বাংলা ও আরবি হরকত সহজে গঠন করে।</span>
+                    <span>এআই ভিশন স্ক্যানার দিয়ে জটিল টেবিল, বাংলা ও আরবি হরকত সহজে গঠন করে।</span>
                     <button
                       type="button"
                       onClick={() => setShowApiKeyConfig(!showApiKeyConfig)}
@@ -1061,14 +1061,14 @@ export function AIQuestionScannerModal({
                       className="max-h-72 w-auto object-contain mx-auto"
                     />
                     
-                    {/* PaddleOCR Live Progress Overlay */}
+                    {/* OCR Pro Live Progress Overlay */}
                     {isScanning && paddleProgress && (
                       <div className="absolute inset-0 bg-indigo-950/85 backdrop-blur-xs flex flex-col items-center justify-center text-white p-6 text-center z-20">
                         <div className="w-14 h-14 rounded-2xl bg-indigo-600/50 border-2 border-indigo-400 flex items-center justify-center mb-3 animate-pulse">
                           <Cpu className="w-7 h-7 text-amber-300 animate-spin" />
                         </div>
                         <h4 className="font-bold text-sm sm:text-base mb-1">
-                          PaddleOCR স্ক্যান চলছে...
+                          ওসিআর প্রো স্ক্যান চলছে...
                         </h4>
                         <p className="text-xs text-indigo-200 mb-3 max-w-sm">
                           {paddleProgress.status}
@@ -1080,12 +1080,12 @@ export function AIQuestionScannerModal({
                           />
                         </div>
                         <span className="text-[11px] text-indigo-300 mt-1.5 font-mono font-bold">
-                          {toBanglaNumber(paddleProgress.progress)}% সম্পন্ন (সেল্ফ-হোস্টেড)
+                          {toBanglaNumber(paddleProgress.progress)}% সম্পন্ন
                         </span>
                       </div>
                     )}
 
-                    {/* OpenRouter Vision AI Live Progress Overlay */}
+                    {/* AI Vision Scanner Live Progress Overlay */}
                     {isScanning && !paddleProgress && (
                       <div className="absolute inset-0 bg-emerald-950/85 backdrop-blur-xs flex flex-col items-center justify-center text-white p-6 text-center z-20">
                         <div className="relative w-14 h-14 mb-3">
@@ -1093,10 +1093,10 @@ export function AIQuestionScannerModal({
                           <Sparkles className="w-5 h-5 text-amber-300 absolute inset-0 m-auto" />
                         </div>
                         <h4 className="font-bold text-sm sm:text-base mb-1">
-                          OpenRouter Vision AI প্রশ্নপত্র স্ক্যান করছে...
+                          এআই ভিশন স্ক্যানার প্রশ্নপত্র স্ক্যান করছে...
                         </h4>
                         <p className="text-xs text-emerald-200 mb-3 max-w-sm animate-pulse">
-                          {scanStep === 1 && "১. ছবি প্রস্তুত ও OpenRouter Vision AI-তে পাঠানো হচ্ছে..."}
+                          {scanStep === 1 && "১. ছবি প্রস্তুত ও এআই ভিশন স্ক্যানারে পাঠানো হচ্ছে..."}
                           {scanStep === 2 && "২. বাংলা, আরবি হরকত ও উর্দু লেখা শনাক্ত করা হচ্ছে..."}
                           {scanStep === 3 && "৩. প্রশ্ন নম্বর, মান ও টেবিল কাঠামো সাজানো হচ্ছে..."}
                           {scanStep >= 4 && "৪. এডিটেবল প্রশ্নপত্রে রূপান্তর সম্পন্ন হচ্ছে..."}
@@ -1132,10 +1132,10 @@ export function AIQuestionScannerModal({
                         )}
                       </div>
                       
-                      {/* One-click PaddleOCR Self-Hosted Fallback Button */}
+                      {/* One-click OCR Pro Fallback Button */}
                       <div className="pt-1 border-t border-rose-200/80 flex flex-col sm:flex-row items-center justify-between gap-2">
                         <span className="text-[11px] text-slate-700 font-medium">
-                          অনলাইন AI ছাড়া সেল্ফ-হোস্টেড OCR দিয়ে কাজ করতে চান?
+                          বিকল্প হিসেবে ওসিআর প্রো দিয়ে স্ক্যান করতে চান?
                         </span>
                         <button
                           type="button"
@@ -1144,7 +1144,7 @@ export function AIQuestionScannerModal({
                           className="w-full sm:w-auto px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors shrink-0"
                         >
                           <Cpu className="w-3.5 h-3.5 text-amber-300" />
-                          <span>PaddleOCR দিয়ে এখনই স্ক্যান করুন</span>
+                          <span>ওসিআর প্রো দিয়ে এখনই স্ক্যান করুন</span>
                         </button>
                       </div>
                     </div>
@@ -1161,12 +1161,12 @@ export function AIQuestionScannerModal({
                         {isScanning ? (
                           <>
                             <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>PaddleOCR দিয়ে ওসিআর স্ক্যান চলছে...</span>
+                            <span>ওসিআর প্রো দিয়ে স্ক্যান চলছে...</span>
                           </>
                         ) : (
                           <>
                             <Cpu className="w-4 h-4 text-amber-300" />
-                            <span>PaddleOCR দিয়ে স্ক্যান করুন (সেল্ফ-হোস্টেড)</span>
+                            <span>ওসিআর প্রো দিয়ে স্ক্যান করুন</span>
                           </>
                         )}
                       </button>
@@ -1182,7 +1182,7 @@ export function AIQuestionScannerModal({
                           className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1.5 font-semibold py-1"
                         >
                           <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>অথবা OpenRouter Vision AI দিয়ে স্ক্যান করুন (উন্নত টেবিল ও কাঠামো)</span>
+                          <span>অথবা এআই ভিশন স্ক্যানার দিয়ে স্ক্যান করুন (উন্নত টেবিল ও কাঠামো)</span>
                         </button>
                       </div>
                     </div>
@@ -1201,7 +1201,7 @@ export function AIQuestionScannerModal({
                         ) : (
                           <>
                             <Sparkles className="w-4 h-4 text-amber-300" />
-                            <span>OpenRouter Vision AI দিয়ে স্ক্যান করুন (টেবিল ও ফরমেট)</span>
+                            <span>এআই ভিশন স্ক্যানার দিয়ে স্ক্যান করুন (টেবিল ও ফরমেট)</span>
                           </>
                         )}
                       </button>
@@ -1214,7 +1214,7 @@ export function AIQuestionScannerModal({
                           className="text-xs text-indigo-700 dark:text-indigo-300 hover:underline flex items-center gap-1.5 font-bold py-1 bg-indigo-50 dark:bg-indigo-950/50 px-3 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
                         >
                           <Cpu className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>অথবা PaddleOCR (সেল্ফ-হোস্টেড) দিয়ে স্ক্যান করুন</span>
+                          <span>অথবা ওসিআর প্রো দিয়ে স্ক্যান করুন</span>
                         </button>
                       </div>
                     </div>
@@ -1246,12 +1246,12 @@ export function AIQuestionScannerModal({
                   {questionData.engineUsed === "paddle" ? (
                     <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold flex items-center gap-1.5">
                       <Cpu className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>PaddleOCR (সেল্ফ-হোস্টেড)</span>
+                      <span>ওসিআর প্রো</span>
                     </span>
                   ) : (
                     <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>OpenRouter Vision AI</span>
+                      <span>এআই ভিশন স্ক্যানার</span>
                     </span>
                   )}
 

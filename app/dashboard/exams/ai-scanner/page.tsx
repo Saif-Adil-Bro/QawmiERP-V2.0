@@ -24,14 +24,14 @@ export default function AIScannerPage() {
               <span>এআই প্রশ্নপত্র ও টেবিল স্ক্যানার</span>
               <span className="text-[11px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                <span>OpenRouter Vision AI</span>
+                <span>এআই ভিশন স্ক্যানার</span>
               </span>
               <span className="text-[11px] bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                <span>PaddleOCR (ফ্রি ও হাই-একুরেসি)</span>
+                <span>ওসিআর প্রো</span>
               </span>
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              হাতে লেখা বা প্রিন্ট করা প্রশ্নের ছবি দিয়ে PaddleOCR অথবা OpenRouter Vision AI দিয়ে স্বয়ংক্রিয়ভাবে প্রশ্নপত্র তৈরি করুন
+              হাতে লেখা বা প্রিন্ট করা প্রশ্নের ছবি দিয়ে ওসিআর প্রো অথবা এআই ভিশন স্ক্যানারের মাধ্যমে স্বয়ংক্রিয়ভাবে প্রশ্নপত্র তৈরি করুন
             </p>
           </div>
         </div>
@@ -63,7 +63,7 @@ export default function AIScannerPage() {
           </div>
           <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">এআই ভিশন ও টেবিল ডিজিটাইজেশন</h3>
           <p className="text-xs text-slate-500 leading-relaxed">
-            OpenRouter Vision AI বাংলা ও আরবি হরকতসহ টেক্সট এবং ক-স্তম্ভ/খ-স্তম্ভ টেবিল স্বয়ংক্রিয়ভাবে শনাক্ত ও গঠন করে।
+            এআই ভিশন স্ক্যানার বাংলা ও আরবি হরকতসহ টেক্সট এবং ক-স্তম্ভ/খ-স্তম্ভ টেবিল স্বয়ংক্রিয়ভাবে শনাক্ত ও গঠন করে।
           </p>
         </div>
 
