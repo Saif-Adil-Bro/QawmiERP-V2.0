@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { getStudentReportCard } from "@/app/actions/exams";
 import { Printer, Type, Award, User, CheckCircle, GraduationCap, Sparkles, LayoutGrid } from "lucide-react";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
@@ -66,6 +66,37 @@ export default function ReportCardsClient({
   const filteredResults = selectedStudentId === "all" 
     ? results 
     : results.filter(r => r.id === selectedStudentId);
+
+  // Compute true merit rank independent of roll-number print ordering
+  const meritRankMap = useMemo(() => {
+    const map = new Map<string, number>();
+    const meritSorted = [...results].sort((a, b) => {
+      // Passed students always rank above failed students
+      if (Boolean(a.is_failed) !== Boolean(b.is_failed)) {
+        return a.is_failed ? 1 : -1;
+      }
+      const pctDiff = Number(b.percentage || 0) - Number(a.percentage || 0);
+      if (pctDiff !== 0) return pctDiff;
+      return Number(b.totalObtained || 0) - Number(a.totalObtained || 0);
+    });
+
+    let lastRank = 1;
+    meritSorted.forEach((student, idx) => {
+      if (idx > 0) {
+        const prev = meritSorted[idx - 1];
+        const sameStatus = Boolean(student.is_failed) === Boolean(prev.is_failed);
+        const samePct = Number(student.percentage || 0) === Number(prev.percentage || 0);
+        const sameTotal = Number(student.totalObtained || 0) === Number(prev.totalObtained || 0);
+        if (sameStatus && samePct && sameTotal) {
+          map.set(student.id, lastRank);
+          return;
+        }
+      }
+      lastRank = idx + 1;
+      map.set(student.id, lastRank);
+    });
+    return map;
+  }, [results]);
 
   const activeMadrasa = profileAndLogo?.madrasa || madrasaInfo;
   const madrasaName = activeMadrasa?.name || "কওমি মাদ্রাসা";
@@ -227,7 +258,7 @@ export default function ReportCardsClient({
       <div className={`${cardStyle !== "kids" && pageLayout === "2-per-page" && filteredResults.length > 0 ? "a4-preview-wrapper" : "hidden print:block"} print:w-full ${banglaFont}`}>
         {cardStyle === "kids" ? (
           filteredResults.map((student) => {
-            const meritRank = results.findIndex(r => r.id === student.id) + 1;
+            const meritRank = meritRankMap.get(student.id) || 1;
             return (
               <div key={student.id} className="break-after-page mb-8 print:mb-0">
                 <KidsVisualReportCard
@@ -254,7 +285,7 @@ export default function ReportCardsClient({
                 {/* Center Cutting Guide at exact 148.5mm vertical midpoint */}
                 <div className="a4-cut-line" aria-hidden="true" />
                 {pair.map((student) => {
-                  const meritRank = results.findIndex(r => r.id === student.id) + 1;
+                  const meritRank = meritRankMap.get(student.id) || 1;
                   return (
                     <div key={student.id} className="a4-page-slot">
                       <div className="border border-slate-900 rounded-lg p-2.5 w-full h-full flex flex-col justify-between relative bg-white overflow-hidden">
@@ -442,7 +473,7 @@ export default function ReportCardsClient({
           })
         ) : (
           filteredResults.map((student) => {
-            const meritRank = results.findIndex(r => r.id === student.id) + 1;
+            const meritRank = meritRankMap.get(student.id) || 1;
             return (
               <div key={student.id} className="a4-marksheet-sheet bg-white text-slate-900 font-sans">
                 <div className="border-2 border-slate-900 rounded-xl p-5 h-full flex flex-col justify-between relative">
@@ -633,7 +664,7 @@ export default function ReportCardsClient({
           {cardStyle === "kids" ? (
             <div className="space-y-6">
               {filteredResults.map((student) => {
-                const meritRank = results.findIndex(r => r.id === student.id) + 1;
+                const meritRank = meritRankMap.get(student.id) || 1;
                 return (
                   <KidsVisualReportCard
                     key={student.id}
@@ -654,7 +685,7 @@ export default function ReportCardsClient({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredResults.map((student, index) => {
-                const meritRank = results.findIndex(r => r.id === student.id) + 1;
+                const meritRank = meritRankMap.get(student.id) || 1;
                 return (
                   <div key={student.id} className="bg-white border border-slate-200 p-5 rounded-xl shadow-xs hover:shadow-md transition flex flex-col justify-between">
                     <div>
