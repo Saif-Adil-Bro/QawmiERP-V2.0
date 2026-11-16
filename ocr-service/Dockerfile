@@ -2,7 +2,7 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# System dependencies required by PaddlePaddle & OpenCV
+# System dependencies required by PaddlePaddle, OpenCV & Bengali OCR fallback
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender1 \
+    tesseract-ocr \
+    tesseract-ocr-ben \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

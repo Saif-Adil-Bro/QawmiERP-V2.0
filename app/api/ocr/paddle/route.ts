@@ -59,9 +59,16 @@ export async function POST(req: NextRequest) {
     if (!ocrResponse.ok) {
       const errorText = await ocrResponse.text().catch(() => "");
       console.error(`PaddleOCR HTTP ${ocrResponse.status}:`, errorText.slice(0, 400));
+      let detailMsg = "";
+      try {
+        const parsed = JSON.parse(errorText);
+        if (parsed?.detail) detailMsg = ` (${String(parsed.detail).slice(0, 200)})`;
+      } catch {
+        if (errorText.trim()) detailMsg = ` (${errorText.trim().slice(0, 150)})`;
+      }
       return NextResponse.json(
         {
-          error: `PaddleOCR সার্ভিস থেকে ত্রুটি পাওয়া গেছে (HTTP ${ocrResponse.status})।`,
+          error: `PaddleOCR সার্ভিস থেকে ত্রুটি পাওয়া গেছে (HTTP ${ocrResponse.status})${detailMsg}।`,
           details: errorText.slice(0, 300),
         },
         { status: ocrResponse.status >= 400 && ocrResponse.status < 600 ? ocrResponse.status : 502 }
