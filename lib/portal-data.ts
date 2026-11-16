@@ -172,9 +172,28 @@ export async function getPortalStudentData(
     }
   }
 
+  // Fetch full madrasa student list for accurate sequential ID calculation (avoids 4800017 -> 480001 bug)
+  let allMadrasaStudentsForId = rawStudents;
+  if (effectiveMadrasaId && rawStudents.length > 0) {
+    try {
+      const { data: allMs } = await adminClient
+        .from("students")
+        .select("*")
+        .eq("madrasa_id", effectiveMadrasaId);
+      if (allMs && allMs.length > 0) {
+        const meta = await getMadrasaMetadata(effectiveMadrasaId).catch(() => null);
+        allMadrasaStudentsForId = meta
+          ? allMs.map((s: any) => hydrateStudentWithMetadata(s, meta))
+          : allMs;
+      }
+    } catch (idListErr) {
+      console.warn("Fetching madrasa students for ID resolution warning:", idListErr);
+    }
+  }
+
   // Format and enrich each student with unified student_id and photo_url fallback
   rawStudents = rawStudents.map((st) => {
-    const formattedId = getStudentIdNumber(st, rawStudents, madrasaPrefix);
+    const formattedId = getStudentIdNumber(st, allMadrasaStudentsForId, madrasaPrefix);
     const photoUrl = st.photo_url || st.photo || st.avatar_url || "";
     return {
       ...st,

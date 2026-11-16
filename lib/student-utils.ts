@@ -119,6 +119,7 @@ export function getStudentIdNumber(
 
   // 1. If student has an explicit custom / original student ID or admission number
   const candidateIds = [
+    student.student_id_code,
     student.student_code,
     student.admission_no,
     student.admission_number,
@@ -160,6 +161,7 @@ export function getStudentIdNumber(
     for (const other of sortedAll) {
       if (other?.id === student.id) break;
       const otherCand = [
+        other?.student_id_code,
         other?.student_code,
         other?.admission_no,
         other?.admission_number,
@@ -280,6 +282,7 @@ export function getStudentIdNumber(
   for (const s of sameYearStudents) {
     if (s.id === student.id) break;
     const sCand = [
+      s.student_id_code,
       s.student_code,
       s.admission_no,
       s.admission_number,
