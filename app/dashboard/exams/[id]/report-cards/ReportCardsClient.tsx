@@ -218,8 +218,27 @@ export default function ReportCardsClient({
         </div>
       )}
 
-      {/* Scoped @page reset for exact A4 2-per-page printing (zero browser margins/headers) */}
-      {cardStyle !== "kids" && pageLayout === "2-per-page" && (
+      {/* Scoped @page reset for exact A4 printing (zero browser margins/headers) */}
+      {cardStyle === "kids" ? (
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              @media print {
+                @page {
+                  size: A4 landscape;
+                  margin: 0 !important;
+                }
+                html, body {
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+              }
+            `,
+          }}
+        />
+      ) : pageLayout === "2-per-page" ? (
         <style
           dangerouslySetInnerHTML={{
             __html: `
@@ -238,7 +257,7 @@ export default function ReportCardsClient({
             `,
           }}
         />
-      )}
+      ) : null}
 
       {/* Screen Info Banner */}
       {results.length > 0 && (
@@ -254,25 +273,43 @@ export default function ReportCardsClient({
         </div>
       )}
 
-      {/* PRINT & 2-UP A4 PREVIEW VIEW */}
-      <div className={`${cardStyle !== "kids" && pageLayout === "2-per-page" && filteredResults.length > 0 ? "a4-preview-wrapper" : "hidden print:block"} print:w-full ${banglaFont}`}>
+      {/* PRINT & A4 PREVIEW VIEW */}
+      <div
+        className={`${
+          filteredResults.length > 0 && cardStyle === "kids"
+            ? "a4-landscape-preview-wrapper"
+            : filteredResults.length > 0 && pageLayout === "2-per-page"
+            ? "a4-preview-wrapper"
+            : "hidden print:block"
+        } print:w-full ${banglaFont}`}
+      >
         {cardStyle === "kids" ? (
-          filteredResults.map((student) => {
-            const meritRank = meritRankMap.get(student.id) || 1;
+          // Chunk Noorani progress reports into pairs of 2 side-by-side on A4 Landscape (297mm x 210mm)
+          Array.from({ length: Math.ceil(filteredResults.length / 2) }, (_, pageIndex) => {
+            const pair = filteredResults.slice(pageIndex * 2, pageIndex * 2 + 2);
             return (
-              <div key={student.id} className="break-after-page mb-8 print:mb-0">
-                <KidsVisualReportCard
-                  student={student}
-                  examTitle={examTitle}
-                  examYear={examYear}
-                  madrasaName={madrasaName}
-                  madrasaAddress={madrasaAddress}
-                  logoUrl={logoUrl}
-                  principalName={principalName}
-                  principalSignUrl={principalSignUrl}
-                  meritRank={meritRank}
-                  banglaFont={banglaFont}
-                />
+              <div key={`kids-landscape-page-${pageIndex}`} className="a4-landscape-page">
+                {/* Vertical Center Cutting Guide at exact 148.5mm horizontal midpoint */}
+                <div className="a4-landscape-cut-line" aria-hidden="true" />
+                {pair.map((student) => {
+                  const meritRank = meritRankMap.get(student.id) || 1;
+                  return (
+                    <div key={student.id} className="a4-landscape-slot">
+                      <KidsVisualReportCard
+                        student={student}
+                        examTitle={examTitle}
+                        examYear={examYear}
+                        madrasaName={madrasaName}
+                        madrasaAddress={madrasaAddress}
+                        logoUrl={logoUrl}
+                        principalName={principalName}
+                        principalSignUrl={principalSignUrl}
+                        meritRank={meritRank}
+                        banglaFont={banglaFont}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             );
           })
@@ -658,32 +695,10 @@ export default function ReportCardsClient({
         )}
       </div>
 
-      {/* Screen Preview (for Kids / 1-per-page mode; 2-per-page already renders accurate A4 preview above) */}
-      {results.length > 0 && (cardStyle === "kids" || pageLayout === "1-per-page") && (
+      {/* Screen Preview (only for 1-per-page standard mode; 2-per-page & kids already render accurate A4 preview above) */}
+      {results.length > 0 && cardStyle !== "kids" && pageLayout === "1-per-page" && (
         <div className="print:hidden space-y-4">
-          {cardStyle === "kids" ? (
-            <div className="space-y-6">
-              {filteredResults.map((student) => {
-                const meritRank = meritRankMap.get(student.id) || 1;
-                return (
-                  <KidsVisualReportCard
-                    key={student.id}
-                    student={student}
-                    examTitle={examTitle}
-                    examYear={examYear}
-                    madrasaName={madrasaName}
-                    madrasaAddress={madrasaAddress}
-                    logoUrl={logoUrl}
-                    principalName={principalName}
-                    principalSignUrl={principalSignUrl}
-                    meritRank={meritRank}
-                    banglaFont={banglaFont}
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredResults.map((student, index) => {
                 const meritRank = meritRankMap.get(student.id) || 1;
                 return (
@@ -766,7 +781,6 @@ export default function ReportCardsClient({
                 );
               })}
             </div>
-          )}
         </div>
       )}
     </div>
