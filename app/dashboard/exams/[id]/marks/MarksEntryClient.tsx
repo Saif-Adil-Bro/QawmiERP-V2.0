@@ -6,8 +6,30 @@ import { getClassSubjects } from "@/app/actions/class_subjects";
 import { Search, ArrowUpDown, CheckCircle, Clock, ListFilter } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { sortStudentsByRoll } from "@/lib/student-utils";
+import ExamLockToggle from "../../ExamLockToggle";
 
-export default function MarksEntryClient({ examId, classes }: { examId: string, classes: { id: string, name: string }[] }) {
+interface MarksEntryClientProps {
+  examId: string;
+  examTitle?: string;
+  classes: { id: string; name: string }[];
+  initialLocked?: boolean;
+  lockedByName?: string | null;
+  lockedAt?: string | null;
+  lockReason?: string | null;
+  canManageLocks?: boolean;
+}
+
+export default function MarksEntryClient({
+  examId,
+  examTitle,
+  classes,
+  initialLocked = false,
+  lockedByName = null,
+  lockedAt = null,
+  lockReason = null,
+  canManageLocks = false,
+}: MarksEntryClientProps) {
+  const [isLocked, setIsLocked] = useState<boolean>(initialLocked);
   const [classId, setClassId] = useState("");
   const [subjectName, setSubjectName] = useState("");
   const [students, setStudents] = useState<any[]>([]);
@@ -72,6 +94,7 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
   };
 
   const handleMarksChange = (studentId: string, field: 'marks_obtained' | 'total_marks' | 'written_marks' | 'oral_marks' | 'tutorial_marks' | 'attendance_marks', value: string) => {
+    if (isLocked) return;
     setStudents(prev => prev.map(s => {
       if (s.id === studentId) {
         const updatedStudent = { ...s, [field]: value };
@@ -89,6 +112,13 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
   };
 
   const handleSave = async () => {
+    if (isLocked) {
+      setMessage({
+        type: 'error',
+        text: 'এই পরীক্ষাটি ফ্রিজ (লক) করা আছে। নম্বর পরিবর্তন করতে হলে মুহতামিম বা সুপার অ্যাডমিনকে আনলক করতে হবে।',
+      });
+      return;
+    }
     setSaving(true);
     setMessage(null);
     
@@ -183,6 +213,18 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
 
   return (
     <div className="space-y-6">
+      <ExamLockToggle
+        examId={examId}
+        examTitle={examTitle}
+        initialLocked={isLocked}
+        lockedByName={lockedByName}
+        lockedAt={lockedAt}
+        lockReason={lockReason}
+        canManageLocks={canManageLocks}
+        size="full"
+        onStatusChange={(locked) => setIsLocked(locked)}
+      />
+
       {message && (
         <div className={`p-4 rounded-md text-sm font-medium ${message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
           {message.text}
@@ -243,10 +285,10 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
             </div>
             <button 
               onClick={handleSave}
-              disabled={saving}
-              className="px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 disabled:opacity-50 transition text-sm font-medium shrink-0 shadow-xs"
+              disabled={saving || isLocked}
+              className="px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm font-medium shrink-0 shadow-xs"
             >
-              {saving ? "সেভ হচ্ছে..." : "সব সেভ করুন"}
+              {isLocked ? "পরীক্ষা লকড (ফ্রিজ)" : saving ? "সেভ হচ্ছে..." : "সব সেভ করুন"}
             </button>
           </div>
 
@@ -352,7 +394,8 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
                         type="number" 
                         value={student.total_marks}
                         onChange={(e) => handleMarksChange(student.id, 'total_marks', e.target.value)}
-                        className="w-full px-2 py-1.5 border rounded focus:outline-none focus:ring-1 focus:ring-slate-900"
+                        disabled={isLocked}
+                        className="w-full px-2 py-1.5 border rounded focus:outline-none focus:ring-1 focus:ring-slate-900 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                       />
                     </td>
@@ -361,7 +404,8 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
                         type="number" 
                         value={student.written_marks}
                         onChange={(e) => handleMarksChange(student.id, 'written_marks', e.target.value)}
-                        className="w-full px-2 py-1.5 border border-orange-200 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 bg-orange-50/30"
+                        disabled={isLocked}
+                        className="w-full px-2 py-1.5 border border-orange-200 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 bg-orange-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                         placeholder="0"
                       />
@@ -371,7 +415,8 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
                         type="number" 
                         value={student.oral_marks}
                         onChange={(e) => handleMarksChange(student.id, 'oral_marks', e.target.value)}
-                        className="w-full px-2 py-1.5 border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-blue-50/30"
+                        disabled={isLocked}
+                        className="w-full px-2 py-1.5 border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-blue-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                         placeholder="0"
                       />
@@ -381,7 +426,8 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
                         type="number" 
                         value={student.tutorial_marks}
                         onChange={(e) => handleMarksChange(student.id, 'tutorial_marks', e.target.value)}
-                        className="w-full px-2 py-1.5 border border-purple-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-purple-50/30"
+                        disabled={isLocked}
+                        className="w-full px-2 py-1.5 border border-purple-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-purple-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                         placeholder="0"
                       />
@@ -391,7 +437,8 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
                         type="number" 
                         value={student.attendance_marks}
                         onChange={(e) => handleMarksChange(student.id, 'attendance_marks', e.target.value)}
-                        className="w-full px-2 py-1.5 border border-green-200 rounded focus:outline-none focus:ring-1 focus:ring-green-500 bg-green-50/30"
+                        disabled={isLocked}
+                        className="w-full px-2 py-1.5 border border-green-200 rounded focus:outline-none focus:ring-1 focus:ring-green-500 bg-green-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                         placeholder="0"
                       />
@@ -401,7 +448,8 @@ export default function MarksEntryClient({ examId, classes }: { examId: string, 
                         type="number" 
                         value={student.marks_obtained}
                         onChange={(e) => handleMarksChange(student.id, 'marks_obtained', e.target.value)}
-                        className="w-full px-2 py-1.5 border-2 border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-slate-900 font-bold bg-slate-50"
+                        disabled={isLocked}
+                        className="w-full px-2 py-1.5 border-2 border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-slate-900 font-bold bg-slate-50 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                         placeholder="0"
                       />

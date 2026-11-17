@@ -689,11 +689,31 @@ export async function createStudent(prevState: any, formData: FormData) {
       action_type: "CREATE",
       module: "STUDENTS",
       title: "নতুন শিক্ষার্থী নিবন্ধন সম্পন্ন",
-      description: `${firstName} ${lastName || ""} কে শ্রেণি রোল ${rollNumber || "অনির্ধারিত"} সহ নতুন শিক্ষার্থী হিসেবে ভর্তি ও নিবন্ধন করা হয়েছেপরিষ্কার`,
+      description: `${firstName} ${lastName || ""} কে শ্রেণি রোল ${rollNumber || "অনির্ধারিত"} সহ নতুন শিক্ষার্থী হিসেবে ভর্তি ও নিবন্ধন করা হয়েছে`,
       entity_id: insertedStudent?.id || undefined,
       entity_type: "student",
       link: insertedStudent?.id ? `/dashboard/students/${insertedStudent.id}` : "/dashboard/students",
       severity: "SUCCESS",
+    });
+    const { logAuditEvent } = await import("@/lib/audit-log");
+    await logAuditEvent({
+      madrasaId: finalMadrasaId,
+      actorId: user.id,
+      actorEmail: user.email || null,
+      module: "students",
+      action: "STUDENT_CREATED",
+      entityType: "student",
+      entityId: insertedStudent?.id || null,
+      entityLabel: `${firstName} ${lastName || ""}`.trim(),
+      summary: `নতুন শিক্ষার্থী ভর্তি/নিবন্ধন করা হয়েছে: ${firstName} ${lastName || ""} (রোল: ${rollNumber || "অনির্ধারিত"})।`,
+      newValue: {
+        id: insertedStudent?.id || null,
+        first_name: firstName,
+        last_name: lastName || "",
+        roll_number: rollNumber || null,
+        class_id: classId || null,
+      },
+      severity: "INFO",
     });
   } catch (actErr) {
     console.warn("Activity log creation error:", actErr);
@@ -1059,10 +1079,30 @@ export async function updateStudent(prevState: any, formData: FormData) {
       action_type: "UPDATE",
       module: "STUDENTS",
       title: "শিক্ষার্থীর তথ্য হালনাগাদ",
-      description: `${firstName} ${lastName || ""} (আইডি: ${id}) এর ব্যক্তিগত ও একাডেমিক তথ্য সফলভাবে হালনাগাদ করা হয়েছেপরিষ্কার`,
+      description: `${firstName} ${lastName || ""} (আইডি: ${id}) এর ব্যক্তিগত ও একাডেমিক তথ্য সফলভাবে হালনাগাদ করা হয়েছে`,
       entity_id: id,
       entity_type: "student",
       link: `/dashboard/students/${id}`,
+      severity: "INFO",
+    });
+    const { logAuditEvent } = await import("@/lib/audit-log");
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      actorEmail: user.email || null,
+      module: "students",
+      action: "STUDENT_UPDATED",
+      entityType: "student",
+      entityId: id,
+      entityLabel: `${firstName} ${lastName || ""}`.trim(),
+      summary: `শিক্ষার্থী "${firstName} ${lastName || ""}"-এর তথ্য হালনাগাদ করা হয়েছে।`,
+      newValue: {
+        id,
+        first_name: firstName,
+        last_name: lastName || "",
+        class_id: classId || null,
+        roll_number: rollNumber || null,
+      },
       severity: "INFO",
     });
   } catch (actErr) {
@@ -1083,12 +1123,16 @@ export async function updateStudent(prevState: any, formData: FormData) {
 export async function deleteStudent(studentId: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("students");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("students");
+  if (!__authz.allowed) return __authz.fallback;
 
   const supabase = await createClient();
+  const { data: oldStudent } = await supabase
+    .from("students")
+    .select("id, first_name, last_name, roll_number, class_id")
+    .eq("id", studentId)
+    .maybeSingle();
+
   const { error } = await supabase
     .from("students")
     .delete()
@@ -1105,10 +1149,21 @@ export async function deleteStudent(studentId: string) {
       action_type: "DELETE",
       module: "STUDENTS",
       title: "শিক্ষার্থীর প্রোফাইল মুছে ফেলা হয়েছে",
-      description: `শিক্ষার্থী আইডি (${studentId}) এর রেকর্ড সিস্টেম থেকে অপসারণ করা হয়েছেপরিষ্কার`,
+      description: `শিক্ষার্থী আইডি (${studentId}) এর রেকর্ড সিস্টেম থেকে অপসারণ করা হয়েছে`,
       entity_id: studentId,
       entity_type: "student",
       severity: "WARNING",
+    });
+    await __authz.logAudit({
+      action: "STUDENT_DELETED",
+      entityType: "student",
+      entityId: studentId,
+      entityLabel: oldStudent
+        ? `${oldStudent.first_name || ""} ${oldStudent.last_name || ""}`.trim()
+        : studentId,
+      summary: `শিক্ষার্থী "${oldStudent ? `${oldStudent.first_name || ""} ${oldStudent.last_name || ""}`.trim() : studentId}"-এর প্রোফাইল মুছে ফেলা হয়েছে।`,
+      oldValue: oldStudent || null,
+      severity: "CRITICAL",
     });
   } catch (actErr) {
     console.warn("Activity log delete error:", actErr);

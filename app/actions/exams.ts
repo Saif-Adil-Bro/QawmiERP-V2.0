@@ -20,6 +20,24 @@ import {
   getMinPassPercentage,
 } from "@/lib/exam-grading";
 import { sortStudentsByRoll } from "@/lib/student-utils";
+import { requirePermission } from "@/lib/permissions-server";
+import { logAuditEvent } from "@/lib/audit-log";
+import {
+  getStructuredExamGradingConfig,
+  saveStructuredExamGradingConfig,
+  getStructuredExamSetting,
+  saveStructuredExamSetting,
+  getExamSettingsBundle,
+  getStructuredMadrasaSetting,
+  saveStructuredMadrasaSetting,
+} from "@/lib/structured-config";
+import {
+  assertExamUnlocked,
+  getExamLockState,
+  hasLockPrivilege,
+  LOCK_PRIVILEGED_ROLES,
+  type ExamLockState,
+} from "@/lib/lock-guards";
 
 function computeExamStatus(
   startDate?: string | null,
@@ -128,6 +146,15 @@ export async function getExams() {
 
   const publishedExams = madrasaMeta?.published_exams || {};
   const examEndDates = madrasaMeta?.exam_end_dates || {};
+  const fallbackLocksSetting = await getStructuredMadrasaSetting<Record<string, ExamLockState>>(
+    finalMadrasaId,
+    "locks",
+    "exam_locks"
+  );
+  const fallbackLocks: Record<string, ExamLockState> =
+    (fallbackLocksSetting.found && fallbackLocksSetting.value) ||
+    (madrasaMeta as any)?.exam_locks ||
+    {};
 
   const routinesByExam = new Map<string, any[]>();
   (routines || []).forEach(r => {
@@ -143,6 +170,8 @@ export async function getExams() {
     const computed = computeExamStatus(exam.start_date, examRoutines, exam.status, effectiveStoredEndDate);
     const publishInfo = publishedExams[exam.id];
     const isPublished = Boolean(publishInfo?.is_published || exam.status === "Published");
+    const lockInfo = fallbackLocks[exam.id];
+    const isLocked = typeof exam.is_locked === "boolean" ? exam.is_locked : Boolean(lockInfo?.is_locked);
 
     return {
       ...exam,
@@ -155,6 +184,11 @@ export async function getExams() {
       published_at: publishInfo?.published_at || null,
       published_by: publishInfo?.published_by || null,
       publish_note: publishInfo?.note || null,
+      is_locked: isLocked,
+      locked_by: exam.locked_by || lockInfo?.locked_by || null,
+      locked_by_name: exam.locked_by_name || lockInfo?.locked_by_name || null,
+      locked_at: exam.locked_at || lockInfo?.locked_at || null,
+      lock_reason: exam.lock_reason || lockInfo?.lock_reason || null,
       effective_start_date: computed.effectiveStartDate,
       effective_end_date: computed.effectiveEndDate,
       routine_count: computed.totalRoutineDays,
@@ -180,12 +214,13 @@ export async function getExamById(id: string) {
   }
 
   const madrasaId = finalMadrasaId || data.madrasa_id;
-  const [{ data: routines }, madrasaMeta] = await Promise.all([
+  const [{ data: routines }, madrasaMeta, lockState] = await Promise.all([
     supabase
       .from("exam_routines")
       .select("id, exam_id, exam_date")
       .eq("exam_id", id),
     madrasaId ? getMadrasaMetadata(madrasaId) : Promise.resolve({} as MadrasaMetaWithSessions),
+    madrasaId ? getExamLockState(madrasaId, id) : Promise.resolve({ is_locked: false } as ExamLockState),
   ]);
 
   const examEndDates = madrasaMeta?.exam_end_dates || {};
@@ -205,6 +240,11 @@ export async function getExamById(id: string) {
     published_at: publishInfo?.published_at || null,
     published_by: publishInfo?.published_by || null,
     publish_note: publishInfo?.note || null,
+    is_locked: lockState.is_locked,
+    locked_by: lockState.locked_by || null,
+    locked_by_name: lockState.locked_by_name || null,
+    locked_at: lockState.locked_at || null,
+    lock_reason: lockState.lock_reason || null,
     effective_start_date: computed.effectiveStartDate,
     effective_end_date: computed.effectiveEndDate,
     routine_count: computed.totalRoutineDays,
@@ -212,13 +252,152 @@ export async function getExamById(id: string) {
   };
 }
 
+/**
+ * Freeze/Lock or Unlock an Exam so marks & settings cannot be altered after result approval/publishing.
+ * Strictly restricted to Muhtamim, Admin, or Super Admin.
+ */
+export async function toggleExamLock(
+  examId: string,
+  shouldLock: boolean,
+  reason?: string
+): Promise<{ success?: boolean; is_locked?: boolean; message?: string; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    if (!user) return { error: "অনুগ্রহ করে পুনরায় লগইন করুন।" };
+
+    const madrasaId = await getAuthMadrasaId(supabase, user);
+    if (!madrasaId) return { error: "মাদরাসার তথ্য খুঁজে পাওয়া যায়নি।" };
+
+    const guard = await requirePermission({
+      userId: user.id,
+      madrasaId,
+      roles: LOCK_PRIVILEGED_ROLES,
+      errorMessage: "পরীক্ষা লক বা আনলক করার অনুমতি কেবল মুহতামিম, অ্যাডমিন অথবা সুপার অ্যাডমিনের আছে।",
+    });
+
+    const actorName = guard.context?.profile?.fullName || user.email || "প্রশাসন";
+    const actorEmail = guard.context?.profile?.email || user.email || null;
+    const actorRole = guard.context?.role || null;
+
+    if (!guard.allowed || !guard.context || !hasLockPrivilege(guard.context.roles, guard.context.role)) {
+      await logAuditEvent({
+        madrasaId,
+        actorId: user.id,
+        actorName,
+        actorEmail,
+        actorRole,
+        module: "security",
+        action: "UNAUTHORIZED_EXAM_LOCK_ATTEMPT",
+        entityType: "exam",
+        entityId: examId,
+        summary: `পরীক্ষা (${examId}) লক/আনলক করার অননুমোদিত চেষ্টা ব্লক করা হয়েছে।`,
+        severity: "CRITICAL",
+      });
+      return {
+        error:
+          guard.error ||
+          "পরীক্ষা লক বা আনলক করার অনুমতি কেবল মুহতামিম, অ্যাডমিন অথবা সুপার অ্যাডমিনের আছে।",
+      };
+    }
+
+    const adminClient = await createAdminClient();
+    const { data: examRow } = await adminClient
+      .from("exams")
+      .select("id, title, year")
+      .eq("id", examId)
+      .eq("madrasa_id", madrasaId)
+      .maybeSingle();
+
+    const examLabel = examRow ? `${examRow.title} (${examRow.year})` : examId;
+    const now = new Date().toISOString();
+    const cleanReason =
+      (reason || "").trim() ||
+      (shouldLock ? "ফলাফল চূড়ান্তকরণ ও নম্বর ফ্রিজ" : "মুহতামিম কর্তৃক পুনর্মূল্যায়নের জন্য আনলক");
+
+    const lockPayload: ExamLockState = {
+      is_locked: shouldLock,
+      locked_by: shouldLock ? user.id : null,
+      locked_by_name: shouldLock ? actorName : null,
+      locked_at: shouldLock ? now : null,
+      lock_reason: shouldLock ? cleanReason : null,
+    };
+
+    // 1. Update relational exams table columns if migrated
+    const { error: colErr } = await adminClient
+      .from("exams")
+      .update(lockPayload)
+      .eq("id", examId)
+      .eq("madrasa_id", madrasaId);
+
+    // 2. Always persist fallback in madrasa_settings (or metadata) if exams.is_locked column isn't added yet
+    if (colErr) {
+      const existingSetting = await getStructuredMadrasaSetting<Record<string, ExamLockState>>(
+        madrasaId,
+        "locks",
+        "exam_locks"
+      );
+      const nextMap: Record<string, ExamLockState> = {
+        ...(existingSetting.value || {}),
+        [examId]: lockPayload,
+      };
+      const savedSetting = await saveStructuredMadrasaSetting(
+        madrasaId,
+        "locks",
+        "exam_locks",
+        nextMap,
+        user.id
+      );
+      if (!savedSetting.ok) {
+        const meta: any = await getMadrasaMetadata(madrasaId);
+        meta.exam_locks = { ...(meta.exam_locks || {}), [examId]: lockPayload };
+        await saveMadrasaMetadata(madrasaId, meta);
+      }
+    }
+
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      actorName,
+      actorEmail,
+      actorRole,
+      module: "exams",
+      action: shouldLock ? "EXAM_LOCKED" : "EXAM_UNLOCKED",
+      entityType: "exam",
+      entityId: examId,
+      entityLabel: examLabel,
+      summary: shouldLock
+        ? `"${examLabel}" পরীক্ষাটি লক/ফ্রিজ করা হয়েছে — নম্বর ও সেটিংস পরিবর্তন বন্ধ। কারণ: ${cleanReason}`
+        : `"${examLabel}" পরীক্ষাটি আনলক করা হয়েছে। কারণ: ${cleanReason}`,
+      oldValue: { is_locked: !shouldLock },
+      newValue: lockPayload,
+      severity: shouldLock ? "WARNING" : "CRITICAL",
+    });
+
+    revalidatePath("/dashboard/exams");
+    revalidatePath(`/dashboard/exams/${examId}/marks`);
+    revalidatePath(`/dashboard/exams/${examId}/setup`);
+    revalidatePath(`/dashboard/exams/${examId}/results`);
+    revalidatePath("/dashboard/settings/data-governance");
+
+    return {
+      success: true,
+      is_locked: shouldLock,
+      message: shouldLock
+        ? `পরীক্ষা "${examLabel}" সফলভাবে লক/ফ্রিজ করা হয়েছে। এখন আর কেউ নম্বর পরিবর্তন করতে পারবেন না।`
+        : `পরীক্ষা "${examLabel}" আনলক করা হয়েছে। এখন নম্বর এন্ট্রি ও সংশোধন করা যাবে।`,
+    };
+  } catch (err: any) {
+    console.error("toggleExamLock error:", err);
+    return { error: err?.message || "পরীক্ষা লক/আনলক করতে ত্রুটি হয়েছে।" };
+  }
+}
+
 export async function toggleExamPublish(examId: string, isPublished: boolean, note?: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("exams");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("exams");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
@@ -229,6 +408,7 @@ export async function toggleExamPublish(examId: string, isPublished: boolean, no
     if (!madrasaId) return { error: "মাদরাসার তথ্য খুঁজে পাওয়া যায়নি।" };
 
     const meta = await getMadrasaMetadata(madrasaId);
+    const prevPublish = meta.published_exams?.[examId] || { is_published: false };
     if (!meta.published_exams) {
       meta.published_exams = {};
     }
@@ -241,13 +421,17 @@ export async function toggleExamPublish(examId: string, isPublished: boolean, no
 
     const publisherName = userData?.full_name || userData?.email || "কর্তৃপক্ষ";
 
-    meta.published_exams[examId] = {
+    const nextPublish = {
       is_published: isPublished,
       published_at: new Date().toISOString(),
       published_by: publisherName,
       note: note || "",
     };
 
+    // Save to relational exam_settings table first
+    await saveStructuredExamSetting(madrasaId, examId, "publish_info", nextPublish, user.id);
+
+    meta.published_exams[examId] = nextPublish;
     const saved = await saveMadrasaMetadata(madrasaId, meta);
     if (!saved) {
       return { error: "ফলাফলের অবস্থা সংরক্ষণ করা যায়নি।" };
@@ -255,12 +439,27 @@ export async function toggleExamPublish(examId: string, isPublished: boolean, no
 
     // Update status in exams table as well
     const adminClient = await createAdminClient();
-    await adminClient
+    const { data: examRow } = await adminClient
       .from("exams")
       .update({
         status: isPublished ? "Published" : "Completed",
       })
-      .eq("id", examId);
+      .eq("id", examId)
+      .select("title, year")
+      .maybeSingle();
+
+    await __authz.logAudit({
+      action: isPublished ? "EXAM_RESULT_PUBLISHED" : "EXAM_RESULT_UNPUBLISHED",
+      entityType: "exam",
+      entityId: examId,
+      entityLabel: examRow ? `${examRow.title} (${examRow.year})` : examId,
+      summary: isPublished
+        ? `পরীক্ষার ফলাফল আনুষ্ঠানিকভাবে প্রকাশ করা হয়েছে (${examRow?.title || examId})।`
+        : `পরীক্ষার ফলাফল স্থগিত/অপ্রকাশিত করা হয়েছে (${examRow?.title || examId})।`,
+      oldValue: prevPublish,
+      newValue: nextPublish,
+      severity: isPublished ? "WARNING" : "CRITICAL",
+    });
 
     revalidatePath("/dashboard/exams");
     revalidatePath(`/dashboard/exams/${examId}/results`);
@@ -309,10 +508,8 @@ export async function getExamPublishStatus(examId: string) {
 export async function createExam(prevState: any, formData: FormData) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("exams");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("exams");
+  if (!__authz.allowed) return __authz.fallback;
 
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
@@ -380,6 +577,16 @@ export async function createExam(prevState: any, formData: FormData) {
     }
   }
 
+  await __authz.logAudit({
+    action: "EXAM_CREATED",
+    entityType: "exam",
+    entityId: newExamId,
+    entityLabel: `${title} (${year})`,
+    summary: `নতুন পরীক্ষা "${title} (${year})" তৈরি করা হয়েছে।`,
+    newValue: { title, year, start_date: start_date || null, end_date: end_date || null },
+    severity: "INFO",
+  });
+
   revalidatePath("/dashboard/exams");
   return { success: true };
 }
@@ -387,16 +594,24 @@ export async function createExam(prevState: any, formData: FormData) {
 export async function updateExamDetails(examId: string, data: { title?: string; year?: string; start_date?: string | null; end_date?: string | null }) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("exams");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("exams");
+  if (!__authz.allowed) return __authz.fallback;
 
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+  if (finalMadrasaId) {
+    const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার তথ্য সংশোধন");
+    if (lockCheck.locked) return { error: lockCheck.error };
+  }
+
+  const { data: oldExam } = await supabase
+    .from("exams")
+    .select("title, year, start_date, end_date")
+    .eq("id", examId)
+    .maybeSingle();
 
   const computed = computeExamStatus(data.start_date, null, undefined, data.end_date);
 
@@ -437,6 +652,17 @@ export async function updateExamDetails(examId: string, data: { title?: string; 
     }
   }
 
+  await __authz.logAudit({
+    action: "EXAM_UPDATED",
+    entityType: "exam",
+    entityId: examId,
+    entityLabel: `${data.title || oldExam?.title || examId} (${data.year || oldExam?.year || ""})`,
+    summary: `পরীক্ষার তথ্য হালনাগাদ করা হয়েছে: "${data.title || oldExam?.title || examId}"।`,
+    oldValue: oldExam || null,
+    newValue: data,
+    severity: "INFO",
+  });
+
   revalidatePath("/dashboard/exams");
   revalidatePath(`/dashboard/exams/${examId}/setup`);
   return { success: true };
@@ -445,14 +671,23 @@ export async function updateExamDetails(examId: string, data: { title?: string; 
 export async function deleteExam(examId: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("exams");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("exams");
+  if (!__authz.allowed) return __authz.fallback;
 
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   const finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+
+  if (finalMadrasaId) {
+    const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষাটি মুছে ফেলা");
+    if (lockCheck.locked) return { error: lockCheck.error };
+  }
+
+  const { data: oldExam } = await supabase
+    .from("exams")
+    .select("id, title, year, start_date, status")
+    .eq("id", examId)
+    .maybeSingle();
 
   const { error } = await supabase.from("exams").delete().eq("id", examId);
 
@@ -472,6 +707,16 @@ export async function deleteExam(examId: string) {
       console.error("Error cleaning exam metadata:", metaErr);
     }
   }
+
+  await __authz.logAudit({
+    action: "EXAM_DELETED",
+    entityType: "exam",
+    entityId: examId,
+    entityLabel: oldExam ? `${oldExam.title} (${oldExam.year})` : examId,
+    summary: `পরীক্ষা "${oldExam?.title || examId}" মুছে ফেলা হয়েছে।`,
+    oldValue: oldExam || null,
+    severity: "CRITICAL",
+  });
 
   revalidatePath("/dashboard/exams");
   return { success: true };
@@ -573,10 +818,8 @@ export async function getExamResults(examId: string, classId: string, subjectNam
 export async function saveExamMarks(examId: string, subjectName: string, marksData: { student_id: string, marks_obtained: number, total_marks: number }[]) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("exams");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("exams");
+  if (!__authz.allowed) return __authz.fallback;
 
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
@@ -584,6 +827,27 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
+
+  // 1.3 Granular Exam Marks Freeze Guard
+  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার নম্বর এন্ট্রি বা পরিবর্তন");
+  if (lockCheck.locked) return { error: lockCheck.error };
+
+  // Snapshot existing marks before upsert so we can track exact changes in system_audit_logs
+  const studentIds = marksData.map((m) => m.student_id);
+  const { data: prevRows } = await supabase
+    .from("exam_results")
+    .select("student_id, marks_obtained, total_marks")
+    .eq("exam_id", examId)
+    .eq("subject_name", subjectName)
+    .in("student_id", studentIds);
+
+  const prevMap = new Map<string, { marks_obtained: number; total_marks: number }>();
+  (prevRows || []).forEach((r: any) => {
+    prevMap.set(r.student_id, {
+      marks_obtained: Number(r.marks_obtained),
+      total_marks: Number(r.total_marks),
+    });
+  });
 
   const recordsToUpsert = marksData.map(record => ({
     madrasa_id: finalMadrasaId,
@@ -601,6 +865,50 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
   if (error) {
     console.error("Error saving marks:", error);
     return { error: error.message };
+  }
+
+  // Build compact changed-marks diff for immutable audit trail
+  const changedEntries = marksData
+    .map((m) => {
+      const prev = prevMap.get(m.student_id);
+      if (!prev) {
+        return {
+          student_id: m.student_id,
+          before: null,
+          after: { marks_obtained: m.marks_obtained, total_marks: m.total_marks },
+        };
+      }
+      if (prev.marks_obtained !== m.marks_obtained || prev.total_marks !== m.total_marks) {
+        return {
+          student_id: m.student_id,
+          before: prev,
+          after: { marks_obtained: m.marks_obtained, total_marks: m.total_marks },
+        };
+      }
+      return null;
+    })
+    .filter(Boolean);
+
+  if (changedEntries.length > 0) {
+    const updatedCount = changedEntries.filter((c: any) => c.before !== null).length;
+    const newCount = changedEntries.length - updatedCount;
+    await __authz.logAudit({
+      action: updatedCount > 0 ? "EXAM_MARKS_UPDATED" : "EXAM_MARKS_ENTERED",
+      entityType: "exam_marks",
+      entityId: examId,
+      entityLabel: `${subjectName} (${changedEntries.length} জন শিক্ষার্থী)`,
+      summary: `"${subjectName}" বিষয়ের নম্বর সংরক্ষণ করা হয়েছে (নতুন: ${newCount} জন, সংশোধিত: ${updatedCount} জন)।`,
+      oldValue: changedEntries.slice(0, 40).map((c: any) => ({
+        student_id: c.student_id,
+        ...(c.before || { marks_obtained: null }),
+      })),
+      newValue: changedEntries.slice(0, 40).map((c: any) => ({
+        student_id: c.student_id,
+        ...c.after,
+      })),
+      metadata: { subject_name: subjectName, total_changed: changedEntries.length },
+      severity: updatedCount > 0 ? "WARNING" : "INFO",
+    });
   }
 
   revalidatePath(`/dashboard/exams/${examId}/marks`);
@@ -628,7 +936,7 @@ export async function getStudentReportCard(examId: string, classId?: string) {
   
   if (studentsError || !students.length) return [];
 
-  const [{ data: results, error: resultsError }, { data: validSubjects }, madrasaMeta] = await Promise.all([
+  const [{ data: results, error: resultsError }, { data: validSubjects }, settingsBundle] = await Promise.all([
     supabase
       .from("exam_results")
       .select("*")
@@ -638,16 +946,16 @@ export async function getStudentReportCard(examId: string, classId?: string) {
       .from("exam_subjects")
       .select("*")
       .eq("exam_id", examId),
-    getMadrasaMetadata(finalMadrasaId)
+    getExamSettingsBundle(finalMadrasaId, examId),
   ]);
     
   if (resultsError) return [];
 
-  // Evaluation rules, grading config, and per-subject compulsory settings
-  const gradingConfig = normalizeGradingConfig(madrasaMeta?.exam_grading_config || madrasaMeta?.exam_grade_scale);
-  const examRules = madrasaMeta?.exam_evaluation_rules?.[examId] || {};
+  // Evaluation rules, grading config, and per-subject compulsory settings (from structured exam_settings with fallback)
+  const gradingConfig = settingsBundle.gradingConfig;
+  const examRules = settingsBundle.evaluationRules || {};
   const failPolicy = examRules?.fail_policy || "compulsory_subject_fail"; // "compulsory_subject_fail" | "any_subject_fail" | "percentage_only"
-  const compulsoryMeta = madrasaMeta?.exam_compulsory_subjects?.[examId] || {};
+  const compulsoryMeta = settingsBundle.compulsorySubjects || {};
   const gradeRules = gradingConfig.rules;
   const minPassPct = getMinPassPercentage(gradeRules);
   const failRule = getFailRule(gradeRules);
@@ -887,8 +1195,7 @@ export async function getExamGradingConfig(explicitMadrasaId?: string): Promise<
       madrasaId = user ? await getAuthMadrasaId(supabase, user) : "";
     }
     if (!madrasaId) return DEFAULT_GRADING_CONFIG;
-    const meta = await getMadrasaMetadata(madrasaId);
-    return normalizeGradingConfig(meta?.exam_grading_config || meta?.exam_grade_scale);
+    return await getStructuredExamGradingConfig(madrasaId);
   } catch (err) {
     console.warn("getExamGradingConfig error:", err);
     return DEFAULT_GRADING_CONFIG;
@@ -913,22 +1220,30 @@ export async function saveExamGradingConfig(config: ExamGradingConfig): Promise<
       return { error: "কমপক্ষে ২টি গ্রেড ধাপ (পাস ও ফেল) থাকতে হবে।" };
     }
 
-    const normalizedConfig = normalizeGradingConfig(config);
-    const meta = await getMadrasaMetadata(madrasaId);
-    meta.exam_grading_config = normalizedConfig;
-    meta.exam_grade_scale = normalizedConfig.rules; // keep legacy synced
-
-    const saved = await saveMadrasaMetadata(madrasaId, meta);
-    if (!saved) {
+    const oldConfig = await getStructuredExamGradingConfig(madrasaId);
+    const saveRes = await saveStructuredExamGradingConfig(madrasaId, config, user?.id || null);
+    if (!saveRes.ok) {
       return { error: "গ্রেড সেটিংস সংরক্ষণ করতে সমস্যা হয়েছে।" };
     }
+
+    await __authz.logAudit({
+      action: "EXAM_GRADING_CONFIG_UPDATED",
+      entityType: "exam_settings",
+      entityId: "grading_config",
+      entityLabel: "পরীক্ষা গ্রেডিং স্কেল ও ক্যালকুলেশন মোড",
+      summary: `গ্রেডিং কনফিগারেশন আপডেট করা হয়েছে (মোড: ${saveRes.config.calculationMode}, সর্বোচ্চ নম্বর স্কোপ: ${saveRes.config.highestMarksScope})।`,
+      oldValue: oldConfig,
+      newValue: saveRes.config,
+      metadata: { storage: saveRes.storage },
+      severity: "WARNING",
+    });
 
     revalidatePath("/dashboard/exams");
     revalidatePath("/dashboard/exams/grading");
     revalidatePath("/portal/exams");
     revalidatePath("/teacher-portal/exams");
 
-    return { success: true, config: normalizedConfig };
+    return { success: true, config: saveRes.config };
   } catch (err: any) {
     console.error("saveExamGradingConfig error:", err);
     return { error: err?.message || "গ্রেড সেটিংস সংরক্ষণে ত্রুটি হয়েছে।" };
@@ -979,13 +1294,16 @@ export async function getExamSubjects(examId: string, classId: string) {
   const user = await getAuthUser(supabase);
   const finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-  const [{ data, error }, madrasaMeta] = await Promise.all([
+  const [{ data, error }, compSetting, madrasaMeta] = await Promise.all([
     supabase
       .from("exam_subjects")
       .select("*")
       .eq("exam_id", examId)
       .eq("class_id", classId)
       .order("created_at", { ascending: true }),
+    finalMadrasaId
+      ? getStructuredExamSetting<Record<string, boolean>>(finalMadrasaId, examId, "compulsory_subjects")
+      : Promise.resolve({ found: false, value: null, source: "fallback" as const }),
     finalMadrasaId ? getMadrasaMetadata(finalMadrasaId) : Promise.resolve({} as MadrasaMetaWithSessions)
   ]);
 
@@ -994,7 +1312,10 @@ export async function getExamSubjects(examId: string, classId: string) {
     return [];
   }
 
-  const compulsoryMeta = madrasaMeta?.exam_compulsory_subjects?.[examId] || {};
+  const compulsoryMeta: Record<string, boolean> =
+    (compSetting.found && compSetting.value) ||
+    madrasaMeta?.exam_compulsory_subjects?.[examId] ||
+    {};
 
   return (data || []).map((sub: any) => {
     const isComp = compulsoryMeta[`${classId}:${sub.subject_name}`] !== undefined
@@ -1015,6 +1336,15 @@ export async function getExamEvaluationSettings(examId: string) {
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { fail_policy: "compulsory_subject_fail" };
 
+  const sqlSetting = await getStructuredExamSetting<{ fail_policy: string }>(
+    finalMadrasaId,
+    examId,
+    "evaluation_rules"
+  );
+  if (sqlSetting.found && sqlSetting.value) {
+    return sqlSetting.value;
+  }
+
   const madrasaMeta = await getMadrasaMetadata(finalMadrasaId);
   return madrasaMeta?.exam_evaluation_rules?.[examId] || { fail_policy: "compulsory_subject_fail" };
 }
@@ -1022,10 +1352,8 @@ export async function getExamEvaluationSettings(examId: string) {
 export async function saveExamEvaluationSettings(examId: string, settings: { fail_policy: string }) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("exams");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("exams");
+  if (!__authz.allowed) return __authz.fallback;
 
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
@@ -1033,23 +1361,49 @@ export async function saveExamEvaluationSettings(examId: string, settings: { fai
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
-  const madrasaMeta = await getMadrasaMetadata(finalMadrasaId);
-  const examRules = madrasaMeta.exam_evaluation_rules || {};
-  examRules[examId] = {
-    ...(examRules[examId] || {}),
+  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার মূল্যায়ন নীতিমালা পরিবর্তন");
+  if (lockCheck.locked) return { error: lockCheck.error };
+
+  const prevRule = await getExamEvaluationSettings(examId);
+  const nextRule = {
+    ...prevRule,
     ...settings,
-    updated_at: new Date().toISOString()
+    updated_at: new Date().toISOString(),
   };
 
-  const updatedMeta: MadrasaMetaWithSessions = {
-    ...madrasaMeta,
-    exam_evaluation_rules: examRules
-  };
+  // Write to structured exam_settings table first
+  const sqlSaved = await saveStructuredExamSetting(
+    finalMadrasaId,
+    examId,
+    "evaluation_rules",
+    nextRule,
+    user.id
+  );
 
-  const saveRes = await saveMadrasaMetadata(finalMadrasaId, updatedMeta);
-  if (!saveRes) {
-    return { error: "Failed to save evaluation settings" };
+  if (!sqlSaved.ok) {
+    const madrasaMeta = await getMadrasaMetadata(finalMadrasaId);
+    const examRules = madrasaMeta.exam_evaluation_rules || {};
+    examRules[examId] = nextRule;
+    const saveRes = await saveMadrasaMetadata(finalMadrasaId, {
+      ...madrasaMeta,
+      exam_evaluation_rules: examRules,
+    });
+    if (!saveRes) {
+      return { error: "Failed to save evaluation settings" };
+    }
   }
+
+  await __authz.logAudit({
+    action: "EXAM_EVALUATION_RULE_UPDATED",
+    entityType: "exam_settings",
+    entityId: examId,
+    entityLabel: `মূল্যায়ন নীতি (${settings.fail_policy})`,
+    summary: `পরীক্ষার মূল্যায়ন/ফেল নীতিমালা পরিবর্তন করা হয়েছে।`,
+    oldValue: prevRule,
+    newValue: nextRule,
+    metadata: { storage: sqlSaved.storage },
+    severity: "INFO",
+  });
 
   revalidatePath(`/dashboard/exams/${examId}`);
   return { success: true };
@@ -1058,16 +1412,17 @@ export async function saveExamEvaluationSettings(examId: string, settings: { fai
 export async function saveExamSubjects(examId: string, classId: string, subjectsData: any[], failPolicy?: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("exams");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("exams");
+  if (!__authz.allowed) return __authz.fallback;
 
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return { error: "Unauthorized" };
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
+
+  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার বিষয় ও পূর্ণমান পরিবর্তন");
+  if (lockCheck.locked) return { error: lockCheck.error };
 
   // Delete existing records for this class & exam
   await supabase
@@ -1097,32 +1452,82 @@ export async function saveExamSubjects(examId: string, classId: string, subjects
     }
   }
 
-  // Persist compulsory flags & fail policy in metadata
+  // Persist compulsory flags & fail policy to structured exam_settings first, with fallback
+  const existingComp = await getStructuredExamSetting<Record<string, boolean>>(
+    finalMadrasaId,
+    examId,
+    "compulsory_subjects"
+  );
   const madrasaMeta = await getMadrasaMetadata(finalMadrasaId);
-  const compulsoryMeta = madrasaMeta.exam_compulsory_subjects || {};
-  const currentExamCompulsory = compulsoryMeta[examId] || {};
+  const currentExamCompulsory: Record<string, boolean> = {
+    ...(madrasaMeta.exam_compulsory_subjects?.[examId] || {}),
+    ...(existingComp.value || {}),
+  };
 
   subjectsData.forEach(sub => {
     currentExamCompulsory[`${classId}:${sub.subject_name}`] = sub.is_compulsory !== false;
   });
-  compulsoryMeta[examId] = currentExamCompulsory;
 
-  const examRules = madrasaMeta.exam_evaluation_rules || {};
+  const compSqlRes = await saveStructuredExamSetting(
+    finalMadrasaId,
+    examId,
+    "compulsory_subjects",
+    currentExamCompulsory,
+    user.id
+  );
+
+  let ruleSqlOk = true;
   if (failPolicy) {
-    examRules[examId] = {
-      ...(examRules[examId] || {}),
+    const nextRule = {
+      ...(madrasaMeta.exam_evaluation_rules?.[examId] || {}),
       fail_policy: failPolicy,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     };
+    const rRes = await saveStructuredExamSetting(
+      finalMadrasaId,
+      examId,
+      "evaluation_rules",
+      nextRule,
+      user.id
+    );
+    ruleSqlOk = rRes.ok;
   }
 
-  const updatedMeta: MadrasaMetaWithSessions = {
-    ...madrasaMeta,
-    exam_compulsory_subjects: compulsoryMeta,
-    exam_evaluation_rules: examRules
-  };
+  if (!compSqlRes.ok || !ruleSqlOk) {
+    const compulsoryMeta = madrasaMeta.exam_compulsory_subjects || {};
+    compulsoryMeta[examId] = currentExamCompulsory;
+    const examRules = madrasaMeta.exam_evaluation_rules || {};
+    if (failPolicy) {
+      examRules[examId] = {
+        ...(examRules[examId] || {}),
+        fail_policy: failPolicy,
+        updated_at: new Date().toISOString(),
+      };
+    }
+    await saveMadrasaMetadata(finalMadrasaId, {
+      ...madrasaMeta,
+      exam_compulsory_subjects: compulsoryMeta,
+      exam_evaluation_rules: examRules,
+    });
+  }
 
-  await saveMadrasaMetadata(finalMadrasaId, updatedMeta);
+  await __authz.logAudit({
+    action: "EXAM_SUBJECTS_CONFIGURED",
+    entityType: "exam_subjects",
+    entityId: `${examId}:${classId}`,
+    entityLabel: `${recordsToInsert.length} টি বিষয় কনফিগার করা হয়েছে`,
+    summary: `পরীক্ষার শ্রেণিভিত্তিক বিষয় তালিকা (${recordsToInsert.length} টি বিষয়) সংরক্ষণ করা হয়েছে।`,
+    newValue: {
+      class_id: classId,
+      fail_policy: failPolicy || null,
+      subjects: recordsToInsert.map((r) => ({
+        subject_name: r.subject_name,
+        total_marks: r.total_marks,
+        pass_marks: r.pass_marks,
+      })),
+    },
+    severity: "INFO",
+  });
 
   revalidatePath(`/dashboard/exams/${examId}/setup`);
   revalidatePath(`/dashboard/exams/${examId}/results`);
@@ -1130,3 +1535,4 @@ export async function saveExamSubjects(examId: string, classId: string, subjects
   revalidatePath(`/dashboard/exams/${examId}/report-cards`);
   return { success: true };
 }
+

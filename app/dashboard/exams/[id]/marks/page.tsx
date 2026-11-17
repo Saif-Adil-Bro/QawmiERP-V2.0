@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getExamById } from "@/app/actions/exams";
+import { getCanManageLocks } from "@/app/actions/locks";
 import { getClasses } from "@/app/actions/students";
 import MarksEntryClient from "./MarksEntryClient";
 import { notFound } from "next/navigation";
@@ -14,9 +15,10 @@ export default async function ExamMarksPage({
   const resolvedParams = await params;
   const examId = resolvedParams.id;
   
-  const [exam, classes] = await Promise.all([
+  const [exam, classes, canManageLocks] = await Promise.all([
     getExamById(examId),
-    getClasses()
+    getClasses(),
+    getCanManageLocks(),
   ]);
 
   if (!exam) {
@@ -41,7 +43,16 @@ export default async function ExamMarksPage({
       <ExamNavTabs examId={examId} />
 
       <div className="bg-white rounded-xl shadow-sm border p-6">
-        <MarksEntryClient examId={examId} classes={classes} />
+        <MarksEntryClient
+          examId={examId}
+          examTitle={`${exam.title} - ${exam.year}`}
+          classes={classes}
+          initialLocked={Boolean((exam as any).is_locked)}
+          lockedByName={(exam as any).locked_by_name || null}
+          lockedAt={(exam as any).locked_at || null}
+          lockReason={(exam as any).lock_reason || null}
+          canManageLocks={canManageLocks}
+        />
       </div>
     </div>
   );

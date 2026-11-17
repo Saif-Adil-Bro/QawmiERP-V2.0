@@ -5,6 +5,12 @@ import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
+import {
+  listStructuredStaffLeaves,
+  upsertStructuredStaffLeave,
+  deleteStructuredStaffLeavesForStaff,
+} from "@/lib/structured-config";
+import { logAuditEvent } from "@/lib/audit-log";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import {
   StaffMember,
@@ -282,7 +288,10 @@ export async function getStaffDashboardData() {
 
     const categories: StaffCategory[] = meta.staff_categories || DEFAULT_STAFF_CATEGORIES;
     const departments: StaffDepartment[] = meta.staff_departments || DEFAULT_STAFF_DEPARTMENTS;
-    const leaveRequests: StaffLeaveRequest[] = meta.staff_leave_requests || [];
+    const { leaves: leaveRequests } = await listStructuredStaffLeaves(
+      madrasaId,
+      meta.staff_leave_requests || []
+    );
 
     // Stats
     const stats = {
@@ -1057,10 +1066,8 @@ export async function submitStaffLeaveRequest(payload: {
 }) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("staff");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("staff");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
@@ -1090,10 +1097,24 @@ export async function submitStaffLeaveRequest(payload: {
       created_at: new Date().toISOString(),
     };
 
-    if (!meta.staff_leave_requests) meta.staff_leave_requests = [];
-    meta.staff_leave_requests.unshift(leaveReq);
+    // 1.2 Write to relational staff_leave_requests table first (no JSON race condition)
+    const sqlRes = await upsertStructuredStaffLeave(leaveReq);
+    if (!sqlRes.ok) {
+      if (!meta.staff_leave_requests) meta.staff_leave_requests = [];
+      meta.staff_leave_requests.unshift(leaveReq);
+      await saveMadrasaMetadata(madrasaId, meta);
+    }
 
-    await saveMadrasaMetadata(madrasaId, meta);
+    await __authz.logAudit({
+      action: "STAFF_LEAVE_REQUESTED",
+      entityType: "staff_leave_request",
+      entityId: leaveReq.id,
+      entityLabel: `${leaveReq.staff_name} (${leaveReq.leave_type_name_bn})`,
+      summary: `${leaveReq.staff_name}-এর ${leaveReq.total_days} দিনের ${leaveReq.leave_type_name_bn} আবেদন জমা দেওয়া হয়েছে (${leaveReq.start_date} থেকে ${leaveReq.end_date})।`,
+      newValue: leaveReq,
+      metadata: { storage: sqlRes.storage },
+      severity: "INFO",
+    });
 
     revalidatePath("/dashboard/teachers");
     revalidatePath(`/dashboard/teachers/${payload.staffId}`);
@@ -1113,10 +1134,8 @@ export async function reviewStaffLeaveRequest(payload: {
 }) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("staff");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("staff");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
@@ -1127,20 +1146,37 @@ export async function reviewStaffLeaveRequest(payload: {
     if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
 
     const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
-    let leaves = meta.staff_leave_requests || [];
+    const { leaves: allLeaves } = await listStructuredStaffLeaves(
+      madrasaId,
+      meta.staff_leave_requests || []
+    );
 
-    const index = leaves.findIndex((l) => l.id === payload.requestId);
-    if (index === -1) return { error: "আবেদন পাওয়া যায়নি।" };
+    const req = allLeaves.find((l) => l.id === payload.requestId);
+    if (!req) return { error: "আবেদন পাওয়া যায়নি।" };
 
-    const req = leaves[index];
+    const prevStatus = req.status;
     const nowStr = new Date().toISOString();
 
-    req.status = payload.status;
-    req.reviewed_by = user.email || "অ্যাডমিন";
-    req.review_reason = payload.reviewReason || "";
-    req.reviewed_at = nowStr;
-    leaves[index] = req;
-    meta.staff_leave_requests = leaves;
+    const updatedReq: StaffLeaveRequest = {
+      ...req,
+      status: payload.status,
+      reviewed_by: user.email || "অ্যাডমিন",
+      review_reason: payload.reviewReason || "",
+      reviewed_at: nowStr,
+    };
+
+    // 1.2 Persist update to relational staff_leave_requests table first
+    const sqlRes = await upsertStructuredStaffLeave(updatedReq, user.id);
+
+    // Keep legacy metadata updated if record existed there or if SQL table isn't created yet
+    const legacyLeaves = meta.staff_leave_requests || [];
+    const legacyIdx = legacyLeaves.findIndex((l) => l.id === payload.requestId);
+    if (legacyIdx !== -1) {
+      legacyLeaves[legacyIdx] = updatedReq;
+      meta.staff_leave_requests = legacyLeaves;
+    } else if (!sqlRes.ok) {
+      meta.staff_leave_requests = [updatedReq, ...legacyLeaves];
+    }
 
     // If approved, update staff's leave balance and audit log
     if (payload.status === "APPROVED") {
@@ -1183,7 +1219,21 @@ export async function reviewStaffLeaveRequest(payload: {
       }
     }
 
-    await saveMadrasaMetadata(madrasaId, meta);
+    if (payload.status === "APPROVED" || legacyIdx !== -1 || !sqlRes.ok) {
+      await saveMadrasaMetadata(madrasaId, meta);
+    }
+
+    await __authz.logAudit({
+      action: payload.status === "APPROVED" ? "STAFF_LEAVE_APPROVED" : "STAFF_LEAVE_REJECTED",
+      entityType: "staff_leave_request",
+      entityId: req.id,
+      entityLabel: `${req.staff_name} (${req.leave_type_name_bn})`,
+      summary: `${req.staff_name}-এর ${req.total_days} দিনের ছুটির আবেদন ${payload.status === "APPROVED" ? "অনুমোদন" : "প্রত্যাখ্যান"} করা হয়েছে।`,
+      oldValue: { status: prevStatus },
+      newValue: { status: payload.status, review_reason: payload.reviewReason || "" },
+      metadata: { storage: sqlRes.storage },
+      severity: "INFO",
+    });
 
     revalidatePath("/dashboard/teachers");
     revalidatePath(`/dashboard/teachers/${req.staff_id}`);
@@ -1669,12 +1719,17 @@ export async function getStaffMetadataFull() {
     await saveMadrasaMetadata(madrasaId, meta);
   }
 
+  const leaveRequestsRes = await listStructuredStaffLeaves(
+    madrasaId,
+    meta.staff_leave_requests || []
+  );
+
   return {
     staff_members: syncResult.members || [],
     categories: meta.staff_categories && meta.staff_categories.length > 0 ? meta.staff_categories : DEFAULT_STAFF_CATEGORIES,
     departments: meta.staff_departments && meta.staff_departments.length > 0 ? meta.staff_departments : DEFAULT_STAFF_DEPARTMENTS,
     designations: meta.staff_designations && meta.staff_designations.length > 0 ? meta.staff_designations : DEFAULT_STAFF_DESIGNATIONS,
-    leave_requests: meta.staff_leave_requests || [],
+    leave_requests: leaveRequestsRes.leaves,
     salary_records: meta.staff_salary_records || [],
     madrasa_info: madrasaInfo,
   };
@@ -1865,10 +1920,8 @@ export async function deleteStaffCategory(catId: string) {
 export async function deleteStaffMember(staffId: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("staff");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("staff");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
@@ -1897,6 +1950,9 @@ export async function deleteStaffMember(staffId: string) {
     if (meta.staff_salary_records) {
       meta.staff_salary_records = meta.staff_salary_records.filter((r) => r.staff_id !== staffId);
     }
+
+    // Also delete associated leave requests from structured SQL table
+    await deleteStructuredStaffLeavesForStaff(madrasaId, staffId);
 
     // Add Audit Log
     const auditLogs = meta.staff_audit_logs || [];
@@ -1938,6 +1994,29 @@ export async function deleteStaffMember(staffId: string) {
     } catch (subErr) {
       console.warn("Teacher subjects delete error:", subErr);
     }
+
+    const staffName =
+      targetStaff?.personal?.full_name_bn ||
+      targetStaff?.personal?.first_name ||
+      "স্টাফ";
+    await __authz.logAudit({
+      module: "staff",
+      action: "STAFF_DELETED",
+      entityType: "staff",
+      entityId: staffId,
+      entityLabel: staffName,
+      summary: `${staffName} (স্টাফ/শিক্ষক) সদস্যকে ডাটাবেজ থেকে মুছে ফেলা হয়েছে।`,
+      oldValue: targetStaff
+        ? {
+            id: targetStaff.id,
+            name: staffName,
+            email: targetEmail || null,
+            designation: targetStaff.employment?.designation || null,
+            department_id: targetStaff.employment?.department_id || null,
+          }
+        : { id: staffId },
+      severity: "CRITICAL",
+    });
 
     revalidatePath("/dashboard/staff");
     revalidatePath("/dashboard/teachers");

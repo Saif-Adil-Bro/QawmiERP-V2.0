@@ -1,6 +1,9 @@
 import { cache } from "react";
 import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/permissions-server";
+import { logAuditEvent, type AuditSeverity } from "@/lib/audit-log";
+
+export { logAuditEvent };
 
 /**
  * ============================================================================
@@ -19,6 +22,7 @@ import { requirePermission } from "@/lib/permissions-server";
  *   ২. ইউজারের মাদ্রাসা (tenant) রেজলভ করে — না পেলে fail-closed
  *   ৩. মডিউল-ভিত্তিক পারমিশন/রোল নীতি প্রয়োগ করে
  *   ৪. পোর্টাল-রোল (student/parent) কে ড্যাশবোর্ড write path থেকে সরাসরি ব্লক করে
+ *   ৫. ইউনিফাইড `logAuditEvent` মিডলওয়্যার সংযুক্ত করে (অননুমোদিত চেষ্টা অটো-লগ + বাউন্ড `logAudit`)
  *
  * `requirePermission`-এর মতোই OR শর্ত: permissions **অথবা** roles-এর যেকোনো একটি মিললেই অনুমতি।
  */
@@ -267,10 +271,33 @@ export const MODULE_POLICIES: Record<ModuleKey, ModulePolicy> = {
   },
 };
 
+export interface BoundAuditPayload {
+  action: string;
+  module?: string;
+  entityType?: string | null;
+  entityId?: string | null;
+  entityLabel?: string | null;
+  summary: string;
+  oldValue?: unknown;
+  newValue?: unknown;
+  metadata?: Record<string, unknown>;
+  severity?: AuditSeverity;
+}
+
 export type ActionGuardAllowed = {
   allowed: true;
   userId?: string;
   madrasaId?: string;
+  actorName?: string;
+  actorEmail?: string;
+  actorRole?: string;
+  roles?: string[];
+  /** বাউন্ড অডিট লগার — `writeGuard` থেকেই সরাসরি অপরিবর্তনীয় `system_audit_logs`-এ লগ করার জন্য */
+  logAudit: (payload: BoundAuditPayload) => Promise<{
+    success: boolean;
+    storage: "sql" | "fallback" | "none";
+    id?: string;
+  }>;
 };
 
 /**
@@ -312,21 +339,29 @@ function denied<T = never>(
 }
 
 /**
- * write action-এর জন্য কেন্দ্রীয় guard।
+ * write action-এর জন্য কেন্দ্রীয় guard + অডিট মিডলওয়্যার।
  *
  * ব্যবহার (প্রতিটি write action-এর শুরুতে):
  * ```ts
  * const __authz = await writeGuard("finance");
  * if (!__authz.allowed) return __authz.fallback;
+ * // ... mutation ...
+ * await __authz.logAudit({ action: "EXPENSE_CREATED", summary: "...", newValue: ... });
  * ```
  */
 export async function writeGuard<T = never>(
-  module: ModuleKey = "generic"
+  module: ModuleKey = "generic",
+  autoAudit?: BoundAuditPayload
 ): Promise<ActionGuardResult<T>> {
   // একই রিকোয়েস্টে একাধিক guarded action পরপর ডাকা হলে (নেস্টেড কল, বাল্ক অপারেশন)
   // যাচাইয়ের ফলাফল-ই যথেষ্ট; React `cache()` দিয়ে per-request memoize করা হয় —
   // ফলে অতিরিক্ত DB round-trip হয় না, কিন্তু নিরাপত্তা এক বিন্দুও কমে না।
-  return (await resolveGuard(module)) as ActionGuardResult<T>;
+  const res = (await resolveGuard(module)) as ActionGuardResult<T>;
+  if (res.allowed && autoAudit) {
+    // Non-blocking audit record when caller provides autoAudit metadata
+    res.logAudit(autoAudit).catch(() => {});
+  }
+  return res;
 }
 
 const resolveGuard = cache(async (module: ModuleKey): Promise<ActionGuardResult> => {
@@ -338,7 +373,7 @@ const resolveGuard = cache(async (module: ModuleKey): Promise<ActionGuardResult>
     const adminClient = await createAdminClient();
     const { data: userRow, error: userErr } = await adminClient
       .from("users")
-      .select("madrasa_id")
+      .select("madrasa_id, full_name, email, role")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -360,11 +395,64 @@ const resolveGuard = cache(async (module: ModuleKey): Promise<ActionGuardResult>
       denyRoles: policy.denyRoles,
     });
 
+    const actorName =
+      result.context?.profile?.fullName ||
+      (userRow as any)?.full_name ||
+      user.email ||
+      "সিস্টেম ব্যবহারকারী";
+    const actorEmail =
+      result.context?.profile?.email || (userRow as any)?.email || user.email || undefined;
+    const actorRole = result.context?.role || (userRow as any)?.role || undefined;
+
     if (!result.allowed) {
+      // স্বয়ংক্রিয়ভাবে অননুমোদিত রাইট অ্যাক্সেস চেষ্টা অডিট লগে রেকর্ড করুন
+      logAuditEvent({
+        madrasaId,
+        actorId: user.id,
+        actorName,
+        actorEmail,
+        actorRole,
+        module: "security",
+        action: "UNAUTHORIZED_WRITE_ATTEMPT",
+        entityType: module,
+        summary: `"${module}" মডিউলে অননুমোদিত পরিবর্তনের চেষ্টা ব্লক করা হয়েছে (${actorRole || "unknown"})।`,
+        metadata: { target_module: module, reason: result.error || "FORBIDDEN" },
+        severity: "CRITICAL",
+      }).catch(() => {});
+
       return denied(result.error || "অনুমতি নেই।", "FORBIDDEN");
     }
 
-    return { allowed: true, userId: user.id, madrasaId };
+    const boundLogAudit: ActionGuardAllowed["logAudit"] = async (payload) => {
+      return logAuditEvent({
+        madrasaId,
+        actorId: user.id,
+        actorName,
+        actorEmail,
+        actorRole,
+        module: payload.module || module,
+        action: payload.action,
+        entityType: payload.entityType,
+        entityId: payload.entityId,
+        entityLabel: payload.entityLabel,
+        summary: payload.summary,
+        oldValue: payload.oldValue,
+        newValue: payload.newValue,
+        metadata: payload.metadata,
+        severity: payload.severity || "INFO",
+      });
+    };
+
+    return {
+      allowed: true,
+      userId: user.id,
+      madrasaId,
+      actorName,
+      actorEmail,
+      actorRole,
+      roles: result.context?.roles || (actorRole ? [actorRole] : []),
+      logAudit: boundLogAudit,
+    };
   } catch (err) {
     console.error(`writeGuard(${module}) ব্যর্থ:`, err);
     return denied(INTERNAL_ERROR, "INTERNAL");

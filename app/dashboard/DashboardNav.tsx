@@ -39,6 +39,8 @@ import {
   SlidersHorizontal,
   UserPlus,
   FileSpreadsheet,
+  Lock,
+  FileSearch,
 } from "lucide-react";
 import { usePermissions } from "@/components/permissions/PermissionContext";
 import { useAppMode } from "@/components/mode/ModeContext";
@@ -628,6 +630,26 @@ const navGroups: NavGroup[] = [
         keywords: ["user", "role", "permission", "ইউজার", "পারমিশন"],
       },
       {
+        name: "সিস্টেম অডিট লগ",
+        href: "/dashboard/settings/audit-logs",
+        icon: FileSearch,
+        badge: "Immutable",
+        badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+        permission: "settings.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "accountant"],
+        keywords: ["audit", "log", "activity", "history", "অডিট লগ", "অ্যাক্টিভিটি", "ইতিহাস", "নিরাপত্তা"],
+      },
+      {
+        name: "ডাটা লক ও মাইগ্রেশন",
+        href: "/dashboard/settings/data-governance",
+        icon: Lock,
+        badge: "লক ও SQL",
+        badgeColor: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+        permission: "settings.view",
+        roles: ["super_admin", "muhtamim", "admin"],
+        keywords: ["lock", "freeze", "session lock", "period lock", "migration", "sql", "লক", "ফ্রিজ", "মাইগ্রেশন"],
+      },
+      {
         name: "ডাটা ব্যাকআপ ও রিস্টোর",
         href: "/dashboard/settings/backup",
         icon: Database,
@@ -641,6 +663,7 @@ const navGroups: NavGroup[] = [
         name: "মাদ্রাসা সেটিংস",
         href: "/dashboard/settings",
         icon: Settings,
+        exact: true,
         permission: "settings.view",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin"],
         keywords: ["settings", "setup", "মাদ্রাসা সেটিংস", "কনফিগ"],

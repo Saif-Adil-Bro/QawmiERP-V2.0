@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { getExams } from "@/app/actions/exams";
+import { getCanManageLocks } from "@/app/actions/locks";
 import { Plus, FileText, FileSignature, Sparkles, Award } from "lucide-react";
 import ExamListClient from "./ExamListClient";
 
 export default async function ExamsPage() {
-  const exams = await getExams();
+  const [exams, canManageLocks] = await Promise.all([
+    getExams(),
+    getCanManageLocks(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -52,7 +56,7 @@ export default async function ExamsPage() {
         </div>
       </div>
 
-      <ExamListClient initialExams={exams} />
+      <ExamListClient initialExams={exams} canManageLocks={canManageLocks} />
     </div>
   );
 }

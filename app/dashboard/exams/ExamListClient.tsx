@@ -23,6 +23,7 @@ import {
   Loader2
 } from "lucide-react";
 import ExamPublishToggle from "./ExamPublishToggle";
+import ExamLockToggle from "./ExamLockToggle";
 import { updateExamDetails, deleteExam } from "@/app/actions/exams";
 import { useRouter } from "next/navigation";
 
@@ -39,6 +40,10 @@ interface ExamItem {
   published_at?: string | null;
   published_by?: string | null;
   publish_note?: string | null;
+  is_locked?: boolean;
+  locked_by_name?: string | null;
+  locked_at?: string | null;
+  lock_reason?: string | null;
   effective_start_date?: string | null;
   effective_end_date?: string | null;
   routine_count?: number;
@@ -98,7 +103,13 @@ function getDynamicStatusInfo(startDate: string, endDate: string) {
   }
 }
 
-export default function ExamListClient({ initialExams }: { initialExams: ExamItem[] }) {
+export default function ExamListClient({
+  initialExams,
+  canManageLocks = false,
+}: {
+  initialExams: ExamItem[];
+  canManageLocks?: boolean;
+}) {
   const router = useRouter();
   const [exams, setExams] = useState<ExamItem[]>(initialExams);
   const [searchQuery, setSearchQuery] = useState("");
@@ -135,6 +146,7 @@ export default function ExamListClient({ initialExams }: { initialExams: ExamIte
       selectedStatus === "all" ||
       (selectedStatus === "published" && exam.is_published) ||
       (selectedStatus === "unpublished" && !exam.is_published) ||
+      (selectedStatus === "locked" && exam.is_locked) ||
       exam.dynamic_status?.toLowerCase() === selectedStatus.toLowerCase();
 
     return matchesSearch && matchesYear && matchesStatus;
@@ -287,6 +299,7 @@ export default function ExamListClient({ initialExams }: { initialExams: ExamIte
             <option value="completed">সম্পন্ন (Completed)</option>
             <option value="published">ফলাফল প্রকাশিত</option>
             <option value="unpublished">ফলাফল অপ্রকাশিত</option>
+            <option value="locked">ফ্রিজ / লক করা</option>
           </select>
         </div>
       </div>
@@ -365,7 +378,7 @@ export default function ExamListClient({ initialExams }: { initialExams: ExamIte
                         )}
                       </td>
 
-                      {/* Status & Publish */}
+                      {/* Status & Publish & Lock */}
                       <td className="px-5 py-4">
                         <div className="space-y-1.5">
                           <div>
@@ -399,6 +412,31 @@ export default function ExamListClient({ initialExams }: { initialExams: ExamIte
                               size="compact"
                             />
                           </div>
+                          <div>
+                            <ExamLockToggle
+                              examId={exam.id}
+                              examTitle={`${exam.title} (${exam.year})`}
+                              initialLocked={Boolean(exam.is_locked)}
+                              lockedByName={exam.locked_by_name}
+                              lockedAt={exam.locked_at}
+                              lockReason={exam.lock_reason}
+                              canManageLocks={canManageLocks}
+                              size="compact"
+                              onStatusChange={(locked, meta) => {
+                                setExams((prev) =>
+                                  prev.map((item) =>
+                                    item.id === exam.id
+                                      ? {
+                                          ...item,
+                                          is_locked: locked,
+                                          lock_reason: meta?.lockReason || null,
+                                        }
+                                      : item
+                                  )
+                                );
+                              }}
+                            />
+                          </div>
                         </div>
                       </td>
 
@@ -409,10 +447,19 @@ export default function ExamListClient({ initialExams }: { initialExams: ExamIte
                           <button
                             type="button"
                             onClick={() => handleOpenEdit(exam)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 hover:border-blue-300 rounded-md transition cursor-pointer shadow-2xs"
-                            title="পরীক্ষার তথ্য সম্পাদনা (Edit Exam)"
+                            disabled={Boolean(exam.is_locked)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-md transition shadow-2xs border ${
+                              exam.is_locked
+                                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                                : "text-blue-700 bg-white hover:bg-blue-50 border-blue-200 hover:border-blue-300 cursor-pointer"
+                            }`}
+                            title={
+                              exam.is_locked
+                                ? "পরীক্ষাটি ফ্রিজ (লক) করা আছে — সম্পাদনা করতে আগে আনলক করুন"
+                                : "পরীক্ষার তথ্য সম্পাদনা (Edit Exam)"
+                            }
                           >
-                            <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                            <Edit3 className={`w-3.5 h-3.5 ${exam.is_locked ? "text-slate-400" : "text-blue-600"}`} />
                             <span>সম্পাদনা</span>
                           </button>
 
@@ -420,10 +467,19 @@ export default function ExamListClient({ initialExams }: { initialExams: ExamIte
                           <button
                             type="button"
                             onClick={() => handleOpenDelete(exam)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-red-700 bg-white hover:bg-red-50 border border-red-200 hover:border-red-300 rounded-md transition cursor-pointer shadow-2xs"
-                            title="পরীক্ষাটি মুছে ফেলুন (Delete Exam)"
+                            disabled={Boolean(exam.is_locked)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-md transition shadow-2xs border ${
+                              exam.is_locked
+                                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                                : "text-red-700 bg-white hover:bg-red-50 border-red-200 hover:border-red-300 cursor-pointer"
+                            }`}
+                            title={
+                              exam.is_locked
+                                ? "পরীক্ষাটি ফ্রিজ (লক) করা আছে — মুছতে হলে আগে আনলক করুন"
+                                : "পরীক্ষাটি মুছে ফেলুন (Delete Exam)"
+                            }
                           >
-                            <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                            <Trash2 className={`w-3.5 h-3.5 ${exam.is_locked ? "text-slate-400" : "text-red-600"}`} />
                             <span>মুছুন</span>
                           </button>
                         </div>

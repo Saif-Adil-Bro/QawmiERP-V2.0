@@ -4,6 +4,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { requirePermission } from "@/lib/permissions-server";
+import { logAuditEvent } from "@/lib/audit-log";
 
 export interface MadrasaUser {
   id: string;
@@ -218,6 +219,22 @@ export async function createUserAccount(prevState: any, formData: FormData) {
       return { error: `ডাটাবেজ প্রোফাইল তৈরিতে ত্রুটি: ${userError.message}` };
     }
 
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      actorName: guard.context?.profile?.fullName || user.email || "অ্যাডমিন",
+      actorEmail: user.email || null,
+      actorRole: guard.context?.role || null,
+      module: "users",
+      action: "USER_CREATED",
+      entityType: "user",
+      entityId: authUserId,
+      entityLabel: `${fullName} (${role})`,
+      summary: `নতুন ইউজার অ্যাকাউন্ট তৈরি করা হয়েছে: ${fullName} (${email}) — ভূমিকা: ${role}।`,
+      newValue: { id: authUserId, full_name: fullName, email, phone, role },
+      severity: "WARNING",
+    });
+
     revalidatePath("/dashboard/users");
     revalidatePath("/dashboard/teachers");
     revalidatePath("/dashboard/students");
@@ -273,6 +290,12 @@ export async function updateUserAccount(prevState: any, formData: FormData) {
     }
 
     const adminClient = await createAdminClient();
+    const { data: beforeTarget } = await adminClient
+      .from("users")
+      .select("full_name, phone, role, email")
+      .eq("id", userId)
+      .eq("madrasa_id", madrasaId)
+      .maybeSingle();
 
     const updatePayload: any = {
       full_name: fullName,
@@ -290,13 +313,7 @@ export async function updateUserAccount(prevState: any, formData: FormData) {
       if (role === "super_admin" && !actorIsSuper) {
         return { error: "সুপার অ্যাডমিন ভূমিকা কেবল সুপার অ্যাডমিন দিতে পারেন।" };
       }
-      const { data: currentTarget } = await (await createAdminClient())
-        .from("users")
-        .select("role")
-        .eq("id", userId)
-        .eq("madrasa_id", madrasaId)
-        .maybeSingle();
-      if (currentTarget?.role === "super_admin" && !actorIsSuper) {
+      if (beforeTarget?.role === "super_admin" && !actorIsSuper) {
         return { error: "সুপার অ্যাডমিনের ভূমিকা কেবল সুপার অ্যাডমিন পরিবর্তন করতে পারেন।" };
       }
       updatePayload.role = role;
@@ -312,6 +329,26 @@ export async function updateUserAccount(prevState: any, formData: FormData) {
       console.error("User update error:", error);
       return { error: error.message };
     }
+
+    const roleChanged = Boolean(role && beforeTarget?.role && role !== beforeTarget.role);
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      actorName: guard.context?.profile?.fullName || user.email || "অ্যাডমিন",
+      actorEmail: user.email || null,
+      actorRole: guard.context?.role || null,
+      module: roleChanged ? "roles" : "users",
+      action: roleChanged ? "USER_ROLE_CHANGED" : "USER_UPDATED",
+      entityType: "user",
+      entityId: userId,
+      entityLabel: `${fullName} (${beforeTarget?.email || userId})`,
+      summary: roleChanged
+        ? `ইউজার "${fullName}"-এর রোল পরিবর্তন করা হয়েছে: ${beforeTarget?.role} → ${role}।`
+        : `ইউজার "${fullName}"-এর প্রোফাইল তথ্য হালনাগাদ করা হয়েছে।`,
+      oldValue: beforeTarget || null,
+      newValue: updatePayload,
+      severity: roleChanged ? "CRITICAL" : "INFO",
+    });
 
     revalidatePath("/dashboard/users");
     return { success: true, message: "ইউজার তথ্য সফলভাবে আপডেট হয়েছে!" };
@@ -384,6 +421,21 @@ export async function resetUserPassword(userId: string, newPassword: string) {
       return { error: `পাসওয়ার্ড পরিবর্তনে ত্রুটি: ${error.message}` };
     }
 
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      actorName: guard.context?.profile?.fullName || user.email || "অ্যাডমিন",
+      actorEmail: user.email || null,
+      actorRole: guard.context?.role || null,
+      module: "security",
+      action: "USER_PASSWORD_RESET",
+      entityType: "user",
+      entityId: userId,
+      entityLabel: targetUser.full_name || userId,
+      summary: `ইউজার "${targetUser.full_name || userId}"-এর পাসওয়ার্ড অ্যাডমিন কর্তৃক রিসেট করা হয়েছে।`,
+      severity: "WARNING",
+    });
+
     return { success: true, message: "পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে!" };
   } catch (err: any) {
     console.error("Catch in resetUserPassword:", err);
@@ -424,7 +476,7 @@ export async function deleteUserAccount(userId: string) {
     // super_admin অ্যাকাউন্ট কেবল অন্য super_admin মুছতে পারবেন
     const { data: deleteTarget } = await adminClient
       .from("users")
-      .select("id, role")
+      .select("id, role, full_name, email")
       .eq("id", userId)
       .eq("madrasa_id", madrasaId)
       .maybeSingle();
@@ -455,6 +507,22 @@ export async function deleteUserAccount(userId: string) {
       console.error("Error deleting from Supabase Auth:", authError);
       return { error: `লগইন ইউজার মুছে ফেলতে ত্রুটি: ${authError.message}` };
     }
+
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      actorName: guard.context?.profile?.fullName || user.email || "অ্যাডমিন",
+      actorEmail: user.email || null,
+      actorRole: guard.context?.role || null,
+      module: "users",
+      action: "USER_DELETED",
+      entityType: "user",
+      entityId: userId,
+      entityLabel: `${deleteTarget.full_name || userId} (${deleteTarget.role})`,
+      summary: `ইউজার অ্যাকাউন্ট স্থায়ীভাবে মুছে ফেলা হয়েছে: ${deleteTarget.full_name || deleteTarget.email || userId}।`,
+      oldValue: deleteTarget,
+      severity: "CRITICAL",
+    });
 
     revalidatePath("/dashboard/users");
     return { success: true, message: "ইউজার অ্যাকাউন্ট সফলভাবে মুছে ফেলা হয়েছে।" };

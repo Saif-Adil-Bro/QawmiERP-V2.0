@@ -9,6 +9,7 @@ import { parseExpenseFund, isVoidedExpense, isVoidDonation } from "@/lib/fund-ut
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFeeMetadata } from "./fee-management";
+import { saveStructuredMadrasaSetting, getStructuredMadrasaSetting } from "@/lib/structured-config";
 
 const classifyAuditFund = (typeStr?: string, notesStr?: string, fundId?: string): "general" | "lillah" | "zakat" | "building" => {
   if (fundId) {
@@ -135,10 +136,8 @@ export async function saveAuditSettings(
 ): Promise<{ success: boolean; error?: string }> {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("generic");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("finance");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
@@ -148,19 +147,44 @@ export async function saveAuditSettings(
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { success: false, error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
+    const prevSetting = await getStructuredMadrasaSetting<AuditSettings>(madrasaId, "audit_settings", year);
     const meta: any = await getMadrasaMetadata(madrasaId);
-    if (!meta.audit_settings) {
-      meta.audit_settings = {};
-    }
-    meta.audit_settings[year] = {
-      ...(meta.audit_settings[year] || {}),
+    const prevValue = (prevSetting.found && prevSetting.value) || meta?.audit_settings?.[year] || {};
+    const mergedSettings = {
+      ...prevValue,
       ...settings,
     };
 
-    const saved = await saveMadrasaMetadata(madrasaId, meta);
-    if (!saved) {
-      return { success: false, error: "সেটিংস সংরক্ষণ করা যায়নি" };
+    // Save to structured madrasa_settings table first
+    const sqlRes = await saveStructuredMadrasaSetting(
+      madrasaId,
+      "audit_settings",
+      year,
+      mergedSettings,
+      user.id
+    );
+
+    if (!sqlRes.ok) {
+      if (!meta.audit_settings) meta.audit_settings = {};
+      meta.audit_settings[year] = mergedSettings;
+      const saved = await saveMadrasaMetadata(madrasaId, meta);
+      if (!saved) {
+        return { success: false, error: "সেটিংস সংরক্ষণ করা যায়নি" };
+      }
     }
+
+    await __authz.logAudit({
+      module: "settings",
+      action: "AUDIT_SETTINGS_UPDATED",
+      entityType: "madrasa_settings",
+      entityId: `audit_settings:${year}`,
+      entityLabel: `বার্ষিক অডিট কনফিগ (${year})`,
+      summary: `${year} অর্থবছরের বার্ষিক অডিট সেটিংস হালনাগাদ করা হয়েছে।`,
+      oldValue: prevValue,
+      newValue: mergedSettings,
+      metadata: { storage: sqlRes.storage },
+      severity: "INFO",
+    });
 
     revalidatePath("/dashboard/accounting/audit");
     return { success: true };
@@ -193,11 +217,15 @@ export async function getAnnualAuditStatement(
     .eq("id", madrasaId)
     .single();
 
-  const [meta, feeMeta] = await Promise.all([
+  const [meta, feeMeta, structuredAuditSetting] = await Promise.all([
     getMadrasaMetadata(madrasaId),
     getFeeMetadata(madrasaId),
+    getStructuredMadrasaSetting<AuditSettings>(madrasaId, "audit_settings", year),
   ]);
-  const auditSettings: AuditSettings = (meta as any).audit_settings?.[year] || {};
+  const auditSettings: AuditSettings =
+    (structuredAuditSetting.found && structuredAuditSetting.value) ||
+    (meta as any).audit_settings?.[year] ||
+    {};
 
   // 2. Fetch all student fee payments from relational fee tables via getFeeMetadata
   const feePayments = (feeMeta.payments || []).filter(

@@ -6,6 +6,8 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { requirePermission } from "@/lib/permissions-server";
+import { logAuditEvent } from "@/lib/audit-log";
+import { assertAccountingPeriodUnlocked } from "@/lib/lock-guards";
 import { getMadrasaMetadata, saveMadrasaMetadata, AcademicSession, StudentEnrollment } from "@/lib/sessions";
 import {
   FeeType,
@@ -1336,6 +1338,17 @@ export async function collectFeePayment(paymentData: {
       return { error: collectGuard.error || "ফি আদায়ের অনুমতি আপনার নেই।" };
     }
 
+    // 1.3 Granular Accounting Period Lock Guard
+    const targetPayDate = paymentData.payment_date || toDhakaDateString();
+    const periodLock = await assertAccountingPeriodUnlocked(
+      madrasaId,
+      targetPayDate,
+      "ফি আদায় ও রসিদ তৈরি"
+    );
+    if (periodLock.locked) {
+      return { error: periodLock.error };
+    }
+
 
     // ─────────────────────────────────────────────────────────────────────────
     // HI-2 ফিক্স — ডুপ্লিকেট প্রতিরোধ
@@ -1870,6 +1883,31 @@ export async function collectFeePayment(paymentData: {
     } catch (legacyErr) {
       console.warn("Legacy fees table insert skipped:", legacyErr);
     }
+
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      actorName: collectGuard.context?.profile?.fullName || user.email || "হিসাব বিভাগ",
+      actorEmail: user.email || null,
+      actorRole: collectGuard.context?.role || null,
+      module: "fees",
+      action: "FEE_PAYMENT_COLLECTED",
+      entityType: "fee_payment",
+      entityId: newPayment.id,
+      entityLabel: `${receiptNo} · ${newPayment.student_name}`,
+      summary: `রসিদ নং ${receiptNo} — ${newPayment.student_name}-এর নিকট থেকে ৳${Number(newPayment.total_amount_received || 0)} ফি আদায় করা হয়েছে (${paymentData.payment_method})।`,
+      newValue: {
+        receipt_no: receiptNo,
+        student_id: paymentData.student_id,
+        student_name: newPayment.student_name,
+        total_amount_received: newPayment.total_amount_received,
+        discount_total: newPayment.discount_total,
+        fine_total: newPayment.fine_total,
+        payment_date: paymentDate,
+        payment_method: paymentData.payment_method,
+      },
+      severity: Number(newPayment.discount_total || 0) > 0 ? "WARNING" : "INFO",
+    });
 
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/fees");
@@ -2453,6 +2491,15 @@ export async function voidFeePayment(paymentId: string, reason: string) {
       return { error: "এই রসিদটি ইতিপূর্বেই বাতিল করা হয়েছে।" };
     }
 
+    const periodLock = await assertAccountingPeriodUnlocked(
+      madrasaId,
+      payment.payment_date || payment.created_at,
+      "রসিদ বাতিল (VOID)"
+    );
+    if (periodLock.locked) {
+      return { error: periodLock.error };
+    }
+
     const now = new Date().toISOString();
 
     // 1. Rollback allocations from student fees
@@ -2566,6 +2613,32 @@ export async function voidFeePayment(paymentId: string, reason: string) {
     if (!saved) {
       return { error: "রসিদ বাতিল করার তথ্য ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
     }
+
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      actorEmail: user.email || null,
+      actorName: user.user_metadata?.full_name || user.email || "অ্যাডমিন",
+      actorRole: guard.context?.role || "admin",
+      module: "fees",
+      action: "FEE_PAYMENT_VOIDED",
+      entityType: "fee_payment",
+      entityId: payment.id,
+      entityLabel: payment.receipt_no || payment.id,
+      summary: `রসিদ নং ${payment.receipt_no || payment.id} (৳${payment.total_amount_received}) বাতিল (VOID) করা হয়েছে। কারণ: ${reason.trim()}`,
+      oldValue: {
+        status: payment.status,
+        total_amount_received: payment.total_amount_received,
+        payment_date: payment.payment_date,
+        student_id: payment.student_id,
+      },
+      newValue: {
+        status: "VOID",
+        cancellation_reason: reason.trim(),
+        voided_at: now,
+      },
+      severity: "CRITICAL",
+    });
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/accounting");

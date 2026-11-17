@@ -7,6 +7,8 @@ import { getAuthMadrasaId } from "./students";
 import { requirePermission } from "@/lib/permissions-server";
 import { parseExpenseFund, isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
 import { getFeeMetadata, saveFeeMetadata, voidFeePayment } from "./fee-management";
+import { logAuditEvent } from "@/lib/audit-log";
+import { assertAccountingPeriodUnlocked } from "@/lib/lock-guards";
 
 export async function getFees(filters?: { month?: string; year?: string; student_id?: string }) {
   const supabase = await createClient();
@@ -371,6 +373,10 @@ export async function createExpense(prevState: ExpenseActionState, formData: For
     return { error: "খরচের পরিমাণ শূন্যের বেশি একটি সঠিক সংখ্যা হতে হবে।" };
   }
 
+  // 1.3 Granular Accounting Period Lock Guard
+  const periodLock = await assertAccountingPeriodUnlocked(finalMadrasaId, expenseDate, "নতুন খরচ এন্ট্রি");
+  if (periodLock.locked) return { error: periodLock.error };
+
   // HI-3 ফিক্স: count()-এর বদলে আসল MAX(voucher_no)+1
   const voucherNo = await resolveNextVoucherNo(supabase, finalMadrasaId, expenseDate);
 
@@ -417,6 +423,30 @@ export async function createExpense(prevState: ExpenseActionState, formData: For
   }
 
   createdId = inserted.data?.id || voucherNo;
+
+  await logAuditEvent({
+    madrasaId: finalMadrasaId,
+    actorId: user.id,
+    actorName: guard.context?.profile?.fullName || user.email || "হিসাবরক্ষক",
+    actorEmail: user.email || null,
+    actorRole: guard.context?.role || null,
+    module: "finance",
+    action: "EXPENSE_CREATED",
+    entityType: "expense",
+    entityId: createdId,
+    entityLabel: `${voucherNo} · ${category}`,
+    summary: `নতুন খরচের ভাউচার (${voucherNo}) যুক্ত করা হয়েছে: ${category} — ৳${parsedAmount.toLocaleString("en-US")} (${fundName})।`,
+    newValue: {
+      id: createdId,
+      voucher_no: voucherNo,
+      category,
+      amount: parsedAmount,
+      expense_date: expenseDate,
+      fund_name: fundName,
+      description: cleanDesc,
+    },
+    severity: parsedAmount >= 50000 ? "WARNING" : "INFO",
+  });
 
   revalidatePath("/dashboard/accounting/expenses");
   revalidatePath("/dashboard/accounting/reports");
@@ -471,13 +501,29 @@ export async function updateExpense(formData: FormData) {
     return { error: "খরচের পরিমাণ শূন্যের বেশি একটি সঠিক সংখ্যা হতে হবে।" };
   }
 
-  // বিদ্যমান ভাউচার নম্বর সংরক্ষণ
+  // বিদ্যমান ভাউচার নম্বর ও পূর্বের মান সংরক্ষণ
   const { data: existingExp } = await supabase
     .from("expenses")
-    .select("description")
+    .select("category, amount, expense_date, description")
     .eq("id", id)
     .eq("madrasa_id", finalMadrasaId)
     .single();
+
+  // 1.3 Granular Accounting Period Lock Guard (check BOTH existing date and new target date)
+  if (existingExp?.expense_date) {
+    const oldPeriodLock = await assertAccountingPeriodUnlocked(
+      finalMadrasaId,
+      existingExp.expense_date,
+      "পূর্ববর্তী খরচের ভাউচার সংশোধন"
+    );
+    if (oldPeriodLock.locked) return { error: oldPeriodLock.error };
+  }
+  const newPeriodLock = await assertAccountingPeriodUnlocked(
+    finalMadrasaId,
+    expenseDate,
+    "খরচের ভাউচার সংশোধন"
+  );
+  if (newPeriodLock.locked) return { error: newPeriodLock.error };
 
   let voucherNo = (formData.get("voucher_no") as string) || "";
   if (!voucherNo && existingExp?.description) {
@@ -535,6 +581,35 @@ export async function updateExpense(formData: FormData) {
     return { error: updated.error.message };
   }
 
+  await logAuditEvent({
+    madrasaId: finalMadrasaId,
+    actorId: user.id,
+    actorName: guard.context?.profile?.fullName || user.email || "হিসাবরক্ষক",
+    actorEmail: user.email || null,
+    actorRole: guard.context?.role || null,
+    module: "finance",
+    action: "EXPENSE_UPDATED",
+    entityType: "expense",
+    entityId: id,
+    entityLabel: `${voucherNo || id} · ${category}`,
+    summary: `খরচের ভাউচার (${voucherNo || id}) সংশোধন করা হয়েছে: ৳${Number(existingExp?.amount || 0)} → ৳${parsedAmount}।`,
+    oldValue: existingExp
+      ? {
+          category: existingExp.category,
+          amount: Number(existingExp.amount),
+          expense_date: existingExp.expense_date,
+        }
+      : null,
+    newValue: {
+      category,
+      amount: parsedAmount,
+      expense_date: expenseDate,
+      fund_name: fundName,
+      description: rawCleanDesc,
+    },
+    severity: "WARNING",
+  });
+
   revalidatePath("/dashboard/accounting/expenses");
   revalidatePath("/dashboard/accounting/reports");
   revalidatePath("/dashboard/accounting");
@@ -581,13 +656,23 @@ export async function deleteExpense(expenseId: string, reason?: string) {
   const voidReason = (reason || "ভুল এন্ট্রি বাতিল").trim();
   const now = new Date().toISOString();
 
-  // বিদ্যমান description সংরক্ষণ করে VOID ট্যাগ যোগ করা হয় যাতে সব রিপোর্ট সেটি বাদ দিতে পারে
+  // বিদ্যমান description ও তারিখ সংরক্ষণ করে VOID ট্যাগ যোগ করা হয় যাতে সব রিপোর্ট সেটি বাদ দিতে পারে
   const { data: existing } = await supabase
     .from("expenses")
-    .select("description")
+    .select("category, amount, expense_date, description")
     .eq("id", expenseId)
     .eq("madrasa_id", finalMadrasaId)
     .single();
+
+  // 1.3 Granular Accounting Period Lock Guard
+  if (existing?.expense_date) {
+    const periodLock = await assertAccountingPeriodUnlocked(
+      finalMadrasaId,
+      existing.expense_date,
+      "খরচের ভাউচার বাতিল (VOID)"
+    );
+    if (periodLock.locked) return { error: periodLock.error };
+  }
 
   const voidTag = `[VOID: ${voidReason} | BY: ${user.email || "admin"} | AT: ${now}]`;
   const nextDescription = `${existing?.description || ""}`.includes("[VOID:")
@@ -613,6 +698,30 @@ export async function deleteExpense(expenseId: string, reason?: string) {
     console.error("Error voiding expense:", result.error);
     return { error: result.error.message || "খরচ বাতিল করতে ব্যর্থ হয়েছে।" };
   }
+
+  await logAuditEvent({
+    madrasaId: finalMadrasaId,
+    actorId: user.id,
+    actorName: guard.context?.profile?.fullName || user.email || "হিসাবরক্ষক",
+    actorEmail: user.email || null,
+    actorRole: guard.context?.role || null,
+    module: "finance",
+    action: "EXPENSE_VOIDED",
+    entityType: "expense",
+    entityId: expenseId,
+    entityLabel: `${existing?.category || "খরচ"} (৳${Number(existing?.amount || 0)})`,
+    summary: `খরচের ভাউচার বাতিল (VOID) করা হয়েছে: ${existing?.category || ""} — ৳${Number(existing?.amount || 0)}। কারণ: ${voidReason}`,
+    oldValue: existing
+      ? {
+          category: existing.category,
+          amount: Number(existing.amount),
+          expense_date: existing.expense_date,
+          status: "ACTIVE",
+        }
+      : null,
+    newValue: { status: "VOID", void_reason: voidReason, voided_at: now },
+    severity: "CRITICAL",
+  });
 
   revalidatePath("/dashboard/accounting/expenses");
   revalidatePath("/dashboard/accounting/reports");
