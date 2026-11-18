@@ -1,0 +1,109 @@
+name: Cron Jobs (Master Dispatcher — Railway & Vercel Hobby Compatible)
+
+# অ্যাপের `/dashboard/settings/automation` পেজ থেকেই সব ৭টি ক্রনের সময়সূচি (BDT)
+# সেট ও পরিবর্তন করা যায়। এই workflow প্রতি ১৫ মিনিটে `/api/cron/dispatch` কল করে
+# এবং সার্ভার নিজেই ডাটাবেজ (`automation_rules`) দেখে নির্ধারিত জবগুলো চালায়।
+#
+# ব্যবহার:
+#   GitHub Secrets-এ `RAILWAY_APP_URL` (বা Vercel Hobby-র URL) এবং `CRON_SECRET` সেট করুন।
+#   `RAILWAY_APP_URL` সেট না থাকলে workflow কোনো এরর ছাড়াই নিরাপদে skip হবে।
+
+on:
+  schedule:
+    - cron: "*/15 * * * *" # প্রতি ১৫ মিনিটে মাস্টার ডিসপ্যাচার ট্রিগার
+  workflow_dispatch:
+    inputs:
+      route:
+        description: "নির্দিষ্ট route (/api/cron/dispatch, /api/cron/process-queues ইত্যাদি) বা 'all'"
+        required: false
+        default: "/api/cron/dispatch"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cron-${{ github.event.schedule || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    name: Trigger cron endpoints
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RAILWAY_APP_URL: ${{ secrets.RAILWAY_APP_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      EVENT_NAME: ${{ github.event_name }}
+      INPUT_ROUTE: ${{ github.event.inputs.route }}
+    steps:
+      - name: Skip if RAILWAY_APP_URL is not configured
+        id: gate
+        run: |
+          if [ -z "${RAILWAY_APP_URL// /}" ]; then
+            echo "::notice title=Cron skipped::RAILWAY_APP_URL সেট করা নেই — কিছু করার নেই।"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Call cron endpoints
+        if: steps.gate.outputs.run == 'true'
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error title=Missing secret::CRON_SECRET GitHub Secret সেট করা নেই — endpoint অনুমোদন দেবে না।"
+            exit 1
+          fi
+
+          # শেষের বাড়তি স্ল্যাশ সরানো
+          BASE_URL="${RAILWAY_APP_URL%/}"
+          while [ "${BASE_URL}" != "${BASE_URL%/}" ]; do BASE_URL="${BASE_URL%/}"; done
+          case "$BASE_URL" in
+            http://*|https://*) ;;
+            *) echo "::error title=Invalid URL::RAILWAY_APP_URL অবশ্যই http(s):// দিয়ে শুরু হতে হবে।"; exit 1 ;;
+          esac
+
+          ALL_ROUTES=(
+            "/api/cron/monthly-fees"
+            "/api/cron/overdue-reminders"
+            "/api/cron/absence-alerts"
+            "/api/cron/process-queues"
+            "/api/cron/digest-reports"
+            "/api/cron/early-warning"
+            "/api/cron/anomalies"
+          )
+
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            ROUTES=("/api/cron/dispatch")
+          else
+            REQ="${INPUT_ROUTE:-/api/cron/dispatch}"
+            if [ "$REQ" = "all" ]; then
+              ROUTES=("${ALL_ROUTES[@]}")
+            else
+              ROUTES=("$REQ")
+            fi
+          fi
+
+          FAILED=0
+          for ROUTE in "${ROUTES[@]}"; do
+            [ -z "$ROUTE" ] && continue
+            echo "::group::GET ${ROUTE}"
+            if curl --fail-with-body -s -S -X GET \
+                 --connect-timeout 20 --max-time 600 \
+                 -H "Authorization: Bearer $CRON_SECRET" \
+                 -H "Accept: application/json" \
+                 "${BASE_URL}${ROUTE}"; then
+              echo
+              echo "✅ ${ROUTE} OK"
+            else
+              echo
+              echo "::error title=Cron failed::${ROUTE} ব্যর্থ হয়েছে"
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done
+
+          exit $FAILED

@@ -12,6 +12,10 @@ import {
 import { buildExportWatermark } from "@/lib/export-watermark";
 import { getExecutiveBiSnapshot } from "@/lib/bi/executive-bi-service";
 
+// Next.js যেন কোনো প্ল্যাটফর্মে (Vercel/Railway) cron রিকোয়েস্ট ক্যাশ না করে
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 async function handleDigestCron(req: Request) {
   const auth = await authorizeCronRequest(req);
   if (!auth.ok) return auth.response;

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { authorizeCronRequest, resolveCronTenant } from "@/lib/automation/cron-auth";
 import { runMonthlyFeeGenerationCron } from "@/lib/automation/fee-cron-service";
 
+// Next.js যেন কোনো প্ল্যাটফর্মে (Vercel/Railway) cron রিকোয়েস্ট ক্যাশ না করে
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 async function handle(req: Request) {
   const auth = await authorizeCronRequest(req);
   if (!auth.ok) return auth.response;

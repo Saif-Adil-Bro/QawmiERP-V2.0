@@ -1,13 +1,28 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Clock, Play, RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  Clock,
+  Play,
+  RefreshCw,
+  CheckCircle2,
+  AlertTriangle,
+  CalendarClock,
+  Save,
+  X,
+} from "lucide-react";
 import {
   getAutomationRulesAction,
   getJobExecutionLogsAction,
   saveAutomationRuleAction,
   triggerAutomationJobAction,
 } from "@/app/actions/automation";
+import type { AutomationJobKey } from "@/lib/automation/master-dispatcher";
+import {
+  buildCronFromPreset,
+  describeCronInBangla,
+  type ScheduleFrequency,
+} from "@/lib/automation/schedule-evaluator";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
 interface Props {
@@ -15,11 +30,86 @@ interface Props {
   initialLogs: any[];
 }
 
+const WEEKDAY_OPTIONS = [
+  { value: 5, label: "শুক্রবার" },
+  { value: 6, label: "শনিবার" },
+  { value: 0, label: "রবিবার" },
+  { value: 1, label: "সোমবার" },
+  { value: 2, label: "মঙ্গলবার" },
+  { value: 3, label: "বুধবার" },
+  { value: 4, label: "বৃহস্পতিবার" },
+];
+
+function detectPresetFromCron(expr: string): {
+  frequency: ScheduleFrequency;
+  hour: number;
+  minute: number;
+  dayOfWeek: number;
+  dayOfMonth: number;
+  customCron: string;
+} {
+  const trimmed = String(expr || "0 9 * * *").trim();
+  if (trimmed === "*/15 * * * *") {
+    return { frequency: "every_15m", hour: 9, minute: 0, dayOfWeek: 5, dayOfMonth: 1, customCron: trimmed };
+  }
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 5) {
+    const [m, h, dom, mon, dow] = parts;
+    const min = Number(m);
+    const hr = Number(h);
+    if (Number.isInteger(min) && Number.isInteger(hr) && mon === "*") {
+      if (dom === "*" && dow === "*") {
+        return { frequency: "daily", hour: hr, minute: min, dayOfWeek: 5, dayOfMonth: 1, customCron: trimmed };
+      }
+      if (dom === "*" && /^\d$/.test(dow)) {
+        return {
+          frequency: "weekly",
+          hour: hr,
+          minute: min,
+          dayOfWeek: Number(dow) % 7,
+          dayOfMonth: 1,
+          customCron: trimmed,
+        };
+      }
+      if (/^\d{1,2}$/.test(dom) && dow === "*") {
+        return {
+          frequency: "monthly",
+          hour: hr,
+          minute: min,
+          dayOfWeek: 5,
+          dayOfMonth: Math.min(28, Math.max(1, Number(dom))),
+          customCron: trimmed,
+        };
+      }
+    }
+  }
+  return { frequency: "custom", hour: 9, minute: 0, dayOfWeek: 5, dayOfMonth: 1, customCron: trimmed };
+}
+
+function formatBdtDateTime(iso?: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("bn-BD", {
+    timeZone: "Asia/Dhaka",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 export default function AutomationSettingsClient({ initialRules, initialLogs }: Props) {
   const [rules, setRules] = useState<any[]>(initialRules);
   const [logs, setLogs] = useState<any[]>(initialLogs);
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const [editingRuleKey, setEditingRuleKey] = useState<string | null>(null);
+  const [frequency, setFrequency] = useState<ScheduleFrequency>("daily");
+  const [hour, setHour] = useState<number>(9);
+  const [minute, setMinute] = useState<number>(0);
+  const [dayOfWeek, setDayOfWeek] = useState<number>(5);
+  const [dayOfMonth, setDayOfMonth] = useState<number>(1);
+  const [customCron, setCustomCron] = useState<string>("0 9 * * *");
 
   const reload = () => {
     startTransition(async () => {
@@ -29,6 +119,52 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
       ]);
       setRules(r.rules || []);
       setLogs(l.logs || []);
+    });
+  };
+
+  const openScheduleEditor = (rule: any) => {
+    const preset = detectPresetFromCron(rule.cron_expression);
+    setFrequency(preset.frequency);
+    setHour(preset.hour);
+    setMinute(preset.minute);
+    setDayOfWeek(preset.dayOfWeek);
+    setDayOfMonth(preset.dayOfMonth);
+    setCustomCron(preset.customCron);
+    setEditingRuleKey(rule.rule_key);
+    setFeedback(null);
+  };
+
+  const handleSaveSchedule = (rule: any) => {
+    setFeedback(null);
+    const nextCron = buildCronFromPreset({
+      frequency,
+      hour,
+      minute,
+      dayOfWeek,
+      dayOfMonth,
+      customCron,
+    });
+
+    startTransition(async () => {
+      const res = await saveAutomationRuleAction({
+        rule_key: rule.rule_key,
+        name: rule.name,
+        name_bn: rule.name_bn,
+        description: rule.description,
+        cron_expression: nextCron,
+        is_enabled: rule.is_enabled !== false,
+        config: { ...(rule.config || {}), timezone: "Asia/Dhaka" },
+      });
+      if (res.error) {
+        setFeedback({ type: "err", text: res.error });
+      } else {
+        setFeedback({
+          type: "ok",
+          text: `'${rule.name_bn || rule.name}'-এর নতুন সময়সূচি (${describeCronInBangla(nextCron)}) সংরক্ষণ করা হয়েছে।`,
+        });
+        setEditingRuleKey(null);
+        reload();
+      }
     });
   };
 
@@ -42,6 +178,7 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
         description: rule.description,
         cron_expression: rule.cron_expression,
         is_enabled: !rule.is_enabled,
+        config: rule.config,
       });
       if (res.error) {
         setFeedback({ type: "err", text: res.error });
@@ -55,9 +192,7 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
     });
   };
 
-  const handleRunNow = (
-    jobKey: "monthly_fee_generation" | "overdue_reminders" | "absence_alerts" | "process_queues"
-  ) => {
+  const handleRunNow = (jobKey: AutomationJobKey) => {
     setFeedback(null);
     startTransition(async () => {
       const res = await triggerAutomationJobAction(jobKey);
@@ -79,7 +214,7 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
             শিডিউলড ক্রন ও অটোমেশন ইঞ্জিন
           </h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            স্বয়ংক্রিয় মাসিক ফি জেনারেশন, বকেয়া রিমাইন্ডার, অনুপস্থিতি অ্যালার্ট ও কিউ প্রসেসর
+            অ্যাপ থেকেই প্রতিটি অটোমেশন জবের সময়সূচি (বাংলাদেশ সময় BDT), চালু/বন্ধ ও ম্যানুয়াল রান নিয়ন্ত্রণ করুন
           </p>
         </div>
         <button
@@ -106,53 +241,216 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        {rules.map((rule) => (
-          <div
-            key={rule.rule_key}
-            className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-          >
-            <div>
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h2 className="font-semibold text-slate-900 dark:text-slate-100">
-                    {rule.name_bn || rule.name}
-                  </h2>
-                  <p className="mt-0.5 font-mono text-xs text-slate-500 dark:text-slate-400">
-                    {rule.rule_key} · cron: {rule.cron_expression}
-                  </p>
+        {rules.map((rule) => {
+          const isEditing = editingRuleKey === rule.rule_key;
+          return (
+            <div
+              key={rule.rule_key}
+              className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h2 className="font-semibold text-slate-900 dark:text-slate-100">
+                      {rule.name_bn || rule.name}
+                    </h2>
+                    <p className="mt-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                      {describeCronInBangla(rule.cron_expression)}
+                    </p>
+                    <p className="mt-0.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                      {rule.rule_key} · cron: {rule.cron_expression}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleToggle(rule)}
+                    disabled={isPending}
+                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                      rule.is_enabled
+                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                        : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                    }`}
+                  >
+                    {rule.is_enabled ? "চালু" : "বন্ধ"}
+                  </button>
                 </div>
+
+                {rule.description && (
+                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                    {rule.description}
+                  </p>
+                )}
+
+                <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-2.5 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-400">
+                  <div>
+                    <span className="block text-[11px] text-slate-400">সর্বশেষ চলেছে</span>
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      {formatBdtDateTime(rule.last_run_at)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[11px] text-slate-400">পরবর্তী নির্ধারিত সময়</span>
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      {formatBdtDateTime(rule.next_run_at)}
+                    </span>
+                  </div>
+                </div>
+
+                {isEditing && (
+                  <div className="mt-3 space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3 dark:border-emerald-800/60 dark:bg-emerald-950/20">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                          ধরন (Frequency)
+                        </label>
+                        <select
+                          value={frequency}
+                          onChange={(e) => setFrequency(e.target.value as ScheduleFrequency)}
+                          className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        >
+                          <option value="every_15m">প্রতি ১৫ মিনিট পরপর</option>
+                          <option value="daily">প্রতিদিন</option>
+                          <option value="weekly">প্রতি সপ্তাহে</option>
+                          <option value="monthly">প্রতি মাসে</option>
+                          <option value="custom">কাস্টম Cron</option>
+                        </select>
+                      </div>
+
+                      {frequency === "weekly" && (
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                            বার
+                          </label>
+                          <select
+                            value={dayOfWeek}
+                            onChange={(e) => setDayOfWeek(Number(e.target.value))}
+                            className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                          >
+                            {WEEKDAY_OPTIONS.map((w) => (
+                              <option key={w.value} value={w.value}>
+                                {w.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {frequency === "monthly" && (
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                            মাসের তারিখ (১–২৮)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={28}
+                            value={dayOfMonth}
+                            onChange={(e) => setDayOfMonth(Number(e.target.value))}
+                            className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {(frequency === "daily" || frequency === "weekly" || frequency === "monthly") && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                            ঘণ্টা (BDT 0–23)
+                          </label>
+                          <select
+                            value={hour}
+                            onChange={(e) => setHour(Number(e.target.value))}
+                            className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                          >
+                            {Array.from({ length: 24 }, (_, i) => (
+                              <option key={i} value={i}>
+                                {String(i).padStart(2, "0")}:00 ({i % 12 === 0 ? 12 : i % 12}{" "}
+                                {i >= 12 ? "PM" : "AM"})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                            মিনিট
+                          </label>
+                          <select
+                            value={minute}
+                            onChange={(e) => setMinute(Number(e.target.value))}
+                            className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                          >
+                            {[0, 15, 30, 45].map((m) => (
+                              <option key={m} value={m}>
+                                {String(m).padStart(2, "0")} মিনিট
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    {frequency === "custom" && (
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                          কাস্টম Cron Expression (BDT)
+                        </label>
+                        <input
+                          type="text"
+                          value={customCron}
+                          onChange={(e) => setCustomCron(e.target.value)}
+                          placeholder="0 9 * * *"
+                          className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingRuleKey(null)}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        বাতিল
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveSchedule(rule)}
+                        disabled={isPending}
+                        className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700"
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                        সময়সূচি সেভ করুন
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 flex items-center justify-between gap-2">
                 <button
                   type="button"
-                  onClick={() => handleToggle(rule)}
+                  onClick={() => (isEditing ? setEditingRuleKey(null) : openScheduleEditor(rule))}
                   disabled={isPending}
-                  className={`rounded-full px-3 py-1 text-xs font-medium ${
-                    rule.is_enabled
-                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
-                      : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                  }`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                 >
-                  {rule.is_enabled ? "চালু" : "বন্ধ"}
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  সময়সূচি পরিবর্তন
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRunNow(rule.rule_key)}
+                  disabled={isPending}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-700"
+                >
+                  <Play className="h-3.5 w-3.5" />
+                  এখনই চালান
                 </button>
               </div>
-              {rule.description && (
-                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                  {rule.description}
-                </p>
-              )}
             </div>
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => handleRunNow(rule.rule_key)}
-                disabled={isPending}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-700"
-              >
-                <Play className="h-3.5 w-3.5" />
-                এখনই চালান
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
