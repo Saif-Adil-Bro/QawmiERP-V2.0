@@ -36,3 +36,6 @@ yarn-error.log*
 backups/
 *.backup.json
 tmp/
+
+# Agent working state
+.agents/

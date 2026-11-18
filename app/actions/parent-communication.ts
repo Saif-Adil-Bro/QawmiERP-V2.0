@@ -887,8 +887,8 @@ export async function getFeeAlertStudentsData(classFilter?: string, customBaseUr
     let totalDueOverall = 0;
 
     for (const s of students) {
-      const dueInfo = duesMap.get(s.id) || { totalDue: 1200, count: 1, period: "চলতি মাস" }; // Fallback regular due
-      if (dueInfo.totalDue > 0) {
+      const dueInfo = duesMap.get(s.id);
+      if (dueInfo && dueInfo.totalDue > 0) {
         totalDueOverall += dueInfo.totalDue;
         const fullName = `${s.first_name || ""} ${s.last_name || ""}`.trim() || "শিক্ষার্থী";
         const rollStr = toBanglaNumber(s.roll_number ?? "১");

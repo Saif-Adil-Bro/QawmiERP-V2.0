@@ -20,6 +20,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const { hashSessionToken, revokeSessionByTokenHash } = await import("@/lib/session-manager");
+    await revokeSessionByTokenHash(hashSessionToken(token), "MOBILE_LOGOUT");
+  } catch {}
+
+  try {
     const supabase = createStatelessSupabaseClient();
     await supabase.auth.admin?.signOut?.(token).catch(() => {});
   } catch {}

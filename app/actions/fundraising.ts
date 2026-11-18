@@ -1398,13 +1398,19 @@ export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]
       });
     });
 
+    const { getCurrentUserMaskingContext, maskDonorSensitiveFields } = await import("@/lib/data-access-guards");
+    const maskingCtx = await getCurrentUserMaskingContext("fundraising", "phone");
+
     // Build final merged donors with lifetime total donated
     const finalDonors: LifeMemberDonor[] = Array.from(donorMap.values()).map((d) => {
       const calculatedTotal = donorDonationSumMap.get(d.id) || 0;
-      return {
-        ...d,
-        total_donated: calculatedTotal > 0 ? calculatedTotal : (Number((d as any).total_donated) || 0),
-      };
+      return maskDonorSensitiveFields(
+        {
+          ...d,
+          total_donated: calculatedTotal > 0 ? calculatedTotal : (Number((d as any).total_donated) || 0),
+        },
+        maskingCtx.allowUnmasked
+      );
     });
 
     return {

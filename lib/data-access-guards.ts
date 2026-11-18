@@ -1,5 +1,20 @@
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getMadrasaRolesAndPermissions } from "@/app/actions/permissions";
+import { loadServerPermissions, type ServerPermissionContext } from "@/lib/permissions-server";
+import { canViewUnmaskedField } from "@/lib/pii-masking";
+
+export {
+  maskPhoneNumber,
+  maskNidNumber,
+  maskEmailAddress,
+  maskBankAccount,
+  isMaskedValue,
+  canViewUnmaskedField,
+  maskStudentSensitiveFields,
+  maskDonorSensitiveFields,
+  maskStaffSensitiveFields,
+  maskAlumniSensitiveFields,
+} from "@/lib/pii-masking";
 
 export interface DataAccessScope {
   isUnrestricted: boolean;
@@ -376,4 +391,72 @@ export async function getUserDataAccessScope(): Promise<DataAccessScope> {
     userId: authUser.id,
     madrasaId,
   };
+}
+
+export interface CurrentUserMaskingContext {
+  authenticated: boolean;
+  userId: string;
+  madrasaId: string;
+  allowUnmasked: boolean;
+  permissionContext: ServerPermissionContext | null;
+}
+
+/**
+ * Resolves the currently authenticated user's PII unmasking capability on the server.
+ * Fail-closed: returns `allowUnmasked: false` when unauthenticated or lacking `data.unmask`.
+ */
+export async function getCurrentUserMaskingContext(
+  module?: string,
+  field?: string
+): Promise<CurrentUserMaskingContext> {
+  try {
+    const supabase = await createClient();
+    const authUser = await getAuthUser(supabase);
+    if (!authUser) {
+      return {
+        authenticated: false,
+        userId: "",
+        madrasaId: "",
+        allowUnmasked: false,
+        permissionContext: null,
+      };
+    }
+
+    const adminClient = await createAdminClient();
+    const { data: userRow } = await adminClient
+      .from("users")
+      .select("madrasa_id")
+      .eq("id", authUser.id)
+      .maybeSingle();
+
+    const madrasaId = String((userRow as any)?.madrasa_id || "");
+    if (!madrasaId) {
+      return {
+        authenticated: true,
+        userId: authUser.id,
+        madrasaId: "",
+        allowUnmasked: false,
+        permissionContext: null,
+      };
+    }
+
+    const permissionContext = await loadServerPermissions(authUser.id, madrasaId);
+    const allowUnmasked = canViewUnmaskedField(permissionContext?.summary, module, field);
+
+    return {
+      authenticated: true,
+      userId: authUser.id,
+      madrasaId,
+      allowUnmasked,
+      permissionContext,
+    };
+  } catch {
+    return {
+      authenticated: false,
+      userId: "",
+      madrasaId: "",
+      allowUnmasked: false,
+      permissionContext: null,
+    };
+  }
 }

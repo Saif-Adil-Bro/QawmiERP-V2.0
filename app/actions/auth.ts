@@ -150,6 +150,26 @@ export async function login(prevState: any, formData: FormData) {
         }
 
         if (userData?.madrasa_id) {
+          try {
+            const { registerUserSession, SESSION_COOKIE_NAME } = await import("@/lib/session-manager");
+            const sessionRec = await registerUserSession({
+              userId: data.user.id,
+              madrasaId: String(userData.madrasa_id),
+              accessToken: data.session?.access_token || null,
+              channel: "web",
+            });
+            const cookieStore = await cookies();
+            cookieStore.set(SESSION_COOKIE_NAME, sessionRec.id, {
+              path: "/",
+              httpOnly: true,
+              sameSite: "lax",
+              secure: process.env.NODE_ENV === "production",
+              maxAge: 60 * 60 * 24 * 7,
+            });
+          } catch (sessErr) {
+            console.warn("Session registration in login action warning:", sessErr);
+          }
+
           const { data: madrasaRow } = await adminClient
             .from("madrasas")
             .select("registration_no")
@@ -281,6 +301,31 @@ export async function syncAllStudentLoginsAction(): Promise<SyncStudentLoginsRes
 export async function logout() {
   try {
     const supabase = await createClient();
+    const currentUser = await getAuthUser(supabase);
+    const cookieStore = await cookies();
+    const sessionId = cookieStore.get("qawmi_session_id")?.value;
+    if (currentUser && sessionId) {
+      try {
+        const admin = await createAdminClient();
+        const { data: uRow } = await admin
+          .from("users")
+          .select("madrasa_id")
+          .eq("id", currentUser.id)
+          .maybeSingle();
+        if (uRow?.madrasa_id) {
+          const { revokeUserSession } = await import("@/lib/session-manager");
+          await revokeUserSession({
+            sessionId,
+            madrasaId: String(uRow.madrasa_id),
+            revokedBy: currentUser.id,
+            reason: "USER_LOGOUT",
+            skipAudit: true,
+          });
+        }
+      } catch {
+        // ignore session revocation failure on logout
+      }
+    }
     await supabase.auth.signOut();
   } catch (err) {
     console.warn("Logout error:", err);
@@ -294,7 +339,12 @@ export async function logout() {
   try {
     const cookieStore = await cookies();
     for (const cookie of cookieStore.getAll()) {
-      if (cookie.name.startsWith("sb-") || cookie.name === "qawmi_remember_me") {
+      if (
+        cookie.name.startsWith("sb-") ||
+        cookie.name === "qawmi_remember_me" ||
+        cookie.name === "qawmi_session_id" ||
+        cookie.name === "qawmi_step_up_token"
+      ) {
         try {
           cookieStore.delete(cookie.name);
         } catch {

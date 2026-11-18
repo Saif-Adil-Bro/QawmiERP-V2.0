@@ -1,0 +1,220 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { Clock, Play, RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  getAutomationRulesAction,
+  getJobExecutionLogsAction,
+  saveAutomationRuleAction,
+  triggerAutomationJobAction,
+} from "@/app/actions/automation";
+import { toBanglaNumber } from "@/lib/numberToBangla";
+
+interface Props {
+  initialRules: any[];
+  initialLogs: any[];
+}
+
+export default function AutomationSettingsClient({ initialRules, initialLogs }: Props) {
+  const [rules, setRules] = useState<any[]>(initialRules);
+  const [logs, setLogs] = useState<any[]>(initialLogs);
+  const [isPending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  const reload = () => {
+    startTransition(async () => {
+      const [r, l] = await Promise.all([
+        getAutomationRulesAction(),
+        getJobExecutionLogsAction(50),
+      ]);
+      setRules(r.rules || []);
+      setLogs(l.logs || []);
+    });
+  };
+
+  const handleToggle = (rule: any) => {
+    setFeedback(null);
+    startTransition(async () => {
+      const res = await saveAutomationRuleAction({
+        rule_key: rule.rule_key,
+        name: rule.name,
+        name_bn: rule.name_bn,
+        description: rule.description,
+        cron_expression: rule.cron_expression,
+        is_enabled: !rule.is_enabled,
+      });
+      if (res.error) {
+        setFeedback({ type: "err", text: res.error });
+      } else {
+        setFeedback({
+          type: "ok",
+          text: `'${rule.name_bn || rule.name}' ${!rule.is_enabled ? "চালু" : "বন্ধ"} করা হয়েছে।`,
+        });
+        reload();
+      }
+    });
+  };
+
+  const handleRunNow = (
+    jobKey: "monthly_fee_generation" | "overdue_reminders" | "absence_alerts" | "process_queues"
+  ) => {
+    setFeedback(null);
+    startTransition(async () => {
+      const res = await triggerAutomationJobAction(jobKey);
+      if (res.error) {
+        setFeedback({ type: "err", text: res.error });
+      } else {
+        setFeedback({ type: "ok", text: `জব '${jobKey}' সফলভাবে সম্পন্ন হয়েছে।` });
+        reload();
+      }
+    });
+  };
+
+  return (
+    <div className="space-y-6 p-4 md:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
+            <Clock className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+            শিডিউলড ক্রন ও অটোমেশন ইঞ্জিন
+          </h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            স্বয়ংক্রিয় মাসিক ফি জেনারেশন, বকেয়া রিমাইন্ডার, অনুপস্থিতি অ্যালার্ট ও কিউ প্রসেসর
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={reload}
+          disabled={isPending}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+        >
+          <RefreshCw className={`h-4 w-4 ${isPending ? "animate-spin" : ""}`} />
+          রিফ্রেশ করুন
+        </button>
+      </div>
+
+      {feedback && (
+        <div
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            feedback.type === "ok"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+              : "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+          }`}
+        >
+          {feedback.text}
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {rules.map((rule) => (
+          <div
+            key={rule.rule_key}
+            className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+          >
+            <div>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h2 className="font-semibold text-slate-900 dark:text-slate-100">
+                    {rule.name_bn || rule.name}
+                  </h2>
+                  <p className="mt-0.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                    {rule.rule_key} · cron: {rule.cron_expression}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggle(rule)}
+                  disabled={isPending}
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${
+                    rule.is_enabled
+                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                      : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                  }`}
+                >
+                  {rule.is_enabled ? "চালু" : "বন্ধ"}
+                </button>
+              </div>
+              {rule.description && (
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                  {rule.description}
+                </p>
+              )}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => handleRunNow(rule.rule_key)}
+                disabled={isPending}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-700"
+              >
+                <Play className="h-3.5 w-3.5" />
+                এখনই চালান
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-100">
+          সাম্প্রতিক জব এক্সিকিউশন লগ ({toBanglaNumber(logs.length)})
+        </h2>
+        {logs.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">কোনো এক্সিকিউশন লগ নেই।</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                <tr>
+                  <th className="py-2 pr-3">জব</th>
+                  <th className="py-2 pr-3">উৎস</th>
+                  <th className="py-2 pr-3">অবস্থা</th>
+                  <th className="py-2 pr-3">প্রসেসড / সফল / ব্যর্থ</th>
+                  <th className="py-2">সময়কাল</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {logs.map((log) => (
+                  <tr key={log.id}>
+                    <td className="py-2 pr-3 font-medium text-slate-800 dark:text-slate-200">
+                      {log.job_key}
+                    </td>
+                    <td className="py-2 pr-3 text-slate-600 dark:text-slate-300">
+                      {log.trigger_source}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                          log.status === "SUCCESS"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                            : log.status === "FAILED"
+                              ? "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
+                              : "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                        }`}
+                      >
+                        {log.status === "SUCCESS" ? (
+                          <CheckCircle2 className="h-3 w-3" />
+                        ) : (
+                          <AlertTriangle className="h-3 w-3" />
+                        )}
+                        {log.status}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 text-slate-600 dark:text-slate-300">
+                      {toBanglaNumber(log.processed_count || 0)} /{" "}
+                      {toBanglaNumber(log.success_count || 0)} /{" "}
+                      {toBanglaNumber(log.failed_count || 0)}
+                    </td>
+                    <td className="py-2 text-xs text-slate-500 dark:text-slate-400">
+                      {toBanglaNumber(log.duration_ms || 0)} ms
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

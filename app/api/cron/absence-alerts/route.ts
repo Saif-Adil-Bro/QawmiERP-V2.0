@@ -1,0 +1,32 @@
+import { NextResponse } from "next/server";
+import { authorizeCronRequest, resolveCronTenant } from "@/lib/automation/cron-auth";
+import { runAbsenceAlertsCron } from "@/lib/automation/attendance-cron-service";
+
+async function handle(req: Request) {
+  const auth = await authorizeCronRequest(req);
+  if (!auth.ok) return auth.response;
+
+  let body: any = {};
+  if (req.method === "POST") {
+    body = await req.json().catch(() => ({}));
+  }
+  const { searchParams } = new URL(req.url);
+  const madrasaId = resolveCronTenant(auth, body.madrasaId || searchParams.get("madrasaId") || null);
+  const date = body.date || searchParams.get("date") || undefined;
+
+  const result = await runAbsenceAlertsCron({
+    madrasaId,
+    date,
+    triggerSource: "cron",
+  });
+
+  return NextResponse.json({ ok: true, ...result });
+}
+
+export async function GET(req: Request) {
+  return handle(req);
+}
+
+export async function POST(req: Request) {
+  return handle(req);
+}

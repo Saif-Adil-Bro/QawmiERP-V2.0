@@ -1,3 +1,8 @@
+import {
+  buildPrintWatermarkHtml,
+  type ExportWatermarkMetadata,
+} from "@/lib/export-watermark";
+
 /**
  * Utility for isolated document printing (Money Receipts, Certificates, Invoices, Memos, Reports)
  * Completely eliminates background page, backdrop blur, buttons, and modal dialog borders.
@@ -7,7 +12,8 @@ export function printElementIsolated(
   elementId: string,
   pageTitle = "মানি রিসিট ও ভাউচার মেমো",
   orientation: "portrait" | "landscape" = "portrait",
-  pageSize: "A4" | "Letter" | "auto" = "auto"
+  pageSize: "A4" | "Letter" | "auto" = "auto",
+  watermark?: ExportWatermarkMetadata | null
 ) {
   if (typeof window === "undefined") return;
 
@@ -50,6 +56,8 @@ export function printElementIsolated(
       pageSize !== "auto"
         ? `size: ${pageSize} ${orientation};`
         : `size: auto;`;
+
+    const watermarkMarkup = watermark ? buildPrintWatermarkHtml(watermark) : "";
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -194,6 +202,7 @@ export function printElementIsolated(
         <div class="isolated-print-wrapper">
           ${targetElem.outerHTML}
         </div>
+        ${watermarkMarkup}
       </body>
       </html>
     `;

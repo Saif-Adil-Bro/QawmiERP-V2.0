@@ -117,6 +117,35 @@ export async function middleware(request: NextRequest) {
       const { data, error } = await supabase.auth.getUser();
       user = error ? null : data?.user || null;
     }
+
+    // Active Session Revocation Check (Feature 1.2)
+    if (user && !isApiRoute && !isPublicRoute) {
+      const sessionId = request.cookies.get("qawmi_session_id")?.value;
+      if (sessionId) {
+        const { data: sessRow, error: sessErr } = await supabase
+          .from("user_sessions")
+          .select("is_active, revoked_at, expires_at")
+          .eq("id", sessionId)
+          .maybeSingle();
+
+        if (!sessErr && sessRow) {
+          const isRevoked =
+            Boolean(sessRow.revoked_at) ||
+            sessRow.is_active === false ||
+            (sessRow.expires_at && new Date(sessRow.expires_at).getTime() <= Date.now());
+          if (isRevoked) {
+            user = null;
+            supabaseResponse.cookies.delete("qawmi_session_id");
+            supabaseResponse.cookies.delete("qawmi_step_up_token");
+            for (const c of request.cookies.getAll()) {
+              if (c.name.startsWith("sb-")) {
+                supabaseResponse.cookies.delete(c.name);
+              }
+            }
+          }
+        }
+      }
+    }
   } catch (error) {
     console.warn("Middleware Supabase auth validation warning:", error);
     user = null;

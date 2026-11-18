@@ -9,6 +9,7 @@ import { parseExpenseFund, isVoidedExpense, isVoidDonation } from "@/lib/fund-ut
 import { getFeeMetadata, saveFeeMetadata, voidFeePayment } from "./fee-management";
 import { logAuditEvent } from "@/lib/audit-log";
 import { assertAccountingPeriodUnlocked } from "@/lib/lock-guards";
+import { submitWorkflowHookApproval } from "@/lib/approval-workflow";
 
 export async function getFees(filters?: { month?: string; year?: string; student_id?: string }) {
   const supabase = await createClient();
@@ -237,6 +238,9 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
 export type ExpenseActionState = {
   error?: string;
   success?: boolean;
+  pendingApproval?: boolean;
+  approvalRequestId?: string;
+  message?: string;
   expense?: {
     id: string;
     category: string;
@@ -377,10 +381,44 @@ export async function createExpense(prevState: ExpenseActionState, formData: For
   const periodLock = await assertAccountingPeriodUnlocked(finalMadrasaId, expenseDate, "নতুন খরচ এন্ট্রি");
   if (periodLock.locked) return { error: periodLock.error };
 
+  const cleanDesc = (description || "").trim();
+  if (formData.get("_approvalBypass") !== "true") {
+    const hook = await submitWorkflowHookApproval({
+      madrasaId: finalMadrasaId,
+      actorId: user.id,
+      actorName: user.user_metadata?.full_name || user.email || "অফিসার",
+      actorRole: user.user_metadata?.role || "staff",
+      requestType: "LARGE_EXPENSE",
+      amount: parsedAmount,
+      title: `বড় অঙ্কের খরচ অনুমোদন: ${category} (${parsedAmount} টাকা)`,
+      description: cleanDesc || `${fundName} থেকে খরচ`,
+      entityType: "expense",
+      targetId: fundId,
+      targetName: fundName,
+      payload: {
+        action: "create_expense",
+        expenseData: {
+          category,
+          amount: parsedAmount,
+          expense_date: expenseDate,
+          description: cleanDesc,
+          fund_id: fundId,
+          fund_name: fundName,
+        },
+      },
+    });
+    if (hook.matched) {
+      return {
+        success: true,
+        pendingApproval: true,
+        approvalRequestId: hook.approvalRequestId,
+        message: "বড় অঙ্কের খরচের জন্য অনুমোদনের আবেদন পাঠানো হয়েছে।",
+      };
+    }
+  }
+
   // HI-3 ফিক্স: count()-এর বদলে আসল MAX(voucher_no)+1
   const voucherNo = await resolveNextVoucherNo(supabase, finalMadrasaId, expenseDate);
-
-  const cleanDesc = (description || "").trim();
   // ফান্ড ও ভাউচার মেটাডেটা description-এ রাখা হয় (পুরোনো স্কিমার সাথে সামঞ্জস্যের জন্য)
   const wrappedDescription = `[FUND: ${fundId} | ${fundName}][VOUCHER: ${voucherNo}]\n${cleanDesc}`.trim();
 

@@ -6,6 +6,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata, MadrasaMetaWithSessions, hydrateStudentWithMetadata } from "@/lib/sessions";
+import { submitWorkflowHookApproval } from "@/lib/approval-workflow";
 import {
   GradeRule,
   ExamGradingConfig,
@@ -393,7 +394,12 @@ export async function toggleExamLock(
   }
 }
 
-export async function toggleExamPublish(examId: string, isPublished: boolean, note?: string) {
+export async function toggleExamPublish(
+  examId: string,
+  isPublished: boolean,
+  note?: string,
+  _approvalBypass: boolean = false
+) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   const __authz = await writeGuard("exams");
@@ -406,6 +412,30 @@ export async function toggleExamPublish(examId: string, isPublished: boolean, no
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসার তথ্য খুঁজে পাওয়া যায়নি।" };
+
+    if (!_approvalBypass && isPublished) {
+      const hook = await submitWorkflowHookApproval({
+        madrasaId,
+        actorId: user.id,
+        actorName: user.user_metadata?.full_name || user.email || "অফিসার",
+        actorRole: user.user_metadata?.role || "staff",
+        requestType: "RESULT_PUBLISH",
+        amount: 0,
+        title: `পরীক্ষার ফলাফল প্রকাশ অনুমোদন (${examId})`,
+        description: note || "পরীক্ষার চূড়ান্ত ফলাফল প্রকাশ",
+        entityType: "exam",
+        targetId: examId,
+        payload: { action: "publish_exam_result", examId, isPublished, note },
+      });
+      if (hook.matched) {
+        return {
+          success: true,
+          pendingApproval: true,
+          approvalRequestId: hook.approvalRequestId,
+          message: "ফলাফল প্রকাশের জন্য অনুমোদনের আবেদন পাঠানো হয়েছে।",
+        };
+      }
+    }
 
     const meta = await getMadrasaMetadata(madrasaId);
     const prevPublish = meta.published_exams?.[examId] || { is_published: false };
@@ -467,6 +497,21 @@ export async function toggleExamPublish(examId: string, isPublished: boolean, no
     revalidatePath(`/dashboard/exams/${examId}/report-cards`);
     revalidatePath("/portal/exams");
     revalidatePath("/portal", "layout");
+
+    if (isPublished) {
+      try {
+        const { dispatchWebhookEvent } = await import("@/lib/webhooks/dispatcher");
+        await dispatchWebhookEvent(madrasaId, "exam.result_published", {
+          exam_id: examId,
+          title: examRow?.title || examId,
+          year: examRow?.year || null,
+          published_by: publisherName,
+          published_at: nextPublish.published_at,
+        });
+      } catch {
+        // non-blocking webhook dispatch
+      }
+    }
 
     return {
       success: true,

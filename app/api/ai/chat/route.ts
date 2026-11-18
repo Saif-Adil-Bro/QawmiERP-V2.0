@@ -1,8 +1,10 @@
 import { streamText, convertToModelMessages, stepCountIs, type UIMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
+import { cookies } from "next/headers";
 import { getAuthUser, createAdminClient } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { loadServerPermissions } from "@/lib/permissions-server";
+import { isSessionRevoked, SESSION_COOKIE_NAME } from "@/lib/session-manager";
 import { buildSystemPrompt } from "@/lib/ai/erp-knowledge-base";
 import { createErpTools } from "@/lib/ai/erp-tools";
 
@@ -15,17 +17,6 @@ export async function POST(req: Request) {
       return Response.json(
         { error: "অননুমোদিত প্রবেশ। অনুগ্রহ করে পুনরায় লগইন করুন।" },
         { status: 401 }
-      );
-    }
-
-    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-    if (!apiKey) {
-      return Response.json(
-        {
-          error:
-            "AI সার্ভিস কনফিগার করা হয়নি। অনুগ্রহ করে .env.local ফাইলে OPENROUTER_API_KEY সেট করুন (OpenRouter থেকে ফ্রি API Key পাওয়া যায়)।",
-        },
-        { status: 503 }
       );
     }
 
@@ -42,6 +33,38 @@ export async function POST(req: Request) {
       return Response.json(
         { error: "আপনার অ্যাকাউন্টটি সক্রিয় নয়।" },
         { status: 403 }
+      );
+    }
+
+    let sessionId = "";
+    try {
+      const cookieStore = await cookies();
+      sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value || "";
+    } catch {
+      sessionId = "";
+    }
+    if (sessionId) {
+      const revoked = await isSessionRevoked({
+        sessionId,
+        userId: user.id,
+        madrasaId,
+      });
+      if (revoked) {
+        return Response.json(
+          { error: "আপনার সেশনটি বাতিল বা মেয়াদোত্তীর্ণ হয়েছে। অনুগ্রহ করে পুনরায় লগইন করুন।" },
+          { status: 401 }
+        );
+      }
+    }
+
+    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+    if (!apiKey) {
+      return Response.json(
+        {
+          error:
+            "AI সার্ভিস কনফিগার করা হয়নি। অনুগ্রহ করে .env.local ফাইলে OPENROUTER_API_KEY সেট করুন (OpenRouter থেকে ফ্রি API Key পাওয়া যায়)।",
+        },
+        { status: 503 }
       );
     }
 
@@ -74,7 +97,7 @@ export async function POST(req: Request) {
       madrasaName: (madrasaRow as any)?.name || undefined,
     });
 
-    const tools = await createErpTools(permCtx);
+    const tools = createErpTools(permCtx);
 
     const result = streamText({
       model: openrouter.chat(modelName),

@@ -26,6 +26,7 @@ export interface PermissionCategory {
   title: string;
   titleEn: string;
   iconName: string;
+  description?: string;
   permissions: PermissionDefinition[];
 }
 
@@ -802,6 +803,17 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
         supportedScopes: ["ALL"],
         defaultScope: "ALL",
       },
+      {
+        id: "finance.manage",
+        module: "finance",
+        action: "manage",
+        title: "আর্থিক নীতি, পিরিয়ড ও গেটওয়ে পরিচালনা",
+        titleEn: "Manage Finance Settings & Periods",
+        description: "অ্যাকাউন্টিং পিরিয়ড আনলক, পেমেন্ট গেটওয়ে ও আর্থিক সেটিংস পরিচালনা",
+        riskLevel: "CRITICAL",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
     ],
   },
   {
@@ -1347,6 +1359,196 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
       },
     ],
   },
+  {
+    id: "approvals",
+    title: "বহু-স্তরীয় অনুমোদন (Approvals)",
+    titleEn: "Multi-Level Approvals",
+    iconName: "CheckCircle2",
+    description: "ফি মওকুফ, বড় অঙ্কের ব্যয়, বেতন পরিবর্তন ও রেজাল্ট পাবলিশের বহু-স্তরীয় অনুমোদন ব্যবস্থাপনা",
+    permissions: [
+      {
+        id: "approval.view",
+        module: "approvals",
+        action: "view",
+        title: "অনুমোদন তালিকা দেখা",
+        titleEn: "View Approval Requests",
+        description: "পেন্ডিং ও সম্পন্ন অনুমোদন অনুরোধসমূহ দেখা",
+        riskLevel: "LOW",
+        supportedScopes: ["ALL", "OWN"],
+        defaultScope: "ALL",
+      },
+      {
+        id: "approval.manage",
+        module: "approvals",
+        action: "manage",
+        title: "অনুমোদন ওয়ার্কফ্লো ও নীতিমালা পরিচালনা",
+        titleEn: "Manage Approval Workflows",
+        description: "বহু-স্তরীয় অনুমোদন ধাপ, থ্রেশহোল্ড ও SLA কনফিগার করা",
+        riskLevel: "CRITICAL",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
+      {
+        id: "approval.approve",
+        module: "approvals",
+        action: "approve",
+        title: "অনুমোদন ধাপ সিদ্ধান্ত প্রদান",
+        titleEn: "Approve / Reject Workflow Steps",
+        description: "নির্ধারিত ধাপে অনুমোদন বা বাতিল সিদ্ধান্ত প্রদান করা",
+        riskLevel: "HIGH",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
+    ],
+  },
+  {
+    id: "enterprise_security",
+    title: "এন্টারপ্রাইজ নিরাপত্তা ও তথ্য সুরক্ষা",
+    titleEn: "Enterprise Security & Data Privacy",
+    iconName: "ShieldCheck",
+    description: "সক্রিয় সেশন কন্ট্রোল, ২-ধাপ যাচাইকরণ (Step-Up 2FA) এবং সংবেদনশীল তথ্য আনমাস্কিং অধিকার",
+    permissions: [
+      {
+        id: "security.sessions.manage",
+        module: "security",
+        action: "sessions.manage",
+        title: "সকল ইউজারের সক্রিয় সেশন পরিচালনা",
+        titleEn: "Manage Active Sessions",
+        description: "সন্দেহজনক বা পুরনো ডিভাইস সেশন দেখা ও দূর থেকে বাতিল করা",
+        riskLevel: "CRITICAL",
+        supportedScopes: ["ALL", "SELF"],
+        defaultScope: "ALL",
+      },
+      {
+        id: "security.2fa.manage",
+        module: "security",
+        action: "2fa.manage",
+        title: "২-ধাপ যাচাইকরণ (2FA / Step-Up) পরিচালনা",
+        titleEn: "Manage 2FA & Step-Up Policy",
+        description: "Authenticator TOTP, SMS/Email OTP এবং Step-Up নিরাপত্তা নীতি পরিচালনা",
+        riskLevel: "HIGH",
+        supportedScopes: ["ALL", "SELF"],
+        defaultScope: "ALL",
+      },
+      {
+        id: "data.unmask",
+        module: "security",
+        action: "data.unmask",
+        title: "সংবেদনশীল তথ্য সম্পূর্ণ দেখা (Unmask PII)",
+        titleEn: "Unmask Sensitive PII Fields",
+        description: "শিক্ষার্থী, ডোনার ও স্টাফদের পূর্ণ মোবাইল নম্বর, NID, ইমেইল ও ব্যাংক হিসাব দেখা",
+        riskLevel: "CRITICAL",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
+    ],
+  },
+  {
+    id: "automation_webhooks",
+    title: "অটোমেশন ও ওয়েবহুক",
+    titleEn: "Automation & Webhooks",
+    iconName: "Settings",
+    description: "শিডিউল্ড ক্রন জব, অটোমেশন রুল ও বহিরাগত সিস্টেম ওয়েবহুক ইন্টিগ্রেশন",
+    permissions: [
+      {
+        id: "automation.view",
+        module: "automation",
+        action: "view",
+        title: "অটোমেশন রুল ও জব লগ দেখা",
+        titleEn: "View Automation & Cron Logs",
+        description: "মাসিক ফি জেনারেশন, রিমাইন্ডার ও অনুপস্থিতি অ্যালার্টের স্ট্যাটাস দেখা",
+        riskLevel: "LOW",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
+      {
+        id: "automation.manage",
+        module: "automation",
+        action: "manage",
+        title: "অটোমেশন রুল ও ক্রন ট্রিগার পরিচালনা",
+        titleEn: "Manage Automation Rules",
+        description: "অটোমেশন রুল চালু/বন্ধ করা ও ম্যানুয়ালি ক্রন জব রান করা",
+        riskLevel: "CRITICAL",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
+      {
+        id: "webhook.view",
+        module: "webhooks",
+        action: "view",
+        title: "ওয়েবহুক এন্ডপয়েন্ট ও ডেলিভারি লগ দেখা",
+        titleEn: "View Webhooks & Deliveries",
+        description: "বহিরাগত ওয়েবহুক সাবস্ক্রিপশন ও ডেলিভারি ইতিহাস দেখা",
+        riskLevel: "MEDIUM",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
+      {
+        id: "webhook.manage",
+        module: "webhooks",
+        action: "manage",
+        title: "ওয়েবহুক এন্ডপয়েন্ট ও সিক্রেট পরিচালনা",
+        titleEn: "Manage Webhook Endpoints",
+        description: "ওয়েবহুক তৈরি, সিক্রেট রোটেট, টেস্ট পিং ও রিট্রাই পরিচালনা",
+        riskLevel: "CRITICAL",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
+    ],
+  },
+  {
+    id: "analytics_ai",
+    title: "এআই বিশ্লেষণ ও অসঙ্গতি শনাক্তকরণ",
+    titleEn: "AI Analytics & Anomaly Detection",
+    iconName: "Sparkles",
+    description: "ড্রপআউট ও বকেয়া ঝুঁকি পূর্বাভাস (Early Warning) এবং আর্থিক/বোর্ডিং অসঙ্গতি পর্যবেক্ষণ",
+    permissions: [
+      {
+        id: "analytics.early_warning",
+        module: "analytics",
+        action: "early_warning",
+        title: "এআই আর্লি ওয়ার্নিং ও ঝুঁকি বিশ্লেষণ দেখা",
+        titleEn: "View Early Warning Analytics",
+        description: "শিক্ষার্থীদের ড্রপআউট ও বকেয়া ঝুঁকি স্কোর দেখা",
+        riskLevel: "MEDIUM",
+        supportedScopes: ["ALL", "ASSIGNED"],
+        defaultScope: "ALL",
+      },
+      {
+        id: "analytics.early_warning.manage",
+        module: "analytics",
+        action: "early_warning.manage",
+        title: "আর্লি ওয়ার্নিং রিক্যালকুলেশন ও ইন্টারভেনশন পরিচালনা",
+        titleEn: "Manage Early Warning Interventions",
+        description: "ঝুঁকি স্কোর পুনঃগণনা ও অভিভাবক যোগাযোগের নোট সংরক্ষণ",
+        riskLevel: "HIGH",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
+      {
+        id: "anomaly.view",
+        module: "anomaly",
+        action: "view",
+        title: "আর্থিক ও বোর্ডিং অসঙ্গতি অ্যালার্ট দেখা",
+        titleEn: "View Financial & Boarding Anomalies",
+        description: "অস্বাভাবিক বাজার খরচ, ডুপ্লিকেট ভাউচার ও মওকুফ অ্যালার্ট দেখা",
+        riskLevel: "HIGH",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
+      {
+        id: "anomaly.manage",
+        module: "anomaly",
+        action: "manage",
+        title: "অসঙ্গতি স্ক্যান ও নিষ্পত্তি পরিচালনা",
+        titleEn: "Manage & Resolve Anomalies",
+        description: "অ্যানোমালি স্ক্যান চালানো ও ফ্ল্যাগ করা অসঙ্গতি সমাধান হিসেবে চিহ্নিত করা",
+        riskLevel: "CRITICAL",
+        supportedScopes: ["ALL"],
+        defaultScope: "ALL",
+      },
+    ],
+  },
 ];
 
 // Flat list of all permission IDs
@@ -1457,8 +1659,10 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "finance.view",
       "finance.create",
       "finance.edit",
+      "finance.delete",
       "finance.approve",
       "finance.export",
+      "finance.manage",
       "fee.view",
       "fee.create",
       "fee.edit",
@@ -1500,6 +1704,20 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "audit.view",
       "settings.view",
       "settings.edit",
+      "approval.view",
+      "approval.manage",
+      "approval.approve",
+      "security.sessions.manage",
+      "security.2fa.manage",
+      "data.unmask",
+      "automation.view",
+      "automation.manage",
+      "webhook.view",
+      "webhook.manage",
+      "analytics.early_warning",
+      "analytics.early_warning.manage",
+      "anomaly.view",
+      "anomaly.manage",
     ],
   },
   {
@@ -1540,6 +1758,7 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "exam.marks.edit",
       "exam.export",
       "hifz.view",
+      "finance.manage",
       "fee.view",
       "fee.create",
       "library.view",
@@ -1558,6 +1777,13 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "notification.create",
       "notification.send",
       "settings.view",
+      "approval.view",
+      "approval.approve",
+      "security.2fa.manage",
+      "automation.view",
+      "webhook.view",
+      "analytics.early_warning",
+      "anomaly.view",
     ],
   },
   {
@@ -1587,6 +1813,8 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "document.print",
       "notification.view",
       "id.view",
+      "analytics.early_warning",
+      "security.2fa.manage",
     ],
   },
   {
@@ -1616,6 +1844,10 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "fee.export",
       "notification.view",
       "notification.send",
+      "approval.view",
+      "approval.approve",
+      "anomaly.view",
+      "security.2fa.manage",
     ],
   },
   {
@@ -1653,6 +1885,8 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "id.issue",
       "notification.view",
       "notification.create",
+      "approval.view",
+      "security.2fa.manage",
     ],
   },
   {
@@ -1676,6 +1910,8 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "hifz.report",
       "notification.view",
       "notification.send",
+      "analytics.early_warning",
+      "security.2fa.manage",
     ],
   },
   {
@@ -1705,6 +1941,9 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "certificate.export",
       "notification.view",
       "notification.create",
+      "approval.view",
+      "analytics.early_warning",
+      "security.2fa.manage",
     ],
   },
   {
@@ -1728,6 +1967,7 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "library.return",
       "library.report",
       "notification.view",
+      "security.2fa.manage",
     ],
   },
   {
@@ -1751,6 +1991,8 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "staff.attendance",
       "notification.view",
       "notification.send",
+      "analytics.early_warning",
+      "security.2fa.manage",
     ],
   },
   {
@@ -1780,6 +2022,9 @@ export const DEFAULT_SYSTEM_ROLES: RoleDefinition[] = [
       "document.create",
       "notification.view",
       "notification.send",
+      "approval.view",
+      "approval.approve",
+      "security.2fa.manage",
     ],
   },
   {
@@ -2116,6 +2361,7 @@ export function canAccessField(
 export type ApprovalRequestType =
   | "FEE_DISCOUNT"
   | "FEE_WAIVER"
+  | "LARGE_EXPENSE"
   | "SALARY_CHANGE"
   | "RESULT_PUBLISH"
   | "CERTIFICATE_ISSUE"
@@ -2153,6 +2399,7 @@ export interface ApprovalRequest {
 export const APPROVAL_REQUIRED_PERMISSIONS: Record<ApprovalRequestType, string> = {
   FEE_DISCOUNT: "fee.approve",
   FEE_WAIVER: "fee.approve",
+  LARGE_EXPENSE: "finance.approve",
   SALARY_CHANGE: "staff.salary.manage",
   RESULT_PUBLISH: "exam.result.approve",
   CERTIFICATE_ISSUE: "certificate.issue",
@@ -2179,7 +2426,18 @@ export type AuditActionType =
   | "PASSWORD_RESET"
   | "APPROVAL_REQUESTED"
   | "APPROVAL_COMPLETED"
+  | "APPROVAL_STEP_DECIDED"
   | "SENSITIVE_DATA_EXPORTED"
+  | "SENSITIVE_FIELD_REVEALED"
+  | "STEP_UP_VERIFIED"
+  | "STEP_UP_FAILED"
+  | "SESSION_TERMINATED"
+  | "CRON_EXECUTED"
+  | "WEBHOOK_DISPATCHED"
+  | "WEBHOOK_SECRET_ROTATED"
+  | "ANOMALY_DETECTED"
+  | "ANOMALY_RESOLVED"
+  | "AI_ACTION_EXECUTED"
   | "CERTIFICATE_REVOKED"
   | "RECORD_DELETED";
 

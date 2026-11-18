@@ -22,6 +22,11 @@ import {
   UserAccountStatus,
   TemporaryPermission,
 } from "@/lib/permissions";
+import {
+  listApprovalRequestsForMadrasa,
+  type ApprovalRequestRecord,
+} from "@/lib/approval-workflow";
+import { decideApprovalStep, submitApprovalRequest } from "@/app/actions/approvals";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: Read & Write Madrasa Security Store from Metadata
@@ -184,13 +189,48 @@ export async function getMadrasaRolesAndPermissions(): Promise<{
     const customRoles = store.custom_roles || [];
     const allRoles = [...DEFAULT_SYSTEM_ROLES, ...customRoles];
 
+    const relationalRequests = await listApprovalRequestsForMadrasa(madrasaId);
+    const mappedRelational: ApprovalRequest[] = relationalRequests.map(
+      (r: ApprovalRequestRecord) => ({
+        id: r.id,
+        madrasa_id: r.madrasa_id,
+        type: r.request_type as ApprovalRequestType,
+        title: r.title,
+        description: r.description || "",
+        target_id: r.target_id,
+        target_name: r.target_name || undefined,
+        payload: r.payload || {},
+        requested_by: {
+          user_id: String(r.requested_by || r.requester_id || ""),
+          name: r.requested_by_name || "অফিসার",
+          role: r.requested_by_role || "staff",
+        },
+        requested_at: r.created_at,
+        status: (r.status === "IN_REVIEW" ? "PENDING" : r.status) as ApprovalRequest["status"],
+        ...(r.final_decision_by
+          ? {
+              reviewed_by: {
+                user_id: r.final_decision_by,
+                name: r.final_decision_by_name || "অনুমোদনকারী",
+                role: "muhtamim",
+              },
+              reviewed_at: r.final_decision_at || undefined,
+              review_notes: r.final_notes || undefined,
+            }
+          : {}),
+      })
+    );
+
+    const seenIds = new Set(mappedRelational.map((r) => r.id));
+    const legacyOnly = (store.approval_requests || []).filter((r) => !seenIds.has(r.id));
+
     return {
       systemRoles: DEFAULT_SYSTEM_ROLES,
       customRoles,
       allRoles,
       categories: PERMISSION_CATEGORIES,
       auditLogs: store.security_audit_logs || [],
-      approvalRequests: store.approval_requests || [],
+      approvalRequests: [...mappedRelational, ...legacyOnly],
       userSecurityProfiles: store.user_security_profiles || {},
       error: null,
     };
@@ -599,57 +639,45 @@ export async function createApprovalRequest(payload: {
   payloadData: Record<string, any>;
 }) {
   try {
-    const supabase = await createClient();
-    const authUser = await getAuthUser(supabase);
-    if (!authUser) return { error: "অননুমোদিত অ্যাক্সেস" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, authUser);
-    if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
-
-    const reqId = `appr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const newRequest: ApprovalRequest = {
-      id: reqId,
-      madrasa_id: madrasaId,
-      type: payload.type,
-      title: payload.title.trim(),
-      description: payload.description.trim(),
-      target_id: payload.target_id,
-      target_name: payload.target_name,
+    const res = await submitApprovalRequest({
+      requestType: payload.type,
+      title: payload.title,
+      description: payload.description,
+      targetId: payload.target_id,
+      targetName: payload.target_name,
+      amount: Number(payload.payloadData?.amount ?? 0),
       payload: payload.payloadData,
+    });
+
+    if (!("request" in res) || res.error || !res.request) {
+      return { error: res.error || "অনুমোদন আবেদন জমা দেওয়া সম্ভব হয়নি।" };
+    }
+
+    const r = res.request;
+    const legacyRequest: ApprovalRequest = {
+      id: r.id,
+      madrasa_id: r.madrasa_id,
+      type: r.request_type as ApprovalRequestType,
+      title: r.title,
+      description: r.description || "",
+      target_id: r.target_id,
+      target_name: r.target_name || undefined,
+      payload: r.payload || {},
       requested_by: {
-        user_id: authUser.id,
-        name: authUser.user_metadata?.full_name || "অফিসার",
-        role: authUser.user_metadata?.role || "staff",
+        user_id: String(r.requested_by || r.requester_id || ""),
+        name: r.requested_by_name || "অফিসার",
+        role: r.requested_by_role || "staff",
       },
-      requested_at: new Date().toISOString(),
+      requested_at: r.created_at,
       status: "PENDING",
     };
 
-    const auditEntry: SecurityAuditLog = {
-      id: `audit_${Date.now()}`,
-      madrasa_id: madrasaId,
-      action: "APPROVAL_REQUESTED",
-      module: "approval",
-      actor_id: authUser.id,
-      actor_name: authUser.user_metadata?.full_name || "অফিসার",
-      actor_role: authUser.user_metadata?.role || "staff",
-      details: `অনুমোদনের আবেদন পেশ করা হয়েছে: ${payload.title} (${payload.type})`,
-      created_at: new Date().toISOString(),
-    };
-
-    const saved = await saveMadrasaSecurityStore(madrasaId, (store) => {
-      const existing = store.approval_requests || [];
-      return {
-        ...store,
-        approval_requests: [newRequest, ...existing],
-        security_audit_logs: [auditEntry, ...(store.security_audit_logs || [])],
-      };
-    });
-
-    if (!saved) return { error: "অনুমোদন আবেদন জমা দেওয়া সম্ভব হয়নি।" };
-
     revalidatePath("/dashboard/users");
-    return { success: true, message: "অনুমোদনের আবেদন সফলভাবে দাখিল করা হয়েছে!", request: newRequest };
+    return {
+      success: true,
+      message: res.message || "অনুমোদনের আবেদন সফলভাবে দাখিল করা হয়েছে!",
+      request: legacyRequest,
+    };
   } catch (err: any) {
     console.error("createApprovalRequest error:", err);
     return { error: err.message || "অনুমোদন আবেদনে ত্রুটি ঘটেছে" };
@@ -662,6 +690,11 @@ export async function reviewApprovalRequest(
   reviewNotes: string = ""
 ) {
   try {
+    const relationalResult = await decideApprovalStep(requestId, decision, reviewNotes);
+    if (!relationalResult.error || (relationalResult as any).statusCode !== 404) {
+      return relationalResult;
+    }
+
     const supabase = await createClient();
     const authUser = await getAuthUser(supabase);
     if (!authUser) return { error: "অননুমোদিত অ্যাক্সেস" };
@@ -669,8 +702,6 @@ export async function reviewApprovalRequest(
     const madrasaId = await getAuthMadrasaId(supabase, authUser);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
-    // CR-2 ফিক্স: সার্ভার-সাইড পারমিশন যাচাই — আগে শুধু `if (!authUser)` ছিল,
-    // ফলে স্ক্রিনে বোতাম না থাকলেও সরাসরি action কল করে কাজ চালানো যেত।
     const guard = await requirePermission({
       userId: authUser.id,
       madrasaId,

@@ -38,7 +38,18 @@ const ACTION_LABELS: Record<AuditActionType, { label: string; bg: string; text: 
   PASSWORD_RESET: { label: "পাসওয়ার্ড রিসেট", bg: "bg-blue-100", text: "text-blue-800" },
   APPROVAL_REQUESTED: { label: "অনুমোদন দাখিল", bg: "bg-amber-100", text: "text-amber-800" },
   APPROVAL_COMPLETED: { label: "অনুমোদন সম্পন্ন", bg: "bg-emerald-100", text: "text-emerald-800" },
+  APPROVAL_STEP_DECIDED: { label: "অনুমোদন ধাপ সিদ্ধান্ত", bg: "bg-teal-100", text: "text-teal-800" },
   SENSITIVE_DATA_EXPORTED: { label: "তথ্য এক্সপোর্ট", bg: "bg-rose-100", text: "text-rose-800" },
+  SENSITIVE_FIELD_REVEALED: { label: "গোপন তথ্য প্রদর্শন", bg: "bg-amber-100", text: "text-amber-800" },
+  STEP_UP_VERIFIED: { label: "Step-Up 2FA সফল", bg: "bg-emerald-100", text: "text-emerald-800" },
+  STEP_UP_FAILED: { label: "Step-Up 2FA ব্যর্থ", bg: "bg-rose-100", text: "text-rose-800" },
+  SESSION_TERMINATED: { label: "সেশন বাতিল", bg: "bg-orange-100", text: "text-orange-800" },
+  CRON_EXECUTED: { label: "অটোমেশন ক্রন রান", bg: "bg-sky-100", text: "text-sky-800" },
+  WEBHOOK_DISPATCHED: { label: "ওয়েবহুক প্রেরণ", bg: "bg-cyan-100", text: "text-cyan-800" },
+  WEBHOOK_SECRET_ROTATED: { label: "ওয়েবহুক সিক্রেট পরিবর্তন", bg: "bg-amber-100", text: "text-amber-800" },
+  ANOMALY_DETECTED: { label: "আর্থিক অসঙ্গতি শনাক্ত", bg: "bg-rose-100", text: "text-rose-800" },
+  ANOMALY_RESOLVED: { label: "অসঙ্গতি সমাধান", bg: "bg-emerald-100", text: "text-emerald-800" },
+  AI_ACTION_EXECUTED: { label: "এআই অ্যাকশন সম্পন্ন", bg: "bg-violet-100", text: "text-violet-800" },
   CERTIFICATE_REVOKED: { label: "সনদপত্র প্রত্যাহার", bg: "bg-rose-100", text: "text-rose-800" },
   RECORD_DELETED: { label: "রেকর্ড মোছা", bg: "bg-rose-100", text: "text-rose-800" },
 };
@@ -72,7 +83,7 @@ export default function SecurityAuditView({ logs = [], onRefresh }: Props) {
     return Array.from(s);
   }, [logs]);
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     if (filteredLogs.length === 0) return;
 
     const headers = ["ID", "Time", "Action", "Module", "Actor", "Actor Role", "Target User", "Details"];
@@ -81,20 +92,24 @@ export default function SecurityAuditView({ logs = [], onRefresh }: Props) {
       new Date(l.created_at).toLocaleString("en-GB"),
       l.action,
       l.module,
-      `"${l.actor_name}"`,
-      `"${l.actor_role}"`,
-      `"${l.target_user_name || ""}"`,
-      `"${l.details.replace(/"/g, '""')}"`,
+      l.actor_name || "",
+      l.actor_role || "",
+      l.target_user_name || "",
+      l.details || "",
     ]);
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `security_audit_logs_${toDhakaDateString()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const { triggerWatermarkedExport } = await import("@/lib/export-client");
+    const res = await triggerWatermarkedExport({
+      dataset: "security_audit_logs",
+      format: "csv",
+      filename: `security_audit_logs_${toDhakaDateString()}`,
+      sheetName: "Security Audit",
+      headers,
+      rows,
+    });
+    if (!res.ok && res.error) {
+      alert(res.error);
+    }
   };
 
   return (

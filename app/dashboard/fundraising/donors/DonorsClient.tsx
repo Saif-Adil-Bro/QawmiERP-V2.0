@@ -400,6 +400,36 @@ export default function DonorsClient({
 
         <div className="flex items-center gap-2">
           <button
+            type="button"
+            onClick={async () => {
+              const { triggerWatermarkedExport } = await import("@/lib/export-client");
+              const headers = ["সদস্য নং", "নাম", "ফোন", "ইমেইল", "ধরন", "প্রতিশ্রুতি", "মোট অনুদান", "ঠিকানা"];
+              const rows = filteredDonors.map((d) => [
+                d.member_no || "",
+                d.name || "",
+                d.phone || "",
+                d.email || "",
+                d.member_type || "",
+                d.pledge_amount || 0,
+                d.total_donated || 0,
+                d.address || "",
+              ]);
+              const res = await triggerWatermarkedExport({
+                dataset: "life_member_donors",
+                format: "csv",
+                filename: `life_member_donors_${toDhakaDateString()}`,
+                sheetName: "Life Members",
+                headers,
+                rows,
+              });
+              if (!res.ok && res.error) alert(res.error);
+            }}
+            className="flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-4 py-2.5 rounded-xl border border-slate-200 transition-all text-sm shrink-0"
+          >
+            <span>CSV এক্সপোর্ট</span>
+          </button>
+
+          <button
             onClick={() => setPrintRegisterOpen(true)}
             className="flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-4 py-2.5 rounded-xl border border-slate-200 transition-all text-sm shrink-0"
           >
@@ -1495,7 +1525,11 @@ export default function DonorsClient({
                 বন্ধ করুন
               </button>
               <button
-                onClick={() => printElementIsolated("donor-register-sheet", "সম্মানিত দাতা রেজিস্টার")}
+                onClick={async () => {
+                  const { fetchPrintWatermarkMeta } = await import("@/lib/export-client");
+                  const wm = await fetchPrintWatermarkMeta("life_member_donors", donors.length);
+                  printElementIsolated("donor-register-sheet", "সম্মানিত দাতা রেজিস্টার", "portrait", "auto", wm);
+                }}
                 className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-xs"
               >
                 <Printer className="w-3.5 h-3.5" />

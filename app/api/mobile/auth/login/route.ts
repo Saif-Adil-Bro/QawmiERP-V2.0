@@ -148,6 +148,21 @@ export async function POST(req: NextRequest) {
         roles = (active.context.roles || [role]).map((r) => String(r).toLowerCase());
         permissions = active.context.summary?.effectivePermissions || [];
       }
+
+      try {
+        const { registerUserSession } = await import("@/lib/session-manager");
+        const forwarded = req.headers.get("x-forwarded-for");
+        const ipAddress = forwarded ? forwarded.split(",")[0].trim() : req.headers.get("x-real-ip");
+        await registerUserSession({
+          userId: data.user.id,
+          madrasaId,
+          ipAddress,
+          userAgent: req.headers.get("user-agent") || "QawmiERP Mobile App",
+          accessToken: data.session.access_token,
+          remember: true,
+          channel: "mobile",
+        });
+      } catch {}
     }
 
     return mobileSuccess(

@@ -176,7 +176,7 @@ export default function SystemAuditLogsClient({
     });
   }, [logs, moduleFilter, severityFilter, searchQuery]);
 
-  const handleExportCsv = () => {
+  const handleExportCsv = async () => {
     const headers = [
       "Time (Asia/Dhaka)",
       "Severity",
@@ -190,36 +190,32 @@ export default function SystemAuditLogsClient({
       "Entity Label",
       "IP Address",
     ];
-    const escapeCell = (val: any) => {
-      const str = String(val ?? "").replace(/"/g, '""');
-      return `"${str}"`;
-    };
-    const rows = visibleLogs.map((l) =>
-      [
-        formatDhakaDateTime(l.created_at),
-        l.severity,
-        MODULE_LABELS_BN[l.module] || l.module,
-        l.action,
-        l.summary || "",
-        l.actor_name || "",
-        l.actor_email || "",
-        l.actor_role || "",
-        l.entity_type || "",
-        l.entity_label || l.entity_id || "",
-        l.ip_address || "",
-      ]
-        .map(escapeCell)
-        .join(",")
-    );
+    const rows = visibleLogs.map((l) => [
+      formatDhakaDateTime(l.created_at),
+      l.severity,
+      MODULE_LABELS_BN[l.module] || l.module,
+      l.action,
+      l.summary || "",
+      l.actor_name || "",
+      l.actor_email || "",
+      l.actor_role || "",
+      l.entity_type || "",
+      l.entity_label || l.entity_id || "",
+      l.ip_address || "",
+    ]);
 
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `system-audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const { triggerWatermarkedExport } = await import("@/lib/export-client");
+    const res = await triggerWatermarkedExport({
+      dataset: "system_audit_logs",
+      format: "csv",
+      filename: `system-audit-logs-${new Date().toISOString().slice(0, 10)}`,
+      sheetName: "System Audit Logs",
+      headers,
+      rows,
+    });
+    if (!res.ok && res.error) {
+      alert(res.error);
+    }
   };
 
   if (error && logs.length === 0) {

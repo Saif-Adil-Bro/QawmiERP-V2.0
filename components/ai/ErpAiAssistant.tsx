@@ -17,7 +17,45 @@ import {
   ShieldAlert,
   Mic,
   Square,
+  Volume2,
+  VolumeX,
+  AlertTriangle,
 } from "lucide-react";
+
+const ACTION_LABELS_BN: Record<string, string> = {
+  create_expense: "খরচ এন্ট্রি",
+  add_expense: "খরচ এন্ট্রি",
+  collect_fee: "ফি আদায়",
+  create_student_fee: "বকেয়া ফি তৈরি",
+  send_due_fee_reminders: "বকেয়া তাগাদা",
+  send_absent_guardian_notices: "অনুপস্থিতি নোটিশ",
+  trigger_risk_recalculation: "ঝুঁকি গণনা",
+  trigger_anomaly_scan: "অসঙ্গতি স্ক্যান",
+  submit_approval_decision: "অনুমোদন সিদ্ধান্ত",
+  create_notice: "নোটিশ প্রকাশ",
+  mark_attendance: "হাজিরা মার্ক",
+  create_student: "নতুন ভর্তি",
+  enter_exam_mark: "নম্বর এন্ট্রি",
+  create_question: "প্রশ্ন সংরক্ষণ",
+};
+
+const PAYLOAD_KEY_LABELS_BN: Record<string, string> = {
+  category: "খাত",
+  amount: "পরিমাণ (৳)",
+  description: "বিবরণ",
+  expenseDate: "তারিখ",
+  date: "তারিখ",
+  className: "জামাত",
+  feeTypeName: "ফি-র ধরন",
+  billingPeriod: "বিলিং মাস",
+  paymentMethod: "মাধ্যম",
+  studentName: "শিক্ষার্থী",
+  attendanceStatus: "অবস্থা",
+  noticeTitle: "শিরোনাম",
+  decision: "সিদ্ধান্ত",
+  notes: "মন্তব্য",
+  lookbackDays: "সময়সীমা (দিন)",
+};
 
 const QUICK_SUGGESTIONS = [
   "আজকের হাজিরা ও হিসাবের সামারি দাও",
@@ -38,6 +76,9 @@ export function ErpAiAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [voiceAutoSend, setVoiceAutoSend] = useState(true);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [actionStates, setActionStates] = useState<Record<string, ActionState>>({});
   const [hydrated, setHydrated] = useState(false);
@@ -45,6 +86,10 @@ export function ErpAiAssistant() {
   const navigatedIdsRef = useRef<Set<string>>(new Set());
   const recognitionRef = useRef<any>(null);
   const baseInputRef = useRef<string>("");
+  const latestTranscriptRef = useRef<string>("");
+  const voiceAutoSendRef = useRef<boolean>(true);
+  const isLoadingRef = useRef<boolean>(false);
+  const lastAutoSpokenIdRef = useRef<string | null>(null);
   const router = useRouter();
 
   const { messages, sendMessage, setMessages, status, error } = useChat({
@@ -54,6 +99,8 @@ export function ErpAiAssistant() {
   });
 
   const isLoading = status === "submitted" || status === "streaming";
+  voiceAutoSendRef.current = voiceAutoSend;
+  isLoadingRef.current = isLoading;
 
   // Restore saved chat history & action states on mount
   useEffect(() => {
@@ -141,6 +188,64 @@ export function ErpAiAssistant() {
     }
   }, [messages, router]);
 
+  const stopSpeech = () => {
+    try {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    } catch {}
+    setSpeakingMsgId(null);
+  };
+
+  const speakBangla = (text: string, msgId: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    const cleanText = text.trim();
+    if (!cleanText) return;
+
+    if (speakingMsgId === msgId) {
+      stopSpeech();
+      return;
+    }
+
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = "bn-BD";
+      const voices = window.speechSynthesis.getVoices();
+      const bnVoice =
+        voices.find((v) => v.lang.toLowerCase() === "bn-bd") ||
+        voices.find((v) => v.lang.toLowerCase().startsWith("bn"));
+      if (bnVoice) {
+        utterance.voice = bnVoice;
+      }
+      utterance.onend = () => setSpeakingMsgId(null);
+      utterance.onerror = () => setSpeakingMsgId(null);
+      setSpeakingMsgId(msgId);
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      setSpeakingMsgId(null);
+    }
+  };
+
+  // Auto-speak assistant response when streaming finishes if TTS is enabled
+  useEffect(() => {
+    if (!ttsEnabled || isLoading || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (last.role !== "assistant" || lastAutoSpokenIdRef.current === last.id) {
+      return;
+    }
+    const text = (last.parts || [])
+      .filter((p: any) => p.type === "text" && p.text)
+      .map((p: any) => p.text)
+      .join(" ")
+      .trim();
+    if (text) {
+      lastAutoSpokenIdRef.current = last.id;
+      speakBangla(text, last.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, isLoading, ttsEnabled]);
+
   const stopVoice = () => {
     try {
       recognitionRef.current?.stop();
@@ -153,6 +258,7 @@ export function ErpAiAssistant() {
       try {
         recognitionRef.current?.stop();
       } catch {}
+      stopSpeech();
     };
   }, []);
 
@@ -181,11 +287,13 @@ export function ErpAiAssistant() {
       recognition.maxAlternatives = 1;
 
       baseInputRef.current = input.trim() ? `${input.trim()} ` : "";
+      latestTranscriptRef.current = "";
 
       recognition.onresult = (event: any) => {
         const result = event.results?.[0];
         const transcript = result?.[0]?.transcript || "";
         const combined = `${baseInputRef.current}${transcript}`.trimStart();
+        latestTranscriptRef.current = combined;
         setInput(combined);
       };
 
@@ -200,6 +308,16 @@ export function ErpAiAssistant() {
 
       recognition.onend = () => {
         setIsListening(false);
+        const finalText = latestTranscriptRef.current.trim();
+        if (
+          voiceAutoSendRef.current &&
+          finalText &&
+          !isLoadingRef.current
+        ) {
+          latestTranscriptRef.current = "";
+          setInput("");
+          void sendMessage({ text: finalText });
+        }
       };
 
       recognitionRef.current = recognition;
@@ -289,10 +407,42 @@ export function ErpAiAssistant() {
             </div>
 
             <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setVoiceAutoSend((v) => !v)}
+                className={`px-2 py-1 rounded-xl text-[10px] font-bold border transition cursor-pointer ${
+                  voiceAutoSend
+                    ? "bg-emerald-500/30 border-emerald-300/50 text-white"
+                    : "bg-white/10 border-white/20 text-emerald-100/70"
+                }`}
+                title="ভয়েস শেষ হলে স্বয়ংক্রিয়ভাবে পাঠান"
+              >
+                অটো-সেন্ড
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (ttsEnabled) stopSpeech();
+                  setTtsEnabled((v) => !v);
+                }}
+                className={`p-1.5 rounded-xl transition cursor-pointer ${
+                  ttsEnabled
+                    ? "bg-white/25 text-amber-200"
+                    : "hover:bg-white/15 text-emerald-100"
+                }`}
+                title={ttsEnabled ? "বাংলা ভয়েস উত্তর বন্ধ করুন" : "বাংলা ভয়েস উত্তর চালু করুন"}
+              >
+                {ttsEnabled ? (
+                  <Volume2 className="w-4 h-4" />
+                ) : (
+                  <VolumeX className="w-4 h-4" />
+                )}
+              </button>
               {messages.length > 0 && (
                 <button
                   type="button"
                   onClick={() => {
+                    stopSpeech();
                     setMessages([]);
                     setActionStates({});
                     try {
@@ -308,7 +458,10 @@ export function ErpAiAssistant() {
               )}
               <button
                 type="button"
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  stopSpeech();
+                  setIsOpen(false);
+                }}
                 className="p-1.5 rounded-xl hover:bg-white/15 text-white transition cursor-pointer"
                 title="বন্ধ করুন"
               >
@@ -390,24 +543,89 @@ export function ErpAiAssistant() {
                         );
                       }
 
-                      // Write Action Confirmation Card
+                      // Write Action Confirmation Card (Rich Preview)
                       if (
                         part.type?.startsWith("tool-") &&
                         part.state === "output-available" &&
                         part.output?.requiresConfirmation
                       ) {
-                        const { actionId, actionType, title, summary, payload } = part.output;
+                        const {
+                          actionId,
+                          actionType,
+                          title,
+                          summary,
+                          payload,
+                          preview,
+                          riskLevel,
+                          warnings,
+                        } = part.output;
                         const state = actionStates[actionId] || { status: "pending" };
+                        const actionBadge = ACTION_LABELS_BN[actionType] || actionType;
+                        const payloadEntries = Object.entries(payload || {}).filter(
+                          ([, v]) => v !== undefined && v !== null && v !== ""
+                        );
+                        const previewItems = Array.isArray(preview?.items)
+                          ? preview.items
+                          : [];
+                        const hasHighRisk =
+                          riskLevel === "HIGH" ||
+                          riskLevel === "CRITICAL" ||
+                          (Array.isArray(warnings) && warnings.length > 0);
+
                         return (
                           <div
                             key={idx}
-                            className="mt-2 p-3 rounded-2xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-2"
+                            className="mt-2 p-3 rounded-2xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-2.5"
                           >
-                            <div className="flex items-center gap-1.5 font-extrabold text-amber-900 dark:text-amber-300 text-xs">
-                              <ShieldAlert className="w-4 h-4 shrink-0" />
-                              <span>{title}</span>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 font-extrabold text-amber-900 dark:text-amber-300 text-xs">
+                                <ShieldAlert className="w-4 h-4 shrink-0" />
+                                <span>{title}</span>
+                              </div>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 shrink-0">
+                                {actionBadge}
+                              </span>
                             </div>
-                            <p className="text-[11px] text-slate-700 dark:text-slate-300">{summary}</p>
+
+                            <p className="text-[11px] text-slate-700 dark:text-slate-300">
+                              {summary}
+                            </p>
+
+                            {hasHighRisk && (
+                              <div className="p-2 rounded-xl bg-rose-100/80 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-[11px] text-rose-800 dark:text-rose-200 flex items-start gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                <span>
+                                  {Array.isArray(warnings) && warnings.length > 0
+                                    ? warnings.join(" • ")
+                                    : "সতর্কতা: এটি একটি উচ্চ-ঝুঁকিপূর্ণ অ্যাকশন, অনুগ্রহ করে তথ্য যাচাই করুন।"}
+                                </span>
+                              </div>
+                            )}
+
+                            {payloadEntries.length > 0 && (
+                              <div className="grid grid-cols-2 gap-1.5 p-2 rounded-xl bg-white/80 dark:bg-slate-900/60 border border-amber-200/70 dark:border-amber-800/50 text-[10px]">
+                                {payloadEntries.slice(0, 8).map(([k, v]) => (
+                                  <div key={k} className="truncate">
+                                    <span className="text-slate-500 dark:text-slate-400">
+                                      {PAYLOAD_KEY_LABELS_BN[k] || k}:{" "}
+                                    </span>
+                                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                                      {String(v)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {previewItems.length > 0 && (
+                              <ul className="space-y-1 text-[10px] text-slate-700 dark:text-slate-300 bg-white/60 dark:bg-slate-900/40 rounded-xl p-2">
+                                {previewItems.slice(0, 5).map((item: any, i: number) => (
+                                  <li key={i} className="truncate">
+                                    • {typeof item === "string" ? item : JSON.stringify(item)}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
 
                             {state.status === "pending" && (
                               <div className="flex items-center gap-2 pt-1">
@@ -462,6 +680,34 @@ export function ErpAiAssistant() {
                       return null;
                     })}
                   </div>
+                  {!isUser && (() => {
+                    const plainText = (msg.parts || [])
+                      .filter((p: any) => p.type === "text" && p.text)
+                      .map((p: any) => p.text)
+                      .join(" ")
+                      .trim();
+                    if (!plainText) return null;
+                    const isSpeaking = speakingMsgId === msg.id;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => speakBangla(plainText, msg.id)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold text-slate-500 hover:text-emerald-700 dark:text-slate-400 dark:hover:text-emerald-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition cursor-pointer"
+                      >
+                        {isSpeaking ? (
+                          <>
+                            <Square className="w-2.5 h-2.5 fill-current" />
+                            <span>থামান</span>
+                          </>
+                        ) : (
+                          <>
+                            <Volume2 className="w-3 h-3" />
+                            <span>শুনুন</span>
+                          </>
+                        )}
+                      </button>
+                    );
+                  })()}
                 </div>
               );
             })}

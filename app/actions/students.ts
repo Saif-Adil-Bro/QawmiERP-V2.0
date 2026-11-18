@@ -59,6 +59,9 @@ export async function getStudents() {
     const rawStudents = data || [];
     if (rawStudents.length === 0) return [];
 
+    const { getCurrentUserMaskingContext, maskStudentSensitiveFields } = await import("@/lib/data-access-guards");
+    const maskingCtx = await getCurrentUserMaskingContext("students", "phone");
+
     try {
       const madrasaId = rawStudents[0]?.madrasa_id || (await getAuthMadrasaId(supabase));
       if (madrasaId) {
@@ -67,11 +70,14 @@ export async function getStudents() {
         const hydrated = rawStudents.map((std: any) => hydrateStudentWithMetadata(std, meta));
         return hydrated.map((st: any) => {
           const officialId = getStudentIdNumber(st, hydrated, prefix);
-          return {
-            ...st,
-            student_id: officialId,
-            student_id_formatted: officialId,
-          };
+          return maskStudentSensitiveFields(
+            {
+              ...st,
+              student_id: officialId,
+              student_id_formatted: officialId,
+            },
+            maskingCtx.allowUnmasked
+          );
         });
       }
     } catch (hydrateErr) {
@@ -80,11 +86,14 @@ export async function getStudents() {
 
     return rawStudents.map((st: any) => {
       const officialId = getStudentIdNumber(st, rawStudents);
-      return {
-        ...st,
-        student_id: (!st.student_id || isUuid(st.student_id)) ? officialId : st.student_id,
-        student_id_formatted: officialId,
-      };
+      return maskStudentSensitiveFields(
+        {
+          ...st,
+          student_id: (!st.student_id || isUuid(st.student_id)) ? officialId : st.student_id,
+          student_id_formatted: officialId,
+        },
+        maskingCtx.allowUnmasked
+      );
     });
   } catch (err) {
     console.error("Exception in getStudents:", err);
@@ -199,8 +208,11 @@ export async function getStudentById(id: string) {
       } catch (metaErr) {
         console.warn("Hydrate student metadata warning:", metaErr);
       }
+      const { getCurrentUserMaskingContext, maskStudentSensitiveFields } = await import("@/lib/data-access-guards");
+      const maskingCtx = await getCurrentUserMaskingContext("students", "phone");
+      return maskStudentSensitiveFields(student, maskingCtx.allowUnmasked);
     }
-    return student || null;
+    return null;
   } catch (err) {
     console.error("Exception in getStudentById:", err);
     return null;
@@ -722,6 +734,24 @@ export async function createStudent(prevState: any, formData: FormData) {
   revalidatePath("/dashboard/students");
   revalidatePath("/dashboard/academic/sessions");
   revalidatePath("/dashboard/boarding/meals");
+
+  // Non-blocking webhook event for student admission/creation (Feature 2.4)
+  if (insertedStudent?.id) {
+    try {
+      const { dispatchWebhookEvent } = await import("@/lib/webhooks/dispatcher");
+      await dispatchWebhookEvent(finalMadrasaId, "student.admitted", {
+        student_id: insertedStudent.id,
+        first_name: firstName,
+        last_name: lastName || "",
+        roll_number: rollNumber || null,
+        class_id: classId || null,
+        parent_phone: parentPhone || null,
+      });
+    } catch {
+      // non-blocking webhook dispatch
+    }
+  }
+
   return { success: true };
 }
 
@@ -1123,7 +1153,10 @@ export async function updateStudent(prevState: any, formData: FormData) {
 export async function deleteStudent(studentId: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  const __authz = await writeGuard("students");
+  const __authz = await writeGuard("students", undefined, {
+    riskLevel: "CRITICAL",
+    actionScope: "student.delete",
+  });
   if (!__authz.allowed) return __authz.fallback;
 
   const supabase = await createClient();

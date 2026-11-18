@@ -225,8 +225,8 @@ export default function AlumniClient({ initialAlumni }: AlumniClientProps) {
     setTimeout(() => setCopiedPhone(null), 2000);
   };
 
-  // CSV Export with UTF-8 BOM
-  const handleExportCSV = (recordsToExport: AlumniMember[] = filteredAlumni) => {
+  // CSV Export with Watermark + Audit Logging
+  const handleExportCSV = async (recordsToExport: AlumniMember[] = filteredAlumni) => {
     const headers = [
       "নাম (বাংলা)",
       "নাম (ইংরেজি)",
@@ -249,43 +249,40 @@ export default function AlumniClient({ initialAlumni }: AlumniClientProps) {
       "স্ট্যাটাস",
     ];
 
-    const escapeCSV = (val?: string | boolean | number) => {
-      if (val === undefined || val === null) return '""';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
-    };
-
     const rows = recordsToExport.map((m) => [
-      escapeCSV(m.name_bn),
-      escapeCSV(m.name_en),
-      escapeCSV(m.graduation_type),
-      escapeCSV(m.graduation_year_hijri),
-      escapeCSV(m.graduation_year_ce),
-      escapeCSV(m.phone),
-      escapeCSV(m.alternative_phone),
-      escapeCSV(m.blood_group),
-      escapeCSV(m.current_occupation_type),
-      escapeCSV(m.designation_title),
-      escapeCSV(m.institution_or_org),
-      escapeCSV(m.district),
-      escapeCSV(m.present_address || m.workplace_address),
-      escapeCSV(m.permanent_address),
-      escapeCSV(m.mahfil_invite_preferred ? "হ্যাঁ" : "না"),
-      escapeCSV(m.is_active_donor ? "হ্যাঁ" : "না"),
-      escapeCSV(m.willing_to_mentor ? "হ্যাঁ" : "না"),
-      escapeCSV(m.notes_or_achievements),
-      escapeCSV(m.is_archived ? "আর্কাইভকৃত" : "সক্রিয়"),
+      m.name_bn || "",
+      m.name_en || "",
+      m.graduation_type || "",
+      m.graduation_year_hijri || "",
+      m.graduation_year_ce || "",
+      m.phone || "",
+      m.alternative_phone || "",
+      m.blood_group || "",
+      m.current_occupation_type || "",
+      m.designation_title || "",
+      m.institution_or_org || "",
+      m.district || "",
+      m.present_address || m.workplace_address || "",
+      m.permanent_address || "",
+      m.mahfil_invite_preferred ? "হ্যাঁ" : "না",
+      m.is_active_donor ? "হ্যাঁ" : "না",
+      m.willing_to_mentor ? "হ্যাঁ" : "না",
+      m.notes_or_achievements || "",
+      m.is_archived ? "আর্কাইভকৃত" : "সক্রিয়",
     ]);
 
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `qawmi_alumni_directory_${toDhakaDateString()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const { triggerWatermarkedExport } = await import("@/lib/export-client");
+    const res = await triggerWatermarkedExport({
+      dataset: "alumni",
+      format: "csv",
+      filename: `qawmi_alumni_directory_${toDhakaDateString()}`,
+      sheetName: "Alumni",
+      headers,
+      rows,
+    });
+    if (!res.ok && res.error) {
+      alert(res.error);
+    }
   };
 
   // Open Create Modal

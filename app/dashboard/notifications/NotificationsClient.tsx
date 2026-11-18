@@ -303,33 +303,34 @@ export default function NotificationsClient({
     downloadAnchor.remove();
   };
 
-  // Export Activity Logs as CSV
-  const handleExportCsv = () => {
-    const headers = ["ID,Time,Module,Action_Type,Severity,Actor,Role,Title,Description,IP_Address"];
-    const rows = activityLogs.map((l) => {
-      const cleanDesc = `"${(l.description || "").replace(/"/g, '""')}"`;
-      const cleanTitle = `"${(l.title || "").replace(/"/g, '""')}"`;
-      return [
-        l.id,
-        l.timestamp,
-        l.module_name_bn,
-        l.action_type,
-        l.severity,
-        `"${l.actor_name}"`,
-        `"${l.actor_role}"`,
-        cleanTitle,
-        cleanDesc,
-        l.ip_address || "",
-      ].join(",");
-    });
+  // Export Activity Logs as CSV (Watermarked + Audit Logged)
+  const handleExportCsv = async () => {
+    const headers = ["ID", "Time", "Module", "Action_Type", "Severity", "Actor", "Role", "Title", "Description", "IP_Address"];
+    const rows = activityLogs.map((l) => [
+      l.id,
+      l.timestamp,
+      l.module_name_bn,
+      l.action_type,
+      l.severity,
+      l.actor_name || "",
+      l.actor_role || "",
+      l.title || "",
+      l.description || "",
+      l.ip_address || "",
+    ]);
 
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + encodeURIComponent([headers, ...rows].join("\n"));
-    const downloadAnchor = document.createElement("a");
-    downloadAnchor.setAttribute("href", csvContent);
-    downloadAnchor.setAttribute("download", `qawmi_activity_audit_${toDhakaDateString()}.csv`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+    const { triggerWatermarkedExport } = await import("@/lib/export-client");
+    const res = await triggerWatermarkedExport({
+      dataset: "activity_logs",
+      format: "csv",
+      filename: `qawmi_activity_audit_${toDhakaDateString()}`,
+      sheetName: "Activity Logs",
+      headers,
+      rows,
+    });
+    if (!res.ok && res.error) {
+      alert(res.error);
+    }
   };
 
   // Format Relative and Absolute Time

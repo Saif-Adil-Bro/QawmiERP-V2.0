@@ -17,6 +17,14 @@ export type AuditModuleKey =
   | "security"
   | "locks"
   | "migration"
+  | "boarding"
+  | "anomaly"
+  | "ai"
+  | "approvals"
+  | "automation"
+  | "notifications"
+  | "webhooks"
+  | "analytics"
   | "generic";
 
 export interface AuditEventInput {
@@ -72,6 +80,14 @@ export const AUDIT_MODULE_LABELS_BN: Record<string, string> = {
   security: "নিরাপত্তা (Security)",
   locks: "ডাটা লক ও ফ্রিজ",
   migration: "ডাটা মাইগ্রেশন",
+  boarding: "বোর্ডিং ও বাজার",
+  anomaly: "আর্থিক অসঙ্গতি (Anomaly)",
+  ai: "এআই কো-পাইলট (AI)",
+  approvals: "অনুমোদন ওয়ার্কফ্লো",
+  automation: "অটোমেশন ও ক্রন",
+  notifications: "নোটিফিকেশন অর্কেস্ট্রেটর",
+  webhooks: "ওয়েবহুক ও ইন্টিগ্রেশন",
+  analytics: "বিশ্লেষণ ও আর্লি ওয়ার্নিং",
   generic: "সিস্টেম",
 };
 
