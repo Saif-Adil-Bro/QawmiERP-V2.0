@@ -71,6 +71,13 @@ export async function authorizeApi(
  * শুধু super_admin (অথবা সঠিক `CRON_SECRET` bearer) — সর্ব-মাদ্রাসা মাইগ্রেশন/ব্যাকফিলের জন্য।
  *
  * `CRON_SECRET` না থাকলে শুধু লগইন-করা super_admin পারবে। টোকেন তুলনা constant-time।
+ *
+ * Dual-platform (Vercel ও Railway/GitHub Actions) — দুই জায়গা থেকেই একই হেডার আসে:
+ *   Authorization: Bearer <CRON_SECRET>
+ *   • Vercel: প্রজেক্টে `CRON_SECRET` env সেট থাকলে Vercel Cron নিজেই এই হেডার পাঠায়।
+ *   • Railway: `.github/workflows/cron-jobs.yml` একই হেডারে curl করে।
+ * ⛔ `x-vercel-cron` হেডার ইচ্ছাকৃতভাবে অথেন্টিকেশন হিসেবে *বিশ্বাস করা হয় না* —
+ *    এটি যে কেউ নিজে পাঠিয়ে নকল করতে পারে (spoofable)। শুধু Bearer টোকেনই বৈধ।
  */
 export async function authorizeSuperAdminOrCron(
   req: Request

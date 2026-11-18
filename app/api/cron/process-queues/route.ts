@@ -3,6 +3,10 @@ import { authorizeCronRequest, resolveCronTenant, runTrackedCronJob } from "@/li
 import { processNotificationQueue } from "@/lib/notifications/orchestrator";
 import { retryPendingWebhookDeliveries } from "@/lib/webhooks/dispatcher";
 
+// Next.js যেন কোনো প্ল্যাটফর্মে (Vercel/Railway) cron রিকোয়েস্ট ক্যাশ না করে
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 async function handle(req: Request) {
   const auth = await authorizeCronRequest(req);
   if (!auth.ok) return auth.response;

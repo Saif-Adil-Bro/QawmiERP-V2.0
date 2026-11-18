@@ -1,0 +1,127 @@
+name: Cron Jobs (Railway / any non-Vercel host)
+
+# Vercel-এ এই ফাইলের প্রয়োজন নেই — Vercel নিজেই `vercel.json`-এর crons চালায়।
+# Railway (বা অন্য যেকোনো হোস্ট) এ ডিপ্লয় করলে GitHub Secrets-এ `RAILWAY_APP_URL`
+# ও `CRON_SECRET` সেট করুন; তখন এই workflow একই endpoint-গুলো UTC সময়ে ট্রিগার করবে।
+# `RAILWAY_APP_URL` সেট না থাকলে workflow এরর ছাড়াই নিরাপদে skip হয়।
+#
+# ⚠️ একই ডিপ্লয়মেন্টে Vercel cron ও এই workflow দুটোই চালু রাখবেন না — job দুবার চলবে।
+#
+# Route → schedule ম্যাপিং সরাসরি `vercel.json` থেকে পড়া হয় (single source of truth)।
+# নিচের `schedule:` তালিকা `vercel.json`-এর সাথে মিলিয়ে রাখতে হবে — GitHub cron
+# এ্যাকশন-ফাইলে লিটারেল হতে হয়। না মিললে নির্দিষ্ট রানটি ব্যর্থ হয়ে জানিয়ে দেবে।
+
+on:
+  schedule:
+    - cron: "0 1 1 * *"     # /api/cron/monthly-fees      — মাসের ১ তারিখ 01:00 UTC (07:00 BDT)
+    - cron: "0 4 * * *"     # /api/cron/overdue-reminders — প্রতিদিন 04:00 UTC (10:00 BDT)
+    - cron: "0 10 * * *"    # /api/cron/absence-alerts    — প্রতিদিন 10:00 UTC (16:00 BDT)
+    - cron: "*/15 * * * *"  # /api/cron/process-queues    — প্রতি ১৫ মিনিটে
+    - cron: "0 2 * * 5"     # /api/cron/digest-reports    — প্রতি শুক্রবার 02:00 UTC (08:00 BDT)
+    - cron: "0 20 * * *"    # /api/cron/early-warning     — প্রতিদিন 20:00 UTC (02:00 BDT, পরদিন)
+    - cron: "0 21 * * *"    # /api/cron/anomalies         — প্রতিদিন 21:00 UTC (03:00 BDT, পরদিন)
+  workflow_dispatch:
+    inputs:
+      route:
+        description: "নির্দিষ্ট route (যেমন /api/cron/process-queues) অথবা 'all' সব job চালাতে"
+        required: false
+        default: "all"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # একই schedule-এর রান ওভারল্যাপ করবে না; ম্যানুয়াল রান আলাদা group-এ
+  group: cron-${{ github.event.schedule || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    name: Trigger cron endpoints
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RAILWAY_APP_URL: ${{ secrets.RAILWAY_APP_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      EVENT_SCHEDULE: ${{ github.event.schedule }}
+      EVENT_NAME: ${{ github.event_name }}
+      INPUT_ROUTE: ${{ github.event.inputs.route }}
+    steps:
+      - name: Skip if RAILWAY_APP_URL is not configured
+        id: gate
+        run: |
+          if [ -z "${RAILWAY_APP_URL// /}" ]; then
+            echo "::notice title=Cron skipped::RAILWAY_APP_URL সেট করা নেই (প্রজেক্ট সম্ভবত Vercel-এ চলছে) — কিছু করার নেই।"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (to read vercel.json)
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: vercel.json
+          sparse-checkout-cone-mode: false
+
+      - name: Call cron endpoints
+        if: steps.gate.outputs.run == 'true'
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error title=Missing secret::CRON_SECRET GitHub Secret সেট করা নেই — endpoint অনুমোদন দেবে না।"
+            exit 1
+          fi
+
+          # শেষের বাড়তি স্ল্যাশ সরানো (একাধিক হলেও)
+          BASE_URL="${RAILWAY_APP_URL%/}"
+          while [ "${BASE_URL}" != "${BASE_URL%/}" ]; do BASE_URL="${BASE_URL%/}"; done
+          case "$BASE_URL" in
+            http://*|https://*) ;;
+            *) echo "::error title=Invalid URL::RAILWAY_APP_URL অবশ্যই http(s):// দিয়ে শুরু হতে হবে।"; exit 1 ;;
+          esac
+
+          # কোন route(গুলো) চালাতে হবে
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            ROUTES=$(jq -r --arg s "$EVENT_SCHEDULE" '.crons[] | select(.schedule == $s) | .path' vercel.json)
+            if [ -z "$ROUTES" ]; then
+              echo "::error title=Schedule mismatch::'$EVENT_SCHEDULE' schedule-এর কোনো route vercel.json-এ নেই। workflow ও vercel.json মিলিয়ে নিন।"
+              exit 1
+            fi
+          else
+            REQ="${INPUT_ROUTE:-all}"
+            if [ "$REQ" = "all" ]; then
+              ROUTES=$(jq -r '.crons[].path' vercel.json)
+            else
+              ROUTES=$(jq -r --arg p "$REQ" '.crons[] | select(.path == $p) | .path' vercel.json)
+              if [ -z "$ROUTES" ]; then
+                echo "::error title=Unknown route::'$REQ' vercel.json-এ নেই।"
+                exit 1
+              fi
+            fi
+          fi
+
+          FAILED=0
+          # একটি ব্যর্থ হলেও বাকিগুলো চলবে; শেষে ফেইল স্ট্যাটাস
+          while IFS= read -r ROUTE; do
+            [ -z "$ROUTE" ] && continue
+            echo "::group::GET ${ROUTE}"
+            if curl --fail-with-body -s -S -X GET \
+                 --connect-timeout 20 --max-time 600 \
+                 -H "Authorization: Bearer $CRON_SECRET" \
+                 -H "Accept: application/json" \
+                 "${BASE_URL}${ROUTE}"; then
+              echo
+              echo "✅ ${ROUTE} OK"
+            else
+              echo
+              echo "::error title=Cron failed::${ROUTE} ব্যর্থ হয়েছে"
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done <<< "$ROUTES"
+
+          exit $FAILED

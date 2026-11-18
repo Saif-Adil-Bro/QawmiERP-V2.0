@@ -7,6 +7,10 @@ import {
 } from "@/lib/automation/cron-auth";
 import { runFinancialAnomalyScan } from "@/lib/anomaly-detection-service";
 
+// Next.js যেন কোনো প্ল্যাটফর্মে (Vercel/Railway) cron রিকোয়েস্ট ক্যাশ না করে
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 async function handleAnomaliesCron(req: Request) {
   const auth = await authorizeCronRequest(req);
   if (!auth.ok) {
