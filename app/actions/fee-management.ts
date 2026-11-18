@@ -8,6 +8,7 @@ import { getAuthMadrasaId } from "./students";
 import { requirePermission } from "@/lib/permissions-server";
 import { logAuditEvent } from "@/lib/audit-log";
 import { assertAccountingPeriodUnlocked } from "@/lib/lock-guards";
+import { submitWorkflowHookApproval } from "@/lib/approval-workflow";
 import { getMadrasaMetadata, saveMadrasaMetadata, AcademicSession, StudentEnrollment } from "@/lib/sessions";
 import {
   FeeType,
@@ -710,8 +711,16 @@ export async function saveFeeStructure(structure: Partial<FeeStructure>) {
       madrasaId,
       permissions: ["fee.edit"],
       roles: ["super_admin", "admin", "muhtamim", "accountant"],
+      riskLevel: "CRITICAL",
+      actionScope: "fee_structure.edit",
     });
-    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+    if (!guard.allowed) {
+      return {
+        error: guard.error || "এই কাজটি করার অনুমতি নেই।",
+        stepUpRequired: guard.stepUpRequired,
+        errorCode: guard.errorCode,
+      };
+    }
 
     const meta = await getFeeMetadata(madrasaId);
     const structures = [...(meta.fee_structures || [])];
@@ -786,8 +795,16 @@ export async function deleteFeeStructure(structureId: string) {
       madrasaId,
       permissions: ["fee.edit"],
       roles: ["super_admin", "admin", "muhtamim", "accountant"],
+      riskLevel: "CRITICAL",
+      actionScope: "fee_structure.delete",
     });
-    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+    if (!guard.allowed) {
+      return {
+        error: guard.error || "এই কাজটি করার অনুমতি নেই।",
+        stepUpRequired: guard.stepUpRequired,
+        errorCode: guard.errorCode,
+      };
+    }
 
     const meta = await getFeeMetadata(madrasaId);
     const filtered = (meta.fee_structures || []).filter((s) => s.id !== structureId);
@@ -1314,6 +1331,7 @@ export async function collectFeePayment(paymentData: {
    */
   idempotency_key?: string;
   fund_name?: string;
+  _approvalBypass?: boolean;
 }) {
   try {
     const supabase = await createClient();
@@ -1347,6 +1365,55 @@ export async function collectFeePayment(paymentData: {
     );
     if (periodLock.locked) {
       return { error: periodLock.error };
+    }
+
+    if (!paymentData._approvalBypass && Number(paymentData.discount_amount || 0) > 0) {
+      const discountAmt = Number(paymentData.discount_amount || 0);
+      const primaryType = paymentData.total_amount === 0 ? "FEE_WAIVER" : "FEE_DISCOUNT";
+      const hook = await submitWorkflowHookApproval({
+        madrasaId,
+        actorId: user.id,
+        actorName: user.user_metadata?.full_name || user.email || "অফিসার",
+        actorRole: user.user_metadata?.role || "staff",
+        requestType: primaryType,
+        amount: discountAmt,
+        title: `ফি ছাড়/মওকুফ অনুমোদন (${discountAmt} টাকা)`,
+        description: paymentData.discount_reason || paymentData.notes || "ফি আদায়ে ছাড়/মওকুফ",
+        entityType: "fee_payment",
+        targetId: paymentData.student_id,
+        payload: { action: "collect_fee_payment", paymentData },
+      });
+      if (hook.matched) {
+        return {
+          success: true,
+          pendingApproval: true,
+          approvalRequestId: hook.approvalRequestId,
+          message: "ফি ছাড়/মওকুফের জন্য অনুমোদনের আবেদন পাঠানো হয়েছে।",
+        };
+      }
+      if (primaryType === "FEE_DISCOUNT") {
+        const waiverHook = await submitWorkflowHookApproval({
+          madrasaId,
+          actorId: user.id,
+          actorName: user.user_metadata?.full_name || user.email || "অফিসার",
+          actorRole: user.user_metadata?.role || "staff",
+          requestType: "FEE_WAIVER",
+          amount: discountAmt,
+          title: `ফি মওকুফ অনুমোদন (${discountAmt} টাকা)`,
+          description: paymentData.discount_reason || paymentData.notes || "ফি মওকুফ",
+          entityType: "fee_payment",
+          targetId: paymentData.student_id,
+          payload: { action: "collect_fee_payment", paymentData },
+        });
+        if (waiverHook.matched) {
+          return {
+            success: true,
+            pendingApproval: true,
+            approvalRequestId: waiverHook.approvalRequestId,
+            message: "ফি মওকুফের জন্য অনুমোদনের আবেদন পাঠানো হয়েছে।",
+          };
+        }
+      }
     }
 
 
@@ -1917,6 +1984,24 @@ export async function collectFeePayment(paymentData: {
     revalidatePath(`/dashboard/students/${paymentData.student_id}`);
     revalidatePath("/portal/fees");
 
+    // Non-blocking webhook event for payment confirmation (Feature 2.4)
+    try {
+      const { dispatchWebhookEvent } = await import("@/lib/webhooks/dispatcher");
+      await dispatchWebhookEvent(madrasaId, "payment.confirmed", {
+        payment_id: newPayment.id,
+        receipt_no: receiptNo,
+        student_id: paymentData.student_id,
+        student_name: newPayment.student_name,
+        class_name: newPayment.class_name,
+        amount: newPayment.total_amount_received,
+        payment_method: newPayment.payment_method,
+        payment_date: paymentDate,
+        status: newPayment.status,
+      });
+    } catch {
+      // non-blocking webhook dispatch
+    }
+
     return {
       success: true,
       message: "ফি সফলভাবে আদায় করা হয়েছে এবং মানি রিসিট প্রস্তুত করা হয়েছে!",
@@ -2064,8 +2149,16 @@ export async function resetAllFeeData(options: {
       madrasaId,
       permissions: ["finance.delete", "fee.edit"],
       roles: ["super_admin", "admin", "muhtamim"],
+      riskLevel: "CRITICAL",
+      actionScope: "fee_data.bulk_reset",
     });
-    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+    if (!guard.allowed) {
+      return {
+        error: guard.error || "এই কাজটি করার অনুমতি নেই।",
+        stepUpRequired: guard.stepUpRequired,
+        errorCode: guard.errorCode,
+      };
+    }
 
     const meta = await getFeeMetadata(madrasaId);
     let currentStudentFees = [...(meta.student_fees || [])];
@@ -3241,7 +3334,14 @@ export async function deleteGeneratedFeeBatch(params: {
   billingPeriod: string;
   feeTypeId?: string;
   classId?: string;
-}): Promise<{ success?: boolean; error?: string; count?: number; message?: string }> {
+}): Promise<{
+  success?: boolean;
+  error?: string;
+  count?: number;
+  message?: string;
+  stepUpRequired?: boolean;
+  errorCode?: string;
+}> {
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -3256,8 +3356,16 @@ export async function deleteGeneratedFeeBatch(params: {
       madrasaId,
       permissions: ["fee.edit", "finance.delete"],
       roles: ["super_admin", "admin", "muhtamim", "accountant"],
+      riskLevel: "CRITICAL",
+      actionScope: "fee_batch.delete",
     });
-    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+    if (!guard.allowed) {
+      return {
+        error: guard.error || "এই কাজটি করার অনুমতি নেই।",
+        stepUpRequired: guard.stepUpRequired,
+        errorCode: guard.errorCode,
+      };
+    }
 
     const meta = await getFeeMetadata(madrasaId);
     const studentFees = meta.student_fees || [];

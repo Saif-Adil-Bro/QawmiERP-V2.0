@@ -569,6 +569,23 @@ export async function verifyAndCompleteOnlinePayment(params: {
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/portal/fees");
 
+    // Non-blocking webhook event for online payment confirmation (Feature 2.4)
+    try {
+      const { dispatchWebhookEvent } = await import("@/lib/webhooks/dispatcher");
+      await dispatchWebhookEvent(madrasaId, "payment.confirmed", {
+        receipt_no: receiptNo,
+        transaction_id: targetTxn.transaction_id,
+        student_id: targetTxn.student_id,
+        student_name: targetTxn.student_name,
+        amount: targetTxn.amount,
+        payment_channel: targetTxn.payment_channel,
+        payment_date: toDhakaDateStringFrom(now),
+        status: "COMPLETED",
+      });
+    } catch {
+      // non-blocking webhook dispatch
+    }
+
     return {
       success: true,
       message: "আলহামদুলিল্লাহ! আপনার ফি পেমেন্ট সফলভাবে সম্পন্ন হয়েছে।",

@@ -463,8 +463,16 @@ export async function deleteUserAccount(userId: string) {
       madrasaId,
       permissions: ["user.disable", "user.delete"],
       roles: ["super_admin", "admin", "muhtamim"],
+      riskLevel: "CRITICAL",
+      actionScope: "user.delete",
     });
-    if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
+    if (!guard.allowed) {
+      return {
+        error: guard.error || "এই কাজটি করার অনুমতি নেই।",
+        stepUpRequired: guard.stepUpRequired,
+        errorCode: guard.errorCode,
+      };
+    }
 
     // Prevent self-deletion
     if (user.id === userId) {

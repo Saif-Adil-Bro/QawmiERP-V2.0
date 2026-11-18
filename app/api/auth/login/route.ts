@@ -121,6 +121,7 @@ export async function POST(req: NextRequest) {
     // Resolve user role
     let userRole = data.user.user_metadata?.role || (isStudentLogin ? "parent" : "staff");
     let roles: string[] = [];
+    let resolvedMadrasaId = String(data.user.user_metadata?.madrasa_id || "");
 
     try {
       const adminClient = await createAdminClient();
@@ -132,6 +133,9 @@ export async function POST(req: NextRequest) {
 
       if (userRow?.role) {
         userRole = userRow.role;
+      }
+      if (userRow?.madrasa_id) {
+        resolvedMadrasaId = String(userRow.madrasa_id);
       }
 
       // If role still not determined or default, check if user exists in teachers table
@@ -168,6 +172,27 @@ export async function POST(req: NextRequest) {
       console.warn("Role lookup in login API fallback:", dbErr);
     }
 
+    let createdSessionId: string | null = null;
+    if (resolvedMadrasaId) {
+      try {
+        const { registerUserSession } = await import("@/lib/session-manager");
+        const forwarded = req.headers.get("x-forwarded-for");
+        const ipAddress = forwarded ? forwarded.split(",")[0].trim() : req.headers.get("x-real-ip");
+        const sessionRec = await registerUserSession({
+          userId: data.user.id,
+          madrasaId: resolvedMadrasaId,
+          ipAddress,
+          userAgent: req.headers.get("user-agent"),
+          accessToken: data.session?.access_token || null,
+          remember,
+          channel: "web",
+        });
+        createdSessionId = sessionRec.id;
+      } catch (sessErr) {
+        console.warn("Session registration warning:", sessErr);
+      }
+    }
+
     const redirectUrl = getPortalRedirectUrl(userRole, roles);
 
     const res = NextResponse.json({
@@ -188,6 +213,16 @@ export async function POST(req: NextRequest) {
       secure: process.env.NODE_ENV === "production",
       maxAge: remember ? 60 * 60 * 24 * 365 : 60 * 60 * 24 * 1,
     });
+
+    if (createdSessionId) {
+      res.cookies.set("qawmi_session_id", createdSessionId, {
+        path: "/",
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: remember ? 60 * 60 * 24 * 365 : 60 * 60 * 24 * 1,
+      });
+    }
 
     return res;
   } catch (err: any) {

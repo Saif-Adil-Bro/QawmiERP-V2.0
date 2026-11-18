@@ -531,8 +531,8 @@ export default function StudentsListClient({
     }
   };
 
-  // CSV Export Handler
-  const handleExportCSV = () => {
+  // CSV Export Handler (Watermarked + Audit Logged)
+  const handleExportCSV = async () => {
     const listToExport =
       selectedStudentIds.size > 0
         ? filteredStudents.filter((s) => selectedStudentIds.has(s.id))
@@ -569,37 +569,33 @@ export default function StudentsListClient({
         idx + 1,
         idNum,
         s.roll_number || "-",
-        `"${(`${s.first_name || ""} ${s.last_name || ""}`).replace(/"/g, '""').trim()}"`,
-        `"${cName.replace(/"/g, '""')}"`,
+        `${s.first_name || ""} ${s.last_name || ""}`.trim(),
+        cName,
         s.residential_status || (s.is_boarding ? "আবাসিক" : "অনাবাসিক"),
-        `"${(s.father_name || "-").replace(/"/g, '""')}"`,
-        `"${(s.mother_name || "-").replace(/"/g, '""')}"`,
+        s.father_name || "-",
+        s.mother_name || "-",
         s.parent_phone || "-",
         s.emergency_contact || "-",
         s.blood_group || "-",
         s.date_of_birth || "-",
-        `"${(s.address || "-").replace(/"/g, '""')}"`,
+        s.address || "-",
       ];
     });
 
-    // Add UTF-8 BOM for Bengali support in MS Excel
-    const csvContent =
-      "\uFEFF" +
-      [headers.join(","), ...rows.map((row) => row.join(","))].join("\r\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
     const classNameSuffix =
       selectedClass !== "ALL" ? `_${selectedClass.replace(/\s+/g, "_")}` : "";
-    link.setAttribute(
-      "download",
-      `শিক্ষার্থী_তালিকা${classNameSuffix}_${toDhakaDateString()}.csv`
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const { triggerWatermarkedExport } = await import("@/lib/export-client");
+    const res = await triggerWatermarkedExport({
+      dataset: "students",
+      format: "csv",
+      filename: `students_list${classNameSuffix}_${toDhakaDateString()}`,
+      sheetName: "Students",
+      headers,
+      rows,
+    });
+    if (!res.ok && res.error) {
+      alert(res.error);
+    }
   };
 
   return (

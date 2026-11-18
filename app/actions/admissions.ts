@@ -821,6 +821,23 @@ export async function confirmAdmissionToStudent(params: {
     revalidatePath("/dashboard/admissions");
     revalidatePath("/dashboard/students");
     revalidatePath("/dashboard/academic/sessions");
+
+    // Non-blocking webhook event for admission confirmation (Feature 2.4)
+    try {
+      const { dispatchWebhookEvent } = await import("@/lib/webhooks/dispatcher");
+      await dispatchWebhookEvent(madrasaId, "student.admitted", {
+        student_id: newStudent.id,
+        admission_id: params.admissionId,
+        student_name: adm.applicant_name_bn,
+        roll_number: finalRoll,
+        class_id: targetClassId,
+        class_name: className,
+        guardian_phone: adm.guardian_phone || null,
+      });
+    } catch {
+      // non-blocking webhook dispatch
+    }
+
     return {
       success: true,
       student: newStudent,

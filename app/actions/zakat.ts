@@ -968,7 +968,11 @@ export async function getDonors(): Promise<DonorItem[]> {
       }
     });
 
-    return Array.from(donorResultMap.values());
+    const { getCurrentUserMaskingContext, maskDonorSensitiveFields } = await import("@/lib/data-access-guards");
+    const maskingCtx = await getCurrentUserMaskingContext("zakat", "phone");
+    return Array.from(donorResultMap.values()).map((d) =>
+      maskDonorSensitiveFields(d, maskingCtx.allowUnmasked)
+    );
   } catch (err) {
     console.error("Error in getDonors:", err);
     return [];

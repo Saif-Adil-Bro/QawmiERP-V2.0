@@ -107,14 +107,46 @@ export default function DonorsClient({ initialDonors, funds }: DonorsClientProps
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={openCreateModal}
-          className="flex items-center justify-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl text-xs sm:text-sm font-bold hover:bg-slate-800 transition shadow-xs cursor-pointer active:scale-98"
-        >
-          <UserPlus className="w-4 h-4 text-emerald-400" />
-          <span>+ নতুন দাতা যুক্ত করুন</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              const { triggerWatermarkedExport } = await import("@/lib/export-client");
+              const { toDhakaDateString } = await import("@/lib/date-utils");
+              const headers = ["নাম", "ফোন", "ইমেইল", "ধরন", "প্রতিশ্রুতি", "মোট অনুদান", "ঠিকানা"];
+              const rows = filteredDonors.map((d) => [
+                d.name || "",
+                d.phone || "",
+                d.email || "",
+                d.donor_type || "",
+                d.pledge_amount || 0,
+                d.total_donated || 0,
+                d.address || "",
+              ]);
+              const res = await triggerWatermarkedExport({
+                dataset: "donors",
+                format: "csv",
+                filename: `zakat_donors_${toDhakaDateString()}`,
+                sheetName: "Zakat Donors",
+                headers,
+                rows,
+              });
+              if (!res.ok && res.error) alert(res.error);
+            }}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs sm:text-sm font-bold hover:bg-slate-200 transition cursor-pointer"
+          >
+            <span>CSV এক্সপোর্ট</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="flex items-center justify-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl text-xs sm:text-sm font-bold hover:bg-slate-800 transition shadow-xs cursor-pointer active:scale-98"
+          >
+            <UserPlus className="w-4 h-4 text-emerald-400" />
+            <span>+ নতুন দাতা যুক্ত করুন</span>
+          </button>
+        </div>
       </div>
 
       {/* Overview Stat Cards */}

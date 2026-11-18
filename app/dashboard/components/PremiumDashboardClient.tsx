@@ -42,6 +42,7 @@ export interface PremiumDashboardClientProps {
   };
   errorMessage?: string | null;
   earlyWarningNode: React.ReactNode;
+  anomalyBannerNode?: React.ReactNode;
   chartsNode: React.ReactNode;
 }
 
@@ -58,6 +59,7 @@ export default function PremiumDashboardClient({
   stats,
   errorMessage,
   earlyWarningNode,
+  anomalyBannerNode,
   chartsNode,
 }: PremiumDashboardClientProps) {
   const [financeScope, setFinanceScope] = useState<"total" | "today">("total");
@@ -502,6 +504,41 @@ export default function PremiumDashboardClient({
           </motion.div>
         </div>
       </section>
+
+      {/* 4.5 Enterprise Anomaly Banner & Quick Intelligence Links */}
+      {anomalyBannerNode}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Link
+          href="/dashboard/analytics/executive-bi"
+          className="flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/30 border border-emerald-200/80 dark:border-emerald-800/60 hover:border-emerald-400 transition group"
+        >
+          <div>
+            <p className="text-xs font-extrabold text-emerald-900 dark:text-emerald-200">
+              এক্সিকিউটিভ BI ও ডাইজেস্ট রিপোর্ট
+            </p>
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+              বোর্ডিং, যাকাত, বকেয়া অনুপাত ও সেশন তুলনা
+            </p>
+          </div>
+          <ArrowUpRight className="w-4 h-4 text-emerald-600 dark:text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+        </Link>
+
+        <Link
+          href="/dashboard/approvals"
+          className="flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/30 border border-amber-200/80 dark:border-amber-800/60 hover:border-amber-400 transition group"
+        >
+          <div>
+            <p className="text-xs font-extrabold text-amber-900 dark:text-amber-200">
+              অনুমোদন ওয়ার্কফ্লো সেন্টার
+            </p>
+            <p className="text-[11px] text-amber-700 dark:text-amber-400">
+              বড় খরচ, ফি মওকুফ ও রেজাল্ট অনুমোদন দেখুন
+            </p>
+          </div>
+          <ArrowUpRight className="w-4 h-4 text-amber-600 dark:text-amber-400 group-hover:translate-x-0.5 transition-transform" />
+        </Link>
+      </div>
 
       {/* 5. Reporting Charts */}
       {chartsNode}

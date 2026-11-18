@@ -2,6 +2,7 @@ import { cache } from "react";
 import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/permissions-server";
 import { logAuditEvent, type AuditSeverity } from "@/lib/audit-log";
+import type { PermissionRiskLevel } from "@/lib/permissions";
 
 export { logAuditEvent };
 
@@ -56,6 +57,13 @@ export type ModuleKey =
   | "syllabus"
   | "questions"
   | "biometric"
+  | "approvals"
+  | "security"
+  | "automation"
+  | "webhooks"
+  | "analytics"
+  | "anomaly"
+  | "bi"
   | "generic";
 
 type ModulePolicy = {
@@ -264,6 +272,58 @@ export const MODULE_POLICIES: Record<ModuleKey, ModulePolicy> = {
     denyRoles: PORTAL_ROLES,
     errorMessage: "ব্যাকআপ/রিস্টোর করার অনুমতি কেবল প্রশাসনের আছে।",
   },
+  approvals: {
+    permissions: [
+      "approval.view",
+      "approval.manage",
+      "approval.approve",
+      "fee.approve",
+      "finance.approve",
+    ],
+    roles: ["super_admin", "admin", "muhtamim", "naib_muhtamim"],
+    denyRoles: PORTAL_ROLES,
+    errorMessage: "অনুমোদন ওয়ার্কফ্লো পরিচালনার অনুমতি আপনার নেই।",
+  },
+  security: {
+    permissions: ["security.sessions.manage", "security.2fa.manage", "role.assign", "audit.view"],
+    roles: ["super_admin", "admin", "muhtamim"],
+    denyRoles: PORTAL_ROLES,
+    errorMessage: "নিরাপত্তা সেটিংস পরিচালনার অনুমতি আপনার নেই।",
+  },
+  automation: {
+    permissions: ["automation.manage", "automation.view", "settings.edit"],
+    roles: ["super_admin", "admin", "muhtamim"],
+    denyRoles: PORTAL_ROLES,
+    errorMessage: "অটোমেশন ও ক্রন পরিচালনার অনুমতি আপনার নেই।",
+  },
+  webhooks: {
+    permissions: ["webhook.manage", "webhook.view", "settings.edit"],
+    roles: ["super_admin", "admin", "muhtamim"],
+    denyRoles: PORTAL_ROLES,
+    errorMessage: "ওয়েবহুক পরিচালনার অনুমতি আপনার নেই।",
+  },
+  analytics: {
+    permissions: [
+      "analytics.early_warning",
+      "analytics.early_warning.manage",
+      "dashboard.analytics",
+    ],
+    roles: [...ACADEMIC_ROLES, "accountant"],
+    denyRoles: PORTAL_ROLES,
+    errorMessage: "বিশ্লেষণ ও আর্লি ওয়ার্নিং দেখার অনুমতি আপনার নেই।",
+  },
+  anomaly: {
+    permissions: ["anomaly.view", "anomaly.manage", "finance.view", "audit.view"],
+    roles: ["super_admin", "admin", "muhtamim", "naib_muhtamim", "accountant"],
+    denyRoles: PORTAL_ROLES,
+    errorMessage: "আর্থিক ও বোর্ডিং অসঙ্গতি দেখার অনুমতি আপনার নেই।",
+  },
+  bi: {
+    permissions: ["dashboard.analytics", "finance.view", "audit.view"],
+    roles: ["super_admin", "admin", "muhtamim", "naib_muhtamim", "accountant"],
+    denyRoles: PORTAL_ROLES,
+    errorMessage: "এক্সিকিউটিভ BI ড্যাশবোর্ড দেখার অনুমতি আপনার নেই।",
+  },
 
   // ── ডিফল্ট: পোর্টাল রোল ছাড়া সব সক্রিয় অ্যাকাউন্ট (নতুন মডিউলে ভাঙচুর এড়াতে) ──
   generic: {
@@ -311,11 +371,20 @@ export type ActionGuardAllowed = {
  *     থাকে এবং `return guard.fallback;` সব ধরনের action-এ (object, array, void) চলে।
  * রানটাইমে এর আসল মান `{ error: "..." }`।
  */
+export interface WriteGuardStepUpOptions {
+  riskLevel?: PermissionRiskLevel;
+  requireStepUp?: boolean;
+  stepUpToken?: string | null;
+  actionScope?: string;
+}
+
 export type ActionGuardDenied<T = never> = {
   allowed: false;
   error: string;
   fallback: T;
-  errorCode?: "UNAUTHENTICATED" | "NO_MADRASA" | "FORBIDDEN" | "INTERNAL";
+  errorCode?: "UNAUTHENTICATED" | "NO_MADRASA" | "FORBIDDEN" | "STEP_UP_REQUIRED" | "INTERNAL";
+  stepUpRequired?: boolean;
+  actionScope?: string;
 };
 
 export type ActionGuardResult<T = never> = ActionGuardAllowed | ActionGuardDenied<T>;
@@ -327,44 +396,33 @@ const INTERNAL_ERROR = "নিরাপত্তা যাচাই করা �
 
 function denied<T = never>(
   error: string,
-  errorCode: ActionGuardDenied<T>["errorCode"]
+  errorCode: ActionGuardDenied<T>["errorCode"],
+  extra?: { stepUpRequired?: boolean; actionScope?: string }
 ): ActionGuardDenied<T> {
+  const stepUpRequired = extra?.stepUpRequired || errorCode === "STEP_UP_REQUIRED";
+  const runtimeFallback = stepUpRequired
+    ? {
+        error,
+        stepUpRequired: true,
+        errorCode: "STEP_UP_REQUIRED" as const,
+        actionScope: extra?.actionScope,
+      }
+    : { error };
+
   return {
     allowed: false,
     error,
-    // রানটাইমে সবসময় `{ error }` — টাইপ স্তরে T (ডিফল্ট never) যাতে কলারদের রিটার্ন-টাইপ অটুট থাকে
-    fallback: { error } as unknown as T,
+    // রানটাইমে `{ error }` (বা Step-Up হলে `{ error, stepUpRequired: true, errorCode }`)
+    fallback: runtimeFallback as unknown as T,
     errorCode,
+    ...(stepUpRequired ? { stepUpRequired: true, actionScope: extra?.actionScope } : {}),
   };
 }
 
-/**
- * write action-এর জন্য কেন্দ্রীয় guard + অডিট মিডলওয়্যার।
- *
- * ব্যবহার (প্রতিটি write action-এর শুরুতে):
- * ```ts
- * const __authz = await writeGuard("finance");
- * if (!__authz.allowed) return __authz.fallback;
- * // ... mutation ...
- * await __authz.logAudit({ action: "EXPENSE_CREATED", summary: "...", newValue: ... });
- * ```
- */
-export async function writeGuard<T = never>(
-  module: ModuleKey = "generic",
-  autoAudit?: BoundAuditPayload
-): Promise<ActionGuardResult<T>> {
-  // একই রিকোয়েস্টে একাধিক guarded action পরপর ডাকা হলে (নেস্টেড কল, বাল্ক অপারেশন)
-  // যাচাইয়ের ফলাফল-ই যথেষ্ট; React `cache()` দিয়ে per-request memoize করা হয় —
-  // ফলে অতিরিক্ত DB round-trip হয় না, কিন্তু নিরাপত্তা এক বিন্দুও কমে না।
-  const res = (await resolveGuard(module)) as ActionGuardResult<T>;
-  if (res.allowed && autoAudit) {
-    // Non-blocking audit record when caller provides autoAudit metadata
-    res.logAudit(autoAudit).catch(() => {});
-  }
-  return res;
-}
-
-const resolveGuard = cache(async (module: ModuleKey): Promise<ActionGuardResult> => {
+async function resolveGuardUncached(
+  module: ModuleKey,
+  stepUpOptions?: WriteGuardStepUpOptions
+): Promise<ActionGuardResult> {
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -393,6 +451,10 @@ const resolveGuard = cache(async (module: ModuleKey): Promise<ActionGuardResult>
       roles: policy.roles,
       errorMessage: policy.errorMessage,
       denyRoles: policy.denyRoles,
+      riskLevel: stepUpOptions?.riskLevel,
+      requireStepUp: stepUpOptions?.requireStepUp,
+      stepUpToken: stepUpOptions?.stepUpToken,
+      actionScope: stepUpOptions?.actionScope,
     });
 
     const actorName =
@@ -405,6 +467,15 @@ const resolveGuard = cache(async (module: ModuleKey): Promise<ActionGuardResult>
     const actorRole = result.context?.role || (userRow as any)?.role || undefined;
 
     if (!result.allowed) {
+      if (result.stepUpRequired || result.errorCode === "STEP_UP_REQUIRED") {
+        // Step-Up 2FA challenge required — DO NOT mislog as UNAUTHORIZED_WRITE_ATTEMPT
+        return denied(
+          result.error || "এই সংবেদনশীল কাজটি সম্পন্ন করতে ২-ধাপ যাচাইকরণ (Step-Up OTP/2FA) প্রয়োজন।",
+          "STEP_UP_REQUIRED",
+          { stepUpRequired: true, actionScope: result.actionScope || stepUpOptions?.actionScope }
+        );
+      }
+
       // স্বয়ংক্রিয়ভাবে অননুমোদিত রাইট অ্যাক্সেস চেষ্টা অডিট লগে রেকর্ড করুন
       logAuditEvent({
         madrasaId,
@@ -457,4 +528,38 @@ const resolveGuard = cache(async (module: ModuleKey): Promise<ActionGuardResult>
     console.error(`writeGuard(${module}) ব্যর্থ:`, err);
     return denied(INTERNAL_ERROR, "INTERNAL");
   }
+}
+
+const resolveGuard = cache(async (module: ModuleKey): Promise<ActionGuardResult> => {
+  return resolveGuardUncached(module);
 });
+
+/**
+ * write action-এর জন্য কেন্দ্রীয় guard + অডিট মিডলওয়্যার।
+ */
+export async function writeGuard<T = never>(
+  module: ModuleKey = "generic",
+  autoAudit?: BoundAuditPayload,
+  stepUpOptions?: WriteGuardStepUpOptions
+): Promise<ActionGuardResult<T>> {
+  const hasStepUp = Boolean(
+    stepUpOptions &&
+      (stepUpOptions.requireStepUp ||
+        stepUpOptions.riskLevel === "CRITICAL" ||
+        stepUpOptions.stepUpToken ||
+        stepUpOptions.actionScope)
+  );
+
+  // Bypass React `cache()` when step-up options are supplied so earlier non-step-up calls never mask step-up enforcement
+  const res = (
+    hasStepUp
+      ? await resolveGuardUncached(module, stepUpOptions)
+      : await resolveGuard(module)
+  ) as ActionGuardResult<T>;
+
+  if (res.allowed && autoAudit) {
+    // Non-blocking audit record when caller provides autoAudit metadata
+    res.logAudit(autoAudit).catch(() => {});
+  }
+  return res;
+}

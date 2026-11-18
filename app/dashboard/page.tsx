@@ -12,6 +12,8 @@ import { getFunds } from "@/app/actions/zakat";
 import { isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
 import DashboardViewSwitcher from "./components/DashboardViewSwitcher";
 import PremiumDashboardClient from "./components/PremiumDashboardClient";
+import { getFinancialAnomalies, type FinancialAnomalyRecord } from "@/lib/anomaly-detection-service";
+import FinancialAnomalyBanner from "@/components/anomalies/FinancialAnomalyBanner";
 
 
 
@@ -66,10 +68,18 @@ export default async function DashboardPage() {
   let todayAttendanceData: any[] = [];
   let examPassRateData: any[] = [];
   let earlyWarningData: any = { attendance_alerts: [], exam_drop_alerts: [], total_critical_students: 0, checked_at: "" };
+  let anomaliesData: FinancialAnomalyRecord[] = [];
 
   try {
     const alerts = await getEarlyWarningAlerts();
     earlyWarningData = alerts;
+    if (profile?.madrasa_id) {
+      try {
+        anomaliesData = await getFinancialAnomalies(profile.madrasa_id, { limit: 20 });
+      } catch {
+        anomaliesData = [];
+      }
+    }
 
     if (profile?.madrasa_id) {
       const today = toDhakaDateString();
@@ -425,6 +435,9 @@ export default async function DashboardPage() {
         errorMessage={error?.message || null}
         earlyWarningNode={
           <EarlyWarningWidget initialData={earlyWarningData} isTeacherView={false} />
+        }
+        anomalyBannerNode={
+          <FinancialAnomalyBanner anomalies={anomaliesData} />
         }
         chartsNode={
           <ReportingCharts

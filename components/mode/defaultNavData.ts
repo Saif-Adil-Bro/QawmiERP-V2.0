@@ -384,6 +384,17 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "accountant"],
         keywords: ["audit", "shura", "অডিট", "শুরা"],
       },
+      {
+        id: "finance_anomalies",
+        name: "আর্থিক ও বোর্ডিং অসঙ্গতি (Anomalies)",
+        href: "/dashboard/accounting/anomalies",
+        iconName: "ShieldAlert",
+        permission: "anomaly.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "accountant"],
+        badge: "AI স্ক্যান",
+        badgeColor: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+        keywords: ["anomaly", "anomalies", "fraud", "duplicate", "অসঙ্গতি", "অ্যানোমালি", "বাজার খরচ"],
+      },
     ],
   },
   {
@@ -541,6 +552,17 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "teacher"],
         keywords: ["communication", "sms", "বার্তা", "মেসেজ"],
       },
+      {
+        id: "communication_orchestrator",
+        name: "মাল্টি-চ্যানেল নোটিফিকেশন অর্কেস্ট্রেটর",
+        href: "/dashboard/communication/orchestrator",
+        iconName: "Send",
+        permission: "notification.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff"],
+        badge: "WhatsApp/SMS",
+        badgeColor: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+        keywords: ["orchestrator", "whatsapp", "push", "sms", "template", "অর্কেস্ট্রেটর", "নোটিফিকেশন"],
+      },
     ],
   },
   {
@@ -621,6 +643,93 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         permission: "settings.view",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin"],
         keywords: ["settings", "setup", "মাদ্রাসা সেটিংস", "কনফিগ"],
+      },
+      {
+        id: "system_approvals",
+        name: "অনুমোদন ওয়ার্কফ্লো সেন্টার",
+        href: "/dashboard/approvals",
+        iconName: "CheckCircle2",
+        permission: "approval.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "accountant", "education_secretary"],
+        badge: "ওয়ার্কফ্লো",
+        badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+        keywords: ["approval", "workflow", "অনুমোদন", "ওয়ার্কফ্লো"],
+      },
+      {
+        id: "system_security",
+        name: "সিকিউরিটি, সেশন ও 2FA",
+        href: "/dashboard/settings/security",
+        iconName: "Lock",
+        permission: "security.sessions.manage",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin"],
+        badge: "2FA",
+        badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+        keywords: ["security", "session", "2fa", "mfa", "otp", "সিকিউরিটি", "সেশন", "নিরাপত্তা"],
+      },
+      {
+        id: "system_automation",
+        name: "অটোমেশন ও শিডিউলড ক্রন",
+        href: "/dashboard/settings/automation",
+        iconName: "Clock",
+        permission: "automation.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin"],
+        keywords: ["automation", "cron", "schedule", "অটোমেশন", "ক্রন"],
+      },
+      {
+        id: "system_webhooks",
+        name: "ওয়েবহুক ও ইন্টিগ্রেশন হাব",
+        href: "/dashboard/settings/webhooks",
+        iconName: "Webhook",
+        permission: "webhook.view",
+        roles: ["super_admin", "muhtamim", "admin"],
+        keywords: ["webhook", "api", "integration", "ওয়েবহুক", "ইন্টিগ্রেশন"],
+      },
+      {
+        id: "system_audit_logs",
+        name: "সিস্টেম অডিট লগ",
+        href: "/dashboard/settings/audit-logs",
+        iconName: "FileSearch",
+        permission: "settings.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin"],
+        keywords: ["audit", "logs", "অডিট লগ"],
+      },
+      {
+        id: "system_data_governance",
+        name: "ডাটা গভর্ন্যান্স ও রিটেনশন",
+        href: "/dashboard/settings/data-governance",
+        iconName: "Database",
+        permission: "settings.view",
+        roles: ["super_admin", "muhtamim", "admin"],
+        keywords: ["data governance", "retention", "ডাটা গভর্ন্যান্স"],
+      },
+    ],
+  },
+  {
+    id: "analytics_bi",
+    title: "বিশ্লেষণ ও AI ইন্টেলিজেন্স",
+    iconName: "BarChart3",
+    items: [
+      {
+        id: "analytics_executive_bi",
+        name: "এক্সিকিউটিভ BI ও ডাইজেস্ট রিপোর্ট",
+        href: "/dashboard/analytics/executive-bi",
+        iconName: "TrendingUp",
+        permission: "finance.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "accountant"],
+        badge: "BI",
+        badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        keywords: ["executive bi", "bi", "digest", "analytics", "বিশ্লেষণ", "ডাইজেস্ট", "রিপোর্ট"],
+      },
+      {
+        id: "analytics_early_warning",
+        name: "AI আর্লি ওয়ার্নিং ও ড্রপআউট ঝুঁকি",
+        href: "/dashboard/analytics/early-warning",
+        iconName: "AlertTriangle",
+        permission: "analytics.early_warning",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "education_secretary", "teacher"],
+        badge: "AI ঝুঁকি",
+        badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+        keywords: ["early warning", "dropout", "risk", "আর্লি ওয়ার্নিং", "ড্রপআউট", "ঝুঁকি"],
       },
     ],
   },
@@ -708,6 +817,49 @@ export function sanitizeNavGroups(raw: any): SerializedNavGroup[] {
   // If after sanitization no valid groups remain, fallback to INITIAL_NAV_GROUPS
   if (sanitized.length === 0) {
     return JSON.parse(JSON.stringify(INITIAL_NAV_GROUPS));
+  }
+
+  // Auto-merge new default items/groups (e.g. Phase 1-3 routes) not yet present in saved user nav preferences
+  const existingHrefs = new Set<string>();
+  const existingIds = new Set<string>();
+  const groupById = new Map<string, SerializedNavGroup>();
+
+  for (const g of sanitized) {
+    groupById.set(g.id, g);
+    for (const it of g.items) {
+      if (it.href) existingHrefs.add(it.href);
+      if (it.id) existingIds.add(it.id);
+    }
+  }
+
+  for (const defGroup of INITIAL_NAV_GROUPS) {
+    const targetGroup = groupById.get(defGroup.id);
+    if (!targetGroup) {
+      const missingItems = defGroup.items.filter(
+        (it) => !existingHrefs.has(it.href) && !existingIds.has(it.id)
+      );
+      if (missingItems.length > 0) {
+        const clonedGroup: SerializedNavGroup = {
+          ...defGroup,
+          items: missingItems.map((it) => ({ ...it })),
+        };
+        sanitized.push(clonedGroup);
+        groupById.set(clonedGroup.id, clonedGroup);
+        for (const it of missingItems) {
+          existingHrefs.add(it.href);
+          existingIds.add(it.id);
+        }
+      }
+      continue;
+    }
+
+    for (const defItem of defGroup.items) {
+      if (!existingHrefs.has(defItem.href) && !existingIds.has(defItem.id)) {
+        targetGroup.items.push({ ...defItem });
+        existingHrefs.add(defItem.href);
+        existingIds.add(defItem.id);
+      }
+    }
   }
 
   return sanitized;

@@ -31,6 +31,17 @@ import {
   FolderOpen,
   FolderMinus,
   SlidersHorizontal,
+  Lock,
+  FileSearch,
+  AlertTriangle,
+  ShieldAlert,
+  Activity,
+  BarChart3,
+  TrendingUp,
+  Webhook,
+  Clock,
+  CheckCircle2,
+  Send,
 } from "lucide-react";
 
 export const ICON_MAP: Record<string, any> = {
@@ -66,6 +77,17 @@ export const ICON_MAP: Record<string, any> = {
   FolderOpen,
   FolderMinus,
   SlidersHorizontal,
+  Lock,
+  FileSearch,
+  AlertTriangle,
+  ShieldAlert,
+  Activity,
+  BarChart3,
+  TrendingUp,
+  Webhook,
+  Clock,
+  CheckCircle2,
+  Send,
 };
 
 export function getIconComponent(iconName?: string | null, fallback = FileText) {

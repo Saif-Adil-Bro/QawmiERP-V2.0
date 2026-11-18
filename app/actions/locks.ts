@@ -112,7 +112,13 @@ export async function toggleAccountingPeriodLock(input: {
   endDate: string;
   shouldLock: boolean;
   reason?: string;
-}): Promise<{ success?: boolean; period?: AccountingPeriodRecord; error?: string }> {
+}): Promise<{
+  success?: boolean;
+  period?: AccountingPeriodRecord;
+  error?: string;
+  stepUpRequired?: boolean;
+  errorCode?: string;
+}> {
   const ctx = await resolveLockActor();
   if ("error" in ctx) return { error: ctx.error };
   if (!ctx.canManage) {
@@ -135,6 +141,23 @@ export async function toggleAccountingPeriodLock(input: {
         ctx.guardError ||
         "হিসাব পিরিয়ড লক বা আনলক করার অনুমতি কেবল মুহতামিম বা সুপার অ্যাডমিনের আছে।",
     };
+  }
+
+  if (!input.shouldLock) {
+    const stepUpGuard = await requirePermission({
+      userId: ctx.user.id,
+      madrasaId: ctx.madrasaId,
+      roles: LOCK_PRIVILEGED_ROLES,
+      riskLevel: "CRITICAL",
+      actionScope: "accounting_period.unlock",
+    });
+    if (!stepUpGuard.allowed) {
+      return {
+        error: stepUpGuard.error || "হিসাব পিরিয়ড আনলক করতে ২-ধাপ যাচাইকরণ প্রয়োজন।",
+        stepUpRequired: stepUpGuard.stepUpRequired,
+        errorCode: stepUpGuard.errorCode,
+      };
+    }
   }
 
   const now = new Date().toISOString();
@@ -241,7 +264,7 @@ export async function toggleAcademicSessionLock(
   sessionId: string,
   shouldLock: boolean,
   reason?: string
-): Promise<{ success?: boolean; error?: string }> {
+): Promise<{ success?: boolean; error?: string; stepUpRequired?: boolean; errorCode?: string }> {
   const ctx = await resolveLockActor();
   if ("error" in ctx) return { error: ctx.error };
   if (!ctx.canManage) {
@@ -250,6 +273,23 @@ export async function toggleAcademicSessionLock(
         ctx.guardError ||
         "শিক্ষাবর্ষ লক বা আনলক করার অনুমতি কেবল মুহতামিম বা সুপার অ্যাডমিনের আছে।",
     };
+  }
+
+  if (!shouldLock) {
+    const stepUpGuard = await requirePermission({
+      userId: ctx.user.id,
+      madrasaId: ctx.madrasaId,
+      roles: LOCK_PRIVILEGED_ROLES,
+      riskLevel: "CRITICAL",
+      actionScope: "academic_session.unlock",
+    });
+    if (!stepUpGuard.allowed) {
+      return {
+        error: stepUpGuard.error || "শিক্ষাবর্ষ আনলক করতে ২-ধাপ যাচাইকরণ প্রয়োজন।",
+        stepUpRequired: stepUpGuard.stepUpRequired,
+        errorCode: stepUpGuard.errorCode,
+      };
+    }
   }
 
   const now = new Date().toISOString();

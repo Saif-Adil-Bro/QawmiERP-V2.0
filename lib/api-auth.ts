@@ -1,7 +1,11 @@
 import { timingSafeEqual } from "crypto";
 import { NextResponse } from "next/server";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
-import { writeGuard, type ModuleKey } from "@/lib/action-authorization";
+import {
+  writeGuard,
+  type ModuleKey,
+  type WriteGuardStepUpOptions,
+} from "@/lib/action-authorization";
 import { assertActiveAccount } from "@/lib/permissions-server";
 
 /**
@@ -16,6 +20,9 @@ import { assertActiveAccount } from "@/lib/permissions-server";
 export interface ApiAuthContext {
   userId: string;
   madrasaId: string;
+  actorName?: string;
+  actorEmail?: string;
+  actorRole?: string;
 }
 
 export type ApiAuthResult =
@@ -23,25 +30,26 @@ export type ApiAuthResult =
   | { ok: false; response: NextResponse };
 
 /**
- * নির্দিষ্ট মডিউলের write-permission যাচাই করে।
+ * নির্দিষ্ট মডিউলের write-permission (এবং প্রয়োজনে Step-Up 2FA) যাচাই করে।
  * ব্যর্থ হলে রেডি-made NextResponse (401/403) ফেরত দেয়।
- *
- * ব্যবহার:
- * ```ts
- * const auth = await authorizeApi("attendance");
- * if (!auth.ok) return auth.response;
- * const { madrasaId, userId } = auth.ctx;
- * ```
  */
-export async function authorizeApi(module: ModuleKey): Promise<ApiAuthResult> {
-  const authz = await writeGuard(module);
+export async function authorizeApi(
+  module: ModuleKey,
+  stepUpOptions?: WriteGuardStepUpOptions
+): Promise<ApiAuthResult> {
+  const authz = await writeGuard(module, undefined, stepUpOptions);
 
   if (!authz.allowed) {
     const status = authz.errorCode === "UNAUTHENTICATED" ? 401 : 403;
+    const isStepUp = authz.stepUpRequired || authz.errorCode === "STEP_UP_REQUIRED";
     return {
       ok: false,
       response: NextResponse.json(
-        { error: authz.error, code: authz.errorCode || "FORBIDDEN" },
+        {
+          error: authz.error,
+          code: authz.errorCode || "FORBIDDEN",
+          ...(isStepUp ? { stepUpRequired: true, actionScope: authz.actionScope } : {}),
+        },
         { status }
       ),
     };
@@ -52,6 +60,9 @@ export async function authorizeApi(module: ModuleKey): Promise<ApiAuthResult> {
     ctx: {
       userId: String(authz.userId || ""),
       madrasaId: String(authz.madrasaId || ""),
+      actorName: authz.actorName,
+      actorEmail: authz.actorEmail,
+      actorRole: authz.actorRole,
     },
   };
 }
@@ -63,7 +74,7 @@ export async function authorizeApi(module: ModuleKey): Promise<ApiAuthResult> {
  */
 export async function authorizeSuperAdminOrCron(
   req: Request
-): Promise<{ ok: true } | { ok: false; response: NextResponse }> {
+): Promise<{ ok: true; scopedMadrasaId?: string } | { ok: false; response: NextResponse }> {
   const expected = (process.env.CRON_SECRET || "").trim();
   const header = req.headers.get("authorization") || "";
   const provided = header.replace(/^Bearer\s+/i, "").trim();
@@ -127,7 +138,8 @@ export async function authorizeSuperAdminOrCron(
       };
     }
 
-    return { ok: true };
+    // সেশন-ভিত্তিক super_admin শুধু নিজের মাদ্রাসায় সীমাবদ্ধ (cross-tenant রোধ)
+    return { ok: true, scopedMadrasaId: madrasaId };
   } catch {
     return {
       ok: false,

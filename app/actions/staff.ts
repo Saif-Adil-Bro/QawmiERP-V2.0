@@ -5,6 +5,7 @@ import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
+import { submitWorkflowHookApproval } from "@/lib/approval-workflow";
 import {
   listStructuredStaffLeaves,
   upsertStructuredStaffLeave,
@@ -427,7 +428,9 @@ export async function getStaffList(filters?: {
       }
     }
 
-    return filtered;
+    const { getCurrentUserMaskingContext, maskStaffSensitiveFields } = await import("@/lib/data-access-guards");
+    const maskingCtx = await getCurrentUserMaskingContext("staff", "phone");
+    return filtered.map((m) => maskStaffSensitiveFields(m, maskingCtx.allowUnmasked));
   } catch (err) {
     console.error("Error in getStaffList:", err);
     return [];
@@ -450,7 +453,9 @@ export async function getStaffMember(id: string): Promise<StaffMember | null> {
     const found = members.find((m) => m.id === id);
     if (!found) return null;
 
-    return found;
+    const { getCurrentUserMaskingContext, maskStaffSensitiveFields } = await import("@/lib/data-access-guards");
+    const maskingCtx = await getCurrentUserMaskingContext("staff", "phone");
+    return maskStaffSensitiveFields(found, maskingCtx.allowUnmasked);
   } catch (err) {
     console.error("Error fetching staff member:", err);
     return null;
@@ -684,6 +689,32 @@ export async function updateStaffMember(
     const current = existingStaff[index];
     const nowStr = new Date().toISOString();
 
+    if (!(payload as any)._approvalBypass && payload.salary) {
+      const targetSalary = Number(payload.salary.basic_salary ?? current.salary?.basic_salary ?? 0);
+      const hook = await submitWorkflowHookApproval({
+        madrasaId,
+        actorId: user.id,
+        actorName: user.user_metadata?.full_name || user.email || "অফিসার",
+        actorRole: user.user_metadata?.role || "staff",
+        requestType: "SALARY_CHANGE",
+        amount: targetSalary,
+        title: `স্টাফ বেতন পরিবর্তন: ${current.personal?.full_name_bn || current.personal?.full_name_en || id}`,
+        description: `মূল বেতন ${current.salary?.basic_salary || 0} → ${targetSalary}`,
+        entityType: "staff",
+        targetId: id,
+        targetName: current.personal?.full_name_bn || current.personal?.full_name_en,
+        payload: { action: "update_staff_salary", staffId: id, staffPayload: payload },
+      });
+      if (hook.matched) {
+        return {
+          success: true,
+          pendingApproval: true,
+          approvalRequestId: hook.approvalRequestId,
+          message: "বেতন পরিবর্তনের জন্য অনুমোদনের আবেদন পাঠানো হয়েছে।",
+        };
+      }
+    }
+
     // Recalculate net salary if salary is updated
     let updatedSalary = current.salary;
     if (payload.salary) {
@@ -801,6 +832,31 @@ export async function promoteStaffMember(payload: {
     const prevDept = current.employment.department_name;
     const prevSalary = current.salary.basic_salary;
     const nowStr = new Date().toISOString();
+
+    if (!(payload as any)._approvalBypass && payload.newSalary && payload.newSalary !== prevSalary) {
+      const hook = await submitWorkflowHookApproval({
+        madrasaId,
+        actorId: user.id,
+        actorName: user.user_metadata?.full_name || user.email || "অফিসার",
+        actorRole: user.user_metadata?.role || "staff",
+        requestType: "SALARY_CHANGE",
+        amount: Number(payload.newSalary),
+        title: `পদোন্নতি ও বেতন পরিবর্তন: ${current.personal?.full_name_bn || current.personal?.full_name_en || payload.staffId}`,
+        description: payload.reason || `বেতন ${prevSalary} → ${payload.newSalary}`,
+        entityType: "staff",
+        targetId: payload.staffId,
+        targetName: current.personal?.full_name_bn || current.personal?.full_name_en,
+        payload: { action: "promote_staff", promotePayload: payload },
+      });
+      if (hook.matched) {
+        return {
+          success: true,
+          pendingApproval: true,
+          approvalRequestId: hook.approvalRequestId,
+          message: "পদোন্নতি ও বেতন পরিবর্তনের জন্য অনুমোদনের আবেদন পাঠানো হয়েছে।",
+        };
+      }
+    }
 
     const historyRecord: StaffEmploymentHistoryRecord = {
       id: `hist_${Date.now()}`,

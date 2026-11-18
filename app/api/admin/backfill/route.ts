@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const dryRun = searchParams.get("dryRun") === "true";
-    const madrasaId = searchParams.get("madrasaId") || undefined;
+    const madrasaId = auth.scopedMadrasaId || searchParams.get("madrasaId") || undefined;
 
     const result = await runPhaseBBackfill({
       dryRun,
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const result = await runPhaseBBackfill({
       dryRun: Boolean(body.dryRun),
-      targetMadrasaId: body.targetMadrasaId || undefined,
+      targetMadrasaId: auth.scopedMadrasaId || body.targetMadrasaId || undefined,
     });
 
     return NextResponse.json({

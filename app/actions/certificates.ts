@@ -6,6 +6,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { getAuthMadrasaId, getStudents } from "@/app/actions/students";
 import { getMadrasaMetadata, saveMadrasaMetadata, AcademicSession, getDefaultSessions } from "@/lib/sessions";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { submitWorkflowHookApproval } from "@/lib/approval-workflow";
 import {
   StudentCertificate,
   CertificateStatus,
@@ -178,6 +179,7 @@ export async function issueStudentCertificate(payload: {
   principal_signature?: boolean;
   teacher_signature?: boolean;
   show_seal?: boolean;
+  _approvalBypass?: boolean;
 }) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
@@ -194,6 +196,30 @@ export async function issueStudentCertificate(payload: {
 
     const authUser = await getAuthUser();
     const operatorName = authUser?.email?.split("@")[0] || "Admin Staff";
+
+    if (!payload._approvalBypass && authUser) {
+      const hook = await submitWorkflowHookApproval({
+        madrasaId,
+        actorId: authUser.id,
+        actorName: authUser.user_metadata?.full_name || operatorName,
+        actorRole: authUser.user_metadata?.role || "staff",
+        requestType: "CERTIFICATE_ISSUE",
+        amount: 0,
+        title: `সনদপত্র ইস্যু অনুমোদন (${payload.certificate_type_id})`,
+        description: payload.purpose || "শিক্ষার্থীকে সনদপত্র প্রদান",
+        entityType: "certificate",
+        targetId: payload.student_id,
+        payload: { action: "issue_certificate", certificatePayload: payload },
+      });
+      if (hook.matched) {
+        return {
+          success: true,
+          pendingApproval: true,
+          approvalRequestId: hook.approvalRequestId,
+          message: "সনদপত্র ইস্যুর জন্য অনুমোদনের আবেদন পাঠানো হয়েছে।",
+        };
+      }
+    }
 
     const supabase = await createClient();
     const madrasaInfo = await getMadrasaInfo(madrasaId);

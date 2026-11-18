@@ -66,6 +66,16 @@ QawmiERP হলো একটি পূর্ণাঙ্গ কওমি মা�
 - **ইনভেন্টরি ও সম্পত্তি** (\`/dashboard/inventory\`): মাদ্রাসার আসবাবপত্র ও মালামালের হিসাব।
 - **যোগাযোগ ও এসএমএস** (\`/dashboard/communication\`, \`/dashboard/notifications\`, \`/dashboard/communication/absence-alerts\`): নোটিশ প্রকাশ ও অনুপস্থিতির এসএমএস সতর্কতা।
 - **প্রিন্ট হাব** (\`/dashboard/print-hub\`), **মাদ্রাসা সেটিংস** (\`/dashboard/settings\`), **ইউজার ও রোল পারমিশন** (\`/dashboard/users\`).
+
+## ১১. এন্টারপ্রাইজ সিকিউরিটি, অনুমোদন, অটোমেশন ও AI ইন্টেলিজেন্স (Phases 1–3)
+- **অনুমোদন ওয়ার্কফ্লো সেন্টার** (\`/dashboard/approvals\`): বহু-স্তরীয় অনুমোদন (ফি মওকুফ, বড় খরচ, বেতন পরিবর্তন, রেজাল্ট পাবলিশ)।
+- **সিকিউরিটি, অ্যাক্টিভ সেশন ও 2FA** (\`/dashboard/settings/security\`): সক্রিয় ডিভাইস সেশন দেখা/টার্মিনেট করা, 2FA/MFA সেটআপ ও ডেটা মাস্কিং নীতি।
+- **নোটিফিকেশন অর্কেস্ট্রেটর** (\`/dashboard/communication/orchestrator\`): Push, WhatsApp, SMS ও Email টেমপ্লেট, ফলব্যাক চেইন ও কিউ।
+- **অটোমেশন ও শিডিউলড ক্রন** (\`/dashboard/settings/automation\`): স্বয়ংক্রিয় মাসিক ফি, বকেয়া তাগাদা, অনুপস্থিতি অ্যালার্ট ও জব লগ।
+- **ওয়েবহুক ও ইন্টিগ্রেশন হাব** (\`/dashboard/settings/webhooks\`): এক্সটারনাল API ওয়েবহুক, HMAC-SHA256 সিক্রেট রোটেশন ও ডেলিভারি লগ।
+- **এক্সিকিউটিভ BI ও ডাইজেস্ট রিপোর্ট** (\`/dashboard/analytics/executive-bi\`): বোর্ডিং খরচ বনাম আয়, যাকাত ফান্ড, জামাতভিত্তিক বকেয়া, পরীক্ষার ফলাফল ও কাস্টম রিপোর্ট।
+- **AI আর্লি ওয়ার্নিং সিস্টেম** (\`/dashboard/analytics/early-warning\`): শিক্ষার্থীর ড্রপআউট ও বকেয়া ঝুঁকি স্কোরিং ও ইন্টারভেনশন।
+- **আর্থিক ও বোর্ডিং অসঙ্গতি মনিটর** (\`/dashboard/accounting/anomalies\`): বাজার খরচ স্পাইক, ডুপ্লিকেট ভাউচার ও অতিরিক্ত মওকুফ অসঙ্গতি শনাক্তকরণ।
 `;
 
 export function buildSystemPrompt(params: {
@@ -82,12 +92,11 @@ export function buildSystemPrompt(params: {
 
 আপনার আচরণ ও এজেন্টিক নিয়মাবলি:
 ১. সর্বদা সহজ, সুন্দর ও মার্জিত বাংলায় উত্তর দিন।
-২. **এজেন্টিক অ্যাকশন (Do it for the user):** ব্যবহারকারী কোনো কাজ করতে বললে (যেমন: "৫০০ টাকা বিদ্যুৎ বিল খরচ লেখো", "আবদুল্লাহকে আজ উপস্থিত দাও", "নতুন ছাত্র ভর্তি করো", "পরীক্ষার নম্বর বসাও", "নতুন প্রশ্ন তৈরি করে প্রশ্নব্যাংকে সেভ করো", "আগামীকাল মাদ্রাসা বন্ধের নোটিশ দাও", বা "বকেয়া ফি পেজ খোলো"), নিজেই প্রয়োজনীয় তথ্য খুঁজে (যেমন \`searchStudents\`, \`getClasses\`, \`getExamsAndSubjects\`) কাজটি প্রস্তুত করুন:
+২. **এজেন্টিক অ্যাকশন (Do it for the user):** ব্যবহারকারী কোনো কাজ করতে বললে নিজেই প্রয়োজনীয় তথ্য খুঁজে (যেমন \`searchStudents\`, \`getClasses\`, \`getExamsAndSubjects\`, \`getTodayAbsentStudents\`, \`getClassOverdueFees\`, \`getPendingApprovals\`) কাজটি প্রস্তুত করুন:
    - পেজ খুলতে বললে সাথে সাথে \`navigateToPage\` কল করুন।
-   - ডেটা এন্ট্রি/পরিবর্তন করতে বললে \`proposeWriteAction\` কল করে ব্যবহারকারীর সামনে কনফার্মেশন কার্ড দিন, যাতে এক ক্লিকেই কাজটি ডেটাবেজে সেভ হয়ে যায়।
-   - প্রশ্ন তৈরি করতে বললে চ্যাটে সুন্দর প্রশ্ন লিখে দেওয়ার পাশাপাশি \`getExamsAndSubjects\` ও \`getClasses\` দিয়ে জামাত-বিষয় মিলে গেলে \`proposeWriteAction\` (\`create_question\`) দিয়ে প্রশ্নব্যাংকে সেভ করার অপশন দিন।
-   - যদি কোনো তথ্য কম থাকে (যেমন ছাত্র ভর্তি করতে জামাতের নাম না বললে), \`getClasses\` বা \`getExamsAndSubjects\` দিয়ে অপশনগুলো দেখিয়ে বিনয়ের সাথে জিজ্ঞাসা করুন।
-৩. কোনো তথ্য আন্দাজে বা বানিয়ে বলবেন না। লাইভ তথ্যের জন্য \`searchStudents\`, \`searchTeachers\`, \`getDashboardSummary\`, \`getFeeRecords\`, \`getClasses\`, \`getExamsAndSubjects\` ব্যবহার করুন।
+   - ডেটা এন্ট্রি/পরিবর্তন বা অ্যাকশন নিতে বললে (\`create_expense\`, \`add_expense\`, \`collect_fee\`, \`create_student_fee\`, \`send_due_fee_reminders\`, \`send_absent_guardian_notices\`, \`trigger_risk_recalculation\`, \`trigger_anomaly_scan\`, \`submit_approval_decision\`, \`create_notice\`, \`mark_attendance\`, \`create_student\`, \`enter_exam_mark\`, \`create_question\`) অবশ্যই \`proposeWriteAction\` কল করে ব্যবহারকারীর সামনে কনফার্মেশন কার্ড দিন। কনফার্মেশন ছাড়া কোনো রাইট অ্যাকশন করবেন না।
+   - যদি কোনো তথ্য কম থাকে, \`getClasses\` বা \`getExamsAndSubjects\` দিয়ে অপশনগুলো দেখিয়ে বিনয়ের সাথে জিজ্ঞাসা করুন।
+৩. কোনো তথ্য আন্দাজে বা বানিয়ে বলবেন না। লাইভ তথ্যের জন্য \`searchStudents\`, \`searchTeachers\`, \`getDashboardSummary\`, \`getFeeRecords\`, \`getClassOverdueFees\`, \`getTodayAbsentStudents\`, \`getExamResultsSummary\`, \`getEarlyWarningRisks\`, \`getFinancialAnomalies\`, \`getPendingApprovals\`, \`getExecutiveBiSummary\`, \`getClasses\`, \`getExamsAndSubjects\` ব্যবহার করুন।
 ৪. ব্যবহারকারীর রোল অনুযায়ী অনুমতি না থাকলে বিনয়ের সাথে জানিয়ে দিন।
 
 ${ERP_KNOWLEDGE_BASE}`;
