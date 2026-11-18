@@ -16,6 +16,17 @@ const ROOT = process.cwd();
 const req = (headers: Record<string, string> = {}) =>
   new Request("https://app.example/api/cron/process-queues", { headers });
 
+const CRON_ROUTE_PATHS = [
+  "/api/cron/dispatch",
+  "/api/cron/monthly-fees",
+  "/api/cron/overdue-reminders",
+  "/api/cron/absence-alerts",
+  "/api/cron/process-queues",
+  "/api/cron/digest-reports",
+  "/api/cron/early-warning",
+  "/api/cron/anomalies",
+];
+
 describe("cron auth — Vercel & Railway/GitHub Actions use the same Bearer contract", () => {
   it("accepts Authorization: Bearer <CRON_SECRET> (Vercel Cron and GitHub Actions)", async () => {
     process.env.CRON_SECRET = "s3cret-token";
@@ -39,18 +50,16 @@ describe("cron auth — Vercel & Railway/GitHub Actions use the same Bearer cont
 });
 
 describe("cron config consistency", () => {
-  const vercel = JSON.parse(fs.readFileSync(path.join(ROOT, "vercel.json"), "utf8"));
   const workflow = fs.readFileSync(path.join(ROOT, ".github/workflows/cron-jobs.yml"), "utf8");
 
-  it("every vercel.json cron schedule is present in the GitHub workflow", () => {
-    for (const c of vercel.crons) {
-      expect(workflow).toContain(`cron: "${c.schedule}"`);
-    }
+  it("GitHub workflow schedules the master dispatcher every 15 minutes", () => {
+    expect(workflow).toContain('cron: "*/15 * * * *"');
+    expect(workflow).toContain("/api/cron/dispatch");
   });
 
-  it("every vercel.json cron path has a route file with force-dynamic", () => {
-    for (const c of vercel.crons) {
-      const file = path.join(ROOT, "app", c.path, "route.ts");
+  it("every cron route file exists and exports force-dynamic", () => {
+    for (const routePath of CRON_ROUTE_PATHS) {
+      const file = path.join(ROOT, "app", routePath, "route.ts");
       expect(fs.existsSync(file)).toBe(true);
       expect(fs.readFileSync(file, "utf8")).toMatch(/export const dynamic = "force-dynamic"/);
     }

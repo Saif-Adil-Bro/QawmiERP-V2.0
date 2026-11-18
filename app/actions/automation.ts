@@ -6,51 +6,19 @@ import { writeGuard } from "@/lib/action-authorization";
 import { isMissingTableError } from "@/lib/audit-log";
 import { getStructuredMadrasaSetting, saveStructuredMadrasaSetting } from "@/lib/structured-config";
 import {
-  runMonthlyFeeGenerationCron,
-  runOverdueRemindersCron,
-} from "@/lib/automation/fee-cron-service";
-import { runAbsenceAlertsCron } from "@/lib/automation/attendance-cron-service";
-import { processNotificationQueue } from "@/lib/notifications/orchestrator";
-import { retryPendingWebhookDeliveries } from "@/lib/webhooks/dispatcher";
-import { runTrackedCronJob } from "@/lib/automation/cron-auth";
+  DEFAULT_AUTOMATION_RULES,
+  executeAutomationJob,
+  mergeRulesWithDefaults,
+  type AutomationJobKey,
+} from "@/lib/automation/master-dispatcher";
+import {
+  computeNextRunAt,
+  DEFAULT_CRON_TIMEZONE,
+  isValidCronExpression,
+} from "@/lib/automation/schedule-evaluator";
 
 const FALLBACK_RULES_KEY = "automation_rules";
 const FALLBACK_LOGS_KEY = "job_execution_logs";
-
-const DEFAULT_RULES = [
-  {
-    rule_key: "monthly_fee_generation",
-    name: "Monthly Fee Invoice Generation",
-    name_bn: "মাসিক ফি ইনভয়েস অটো-জেনারেশন",
-    description: "প্রতি মাসের ১ তারিখে সকল সক্রিয় শিক্ষার্থীর মাসিক ফি ইনভয়েস তৈরি করে।",
-    cron_expression: "0 1 1 * *",
-    is_enabled: true,
-  },
-  {
-    rule_key: "overdue_reminders",
-    name: "Overdue Fee Reminders",
-    name_bn: "বকেয়া ফি রিমাইন্ডার",
-    description: "প্রকৃত বকেয়া থাকা শিক্ষার্থীদের অভিভাবকদের মাল্টি-চ্যানেল রিমাইন্ডার পাঠায়।",
-    cron_expression: "0 4 * * *",
-    is_enabled: true,
-  },
-  {
-    rule_key: "absence_alerts",
-    name: "Daily Absence Alerts",
-    name_bn: "দৈনিক অনুপস্থিতি অ্যালার্ট",
-    description: "ছুটির দিন ও সাপ্তাহিক ছুটি বাদ দিয়ে অনুপস্থিত শিক্ষার্থীদের অভিভাবকদের অ্যালার্ট পাঠায়।",
-    cron_expression: "0 10 * * *",
-    is_enabled: true,
-  },
-  {
-    rule_key: "process_queues",
-    name: "Queue & Webhook Retry Processor",
-    name_bn: "নোটিফিকেশন ও ওয়েবহুক রিট্রাই প্রসেসর",
-    description: "পেন্ডিং নোটিফিকেশন ও ওয়েবহুক ডেলিভারি কিউ প্রসেস করে।",
-    cron_expression: "*/15 * * * *",
-    is_enabled: true,
-  },
-];
 
 export async function getAutomationRulesAction() {
   const authz = await writeGuard("automation");
@@ -65,8 +33,7 @@ export async function getAutomationRulesAction() {
     .order("created_at", { ascending: true });
 
   if (!error) {
-    if (data && data.length > 0) return { rules: data };
-    return { rules: DEFAULT_RULES.map((r) => ({ ...r, madrasa_id: authz.madrasaId })) };
+    return { rules: mergeRulesWithDefaults(authz.madrasaId, data || []) };
   }
 
   if (isMissingTableError(error)) {
@@ -75,7 +42,10 @@ export async function getAutomationRulesAction() {
       "automation",
       FALLBACK_RULES_KEY
     );
-    const rules = Array.isArray(fb.value) && fb.value.length > 0 ? fb.value : DEFAULT_RULES;
+    const rules = mergeRulesWithDefaults(
+      authz.madrasaId,
+      Array.isArray(fb.value) ? fb.value : []
+    );
     return { rules };
   }
 
@@ -95,16 +65,26 @@ export async function saveAutomationRuleAction(input: {
   if (!authz.allowed) return { error: authz.error || "অনুমতি নেই" };
   if (!authz.madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-  const nowIso = new Date().toISOString();
+  const cronExpr = String(input.cron_expression || "0 9 * * *").trim();
+  if (!isValidCronExpression(cronExpr)) {
+    return { error: `সঠিক Cron ফরম্যাট নয়: "${cronExpr}" (উদাহরণ: 0 9 * * *)` };
+  }
+
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const tz = String((input.config as any)?.timezone || DEFAULT_CRON_TIMEZONE);
+  const nextRun = input.is_enabled ? computeNextRunAt(cronExpr, now, tz) : null;
+
   const record = {
     madrasa_id: authz.madrasaId,
     rule_key: String(input.rule_key).trim(),
     name: String(input.name || input.rule_key).trim(),
     name_bn: input.name_bn || input.name,
     description: input.description || null,
-    cron_expression: input.cron_expression || "0 6 * * *",
+    cron_expression: cronExpr,
     is_enabled: input.is_enabled,
-    config: input.config || {},
+    config: { ...(input.config || {}), timezone: tz },
+    next_run_at: nextRun ? nextRun.toISOString() : null,
     created_by: authz.userId || null,
     updated_at: nowIso,
   };
@@ -123,7 +103,7 @@ export async function saveAutomationRuleAction(input: {
       entityType: "automation_rules",
       entityId: data?.id || record.rule_key,
       entityLabel: record.name_bn || record.name,
-      summary: `অটোমেশন রুল '${record.name_bn || record.name}' ${record.is_enabled ? "চালু" : "বন্ধ"} করা হয়েছে`,
+      summary: `অটোমেশন রুল '${record.name_bn || record.name}' আপডেট (${record.is_enabled ? "চালু" : "বন্ধ"}, সময়সূচি: ${cronExpr})`,
     });
     revalidatePath("/dashboard/settings/automation");
     return { success: true, rule: data };
@@ -135,7 +115,10 @@ export async function saveAutomationRuleAction(input: {
       "automation",
       FALLBACK_RULES_KEY
     );
-    const list = Array.isArray(fb.value) && fb.value.length > 0 ? [...fb.value] : [...DEFAULT_RULES];
+    const list =
+      Array.isArray(fb.value) && fb.value.length > 0
+        ? [...fb.value]
+        : [...DEFAULT_AUTOMATION_RULES];
     const idx = list.findIndex((r) => r.rule_key === record.rule_key);
     if (idx >= 0) list[idx] = { ...list[idx], ...record };
     else list.push(record);
@@ -176,53 +159,12 @@ export async function getJobExecutionLogsAction(limit = 50) {
   return { error: error.message, logs: [] };
 }
 
-export async function triggerAutomationJobAction(
-  jobKey: "monthly_fee_generation" | "overdue_reminders" | "absence_alerts" | "process_queues"
-) {
+export async function triggerAutomationJobAction(jobKey: AutomationJobKey) {
   const authz = await writeGuard("automation");
   if (!authz.allowed) return { error: authz.error || "অনুমতি নেই" };
   if (!authz.madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-  if (jobKey === "monthly_fee_generation") {
-    const res = await runMonthlyFeeGenerationCron({
-      madrasaId: authz.madrasaId,
-      triggerSource: "manual",
-    });
-    revalidatePath("/dashboard/settings/automation");
-    return { success: true, result: res };
-  }
-
-  if (jobKey === "overdue_reminders") {
-    const res = await runOverdueRemindersCron({
-      madrasaId: authz.madrasaId,
-      triggerSource: "manual",
-    });
-    revalidatePath("/dashboard/settings/automation");
-    return { success: true, result: res };
-  }
-
-  if (jobKey === "absence_alerts") {
-    const res = await runAbsenceAlertsCron({
-      madrasaId: authz.madrasaId,
-      triggerSource: "manual",
-    });
-    revalidatePath("/dashboard/settings/automation");
-    return { success: true, result: res };
-  }
-
-  const tracked = await runTrackedCronJob("process_queues", authz.madrasaId, "manual", async () => {
-    const [notifSummary, webhookSummary] = await Promise.all([
-      processNotificationQueue(50, authz.madrasaId),
-      retryPendingWebhookDeliveries(50, authz.madrasaId),
-    ]);
-    return {
-      processedCount: notifSummary.processed + webhookSummary.processed,
-      successCount: notifSummary.sent + webhookSummary.delivered,
-      failedCount: notifSummary.failed + webhookSummary.failed,
-      summary: { notifications: notifSummary, webhooks: webhookSummary },
-    };
-  });
-
+  const res: any = await executeAutomationJob(jobKey, authz.madrasaId, "manual");
   revalidatePath("/dashboard/settings/automation");
-  return { success: tracked.ok, result: tracked };
+  return { success: res?.ok !== false, result: res };
 }

@@ -227,12 +227,9 @@ describe("Tier 2 — Feature 2.1: Scheduled Cron & Automation Engine (Edge, Secu
       ],
     });
 
-    const vercelRaw = readProjectFile("vercel.json");
-    const vercel = JSON.parse(vercelRaw) as {
-      crons?: Array<{ path: string; schedule: string }>;
-    };
-    assert.ok(Array.isArray(vercel.crons) && vercel.crons.length >= 4);
-    const paths = vercel.crons.map((c) => c.path);
-    assert.ok(paths.some((p) => p.includes("/api/cron/")));
+    const workflowRaw = readProjectFile(".github/workflows/cron-jobs.yml");
+    assert.ok(workflowRaw.includes("/api/cron/dispatch"));
+    assert.ok(workflowRaw.includes("/api/cron/monthly-fees"));
+    assert.ok(workflowRaw.includes("/api/cron/process-queues"));
   });
 });

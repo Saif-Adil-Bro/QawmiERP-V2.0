@@ -40,12 +40,11 @@ describe("Tier 1 — Feature 2.1: Scheduled Cron & Automation Engine (Happy Path
     const body = (await res.json()) as Record<string, unknown>;
     assert.ok(body !== null && typeof body === "object");
 
-    const vercelRaw = readProjectFile("vercel.json");
-    const vercel = JSON.parse(vercelRaw) as { crons?: Array<{ path: string; schedule: string }> };
-    assert.ok(Array.isArray(vercel.crons) && vercel.crons.length >= 3, "vercel.json must configure cron routes");
+    const workflowRaw = readProjectFile(".github/workflows/cron-jobs.yml");
+    assert.ok(workflowRaw.includes("/api/cron/dispatch"), "cron-jobs.yml must trigger /api/cron/dispatch");
     assert.ok(
-      vercel.crons.some((c) => c.path.includes("/api/cron/monthly-fees")),
-      "vercel.json must include /api/cron/monthly-fees"
+      workflowRaw.includes("/api/cron/monthly-fees"),
+      "cron-jobs.yml must include /api/cron/monthly-fees"
     );
   });
 
