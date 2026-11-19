@@ -6,6 +6,13 @@ import { createClient } from "@/lib/supabase/client";
 import { Eye, EyeOff, KeyRound, User, Sparkles, Check } from "lucide-react";
 import Link from "next/link";
 import { apiUrl } from "@/lib/api-url";
+import {
+  getOfflineAuthSession,
+  resolvePortalTypeFromRole,
+  saveOfflineAuthSession,
+} from "@/lib/offline-auth";
+import { initialFullSync } from "@/lib/portal-sync";
+import { checkIsOnline } from "@/lib/syncManager";
 
 export default function LoginForm() {
   const [error, setError] = useState<string | null>(null);
@@ -15,20 +22,37 @@ export default function LoginForm() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [syncProgress, setSyncProgress] = useState<number>(0);
+  const [syncLabel, setSyncLabel] = useState<string>("");
   const router = useRouter();
 
-  // On mount: check if client already has an active session, and restore saved identifier
+  // On mount: check if client already has an active session (or offline saved session), and restore saved identifier
   useEffect(() => {
-    try {
-      const supabase = createClient();
-      supabase.auth.getSession().then(({ data: { session } }) => {
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          window.location.href = "/dashboard";
+          const saved = await getOfflineAuthSession();
+          window.location.href = saved?.redirectUrl || "/dashboard";
+          return;
         }
-      });
-    } catch (sessionCheckErr) {
-      console.warn("Client session check warning:", sessionCheckErr);
-    }
+      } catch (sessionCheckErr) {
+        console.warn("Client session check warning:", sessionCheckErr);
+      }
+
+      // Offline bypass: if offline and valid portal session is saved in @capacitor/preferences, load portal immediately
+      try {
+        const online = await checkIsOnline();
+        if (!online) {
+          const saved = await getOfflineAuthSession();
+          if (saved && saved.redirectUrl) {
+            window.location.href = saved.redirectUrl;
+            return;
+          }
+        }
+      } catch {}
+    })();
 
     try {
       const savedRemember = localStorage.getItem("qawmi_remember_login");
@@ -147,8 +171,41 @@ export default function LoginForm() {
         }
       }
 
-      // 3. Navigate directly to designated destination
+      // 2.5 Persist auth session in @capacitor/preferences for offline app launch & trigger initialFullSync
       const targetUrl = loginData.redirectUrl || "/dashboard";
+      const userRole = loginData.user?.role || loginData.session?.user?.user_metadata?.role || "";
+      const madrasaId =
+        loginData.user?.madrasa_id || loginData.session?.user?.user_metadata?.madrasa_id || "";
+      const userId = loginData.user?.id || loginData.session?.user?.id || "";
+
+      if (loginData.session?.access_token && userId) {
+        await saveOfflineAuthSession({
+          accessToken: loginData.session.access_token,
+          refreshToken: loginData.session.refresh_token,
+          role: userRole,
+          madrasaId: String(madrasaId),
+          userId: String(userId),
+          fullName: loginData.user?.full_name || "",
+          email: loginData.user?.email || cleanIdentifier,
+          redirectUrl: targetUrl,
+          savedAt: Date.now(),
+        });
+
+        const portalType = resolvePortalTypeFromRole(userRole);
+        if (portalType === "student" || portalType === "teacher") {
+          setSyncProgress(10);
+          setSyncLabel("অফলাইন ডেটা ডাউনলোড হচ্ছে...");
+          await initialFullSync(portalType, {
+            accessToken: loginData.session.access_token,
+            onProgress: (pct, label) => {
+              setSyncProgress(pct);
+              setSyncLabel(label);
+            },
+          });
+        }
+      }
+
+      // 3. Navigate directly to designated destination
       window.location.href = targetUrl;
     } catch (err: any) {
       console.error("Login submission error:", err);
@@ -159,6 +216,20 @@ export default function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4 text-slate-900 dark:text-slate-100">
+      {syncProgress > 0 && (
+        <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 space-y-1.5">
+          <div className="flex items-center justify-between text-xs font-bold text-emerald-800 dark:text-emerald-200">
+            <span>{syncLabel || "অফলাইন ডেটা সিঙ্ক হচ্ছে..."}</span>
+            <span>{syncProgress}%</span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-emerald-200/70 dark:bg-emerald-900 overflow-hidden">
+            <div
+              className="h-full bg-emerald-600 transition-all duration-300"
+              style={{ width: `${syncProgress}%` }}
+            />
+          </div>
+        </div>
+      )}
       {error && (
         <div className="p-2.5 sm:p-3.5 text-xs sm:text-sm font-medium text-rose-800 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/60 rounded-xl border border-rose-300 dark:border-rose-800 leading-relaxed animate-in fade-in duration-200">
           {error}
