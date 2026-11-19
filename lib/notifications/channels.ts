@@ -394,17 +394,6 @@ export async function sendSmsNotification(input: ChannelSendInput): Promise<Chan
 }
 
 export async function sendEmailNotification(input: ChannelSendInput): Promise<ChannelSendResult> {
-  const apiKey = (process.env.RESEND_API_KEY || "").trim();
-  const fromEmail = (process.env.RESEND_FROM_EMAIL || "noreply@qawmierp.com").trim();
-  if (!apiKey) {
-    return {
-      ok: false,
-      channel: "email",
-      provider: "resend",
-      error: "RESEND_API_KEY is not configured",
-    };
-  }
-
   const toEmail = (input.recipientEmail || "").trim();
   if (!toEmail || !toEmail.includes("@")) {
     return {
@@ -415,54 +404,30 @@ export async function sendEmailNotification(input: ChannelSendInput): Promise<Ch
     };
   }
 
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        from: fromEmail,
-        to: [toEmail],
-        subject: input.subject || "QawmiERP নোটিফিকেশন",
-        text: input.body,
-      }),
-    });
+  const { sendTransactionalEmail } = await import("@/lib/email-sender");
+  const res = await sendTransactionalEmail({
+    to: toEmail,
+    subject: input.subject || "QawmiERP নোটিফিকেশন",
+    text: input.body,
+  });
 
-    const text = await res.text();
-    let parsed: any = text;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      // keep raw
-    }
-
-    if (!res.ok) {
-      return {
-        ok: false,
-        channel: "email",
-        provider: "resend",
-        error: parsed?.message || `Resend HTTP ${res.status}`,
-        response: parsed,
-      };
-    }
-
-    return {
-      ok: true,
-      channel: "email",
-      provider: "resend",
-      messageId: parsed?.id,
-      response: parsed,
-    };
-  } catch (err: any) {
+  if (!res.ok) {
     return {
       ok: false,
       channel: "email",
-      provider: "resend",
-      error: err?.message || "Email request failed",
+      provider: res.provider === "smtp" ? "smtp" : "resend",
+      error: res.error || "Email request failed",
+      response: res.response,
     };
   }
+
+  return {
+    ok: true,
+    channel: "email",
+    provider: res.provider === "smtp" ? "smtp" : "resend",
+    messageId: res.messageId,
+    response: res.response,
+  };
 }
 
 export async function sendInAppNotification(input: ChannelSendInput): Promise<ChannelSendResult> {

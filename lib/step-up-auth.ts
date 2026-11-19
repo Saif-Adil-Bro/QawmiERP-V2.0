@@ -1160,39 +1160,17 @@ async function deliverEmailOtp(
   email: string,
   otpCode: string
 ): Promise<{ delivered: boolean; note?: string }> {
-  const apiKey = (process.env.RESEND_API_KEY || "").trim();
-  if (!apiKey) {
-    return {
-      delivered: false,
-      note: "ইমেইল গেটওয়ে (RESEND_API_KEY) কনফিগার করা নেই। Authenticator App অথবা SMS OTP ব্যবহার করুন।",
-    };
-  }
+  const { sendTransactionalEmail } = await import("@/lib/email-sender");
+  const res = await sendTransactionalEmail({
+    to: email,
+    subject: "QawmiERP ২-ধাপ যাচাইকরণ কোড (Step-Up OTP)",
+    text: `আপনার QawmiERP নিরাপত্তা যাচাইকরণ কোড হলো: ${otpCode}। এই কোডটি আগামী ৫ মিনিটের জন্য কার্যকর থাকবে। আপনি এই অনুরোধ না করে থাকলে অবিলম্বে পাসওয়ার্ড পরিবর্তন করুন।`,
+  });
 
-  try {
-    const fromEmail =
-      process.env.RESEND_FROM_EMAIL || "QawmiERP Security <noreply@qawmimanager.com>";
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: fromEmail,
-        to: [email],
-        subject: "QawmiERP ২-ধাপ যাচাইকরণ কোড (Step-Up OTP)",
-        text: `আপনার QawmiERP নিরাপত্তা যাচাইকরণ কোড হলো: ${otpCode}। এই কোডটি আগামী ৫ মিনিটের জন্য কার্যকর থাকবে। আপনি এই অনুরোধ না করে থাকলে অবিলম্বে পাসওয়ার্ড পরিবর্তন করুন।`,
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!response.ok) {
-      return { delivered: false, note: `Email delivery failed (${response.status})` };
-    }
-    return { delivered: true };
-  } catch (err: any) {
-    return { delivered: false, note: err?.message || "Email ডেলিভারি ত্রুটি।" };
+  if (!res.ok) {
+    return { delivered: false, note: res.error || "Email ডেলিভারি ত্রুটি।" };
   }
+  return { delivered: true };
 }
 
 /**
