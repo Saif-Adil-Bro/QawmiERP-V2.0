@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { getStudentIdNumber, convertToBanglaNumber } from "@/lib/student-utils";
 import { deleteStudent } from "@/app/actions/students";
+import { useStepUpAction } from "@/components/security/useStepUpAction";
 
 interface ClassItem {
   id: string;
@@ -82,6 +83,7 @@ export default function StudentsListClient({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { runWithStepUp, stepUpModal } = useStepUpAction();
 
   // Resolved madrasa prefix
   const madrasaPrefix = (
@@ -511,7 +513,10 @@ export default function StudentsListClient({
 
     setDeletingId(student.id);
     try {
-      const res = await deleteStudent(student.id);
+      const res: any = await runWithStepUp(() => deleteStudent(student.id), {
+        actionLabel: "শিক্ষার্থী মুছে ফেলা",
+        actionScope: "student.delete",
+      });
       if (res && res.error) {
         alert(`মুছতে ব্যর্থ হয়েছে: ${res.error}`);
       } else {
@@ -1917,6 +1922,7 @@ export default function StudentsListClient({
           </div>
         </div>
       )}
+      {stepUpModal}
     </div>
   );
 }

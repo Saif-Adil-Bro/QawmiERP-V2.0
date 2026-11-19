@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { toggleExamPublish } from "@/app/actions/exams";
+import PendingApprovalBanner from "@/components/permissions/PendingApprovalBanner";
+import { useStepUpAction } from "@/components/security/useStepUpAction";
 import { 
   Globe, Eye, EyeOff, CheckCircle2, AlertCircle, 
   Loader2, ShieldAlert, Sparkles, MessageSquare 
@@ -39,13 +41,29 @@ export default function ExamPublishToggle({
     setFeedback(null);
   };
 
+  const [pendingApproval, setPendingApproval] = useState<{
+    message: string;
+    approvalRequestId?: string;
+  } | null>(null);
+  const { runWithStepUp, stepUpModal } = useStepUpAction();
+
   const handleToggle = async () => {
     setLoading(true);
     setFeedback(null);
+    setPendingApproval(null);
     try {
-      const res = await toggleExamPublish(examId, targetState, note);
+      const res: any = await runWithStepUp(
+        () => toggleExamPublish(examId, targetState, note),
+        { actionLabel: "পরীক্ষার ফলাফল প্রকাশ/স্থগিত" }
+      );
       if (res?.error) {
         setFeedback({ type: "error", message: res.error });
+      } else if (res?.pendingApproval) {
+        setShowConfirmModal(false);
+        setPendingApproval({
+          message: res.message || "ফলাফল প্রকাশের আবেদন অনুমোদনের জন্য পাঠানো হয়েছে।",
+          approvalRequestId: res.approvalRequestId,
+        });
       } else if (res?.success) {
         setIsPublished(targetState);
         setShowConfirmModal(false);
@@ -269,6 +287,14 @@ export default function ExamPublishToggle({
         </div>
       </div>
 
+      {pendingApproval && (
+        <PendingApprovalBanner
+          compact
+          message={pendingApproval.message}
+          approvalRequestId={pendingApproval.approvalRequestId}
+        />
+      )}
+
       {feedback && (
         <div
           className={`p-3 rounded-xl text-xs flex items-center gap-2 animate-fadeIn ${
@@ -287,6 +313,7 @@ export default function ExamPublishToggle({
       )}
 
       {showConfirmModal && renderModal()}
+      {stepUpModal}
     </div>
   );
 }

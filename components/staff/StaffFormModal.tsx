@@ -20,6 +20,8 @@ import {
 import { createStaffMember, updateStaffMember } from "@/app/actions/staff";
 import { X, UserPlus, Save, CheckCircle2, AlertCircle, Building2, Briefcase, Phone, Mail, DollarSign, Shield, BookOpen, Layers } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
+import PendingApprovalBanner from "@/components/permissions/PendingApprovalBanner";
+import { useStepUpAction } from "@/components/security/useStepUpAction";
 
 interface StaffFormModalProps {
   staff?: StaffMember | null;
@@ -43,6 +45,8 @@ export default function StaffFormModal({
   const [activeTab, setActiveTab] = useState<"personal" | "contact" | "employment" | "academic" | "salary" | "account">("personal");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [pendingApproval, setPendingApproval] = useState<{ message?: string; requestId?: string } | null>(null);
+  const { runWithStepUp, stepUpModal } = useStepUpAction();
 
   // Personal Info Form State
   const [firstName, setFirstName] = useState(staff?.personal.first_name || "");
@@ -140,6 +144,7 @@ export default function StaffFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
+    setPendingApproval(null);
 
     if (!firstName.trim()) {
       setErrorMessage("দয়া করে প্রথম নাম প্রদান করুন।");
@@ -151,166 +156,184 @@ export default function StaffFormModal({
 
     try {
       if (isEditing && staff) {
-        const updateRes = await updateStaffMember(staff.id, {
-          personal: {
-            first_name: firstName.trim(),
-            last_name: lastName.trim(),
-            full_name_bn: fullNameBn.trim() || `${firstName} ${lastName}`.trim(),
-            full_name_en: fullNameEn.trim(),
-            full_name_ar: fullNameAr.trim(),
-            photo_url: photoUrl,
-            father_name: fatherName.trim(),
-            mother_name: motherName.trim(),
-            spouse_name: spouseName.trim(),
-            date_of_birth: dob,
-            gender,
-            blood_group: bloodGroup,
-            nationality,
-            nid_number: nidNumber.trim(),
-            marital_status: maritalStatus,
-          },
-          contact: {
-            phone: phone.trim(),
-            alt_phone: altPhone.trim(),
-            email: email.trim(),
-            present_address: presentAddress.trim(),
-            permanent_address: permanentAddress.trim(),
-            emergency_contact_name: emergencyContactName.trim(),
-            emergency_contact_relation: emergencyContactRelation.trim(),
-            emergency_contact_phone: emergencyContactPhone.trim(),
-          },
-          employment: {
-            ...staff.employment,
-            category_id: categoryId,
-            category_name: categories.find((c) => c.id === categoryId)?.name || "সাধারণ",
-            department_id: departmentId,
-            department_name: departments.find((d) => d.id === departmentId)?.name || "একাডেমিক",
-            designation: designation.trim(),
-            joining_date: joiningDate,
-            employment_type: employmentType,
-            status,
-            reporting_to_name: reportingToName.trim(),
-          },
-          academic: {
-            highest_qualification: highestQualification,
-            madrasa_or_university: madrasaOrUni,
-            degree_or_sanad: degreeOrSanad,
-            specialization,
-            hifz_completed: hifzCompleted,
-            qiraat_degree: qiraatDegree,
-            arabic_qualification: arabicQualification,
-            teaching_experience_years: Number(experienceYears),
-            previous_institution: previousInstitution,
-          },
-          responsibilities,
-          salary: {
-            basic_salary: Number(basicSalary),
-            allowances: {
-              housing: Number(allowanceHousing),
-              food: Number(allowanceFood),
-              transport: Number(allowanceTransport),
-              medical: Number(allowanceMedical),
-              other: Number(allowanceOther),
-            },
-            deductions: {
-              advance: Number(deductionAdvance),
-              loan: Number(deductionLoan),
-              absence: Number(deductionAbsence),
-              other: Number(deductionOther),
-            },
-            net_salary: calculatedNetSalary,
-            payment_method: paymentMethod,
-            bank_account_no: bankAccountNo,
-            bank_name: bankName,
-          },
-        });
+        const updateRes = await runWithStepUp(
+          () =>
+            updateStaffMember(staff.id, {
+              personal: {
+                first_name: firstName.trim(),
+                last_name: lastName.trim(),
+                full_name_bn: fullNameBn.trim() || `${firstName} ${lastName}`.trim(),
+                full_name_en: fullNameEn.trim(),
+                full_name_ar: fullNameAr.trim(),
+                photo_url: photoUrl,
+                father_name: fatherName.trim(),
+                mother_name: motherName.trim(),
+                spouse_name: spouseName.trim(),
+                date_of_birth: dob,
+                gender,
+                blood_group: bloodGroup,
+                nationality,
+                nid_number: nidNumber.trim(),
+                marital_status: maritalStatus,
+              },
+              contact: {
+                phone: phone.trim(),
+                alt_phone: altPhone.trim(),
+                email: email.trim(),
+                present_address: presentAddress.trim(),
+                permanent_address: permanentAddress.trim(),
+                emergency_contact_name: emergencyContactName.trim(),
+                emergency_contact_relation: emergencyContactRelation.trim(),
+                emergency_contact_phone: emergencyContactPhone.trim(),
+              },
+              employment: {
+                ...staff.employment,
+                category_id: categoryId,
+                category_name: categories.find((c) => c.id === categoryId)?.name || "সাধারণ",
+                department_id: departmentId,
+                department_name: departments.find((d) => d.id === departmentId)?.name || "একাডেমিক",
+                designation: designation.trim(),
+                joining_date: joiningDate,
+                employment_type: employmentType,
+                status,
+                reporting_to_name: reportingToName.trim(),
+              },
+              academic: {
+                highest_qualification: highestQualification,
+                madrasa_or_university: madrasaOrUni,
+                degree_or_sanad: degreeOrSanad,
+                specialization,
+                hifz_completed: hifzCompleted,
+                qiraat_degree: qiraatDegree,
+                arabic_qualification: arabicQualification,
+                teaching_experience_years: Number(experienceYears),
+                previous_institution: previousInstitution,
+              },
+              responsibilities,
+              salary: {
+                basic_salary: Number(basicSalary),
+                allowances: {
+                  housing: Number(allowanceHousing),
+                  food: Number(allowanceFood),
+                  transport: Number(allowanceTransport),
+                  medical: Number(allowanceMedical),
+                  other: Number(allowanceOther),
+                },
+                deductions: {
+                  advance: Number(deductionAdvance),
+                  loan: Number(deductionLoan),
+                  absence: Number(deductionAbsence),
+                  other: Number(deductionOther),
+                },
+                net_salary: calculatedNetSalary,
+                payment_method: paymentMethod,
+                bank_account_no: bankAccountNo,
+                bank_name: bankName,
+              },
+            }),
+          { actionLabel: "স্টাফ তথ্য ও বেতন হালনাগাদ" }
+        );
 
-        if (updateRes.error) {
+        if ((updateRes as any)?.pendingApproval) {
+          setPendingApproval({
+            message: (updateRes as any).message,
+            requestId: (updateRes as any).approvalRequestId,
+          });
+        } else if (updateRes.error) {
           setErrorMessage(updateRes.error);
         } else {
           onSuccess(staff.id);
         }
       } else {
-        const createRes = await createStaffMember({
-          personal: {
-            first_name: firstName.trim(),
-            last_name: lastName.trim(),
-            full_name_bn: fullNameBn.trim() || `${firstName} ${lastName}`.trim(),
-            full_name_en: fullNameEn.trim(),
-            full_name_ar: fullNameAr.trim(),
-            photo_url: photoUrl,
-            father_name: fatherName.trim(),
-            mother_name: motherName.trim(),
-            spouse_name: spouseName.trim(),
-            date_of_birth: dob,
-            gender,
-            blood_group: bloodGroup,
-            nationality,
-            nid_number: nidNumber.trim(),
-            marital_status: maritalStatus,
-          },
-          contact: {
-            phone: phone.trim(),
-            alt_phone: altPhone.trim(),
-            email: email.trim(),
-            present_address: presentAddress.trim(),
-            permanent_address: permanentAddress.trim(),
-            emergency_contact_name: emergencyContactName.trim(),
-            emergency_contact_relation: emergencyContactRelation.trim(),
-            emergency_contact_phone: emergencyContactPhone.trim(),
-          },
-          employment: {
-            category_id: categoryId,
-            department_id: departmentId,
-            designation: designation.trim(),
-            joining_date: joiningDate,
-            employment_type: employmentType,
-            status,
-            reporting_to_name: reportingToName.trim(),
-          },
-          academic: {
-            highest_qualification: highestQualification,
-            madrasa_or_university: madrasaOrUni,
-            degree_or_sanad: degreeOrSanad,
-            specialization,
-            hifz_completed: hifzCompleted,
-            qiraat_degree: qiraatDegree,
-            arabic_qualification: arabicQualification,
-            teaching_experience_years: Number(experienceYears),
-            previous_institution: previousInstitution,
-          },
-          responsibilities,
-          salary: {
-            basic_salary: Number(basicSalary),
-            allowances: {
-              housing: Number(allowanceHousing),
-              food: Number(allowanceFood),
-              transport: Number(allowanceTransport),
-              medical: Number(allowanceMedical),
-              other: Number(allowanceOther),
-            },
-            deductions: {
-              advance: Number(deductionAdvance),
-              loan: Number(deductionLoan),
-              absence: Number(deductionAbsence),
-              other: Number(deductionOther),
-            },
-            net_salary: calculatedNetSalary,
-            payment_method: paymentMethod,
-            bank_account_no: bankAccountNo,
-            bank_name: bankName,
-          },
-          account: createLoginAccount
-            ? {
-                create_login: true,
-                email: accountEmail || email,
-                password: accountPassword,
-                role: accountRole,
-              }
-            : undefined,
-        });
+        const createRes = await runWithStepUp(
+          () =>
+            createStaffMember({
+              personal: {
+                first_name: firstName.trim(),
+                last_name: lastName.trim(),
+                full_name_bn: fullNameBn.trim() || `${firstName} ${lastName}`.trim(),
+                full_name_en: fullNameEn.trim(),
+                full_name_ar: fullNameAr.trim(),
+                photo_url: photoUrl,
+                father_name: fatherName.trim(),
+                mother_name: motherName.trim(),
+                spouse_name: spouseName.trim(),
+                date_of_birth: dob,
+                gender,
+                blood_group: bloodGroup,
+                nationality,
+                nid_number: nidNumber.trim(),
+                marital_status: maritalStatus,
+              },
+              contact: {
+                phone: phone.trim(),
+                alt_phone: altPhone.trim(),
+                email: email.trim(),
+                present_address: presentAddress.trim(),
+                permanent_address: permanentAddress.trim(),
+                emergency_contact_name: emergencyContactName.trim(),
+                emergency_contact_relation: emergencyContactRelation.trim(),
+                emergency_contact_phone: emergencyContactPhone.trim(),
+              },
+              employment: {
+                category_id: categoryId,
+                department_id: departmentId,
+                designation: designation.trim(),
+                joining_date: joiningDate,
+                employment_type: employmentType,
+                status,
+                reporting_to_name: reportingToName.trim(),
+              },
+              academic: {
+                highest_qualification: highestQualification,
+                madrasa_or_university: madrasaOrUni,
+                degree_or_sanad: degreeOrSanad,
+                specialization,
+                hifz_completed: hifzCompleted,
+                qiraat_degree: qiraatDegree,
+                arabic_qualification: arabicQualification,
+                teaching_experience_years: Number(experienceYears),
+                previous_institution: previousInstitution,
+              },
+              responsibilities,
+              salary: {
+                basic_salary: Number(basicSalary),
+                allowances: {
+                  housing: Number(allowanceHousing),
+                  food: Number(allowanceFood),
+                  transport: Number(allowanceTransport),
+                  medical: Number(allowanceMedical),
+                  other: Number(allowanceOther),
+                },
+                deductions: {
+                  advance: Number(deductionAdvance),
+                  loan: Number(deductionLoan),
+                  absence: Number(deductionAbsence),
+                  other: Number(deductionOther),
+                },
+                net_salary: calculatedNetSalary,
+                payment_method: paymentMethod,
+                bank_account_no: bankAccountNo,
+                bank_name: bankName,
+              },
+              account: createLoginAccount
+                ? {
+                    create_login: true,
+                    email: accountEmail || email,
+                    password: accountPassword,
+                    role: accountRole,
+                  }
+                : undefined,
+            }),
+          { actionLabel: "নতুন স্টাফ নিবন্ধন" }
+        );
 
-        if (createRes.error) {
+        if ((createRes as any)?.pendingApproval) {
+          setPendingApproval({
+            message: (createRes as any).message,
+            requestId: (createRes as any).approvalRequestId,
+          });
+        } else if (createRes.error) {
           setErrorMessage(createRes.error);
         } else {
           onSuccess(createRes.staffId);
@@ -416,6 +439,16 @@ export default function StaffFormModal({
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
             </div>
+          )}
+
+          {pendingApproval && (
+            <PendingApprovalBanner
+              message={pendingApproval.message}
+              approvalRequestId={pendingApproval.requestId}
+              onReset={onClose}
+              resetLabel="বন্ধ করুন"
+              compact
+            />
           )}
 
           {/* TAB 1: PERSONAL INFO */}
@@ -1244,6 +1277,7 @@ export default function StaffFormModal({
           </div>
         </form>
       </div>
+      {stepUpModal}
     </div>
   );
 }

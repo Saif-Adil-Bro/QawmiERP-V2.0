@@ -597,6 +597,10 @@ export async function reissueCertificate(certificateId: string, reason: string) 
       status: "ISSUED",
     });
 
+    if ((issueRes as any)?.pendingApproval) {
+      return issueRes;
+    }
+
     if (issueRes.error || !issueRes.certificate) {
       return { error: issueRes.error || "নতুন সনদ জেনারেট ব্যর্থ হয়েছে।" };
     }
