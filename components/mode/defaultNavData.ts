@@ -685,6 +685,14 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         keywords: ["webhook", "api", "integration", "ওয়েবহুক", "ইন্টিগ্রেশন"],
       },
       {
+        id: "system_widgets",
+        name: "উইজেট ও প্লাগইন ম্যানেজার",
+        href: "/dashboard/settings/widgets",
+        iconName: "Puzzle",
+        roles: ["super_admin", "muhtamim", "admin"],
+        keywords: ["widget", "plugin", "zip", "উইজেট", "প্লাগইন"],
+      },
+      {
         id: "system_audit_logs",
         name: "সিস্টেম অডিট লগ",
         href: "/dashboard/settings/audit-logs",

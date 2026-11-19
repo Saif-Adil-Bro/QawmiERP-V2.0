@@ -18,8 +18,16 @@ import {
   Banknote,
   Building2,
   ShieldCheck,
+  Puzzle,
 } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
+import CustomWidgetFrame from "@/components/widgets/CustomWidgetFrame";
+import {
+  PrayerHijriWidget,
+  QuickActionsWidget,
+} from "@/components/widgets/BuiltinExtraWidgets";
+import { DEFAULT_BUILTIN_WIDGETS } from "@/lib/widgets/registry";
+import type { ErpWidgetBridgeData, WidgetConfigItem } from "@/lib/widgets/types";
 
 export interface PremiumDashboardClientProps {
   profile: {
@@ -40,6 +48,7 @@ export interface PremiumDashboardClientProps {
     expensesSum: number;
     bazarSum: number;
   };
+  widgets?: WidgetConfigItem[];
   errorMessage?: string | null;
   earlyWarningNode: React.ReactNode;
   anomalyBannerNode?: React.ReactNode;
@@ -57,6 +66,7 @@ const ROLE_LABELS_BN: Record<string, string> = {
 export default function PremiumDashboardClient({
   profile,
   stats,
+  widgets,
   errorMessage,
   earlyWarningNode,
   anomalyBannerNode,
@@ -65,6 +75,23 @@ export default function PremiumDashboardClient({
   const [financeScope, setFinanceScope] = useState<"total" | "today">("total");
   const [timeStr, setTimeStr] = useState<string>("");
   const [dateStr, setDateStr] = useState<string>("");
+
+  const bridgeData: ErpWidgetBridgeData = {
+    madrasaName: profile.madrasa_name,
+    studentsCount: stats.studentsCount,
+    teachersCount: stats.teachersCount,
+    classesCount: stats.classesCount,
+    todayPresent: stats.todayPresent,
+    todayAbsent: stats.todayAbsent,
+    todayIncome: stats.todayIncome,
+    todayExpense: stats.todayExpense,
+    totalIncome: stats.totalIncome,
+    totalExpense: stats.totalExpense,
+  };
+
+  const activeWidgets = (
+    widgets && widgets.length > 0 ? widgets : DEFAULT_BUILTIN_WIDGETS
+  ).filter((w) => w.enabled);
 
   useEffect(() => {
     const updateClock = () => {
@@ -181,6 +208,13 @@ export default function PremiumDashboardClient({
               <Banknote className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               <span>ফি আদায়</span>
             </Link>
+            <Link
+              href="/dashboard/settings/widgets"
+              className="px-3.5 py-2.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800 text-xs sm:text-sm font-bold rounded-xl transition active:scale-95 flex items-center gap-2"
+            >
+              <Puzzle className="w-4 h-4" />
+              <span>উইজেট ম্যানেজ</span>
+            </Link>
           </div>
         </div>
       </motion.section>
@@ -193,11 +227,57 @@ export default function PremiumDashboardClient({
         </div>
       )}
 
-      {/* 2. Early Warning Alert Widget */}
-      {earlyWarningNode}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {activeWidgets.map((w) => {
+          const spanClass = w.size === "full" ? "lg:col-span-2" : "lg:col-span-1";
 
-      {/* 3. Academic & Attendance KPI Cards */}
-      <section className="space-y-3">
+          if (w.type === "custom") {
+            return (
+              <div key={w.id} className={spanClass}>
+                <CustomWidgetFrame widget={w} bridgeData={bridgeData} />
+              </div>
+            );
+          }
+          if (w.id === "builtin-early-warning") {
+            return (
+              <div key={w.id} className={spanClass}>
+                {earlyWarningNode}
+              </div>
+            );
+          }
+          if (w.id === "builtin-anomalies") {
+            return anomalyBannerNode ? (
+              <div key={w.id} className={spanClass}>
+                {anomalyBannerNode}
+              </div>
+            ) : null;
+          }
+          if (w.id === "builtin-charts") {
+            return (
+              <div key={w.id} className={spanClass}>
+                {chartsNode}
+              </div>
+            );
+          }
+          if (w.id === "builtin-prayer-hijri") {
+            return (
+              <div key={w.id} className={spanClass}>
+                <PrayerHijriWidget />
+              </div>
+            );
+          }
+          if (w.id === "builtin-quick-actions") {
+            return (
+              <div key={w.id} className={spanClass}>
+                <QuickActionsWidget />
+              </div>
+            );
+          }
+          if (w.id === "builtin-kpi") {
+            return (
+              <div key={w.id} className={spanClass}>
+                {/* 3. Academic & Attendance KPI Cards */}
+                <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             প্রাতিষ্ঠানিক ও আর্থিক সারসংক্ষেপ
@@ -503,11 +583,15 @@ export default function PremiumDashboardClient({
             </Link>
           </motion.div>
         </div>
-      </section>
+        </section>
+              </div>
+            );
+          }
+          return null;
+        })}
+      </div>
 
-      {/* 4.5 Enterprise Anomaly Banner & Quick Intelligence Links */}
-      {anomalyBannerNode}
-
+      {/* Quick Intelligence Links */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Link
           href="/dashboard/analytics/executive-bi"
@@ -539,9 +623,6 @@ export default function PremiumDashboardClient({
           <ArrowUpRight className="w-4 h-4 text-amber-600 dark:text-amber-400 group-hover:translate-x-0.5 transition-transform" />
         </Link>
       </div>
-
-      {/* 5. Reporting Charts */}
-      {chartsNode}
     </div>
   );
 }
