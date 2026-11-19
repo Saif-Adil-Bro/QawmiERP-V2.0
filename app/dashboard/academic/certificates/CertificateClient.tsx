@@ -20,6 +20,8 @@ import {
 } from "@/app/actions/certificates";
 import CertificateDocumentView from "@/app/components/CertificateDocumentView";
 import { usePermissions } from "@/components/permissions/PermissionContext";
+import PendingApprovalBanner from "@/components/permissions/PendingApprovalBanner";
+import { useStepUpAction } from "@/components/security/useStepUpAction";
 import {
   Award,
   Plus,
@@ -85,6 +87,8 @@ export default function CertificateClient({
   const [activeTab, setActiveTab] = useState<"list" | "create" | "bulk" | "audit" | "verification_logs">("list");
   const [selectedCertHistory, setSelectedCertHistory] = useState<StudentCertificate | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [pendingApproval, setPendingApproval] = useState<{ message?: string; requestId?: string } | null>(null);
+  const { runWithStepUp, stepUpModal } = useStepUpAction();
 
   // Master State
   const [certData, setCertData] = useState(initialCertData);
@@ -166,35 +170,46 @@ export default function CertificateClient({
       return;
     }
 
+    setPendingApproval(null);
     startTransition(async () => {
-      const res = await issueStudentCertificate({
-        student_id: formStudentId,
-        certificate_type_id: formTypeId,
-        template_id: formTemplateId,
-        purpose: formPurpose,
-        additional_statement: formStatement,
-        issue_date: formIssueDate,
-        expiry_date: formExpiryDate || undefined,
-        dues_status: formDuesStatus,
-        dues_amount: formDuesAmount,
-        conduct_grade: formConductGrade,
-        reason_for_leaving: formReasonForLeaving,
-        last_attendance_date: formLastAttendance,
-        exam_result: formExamTitle
-          ? {
-              exam_title: formExamTitle,
-              gpa: formGpa,
-              grade: formGrade,
-              position: formPosition,
-            }
-          : undefined,
-        mohtamim_signature: formMohtamim,
-        principal_signature: formPrincipal,
-        teacher_signature: formTeacher,
-        show_seal: formSeal,
-      });
+      const res = await runWithStepUp(
+        () =>
+          issueStudentCertificate({
+            student_id: formStudentId,
+            certificate_type_id: formTypeId,
+            template_id: formTemplateId,
+            purpose: formPurpose,
+            additional_statement: formStatement,
+            issue_date: formIssueDate,
+            expiry_date: formExpiryDate || undefined,
+            dues_status: formDuesStatus,
+            dues_amount: formDuesAmount,
+            conduct_grade: formConductGrade,
+            reason_for_leaving: formReasonForLeaving,
+            last_attendance_date: formLastAttendance,
+            exam_result: formExamTitle
+              ? {
+                  exam_title: formExamTitle,
+                  gpa: formGpa,
+                  grade: formGrade,
+                  position: formPosition,
+                }
+              : undefined,
+            mohtamim_signature: formMohtamim,
+            principal_signature: formPrincipal,
+            teacher_signature: formTeacher,
+            show_seal: formSeal,
+          }),
+        { actionLabel: "সনদপত্র ইস্যু" }
+      );
 
-      if (res.error) {
+      if ((res as any)?.pendingApproval) {
+        setPendingApproval({
+          message: (res as any).message,
+          requestId: (res as any).approvalRequestId,
+        });
+        setActiveTab("list");
+      } else if (res.error) {
         alert(res.error);
       } else if (res.certificate) {
         await refreshData();
@@ -208,14 +223,24 @@ export default function CertificateClient({
   const handleBulkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     startTransition(async () => {
-      const res = await bulkGenerateCertificates({
-        class_id: bulkClassId,
-        certificate_type_id: bulkTypeId,
-        template_id: bulkTemplateId,
-        issue_date: formIssueDate,
-      });
+      const res = await runWithStepUp(
+        () =>
+          bulkGenerateCertificates({
+            class_id: bulkClassId,
+            certificate_type_id: bulkTypeId,
+            template_id: bulkTemplateId,
+            issue_date: formIssueDate,
+          }),
+        { actionLabel: "বাল্ক সনদপত্র জেনারেট" }
+      );
 
-      if (res.error) {
+      if ((res as any)?.pendingApproval) {
+        setPendingApproval({
+          message: (res as any).message,
+          requestId: (res as any).approvalRequestId,
+        });
+        setActiveTab("list");
+      } else if (res.error) {
         alert(res.error);
       } else {
         setBulkMessage(`সফলভাবে ${res.count} টি নতুন সনদপত্র তৈরি করা হয়েছে!`);
@@ -227,7 +252,9 @@ export default function CertificateClient({
   // Handle Approve Action
   const handleApprove = async (certId: string) => {
     startTransition(async () => {
-      const res = await approveCertificate(certId);
+      const res = await runWithStepUp(() => approveCertificate(certId), {
+        actionLabel: "সনদপত্র অনুমোদন",
+      });
       if (res.error) {
         alert(res.error);
       } else {
@@ -243,7 +270,9 @@ export default function CertificateClient({
   const handleRevokeSubmit = async () => {
     if (!revokingCert) return;
     startTransition(async () => {
-      const res = await revokeCertificate(revokingCert.id, revokeReason);
+      const res = await runWithStepUp(() => revokeCertificate(revokingCert.id, revokeReason), {
+        actionLabel: "সনদপত্র বাতিল",
+      });
       if (res.error) {
         alert(res.error);
       } else {
@@ -261,7 +290,9 @@ export default function CertificateClient({
   const handleDeleteSubmit = async () => {
     if (!deletingCert) return;
     startTransition(async () => {
-      const res = await deleteCertificate(deletingCert.id);
+      const res = await runWithStepUp(() => deleteCertificate(deletingCert.id), {
+        actionLabel: "সনদপত্র মুছে ফেলা",
+      });
       if (res.error) {
         alert(res.error);
       } else {
@@ -277,11 +308,22 @@ export default function CertificateClient({
   // Handle Reissue Submit
   const handleReissueSubmit = async () => {
     if (!reissuingCert) return;
+    setPendingApproval(null);
     startTransition(async () => {
-      const res = await reissueCertificate(reissuingCert.id, reissueReason);
-      if (res.error) {
+      const res: any = await runWithStepUp(() => reissueCertificate(reissuingCert.id, reissueReason), {
+        actionLabel: "সনদপত্র রি-ইস্যু",
+      });
+      if (res?.pendingApproval) {
+        setPendingApproval({
+          message: res.message,
+          requestId: res.approvalRequestId,
+        });
+        setReissuingCert(null);
+        setReissueReason("");
+        await refreshData();
+      } else if (res?.error) {
         alert(res.error);
-      } else if (res.newCertificate) {
+      } else if (res?.newCertificate) {
         setReissuingCert(null);
         setReissueReason("");
         await refreshData();
@@ -308,6 +350,15 @@ export default function CertificateClient({
 
   return (
     <div className="space-y-6">
+      {pendingApproval && (
+        <PendingApprovalBanner
+          message={pendingApproval.message}
+          approvalRequestId={pendingApproval.requestId}
+          onReset={() => setPendingApproval(null)}
+          resetLabel="মেসেজ সরান"
+        />
+      )}
+
       {/* Top Overview KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="bg-white p-4 rounded-3xl border border-slate-200/90 shadow-2xs space-y-1">
@@ -1462,6 +1513,7 @@ export default function CertificateClient({
           </div>
         </div>
       )}
+      {stepUpModal}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
 import type { AccountingPeriodRecord } from "@/lib/lock-guards";
 import ExamLockToggle from "@/app/dashboard/exams/ExamLockToggle";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { useStepUpAction } from "@/components/security/useStepUpAction";
 import {
   Lock,
   Unlock,
@@ -122,6 +123,7 @@ export default function DataGovernanceClient({
   const [activeTab, setActiveTab] = useState<"accounting" | "exams" | "migration">(
     initialTab
   );
+  const { runWithStepUp, stepUpModal } = useStepUpAction();
   const [periods, setPeriods] = useState<AccountingPeriodRecord[]>(initialPeriods);
   const [exams, setExams] = useState<any[]>(initialExams);
   const [sessions, setSessions] = useState<any[]>(initialSessions);
@@ -220,15 +222,24 @@ export default function DataGovernanceClient({
     setBanner(null);
     try {
       if (lockModal.kind === "period") {
-        const res = await toggleAccountingPeriodLock({
-          periodKey: lockModal.id,
-          periodType: lockModal.periodType || "MONTHLY",
-          label: lockModal.label,
-          startDate: lockModal.startDate || "",
-          endDate: lockModal.endDate || "",
-          shouldLock: lockModal.shouldLock,
-          reason: reasonInput.trim(),
-        });
+        const res = await runWithStepUp(
+          () =>
+            toggleAccountingPeriodLock({
+              periodKey: lockModal.id,
+              periodType: lockModal.periodType || "MONTHLY",
+              label: lockModal.label,
+              startDate: lockModal.startDate || "",
+              endDate: lockModal.endDate || "",
+              shouldLock: lockModal.shouldLock,
+              reason: reasonInput.trim(),
+            }),
+          {
+            actionLabel: lockModal.shouldLock
+              ? "হিসাব পিরিয়ড লক"
+              : "হিসাব পিরিয়ড আনলক",
+            actionScope: "accounting_period.unlock",
+          }
+        );
         if (res.error) {
           setBanner({ type: "error", text: res.error });
         } else {
@@ -249,10 +260,19 @@ export default function DataGovernanceClient({
           });
         }
       } else {
-        const res = await toggleAcademicSessionLock(
-          lockModal.id,
-          lockModal.shouldLock,
-          reasonInput.trim()
+        const res = await runWithStepUp(
+          () =>
+            toggleAcademicSessionLock(
+              lockModal.id,
+              lockModal.shouldLock,
+              reasonInput.trim()
+            ),
+          {
+            actionLabel: lockModal.shouldLock
+              ? "শিক্ষাবর্ষ লক"
+              : "শিক্ষাবর্ষ আনলক",
+            actionScope: "academic_session.unlock",
+          }
         );
         if (res.error) {
           setBanner({ type: "error", text: res.error });
@@ -1047,6 +1067,7 @@ export default function DataGovernanceClient({
           </div>
         </div>
       )}
+      {stepUpModal}
     </div>
   );
 }

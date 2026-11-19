@@ -3,6 +3,7 @@
 import { toDhakaDateString } from "@/lib/date-utils";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createExpense, ExpenseActionState } from "@/app/actions/accounting";
+import PendingApprovalBanner from "@/components/permissions/PendingApprovalBanner";
 import { getFunds } from "@/app/actions/zakat";
 import { FundItem, DEFAULT_FUNDS } from "@/lib/fund-utils";
 import { Landmark, FileText, CheckCircle2, ArrowRight, List, Plus, Trash2, Layers, AlignLeft, AlertTriangle } from "lucide-react";
@@ -58,8 +59,8 @@ export default function AddExpenseForm() {
   }, []);
 
   useEffect(() => {
-    if (state?.success && state?.expense) {
-      setCreatedVoucher(state.expense);
+    if (state?.success && (state?.expense || (state as any)?.pendingApproval)) {
+      if (state.expense) setCreatedVoucher(state.expense);
       formRef.current?.reset();
       setSelectedFundId("fund-general");
       setItemRows([{ id: "item-1", name: "", amount: "" }]);
@@ -120,14 +121,19 @@ export default function AddExpenseForm() {
           </div>
         )}
         
-        {state?.success && !createdVoucher && (
+        {(state as any)?.pendingApproval ? (
+          <PendingApprovalBanner
+            message={(state as any)?.message}
+            approvalRequestId={(state as any)?.approvalRequestId}
+          />
+        ) : state?.success && !createdVoucher ? (
           <div className="p-4 bg-green-50 text-green-700 rounded-md text-sm border border-green-100 flex items-center justify-between">
             <span className="flex items-center gap-2 font-medium">
               <CheckCircle2 className="w-4 h-4 text-green-600" />
               খরচ সফলভাবে এন্ট্রি করা হয়েছে!
             </span>
           </div>
-        )}
+        ) : null}
 
         {/* Hidden inputs to pass computed data */}
         <input type="hidden" name="fund_id" value={selectedFundId} />

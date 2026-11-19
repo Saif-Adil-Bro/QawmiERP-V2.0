@@ -11,6 +11,7 @@ import {
 import { AcademicSession } from "@/lib/sessions";
 import { saveFeeStructure, deleteFeeStructure, saveFeeType } from "@/app/actions/fee-management";
 import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
+import { useStepUpAction } from "@/components/security/useStepUpAction";
 import {
   Plus,
   Edit2,
@@ -44,6 +45,7 @@ export default function StructureClient({
 }: StructureClientProps) {
   const [structures, setStructures] = useState<FeeStructure[]>(initialStructures);
   const [feeTypes, setFeeTypes] = useState<FeeType[]>(initialFeeTypes);
+  const { runWithStepUp, stepUpModal } = useStepUpAction();
   const [selectedSessionId, setSelectedSessionId] = useState<string>("ALL");
   const [activeTab, setActiveTab] = useState<"structures" | "types">("structures");
 
@@ -179,7 +181,10 @@ export default function StructureClient({
           `${resolvedClassName} - ফি কাঠামো`,
       };
 
-      const res = await saveFeeStructure(payload);
+      const res: any = await runWithStepUp(() => saveFeeStructure(payload), {
+        actionLabel: "ফি কাঠামো সংরক্ষণ",
+        actionScope: "fee_structure.edit",
+      });
       if (res?.success) {
         setFeedback({ type: "success", text: res.message || "ফি কাঠামো সংরক্ষিত হয়েছে।" });
         setIsStructModalOpen(false);
@@ -204,7 +209,10 @@ export default function StructureClient({
     setLoading(true);
     setFeedback(null);
     try {
-      const res = await deleteFeeStructure(id);
+      const res: any = await runWithStepUp(() => deleteFeeStructure(id), {
+        actionLabel: "ফি কাঠামো মুছে ফেলা",
+        actionScope: "fee_structure.delete",
+      });
       if (res?.success) {
         setStructures((prev) => prev.filter((s) => s.id !== id));
         setFeedback({ type: "success", text: "ফি কাঠামো মুছে ফেলা হয়েছে।" });
@@ -829,6 +837,7 @@ export default function StructureClient({
           </div>
         </div>
       )}
+      {stepUpModal}
     </div>
   );
 }

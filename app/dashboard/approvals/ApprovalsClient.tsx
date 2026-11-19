@@ -32,6 +32,7 @@ import StepUpVerificationModal from "@/components/security/StepUpVerificationMod
 interface Props {
   initialWorkflows: ApprovalWorkflowWithSteps[];
   initialRequests: ApprovalRequestRecord[];
+  currentUserId?: string | null;
 }
 
 const REQUEST_TYPE_OPTIONS = [
@@ -55,7 +56,11 @@ const ROLE_OPTIONS = [
   { value: "super_admin", label: "সুপার অ্যাডমিন (Super Admin)" },
 ];
 
-export default function ApprovalsClient({ initialWorkflows, initialRequests }: Props) {
+export default function ApprovalsClient({
+  initialWorkflows,
+  initialRequests,
+  currentUserId = null,
+}: Props) {
   const [activeTab, setActiveTab] = useState<"queue" | "workflows">("queue");
   const [workflows, setWorkflows] = useState<ApprovalWorkflowWithSteps[]>(initialWorkflows);
   const [requests, setRequests] = useState<ApprovalRequestRecord[]>(initialRequests);
@@ -200,9 +205,14 @@ export default function ApprovalsClient({ initialWorkflows, initialRequests }: P
     });
   };
 
-  const filteredRequests = requests.filter((r) =>
-    statusFilter === "ALL" ? true : r.status === statusFilter
-  );
+  const filteredRequests = requests.filter((r) => {
+    if (statusFilter === "ALL") return true;
+    if (statusFilter === "MY_REQUESTS") {
+      if (!currentUserId) return false;
+      return r.requested_by === currentUserId || r.requester_id === currentUserId;
+    }
+    return r.status === statusFilter;
+  });
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
@@ -265,7 +275,7 @@ export default function ApprovalsClient({ initialWorkflows, initialRequests }: P
       {activeTab === "queue" ? (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            {(["PENDING", "APPROVED", "REJECTED", "CANCELLED", "ALL"] as const).map((st) => (
+            {(["PENDING", "MY_REQUESTS", "APPROVED", "REJECTED", "CANCELLED", "ALL"] as const).map((st) => (
               <button
                 key={st}
                 type="button"
@@ -278,6 +288,8 @@ export default function ApprovalsClient({ initialWorkflows, initialRequests }: P
               >
                 {st === "PENDING"
                   ? "অপেক্ষমান"
+                  : st === "MY_REQUESTS"
+                  ? "আমার পাঠানো আবেদন (My Requests)"
                   : st === "APPROVED"
                   ? "অনুমোদিত"
                   : st === "REJECTED"

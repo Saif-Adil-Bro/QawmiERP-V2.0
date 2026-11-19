@@ -1279,6 +1279,38 @@ export async function getStudentFeeProfile(studentId: string, sessionId?: string
       }
     }
 
+    let pendingApprovals: Array<{
+      id: string;
+      type: string;
+      title: string;
+      amount?: number;
+      requested_at: string;
+    }> = [];
+    try {
+      const adminClient = await createAdminClient();
+      const { data: reqs, error: reqErr } = await adminClient
+        .from("approval_requests")
+        .select("id, type, title, payload, created_at")
+        .eq("madrasa_id", madrasaId)
+        .eq("target_id", studentId)
+        .eq("status", "PENDING")
+        .in("type", ["FEE_WAIVER", "FEE_DISCOUNT"])
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (!reqErr && Array.isArray(reqs)) {
+        pendingApprovals = reqs.map((r: any) => ({
+          id: String(r.id),
+          type: String(r.type),
+          title: String(r.title || "ফি ছাড়/মওকুফ অনুমোদন"),
+          amount: Number(r.payload?.paymentData?.discount_amount || r.payload?.amount || 0) || undefined,
+          requested_at: String(r.created_at || new Date().toISOString()),
+        }));
+      }
+    } catch {
+      // ignore if approval_requests table is not migrated yet
+    }
+
     return {
       student_id: studentId,
       total_payable: totalPayable,
@@ -1288,6 +1320,7 @@ export async function getStudentFeeProfile(studentId: string, sessionId?: string
       fees,
       payments,
       discounts: (meta.discounts || []).filter((d) => d.student_id === studentId),
+      pendingApprovals,
     };
   } catch (err) {
     console.error("Error in getStudentFeeProfile:", err);

@@ -29,6 +29,8 @@ import StudentSearchSelector from "@/components/common/StudentSearchSelector";
 
 import { DEFAULT_FUNDS } from "@/lib/fund-utils";
 import { apiUrl } from "@/lib/api-url";
+import PendingApprovalBanner from "@/components/permissions/PendingApprovalBanner";
+import { useStepUpAction } from "@/components/security/useStepUpAction";
 
 interface CollectPaymentClientProps {
   students: any[];
@@ -90,6 +92,11 @@ export default function CollectPaymentClient({
   );
   const [error, setError] = useState<string | null>(null);
   const [successReceipt, setSuccessReceipt] = useState<any>(null);
+  const [pendingApproval, setPendingApproval] = useState<{
+    message: string;
+    approvalRequestId?: string;
+  } | null>(null);
+  const { runWithStepUp, stepUpModal } = useStepUpAction();
 
   // Helper to determine initial fund for a fee
   const resolveInitialFundId = (fee: any) => {
@@ -357,26 +364,44 @@ export default function CollectPaymentClient({
     const globalFundObj = allFunds.find((af) => af.id === selectedGlobalFund);
 
     try {
-      const res = await collectFeePayment({
-        student_id: studentId,
-        session_id: studentProfile?.fees?.[0]?.session_id || "default",
-        payment_date: paymentDate,
-        payment_method: paymentMethod,
-        transaction_ref: transactionRef,
-        total_amount: finalCash,
-        discount_amount: effectiveTotalDiscount,
-        discount_reason: discountReason,
-        fine_amount: Number(fineAmount),
-        fine_reason: fineReason,
-        fee_allocations: feeAllocationsList,
-        notes: notes,
-        fund_id: selectedGlobalFund,
-        fund_name: globalFundObj?.name || "সাধারণ ফান্ড",
-        // HI-2: ডুপ্লিকেট পেমেন্ট ঠেকানোর idempotency key
-        idempotency_key: idempotencyKeyRef.current,
-      });
+      setPendingApproval(null);
+      const res: any = await runWithStepUp(
+        () =>
+          collectFeePayment({
+            student_id: studentId,
+            session_id: studentProfile?.fees?.[0]?.session_id || "default",
+            payment_date: paymentDate,
+            payment_method: paymentMethod,
+            transaction_ref: transactionRef,
+            total_amount: finalCash,
+            discount_amount: effectiveTotalDiscount,
+            discount_reason: discountReason,
+            fine_amount: Number(fineAmount),
+            fine_reason: fineReason,
+            fee_allocations: feeAllocationsList,
+            notes: notes,
+            fund_id: selectedGlobalFund,
+            fund_name: globalFundObj?.name || "সাধারণ ফান্ড",
+            // HI-2: ডুপ্লিকেট পেমেন্ট ঠেকানোর idempotency key
+            idempotency_key: idempotencyKeyRef.current,
+          }),
+        { actionLabel: "ফি আদায় / মওকুফ" }
+      );
 
-      if (res?.success && res.payment) {
+      if (res?.pendingApproval) {
+        idempotencyKeyRef.current =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `pay_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        setPendingApproval({
+          message: res.message || "ফি ছাড়/মওকুফের আবেদন অনুমোদনের জন্য পাঠানো হয়েছে।",
+          approvalRequestId: res.approvalRequestId,
+        });
+        // Refresh student profile so pending badge appears immediately
+        getStudentFeeProfile(studentId).then((prof) => {
+          if (prof) setStudentProfile(prof);
+        }).catch(() => {});
+      } else if (res?.success && res.payment) {
         // পেমেন্ট সফল — পরের পেমেন্টের জন্য নতুন key
         idempotencyKeyRef.current =
           typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -396,6 +421,8 @@ export default function CollectPaymentClient({
 
   const handleReset = () => {
     setSuccessReceipt(null);
+    setPendingApproval(null);
+    setError(null);
     setStudentId("");
     setStudentProfile(null);
     setTotalAmount("");
@@ -475,6 +502,36 @@ export default function CollectPaymentClient({
       ) : (
         /* Payment Collection Entry Form */
         <form onSubmit={handleSubmit} className="space-y-6">
+          {pendingApproval && (
+            <PendingApprovalBanner
+              message={pendingApproval.message}
+              approvalRequestId={pendingApproval.approvalRequestId}
+              onReset={handleReset}
+              resetLabel="নতুন ফি কালেকশন"
+            />
+          )}
+
+          {Array.isArray(studentProfile?.pendingApprovals) && studentProfile.pendingApprovals.length > 0 && (
+            <div className="p-4 bg-amber-50 text-amber-900 rounded-2xl text-xs sm:text-sm border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-semibold">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  এই শিক্ষার্থীর {toBanglaNumber(studentProfile.pendingApprovals.length)}টি ফি ছাড়/মওকুফ আবেদন অনুমোদনের অপেক্ষায় আছে
+                  {studentProfile.pendingApprovals[0]?.amount
+                    ? ` (৳ ${toBanglaNumber(studentProfile.pendingApprovals[0].amount)})`
+                    : ""}
+                  । অনুগ্রহ করে একই আবেদন পুনরায় পাঠাবেন না।
+                </span>
+              </div>
+              <Link
+                href="/dashboard/approvals"
+                className="text-xs font-bold text-amber-800 underline hover:text-amber-950 shrink-0"
+              >
+                অ্যাপ্রুভাল দেখুন →
+              </Link>
+            </div>
+          )}
+
           {error && (
             <div className="p-4 bg-red-50 text-red-800 rounded-2xl text-xs sm:text-sm border border-red-200 font-semibold flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
@@ -846,6 +903,7 @@ export default function CollectPaymentClient({
           </div>
         </form>
       )}
+      {stepUpModal}
     </div>
   );
 }
