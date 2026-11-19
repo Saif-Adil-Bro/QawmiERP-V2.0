@@ -123,11 +123,21 @@ export default function GlobalNotificationBell() {
   };
 
   useEffect(() => {
-    loadNotifications();
+    const initialTimer = setTimeout(() => {
+      loadNotifications();
+    }, 1500);
 
-    // Poll every 45 seconds
-    const interval = setInterval(loadNotifications, 45000);
-    return () => clearInterval(interval);
+    // Poll every 90 seconds only when tab/app is visible
+    const interval = setInterval(() => {
+      if (typeof document === "undefined" || document.visibilityState === "visible") {
+        loadNotifications();
+      }
+    }, 90000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
   }, []);
 
   // Close dropdown on outside click or escape

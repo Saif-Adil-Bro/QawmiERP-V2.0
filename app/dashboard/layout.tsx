@@ -22,15 +22,29 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     if (user) {
       let dbRole: string | null = null;
       try {
-        const supabase = await createClient();
-        const { data: userRow } = await supabase
-          .from("users")
-          .select("role")
-          .eq("id", user.id)
-          .maybeSingle();
-        dbRole = userRow?.role || null;
+        const rawCache = cookieStore.get("qawmi_mw_cache")?.value;
+        if (rawCache) {
+          const parsed = JSON.parse(rawCache);
+          if (parsed?.uid === user.id && parsed?.role && parsed?.exp > Date.now()) {
+            dbRole = parsed.role;
+          }
+        }
       } catch {
         dbRole = null;
+      }
+
+      if (!dbRole) {
+        try {
+          const supabase = await createClient();
+          const { data: userRow } = await supabase
+            .from("users")
+            .select("role")
+            .eq("id", user.id)
+            .maybeSingle();
+          dbRole = userRow?.role || null;
+        } catch {
+          dbRole = null;
+        }
       }
 
       const effectiveRole = dbRole || user.user_metadata?.role;
