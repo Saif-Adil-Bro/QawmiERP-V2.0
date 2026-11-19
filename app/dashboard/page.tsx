@@ -14,6 +14,8 @@ import DashboardViewSwitcher from "./components/DashboardViewSwitcher";
 import PremiumDashboardClient from "./components/PremiumDashboardClient";
 import { getFinancialAnomalies, type FinancialAnomalyRecord } from "@/lib/anomaly-detection-service";
 import FinancialAnomalyBanner from "@/components/anomalies/FinancialAnomalyBanner";
+import { getTenantWidgets } from "@/lib/widgets/service";
+import type { WidgetConfigItem } from "@/lib/widgets/types";
 
 
 
@@ -397,6 +399,10 @@ export default async function DashboardPage() {
     error = { message: err?.message };
   }
 
+  const dashboardWidgets: WidgetConfigItem[] = profile?.madrasa_id
+    ? await getTenantWidgets(profile.madrasa_id).catch(() => [])
+    : [];
+
   return (
     <DashboardViewSwitcher
       stats={{
@@ -432,6 +438,7 @@ export default async function DashboardPage() {
           expensesSum,
           bazarSum,
         }}
+        widgets={dashboardWidgets}
         errorMessage={error?.message || null}
         earlyWarningNode={
           <EarlyWarningWidget initialData={earlyWarningData} isTeacherView={false} />

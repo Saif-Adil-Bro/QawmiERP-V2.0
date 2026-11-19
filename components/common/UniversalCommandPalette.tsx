@@ -37,6 +37,7 @@ import {
   Send,
   Clock,
   Webhook,
+  Puzzle,
   AlertTriangle,
   ShieldAlert,
 } from "lucide-react";
@@ -248,6 +249,17 @@ const STATIC_QUICK_ACTIONS: QuickAction[] = [
     badge: "API",
     color: "text-purple-600 bg-purple-50",
     keywords: ["webhook", "integration", "api", "ওয়েবহুক", "ইন্টিগ্রেশন"],
+  },
+  {
+    id: "nav-widgets",
+    title: "উইজেট ও প্লাগইন ম্যানেজার",
+    subtitle: "ডিফল্ট উইজেট ও কাস্টম .zip প্লাগইন ইনস্টল",
+    href: "/dashboard/settings/widgets",
+    icon: Puzzle,
+    category: "টুলস",
+    badge: "Plugin",
+    color: "text-indigo-600 bg-indigo-50",
+    keywords: ["widget", "plugin", "zip", "উইজেট", "প্লাগইন"],
   },
   {
     id: "nav-executive-bi",
