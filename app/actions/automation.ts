@@ -9,6 +9,7 @@ import {
   DEFAULT_AUTOMATION_RULES,
   executeAutomationJob,
   mergeRulesWithDefaults,
+  recordManualRuleExecution,
   type AutomationJobKey,
 } from "@/lib/automation/master-dispatcher";
 import {
@@ -165,6 +166,7 @@ export async function triggerAutomationJobAction(jobKey: AutomationJobKey) {
   if (!authz.madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
   const res: any = await executeAutomationJob(jobKey, authz.madrasaId, "manual");
+  await recordManualRuleExecution(authz.madrasaId, jobKey).catch(() => {});
   revalidatePath("/dashboard/settings/automation");
   return { success: res?.ok !== false, result: res };
 }

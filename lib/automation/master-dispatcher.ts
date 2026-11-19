@@ -143,7 +143,17 @@ export function mergeRulesWithDefaults(
     merged.push({ ...extra, madrasa_id: madrasaId });
   }
 
-  return merged;
+  const now = new Date();
+  return merged.map((rule: any) => {
+    if (!rule.next_run_at && rule.is_enabled !== false && rule.cron_expression) {
+      const tz = String((rule.config as any)?.timezone || DEFAULT_CRON_TIMEZONE);
+      const next = computeNextRunAt(String(rule.cron_expression), now, tz);
+      if (next) {
+        return { ...rule, next_run_at: next.toISOString() };
+      }
+    }
+    return rule;
+  });
 }
 
 async function runDigestForMadrasa(madrasaId: string) {
@@ -350,6 +360,21 @@ async function markRuleExecuted(
       : r
   );
   await saveStructuredMadrasaSetting(madrasaId, "automation", FALLBACK_RULES_KEY, updated);
+}
+
+/**
+ * Records `last_run_at` & `next_run_at` when an admin triggers a job manually
+ * from `/dashboard/settings/automation` ("এখনই চালান").
+ */
+export async function recordManualRuleExecution(
+  madrasaId: string,
+  jobKey: AutomationJobKey | string,
+  now: Date = new Date()
+) {
+  const { usingSql, rules } = await loadMadrasaRules(madrasaId);
+  const rule = rules.find((r) => r.rule_key === jobKey);
+  if (!rule) return;
+  await markRuleExecuted(madrasaId, rule, usingSql, now);
 }
 
 /**
