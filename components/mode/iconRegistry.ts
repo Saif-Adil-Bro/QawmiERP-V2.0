@@ -42,6 +42,8 @@ import {
   Clock,
   CheckCircle2,
   Send,
+  Puzzle,
+  CreditCard,
 } from "lucide-react";
 
 export const ICON_MAP: Record<string, any> = {
@@ -88,6 +90,8 @@ export const ICON_MAP: Record<string, any> = {
   Clock,
   CheckCircle2,
   Send,
+  Puzzle,
+  CreditCard,
 };
 
 export function getIconComponent(iconName?: string | null, fallback = FileText) {
