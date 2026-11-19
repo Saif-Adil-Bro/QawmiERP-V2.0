@@ -61,11 +61,30 @@ export const createClient = cache(async () => {
 export const getAuthUser = cache(async (supabaseClient?: any) => {
   try {
     const supabase = supabaseClient || (await createClient());
-    
-    // Safely check user
+
+    // Fast path: local JWT verification (0ms, no network round-trip to Supabase Auth)
+    if (typeof supabase?.auth?.getClaims === "function") {
+      try {
+        const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+        const claims: any = claimsData?.claims;
+        if (!claimsError && claims?.sub) {
+          return {
+            id: claims.sub as string,
+            email: (claims.email as string) ?? undefined,
+            phone: (claims.phone as string) ?? undefined,
+            user_metadata: claims.user_metadata ?? {},
+            app_metadata: claims.app_metadata ?? {},
+            role: (claims.role as string) ?? "authenticated",
+          } as any;
+        }
+      } catch {
+        // Fall through to getUser()
+      }
+    }
+
+    // Fallback: verify with Supabase Auth server
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError) {
-      // Invalid/Expired refresh token or unauthenticated - return null gracefully
       return null;
     }
 

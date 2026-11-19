@@ -72,21 +72,28 @@ export default async function DashboardPage() {
   let earlyWarningData: any = { attendance_alerts: [], exam_drop_alerts: [], total_critical_students: 0, checked_at: "" };
   let anomaliesData: FinancialAnomalyRecord[] = [];
 
+  let dashboardWidgets: WidgetConfigItem[] = [];
+
   try {
-    const alerts = await getEarlyWarningAlerts();
-    earlyWarningData = alerts;
-    if (profile?.madrasa_id) {
-      try {
-        anomaliesData = await getFinancialAnomalies(profile.madrasa_id, { limit: 20 });
-      } catch {
-        anomaliesData = [];
-      }
-    }
+    const today = toDhakaDateString();
+    const earlyWarningPromise = getEarlyWarningAlerts().catch(() => ({
+      attendance_alerts: [],
+      exam_drop_alerts: [],
+      total_critical_students: 0,
+      checked_at: "",
+    }));
+    const anomaliesPromise = profile?.madrasa_id
+      ? getFinancialAnomalies(profile.madrasa_id, { limit: 20 }).catch(() => [])
+      : Promise.resolve([]);
+    const widgetsPromise = profile?.madrasa_id
+      ? getTenantWidgets(profile.madrasa_id).catch(() => [])
+      : Promise.resolve([]);
 
     if (profile?.madrasa_id) {
-      const today = toDhakaDateString();
-
       const [
+        alerts,
+        anomalies,
+        widgets,
         { count: sCount }, 
         { count: tCount },
         { count: cCount },
@@ -107,6 +114,9 @@ export default async function DashboardPage() {
         feeMetaData
 
       ] = await Promise.all([
+        earlyWarningPromise,
+        anomaliesPromise,
+        widgetsPromise,
         supabase.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
         supabase.from("teachers").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
         supabase.from("classes").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
@@ -126,6 +136,10 @@ export default async function DashboardPage() {
         getFunds(),
         getFeeMetadata(profile.madrasa_id),
       ]);
+
+      earlyWarningData = alerts;
+      anomaliesData = anomalies;
+      dashboardWidgets = widgets;
 
       studentsCount = sCount || 0;
       const staffMembers = staffFullData?.staff_members || [];
@@ -398,10 +412,6 @@ export default async function DashboardPage() {
   } catch (err: any) {
     error = { message: err?.message };
   }
-
-  const dashboardWidgets: WidgetConfigItem[] = profile?.madrasa_id
-    ? await getTenantWidgets(profile.madrasa_id).catch(() => [])
-    : [];
 
   return (
     <DashboardViewSwitcher
