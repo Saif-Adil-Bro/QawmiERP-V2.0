@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import {
   Bell,
   CheckCheck,
@@ -34,6 +34,15 @@ import { sendNativeStatusBarNotification } from "@/lib/nativeNotifications";
 
 export default function GlobalNotificationBell() {
   const router = useRouter();
+  const pathname = usePathname();
+  const isTeacherPortal = pathname?.startsWith("/teacher-portal") ?? false;
+  const isStudentPortal = pathname?.startsWith("/portal") ?? false;
+
+  const resolveSafeLink = (link?: string) => {
+    if (isTeacherPortal) return "/teacher-portal/notices";
+    if (isStudentPortal) return "/portal/notices";
+    return link || "/dashboard/notifications";
+  };
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"ALL" | NotificationCategory>("ALL");
@@ -92,7 +101,7 @@ export default function GlobalNotificationBell() {
             sendNativeStatusBarNotification({
               title: item.title,
               body: item.description,
-              route: item.link || "/dashboard/notifications",
+              route: resolveSafeLink(item.link),
             }).catch(() => {});
           }
         }
@@ -200,7 +209,7 @@ export default function GlobalNotificationBell() {
     } catch {}
 
     setIsOpen(false);
-    router.push(item.link);
+    router.push(resolveSafeLink(item.link));
   };
 
   // Filter items based on active tab
@@ -512,7 +521,7 @@ export default function GlobalNotificationBell() {
           {/* Footer view all link */}
           <div className="p-2.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between shrink-0 px-4">
             <Link
-              href="/dashboard/notifications"
+              href={resolveSafeLink("/dashboard/notifications")}
               onClick={() => setIsOpen(false)}
               className="text-xs font-bold text-emerald-700 hover:text-emerald-800 transition flex items-center gap-1 py-1"
             >
@@ -520,14 +529,16 @@ export default function GlobalNotificationBell() {
               <ChevronRight className="w-3.5 h-3.5" />
             </Link>
 
-            <Link
-              href="/dashboard/notifications?tab=activity"
-              onClick={() => setIsOpen(false)}
-              className="text-xs font-bold text-indigo-700 hover:text-indigo-800 transition flex items-center gap-1 py-1"
-            >
-              <span>অ্যাক্টিভিটি লগ</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
+            {!isTeacherPortal && !isStudentPortal && (
+              <Link
+                href="/dashboard/notifications?tab=activity"
+                onClick={() => setIsOpen(false)}
+                className="text-xs font-bold text-indigo-700 hover:text-indigo-800 transition flex items-center gap-1 py-1"
+              >
+                <span>অ্যাক্টিভিটি লগ</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            )}
           </div>
         </div>
       )}

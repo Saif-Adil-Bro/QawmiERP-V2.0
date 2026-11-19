@@ -163,13 +163,10 @@ export async function middleware(request: NextRequest) {
     return redirectResponse;
   }
 
-  if (user && isAuthRoute) {
-    // ⛔ HI-7(ক) ফিক্স: আগে রোল নেওয়া হতো `user.user_metadata.role` থেকে, যা
-    // ব্যবহারকারী নিজেই লিখতে/বদলাতে পারেন (`supabase.auth.updateUser({ data: {...} })`)।
-    // অর্থাৎ যে কেউ নিজেকে "student" বানিয়ে /portal-এ বা "admin" দেখিয়ে /dashboard-এ
-    // যাওয়ার রুট বদলে ফেলতে পারত। এখন রোল আসে ডেটাবেজ (`public.users.role`) থেকে;
-    // DB পড়তে না পারলেই কেবল metadata ফলব্যাক — যেটি শুধু *রাউটিং*-এর জন্য, কোনো
-    // ডেটা-অনুমতির জন্য নয় (অনুমতি সবসময় সার্ভার-সাইড requirePermission দেয়)।
+  const isDashboardRoute = isSameOrChildPath(pathname, "/dashboard");
+  const isTeacherPortalRoute = isSameOrChildPath(pathname, "/teacher-portal");
+
+  if (user && (isAuthRoute || isDashboardRoute || isTeacherPortalRoute)) {
     let userRole: string | null = null;
 
     try {
@@ -188,40 +185,49 @@ export async function middleware(request: NextRequest) {
         .select("role")
         .eq("id", user.id)
         .maybeSingle();
-      if (dbUser?.role) userRole = String(dbUser.role).toLowerCase();
+      if (dbUser?.role) userRole = String(dbUser.role).toLowerCase().trim();
     } catch {
       userRole = null;
     }
 
     if (!userRole) {
       const metaRole = user.user_metadata?.role;
-      userRole = typeof metaRole === "string" ? metaRole.toLowerCase() : null;
+      userRole = typeof metaRole === "string" ? metaRole.toLowerCase().trim() : null;
     }
 
     let targetPath = "/dashboard";
     if (
       userRole === "teacher" ||
       userRole === "hifz_teacher" ||
+      userRole === "hifz_supervisor" ||
       userRole === "ustad"
     ) {
       targetPath = "/teacher-portal";
     } else if (
       userRole === "parent" ||
       userRole === "guardian" ||
-      userRole === "student"
+      userRole === "student" ||
+      userRole === "guardian_student"
     ) {
       targetPath = "/portal";
     }
 
-    const url = request.nextUrl.clone();
-    url.pathname = targetPath;
-    const redirectResponse = NextResponse.redirect(url);
+    const shouldRedirect =
+      isAuthRoute ||
+      (isDashboardRoute && targetPath !== "/dashboard") ||
+      (isTeacherPortalRoute && targetPath === "/portal");
 
-    const setCookies = supabaseResponse.headers.getSetCookie();
-    for (const cookie of setCookies) {
-      redirectResponse.headers.append("set-cookie", cookie);
+    if (shouldRedirect) {
+      const url = request.nextUrl.clone();
+      url.pathname = targetPath;
+      const redirectResponse = NextResponse.redirect(url);
+
+      const setCookies = supabaseResponse.headers.getSetCookie();
+      for (const cookie of setCookies) {
+        redirectResponse.headers.append("set-cookie", cookie);
+      }
+      return redirectResponse;
     }
-    return redirectResponse;
   }
 
   return supabaseResponse;
