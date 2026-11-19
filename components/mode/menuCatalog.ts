@@ -29,6 +29,7 @@ import {
   TrendingUp,
   AlertTriangle,
   ShieldAlert,
+  CreditCard,
 } from "lucide-react";
 
 export interface BasicTileItem {
@@ -481,6 +482,21 @@ export const ALL_BASIC_TILES: BasicTileItem[] = [
     badge: "Plugin",
     badgeColor: "bg-indigo-400/20 text-indigo-100 border-indigo-400/30",
     category: "services",
+    defaultPinned: false,
+  },
+  {
+    id: "payment_gateway_settings",
+    title: "পেমেন্ট গেটওয়ে সেটিংস",
+    subtitle: "SSLCommerz, bKash, Nagad ও অনলাইন পেমেন্ট কনফিগারেশন",
+    href: "/dashboard/settings/payment-gateway",
+    icon: CreditCard,
+    gradient: "from-emerald-600 to-teal-700",
+    borderColor: "border-emerald-400/40",
+    shadowColor: "shadow-emerald-500/25",
+    accentBg: "bg-emerald-500/20 text-emerald-200",
+    badge: "গেটওয়ে",
+    badgeColor: "bg-emerald-400/20 text-emerald-100 border-emerald-400/30",
+    category: "management",
     defaultPinned: false,
   },
   {

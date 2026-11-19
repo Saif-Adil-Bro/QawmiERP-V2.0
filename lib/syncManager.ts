@@ -25,6 +25,10 @@ export const ENTITY_API_PATHS: Record<OfflineEntity, string> = {
   notices: "/api/mobile/notices",
   exams: "/api/mobile/exams",
   examResults: "/api/mobile/exam-results",
+  portalProfiles: "/api/mobile/portal/student",
+  routines: "/api/mobile/routines",
+  academicCalendar: "/api/mobile/holidays",
+  homework: "/api/mobile/assignments",
 };
 
 const CORE_PULL_ENTITIES: OfflineEntity[] = [

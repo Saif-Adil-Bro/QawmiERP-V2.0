@@ -593,9 +593,9 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
     ],
   },
   {
-    id: "system",
-    title: "সিস্টেম ও পোর্টাল",
-    iconName: "Settings",
+    id: "portals",
+    title: "পোর্টাল ও অনুমোদন",
+    iconName: "GraduationCap",
     items: [
       {
         id: "portal_teacher",
@@ -616,6 +616,34 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         keywords: ["parent portal", "অভিভাবক পোর্টাল"],
       },
       {
+        id: "system_approvals",
+        name: "অনুমোদন ওয়ার্কফ্লো সেন্টার",
+        href: "/dashboard/approvals",
+        iconName: "CheckCircle2",
+        permission: "approval.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "accountant", "education_secretary"],
+        badge: "ওয়ার্কফ্লো",
+        badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+        keywords: ["approval", "workflow", "অনুমোদন", "ওয়ার্কফ্লো"],
+      },
+    ],
+  },
+  {
+    id: "settings_general",
+    title: "সাধারণ সেটিংস",
+    iconName: "Settings",
+    items: [
+      {
+        id: "system_settings",
+        name: "মাদ্রাসা সেটিংস",
+        href: "/dashboard/settings",
+        iconName: "Settings",
+        exact: true,
+        permission: "settings.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin"],
+        keywords: ["settings", "setup", "মাদ্রাসা সেটিংস", "কনফিগ"],
+      },
+      {
         id: "system_users",
         name: "ইউজার আইডি ও একাউন্ট",
         href: "/dashboard/users",
@@ -623,6 +651,23 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         permission: "user.view",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin"],
         keywords: ["user", "role", "permission", "ইউজার", "পারমিশন"],
+      },
+      {
+        id: "system_widgets",
+        name: "উইজেট ও প্লাগইন ম্যানেজার",
+        href: "/dashboard/settings/widgets",
+        iconName: "Puzzle",
+        roles: ["super_admin", "muhtamim", "admin"],
+        keywords: ["widget", "plugin", "zip", "উইজেট", "প্লাগইন"],
+      },
+      {
+        id: "system_payment_gateway",
+        name: "পেমেন্ট গেটওয়ে সেটিংস",
+        href: "/dashboard/settings/payment-gateway",
+        iconName: "CreditCard",
+        permission: "settings.view",
+        roles: ["super_admin", "muhtamim", "admin", "accountant"],
+        keywords: ["payment gateway", "sslcommerz", "bkash", "nagad", "পেমেন্ট গেটওয়ে"],
       },
       {
         id: "system_backup",
@@ -635,26 +680,13 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         roles: ["super_admin", "muhtamim", "admin"],
         keywords: ["backup", "restore", "export", "import", "ডাটা ব্যাকআপ", "রিস্টোর", "ক্লাউড ব্যাকআপ"],
       },
-      {
-        id: "system_settings",
-        name: "মাদ্রাসা সেটিংস",
-        href: "/dashboard/settings",
-        iconName: "Settings",
-        permission: "settings.view",
-        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin"],
-        keywords: ["settings", "setup", "মাদ্রাসা সেটিংস", "কনফিগ"],
-      },
-      {
-        id: "system_approvals",
-        name: "অনুমোদন ওয়ার্কফ্লো সেন্টার",
-        href: "/dashboard/approvals",
-        iconName: "CheckCircle2",
-        permission: "approval.view",
-        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "accountant", "education_secretary"],
-        badge: "ওয়ার্কফ্লো",
-        badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/30",
-        keywords: ["approval", "workflow", "অনুমোদন", "ওয়ার্কফ্লো"],
-      },
+    ],
+  },
+  {
+    id: "security_audit",
+    title: "নিরাপত্তা ও অডিট",
+    iconName: "Lock",
+    items: [
       {
         id: "system_security",
         name: "সিকিউরিটি, সেশন ও 2FA",
@@ -666,6 +698,35 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
         keywords: ["security", "session", "2fa", "mfa", "otp", "সিকিউরিটি", "সেশন", "নিরাপত্তা"],
       },
+      {
+        id: "system_audit_logs",
+        name: "সিস্টেম অডিট লগ",
+        href: "/dashboard/settings/audit-logs",
+        iconName: "FileSearch",
+        badge: "Immutable",
+        badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+        permission: "settings.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "accountant"],
+        keywords: ["audit", "logs", "অডিট লগ"],
+      },
+      {
+        id: "system_data_governance",
+        name: "ডাটা লক ও গভর্ন্যান্স",
+        href: "/dashboard/settings/data-governance",
+        iconName: "ShieldAlert",
+        badge: "লক ও SQL",
+        badgeColor: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+        permission: "settings.view",
+        roles: ["super_admin", "muhtamim", "admin"],
+        keywords: ["data governance", "retention", "lock", "ডাটা গভর্ন্যান্স", "ডাটা লক"],
+      },
+    ],
+  },
+  {
+    id: "automation_hub",
+    title: "অটোমেশন ও ইন্টিগ্রেশন",
+    iconName: "Webhook",
+    items: [
       {
         id: "system_automation",
         name: "অটোমেশন ও শিডিউলড ক্রন",
@@ -683,32 +744,6 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         permission: "webhook.view",
         roles: ["super_admin", "muhtamim", "admin"],
         keywords: ["webhook", "api", "integration", "ওয়েবহুক", "ইন্টিগ্রেশন"],
-      },
-      {
-        id: "system_widgets",
-        name: "উইজেট ও প্লাগইন ম্যানেজার",
-        href: "/dashboard/settings/widgets",
-        iconName: "Puzzle",
-        roles: ["super_admin", "muhtamim", "admin"],
-        keywords: ["widget", "plugin", "zip", "উইজেট", "প্লাগইন"],
-      },
-      {
-        id: "system_audit_logs",
-        name: "সিস্টেম অডিট লগ",
-        href: "/dashboard/settings/audit-logs",
-        iconName: "FileSearch",
-        permission: "settings.view",
-        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin"],
-        keywords: ["audit", "logs", "অডিট লগ"],
-      },
-      {
-        id: "system_data_governance",
-        name: "ডাটা গভর্ন্যান্স ও রিটেনশন",
-        href: "/dashboard/settings/data-governance",
-        iconName: "Database",
-        permission: "settings.view",
-        roles: ["super_admin", "muhtamim", "admin"],
-        keywords: ["data governance", "retention", "ডাটা গভর্ন্যান্স"],
       },
     ],
   },
@@ -827,6 +862,20 @@ export function sanitizeNavGroups(raw: any): SerializedNavGroup[] {
     return JSON.parse(JSON.stringify(INITIAL_NAV_GROUPS));
   }
 
+  // Auto-migrate legacy "system" group into the 4 organized groups (portals, settings_general, security_audit, automation_hub)
+  const legacyHiddenByKey = new Map<string, boolean>();
+  const legacySystemIndex = sanitized.findIndex((g) => g.id === "system");
+  if (legacySystemIndex !== -1) {
+    const legacySystem = sanitized[legacySystemIndex];
+    for (const it of legacySystem.items) {
+      if (it.hidden) {
+        if (it.id) legacyHiddenByKey.set(it.id, true);
+        if (it.href) legacyHiddenByKey.set(it.href, true);
+      }
+    }
+    sanitized.splice(legacySystemIndex, 1);
+  }
+
   // Auto-merge new default items/groups (e.g. Phase 1-3 routes) not yet present in saved user nav preferences
   const existingHrefs = new Set<string>();
   const existingIds = new Set<string>();
@@ -843,15 +892,23 @@ export function sanitizeNavGroups(raw: any): SerializedNavGroup[] {
   for (const defGroup of INITIAL_NAV_GROUPS) {
     const targetGroup = groupById.get(defGroup.id);
     if (!targetGroup) {
-      const missingItems = defGroup.items.filter(
-        (it) => !existingHrefs.has(it.href) && !existingIds.has(it.id)
-      );
+      const missingItems = defGroup.items
+        .filter((it) => !existingHrefs.has(it.href) && !existingIds.has(it.id))
+        .map((it) => ({
+          ...it,
+          hidden: Boolean(legacyHiddenByKey.get(it.id) || legacyHiddenByKey.get(it.href) || it.hidden),
+        }));
       if (missingItems.length > 0) {
         const clonedGroup: SerializedNavGroup = {
           ...defGroup,
-          items: missingItems.map((it) => ({ ...it })),
+          items: missingItems,
         };
-        sanitized.push(clonedGroup);
+        const analyticsIdx = sanitized.findIndex((g) => g.id === "analytics_bi");
+        if (analyticsIdx !== -1) {
+          sanitized.splice(analyticsIdx, 0, clonedGroup);
+        } else {
+          sanitized.push(clonedGroup);
+        }
         groupById.set(clonedGroup.id, clonedGroup);
         for (const it of missingItems) {
           existingHrefs.add(it.href);

@@ -22,6 +22,8 @@ import {
 import PortalNav from "./PortalNav";
 import { logout } from "@/app/actions/auth";
 import ChangePasswordModal from "@/components/portal/ChangePasswordModal";
+import PortalSyncStatusPill from "@/components/portal/PortalSyncStatusPill";
+import { clearOfflineAuthSession } from "@/lib/offline-auth";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
 interface PortalShellProps {
@@ -51,6 +53,7 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
   const handleLogout = async () => {
     try {
       setLoggingOut(true);
+      await clearOfflineAuthSession();
       await logout();
     } catch (e) {
       console.error(e);
@@ -70,7 +73,7 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
   const isRoleAdminOrStaff = ["super_admin", "admin", "muhtamim"].includes(userData?.role);
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
+    <div className="portal-native-shell flex h-dvh bg-slate-50 text-slate-900 overflow-hidden font-sans">
       <ChangePasswordModal
         isOpen={isPasswordModalOpen}
         onClose={() => setIsPasswordModalOpen(false)}
@@ -239,11 +242,11 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* MOBILE TOPBAR */}
-        <header className="md:hidden bg-slate-900 text-white px-4 py-3 border-b border-slate-800 flex items-center justify-between shrink-0 shadow-md">
+        <header className="md:hidden pt-safe bg-slate-900 text-white px-4 py-2.5 border-b border-slate-800 flex items-center justify-between shrink-0 shadow-md">
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white"
+              className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-slate-800 text-slate-300 hover:text-white"
               aria-label="মেনু খুলুন"
             >
               <Menu className="w-5 h-5" />
@@ -257,14 +260,15 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
           </div>
 
           <div className="flex items-center gap-2">
+            <PortalSyncStatusPill portalType="student" />
             <button
               onClick={() => setIsPasswordModalOpen(true)}
-              className="p-1.5 rounded-lg bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 hover:bg-emerald-900"
+              className="p-2 rounded-lg bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 hover:bg-emerald-900"
               title="পাসওয়ার্ড পরিবর্তন"
             >
               <KeyRound className="w-4 h-4" />
             </button>
-            <div className="w-7 h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-xs overflow-hidden">
+            <div className="w-8 h-8 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-xs overflow-hidden">
               {userData?.photo_url || user?.user_metadata?.avatar_url ? (
                 <img
                   src={userData?.photo_url || user?.user_metadata?.avatar_url}
@@ -308,14 +312,14 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
         )}
 
         {/* PAGE CONTENT CONTAINER */}
-        <main className="flex-1 overflow-y-auto pb-20 md:pb-8">
+        <main className="flex-1 overflow-y-auto pb-24 md:pb-8">
           <div className="p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto">
             {children}
           </div>
         </main>
 
         {/* MOBILE BOTTOM NAVIGATION BAR */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg">
+        <nav className="md:hidden pb-safe fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg">
           {bottomNavItems.map((item) => {
             const active = item.exact
               ? pathname === item.href
@@ -327,7 +331,7 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
               <Link
                 key={item.href}
                 href={targetHref}
-                className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+                className={`flex flex-col items-center justify-center min-h-[44px] min-w-[52px] py-1 px-2 rounded-xl transition-all ${
                   active
                     ? "text-emerald-700 font-bold scale-105"
                     : "text-slate-500 hover:text-slate-800 font-medium"

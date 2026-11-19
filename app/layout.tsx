@@ -6,7 +6,15 @@ import CapacitorProvider from '@/components/CapacitorProvider';
 import OfflineSyncProvider from '@/components/OfflineSyncProvider';
 import OfflineStatusBanner from '@/components/OfflineStatusBanner';
 import { ThemeProvider } from '@/components/common/ThemeContext';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+};
 
 export const metadata: Metadata = {
   title: 'QawmiERP - কওমি মাদ্রাসা ম্যানেজমেন্ট সিস্টেম',

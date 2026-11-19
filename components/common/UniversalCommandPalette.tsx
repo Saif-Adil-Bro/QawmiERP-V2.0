@@ -40,6 +40,7 @@ import {
   Puzzle,
   AlertTriangle,
   ShieldAlert,
+  CreditCard,
 } from "lucide-react";
 import { searchUniversalCommand, UniversalSearchResultItem } from "@/app/actions/universal-search";
 
@@ -260,6 +261,17 @@ const STATIC_QUICK_ACTIONS: QuickAction[] = [
     badge: "Plugin",
     color: "text-indigo-600 bg-indigo-50",
     keywords: ["widget", "plugin", "zip", "উইজেট", "প্লাগইন"],
+  },
+  {
+    id: "nav-payment-gateway",
+    title: "পেমেন্ট গেটওয়ে সেটিংস",
+    subtitle: "SSLCommerz, bKash ও Nagad কনফিগারেশন",
+    href: "/dashboard/settings/payment-gateway",
+    icon: CreditCard,
+    category: "নেভিগেশন",
+    badge: "গেটওয়ে",
+    color: "text-emerald-600 bg-emerald-50",
+    keywords: ["payment gateway", "sslcommerz", "bkash", "nagad", "পেমেন্ট গেটওয়ে"],
   },
   {
     id: "nav-executive-bi",

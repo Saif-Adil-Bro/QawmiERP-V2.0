@@ -20,6 +20,8 @@ import {
 import TeacherNav from "./TeacherNav";
 import { logout } from "@/app/actions/auth";
 import GlobalNotificationBell from "@/components/notifications/GlobalNotificationBell";
+import PortalSyncStatusPill from "@/components/portal/PortalSyncStatusPill";
+import { clearOfflineAuthSession } from "@/lib/offline-auth";
 
 interface TeacherShellProps {
   user: any;
@@ -35,6 +37,7 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
   const handleLogout = async () => {
     try {
       setLoggingOut(true);
+      await clearOfflineAuthSession();
       await logout();
     } catch (e) {
       console.error(e);
@@ -54,7 +57,7 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
   const isRoleAdminOrStaff = ["super_admin", "admin", "muhtamim"].includes(userData?.role);
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
+    <div className="portal-native-shell flex h-dvh bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* DESKTOP SIDEBAR */}
       <aside className="hidden md:flex w-72 lg:w-80 bg-slate-950 text-slate-300 flex-col border-r border-slate-800 shrink-0 select-none">
         {/* Madrasa Brand */}
@@ -172,11 +175,11 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
       {/* MAIN CONTENT CONTAINER */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* MOBILE TOPBAR */}
-        <header className="md:hidden bg-slate-900 text-white px-4 py-3 border-b border-slate-800 flex items-center justify-between shrink-0 shadow-md">
+        <header className="md:hidden pt-safe bg-slate-900 text-white px-4 py-2.5 border-b border-slate-800 flex items-center justify-between shrink-0 shadow-md">
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white"
+              className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-slate-800 text-slate-300 hover:text-white"
               aria-label="মেনু খুলুন"
             >
               <Menu className="w-5 h-5" />
@@ -190,8 +193,9 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
           </div>
 
           <div className="flex items-center gap-2">
+            <PortalSyncStatusPill portalType="teacher" />
             <GlobalNotificationBell />
-            <div className="w-7 h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-xs">
+            <div className="w-8 h-8 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-xs">
               {(userData?.full_name || "উ")[0]}
             </div>
           </div>
@@ -205,6 +209,7 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
             <span className="text-xs text-emerald-700 font-semibold">{userData?.full_name || "সম্মানিত উস্তাদ"}</span>
           </div>
           <div className="flex items-center gap-3">
+            <PortalSyncStatusPill portalType="teacher" />
             <GlobalNotificationBell />
             {isRoleAdminOrStaff && (
               <Link
@@ -218,14 +223,14 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
         </header>
 
         {/* PAGE CONTENT */}
-        <main className="flex-1 overflow-y-auto pb-20 md:pb-8">
+        <main className="flex-1 overflow-y-auto pb-24 md:pb-8">
           <div className="p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto">
             {children}
           </div>
         </main>
 
         {/* MOBILE BOTTOM NAVIGATION BAR */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg">
+        <nav className="md:hidden pb-safe fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg">
           {bottomNavItems.map((item) => {
             const active = item.exact
               ? pathname === item.href
@@ -236,7 +241,7 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all ${
+                className={`flex flex-col items-center justify-center min-h-[44px] min-w-[52px] py-1 px-2 rounded-xl transition-all ${
                   active
                     ? "text-emerald-700 font-bold scale-105"
                     : "text-slate-500 hover:text-slate-800 font-medium"
