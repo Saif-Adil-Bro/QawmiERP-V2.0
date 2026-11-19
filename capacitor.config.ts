@@ -11,6 +11,7 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https',
     cleartext: true,
+    errorPath: 'offline.html',
     ...(serverUrl && !serverUrl.includes('your-domain.com')
       ? { url: serverUrl }
       : {}),

@@ -5,6 +5,7 @@ import DynamicFavicon from '@/components/DynamicFavicon';
 import CapacitorProvider from '@/components/CapacitorProvider';
 import OfflineSyncProvider from '@/components/OfflineSyncProvider';
 import OfflineStatusBanner from '@/components/OfflineStatusBanner';
+import ServiceWorkerRegister from '@/components/ServiceWorkerRegister';
 import { ThemeProvider } from '@/components/common/ThemeContext';
 import type { Metadata, Viewport } from 'next';
 
@@ -73,6 +74,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
             <body suppressHydrationWarning>
                 <ThemeProvider>
                     <OfflineSyncProvider>
+                        <ServiceWorkerRegister />
                         <CapacitorProvider />
                         <ChunkErrorReloader />
                         <TopProgressBar />

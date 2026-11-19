@@ -3,8 +3,14 @@ import path from "node:path";
 
 const outDir = path.resolve(process.cwd(), "out");
 const indexFile = path.join(outDir, "index.html");
+const publicOfflineFile = path.resolve(process.cwd(), "public", "offline.html");
+const outOfflineFile = path.join(outDir, "offline.html");
 
 fs.mkdirSync(outDir, { recursive: true });
+
+if (fs.existsSync(publicOfflineFile)) {
+  fs.copyFileSync(publicOfflineFile, outOfflineFile);
+}
 
 if (!fs.existsSync(indexFile)) {
   const html = `<!DOCTYPE html>
