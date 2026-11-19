@@ -30,16 +30,33 @@ import SessionSelector from "@/components/sessions/SessionSelector";
 import ArchivedSessionBanner from "@/components/sessions/ArchivedSessionBanner";
 import { PermissionProvider, usePermissions } from "@/components/permissions/PermissionContext";
 import GlobalNotificationBell from "@/components/notifications/GlobalNotificationBell";
+import dynamic from "next/dynamic";
 import { ThemeProvider } from "@/components/common/ThemeContext";
 import { ThemeSwitcher } from "@/components/common/ThemeSwitcher";
-import { UniversalCommandPalette } from "@/components/common/UniversalCommandPalette";
-import { MobileActionSheet } from "@/components/common/MobileActionSheet";
-import { ExecutiveSummaryModal } from "@/components/dashboard/ExecutiveSummaryModal";
 import { ModeProvider, useAppMode, AppMode } from "@/components/mode/ModeContext";
-import { ErpAiAssistant } from "@/components/ai/ErpAiAssistant";
 import { ModeToggleSwitch } from "@/components/mode/ModeToggleSwitch";
-import { WindowsStartScreen } from "@/components/mode/WindowsStartScreen";
 import { HeaderMoreMenuDropdown } from "@/components/common/HeaderMoreMenuDropdown";
+
+const UniversalCommandPalette = dynamic(
+  () => import("@/components/common/UniversalCommandPalette").then((m) => m.UniversalCommandPalette),
+  { ssr: false }
+);
+const MobileActionSheet = dynamic(
+  () => import("@/components/common/MobileActionSheet").then((m) => m.MobileActionSheet),
+  { ssr: false }
+);
+const ExecutiveSummaryModal = dynamic(
+  () => import("@/components/dashboard/ExecutiveSummaryModal").then((m) => m.ExecutiveSummaryModal),
+  { ssr: false }
+);
+const ErpAiAssistant = dynamic(
+  () => import("@/components/ai/ErpAiAssistant").then((m) => m.ErpAiAssistant),
+  { ssr: false }
+);
+const WindowsStartScreen = dynamic(
+  () => import("@/components/mode/WindowsStartScreen").then((m) => m.WindowsStartScreen),
+  { ssr: false }
+);
 
 function HeaderUserProfile() {
   const { profile, summary } = usePermissions();
