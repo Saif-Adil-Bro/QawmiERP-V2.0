@@ -4,6 +4,7 @@ import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
+import { resolveTeacherUuid } from "./teacher_subjects";
 import { encodeRoutineMeta, RoutineItemType } from "@/lib/routine-helper";
 
 export async function addRoutine(formData: FormData) {
@@ -44,12 +45,16 @@ export async function addRoutine(formData: FormData) {
     }
 
     const encodedRoom = encodeRoutineMeta(item_type, custom_title, raw_room);
+    const resolvedTeacherId =
+      item_type === "SUBJECT" && teacher_id
+        ? await resolveTeacherUuid(teacher_id, finalMadrasaId)
+        : null;
 
     const insertPayload = {
       madrasa_id: finalMadrasaId,
       class_id,
       subject_id: item_type === "SUBJECT" ? (subject_id || null) : null,
-      teacher_id: item_type === "SUBJECT" ? (teacher_id || null) : null,
+      teacher_id: resolvedTeacherId,
       day_of_week,
       start_time: item_type === "OFFDAY" ? "00:00:00" : (start_time.length === 5 ? `${start_time}:00` : start_time),
       end_time: item_type === "OFFDAY" ? "23:59:59" : (end_time.length === 5 ? `${end_time}:00` : end_time),
@@ -66,7 +71,9 @@ export async function addRoutine(formData: FormData) {
 
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/academic/routine/builder");
+    revalidatePath("/portal");
     revalidatePath("/portal/routine");
+    revalidatePath("/teacher-portal");
     revalidatePath("/teacher-portal/routine");
     return { success: true };
   } catch (err: any) {
@@ -101,11 +108,16 @@ export async function updateRoutine(formData: FormData) {
     const custom_title = (formData.get("custom_title") as string) || "";
     const raw_room = (formData.get("room_number") as string) || "";
 
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     const encodedRoom = encodeRoutineMeta(item_type, custom_title, raw_room);
+    const resolvedTeacherId =
+      item_type === "SUBJECT" && teacher_id
+        ? await resolveTeacherUuid(teacher_id, finalMadrasaId || undefined)
+        : null;
 
     const updatePayload = {
       subject_id: item_type === "SUBJECT" ? (subject_id || null) : null,
-      teacher_id: item_type === "SUBJECT" ? (teacher_id || null) : null,
+      teacher_id: resolvedTeacherId,
       day_of_week,
       start_time: item_type === "OFFDAY" ? "00:00:00" : (start_time.length === 5 ? `${start_time}:00` : start_time),
       end_time: item_type === "OFFDAY" ? "23:59:59" : (end_time.length === 5 ? `${end_time}:00` : end_time),
@@ -125,7 +137,9 @@ export async function updateRoutine(formData: FormData) {
 
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/academic/routine/builder");
+    revalidatePath("/portal");
     revalidatePath("/portal/routine");
+    revalidatePath("/teacher-portal");
     revalidatePath("/teacher-portal/routine");
     return { success: true };
   } catch (err: any) {
@@ -153,7 +167,9 @@ export async function deleteRoutine(id: string) {
 
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/academic/routine/builder");
+    revalidatePath("/portal");
     revalidatePath("/portal/routine");
+    revalidatePath("/teacher-portal");
     revalidatePath("/teacher-portal/routine");
     return { success: true };
   } catch (err: any) {
@@ -251,7 +267,9 @@ export async function copyDayRoutine(params: {
 
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/academic/routine/builder");
+    revalidatePath("/portal");
     revalidatePath("/portal/routine");
+    revalidatePath("/teacher-portal");
     revalidatePath("/teacher-portal/routine");
     return { success: true, count: newItems.length };
   } catch (err: any) {
@@ -287,7 +305,9 @@ export async function clearDayRoutines(params: {
 
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/academic/routine/builder");
+    revalidatePath("/portal");
     revalidatePath("/portal/routine");
+    revalidatePath("/teacher-portal");
     revalidatePath("/teacher-portal/routine");
     return { success: true };
   } catch (err: any) {

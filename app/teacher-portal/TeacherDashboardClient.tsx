@@ -75,6 +75,7 @@ export default function TeacherDashboardClient({
 
   // Seed Dexie IndexedDB silently for instant offline availability
   useEffect(() => {
+    const isOnlineNow = typeof navigator === "undefined" ? true : navigator.onLine;
     seedPortalOfflineCache("teacher", {
       profile: teacherId
         ? {
@@ -89,6 +90,7 @@ export default function TeacherDashboardClient({
       classes,
       notices,
       routines: teacherSchedule.routines,
+      replaceRoutines: isOnlineNow,
       academicCalendar: holidays.map((h, i) => ({
         ...h,
         id: String(h.id || `hol_${i}`),

@@ -119,19 +119,27 @@ export default async function ParentPortalExams(props: {
           .select("id")
           .eq("madrasa_id", madrasaId)
           .eq("class_id", classId),
-        adminClient
-          .from("student_enrollments")
-          .select("student_id")
-          .eq("madrasa_id", madrasaId)
-          .eq("class_id", classId)
-          .then((res: any) => res)
-          .catch(() => ({ data: [] })),
-        adminClient
-          .from("exam_subjects")
-          .select("class_id, subject_name, total_marks, pass_marks, is_compulsory")
-          .eq("exam_id", selectedExamId)
-          .then((res: any) => res)
-          .catch(() => ({ data: [] })),
+        (async () => {
+          try {
+            return await adminClient
+              .from("student_enrollments")
+              .select("student_id")
+              .eq("madrasa_id", madrasaId)
+              .eq("class_id", classId);
+          } catch {
+            return { data: [] as any[] };
+          }
+        })(),
+        (async () => {
+          try {
+            return await adminClient
+              .from("exam_subjects")
+              .select("class_id, subject_name, total_marks, pass_marks, is_compulsory")
+              .eq("exam_id", selectedExamId);
+          } catch {
+            return { data: [] as any[] };
+          }
+        })(),
       ]);
 
       for (const c of classStudentsRes?.data || []) {

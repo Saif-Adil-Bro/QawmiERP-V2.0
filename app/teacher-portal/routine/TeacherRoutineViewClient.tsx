@@ -71,8 +71,10 @@ export default function TeacherRoutineViewClient({
 
   // Seed Dexie IndexedDB silently for offline availability
   useEffect(() => {
+    const isOnlineNow = typeof navigator === "undefined" ? true : navigator.onLine;
     seedPortalOfflineCache("teacher", {
       routines: schedule.routines || [],
+      replaceRoutines: isOnlineNow,
       academicCalendar: holidays.map((h, i) => ({
         ...h,
         id: String(h.id || `hol_${i}`),

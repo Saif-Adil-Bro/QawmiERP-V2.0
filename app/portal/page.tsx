@@ -228,19 +228,27 @@ export default async function PortalOverview(props: {
           .select("id")
           .eq("madrasa_id", madrasaId)
           .eq("class_id", effectiveClassId),
-        adminClient
-          .from("student_enrollments")
-          .select("student_id")
-          .eq("madrasa_id", madrasaId)
-          .eq("class_id", effectiveClassId)
-          .then((res: any) => res)
-          .catch(() => ({ data: [] })),
-        adminClient
-          .from("exam_subjects")
-          .select("class_id, subject_name, total_marks, pass_marks, is_compulsory")
-          .eq("exam_id", latestPublished.id)
-          .then((res: any) => res)
-          .catch(() => ({ data: [] })),
+        (async () => {
+          try {
+            return await adminClient
+              .from("student_enrollments")
+              .select("student_id")
+              .eq("madrasa_id", madrasaId)
+              .eq("class_id", effectiveClassId);
+          } catch {
+            return { data: [] as any[] };
+          }
+        })(),
+        (async () => {
+          try {
+            return await adminClient
+              .from("exam_subjects")
+              .select("class_id, subject_name, total_marks, pass_marks, is_compulsory")
+              .eq("exam_id", latestPublished.id);
+          } catch {
+            return { data: [] as any[] };
+          }
+        })(),
       ]);
 
       for (const c of classmatesRes?.data || []) {

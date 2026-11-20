@@ -5,13 +5,14 @@ import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { isTeachingStaff } from "@/lib/staff-management";
+import { resolveTeacherCandidateIdsByStaffId } from "@/lib/teacher-identity";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Safely resolves or repairs a teacher UUID across SQL tables and metadata.
  */
-async function resolveTeacherUuid(teacherId: string, madrasaId?: string): Promise<string> {
+export async function resolveTeacherUuid(teacherId: string, madrasaId?: string): Promise<string> {
   if (!teacherId) return teacherId;
 
   const adminClient = await createAdminClient();
@@ -236,7 +237,10 @@ export interface TeacherAcademicSchedule {
   routines: TeacherRoutineScheduleItem[];
 }
 
-export async function getTeacherAcademicSchedule(staffId: string): Promise<TeacherAcademicSchedule> {
+export async function getTeacherAcademicSchedule(
+  staffId: string,
+  options?: { madrasaId?: string; candidateIds?: string[] }
+): Promise<TeacherAcademicSchedule> {
   const result: TeacherAcademicSchedule = {
     isTeachingStaff: false,
     teacherId: staffId,
@@ -245,61 +249,67 @@ export async function getTeacherAcademicSchedule(staffId: string): Promise<Teach
     routines: [],
   };
 
-  if (!staffId) return result;
+  const hasExplicitCandidates = Boolean(options?.candidateIds && options.candidateIds.length > 0);
+  if (!staffId && !hasExplicitCandidates) return result;
 
   try {
     const supabase = await createClient();
     const adminClient = await createAdminClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     const { getAuthMadrasaId } = await import("./students");
-    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : undefined;
+    let madrasaId =
+      options?.madrasaId || (user ? await getAuthMadrasaId(supabase, user) : undefined);
 
-    // P2-Fix: first-madrasa fallback সরানো
+    if (!madrasaId && user) {
+      const { data: uRow } = await adminClient
+        .from("users")
+        .select("madrasa_id")
+        .eq("id", user.id)
+        .maybeSingle();
+      madrasaId = uRow?.madrasa_id || user.user_metadata?.madrasa_id || undefined;
+    }
+
     if (!madrasaId) return result;
 
     const meta = ((await getMadrasaMetadata(madrasaId)) as any) || {};
-    const staffMembers = meta.staff_members || [];
-    const staff = staffMembers.find((s: any) => s.id === staffId || s.legacy_id === staffId);
 
-    const isTeacher = staff ? (
-      isTeachingStaff(staff) ||
-      staff.employment?.category_id === "cat-teaching" ||
-      staff.employment?.category_id === "cat_teaching" ||
-      staff.employment?.designation?.includes("মুদাররিস") ||
-      staff.employment?.designation?.includes("শিক্ষক") ||
-      staff.employment?.designation?.includes("উস্তাদ")
-    ) : true;
+    const resolvedByStaff = staffId
+      ? await resolveTeacherCandidateIdsByStaffId({
+          adminClient,
+          madrasaId,
+          staffOrTeacherId: staffId,
+          madrasaMeta: meta,
+        })
+      : { candidateIds: [], matchedTeacher: null, matchedStaff: null };
+
+    const candidateIds = new Set<string>(resolvedByStaff.candidateIds);
+    for (const extraId of options?.candidateIds || []) {
+      const trimmed = String(extraId || "").trim();
+      if (trimmed) candidateIds.add(trimmed);
+    }
+
+    const staff = resolvedByStaff.matchedStaff;
+    const isTeacher = staff
+      ? isTeachingStaff(staff) ||
+        staff.employment?.category_id === "cat-teaching" ||
+        staff.employment?.category_id === "cat_teaching" ||
+        staff.employment?.designation?.includes("মুদাররিস") ||
+        staff.employment?.designation?.includes("শিক্ষক") ||
+        staff.employment?.designation?.includes("উস্তাদ")
+      : true;
 
     result.isTeachingStaff = isTeacher;
-
-    // Collect all candidate teacher IDs for matching
-    const candidateIds = new Set<string>();
-    candidateIds.add(staffId);
-    if (staff?.legacy_id) candidateIds.add(staff.legacy_id);
-
-    // Look up in SQL `teachers` table
-    const { data: dbTeachers } = await adminClient
-      .from("teachers")
-      .select("id, first_name, last_name, phone, email")
-      .eq("madrasa_id", madrasaId);
-
-    const staffPhone = staff?.contact?.phone?.trim();
-    const staffEmail = staff?.contact?.email?.trim()?.toLowerCase();
-    const staffFullName = (staff?.personal?.full_name_bn || `${staff?.personal?.first_name || ""} ${staff?.personal?.last_name || ""}`).trim();
-
-    (dbTeachers || []).forEach((t) => {
-      let isMatch = false;
-      if (t.id === staffId || (staff?.legacy_id && t.id === staff?.legacy_id)) isMatch = true;
-      if (staffEmail && t.email && t.email.toLowerCase() === staffEmail) isMatch = true;
-      if (staffPhone && t.phone && t.phone.replace(/\D/g, '') === staffPhone.replace(/\D/g, '')) isMatch = true;
-      if (t.first_name && staffFullName && staffFullName.includes(t.first_name.trim())) isMatch = true;
-
-      if (isMatch) {
-        candidateIds.add(t.id);
-      }
-    });
+    result.teacherId =
+      resolvedByStaff.matchedTeacher?.id ||
+      resolvedByStaff.matchedStaff?.id ||
+      staffId ||
+      Array.from(candidateIds)[0] ||
+      "";
 
     const candidateIdsArr = Array.from(candidateIds);
+    if (candidateIdsArr.length === 0) return result;
 
     // 1. Fetch assigned subjects from `teacher_subjects`
     const { data: dbAssigned, error: assignedErr } = await adminClient
@@ -356,29 +366,18 @@ export async function getTeacherAcademicSchedule(staffId: string): Promise<Teach
       }
     });
 
-    // 3. Fetch Weekly Routines for this teacher
-    const { data: dbRoutines, error: routineErr } = await adminClient
+    // 3. Fetch Weekly Routines strictly assigned directly to this teacher's candidate IDs
+    const { data: dbRoutines } = await adminClient
       .from("routines")
-      .select("*, classes(id, name), subjects(id, name, code)")
+      .select("*, classes(id, name), subjects(id, name, code), teachers(id, first_name, last_name)")
       .in("teacher_id", candidateIdsArr)
       .order("start_time", { ascending: true });
 
-    let rawRoutinesList = dbRoutines || [];
+    const rawRoutinesList = (dbRoutines || []).filter(
+      (r: any) => !r?.madrasa_id || r.madrasa_id === madrasaId
+    );
 
-    // Fallback: If teacher_id on routine was left null or matched via assigned subjects
-    if (rawRoutinesList.length === 0 && result.assignedSubjects.length > 0) {
-      const pairFilters = result.assignedSubjects.map(s => `and(class_id.eq.${s.class_id},subject_id.eq.${s.subject_id})`).join(',');
-      const { data: subRoutines } = await adminClient
-        .from("routines")
-        .select("*, classes(id, name), subjects(id, name, code)")
-        .or(pairFilters)
-        .order("start_time", { ascending: true });
-      if (subRoutines && subRoutines.length > 0) {
-        rawRoutinesList = subRoutines;
-      }
-    }
-
-    const { parseRoutineItem, formatTimeString } = await import("@/lib/routine-helper");
+    const { parseRoutineItem } = await import("@/lib/routine-helper");
     const seenRoutineIds = new Set<string>();
 
     rawRoutinesList.forEach((r: any) => {

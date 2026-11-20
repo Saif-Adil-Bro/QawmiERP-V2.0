@@ -219,6 +219,46 @@ export async function createUserAccount(prevState: any, formData: FormData) {
       return { error: `ডাটাবেজ প্রোফাইল তৈরিতে ত্রুটি: ${userError.message}` };
     }
 
+    // Auto-link teacher profile with auth_user_id (and populate email if blank)
+    if (role === "teacher") {
+      try {
+        let linkedTeacherId = teacherId;
+        if (!linkedTeacherId && email) {
+          const { data: emailMatches } = await adminClient
+            .from("teachers")
+            .select("id, email")
+            .eq("madrasa_id", madrasaId)
+            .ilike("email", email);
+          if (emailMatches && emailMatches.length === 1) {
+            linkedTeacherId = emailMatches[0].id;
+          }
+        }
+
+        if (linkedTeacherId) {
+          const { data: existingTeacher } = await adminClient
+            .from("teachers")
+            .select("id, email")
+            .eq("id", linkedTeacherId)
+            .eq("madrasa_id", madrasaId)
+            .maybeSingle();
+
+          if (existingTeacher) {
+            const teacherPatch: Record<string, any> = { auth_user_id: authUserId };
+            if (!existingTeacher.email && email) {
+              teacherPatch.email = email;
+            }
+            await adminClient
+              .from("teachers")
+              .update(teacherPatch)
+              .eq("id", existingTeacher.id)
+              .eq("madrasa_id", madrasaId);
+          }
+        }
+      } catch (linkErr) {
+        console.warn("Non-fatal teacher auth_user_id link warning:", linkErr);
+      }
+    }
+
     await logAuditEvent({
       madrasaId,
       actorId: user.id,

@@ -187,13 +187,17 @@ export async function GET(req: NextRequest) {
           .select("id")
           .eq("madrasa_id", auth.ctx.madrasaId)
           .eq("class_id", effectiveClassId),
-        auth.adminClient
-          .from("student_enrollments")
-          .select("student_id")
-          .eq("madrasa_id", auth.ctx.madrasaId)
-          .eq("class_id", effectiveClassId)
-          .then((res: any) => res)
-          .catch(() => ({ data: [] })),
+        (async () => {
+          try {
+            return await auth.adminClient
+              .from("student_enrollments")
+              .select("student_id")
+              .eq("madrasa_id", auth.ctx.madrasaId)
+              .eq("class_id", effectiveClassId);
+          } catch {
+            return { data: [] as any[] };
+          }
+        })(),
       ]);
       for (const c of classmatesRes?.data || []) {
         if (c?.id) classmateIdSet.add(String(c.id));
@@ -217,12 +221,16 @@ export async function GET(req: NextRequest) {
           .select("*")
           .in("exam_id", publishedExamIds)
           .in("student_id", classStudentIds),
-        auth.adminClient
-          .from("exam_subjects")
-          .select("exam_id, class_id, subject_name, total_marks, pass_marks, is_compulsory")
-          .in("exam_id", publishedExamIds)
-          .then((res: any) => res)
-          .catch(() => ({ data: [] })),
+        (async () => {
+          try {
+            return await auth.adminClient
+              .from("exam_subjects")
+              .select("exam_id, class_id, subject_name, total_marks, pass_marks, is_compulsory")
+              .in("exam_id", publishedExamIds);
+          } catch {
+            return { data: [] as any[] };
+          }
+        })(),
       ]);
       allClassExamRows = classMarksRes?.data || [];
       allExamSubjects = exSubsRes?.data || [];

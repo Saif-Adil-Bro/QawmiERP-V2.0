@@ -125,7 +125,9 @@ export async function initialFullSync(
 
       const mainData = mainRes?.data || {};
       const routinesData = normalizeRows(
-        routinesRes?.data?.routines || routinesRes?.data || mainData.routines || []
+        portalType === "teacher"
+          ? mainData.routines || []
+          : mainData.routines || routinesRes?.data?.routines || routinesRes?.data || []
       );
       const holidaysData = normalizeRows(holidaysRes?.data?.holidays || holidaysRes?.data || []);
       const homeworkData = normalizeRows(
@@ -209,6 +211,9 @@ export async function initialFullSync(
           }
 
           if (noticesData.length) await db.notices.bulkPut(noticesData);
+          if (mainRes?.data) {
+            await db.routines.clear();
+          }
           if (routinesData.length) await db.routines.bulkPut(routinesData);
           if (holidaysData.length) await db.academicCalendar.bulkPut(holidaysData);
           if (homeworkData.length) await db.homework.bulkPut(homeworkData);
@@ -378,6 +383,7 @@ export interface PortalSeedPayload {
   kitabLogs?: Array<Record<string, unknown>>;
   notices?: Array<Record<string, unknown>>;
   routines?: Array<Record<string, unknown>>;
+  replaceRoutines?: boolean;
   academicCalendar?: Array<Record<string, unknown>>;
   homework?: Array<Record<string, unknown>>;
 }
@@ -432,6 +438,9 @@ export async function seedPortalOfflineCache(
         if (payload.hifzLogs?.length) await db.hifzLogs.bulkPut(normalizeRows(payload.hifzLogs));
         if (payload.kitabLogs?.length) await db.kitabLogs.bulkPut(normalizeRows(payload.kitabLogs));
         if (payload.notices?.length) await db.notices.bulkPut(normalizeRows(payload.notices));
+        if (payload.replaceRoutines) {
+          await db.routines.clear();
+        }
         if (payload.routines?.length) await db.routines.bulkPut(normalizeRows(payload.routines));
         if (payload.academicCalendar?.length) await db.academicCalendar.bulkPut(normalizeRows(payload.academicCalendar));
         if (payload.homework?.length) await db.homework.bulkPut(normalizeRows(payload.homework));

@@ -3,6 +3,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
 import { getTeacherAcademicSchedule } from "@/app/actions/teacher_subjects";
 import { getMadrasaMetadata } from "@/lib/sessions";
+import { resolveTeacherIdentityForAuthUser } from "@/lib/teacher-identity";
 import TeacherDashboardClient from "./TeacherDashboardClient";
 
 export const dynamic = "force-dynamic";
@@ -16,52 +17,28 @@ export default async function TeacherPortalOverview() {
 
   const { data: userData } = await adminClient
     .from("users")
-    .select("madrasa_id, full_name, role")
+    .select("madrasa_id, full_name, email, phone, role")
     .eq("id", user.id)
     .maybeSingle();
 
-  let madrasaId = userData?.madrasa_id;
+  let madrasaId = userData?.madrasa_id || user.user_metadata?.madrasa_id;
   if (!madrasaId) {
     const { data: anyM } = await adminClient.from("madrasas").select("id").limit(1).single();
     madrasaId = anyM?.id || "";
   }
 
-  let teacherId = "";
-  let teacherName = userData?.full_name || "মুহতারাম উস্তাদ";
-  let designation = "মুদাররিস";
+  const madrasaMeta = madrasaId ? await getMadrasaMetadata(madrasaId) : null;
+  const identity = await resolveTeacherIdentityForAuthUser({
+    adminClient,
+    madrasaId,
+    user,
+    userData,
+    madrasaMeta,
+  });
 
-  const [{ data: teacher }, madrasaMeta] = await Promise.all([
-    adminClient
-      .from("teachers")
-      .select("id, first_name, last_name, designation, phone")
-      .eq("madrasa_id", madrasaId)
-      .or(`email.eq.${user.email},auth_user_id.eq.${user.id}`)
-      .maybeSingle(),
-    madrasaId ? getMadrasaMetadata(madrasaId) : Promise.resolve(null),
-  ]);
-
-  if (teacher) {
-    teacherId = teacher.id;
-    teacherName = `${teacher.first_name || ""} ${teacher.last_name || ""}`.trim() || teacherName;
-    designation = teacher.designation || designation;
-  }
-
-  if (!teacherId && madrasaMeta) {
-    const staffMembers = (madrasaMeta as any)?.staff_members || [];
-    const staff = staffMembers.find(
-      (s: any) =>
-        (user.email && s.contact?.email?.toLowerCase() === user.email.toLowerCase()) ||
-        (s.personal?.first_name && userData?.full_name?.includes(s.personal.first_name))
-    );
-    if (staff) {
-      teacherId = staff.id;
-      teacherName =
-        staff.personal?.full_name_bn ||
-        `${staff.personal?.first_name || ""} ${staff.personal?.last_name || ""}`.trim() ||
-        teacherName;
-      designation = staff.employment?.designation || designation;
-    }
-  }
+  const teacherId = identity.teacherId;
+  const teacherName = identity.teacherName;
+  const designation = identity.designation;
 
   const todayStr = toDhakaDateString();
 
@@ -83,7 +60,10 @@ export default async function TeacherPortalOverview() {
       .order("created_at", { ascending: false })
       .limit(3),
     getEarlyWarningAlerts(),
-    getTeacherAcademicSchedule(teacherId || user.id),
+    getTeacherAcademicSchedule(teacherId || user.id, {
+      madrasaId,
+      candidateIds: identity.candidateIds,
+    }),
   ]);
 
   const activeHolidays = (madrasaMeta?.academic_holidays || [])
