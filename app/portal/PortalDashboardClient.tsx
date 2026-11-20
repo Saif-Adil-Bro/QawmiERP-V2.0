@@ -22,7 +22,7 @@ import {
 import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
 import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
-import CurrentClassLiveBanner from "@/components/routine/CurrentClassLiveBanner";
+import LiveRoutineCarousel from "@/components/routine/LiveRoutineCarousel";
 import type { HolidayRangeLike } from "@/lib/routine-helper";
 import { toBanglaOrdinal } from "@/lib/exam-grading";
 
@@ -214,7 +214,12 @@ export default function PortalDashboardClient({
       meritPosition: cached.merit_position ?? null,
       meritLabel:
         cached.merit_label ||
-        (cached.merit_position ? toBanglaOrdinal(cached.merit_position) : "অপ্রযোজ্য"),
+        cached.formatted_merit ||
+        (cached.merit_position
+          ? toBanglaOrdinal(cached.merit_position)
+          : cached.is_passed
+          ? "অপেক্ষমাণ"
+          : "প্রযোজ্য নয়"),
       totalCandidates: Number(cached.total_candidates || 0),
     };
   }, [latestExam, offlineSnapshot?.examSummaries, child?.id]);
@@ -370,14 +375,14 @@ export default function PortalDashboardClient({
         </div>
       </div>
 
-      {/* Live Class Routine Banner */}
-      {effectiveRoutines.length > 0 && (
-        <CurrentClassLiveBanner
-          routines={effectiveRoutines}
-          holidays={effectiveHolidays}
-          isTeacherView={false}
-        />
-      )}
+      {/* Live & Upcoming Class Routine Carousel */}
+      <LiveRoutineCarousel
+        routines={effectiveRoutines}
+        holidays={effectiveHolidays}
+        variant="student"
+        studentClassId={child?.class_id || null}
+        fullRoutineHref={`/portal/routine${studentQuerySuffix}`}
+      />
 
       {/* 4 KPI Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">

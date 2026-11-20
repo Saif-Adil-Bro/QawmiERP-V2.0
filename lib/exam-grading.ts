@@ -236,7 +236,7 @@ function toBnDigits(num: number): string {
  */
 export function toBanglaOrdinal(rank?: number | null): string {
   if (rank === null || rank === undefined || !Number.isFinite(rank) || rank <= 0) {
-    return "অপ্রযোজ্য";
+    return "প্রযোজ্য নয়";
   }
   const n = Math.trunc(rank);
   const specialMap: Record<number, string> = {
@@ -255,11 +255,26 @@ export function toBanglaOrdinal(rank?: number | null): string {
   return `${toBnDigits(n)}তম`;
 }
 
+export interface ExamEvaluationOptions {
+  failPolicy?: string; // "compulsory_subject_fail" | "any_subject_fail" | "percentage_only"
+  examSubjects?: Array<{
+    class_id?: string | null;
+    subject_name: string;
+    total_marks?: number | null;
+    pass_marks?: number | null;
+    is_compulsory?: boolean | null;
+  }>;
+  compulsorySubjects?: Record<string, boolean>;
+  classId?: string | null;
+}
+
 export interface ComputedSubjectResult {
   id: string;
   subjectName: string;
   marksObtained: number;
   totalMarks: number;
+  passMarks: number;
+  isCompulsory: boolean;
   percentage: number;
   gpa: number;
   gradeLabel: string;
@@ -284,16 +299,44 @@ export interface StudentExamSummary {
   subjects: ComputedSubjectResult[];
 }
 
+function parseExplicitMeritRank(rows: Array<Record<string, any>>): number | null {
+  for (const r of rows || []) {
+    const raw = r?.merit_position ?? r?.merit_rank ?? r?.rank ?? r?.position;
+    if (raw !== null && raw !== undefined && raw !== "") {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.trunc(parsed);
+      }
+    }
+  }
+  return null;
+}
+
 export function computeStudentExamSummary(
   rows: Array<Record<string, any>>,
-  gradingConfigOrRules?: ExamGradingConfig | GradeRule[] | null
+  gradingConfigOrRules?: ExamGradingConfig | GradeRule[] | null,
+  options?: ExamEvaluationOptions
 ): StudentExamSummary {
   const config = normalizeGradingConfig(gradingConfigOrRules);
   const rules = config.rules;
   const minPassPct = getMinPassPercentage(rules);
+  const failPolicy = options?.failPolicy || "compulsory_subject_fail";
+  const compulsoryMeta = options?.compulsorySubjects || {};
+  const classId = options?.classId || null;
+
+  // Build subject definition map from exam_subjects (prefer matching classId)
+  const subjectDefMap = new Map<
+    string,
+    { total_marks?: number | null; pass_marks?: number | null; is_compulsory?: boolean | null }
+  >();
+  for (const subDef of options?.examSubjects || []) {
+    if (!subDef?.subject_name) continue;
+    if (classId && subDef.class_id && String(subDef.class_id) !== String(classId)) continue;
+    subjectDefMap.set(subDef.subject_name.trim(), subDef);
+  }
 
   const validRows = (rows || []).filter(
-    (r) => r && (r.marks_obtained !== null && r.marks_obtained !== undefined && r.marks_obtained !== "")
+    (r) => r && r.marks_obtained !== null && r.marks_obtained !== undefined && r.marks_obtained !== ""
   );
 
   if (validRows.length === 0) {
@@ -305,43 +348,70 @@ export function computeStudentExamSummary(
       totalMax: 0,
       percentage: 0,
       gpa: 0,
-      gradeLabel: "অনির্ধারিত",
+      gradeLabel: "অপেক্ষমাণ",
       gradeColor: "slate",
       badgeClass: getGradeBadgeClass("slate"),
       isPassed: false,
-      statusLabel: "নম্বর এন্ট্রি হয়নি",
+      statusLabel: "অপেক্ষমাণ",
       subjects: [],
     };
   }
 
   let totalObtained = 0;
   let totalMax = 0;
-  let gpaSum = 0;
   let failedSubjectCount = 0;
+  let failedCompulsoryCount = 0;
 
   const subjects: ComputedSubjectResult[] = validRows.map((r, idx) => {
-    const maxM = Number(r.total_marks) > 0 ? Number(r.total_marks) : 100;
+    const subjectName = (
+      r.subject_name ||
+      (Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name) ||
+      `বিষয় ${toBnDigits(idx + 1)}`
+    ).trim();
+
+    const subDef = subjectDefMap.get(subjectName);
+    const maxM =
+      Number(r.total_marks) > 0
+        ? Number(r.total_marks)
+        : Number(subDef?.total_marks) > 0
+        ? Number(subDef?.total_marks)
+        : 100;
     const obtM = Math.max(0, Number(r.marks_obtained) || 0);
     const pct = maxM > 0 ? Math.round((obtM / maxM) * 100) : 0;
-    const rule = resolveGradeRule(pct, rules, pct < minPassPct);
-    const isFailed = Boolean(rule.isFail || pct < minPassPct);
+
+    // Resolve per-subject pass mark & compulsory flag matching Admin ReportCardsClient
+    const passMarks =
+      subDef?.pass_marks !== undefined && subDef?.pass_marks !== null && Number(subDef.pass_marks) > 0
+        ? Number(subDef.pass_marks)
+        : (maxM * minPassPct) / 100;
+
+    const compKey = classId ? `${classId}:${subjectName}` : "";
+    const isCompulsory =
+      compKey && compulsoryMeta[compKey] !== undefined
+        ? Boolean(compulsoryMeta[compKey])
+        : subDef?.is_compulsory !== undefined && subDef?.is_compulsory !== null
+        ? Boolean(subDef.is_compulsory)
+        : true;
+
+    const isSubFailed = obtM < passMarks;
+    const rule = resolveGradeRule(pct, rules, isSubFailed);
+    const isFailed = Boolean(rule.isFail || isSubFailed);
     const gpa = isFailed ? 0 : rule.gpa;
 
     totalObtained += obtM;
     totalMax += maxM;
-    gpaSum += gpa;
-    if (isFailed) failedSubjectCount += 1;
-
-    const subjectName =
-      r.subject_name ||
-      (Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name) ||
-      `বিষয় ${toBnDigits(idx + 1)}`;
+    if (isFailed) {
+      failedSubjectCount += 1;
+      if (isCompulsory) failedCompulsoryCount += 1;
+    }
 
     return {
       id: String(r.id || `sub_${idx}`),
       subjectName,
       marksObtained: obtM,
       totalMarks: maxM,
+      passMarks,
+      isCompulsory,
       percentage: pct,
       gpa,
       gradeLabel: rule.label,
@@ -351,15 +421,40 @@ export function computeStudentExamSummary(
     };
   });
 
-  const percentage = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : 0;
-  const isPassed = failedSubjectCount === 0;
-  const rawGpa = isPassed && subjects.length > 0 ? gpaSum / subjects.length : 0;
-  const gpa = Math.round(rawGpa * 100) / 100;
+  const exactPct = totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
+  const percentage = Math.round(exactPct);
 
-  const overallRule =
-    config.calculationMode === "subject_gpa"
-      ? resolveGradeFromGpa(gpa, rules, !isPassed)
-      : resolveGradeRule(percentage, rules, !isPassed);
+  // Determine overall pass/fail matching Admin ReportCardsClient fail_policy
+  let isOverallFailed = false;
+  if (failPolicy === "any_subject_fail") {
+    isOverallFailed = failedSubjectCount > 0;
+  } else if (failPolicy === "percentage_only") {
+    isOverallFailed = exactPct < minPassPct;
+  } else {
+    // Default "compulsory_subject_fail"
+    isOverallFailed = failedCompulsoryCount > 0 || exactPct < minPassPct;
+  }
+  const isPassed = !isOverallFailed;
+
+  let gpa = 0;
+  let overallRule: GradeRule;
+
+  if (!isPassed) {
+    gpa = 0;
+    overallRule = getFailRule(rules);
+  } else if (config.calculationMode === "average_percentage") {
+    overallRule = resolveGradeRule(exactPct, rules, false);
+    gpa = Math.round(overallRule.gpa * 100) / 100;
+  } else {
+    const compulsorySubs = subjects.filter((s) => s.isCompulsory);
+    const optionalSubs = subjects.filter((s) => !s.isCompulsory);
+    const compulsoryGpaSum = compulsorySubs.reduce((sum, s) => sum + s.gpa, 0);
+    const optionalBonus = optionalSubs.reduce((sum, s) => sum + Math.max(0, s.gpa - 2.0), 0);
+    const denom = compulsorySubs.length > 0 ? compulsorySubs.length : subjects.length;
+    const rawGpa = denom > 0 ? Math.min(5.0, (compulsoryGpaSum + optionalBonus) / denom) : 0;
+    gpa = Math.round(rawGpa * 100) / 100;
+    overallRule = resolveGradeFromGpa(gpa, rules, false);
+  }
 
   return {
     hasMarks: true,
@@ -392,13 +487,14 @@ export interface MeritPositionResult {
 export function computeClassMeritPosition(
   targetStudentId: string,
   allClassExamRows: Array<Record<string, any>>,
-  gradingConfigOrRules?: ExamGradingConfig | GradeRule[] | null
+  gradingConfigOrRules?: ExamGradingConfig | GradeRule[] | null,
+  options?: ExamEvaluationOptions
 ): MeritPositionResult {
   if (!targetStudentId || !Array.isArray(allClassExamRows) || allClassExamRows.length === 0) {
     return {
       meritPosition: null,
       totalCandidates: 0,
-      formattedPosition: "অপ্রযোজ্য",
+      formattedPosition: "অপেক্ষমাণ",
     };
   }
 
@@ -411,6 +507,10 @@ export function computeClassMeritPosition(
     byStudent.set(sid, list);
   }
 
+  // If the target student has an explicit pre-stored merit_position/rank column, capture it as fallback
+  const targetRows = byStudent.get(String(targetStudentId)) || [];
+  const explicitStoredRank = parseExplicitMeritRank(targetRows);
+
   const candidates: Array<{
     studentId: string;
     isFailed: boolean;
@@ -419,21 +519,29 @@ export function computeClassMeritPosition(
   }> = [];
 
   for (const [sid, rows] of byStudent.entries()) {
-    const summary = computeStudentExamSummary(rows, gradingConfigOrRules);
+    const summary = computeStudentExamSummary(rows, gradingConfigOrRules, options);
     if (!summary.hasMarks) continue;
+    const exactPct = summary.totalMax > 0 ? (summary.totalObtained / summary.totalMax) * 100 : 0;
     candidates.push({
       studentId: sid,
       isFailed: !summary.isPassed,
-      percentage: summary.percentage,
+      percentage: Number(exactPct.toFixed(4)),
       totalObtained: summary.totalObtained,
     });
   }
 
   if (candidates.length === 0) {
+    if (explicitStoredRank !== null) {
+      return {
+        meritPosition: explicitStoredRank,
+        totalCandidates: 0,
+        formattedPosition: toBanglaOrdinal(explicitStoredRank),
+      };
+    }
     return {
       meritPosition: null,
       totalCandidates: 0,
-      formattedPosition: "অপ্রযোজ্য",
+      formattedPosition: "অপেক্ষমাণ",
     };
   }
 
@@ -452,8 +560,8 @@ export function computeClassMeritPosition(
       const prev = candidates[idx - 1];
       const isTie =
         cand.isFailed === prev.isFailed &&
-        cand.percentage === prev.percentage &&
-        cand.totalObtained === prev.totalObtained;
+        Math.abs(cand.percentage - prev.percentage) < 0.001 &&
+        Math.abs(cand.totalObtained - prev.totalObtained) < 0.001;
       if (!isTie) {
         lastRank = idx + 1;
       }
@@ -467,18 +575,37 @@ export function computeClassMeritPosition(
     }
   });
 
-  if (targetRank === null || targetFailed) {
+  if (targetRank === null) {
+    if (explicitStoredRank !== null) {
+      return {
+        meritPosition: explicitStoredRank,
+        totalCandidates: candidates.length,
+        formattedPosition: toBanglaOrdinal(explicitStoredRank),
+      };
+    }
     return {
       meritPosition: null,
       totalCandidates: candidates.length,
-      formattedPosition: targetFailed ? "অপ্রযোজ্য (অকৃতকার্য)" : "অপ্রযোজ্য",
+      formattedPosition: "অপেক্ষমাণ",
     };
   }
 
+  if (targetFailed) {
+    return {
+      meritPosition: null,
+      totalCandidates: candidates.length,
+      formattedPosition: "প্রযোজ্য নয়",
+    };
+  }
+
+  const finalRank =
+    candidates.length === 1 && explicitStoredRank !== null ? explicitStoredRank : targetRank;
+
   return {
-    meritPosition: targetRank,
+    meritPosition: finalRank,
     totalCandidates: candidates.length,
-    formattedPosition: toBanglaOrdinal(targetRank),
+    formattedPosition: toBanglaOrdinal(finalRank),
   };
 }
+
 

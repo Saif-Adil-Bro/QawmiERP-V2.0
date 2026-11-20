@@ -463,4 +463,102 @@ export function getRoutineLiveStatus(
   };
 }
 
+export type RoutinePeriodState = "live" | "next" | "completed" | "upcoming";
+
+/**
+ * Classify a single routine item on today's schedule into live, next, completed, or upcoming.
+ */
+export function getRoutinePeriodState(
+  routine: any,
+  liveStatus: RoutineLiveStatus
+): RoutinePeriodState {
+  if (!routine) return "upcoming";
+  if (liveStatus.isCurrent(routine)) return "live";
+  if (liveStatus.isNext(routine)) return "next";
+
+  const startM = timeStringToMinutes(routine.start_time);
+  const endM = timeStringToMinutes(routine.end_time);
+  const nowM = liveStatus.nowMinutes;
+
+  if (startM >= 0 && endM >= 0) {
+    if (endM >= startM) {
+      if (nowM > endM) return "completed";
+    } else {
+      // Overnight class crossing midnight: completed only after endM and before startM
+      if (nowM > endM && nowM < startM) return "completed";
+    }
+  }
+
+  return "upcoming";
+}
+
+export interface NextAcademicDayPreview {
+  daysAhead: number;
+  isTomorrow: boolean;
+  dateStr: string;
+  dayEnglish: string;
+  dayBangla: string;
+  firstClass: any;
+  totalClasses: number;
+}
+
+/**
+ * Scan the upcoming 1..7 days (Asia/Dhaka) to find the next active academic day
+ * that is neither an academic holiday nor a weekly off-day and has at least one class.
+ */
+export function getNextActiveAcademicDay(
+  routines: any[],
+  now: Date = new Date(),
+  holidays: HolidayRangeLike[] = []
+): NextAcademicDayPreview | null {
+  if (!Array.isArray(routines) || routines.length === 0) return null;
+
+  for (let offset = 1; offset <= 7; offset++) {
+    const candidateDate = new Date(now.getTime() + offset * 24 * 60 * 60 * 1000);
+    const dhaka = getDhakaClockParts(candidateDate);
+
+    // Skip academic holidays
+    const onHoliday = (holidays || []).some((h) => {
+      const start = String(h?.start_date || h?.date || "").slice(0, 10);
+      const end = String(h?.end_date || h?.start_date || h?.date || "").slice(0, 10);
+      if (!start) return false;
+      return dhaka.dateStr >= start && dhaka.dateStr <= end;
+    });
+    if (onHoliday) continue;
+
+    const dayItems = routines.filter((r) => {
+      const d = String(r?.day_of_week || "");
+      return (
+        d === dhaka.englishDay ||
+        d === dhaka.banglaDay ||
+        DAY_TRANSLATIONS[d] === dhaka.banglaDay
+      );
+    });
+
+    if (dayItems.length === 0) continue;
+    if (dayItems.some(isRoutineOffDay)) continue;
+
+    const activePeriods = dayItems
+      .filter((r) => !isRoutineOffDay(r))
+      .sort(
+        (a, b) => timeStringToMinutes(a.start_time) - timeStringToMinutes(b.start_time)
+      );
+
+    if (activePeriods.length > 0) {
+      return {
+        daysAhead: offset,
+        isTomorrow: offset === 1,
+        dateStr: dhaka.dateStr,
+        dayEnglish: dhaka.englishDay,
+        dayBangla: dhaka.banglaDay,
+        firstClass: activePeriods[0],
+        totalClasses: activePeriods.length,
+      };
+    }
+  }
+
+  return null;
+}
+
+
 

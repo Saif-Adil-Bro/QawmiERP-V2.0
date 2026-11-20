@@ -28,7 +28,7 @@ import {
 import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
-import CurrentClassLiveBanner from "@/components/routine/CurrentClassLiveBanner";
+import LiveRoutineCarousel from "@/components/routine/LiveRoutineCarousel";
 
 interface TeacherDashboardClientProps {
   teacherId: string;
@@ -180,6 +180,14 @@ export default function TeacherDashboardClient({
         </div>
       </div>
 
+      {/* Live & Upcoming Class Routine Carousel (Immediately Below Hero) */}
+      <LiveRoutineCarousel
+        routines={effectiveRoutines}
+        holidays={effectiveHolidays}
+        variant="teacher"
+        fullRoutineHref="/teacher-portal/routine"
+      />
+
       {/* In-Charge Classes Announcement Card */}
       {teacherSchedule.inChargeClasses.length > 0 && (
         <div className="bg-gradient-to-r from-teal-900 via-slate-900 to-emerald-900 text-white p-4 sm:p-5 rounded-2xl border border-teal-700/50 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -267,16 +275,6 @@ export default function TeacherDashboardClient({
           </div>
         </div>
       </div>
-
-      {/* Real-time Current Class Live Banner */}
-      {effectiveRoutines.length > 0 && (
-        <CurrentClassLiveBanner
-          routines={effectiveRoutines}
-          holidays={effectiveHolidays}
-          isTeacherView={true}
-          teacherName={teacherName}
-        />
-      )}
 
       {/* Today's Teaching Schedule Card */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 sm:p-6 space-y-4">

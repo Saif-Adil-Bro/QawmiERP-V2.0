@@ -1,10 +1,12 @@
 import { NextRequest } from "next/server";
 import { authenticateMobileRequest, mobileError, mobileSuccess } from "@/lib/mobile-api";
 import { getMadrasaMetadata } from "@/lib/sessions";
+import { getExamSettingsBundle } from "@/lib/structured-config";
 import {
   computeClassMeritPosition,
   computeStudentExamSummary,
   normalizeGradingConfig,
+  type ExamEvaluationOptions,
 } from "@/lib/exam-grading";
 import { parseRoutineItem } from "@/lib/routine-helper";
 
@@ -127,10 +129,30 @@ export async function GET(req: NextRequest) {
     ]);
 
     const publishedExamsMap = (madrasaMeta as any)?.published_exams || {};
-    const gradingConfig = normalizeGradingConfig((madrasaMeta as any)?.exam_grade_scale);
+    const sqlPublishMap: Record<string, any> = {};
+    if (auth.ctx.madrasaId) {
+      try {
+        const { data: pubRows } = await auth.adminClient
+          .from("exam_settings")
+          .select("scope_key, setting_value")
+          .eq("madrasa_id", auth.ctx.madrasaId)
+          .eq("setting_key", "publish_info");
+        for (const row of pubRows || []) {
+          if (row?.scope_key && row?.setting_value) {
+            sqlPublishMap[String(row.scope_key)] = row.setting_value;
+          }
+        }
+      } catch {
+        // Optional table fallback
+      }
+    }
+
+    const defaultGradingConfig = normalizeGradingConfig(
+      (madrasaMeta as any)?.exam_grading_config || (madrasaMeta as any)?.exam_grade_scale
+    );
 
     const enrichedExams = (examsRes.data || []).map((ex: any) => {
-      const pub = publishedExamsMap[ex.id];
+      const pub = sqlPublishMap[ex.id] || publishedExamsMap[ex.id];
       const isPublished = Boolean(pub?.is_published || ex.status === "Published");
       return {
         ...ex,
@@ -140,82 +162,138 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // Compute accurate exam summaries + class-wide merit position for published exams
-    let classStudentIds: string[] = [activeStudent.id];
-    if (classId) {
-      const { data: classmates } = await auth.adminClient
-        .from("students")
-        .select("id")
-        .eq("class_id", classId);
-      if (classmates && classmates.length > 0) {
-        classStudentIds = classmates.map((c: any) => String(c.id));
+    // Resolve classId + classmates (including student_enrollments fallback)
+    let effectiveClassId: string | null = classId || null;
+    if (!effectiveClassId && activeStudent.id) {
+      try {
+        const { data: enrollment } = await auth.adminClient
+          .from("student_enrollments")
+          .select("class_id")
+          .eq("student_id", activeStudent.id)
+          .order("enrollment_date", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (enrollment?.class_id) effectiveClassId = String(enrollment.class_id);
+      } catch {
+        // Optional table fallback
       }
     }
+
+    const classmateIdSet = new Set<string>([String(activeStudent.id)]);
+    if (effectiveClassId) {
+      const [classmatesRes, enrolledRes] = await Promise.all([
+        auth.adminClient
+          .from("students")
+          .select("id")
+          .eq("madrasa_id", auth.ctx.madrasaId)
+          .eq("class_id", effectiveClassId),
+        auth.adminClient
+          .from("student_enrollments")
+          .select("student_id")
+          .eq("madrasa_id", auth.ctx.madrasaId)
+          .eq("class_id", effectiveClassId)
+          .then((res: any) => res)
+          .catch(() => ({ data: [] })),
+      ]);
+      for (const c of classmatesRes?.data || []) {
+        if (c?.id) classmateIdSet.add(String(c.id));
+      }
+      for (const e of enrolledRes?.data || []) {
+        if (e?.student_id) classmateIdSet.add(String(e.student_id));
+      }
+    }
+    const classStudentIds = Array.from(classmateIdSet);
 
     const publishedExamIds = enrichedExams
       .filter((e: any) => e.is_published)
       .map((e: any) => e.id);
 
     let allClassExamRows: any[] = [];
+    let allExamSubjects: any[] = [];
     if (publishedExamIds.length > 0 && classStudentIds.length > 0) {
-      const { data: classMarks } = await auth.adminClient
-        .from("exam_results")
-        .select("id, exam_id, student_id, subject_name, marks_obtained, total_marks")
-        .in("exam_id", publishedExamIds)
-        .in("student_id", classStudentIds);
-      allClassExamRows = classMarks || [];
+      const [classMarksRes, exSubsRes] = await Promise.all([
+        auth.adminClient
+          .from("exam_results")
+          .select("*")
+          .in("exam_id", publishedExamIds)
+          .in("student_id", classStudentIds),
+        auth.adminClient
+          .from("exam_subjects")
+          .select("exam_id, class_id, subject_name, total_marks, pass_marks, is_compulsory")
+          .in("exam_id", publishedExamIds)
+          .then((res: any) => res)
+          .catch(() => ({ data: [] })),
+      ]);
+      allClassExamRows = classMarksRes?.data || [];
+      allExamSubjects = exSubsRes?.data || [];
     }
 
-    const examSummaries = enrichedExams.map((ex: any) => {
-      if (!ex.is_published) {
+    const examSummaries = await Promise.all(
+      enrichedExams.map(async (ex: any) => {
+        if (!ex.is_published) {
+          return {
+            id: `${activeStudent.id}_${ex.id}`,
+            exam_id: ex.id,
+            student_id: activeStudent.id,
+            exam_title: ex.title || "পরীক্ষা",
+            exam_year: ex.year || "",
+            is_published: false,
+            publish_note: ex.publish_note || null,
+            has_marks: false,
+            merit_position: null,
+            merit_label: "অপেক্ষমাণ",
+            formatted_merit: "অপেক্ষমাণ",
+            total_candidates: 0,
+          };
+        }
+
+        const bundle = auth.ctx.madrasaId
+          ? await getExamSettingsBundle(auth.ctx.madrasaId, ex.id)
+          : null;
+        const examGradingConfig = bundle?.gradingConfig || defaultGradingConfig;
+        const evalOptions: ExamEvaluationOptions = {
+          failPolicy: bundle?.evaluationRules?.fail_policy || "compulsory_subject_fail",
+          compulsorySubjects: bundle?.compulsorySubjects || {},
+          examSubjects: allExamSubjects.filter((s: any) => s.exam_id === ex.id),
+          classId: effectiveClassId,
+        };
+
+        const studentRows = (examRes.data || []).filter((r: any) => r.exam_id === ex.id);
+        const classRows = allClassExamRows.filter((r: any) => r.exam_id === ex.id);
+        const summary = computeStudentExamSummary(studentRows, examGradingConfig, evalOptions);
+        const merit = computeClassMeritPosition(
+          String(activeStudent.id),
+          classRows.length > 0 ? classRows : studentRows,
+          examGradingConfig,
+          evalOptions
+        );
+
         return {
           id: `${activeStudent.id}_${ex.id}`,
           exam_id: ex.id,
           student_id: activeStudent.id,
           exam_title: ex.title || "পরীক্ষা",
           exam_year: ex.year || "",
-          is_published: false,
+          is_published: true,
           publish_note: ex.publish_note || null,
-          has_marks: false,
-          merit_position: null,
-          formatted_merit: "প্রকাশের অপেক্ষায়",
-          total_candidates: 0,
+          has_marks: summary.hasMarks,
+          total_obtained: summary.totalObtained,
+          total_max: summary.totalMax,
+          percentage: summary.percentage,
+          gpa: summary.gpa,
+          grade_label: summary.gradeLabel,
+          grade_color: summary.gradeColor,
+          is_passed: summary.isPassed,
+          status_label: summary.statusLabel,
+          failed_subject_count: summary.failedSubjectCount,
+          merit_position: merit.meritPosition,
+          merit_label: merit.formattedPosition,
+          formatted_merit: merit.formattedPosition,
+          total_candidates: merit.totalCandidates,
+          subjects: summary.subjects,
         };
-      }
-
-      const studentRows = (examRes.data || []).filter((r: any) => r.exam_id === ex.id);
-      const classRows = allClassExamRows.filter((r: any) => r.exam_id === ex.id);
-      const summary = computeStudentExamSummary(studentRows, gradingConfig);
-      const merit = computeClassMeritPosition(
-        activeStudent.id,
-        classRows.length > 0 ? classRows : studentRows,
-        gradingConfig
-      );
-
-      return {
-        id: `${activeStudent.id}_${ex.id}`,
-        exam_id: ex.id,
-        student_id: activeStudent.id,
-        exam_title: ex.title || "পরীক্ষা",
-        exam_year: ex.year || "",
-        is_published: true,
-        publish_note: ex.publish_note || null,
-        has_marks: summary.hasMarks,
-        total_obtained: summary.totalObtained,
-        total_max: summary.totalMax,
-        percentage: summary.percentage,
-        gpa: summary.gpa,
-        grade_label: summary.gradeLabel,
-        grade_color: summary.gradeColor,
-        is_passed: summary.isPassed,
-        status_label: summary.statusLabel,
-        failed_subject_count: summary.failedSubjectCount,
-        merit_position: merit.meritPosition,
-        formatted_merit: merit.formattedPosition,
-        total_candidates: merit.totalCandidates,
-        subjects: summary.subjects,
-      };
-    });
+      })
+    );
 
     const parsedRoutines = (routinesRes.data || []).map(parseRoutineItem);
 

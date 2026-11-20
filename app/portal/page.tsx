@@ -4,11 +4,13 @@ import { getStudentAssignments } from "@/app/actions/assignments";
 import { getStudentFeeProfile, getFeeMetadata } from "@/app/actions/fee-management";
 import { getPortalStudentData } from "@/lib/portal-data";
 import { getMadrasaMetadata, type MadrasaMetaWithSessions } from "@/lib/sessions";
+import { getExamSettingsBundle } from "@/lib/structured-config";
 import { parseRoutineItem } from "@/lib/routine-helper";
 import {
   computeStudentExamSummary,
   computeClassMeritPosition,
   normalizeGradingConfig,
+  type ExamEvaluationOptions,
 } from "@/lib/exam-grading";
 import PortalDashboardClient, {
   type DashboardLatestExamInfo,
@@ -162,39 +164,117 @@ export default async function PortalOverview(props: {
 
   // Compute REAL latest published exam summary & class-wide merit position
   const publishedMap = madrasaMeta?.published_exams || {};
-  const gradingConfig = normalizeGradingConfig(madrasaMeta?.exam_grade_scale);
-  const publishedExamsList = (exams || []).filter((e: any) =>
-    Boolean(publishedMap[e.id]?.is_published || e.status === "Published")
-  );
+  const sqlPublishMap: Record<string, any> = {};
+  if (madrasaId) {
+    try {
+      const { data: pubRows } = await adminClient
+        .from("exam_settings")
+        .select("scope_key, setting_value")
+        .eq("madrasa_id", madrasaId)
+        .eq("setting_key", "publish_info");
+      for (const row of pubRows || []) {
+        if (row?.scope_key && row?.setting_value) {
+          sqlPublishMap[String(row.scope_key)] = row.setting_value;
+        }
+      }
+    } catch {
+      // Optional table fallback
+    }
+  }
+
+  const publishedExamsList = (exams || []).filter((e: any) => {
+    const pub = sqlPublishMap[e.id] || publishedMap[e.id];
+    return Boolean(pub?.is_published || e.status === "Published");
+  });
 
   let latestExam: DashboardLatestExamInfo | null = null;
 
   if (publishedExamsList.length > 0) {
     const latestPublished = publishedExamsList[0];
 
-    // Fetch student's own marks and classmates' marks for true merit position
-    let classmateIds: string[] = [child.id];
-    if (classId) {
-      const { data: classmates } = await adminClient
-        .from("students")
-        .select("id")
-        .eq("madrasa_id", madrasaId)
-        .eq("class_id", classId);
-      if (classmates && classmates.length > 0) {
-        classmateIds = Array.from(new Set([child.id, ...classmates.map((c: any) => c.id)]));
+    let effectiveClassId: string | null = classId || null;
+    if (!effectiveClassId && child.id) {
+      try {
+        const { data: enrollment } = await adminClient
+          .from("student_enrollments")
+          .select("class_id")
+          .eq("student_id", child.id)
+          .order("enrollment_date", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (enrollment?.class_id) {
+          effectiveClassId = String(enrollment.class_id);
+        }
+      } catch {
+        // Optional table fallback
       }
+    }
+
+    const settingsBundle = madrasaId
+      ? await getExamSettingsBundle(madrasaId, latestPublished.id)
+      : null;
+    const gradingConfig =
+      settingsBundle?.gradingConfig ||
+      normalizeGradingConfig(madrasaMeta?.exam_grading_config || madrasaMeta?.exam_grade_scale);
+
+    // Fetch student's own marks and classmates' marks for true merit position
+    const classmateIdSet = new Set<string>([String(child.id)]);
+    let examSubjects: any[] = [];
+
+    if (effectiveClassId) {
+      const [classmatesRes, enrolledRes, subjectsRes] = await Promise.all([
+        adminClient
+          .from("students")
+          .select("id")
+          .eq("madrasa_id", madrasaId)
+          .eq("class_id", effectiveClassId),
+        adminClient
+          .from("student_enrollments")
+          .select("student_id")
+          .eq("madrasa_id", madrasaId)
+          .eq("class_id", effectiveClassId)
+          .then((res: any) => res)
+          .catch(() => ({ data: [] })),
+        adminClient
+          .from("exam_subjects")
+          .select("class_id, subject_name, total_marks, pass_marks, is_compulsory")
+          .eq("exam_id", latestPublished.id)
+          .then((res: any) => res)
+          .catch(() => ({ data: [] })),
+      ]);
+
+      for (const c of classmatesRes?.data || []) {
+        if (c?.id) classmateIdSet.add(String(c.id));
+      }
+      for (const e of enrolledRes?.data || []) {
+        if (e?.student_id) classmateIdSet.add(String(e.student_id));
+      }
+      examSubjects = subjectsRes?.data || [];
     }
 
     const { data: classExamRows } = await adminClient
       .from("exam_results")
-      .select("id, student_id, exam_id, subject_name, marks_obtained, total_marks")
+      .select("*")
       .eq("exam_id", latestPublished.id)
-      .in("student_id", classmateIds);
+      .in("student_id", Array.from(classmateIdSet));
 
     const allRows = classExamRows || [];
-    const ownRows = allRows.filter((r: any) => r.student_id === child.id);
-    const summary = computeStudentExamSummary(ownRows, gradingConfig);
-    const merit = computeClassMeritPosition(child.id, allRows, gradingConfig);
+    const ownRows = allRows.filter((r: any) => String(r.student_id) === String(child.id));
+
+    const evalOptions: ExamEvaluationOptions = {
+      failPolicy: settingsBundle?.evaluationRules?.fail_policy || "compulsory_subject_fail",
+      compulsorySubjects: settingsBundle?.compulsorySubjects || {},
+      examSubjects,
+      classId: effectiveClassId,
+    };
+
+    const summary = computeStudentExamSummary(ownRows, gradingConfig, evalOptions);
+    const merit = computeClassMeritPosition(
+      String(child.id),
+      allRows,
+      gradingConfig,
+      evalOptions
+    );
 
     latestExam = {
       examId: latestPublished.id,
