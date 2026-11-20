@@ -131,6 +131,12 @@ export function ModeProvider({
         return;
       }
 
+      const lastPull = Number(localStorage.getItem("qawmi_menu_prefs_last_pull") || "0");
+      if (Date.now() - lastPull < 2 * 60 * 1000) {
+        return;
+      }
+      localStorage.setItem("qawmi_menu_prefs_last_pull", String(Date.now()));
+
       const res = await fetch(apiUrl("/api/user/menu-preferences"), {
         headers: getAuthHeaders(),
         credentials: "include",

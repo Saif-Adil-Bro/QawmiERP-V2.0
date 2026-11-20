@@ -118,29 +118,48 @@ export async function middleware(request: NextRequest) {
       user = error ? null : data?.user || null;
     }
 
-    // Active Session Revocation Check (Feature 1.2)
-    if (user && !isApiRoute && !isPublicRoute) {
-      const sessionId = request.cookies.get("qawmi_session_id")?.value;
-      if (sessionId) {
-        const { data: sessRow, error: sessErr } = await supabase
-          .from("user_sessions")
-          .select("is_active, revoked_at, expires_at")
-          .eq("id", sessionId)
-          .maybeSingle();
+    const sessionId = request.cookies.get("qawmi_session_id")?.value || "";
+    let cachedMw: { uid?: string; sid?: string; role?: string; exp?: number } | null = null;
+    try {
+      const rawCache = request.cookies.get("qawmi_mw_cache")?.value;
+      if (rawCache) {
+        const parsed = JSON.parse(rawCache);
+        if (
+          parsed &&
+          parsed.uid === user?.id &&
+          parsed.sid === sessionId &&
+          typeof parsed.exp === "number" &&
+          parsed.exp > Date.now()
+        ) {
+          cachedMw = parsed;
+        }
+      }
+    } catch {
+      cachedMw = null;
+    }
 
-        if (!sessErr && sessRow) {
-          const isRevoked =
-            Boolean(sessRow.revoked_at) ||
-            sessRow.is_active === false ||
-            (sessRow.expires_at && new Date(sessRow.expires_at).getTime() <= Date.now());
-          if (isRevoked) {
-            user = null;
-            supabaseResponse.cookies.delete("qawmi_session_id");
-            supabaseResponse.cookies.delete("qawmi_step_up_token");
-            for (const c of request.cookies.getAll()) {
-              if (c.name.startsWith("sb-")) {
-                supabaseResponse.cookies.delete(c.name);
-              }
+    // Active Session Revocation Check (Feature 1.2) — skip DB hit on soft nav if 60s cache is valid
+    if (user && !isApiRoute && !isPublicRoute && sessionId && !(isSoftNavigation && cachedMw)) {
+      const { data: sessRow, error: sessErr } = await supabase
+        .from("user_sessions")
+        .select("is_active, revoked_at, expires_at")
+        .eq("id", sessionId)
+        .maybeSingle();
+
+      if (!sessErr && sessRow) {
+        const isRevoked =
+          Boolean(sessRow.revoked_at) ||
+          sessRow.is_active === false ||
+          (sessRow.expires_at && new Date(sessRow.expires_at).getTime() <= Date.now());
+        if (isRevoked) {
+          user = null;
+          cachedMw = null;
+          supabaseResponse.cookies.delete("qawmi_session_id");
+          supabaseResponse.cookies.delete("qawmi_step_up_token");
+          supabaseResponse.cookies.delete("qawmi_mw_cache");
+          for (const c of request.cookies.getAll()) {
+            if (c.name.startsWith("sb-")) {
+              supabaseResponse.cookies.delete(c.name);
             }
           }
         }
@@ -163,65 +182,108 @@ export async function middleware(request: NextRequest) {
     return redirectResponse;
   }
 
-  if (user && isAuthRoute) {
-    // ⛔ HI-7(ক) ফিক্স: আগে রোল নেওয়া হতো `user.user_metadata.role` থেকে, যা
-    // ব্যবহারকারী নিজেই লিখতে/বদলাতে পারেন (`supabase.auth.updateUser({ data: {...} })`)।
-    // অর্থাৎ যে কেউ নিজেকে "student" বানিয়ে /portal-এ বা "admin" দেখিয়ে /dashboard-এ
-    // যাওয়ার রুট বদলে ফেলতে পারত। এখন রোল আসে ডেটাবেজ (`public.users.role`) থেকে;
-    // DB পড়তে না পারলেই কেবল metadata ফলব্যাক — যেটি শুধু *রাউটিং*-এর জন্য, কোনো
-    // ডেটা-অনুমতির জন্য নয় (অনুমতি সবসময় সার্ভার-সাইড requirePermission দেয়)।
-    let userRole: string | null = null;
+  const isDashboardRoute = isSameOrChildPath(pathname, "/dashboard");
+  const isTeacherPortalRoute = isSameOrChildPath(pathname, "/teacher-portal");
 
+  if (user && (isAuthRoute || isDashboardRoute || isTeacherPortalRoute)) {
+    const sessionId = request.cookies.get("qawmi_session_id")?.value || "";
+    let userRole: string | null = null;
     try {
-      const supabaseForRole = createServerClient(supabaseUrl, supabaseKey, {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll() {
-            /* read-only ব্যবহার — cookie আবার লেখার দরকার নেই */
-          },
-        },
-      });
-      const { data: dbUser } = await supabaseForRole
-        .from("users")
-        .select("role")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (dbUser?.role) userRole = String(dbUser.role).toLowerCase();
+      const rawCache = request.cookies.get("qawmi_mw_cache")?.value;
+      if (rawCache) {
+        const parsed = JSON.parse(rawCache);
+        if (
+          parsed &&
+          parsed.uid === user.id &&
+          parsed.sid === sessionId &&
+          typeof parsed.exp === "number" &&
+          parsed.exp > Date.now()
+        ) {
+          userRole = parsed.role || null;
+        }
+      }
     } catch {
       userRole = null;
     }
 
     if (!userRole) {
-      const metaRole = user.user_metadata?.role;
-      userRole = typeof metaRole === "string" ? metaRole.toLowerCase() : null;
+      try {
+        const supabaseForRole = createServerClient(supabaseUrl, supabaseKey, {
+          cookies: {
+            getAll() {
+              return request.cookies.getAll();
+            },
+            setAll() {},
+          },
+        });
+        const { data: dbUser } = await supabaseForRole
+          .from("users")
+          .select("role")
+          .eq("id", user.id)
+          .maybeSingle();
+        if (dbUser?.role) userRole = String(dbUser.role).toLowerCase().trim();
+      } catch {
+        userRole = null;
+      }
+
+      if (!userRole) {
+        const metaRole = user.user_metadata?.role;
+        userRole = typeof metaRole === "string" ? metaRole.toLowerCase().trim() : null;
+      }
+
+      if (userRole) {
+        supabaseResponse.cookies.set(
+          "qawmi_mw_cache",
+          JSON.stringify({
+            uid: user.id,
+            sid: sessionId,
+            role: userRole,
+            exp: Date.now() + 60_000,
+          }),
+          {
+            httpOnly: true,
+            sameSite: "lax",
+            path: "/",
+            maxAge: 60,
+            secure: process.env.NODE_ENV === "production",
+          }
+        );
+      }
     }
 
     let targetPath = "/dashboard";
     if (
       userRole === "teacher" ||
       userRole === "hifz_teacher" ||
+      userRole === "hifz_supervisor" ||
       userRole === "ustad"
     ) {
       targetPath = "/teacher-portal";
     } else if (
       userRole === "parent" ||
       userRole === "guardian" ||
-      userRole === "student"
+      userRole === "student" ||
+      userRole === "guardian_student"
     ) {
       targetPath = "/portal";
     }
 
-    const url = request.nextUrl.clone();
-    url.pathname = targetPath;
-    const redirectResponse = NextResponse.redirect(url);
+    const shouldRedirect =
+      isAuthRoute ||
+      (isDashboardRoute && targetPath !== "/dashboard") ||
+      (isTeacherPortalRoute && targetPath === "/portal");
 
-    const setCookies = supabaseResponse.headers.getSetCookie();
-    for (const cookie of setCookies) {
-      redirectResponse.headers.append("set-cookie", cookie);
+    if (shouldRedirect) {
+      const url = request.nextUrl.clone();
+      url.pathname = targetPath;
+      const redirectResponse = NextResponse.redirect(url);
+
+      const setCookies = supabaseResponse.headers.getSetCookie();
+      for (const cookie of setCookies) {
+        redirectResponse.headers.append("set-cookie", cookie);
+      }
+      return redirectResponse;
     }
-    return redirectResponse;
   }
 
   return supabaseResponse;

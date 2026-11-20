@@ -126,16 +126,33 @@ export default function OfflineSyncProvider({
 
       if (connected && wasOffline) {
         await syncNow();
-        await pullAllCoreEntities().catch(() => {});
+        try {
+          const lastPull = Number(localStorage.getItem("qawmi_last_full_pull_at") || "0");
+          if (Date.now() - lastPull > 5 * 60 * 1000) {
+            setTimeout(() => {
+              localStorage.setItem("qawmi_last_full_pull_at", String(Date.now()));
+              pullAllCoreEntities().catch(() => {});
+            }, 2000);
+          }
+        } catch {}
       }
     };
 
-    // Initial check
-    checkIsOnline().then((connected) => {
+    // Initial check — only run syncNow if there are actually pending items
+    checkIsOnline().then(async (connected) => {
       wasOnlineRef.current = connected;
       setIsOnline(connected);
       if (connected) {
-        syncNow().catch(() => {});
+        try {
+          const db = getOfflineDb();
+          const pending = await db.syncQueue
+            .where("status")
+            .anyOf(["pending", "syncing"])
+            .count();
+          if (pending > 0) {
+            syncNow().catch(() => {});
+          }
+        } catch {}
       }
     });
 

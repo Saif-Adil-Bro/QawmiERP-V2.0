@@ -19,10 +19,12 @@ export default function CapacitorProvider() {
       return;
     }
 
-    const setupStatusBar = async () => {
+    const syncStatusBar = async () => {
       try {
         await StatusBar.setOverlaysWebView({ overlay: false });
-        const isDark = document.documentElement.classList.contains("dark");
+        const isDark =
+          document.documentElement.classList.contains("dark") ||
+          document.documentElement.getAttribute("data-theme") === "dark";
         await StatusBar.setStyle({
           style: isDark ? Style.Dark : Style.Light,
         });
@@ -31,7 +33,17 @@ export default function CapacitorProvider() {
       }
     };
 
-    setupStatusBar();
+    syncStatusBar();
+
+    // Keep Android status bar style synced when user toggles Dark / Sepia / Light theme
+    const themeObserver = new MutationObserver(() => {
+      syncStatusBar();
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme"],
+    });
+
     const cleanupNotifications = initWebNotificationBridge();
 
     let backButtonListener: { remove: () => Promise<void> } | null = null;
@@ -54,6 +66,7 @@ export default function CapacitorProvider() {
       });
 
     return () => {
+      themeObserver.disconnect();
       cleanupNotifications();
       backButtonListener?.remove().catch(() => {});
     };

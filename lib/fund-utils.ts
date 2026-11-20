@@ -80,6 +80,8 @@ export interface FundTransactionRecord {
   notes?: string;
   category?: string;
   is_mahfil_settlement?: boolean;
+  status?: "COMPLETED" | "VOID";
+  cancellation_reason?: string;
 }
 
 // Built-in Standard Default Funds

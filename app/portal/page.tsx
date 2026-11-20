@@ -1,30 +1,18 @@
 import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
-import { createClient } from "@/lib/supabase/server";
-import {
-  GraduationCap,
-  Calendar,
-  CreditCard,
-  AlertCircle,
-  Award,
-  BookOpen,
-  CalendarDays,
-  Bell,
-  Send,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  ChevronRight,
-  TrendingUp,
-  Star,
-} from "lucide-react";
-import Link from "next/link";
-import { toBanglaNumber } from "@/lib/numberToBangla";
+import { AlertCircle } from "lucide-react";
 import { getStudentAssignments } from "@/app/actions/assignments";
-import {
-  getStudentFeeProfile,
-  getFeeMetadata,
-} from "@/app/actions/fee-management";
+import { getStudentFeeProfile, getFeeMetadata } from "@/app/actions/fee-management";
 import { getPortalStudentData } from "@/lib/portal-data";
+import { getMadrasaMetadata, type MadrasaMetaWithSessions } from "@/lib/sessions";
+import { parseRoutineItem } from "@/lib/routine-helper";
+import {
+  computeStudentExamSummary,
+  computeClassMeritPosition,
+  normalizeGradingConfig,
+} from "@/lib/exam-grading";
+import PortalDashboardClient, {
+  type DashboardLatestExamInfo,
+} from "./PortalDashboardClient";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +24,7 @@ export default async function PortalOverview(props: {
 
   if (!portalData || !portalData.user) return null;
 
-  const { students, child, user, userData, madrasaId, madrasaPrefix, adminClient, supabase } = portalData;
+  const { students, child, madrasaId, adminClient, supabase } = portalData;
 
   if (students.length === 0 || !child) {
     return (
@@ -44,7 +32,7 @@ export default async function PortalOverview(props: {
         <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mb-3">
           <AlertCircle className="w-7 h-7" />
         </div>
-        <h2 className="text-lg font-bold text-slate-800">কোন শিক্ষার্থীর তথ্য পাওয়া যায়নি</h2>
+        <h2 className="text-lg font-bold text-slate-800">কোনো শিক্ষার্থীর তথ্য পাওয়া যায়নি</h2>
         <p className="text-sm text-slate-500 mt-1 max-w-md">
           আপনার অ্যাকাউন্টের সাথে শিক্ষার্থীর প্রোফাইল সংযুক্ত করতে মাদরাসা কর্তৃপক্ষের সাথে যোগাযোগ করুন।
         </p>
@@ -52,31 +40,34 @@ export default async function PortalOverview(props: {
     );
   }
 
-  // Fetch student's attendance records safely scoped to verified child
-  const { data: attendanceList } = await adminClient
-    .from("attendance")
-    .select("*")
-    .eq("student_id", child.id)
-    .order("date", { ascending: false });
+  const classId =
+    child.class_id || (Array.isArray(child.classes) ? child.classes[0]?.id : child.classes?.id);
 
-  // Calculate attendance statistics
-  const totalDays = attendanceList?.length || 0;
-  const presentDays = attendanceList?.filter((a: any) => a.status === "Present").length || 0;
-  const absentDays = attendanceList?.filter((a: any) => a.status === "Absent").length || 0;
-  const lateDays = attendanceList?.filter((a: any) => a.status === "Late" || a.status === "Leave").length || 0;
-  const attendanceRate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
-
-  // Fetch latest Hifz log
-  const { data: latestHifz } = await adminClient
-    .from("hifz_logs")
-    .select("*")
-    .eq("student_id", child.id)
-    .order("log_date", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  // Fetch fees records and metadata
-  const [feeProfile, feeMeta, { data: feesList }] = await Promise.all([
+  // Parallel server fetches
+  const [
+    { data: attendanceList },
+    { data: latestHifz },
+    feeProfile,
+    feeMeta,
+    { data: feesList },
+    { data: exams },
+    madrasaMeta,
+    { data: notices },
+    childAssignments,
+    { data: rawRoutines },
+  ] = await Promise.all([
+    adminClient
+      .from("attendance")
+      .select("*")
+      .eq("student_id", child.id)
+      .order("date", { ascending: false }),
+    adminClient
+      .from("hifz_logs")
+      .select("*")
+      .eq("student_id", child.id)
+      .order("log_date", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     getStudentFeeProfile(child.id),
     madrasaId ? getFeeMetadata(madrasaId) : null,
     adminClient
@@ -84,20 +75,42 @@ export default async function PortalOverview(props: {
       .select("*")
       .eq("student_id", child.id)
       .order("payment_date", { ascending: false }),
+    adminClient
+      .from("exams")
+      .select("id, title, year, start_date, status")
+      .eq("madrasa_id", madrasaId)
+      .order("start_date", { ascending: false }),
+    madrasaId
+      ? getMadrasaMetadata(madrasaId)
+      : Promise.resolve({} as MadrasaMetaWithSessions),
+    supabase
+      .from("notices")
+      .select("*")
+      .eq("madrasa_id", madrasaId)
+      .order("created_at", { ascending: false })
+      .limit(3),
+    getStudentAssignments(child.id, classId),
+    classId
+      ? adminClient
+          .from("routines")
+          .select("*, subjects(name), teachers(first_name, last_name)")
+          .eq("madrasa_id", madrasaId)
+          .eq("class_id", classId)
+          .order("start_time", { ascending: true })
+      : Promise.resolve({ data: [] as any[] }),
   ]);
 
+  // Payment totals & deduplication
   const metadataPayments = (feeMeta?.payments || []).filter(
-    (p) => p.student_id === child.id && p.status !== "REVERSED"
+    (p: any) => p.student_id === child.id && p.status !== "REVERSED"
   );
 
-  // Extract receipt number helper
   const extractReceiptNo = (notes?: string | null): string | null => {
     if (!notes) return null;
     const match = notes.match(/\[(?:রিসিট|অনলাইন পেমেন্ট|Receipt|রসিদ):\s*([A-Za-z0-9-_]+)/i);
     return match ? match[1].trim() : null;
   };
 
-  // Combine payments with deduplication
   const combinedPayments: any[] = [...metadataPayments];
   if (feesList) {
     feesList.forEach((sf: any) => {
@@ -140,543 +153,93 @@ export default async function PortalOverview(props: {
     (acc, curr) => acc + (Number(curr.total_amount_received) || 0),
     0
   );
+  const totalDue = Number((feeProfile as any)?.total_due ?? (feeProfile as any)?.totalDue ?? 0);
   const latestReceiptNo =
     combinedPayments[0]?.receipt_no ||
     extractReceiptNo(feesList?.[0]?.notes) ||
     feesList?.[0]?.receipt_number ||
     "স্বয়ংক্রিয় রসিদ";
 
-  // Fetch latest exam results
-  const { data: examResults } = await supabase
-    .from("exam_results")
-    .select("*, exams(title, year)")
-    .eq("student_id", child.id)
-    .order("created_at", { ascending: false })
-    .limit(4);
-
-  // Fetch recent madrasa notices
-  const { data: notices } = await supabase
-    .from("notices")
-    .select("*")
-    .eq("madrasa_id", madrasaId)
-    .order("created_at", { ascending: false })
-    .limit(3);
-
-  // Fetch daily assignments for this child
-  const childAssignments = await getStudentAssignments(child.id, child.class_id);
-  const todayStr = toDhakaDateString();
-  const todayAssignments = childAssignments.filter(
-    (a) => a.type === "TODAY_LESSON" || a.assigned_date === todayStr
+  // Compute REAL latest published exam summary & class-wide merit position
+  const publishedMap = madrasaMeta?.published_exams || {};
+  const gradingConfig = normalizeGradingConfig(madrasaMeta?.exam_grade_scale);
+  const publishedExamsList = (exams || []).filter((e: any) =>
+    Boolean(publishedMap[e.id]?.is_published || e.status === "Published")
   );
 
+  let latestExam: DashboardLatestExamInfo | null = null;
+
+  if (publishedExamsList.length > 0) {
+    const latestPublished = publishedExamsList[0];
+
+    // Fetch student's own marks and classmates' marks for true merit position
+    let classmateIds: string[] = [child.id];
+    if (classId) {
+      const { data: classmates } = await adminClient
+        .from("students")
+        .select("id")
+        .eq("madrasa_id", madrasaId)
+        .eq("class_id", classId);
+      if (classmates && classmates.length > 0) {
+        classmateIds = Array.from(new Set([child.id, ...classmates.map((c: any) => c.id)]));
+      }
+    }
+
+    const { data: classExamRows } = await adminClient
+      .from("exam_results")
+      .select("id, student_id, exam_id, subject_name, marks_obtained, total_marks")
+      .eq("exam_id", latestPublished.id)
+      .in("student_id", classmateIds);
+
+    const allRows = classExamRows || [];
+    const ownRows = allRows.filter((r: any) => r.student_id === child.id);
+    const summary = computeStudentExamSummary(ownRows, gradingConfig);
+    const merit = computeClassMeritPosition(child.id, allRows, gradingConfig);
+
+    latestExam = {
+      examId: latestPublished.id,
+      examTitle: latestPublished.title || (latestPublished as any).name || "সাময়িক পরীক্ষা",
+      examYear: latestPublished.year || null,
+      hasMarks: summary.hasMarks,
+      gradeLabel: summary.gradeLabel,
+      gpa: summary.gpa,
+      percentage: summary.percentage,
+      totalObtained: summary.totalObtained,
+      totalMax: summary.totalMax,
+      isPassed: summary.isPassed,
+      statusLabel: summary.statusLabel,
+      meritPosition: merit.meritPosition,
+      meritLabel: merit.formattedPosition,
+      totalCandidates: merit.totalCandidates,
+    };
+  }
+
+  const parsedRoutines = (rawRoutines || []).map(parseRoutineItem);
+  const activeHolidays = (madrasaMeta?.academic_holidays || [])
+    .filter((h) => !h.is_archived && h.publish_to_portal !== false)
+    .map((h) => ({
+      id: h.id,
+      title: h.title,
+      start_date: h.start_date,
+      end_date: h.end_date,
+    }));
+
   return (
-    <div className="space-y-6">
-      {/* Multi-child Switcher Bar if parent has multiple children */}
-      {students.length > 1 && (
-        <div className="bg-white border border-emerald-200/80 rounded-2xl p-3 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center font-bold">
-              <GraduationCap className="w-4 h-4" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-800">
-                সন্তান নির্বাচন করুন ({toBanglaNumber(students.length)} জন নিবন্ধিত):
-              </p>
-              <p className="text-[11px] text-slate-500">
-                যেকোনো সন্তানের প্রোফাইলে ক্লিক করে তার ব্যক্তিগত ড্যাশবোর্ডে স্যুইচ করুন
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {students.map((st) => {
-              const isSelected = st.id === child.id;
-              const stuId = st.student_id || st.student_id_formatted || "";
-              return (
-                <Link
-                  key={st.id}
-                  href={`/portal?student_id=${st.id}`}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-                    isSelected
-                      ? "bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-600/30"
-                      : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
-                  }`}
-                >
-                  {st.photo_url ? (
-                    <img
-                      src={st.photo_url}
-                      alt=""
-                      className="w-5 h-5 rounded-full object-cover border border-white/40 shrink-0"
-                    />
-                  ) : (
-                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${isSelected ? "bg-emerald-700 text-white" : "bg-slate-300 text-slate-700"}`}>
-                      {(st.first_name || "শ")[0]}
-                    </span>
-                  )}
-                  <span>{st.first_name} {st.last_name || ""}</span>
-                  {stuId && (
-                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${isSelected ? "bg-emerald-700/60 text-emerald-100" : "bg-white text-emerald-700 border border-slate-200 font-semibold"}`}>
-                      আইডি: {stuId}
-                    </span>
-                  )}
-                  {st.roll_number && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${isSelected ? "bg-emerald-700/50 text-white" : "bg-white text-slate-600 border border-slate-200"}`}>
-                      রোল: {toBanglaNumber(st.roll_number)}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Child Profile Hero Banner */}
-      <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white rounded-3xl p-5 sm:p-7 shadow-xl border border-emerald-800/60 flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
-        <div className="flex items-center gap-4 relative z-10">
-          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/20 flex items-center justify-center text-white font-bold text-2xl sm:text-3xl shadow-inner shrink-0 overflow-hidden relative">
-            {child.photo_url ? (
-              <img
-                src={child.photo_url}
-                alt={`${child.first_name} ${child.last_name || ""}`}
-                className="w-full h-full object-cover rounded-2xl"
-              />
-            ) : (
-              <span>{(child.first_name || "শ")[0]}</span>
-            )}
-          </div>
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-200 border border-emerald-400/30 text-[11px] font-bold mb-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>নিয়মিত শিক্ষার্থী</span>
-            </div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-              {child.first_name} {child.last_name}
-            </h1>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-emerald-100/90 mt-1.5">
-              {(child.student_id || child.student_id_formatted) && (
-                <span className="inline-flex items-center gap-1 font-mono bg-white/15 px-2.5 py-0.5 rounded-md text-emerald-200 border border-white/20 font-bold">
-                  <span>আইডি নম্বর:</span>
-                  <span className="text-white">{child.student_id || child.student_id_formatted}</span>
-                </span>
-              )}
-              <span><strong>রোল নম্বর:</strong> {toBanglaNumber(child.roll_number || "১")}</span>
-              <span>•</span>
-              <span><strong>জামাত / শ্রেণি:</strong> {child.classes?.name || child.class_name || "হিফজুল কুরআন"}</span>
-              {child.father_name && (
-                <>
-                  <span>•</span>
-                  <span><strong>পিতা:</strong> {child.father_name}</span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 relative z-10 shrink-0">
-          <Link
-            href="/portal/attendance"
-            className="px-4 py-2.5 bg-white/15 hover:bg-white/25 text-white rounded-xl text-xs sm:text-sm font-bold backdrop-blur-xs border border-white/20 transition flex items-center gap-2"
-          >
-            <Calendar className="w-4 h-4 text-emerald-300" />
-            <span>হাজিরা রেকর্ড</span>
-          </Link>
-          <Link
-            href="/portal/exams"
-            className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs sm:text-sm font-bold shadow-lg shadow-emerald-950/50 transition flex items-center gap-2"
-          >
-            <Award className="w-4 h-4" />
-            <span>ফলাফল শিট</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* 4 Rich KPI Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Attendance KPI */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300 transition group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">উপস্থিতির হার</span>
-            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl group-hover:scale-110 transition">
-              <Calendar className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">{toBanglaNumber(attendanceRate)}%</span>
-            <span className="text-xs font-semibold text-emerald-600">সন্তোষজনক</span>
-          </div>
-          <div className="w-full bg-slate-100 h-2 rounded-full mt-3 overflow-hidden">
-            <div
-              className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.min(attendanceRate, 100)}%` }}
-            />
-          </div>
-          <div className="flex justify-between text-[11px] text-slate-500 mt-2 font-medium">
-            <span>উপস্থিত: {toBanglaNumber(presentDays)} দিন</span>
-            <span>অনুপস্থিত: {toBanglaNumber(absentDays)} দিন</span>
-          </div>
-        </div>
-
-        {/* Hifz Sabak KPI */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-teal-300 transition group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">চলমান সবক (হিফজ)</span>
-            <div className="p-2 bg-teal-50 text-teal-600 rounded-xl group-hover:scale-110 transition">
-              <BookOpen className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="min-h-[38px] flex flex-col justify-center">
-            <span className="text-lg sm:text-xl font-bold text-slate-900 truncate">
-              {latestHifz?.para_number ? `পারা: ${toBanglaNumber(latestHifz.para_number)}` : "দৈনিক সবক চলমান"}
-            </span>
-            <span className="text-xs text-slate-500 truncate">
-              {latestHifz?.surah_name ? `সূরা: ${latestHifz.surah_name}` : "শিক্ষক কর্তৃক আপডেটেড"}
-            </span>
-          </div>
-          <div className="flex items-center gap-1 mt-3 text-amber-500 text-xs font-bold bg-amber-50 py-1 px-2 rounded-lg border border-amber-200/60 w-fit">
-            <Star className="w-3.5 h-3.5 fill-current" />
-            <span>মূল্যায়ন: {latestHifz?.performance || "মুমতাজ (চমৎকার)"}</span>
-          </div>
-        </div>
-
-        {/* Fees KPI */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-blue-300 transition group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">পরিশোধিত ফি</span>
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl group-hover:scale-110 transition">
-              <CreditCard className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">৳{toBanglaNumber(totalPaid)}</span>
-          </div>
-          <p className="text-xs text-emerald-600 font-semibold mt-2 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>হালনাগাদ ফি পরিশোধিত</span>
-          </p>
-          <div className="mt-2 text-[11px] text-slate-500 font-mono">
-            সর্বশেষ রশিদ: {latestReceiptNo}
-          </div>
-        </div>
-
-        {/* Exam Result KPI */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:border-purple-300 transition group">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">সর্বশেষ পরীক্ষার গ্রেড</span>
-            <div className="p-2 bg-purple-50 text-purple-600 rounded-xl group-hover:scale-110 transition">
-              <Award className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-extrabold text-purple-700">A+ (মুমতাজ)</span>
-          </div>
-          <p className="text-xs text-slate-500 mt-2">
-            পরীক্ষা: {examResults?.[0]?.exams?.title || (examResults?.[0]?.exams as any)?.name || "সাময়িক পরীক্ষা"}
-          </p>
-          <div className="mt-2 text-[11px] text-purple-600 font-bold flex items-center gap-1">
-            <span>মার্কশিট দেখুন</span>
-            <ChevronRight className="w-3 h-3" />
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Action Navigation Tiles */}
-      <div>
-        <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-emerald-600" />
-          <span>প্যারেন্ট পোর্টাল শর্টকাট মেনু</span>
-        </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-          <Link
-            href="/portal/assignments"
-            className="p-4 bg-emerald-50/70 rounded-2xl border border-emerald-200 shadow-2xs hover:border-emerald-600 hover:shadow-md transition text-center flex flex-col items-center group"
-          >
-            <div className="w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center mb-2 group-hover:scale-110 transition shadow-xs">
-              <BookOpen className="w-5 h-5" />
-            </div>
-            <span className="text-xs font-bold text-emerald-900">আজকের পড়া</span>
-            <span className="text-[10px] text-emerald-600 mt-0.5">সবক ও কাজ</span>
-          </Link>
-
-          <Link
-            href="/portal/attendance"
-            className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:border-emerald-500 hover:shadow-md transition text-center flex flex-col items-center group"
-          >
-            <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
-              <Calendar className="w-5 h-5" />
-            </div>
-            <span className="text-xs font-bold text-slate-800">দৈনিক হাজিরা</span>
-            <span className="text-[10px] text-slate-400 mt-0.5">মাসিক উপস্থিতি</span>
-          </Link>
-
-          <Link
-            href="/portal/academic"
-            className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:border-teal-500 hover:shadow-md transition text-center flex flex-col items-center group"
-          >
-            <div className="w-11 h-11 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
-              <BookOpen className="w-5 h-5" />
-            </div>
-            <span className="text-xs font-bold text-slate-800">হিফজ ও পাঠ</span>
-            <span className="text-[10px] text-slate-400 mt-0.5">সবক ও আমুখতা</span>
-          </Link>
-
-          <Link
-            href="/portal/exams"
-            className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:border-purple-500 hover:shadow-md transition text-center flex flex-col items-center group"
-          >
-            <div className="w-11 h-11 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
-              <Award className="w-5 h-5" />
-            </div>
-            <span className="text-xs font-bold text-slate-800">পরীক্ষার ফলাফল</span>
-            <span className="text-[10px] text-slate-400 mt-0.5">মার্কশিট ও সনদ</span>
-          </Link>
-
-          <Link
-            href="/portal/fees"
-            className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:border-blue-500 hover:shadow-md transition text-center flex flex-col items-center group"
-          >
-            <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
-              <CreditCard className="w-5 h-5" />
-            </div>
-            <span className="text-xs font-bold text-slate-800">ফি ও রশিদ</span>
-            <span className="text-[10px] text-slate-400 mt-0.5">পেমেন্ট হিস্ট্রি</span>
-          </Link>
-
-          <Link
-            href="/portal/routine"
-            className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:border-amber-500 hover:shadow-md transition text-center flex flex-col items-center group"
-          >
-            <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
-              <CalendarDays className="w-5 h-5" />
-            </div>
-            <span className="text-xs font-bold text-slate-800">ক্লাস রুটিন</span>
-            <span className="text-[10px] text-slate-400 mt-0.5">ঘণ্টা ও বিষয়</span>
-          </Link>
-
-          <Link
-            href="/portal/leave"
-            className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:border-rose-500 hover:shadow-md transition text-center flex flex-col items-center group"
-          >
-            <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
-              <Send className="w-5 h-5" />
-            </div>
-            <span className="text-xs font-bold text-slate-800">ছুটির আবেদন</span>
-            <span className="text-[10px] text-slate-400 mt-0.5">বার্তা ও ছুটি</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* Daily Lessons & Homework Highlight Card */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-emerald-50/40">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-emerald-600 text-white rounded-xl">
-              <BookOpen className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-                আজকের পড়া ও অ্যাসাইনমেন্ট (Daily Lessons)
-              </h3>
-              <p className="text-[11px] text-slate-500">
-                সন্তানের আজকের পাঠ্য বিষয়, সবক এবং শিক্ষকের বাড়ির কাজের নির্দেশনা
-              </p>
-            </div>
-          </div>
-          <Link
-            href={child ? `/portal/assignments?student_id=${child.id}` : "/portal/assignments"}
-            className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-white px-3 py-1.5 rounded-xl border border-emerald-200 shadow-2xs hover:bg-emerald-50 transition"
-          >
-            <span>সকল পড়া ও বইয়ের ছবি ({toBanglaNumber(childAssignments.length)})</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-
-        <div className="p-4 sm:p-5">
-          {todayAssignments.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {todayAssignments.slice(0, 2).map((item) => (
-                <div
-                  key={item.id}
-                  className="p-4 bg-slate-50 rounded-2xl border border-slate-200 hover:border-emerald-300 transition space-y-2 flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-200">
-                        {item.type_bangla || "আজকের পড়া"}
-                      </span>
-                      {item.subject_name && (
-                        <span className="text-[11px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
-                          {item.subject_name}
-                        </span>
-                      )}
-                    </div>
-                    <h4 className="font-bold text-slate-900 text-sm">{item.title}</h4>
-                    <p className="text-xs text-slate-600 line-clamp-2 mt-1 leading-relaxed">
-                      {item.description}
-                    </p>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500">
-                    <span>উস্তাদ: {item.teacher_name}</span>
-                    <Link
-                      href={child ? `/portal/assignments?student_id=${child.id}` : "/portal/assignments"}
-                      className="font-bold text-emerald-700 hover:underline flex items-center gap-0.5"
-                    >
-                      <span>বিস্তারিত ও ছবি</span>
-                      <ChevronRight className="w-3 h-3" />
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : childAssignments.length > 0 ? (
-            <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-              <div className="flex items-center gap-2 text-slate-700">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>
-                  সর্বশেষ পাঠ: <strong>{childAssignments[0].title}</strong> (
-                  {childAssignments[0].assigned_date})
-                </span>
-              </div>
-              <Link
-                href={child ? `/portal/assignments?student_id=${child.id}` : "/portal/assignments"}
-                className="font-bold text-emerald-700 hover:underline shrink-0"
-              >
-                পড়া দেখুন →
-              </Link>
-            </div>
-          ) : (
-            <div className="text-center py-6 text-slate-400 text-xs font-medium">
-              আজকের কোনো নতুন পড়া নির্ধারিত নেই।
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Two Column Layout: Recent Attendance Log & Notices */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Attendance Activity Log */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-emerald-600" />
-              <h3 className="font-bold text-slate-900 text-sm sm:text-base">সর্বশেষ হাজিরা বিবরণ</h3>
-            </div>
-            <Link
-              href="/portal/attendance"
-              className="text-xs font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-0.5"
-            >
-              <span>বিস্তারিত দেখুন</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          <div className="p-4 sm:p-5 divide-y divide-slate-100">
-            {attendanceList && attendanceList.length > 0 ? (
-              attendanceList.slice(0, 5).map((record: any) => (
-                <div key={record.id} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`p-2 rounded-xl shrink-0 ${
-                        record.status === "Present"
-                          ? "bg-emerald-50 text-emerald-600"
-                          : record.status === "Absent"
-                          ? "bg-red-50 text-red-600"
-                          : "bg-amber-50 text-amber-600"
-                      }`}
-                    >
-                      {record.status === "Present" ? (
-                        <CheckCircle2 className="w-4 h-4" />
-                      ) : record.status === "Absent" ? (
-                        <XCircle className="w-4 h-4" />
-                      ) : (
-                        <Clock className="w-4 h-4" />
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs sm:text-sm font-bold text-slate-800">
-                        {new Date(record.date).toLocaleDateString("bn-BD", {
-                          weekday: "long",
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
-                      </p>
-                      <p className="text-[11px] text-slate-400">
-                        {record.notes ? `মন্তব্য: ${record.notes}` : "স্বাভাবিক উপস্থিতি"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      record.status === "Present"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : record.status === "Absent"
-                        ? "bg-red-100 text-red-800"
-                        : "bg-amber-100 text-amber-800"
-                    }`}
-                  >
-                    {record.status === "Present"
-                      ? "উপস্থিত"
-                      : record.status === "Absent"
-                      ? "অনুপস্থিত"
-                      : record.status === "Late"
-                      ? "বিলম্ব"
-                      : "ছুটি"}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-6 text-slate-400 text-xs font-medium">
-                কোন সাম্প্রতিক হাজিরার তথ্য পাওয়া যায়নি।
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Notices & Announcements */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Bell className="w-4 h-4 text-indigo-600" />
-              <h3 className="font-bold text-slate-900 text-sm sm:text-base">মাদরাসা নোটিশ ও ঘোষণা</h3>
-            </div>
-            <Link
-              href="/portal/notices"
-              className="text-xs font-bold text-indigo-700 hover:text-indigo-800 flex items-center gap-0.5"
-            >
-              <span>সকল নোটিশ</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          <div className="p-4 sm:p-5 space-y-3">
-            {notices && notices.length > 0 ? (
-              notices.map((n: any) => (
-                <div
-                  key={n.id}
-                  className="p-3.5 bg-slate-50 hover:bg-indigo-50/40 rounded-xl border border-slate-200 transition space-y-1"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
-                      {n.category || "সাধারণ নোটিশ"}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {n.created_at ? new Date(n.created_at).toLocaleDateString("bn-BD") : "-"}
-                    </span>
-                  </div>
-                  <h4 className="text-xs sm:text-sm font-bold text-slate-800">{n.title}</h4>
-                  <p className="text-xs text-slate-500 line-clamp-2">{n.content}</p>
-                </div>
-              ))
-            ) : (
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-center text-xs text-slate-500">
-                বর্তমানে কোন নতুন নোটিশ নেই।
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+    <PortalDashboardClient
+      students={students}
+      child={child}
+      attendanceList={attendanceList || []}
+      latestHifz={latestHifz || null}
+      totalPaid={totalPaid}
+      totalDue={totalDue}
+      latestReceiptNo={latestReceiptNo}
+      feesList={feesList || []}
+      latestExam={latestExam}
+      notices={notices || []}
+      childAssignments={childAssignments || []}
+      routines={parsedRoutines}
+      holidays={activeHolidays}
+      todayDateStr={toDhakaDateString()}
+    />
   );
 }

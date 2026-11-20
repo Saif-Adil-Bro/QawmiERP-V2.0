@@ -223,3 +223,262 @@ export function getGradeBadgeClass(color?: GradeBadgeColor | string): string {
       return "text-slate-700 bg-slate-100 border-slate-200";
   }
 }
+
+const BANGLA_DIGITS = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
+
+function toBnDigits(num: number): string {
+  return String(Math.trunc(num)).replace(/\d/g, (d) => BANGLA_DIGITS[Number(d)] ?? d);
+}
+
+/**
+ * Format positive integer rank into natural Bengali ordinal:
+ * ১ম, ২য়, ৩য়, ৪র্থ, ৫ম, ৬ষ্ঠ, ৭ম, ৮ম, ৯ম, ১০ম, ১১তম, ১২তম...
+ */
+export function toBanglaOrdinal(rank?: number | null): string {
+  if (rank === null || rank === undefined || !Number.isFinite(rank) || rank <= 0) {
+    return "অপ্রযোজ্য";
+  }
+  const n = Math.trunc(rank);
+  const specialMap: Record<number, string> = {
+    1: "১ম",
+    2: "২য়",
+    3: "৩য়",
+    4: "৪র্থ",
+    5: "৫ম",
+    6: "৬ষ্ঠ",
+    7: "৭ম",
+    8: "৮ম",
+    9: "৯ম",
+    10: "১০ম",
+  };
+  if (specialMap[n]) return specialMap[n];
+  return `${toBnDigits(n)}তম`;
+}
+
+export interface ComputedSubjectResult {
+  id: string;
+  subjectName: string;
+  marksObtained: number;
+  totalMarks: number;
+  percentage: number;
+  gpa: number;
+  gradeLabel: string;
+  gradeColor: GradeBadgeColor;
+  badgeClass: string;
+  isFailed: boolean;
+}
+
+export interface StudentExamSummary {
+  hasMarks: boolean;
+  subjectCount: number;
+  failedSubjectCount: number;
+  totalObtained: number;
+  totalMax: number;
+  percentage: number;
+  gpa: number;
+  gradeLabel: string;
+  gradeColor: GradeBadgeColor;
+  badgeClass: string;
+  isPassed: boolean;
+  statusLabel: string;
+  subjects: ComputedSubjectResult[];
+}
+
+export function computeStudentExamSummary(
+  rows: Array<Record<string, any>>,
+  gradingConfigOrRules?: ExamGradingConfig | GradeRule[] | null
+): StudentExamSummary {
+  const config = normalizeGradingConfig(gradingConfigOrRules);
+  const rules = config.rules;
+  const minPassPct = getMinPassPercentage(rules);
+
+  const validRows = (rows || []).filter(
+    (r) => r && (r.marks_obtained !== null && r.marks_obtained !== undefined && r.marks_obtained !== "")
+  );
+
+  if (validRows.length === 0) {
+    return {
+      hasMarks: false,
+      subjectCount: 0,
+      failedSubjectCount: 0,
+      totalObtained: 0,
+      totalMax: 0,
+      percentage: 0,
+      gpa: 0,
+      gradeLabel: "অনির্ধারিত",
+      gradeColor: "slate",
+      badgeClass: getGradeBadgeClass("slate"),
+      isPassed: false,
+      statusLabel: "নম্বর এন্ট্রি হয়নি",
+      subjects: [],
+    };
+  }
+
+  let totalObtained = 0;
+  let totalMax = 0;
+  let gpaSum = 0;
+  let failedSubjectCount = 0;
+
+  const subjects: ComputedSubjectResult[] = validRows.map((r, idx) => {
+    const maxM = Number(r.total_marks) > 0 ? Number(r.total_marks) : 100;
+    const obtM = Math.max(0, Number(r.marks_obtained) || 0);
+    const pct = maxM > 0 ? Math.round((obtM / maxM) * 100) : 0;
+    const rule = resolveGradeRule(pct, rules, pct < minPassPct);
+    const isFailed = Boolean(rule.isFail || pct < minPassPct);
+    const gpa = isFailed ? 0 : rule.gpa;
+
+    totalObtained += obtM;
+    totalMax += maxM;
+    gpaSum += gpa;
+    if (isFailed) failedSubjectCount += 1;
+
+    const subjectName =
+      r.subject_name ||
+      (Array.isArray(r.subjects) ? r.subjects[0]?.name : r.subjects?.name) ||
+      `বিষয় ${toBnDigits(idx + 1)}`;
+
+    return {
+      id: String(r.id || `sub_${idx}`),
+      subjectName,
+      marksObtained: obtM,
+      totalMarks: maxM,
+      percentage: pct,
+      gpa,
+      gradeLabel: rule.label,
+      gradeColor: rule.color,
+      badgeClass: getGradeBadgeClass(rule.color),
+      isFailed,
+    };
+  });
+
+  const percentage = totalMax > 0 ? Math.round((totalObtained / totalMax) * 100) : 0;
+  const isPassed = failedSubjectCount === 0;
+  const rawGpa = isPassed && subjects.length > 0 ? gpaSum / subjects.length : 0;
+  const gpa = Math.round(rawGpa * 100) / 100;
+
+  const overallRule =
+    config.calculationMode === "subject_gpa"
+      ? resolveGradeFromGpa(gpa, rules, !isPassed)
+      : resolveGradeRule(percentage, rules, !isPassed);
+
+  return {
+    hasMarks: true,
+    subjectCount: subjects.length,
+    failedSubjectCount,
+    totalObtained,
+    totalMax,
+    percentage,
+    gpa,
+    gradeLabel: overallRule.label,
+    gradeColor: overallRule.color,
+    badgeClass: getGradeBadgeClass(overallRule.color),
+    isPassed,
+    statusLabel: isPassed ? "উত্তীর্ণ" : "অকৃতকার্য",
+    subjects,
+  };
+}
+
+export interface MeritPositionResult {
+  meritPosition: number | null;
+  totalCandidates: number;
+  formattedPosition: string;
+}
+
+/**
+ * Compute student's true merit position within their class for an exam.
+ * Matches Admin ReportCardsClient ranking: passed students rank above failed,
+ * then higher percentage, then higher total marks, with shared rank on ties.
+ */
+export function computeClassMeritPosition(
+  targetStudentId: string,
+  allClassExamRows: Array<Record<string, any>>,
+  gradingConfigOrRules?: ExamGradingConfig | GradeRule[] | null
+): MeritPositionResult {
+  if (!targetStudentId || !Array.isArray(allClassExamRows) || allClassExamRows.length === 0) {
+    return {
+      meritPosition: null,
+      totalCandidates: 0,
+      formattedPosition: "অপ্রযোজ্য",
+    };
+  }
+
+  const byStudent = new Map<string, Array<Record<string, any>>>();
+  for (const row of allClassExamRows) {
+    if (!row?.student_id) continue;
+    const sid = String(row.student_id);
+    const list = byStudent.get(sid) || [];
+    list.push(row);
+    byStudent.set(sid, list);
+  }
+
+  const candidates: Array<{
+    studentId: string;
+    isFailed: boolean;
+    percentage: number;
+    totalObtained: number;
+  }> = [];
+
+  for (const [sid, rows] of byStudent.entries()) {
+    const summary = computeStudentExamSummary(rows, gradingConfigOrRules);
+    if (!summary.hasMarks) continue;
+    candidates.push({
+      studentId: sid,
+      isFailed: !summary.isPassed,
+      percentage: summary.percentage,
+      totalObtained: summary.totalObtained,
+    });
+  }
+
+  if (candidates.length === 0) {
+    return {
+      meritPosition: null,
+      totalCandidates: 0,
+      formattedPosition: "অপ্রযোজ্য",
+    };
+  }
+
+  candidates.sort((a, b) => {
+    if (a.isFailed !== b.isFailed) return a.isFailed ? 1 : -1;
+    if (b.percentage !== a.percentage) return b.percentage - a.percentage;
+    return b.totalObtained - a.totalObtained;
+  });
+
+  let lastRank = 1;
+  let targetRank: number | null = null;
+  let targetFailed = false;
+
+  candidates.forEach((cand, idx) => {
+    if (idx > 0) {
+      const prev = candidates[idx - 1];
+      const isTie =
+        cand.isFailed === prev.isFailed &&
+        cand.percentage === prev.percentage &&
+        cand.totalObtained === prev.totalObtained;
+      if (!isTie) {
+        lastRank = idx + 1;
+      }
+    } else {
+      lastRank = 1;
+    }
+
+    if (cand.studentId === String(targetStudentId)) {
+      targetRank = lastRank;
+      targetFailed = cand.isFailed;
+    }
+  });
+
+  if (targetRank === null || targetFailed) {
+    return {
+      meritPosition: null,
+      totalCandidates: candidates.length,
+      formattedPosition: targetFailed ? "অপ্রযোজ্য (অকৃতকার্য)" : "অপ্রযোজ্য",
+    };
+  }
+
+  return {
+    meritPosition: targetRank,
+    totalCandidates: candidates.length,
+    formattedPosition: toBanglaOrdinal(targetRank),
+  };
+}
+

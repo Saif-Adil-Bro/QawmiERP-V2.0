@@ -5,23 +5,26 @@ import {
   X,
   Printer,
   Search,
-  Filter,
   Layers,
   TrendingUp,
   TrendingDown,
   Wallet,
   FileText,
-  Sparkles,
-  Calendar,
   CheckCircle2,
   AlertCircle,
-  Download,
-  Trash2,
   Loader2,
+  Ban,
+  RefreshCw,
 } from "lucide-react";
 import { FundItem, FundTransactionRecord, DonationItem } from "@/lib/fund-utils";
-import { toBanglaNumber, formatBanglaCurrency, numberToBanglaWords } from "@/lib/numberToBangla";
-import { getFundLedgerData, getDonationById, getActiveMadrasaHeaderInfo, deleteFundTransaction } from "@/app/actions/zakat";
+import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
+import {
+  getFundLedgerData,
+  getDonationById,
+  getActiveMadrasaHeaderInfo,
+  voidFundTransaction,
+  unvoidFundTransaction,
+} from "@/app/actions/zakat";
 import DonationReceipt from "./DonationReceipt";
 import { printElementIsolated } from "@/lib/printUtils";
 
@@ -29,6 +32,7 @@ interface FundLedgerModalProps {
   fund: FundItem | null;
   isOpen: boolean;
   onClose: () => void;
+  onTransactionChanged?: () => void;
   madrasaInfo?: {
     name?: string;
     address?: string;
@@ -43,6 +47,7 @@ export default function FundLedgerModal({
   fund,
   isOpen,
   onClose,
+  onTransactionChanged,
   madrasaInfo: initialMadrasaInfo,
 }: FundLedgerModalProps) {
   const [loading, setLoading] = useState(true);
@@ -52,12 +57,20 @@ export default function FundLedgerModal({
   const [currentBalance, setCurrentBalance] = useState(0);
 
   const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState<"ALL" | "INCOME" | "EXPENSE" | "MAHFIL">("ALL");
+  const [filterType, setFilterType] = useState<"ALL" | "INCOME" | "EXPENSE" | "MAHFIL" | "VOID">("ALL");
 
   const [activeReceiptDonation, setActiveReceiptDonation] = useState<DonationItem | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [confirmDeleteTxn, setConfirmDeleteTxn] = useState<FundTransactionRecord | null>(null);
+
+  // Void / Unvoid states
+  const [txnToVoid, setTxnToVoid] = useState<FundTransactionRecord | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [txnToUnvoid, setTxnToUnvoid] = useState<FundTransactionRecord | null>(null);
+  const [unvoidReason, setUnvoidReason] = useState("");
+  const [isActionSubmitting, setIsActionSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
   const [liveMadrasaInfo, setLiveMadrasaInfo] = useState<any>(initialMadrasaInfo || null);
 
   useEffect(() => {
@@ -109,21 +122,73 @@ export default function FundLedgerModal({
     }
   };
 
-  const handleDelete = async (txn: FundTransactionRecord) => {
-    setDeletingId(txn.id);
+  const handleConfirmVoid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!txnToVoid) return;
+    if (!voidReason.trim()) {
+      setActionError("বাতিলের সুনির্দিষ্ট কারণ উল্লেখ করা আবশ্যক।");
+      return;
+    }
+
+    setIsActionSubmitting(true);
+    setActionError(null);
     try {
-      const res = await deleteFundTransaction(txn.id, txn.type, txn.voucher_no);
+      const res = await voidFundTransaction(
+        txnToVoid.id,
+        txnToVoid.type,
+        voidReason.trim(),
+        txnToVoid.voucher_no
+      );
       if (res?.success) {
-        setConfirmDeleteTxn(null);
+        setTxnToVoid(null);
+        setVoidReason("");
+        setToastMessage(res.message || "ভাউচার/রসিদ সফলভাবে বাতিল (VOID) করা হয়েছে।");
+        setTimeout(() => setToastMessage(null), 4000);
         await loadLedger();
+        if (onTransactionChanged) onTransactionChanged();
       } else {
-        alert(res?.error || "লেনদেন ডিলিট করা যায়নি");
+        setActionError(res?.error || "লেনদেন বাতিল করা যায়নি।");
       }
     } catch (err: any) {
-      console.error("Error deleting txn:", err);
-      alert("লেনদেন ডিলিট করতে ত্রুটি হয়েছে");
+      console.error("Error voiding txn:", err);
+      setActionError("লেনদেন বাতিল করতে ত্রুটি হয়েছে।");
     } finally {
-      setDeletingId(null);
+      setIsActionSubmitting(false);
+    }
+  };
+
+  const handleConfirmUnvoid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!txnToUnvoid) return;
+    if (!unvoidReason.trim()) {
+      setActionError("পুনরায় সক্রিয় করার কারণ উল্লেখ করা আবশ্যক।");
+      return;
+    }
+
+    setIsActionSubmitting(true);
+    setActionError(null);
+    try {
+      const res = await unvoidFundTransaction(
+        txnToUnvoid.id,
+        txnToUnvoid.type,
+        unvoidReason.trim(),
+        txnToUnvoid.voucher_no
+      );
+      if (res?.success) {
+        setTxnToUnvoid(null);
+        setUnvoidReason("");
+        setToastMessage(res.message || "ভাউচার/রসিদ পুনরায় সক্রিয় করা হয়েছে।");
+        setTimeout(() => setToastMessage(null), 4000);
+        await loadLedger();
+        if (onTransactionChanged) onTransactionChanged();
+      } else {
+        setActionError(res?.error || "পুনরায় সক্রিয় করা যায়নি।");
+      }
+    } catch (err: any) {
+      console.error("Error unvoiding txn:", err);
+      setActionError("পুনরায় সক্রিয় করতে ত্রুটি হয়েছে।");
+    } finally {
+      setIsActionSubmitting(false);
     }
   };
 
@@ -145,6 +210,8 @@ export default function FundLedgerModal({
             receipt_no: txn.voucher_no,
             payment_method: txn.payment_method || "Cash",
             notes: txn.notes,
+            status: txn.status || "COMPLETED",
+            cancellation_reason: txn.cancellation_reason,
             is_mahfil_settlement: txn.is_mahfil_settlement,
             donors: {
               name: txn.source_or_recipient,
@@ -167,12 +234,16 @@ export default function FundLedgerModal({
 
   if (!isOpen || !fund) return null;
 
+  const activeTxnsCount = transactions.filter((t) => t.status !== "VOID").length;
+  const voidedTxnsCount = transactions.filter((t) => t.status === "VOID").length;
+
   const filteredTxns = transactions.filter((t) => {
     const matchesSearch =
       (t.source_or_recipient || "").toLowerCase().includes(search.toLowerCase()) ||
       (t.voucher_no || "").toLowerCase().includes(search.toLowerCase()) ||
       (t.notes || "").toLowerCase().includes(search.toLowerCase()) ||
-      (t.category || "").toLowerCase().includes(search.toLowerCase());
+      (t.category || "").toLowerCase().includes(search.toLowerCase()) ||
+      (t.cancellation_reason || "").toLowerCase().includes(search.toLowerCase());
 
     if (!matchesSearch) return false;
 
@@ -180,6 +251,7 @@ export default function FundLedgerModal({
     if (filterType === "INCOME") return t.type === "INCOME" || t.type === "MAHFIL_SURPLUS";
     if (filterType === "EXPENSE") return t.type === "EXPENSE" || t.type === "MAHFIL_DEFICIT";
     if (filterType === "MAHFIL") return t.is_mahfil_settlement || t.type === "MAHFIL_SURPLUS" || t.type === "MAHFIL_DEFICIT";
+    if (filterType === "VOID") return t.status === "VOID";
     return true;
   });
 
@@ -227,6 +299,13 @@ export default function FundLedgerModal({
 
         {/* Modal Scrollable Content */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-5">
+          {toastMessage && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{toastMessage}</span>
+            </div>
+          )}
+
           {/* 4 Overview Stat Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {/* Total Inflow */}
@@ -274,14 +353,17 @@ export default function FundLedgerModal({
             {/* Total Transactions */}
             <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-700">মোট লেনদেন সংখ্যা</span>
+                <span className="text-[11px] font-bold text-slate-700">সক্রিয় লেনদেন সংখ্যা</span>
                 <FileText className="w-4 h-4 text-slate-500" />
               </div>
               <div className="mt-2">
                 <h3 className="text-lg sm:text-xl font-black text-slate-900 font-mono">
-                  {toBanglaNumber(transactions.length)} টি
+                  {toBanglaNumber(activeTxnsCount)} টি
                 </h3>
-                <span className="text-[10px] text-slate-500">অনুমোদিত ভাউচার রেকর্ড</span>
+                <span className="text-[10px] text-slate-500">
+                  অনুমোদিত ভাউচার রেকর্ড
+                  {voidedTxnsCount > 0 ? ` (বাতিল: ${toBanglaNumber(voidedTxnsCount)} টি)` : ""}
+                </span>
               </div>
             </div>
           </div>
@@ -306,13 +388,16 @@ export default function FundLedgerModal({
                 { id: "INCOME", label: "জমা / আয়" },
                 { id: "EXPENSE", label: "খরচ / ব্যয়" },
                 { id: "MAHFIL", label: "✨ মাহফিল সমন্বয়" },
+                { id: "VOID", label: `বাতিলকৃত (VOID)${voidedTxnsCount > 0 ? ` (${toBanglaNumber(voidedTxnsCount)})` : ""}` },
               ].map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setFilterType(tab.id as any)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
                     filterType === tab.id
-                      ? "bg-slate-900 text-white shadow-2xs"
+                      ? tab.id === "VOID"
+                        ? "bg-rose-700 text-white shadow-2xs"
+                        : "bg-slate-900 text-white shadow-2xs"
                       : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
                   }`}
                 >
@@ -338,41 +423,66 @@ export default function FundLedgerModal({
                       <th className="py-3 px-4">উৎস / দাতা / খাত</th>
                       <th className="py-3 px-4">লেনদেনের প্রকৃতি</th>
                       <th className="py-3 px-4 text-right">পরিমাণ ৳</th>
-                      <th className="py-3 px-4 text-right">মেমো / রসিদ</th>
+                      <th className="py-3 px-4 text-right">মেমো / রসিদ ও অ্যাকশন</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                     {filteredTxns.map((txn) => {
                       const isInflow = txn.type === "INCOME" || txn.type === "MAHFIL_SURPLUS";
                       const isMahfil = txn.is_mahfil_settlement || txn.type === "MAHFIL_SURPLUS" || txn.type === "MAHFIL_DEFICIT";
+                      const isVoid = txn.status === "VOID";
 
                       return (
-                        <tr key={txn.id} className="hover:bg-slate-50/80 transition-colors">
+                        <tr
+                          key={txn.id}
+                          className={`hover:bg-slate-50/80 transition-colors ${
+                            isVoid ? "bg-rose-50/25 opacity-75" : ""
+                          }`}
+                        >
                           {/* Date & Voucher */}
                           <td className="py-3 px-4">
-                            <div className="font-bold text-slate-900">
+                            <div className={`font-bold ${isVoid ? "line-through text-slate-400" : "text-slate-900"}`}>
                               {toBanglaNumber(new Date(txn.date).toLocaleDateString("en-GB"))}
                             </div>
-                            <div className="text-[11px] font-mono text-slate-500">
-                              {txn.voucher_no}
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {isVoid && (
+                                <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                                  VOID
+                                </span>
+                              )}
+                              <span className={`text-[11px] font-mono ${isVoid ? "line-through text-slate-400" : "text-slate-500"}`}>
+                                {txn.voucher_no}
+                              </span>
                             </div>
                           </td>
 
                           {/* Source / Donor */}
                           <td className="py-3 px-4">
-                            <div className="font-bold text-slate-900 text-sm">
+                            <div className={`font-bold text-sm ${isVoid ? "line-through text-slate-400" : "text-slate-900"}`}>
                               {txn.source_or_recipient}
                             </div>
                             {txn.notes && (
-                              <div className="text-[11px] text-slate-500 line-clamp-1 mt-0.5" title={txn.notes}>
+                              <div
+                                className={`text-[11px] line-clamp-1 mt-0.5 ${isVoid ? "line-through text-slate-400" : "text-slate-500"}`}
+                                title={txn.notes}
+                              >
                                 {txn.notes}
+                              </div>
+                            )}
+                            {isVoid && txn.cancellation_reason && (
+                              <div className="text-[10px] text-rose-600 font-medium italic mt-1">
+                                বাতিলের কারণ: {txn.cancellation_reason}
                               </div>
                             )}
                           </td>
 
                           {/* Category / Nature Badge */}
                           <td className="py-3 px-4">
-                            {isMahfil ? (
+                            {isVoid ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                                <span>বাতিলকৃত ({isInflow ? "রসিদ" : "ভাউচার"})</span>
+                              </span>
+                            ) : isMahfil ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
                                 <span>✨ মাহফিল উদ্বৃত্ত হস্তান্তর</span>
                               </span>
@@ -389,19 +499,26 @@ export default function FundLedgerModal({
 
                           {/* Amount */}
                           <td className="py-3 px-4 text-right">
-                            <div className={`font-mono font-black text-sm ${isInflow ? "text-emerald-800" : "text-rose-700"}`}>
+                            <div
+                              className={`font-mono text-sm ${
+                                isVoid
+                                  ? "line-through text-slate-400 opacity-60 font-semibold"
+                                  : `font-black ${isInflow ? "text-emerald-800" : "text-rose-700"}`
+                              }`}
+                            >
                               {isInflow ? "+ ৳ " : "- ৳ "}
                               {formatBanglaCurrency(txn.amount)}
                             </div>
                           </td>
 
-                          {/* Action / Receipt / Delete */}
+                          {/* Action / Receipt / Void / Unvoid */}
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               {isInflow ? (
                                 <button
                                   type="button"
                                   onClick={() => handleOpenReceipt(txn)}
+                                  disabled={loadingReceipt}
                                   className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
                                     isMahfil
                                       ? "bg-amber-700 hover:bg-amber-800 text-white shadow-2xs"
@@ -415,19 +532,35 @@ export default function FundLedgerModal({
                                 <span className="text-[11px] font-mono text-slate-400">ব্যয় ভাউচার</span>
                               )}
 
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteTxn(txn)}
-                                disabled={deletingId === txn.id}
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                                title="লেনদেন ডিলিট / বাতিল করুন"
-                              >
-                                {deletingId === txn.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
-                              </button>
+                              {!isVoid ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTxnToVoid(txn);
+                                    setVoidReason("");
+                                    setActionError(null);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition cursor-pointer"
+                                  title="রসিদ বা ভাউচার বাতিল করুন (Void)"
+                                >
+                                  <Ban className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>বাতিল</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTxnToUnvoid(txn);
+                                    setUnvoidReason("");
+                                    setActionError(null);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition cursor-pointer"
+                                  title="বাতিলকৃত রসিদ বা ভাউচার পুনরায় সক্রিয় করুন (Unvoid)"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>সক্রিয়</span>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -439,7 +572,7 @@ export default function FundLedgerModal({
                         <td colSpan={5} className="py-12 text-center text-slate-400">
                           <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                           <p className="font-bold text-slate-700">কোনো লেনদেন রেকর্ড পাওয়া যায়নি</p>
-                          <p className="text-[11px] text-slate-400 mt-0.5">এই ফান্ডে এখনও কোনো লেনদেন সংঘটিত হয়নি</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">এই ফান্ডে নির্বাচিত ফিল্টারে কোনো লেনদেন নেই</p>
                         </td>
                       </tr>
                     )}
@@ -492,8 +625,8 @@ export default function FundLedgerModal({
                   {madrasaInfo?.phone && (
                     <span>মোবাইল: {toBanglaNumber(madrasaInfo.phone)}</span>
                   )}
-                  {(madrasaInfo?.registration_no || madrasaInfo?.reg_no) && (
-                    <span>রেজিস্ট্রেশন নং: {toBanglaNumber(madrasaInfo?.registration_no || madrasaInfo?.reg_no)}</span>
+                  {(madrasaInfo?.registration_no || (madrasaInfo as any)?.reg_no) && (
+                    <span>রেজিস্ট্রেশন নং: {toBanglaNumber(madrasaInfo?.registration_no || (madrasaInfo as any)?.reg_no)}</span>
                   )}
                 </div>
               </div>
@@ -533,22 +666,32 @@ export default function FundLedgerModal({
               </tr>
             </thead>
             <tbody>
-              {transactions.map((t, idx) => (
-                <tr key={idx} className="border-b border-slate-200">
-                  <td className="p-2 border-r border-slate-300">{toBanglaNumber(new Date(t.date).toLocaleDateString("en-GB"))}</td>
-                  <td className="p-2 border-r border-slate-300 font-mono">{t.voucher_no}</td>
-                  <td className="p-2 border-r border-slate-300">
-                    <div className="font-bold">{t.source_or_recipient}</div>
-                    {t.notes && <div className="text-[10px] text-slate-500">{t.notes}</div>}
-                  </td>
-                  <td className="p-2 border-r border-slate-300 text-right font-mono text-emerald-800">
-                    {t.type === "INCOME" || t.type === "MAHFIL_SURPLUS" ? formatBanglaCurrency(t.amount) : "-"}
-                  </td>
-                  <td className="p-2 text-right font-mono text-rose-800">
-                    {t.type === "EXPENSE" || t.type === "MAHFIL_DEFICIT" ? formatBanglaCurrency(t.amount) : "-"}
-                  </td>
-                </tr>
-              ))}
+              {transactions.map((t, idx) => {
+                const isVoid = t.status === "VOID";
+                return (
+                  <tr key={idx} className={`border-b border-slate-200 ${isVoid ? "text-slate-400" : ""}`}>
+                    <td className={`p-2 border-r border-slate-300 ${isVoid ? "line-through" : ""}`}>
+                      {toBanglaNumber(new Date(t.date).toLocaleDateString("en-GB"))}
+                    </td>
+                    <td className="p-2 border-r border-slate-300 font-mono">
+                      {isVoid ? `[VOID] ${t.voucher_no}` : t.voucher_no}
+                    </td>
+                    <td className="p-2 border-r border-slate-300">
+                      <div className={`font-bold ${isVoid ? "line-through" : ""}`}>{t.source_or_recipient}</div>
+                      {t.notes && <div className="text-[10px] text-slate-500">{t.notes}</div>}
+                      {isVoid && t.cancellation_reason && (
+                        <div className="text-[10px] text-rose-600 italic">বাতিলের কারণ: {t.cancellation_reason}</div>
+                      )}
+                    </td>
+                    <td className={`p-2 border-r border-slate-300 text-right font-mono ${isVoid ? "line-through text-slate-400" : "text-emerald-800"}`}>
+                      {t.type === "INCOME" || t.type === "MAHFIL_SURPLUS" ? formatBanglaCurrency(t.amount) : "-"}
+                    </td>
+                    <td className={`p-2 text-right font-mono ${isVoid ? "line-through text-slate-400" : "text-rose-800"}`}>
+                      {t.type === "EXPENSE" || t.type === "MAHFIL_DEFICIT" ? formatBanglaCurrency(t.amount) : "-"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
@@ -560,56 +703,206 @@ export default function FundLedgerModal({
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
-      {confirmDeleteTxn && (
+      {/* Void Transaction Modal */}
+      {txnToVoid && (
         <div className="fixed inset-0 z-70 flex items-center justify-center bg-slate-900/80 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
-            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4">
-              <Trash2 className="w-6 h-6" />
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-rose-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2 text-rose-600">
+                <Ban className="w-5 h-5" />
+                <h3 className="text-base font-bold text-slate-900">
+                  {txnToVoid.type === "INCOME" || txnToVoid.type === "MAHFIL_SURPLUS"
+                    ? "রসিদ বাতিল করুন (Void Receipt)"
+                    : "ভাউচার বাতিল করুন (Void Voucher)"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTxnToVoid(null)}
+                disabled={isActionSubmitting}
+                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <h3 className="text-base font-bold text-slate-900">
-              লেনদেন রেকর্ড ডিলিট করবেন?
-            </h3>
-            <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-              আপনি কি নিশ্চিত যে ভাউচার{" "}
-              <span className="font-mono font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
-                {confirmDeleteTxn.voucher_no}
-              </span>{" "}
-              (পরিমাণ: <span className="font-bold text-rose-700">৳ {formatBanglaCurrency(confirmDeleteTxn.amount)}</span>) হিসাব ও খতিয়ান থেকে স্থায়ীভাবে মুছে ফেলতে চান?
-            </p>
-            {confirmDeleteTxn.is_mahfil_settlement && (
-              <div className="mt-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 font-medium">
-                ⚠️ এটি একটি মাহফিল উদ্বৃত্ত/ঘাটতি সমন্বয়ের লেনদেন। এটি ডিলিট করলে সাধারণ ফান্ড থেকে এর স্থিতি স্বয়ংক্রিয়ভাবে সমন্বয় করা হবে।
+
+            {actionError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{actionError}</span>
               </div>
             )}
-            <div className="mt-6 flex items-center justify-end gap-3">
+
+            <div className="bg-rose-50/70 text-slate-800 p-4 rounded-2xl text-xs space-y-2 border border-rose-200">
+              <div className="space-y-1 font-sans">
+                <p>
+                  <strong>ভাউচার/রসিদ নং:</strong>{" "}
+                  <span className="font-mono text-rose-700 font-bold">{txnToVoid.voucher_no}</span>
+                </p>
+                <p>
+                  <strong>উৎস / খাত:</strong> {txnToVoid.source_or_recipient}
+                </p>
+                <p>
+                  <strong>ফান্ড:</strong> {fund.name}
+                </p>
+                <p>
+                  <strong>পরিমাণ:</strong> ৳ {formatBanglaCurrency(txnToVoid.amount)}
+                </p>
+                <p>
+                  <strong>তারিখ:</strong>{" "}
+                  {toBanglaNumber(new Date(txnToVoid.date).toLocaleDateString("en-GB"))}
+                </p>
+              </div>
+              <p className="text-[11px] text-rose-700 pt-2 border-t border-rose-200/60 leading-relaxed">
+                ⚠️ আর্থিক স্বচ্ছতার স্বার্থে রসিদ বা ভাউচার কখনোই ডাটাবেজ থেকে স্থায়ীভাবে মুছে ফেলা হয় না। এটি বাতিল (VOID) হিসেবে সংরক্ষিত থাকবে এবং স্বয়ংক্রিয়ভাবে ফান্ডের ব্যালেন্স ও মোট হিসাব থেকে বাদ পড়বে।
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmVoid} className="space-y-4 text-xs sm:text-sm">
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700 flex items-center gap-1">
+                  <span>বাতিলের সুনির্দিষ্ট কারণ (বাধ্যতামূলক)</span>
+                  <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={voidReason}
+                  onChange={(e) => setVoidReason(e.target.value)}
+                  placeholder="যেমন: ভুল ফান্ডের নামে এন্ট্রি / ভুল অংক / চেক বাউন্স / ডুপ্লিকেট ভাউচার..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setTxnToVoid(null)}
+                  disabled={isActionSubmitting}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold cursor-pointer"
+                >
+                  ফিরে যান
+                </button>
+                <button
+                  type="submit"
+                  disabled={isActionSubmitting}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isActionSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>বাতিল হচ্ছে...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Ban className="w-4 h-4" />
+                      <span>নিশ্চিত বাতিল করুন (VOID)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Unvoid Transaction Modal */}
+      {txnToUnvoid && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center bg-slate-900/80 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-emerald-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2 text-emerald-700">
+                <RefreshCw className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-base font-bold text-slate-900">
+                  ভাউচার/রসিদ পুনরায় সক্রিয় করুন (Unvoid)
+                </h3>
+              </div>
               <button
                 type="button"
-                onClick={() => setConfirmDeleteTxn(null)}
-                disabled={deletingId !== null}
-                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                onClick={() => setTxnToUnvoid(null)}
+                disabled={isActionSubmitting}
+                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
               >
-                বাতিল
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDelete(confirmDeleteTxn)}
-                disabled={deletingId !== null}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition shadow-xs cursor-pointer disabled:opacity-50"
-              >
-                {deletingId ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>মুছে ফেলা হচ্ছে...</span>
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>স্থায়ীভাবে ডিলিট করুন</span>
-                  </>
-                )}
+                <X className="w-5 h-5" />
               </button>
             </div>
+
+            {actionError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{actionError}</span>
+              </div>
+            )}
+
+            <div className="bg-emerald-50/60 text-slate-800 p-4 rounded-2xl text-xs space-y-2 border border-emerald-200">
+              <div className="space-y-1 font-sans">
+                <p>
+                  <strong>ভাউচার/রসিদ নং:</strong>{" "}
+                  <span className="font-mono text-emerald-800 font-bold">{txnToUnvoid.voucher_no}</span>
+                </p>
+                <p>
+                  <strong>উৎস / খাত:</strong> {txnToUnvoid.source_or_recipient}
+                </p>
+                <p>
+                  <strong>ফান্ড:</strong> {fund.name}
+                </p>
+                <p>
+                  <strong>পরিমাণ:</strong> ৳ {formatBanglaCurrency(txnToUnvoid.amount)}
+                </p>
+                <p>
+                  <strong>পূর্বে বাতিলের কারণ:</strong>{" "}
+                  <span className="text-rose-700 italic">{txnToUnvoid.cancellation_reason || "তথ্য নেই"}</span>
+                </p>
+              </div>
+              <p className="text-[11px] text-emerald-800 pt-2 border-t border-emerald-200/60 leading-relaxed">
+                👑 অনুমোদনক্রমে বাতিল হওয়া রসিদ বা ভাউচার পুনর্বহাল করা হচ্ছে। এটি সক্রিয় করলে ফান্ডের ব্যালেন্স ও মোট হিসাবে পুনরায় যুক্ত হবে।
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmUnvoid} className="space-y-4 text-xs sm:text-sm">
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700 flex items-center gap-1">
+                  <span>পুনরায় সক্রিয়করণের কারণ / নোট (বাধ্যতামূলক)</span>
+                  <span className="text-emerald-600">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={unvoidReason}
+                  onChange={(e) => setUnvoidReason(e.target.value)}
+                  placeholder="যেমন: ভুলবশত বাতিল করা হয়েছিল, অডিট শেষে অনুমোদনক্রমে পুনরায় সক্রিয় করা হলো..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setTxnToUnvoid(null)}
+                  disabled={isActionSubmitting}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold cursor-pointer"
+                >
+                  ফিরে যান
+                </button>
+                <button
+                  type="submit"
+                  disabled={isActionSubmitting}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isActionSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>সক্রিয় হচ্ছে...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4" />
+                      <span>নিশ্চিত সক্রিয় করুন</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

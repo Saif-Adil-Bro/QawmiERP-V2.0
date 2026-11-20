@@ -7,9 +7,9 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { isUuid } from "@/lib/student-utils";
-import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName, isTransactionInFund, isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
+import { DEFAULT_FUNDS, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, normalizeFundName, isTransactionInFund, isVoidedExpense, isVoidDonation, getExpenseVoidReason } from "@/lib/fund-utils";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
-import { getFeeMetadata } from "./fee-management";
+import { getFeeMetadata, voidFeePayment, unvoidFeePayment } from "./fee-management";
 
 // In-memory fallback cache for custom funds if database table is not yet created
 const customFundsStore: Map<string, FundItem[]> = new Map();
@@ -302,6 +302,7 @@ export async function getFunds(madrasaIdParam?: string): Promise<FundItem[]> {
 
     // Merge meta subscription payments into funds collection calculation
     for (const sp of subscriptionPayments) {
+      if (sp.status === "VOID" || (sp.notes && String(sp.notes).includes("[VOID:"))) continue;
       if ((sp.receipt_no && existingReceiptNos.has(sp.receipt_no)) || existingIds.has(sp.id)) continue;
       const amt = Number(sp.amount || 0);
       const targetFundName = sp.fund_name || "সাধারণ ফান্ড";
@@ -320,6 +321,7 @@ export async function getFunds(madrasaIdParam?: string): Promise<FundItem[]> {
     // Merge online donations into funds collection calculation
     const onlineDonations = meta.online_donations || [];
     for (const od of onlineDonations) {
+      if (od.status === "VOID" || (od.notes && String(od.notes).includes("[VOID:")) || (od.message && String(od.message).includes("[VOID:"))) continue;
       if ((od.receipt_no && existingReceiptNos.has(od.receipt_no)) || existingIds.has(od.id) || (od.trx_id && existingReceiptNos.has(od.trx_id))) continue;
       if (od.status === "VERIFIED" || od.status === "COMPLETED" || od.status === "SUCCESS") {
         const amt = Number(od.amount || 0);
@@ -341,6 +343,7 @@ export async function getFunds(madrasaIdParam?: string): Promise<FundItem[]> {
     // Merge donation box collections
     const boxLogs = meta.donation_box_logs || [];
     for (const b of boxLogs) {
+      if (b.status === "VOID" || (b.notes && String(b.notes).includes("[VOID:"))) continue;
       const recNo = b.receipt_no || b.id;
       if (recNo && (existingReceiptNos.has(recNo) || existingIds.has(recNo))) continue;
       const amt = Number(b.amount || 0);
@@ -362,18 +365,20 @@ export async function getFunds(madrasaIdParam?: string): Promise<FundItem[]> {
     for (const lr of leatherRecords) {
       const recNo = lr.receipt_no || lr.id;
       if (recNo && (existingReceiptNos.has(recNo) || existingIds.has(recNo))) continue;
+      const isVoidInc = lr.status === "VOID" || lr.income_status === "VOID" || (lr.notes && String(lr.notes).includes("[VOID:"));
+      const isVoidExp = lr.status === "VOID" || lr.expense_status === "VOID" || (lr.exp_notes && String(lr.exp_notes).includes("[VOID:"));
       const inc = Number(lr.received_amount || lr.total_sale_price || lr.total_sale_amount || 0);
       const exp = Number(lr.transport_labour_cost || lr.transport_labor_cost || 0);
       const lillahFund = baseFunds.find((f) => isTransactionInFund(f, undefined, "লিল্লাহ বোর্ডিং ফান্ড", baseFunds));
       if (lillahFund) {
         const stat = fundStats.get(lillahFund.name);
         if (stat) {
-          if (inc > 0) {
+          if (inc > 0 && !isVoidInc) {
             stat.collected += inc;
             stat.count += 1;
             stat.donors.add(lr.id || "leather");
           }
-          if (exp > 0) {
+          if (exp > 0 && !isVoidExp) {
             stat.expense += exp;
           }
         }
@@ -1641,16 +1646,23 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
     const existingReceiptNos = new Set((dbDonations || []).map((d: any) => d.receipt_no).filter(Boolean));
     const existingIds = new Set((dbDonations || []).map((d: any) => d.id).filter(Boolean));
 
-    // Process Donations
+    // Process Donations (Include voided donations with status: "VOID", exclude from totalInflow)
     for (const d of dbDonations || []) {
-      if (isVoidDonation(d)) continue;
       if (isTransactionInFund(targetFund, d.fund_id, d.donation_type, funds)) {
+        const isVoid = isVoidDonation(d);
+        const voidMatch = (d.notes || "").match(/\[VOID:\s*([^\]|]+)/i);
+        const cancellationReason = voidMatch ? voidMatch[1].trim() : (d.cancellation_reason || d.void_reason || "");
+        const cleanNotes = (d.notes || "")
+          .replace(/\[VOID:[^\]]+\]\s*/gi, "")
+          .replace(/\[Method:\s*[^\]]+\]\s*/gi, "")
+          .trim();
+
         let isMahfil = false;
         let sourceName = d.donors?.name || "সাধারণ দাতা";
         if (d.receipt_no?.startsWith("MHF-") || (d.notes && d.notes.includes("মাহফিল"))) {
           isMahfil = true;
           const isValid = (d.receipt_no && validMahfilVouchers.has(d.receipt_no)) || validMahfilRecordIds.has(d.id);
-          if (!isValid) {
+          if (!isValid && !isVoid) {
             try {
               await adminClient.from("donations").delete().eq("id", d.id);
             } catch {}
@@ -1662,7 +1674,9 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
         }
 
         const amt = Number(d.amount || 0);
-        totalInflow += amt;
+        if (!isVoid) {
+          totalInflow += amt;
+        }
 
         transactions.push({
           id: d.id,
@@ -1674,19 +1688,33 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           source_or_recipient: sourceName,
           voucher_no: d.receipt_no || `ZR-${d.id.substring(0, 6)}`,
           payment_method: d.notes?.includes("[Method:") ? d.notes.match(/\[Method:\s*([^\]]+)\]/)?.[1] : "Cash",
-          notes: d.notes || "",
+          notes: cleanNotes,
           category: isMahfil ? "মাহফিল উদ্বৃত্ত জমা" : "সাধারণ অনুদান প্রাপ্তি",
           is_mahfil_settlement: isMahfil,
+          status: isVoid ? "VOID" : "COMPLETED",
+          cancellation_reason: isVoid ? cancellationReason : undefined,
         });
       }
     }
 
     // Process Student Fee Payments into Fund Ledger (Dynamic Fund Routing)
-    const feePayments = (feeMeta.payments || []).filter(
-      (p: any) => p.status !== "REVERSED" && p.status !== "VOID"
-    );
+    const feePayments = feeMeta.payments || [];
     for (const p of feePayments) {
       if ((p.receipt_no && existingReceiptNos.has(p.receipt_no)) || existingIds.has(p.id)) continue;
+      const isVoid = p.status === "VOID" || p.status === "REVERSED" || (p.notes && String(p.notes).includes("[VOID:"));
+      const voidMatch = (p.notes || "").match(/\[VOID:\s*([^\]|]+)/i);
+      const revMatch = (p.notes || "").match(/\[REVERSED:\s*([^\]|]+)/i);
+      const cancellationReason =
+        p.cancellation_reason ||
+        p.reversal_reason ||
+        (voidMatch ? voidMatch[1].trim() : "") ||
+        (revMatch ? revMatch[1].trim() : "");
+      const cleanNotes = (p.notes || "")
+        .replace(/\[VOID:[^\]]+\]\s*/gi, "")
+        .replace(/\[REVERSED:[^\]]+\]\s*/gi, "")
+        .replace(/\[UNVOIDED:[^\]]+\]\s*/gi, "")
+        .trim();
+
       if (p.allocations && p.allocations.length > 0) {
         for (const alloc of p.allocations) {
           const amt = Number(alloc.allocated_amount || 0);
@@ -1703,7 +1731,9 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           const itemFundName = alloc.fund_name || p.fund_name || fallbackFundName;
 
           if (isTransactionInFund(targetFund, itemFundId, itemFundName, funds)) {
-            totalInflow += amt;
+            if (!isVoid) {
+              totalInflow += amt;
+            }
             transactions.push({
               id: `${p.id}_${alloc.fee_type_id || "alloc"}`,
               type: "INCOME",
@@ -1714,9 +1744,11 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
               source_or_recipient: `${p.student_name || "শিক্ষার্থী"} (${p.class_name || "সাধারণ"}) [${name}]`,
               voucher_no: p.receipt_no || `MR-${p.id.substring(0, 6)}`,
               payment_method: p.payment_method || "Cash",
-              notes: p.notes ? `${name} - ${p.notes}` : `${name} আদায়`,
+              notes: cleanNotes ? `${name} - ${cleanNotes}` : `${name} আদায়`,
               category: name,
               is_mahfil_settlement: false,
+              status: isVoid ? "VOID" : "COMPLETED",
+              cancellation_reason: isVoid ? cancellationReason : undefined,
             });
           }
         }
@@ -1732,7 +1764,9 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           const itemFundName = p.fund_name || fallbackFundName;
 
           if (isTransactionInFund(targetFund, itemFundId, itemFundName, funds)) {
-            totalInflow += amt;
+            if (!isVoid) {
+              totalInflow += amt;
+            }
             transactions.push({
               id: p.id,
               type: "INCOME",
@@ -1743,9 +1777,11 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
               source_or_recipient: `${p.student_name || "শিক্ষার্থী"} (${p.class_name || "সাধারণ"})`,
               voucher_no: p.receipt_no || `MR-${p.id.substring(0, 6)}`,
               payment_method: p.payment_method || "Cash",
-              notes: p.notes || "শিক্ষার্থীর ফি আদায়",
+              notes: cleanNotes || "শিক্ষার্থীর ফি আদায়",
               category: "শিক্ষার্থীর ফি",
               is_mahfil_settlement: false,
+              status: isVoid ? "VOID" : "COMPLETED",
+              cancellation_reason: isVoid ? cancellationReason : undefined,
             });
           }
         }
@@ -1759,7 +1795,14 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
       const amt = Number(sp.amount || 0);
       const targetFundName = sp.fund_name || "সাধারণ ফান্ড";
       if (isTransactionInFund(targetFund, undefined, targetFundName, funds)) {
-        totalInflow += amt;
+        const isVoid = sp.status === "VOID" || (sp.notes && String(sp.notes).includes("[VOID:"));
+        const voidMatch = (sp.notes || "").match(/\[VOID:\s*([^\]|]+)/i);
+        const cancellationReason = sp.cancellation_reason || sp.void_reason || (voidMatch ? voidMatch[1].trim() : "");
+        const cleanNotes = (sp.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+
+        if (!isVoid) {
+          totalInflow += amt;
+        }
         transactions.push({
           id: sp.id,
           type: "INCOME",
@@ -1770,9 +1813,11 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           source_or_recipient: `${sp.donor_name || "সম্মানিত দাতা"} (মাসিক/বাৎসরিক চাঁদা)`,
           voucher_no: sp.receipt_no || `SUB-${sp.id.substring(0, 6)}`,
           payment_method: sp.payment_method || "Cash",
-          notes: sp.notes || `[মাস: ${sp.month || ""}] চাঁদা আদায়`,
+          notes: cleanNotes || `[মাস: ${sp.month || ""}] চাঁদা আদায়`,
           category: "দাতা চাঁদা",
           is_mahfil_settlement: false,
+          status: isVoid ? "VOID" : "COMPLETED",
+          cancellation_reason: isVoid ? cancellationReason : undefined,
         });
       }
     }
@@ -1785,8 +1830,16 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
       if (isTransactionInFund(targetFund, undefined, targetFundName, funds)) {
         const amt = Number(od.amount || 0);
         if (amt > 0) {
+          const isVoid =
+            od.status === "VOID" ||
+            (od.notes && String(od.notes).includes("[VOID:")) ||
+            (od.message && String(od.message).includes("[VOID:"));
+          const voidMatch = ((od.notes || od.message || "") as string).match(/\[VOID:\s*([^\]|]+)/i);
+          const cancellationReason = od.cancellation_reason || od.void_reason || (voidMatch ? voidMatch[1].trim() : "");
+          const cleanMessage = ((od.message || "") as string).replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+
           const isVerified = od.status === "VERIFIED" || od.status === "COMPLETED" || od.status === "SUCCESS";
-          if (isVerified) {
+          if (!isVoid && isVerified) {
             totalInflow += amt;
           }
           transactions.push({
@@ -1799,9 +1852,11 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
             source_or_recipient: `${od.donor_name || "অনলাইন শুভাকাঙ্ক্ষী"}${od.phone ? ` (${od.phone})` : ""}${od.is_anonymous ? " [গোপন দান]" : ""}`,
             voucher_no: od.receipt_no || `ONL-${od.id.substring(0, 6)}`,
             payment_method: od.payment_method || "Digital",
-            notes: `[অনলাইন অনুদান | TrxID: ${od.trx_id || "-"}] ${od.message || ""}`.trim(),
-            category: `অনলাইন দান (${isVerified ? "ভেরিফাইড" : od.status === "PENDING" ? "অপেক্ষমান" : od.status})`,
+            notes: `[অনলাইন অনুদান | TrxID: ${od.trx_id || "-"}] ${cleanMessage}`.trim(),
+            category: `অনলাইন দান (${isVoid ? "বাতিল" : isVerified ? "ভেরিফাইড" : od.status === "PENDING" ? "অপেক্ষমান" : od.status})`,
             is_mahfil_settlement: false,
+            status: isVoid ? "VOID" : "COMPLETED",
+            cancellation_reason: isVoid ? cancellationReason : undefined,
           });
         }
       }
@@ -1816,7 +1871,14 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
       if (isTransactionInFund(targetFund, undefined, targetFundName, funds)) {
         const amt = Number(b.amount || 0);
         if (amt > 0) {
-          totalInflow += amt;
+          const isVoid = b.status === "VOID" || (b.notes && String(b.notes).includes("[VOID:"));
+          const voidMatch = (b.notes || "").match(/\[VOID:\s*([^\]|]+)/i);
+          const cancellationReason = b.cancellation_reason || b.void_reason || (voidMatch ? voidMatch[1].trim() : "");
+          const cleanNotes = (b.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+
+          if (!isVoid) {
+            totalInflow += amt;
+          }
           transactions.push({
             id: b.id,
             type: "INCOME",
@@ -1827,9 +1889,11 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
             source_or_recipient: `${b.box_name || "দানবাক্স"} (কালেকশন)`,
             voucher_no: b.receipt_no || `BOX-${b.id.substring(0, 6)}`,
             payment_method: "Cash",
-            notes: b.notes || "দানবাক্স থেকে সংগৃহীত অর্থ",
+            notes: cleanNotes || "দানবাক্স থেকে সংগৃহীত অর্থ",
             category: "দানবাক্স কালেকশন",
             is_mahfil_settlement: false,
+            status: isVoid ? "VOID" : "COMPLETED",
+            cancellation_reason: isVoid ? cancellationReason : undefined,
           });
         }
       }
@@ -1844,8 +1908,20 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
         const inc = Number(lr.received_amount || lr.total_sale_price || lr.total_sale_amount || 0);
         const exp = Number(lr.transport_labour_cost || lr.transport_labor_cost || 0);
         const date = lr.sale_date || lr.collection_date || (lr.created_at ? toDhakaDateStringFrom(lr.created_at) : toDhakaDateString());
+
+        const isVoidInc = lr.status === "VOID" || lr.income_status === "VOID" || (lr.notes && String(lr.notes).includes("[VOID:"));
+        const voidMatchInc = (lr.notes || "").match(/\[VOID:\s*([^\]|]+)/i);
+        const cancelReasonInc = lr.cancellation_reason || lr.void_reason || (voidMatchInc ? voidMatchInc[1].trim() : "");
+        const cleanNotesInc = (lr.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+
+        const isVoidExp = lr.status === "VOID" || lr.expense_status === "VOID" || (lr.exp_notes && String(lr.exp_notes).includes("[VOID:"));
+        const voidMatchExp = (lr.exp_notes || lr.notes || "").match(/\[VOID:\s*([^\]|]+)/i);
+        const cancelReasonExp = lr.exp_cancellation_reason || lr.cancellation_reason || lr.void_reason || (voidMatchExp ? voidMatchExp[1].trim() : "");
+
         if (inc > 0) {
-          totalInflow += inc;
+          if (!isVoidInc) {
+            totalInflow += inc;
+          }
           transactions.push({
             id: `leather_inc_${lr.id}`,
             type: "INCOME",
@@ -1856,13 +1932,17 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
             source_or_recipient: `${lr.buyer_name || "চামড়া ক্রেতা"} (কুরবানির চামড়া বিক্রয়)`,
             voucher_no: lr.receipt_no || `LTH-${lr.id.substring(0, 6)}`,
             payment_method: "Cash",
-            notes: lr.notes || "কুরবানির চামড়া বিক্রয় বাবদ আয়",
+            notes: cleanNotesInc || "কুরবানির চামড়া বিক্রয় বাবদ আয়",
             category: "কুরবানির চামড়া বিক্রয়",
             is_mahfil_settlement: false,
+            status: isVoidInc ? "VOID" : "COMPLETED",
+            cancellation_reason: isVoidInc ? cancelReasonInc : undefined,
           });
         }
         if (exp > 0) {
-          totalOutflow += exp;
+          if (!isVoidExp) {
+            totalOutflow += exp;
+          }
           transactions.push({
             id: `leather_exp_${lr.id}`,
             type: "EXPENSE",
@@ -1876,25 +1956,32 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
             notes: "কুরবানির চামড়া সংগ্রহ ও পরিবহন খরচ",
             category: "চামড়া সংগ্রহ খরচ",
             is_mahfil_settlement: false,
+            status: isVoidExp ? "VOID" : "COMPLETED",
+            cancellation_reason: isVoidExp ? cancelReasonExp : undefined,
           });
         }
       }
     }
 
-    // Process Expenses
+    // Process Expenses (Include voided expenses with status: "VOID", exclude from totalOutflow)
     for (const e of dbExpenses || []) {
-      if (isVoidedExpense(e)) continue;
+      const isVoid = isVoidedExpense(e);
+      const cancellationReason = getExpenseVoidReason(e) || e.void_reason || e.cancellation_reason || "";
       const parsed = parseExpenseFund(e.description);
       const expFundId = e.fund_id || parsed.fundId;
       const expFundName = e.fund_name || parsed.fundName || e.category;
+      const cleanExpDesc = (parsed.cleanDesc || e.description || "")
+        .replace(/\[VOID:[^\]]+\]\s*/gi, "")
+        .trim();
 
       if (isTransactionInFund(targetFund, expFundId, expFundName, funds)) {
         let isMahfilDeficit = false;
         let recipientName = e.category || "মাদরাসা সাধারণ খরচ";
-        if (e.voucher_no?.startsWith("EXP-MHF") || (e.description && e.description.includes("মাহফিল"))) {
+        const vNo = e.voucher_no || parsed.voucherNo || "";
+        if (vNo.startsWith("EXP-MHF") || (e.description && e.description.includes("মাহফিল"))) {
           isMahfilDeficit = true;
-          const isValid = (e.voucher_no && validMahfilVouchers.has(e.voucher_no)) || validMahfilRecordIds.has(e.id);
-          if (!isValid) {
+          const isValid = (vNo && validMahfilVouchers.has(vNo)) || validMahfilRecordIds.has(e.id);
+          if (!isValid && !isVoid) {
             try {
               await adminClient.from("expenses").delete().eq("id", e.id);
             } catch {}
@@ -1904,7 +1991,9 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
         }
 
         const amt = Number(e.amount || 0);
-        totalOutflow += amt;
+        if (!isVoid) {
+          totalOutflow += amt;
+        }
 
         transactions.push({
           id: e.id,
@@ -1914,10 +2003,12 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
           amount: amt,
           date: e.expense_date,
           source_or_recipient: recipientName,
-          voucher_no: e.voucher_no || `EXP-${e.id.substring(0, 6)}`,
-          notes: parsed.cleanDesc || e.description || "",
+          voucher_no: vNo || `EXP-${e.id.substring(0, 6)}`,
+          notes: cleanExpDesc,
           category: e.category || "সাধারণ খরচ",
           is_mahfil_settlement: isMahfilDeficit,
+          status: isVoid ? "VOID" : "COMPLETED",
+          cancellation_reason: isVoid ? cancellationReason : undefined,
         });
       }
     }
@@ -1946,163 +2037,256 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
   }
 }
 
-// Delete a specific transaction from Fund Ledger (Donation or Expense or Settlement or Fee or Online or Box or Leather)
-export async function deleteFundTransaction(
+/**
+ * Void a specific transaction from Fund Ledger (Soft-Cancel with Reason & Audit Log)
+ */
+export async function voidFundTransaction(
   txnId: string,
   txnType: string,
+  reason: string,
   voucherNo?: string
-): Promise<{ success?: boolean; error?: string }> {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
+): Promise<{ success?: boolean; error?: string; message?: string }> {
   {
     const __authz = await writeGuard("zakat");
     if (!__authz.allowed) return __authz.fallback;
   }
 
   try {
+    const cleanReason = (reason || "").trim();
+    if (!cleanReason) {
+      return { error: "বাতিলের সুনির্দিষ্ট কারণ উল্লেখ করা আবশ্যক।" };
+    }
+
     const adminClient = await createAdminClient();
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
+    const now = new Date().toISOString();
     const isInflow = txnType === "INCOME" || txnType === "MAHFIL_SURPLUS";
     const isOutflow = txnType === "EXPENSE" || txnType === "MAHFIL_DEFICIT";
+    let matchedAndVoided = false;
 
-    // 1. Delete from SQL donations table
-    if (isInflow || txnId.startsWith("ZR-") || voucherNo?.startsWith("ZR-") || voucherNo?.startsWith("MHF-")) {
-      try {
-        await adminClient.from("donations").delete().eq("id", txnId);
-        if (voucherNo) {
-          await adminClient.from("donations").delete().eq("receipt_no", voucherNo);
-          await adminClient.from("donations").delete().like("notes", `%${voucherNo}%`);
-        }
-      } catch {}
-    }
-
-    // 2. Delete from SQL expenses table
-    if (isOutflow || txnId.startsWith("EXP-") || voucherNo?.startsWith("EXP-") || txnId.startsWith("leather_exp_")) {
-      try {
-        await adminClient.from("expenses").delete().eq("id", txnId);
-        if (voucherNo) {
-          await adminClient.from("expenses").delete().eq("voucher_no", voucherNo);
-          await adminClient.from("expenses").delete().like("description", `%${voucherNo}%`);
-        }
-      } catch {}
-    }
-
-    // 3. Process metadata (fees, online donations, subscriptions, donation boxes, leather, mahfils)
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    let metaChanged = false;
-
-    // Check Student Fee Payments
+    // 1. Check Student Fee Payments first (since fee IDs may look like "<paymentId>_<feeTypeId>")
     const feeMeta = await getFeeMetadata(finalMadrasaId);
-    const feePayments = (feeMeta.payments || []).length > 0 ? feeMeta.payments : (meta.payments || []);
-    const payIdx = feePayments.findIndex(
+    const baseFeeId = txnId.includes("_") && !txnId.startsWith("leather_") ? txnId.split("_")[0] : txnId;
+    const matchedFeePayment = (feeMeta.payments || []).find(
       (p: any) =>
         p.id === txnId ||
-        p.receipt_no === voucherNo ||
-        txnId.startsWith(p.id) ||
+        p.id === baseFeeId ||
         (voucherNo && p.receipt_no === voucherNo)
     );
 
-    if (payIdx >= 0) {
-      const payment = feePayments[payIdx];
-      const { deleteFee } = await import("./accounting");
-      await deleteFee(payment.id);
+    if (matchedFeePayment) {
+      const feeVoidRes = await voidFeePayment(matchedFeePayment.id, cleanReason);
+      if (feeVoidRes?.error) {
+        return { error: feeVoidRes.error };
+      }
       revalidatePath("/dashboard/zakat/funds");
-      return { success: true };
+      revalidatePath("/dashboard/zakat");
+      return {
+        success: true,
+        message: feeVoidRes.message || `রসিদ নং ${voucherNo || matchedFeePayment.receipt_no} সফলভাবে বাতিল (VOID) করা হয়েছে।`,
+      };
     }
 
-    // Check Online Donations
-    const origOnlineCount = (meta.online_donations || []).length;
-    meta.online_donations = (meta.online_donations || []).filter(
-      (od: any) =>
-        od.id !== txnId &&
-        (!voucherNo || od.receipt_no !== voucherNo) &&
-        (!voucherNo || od.trx_id !== voucherNo) &&
-        !txnId.includes(od.id)
-    );
-    if ((meta.online_donations || []).length !== origOnlineCount) {
-      metaChanged = true;
+    // 2. Check SQL donations table
+    if (isInflow || txnId.startsWith("ZR-") || voucherNo?.startsWith("ZR-") || voucherNo?.startsWith("MHF-")) {
+      let existingDonation: any = null;
+      if (isUuid(txnId)) {
+        const { data } = await adminClient
+          .from("donations")
+          .select("*")
+          .eq("id", txnId)
+          .eq("madrasa_id", finalMadrasaId)
+          .maybeSingle();
+        if (data) existingDonation = data;
+      }
+      if (!existingDonation && voucherNo) {
+        const { data } = await adminClient
+          .from("donations")
+          .select("*")
+          .eq("receipt_no", voucherNo)
+          .eq("madrasa_id", finalMadrasaId)
+          .maybeSingle();
+        if (data) existingDonation = data;
+      }
+
+      if (existingDonation) {
+        const currentNotes = existingDonation.notes || "";
+        const cleanNotes = currentNotes.replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+        const updatedNotes = `[VOID: ${cleanReason}] ${cleanNotes}`.trim();
+
+        await adminClient
+          .from("donations")
+          .update({ notes: updatedNotes })
+          .eq("id", existingDonation.id)
+          .eq("madrasa_id", finalMadrasaId);
+
+        const voidUpdate = await adminClient
+          .from("donations")
+          .update({ status: "VOID", void_reason: cleanReason, voided_at: now })
+          .eq("id", existingDonation.id)
+          .eq("madrasa_id", finalMadrasaId);
+        if (voidUpdate.error) {
+          await adminClient
+            .from("donations")
+            .update({ status: "VOID" })
+            .eq("id", existingDonation.id)
+            .eq("madrasa_id", finalMadrasaId);
+        }
+        matchedAndVoided = true;
+      }
     }
 
-    // Check Donor Subscriptions
-    const origSubCount = (meta.donor_subscription_payments || []).length;
-    meta.donor_subscription_payments = (meta.donor_subscription_payments || []).filter(
-      (sp: any) =>
-        sp.id !== txnId &&
-        (!voucherNo || sp.receipt_no !== voucherNo) &&
-        !txnId.includes(sp.id)
-    );
-    if ((meta.donor_subscription_payments || []).length !== origSubCount) {
-      metaChanged = true;
+    // 3. Check SQL expenses table
+    if (isOutflow || txnId.startsWith("EXP-") || voucherNo?.startsWith("EXP-")) {
+      let existingExpense: any = null;
+      if (isUuid(txnId)) {
+        const { data } = await adminClient
+          .from("expenses")
+          .select("*")
+          .eq("id", txnId)
+          .eq("madrasa_id", finalMadrasaId)
+          .maybeSingle();
+        if (data) existingExpense = data;
+      }
+      if (!existingExpense && voucherNo) {
+        const { data } = await adminClient
+          .from("expenses")
+          .select("*")
+          .eq("madrasa_id", finalMadrasaId)
+          .like("description", `%${voucherNo}%`)
+          .maybeSingle();
+        if (data) existingExpense = data;
+      }
+
+      if (existingExpense) {
+        const rawDesc = (existingExpense.description || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+        const voidTag = `[VOID: ${cleanReason} | BY: ${user?.email || "admin"} | AT: ${now}]`;
+        const nextDescription = `${voidTag}\n${rawDesc}`.trim();
+
+        const resExp = await adminClient
+          .from("expenses")
+          .update({ status: "VOID", void_reason: cleanReason, voided_at: now, description: nextDescription })
+          .eq("id", existingExpense.id)
+          .eq("madrasa_id", finalMadrasaId);
+
+        if (resExp.error) {
+          await adminClient
+            .from("expenses")
+            .update({ description: nextDescription })
+            .eq("id", existingExpense.id)
+            .eq("madrasa_id", finalMadrasaId);
+        }
+        matchedAndVoided = true;
+      }
     }
 
-    // Check Donation Boxes
-    const origBoxCount = (meta.donation_box_logs || []).length;
-    meta.donation_box_logs = (meta.donation_box_logs || []).filter(
-      (b: any) =>
-        b.id !== txnId &&
-        (!voucherNo || b.receipt_no !== voucherNo) &&
-        !txnId.includes(b.id)
-    );
-    if ((meta.donation_box_logs || []).length !== origBoxCount) {
-      metaChanged = true;
-    }
+    // 4. Process metadata arrays (Soft-Void instead of deleting)
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+    let metaChanged = false;
 
-    // Check Qurbani Leather Records
-    const origLeatherCount = (meta.qurbani_leather_records || []).length;
-    meta.qurbani_leather_records = (meta.qurbani_leather_records || []).filter(
-      (lr: any) =>
-        lr.id !== txnId &&
-        (!voucherNo || lr.receipt_no !== voucherNo) &&
-        !txnId.includes(lr.id)
-    );
-    if ((meta.qurbani_leather_records || []).length !== origLeatherCount) {
-      metaChanged = true;
-    }
-    const origBatchCount = (meta.leather_batches || []).length;
-    meta.leather_batches = (meta.leather_batches || []).filter(
-      (lb: any) =>
-        lb.id !== txnId &&
-        (!voucherNo || lb.receipt_no !== voucherNo) &&
-        !txnId.includes(lb.id)
-    );
-    if ((meta.leather_batches || []).length !== origBatchCount) {
-      metaChanged = true;
-    }
-
-    // Check Mahfil settlements in metadata
-    (meta.mahfils || []).forEach((m: any) => {
-      const origCount = (m.settlements || []).length;
-      m.settlements = (m.settlements || []).filter(
-        (s: any) =>
-          s.id !== txnId &&
-          s.accounting_record_id !== txnId &&
-          s.mahfil_txn_id !== txnId &&
-          (!voucherNo || s.accounting_voucher_no !== voucherNo)
-      );
-      if (m.settlements.length !== origCount) metaChanged = true;
-
+    // Online Donations
+    (meta.online_donations || []).forEach((od: any) => {
       if (
-        m.settlement &&
-        (m.settlement.id === txnId ||
-          m.settlement.accounting_record_id === txnId ||
-          m.settlement.mahfil_txn_id === txnId ||
-          (voucherNo && m.settlement.accounting_voucher_no === voucherNo))
+        od.id === txnId ||
+        (voucherNo && (od.receipt_no === voucherNo || od.trx_id === voucherNo)) ||
+        txnId.includes(od.id)
       ) {
-        m.settlement = m.settlements.length > 0 ? m.settlements[m.settlements.length - 1] : undefined;
+        od.previous_status = od.status !== "VOID" ? od.status : (od.previous_status || "VERIFIED");
+        od.status = "VOID";
+        od.cancellation_reason = cleanReason;
+        od.void_reason = cleanReason;
+        od.voided_at = now;
+        const cleanMsg = (od.message || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+        od.message = `[VOID: ${cleanReason}] ${cleanMsg}`.trim();
         metaChanged = true;
+        matchedAndVoided = true;
       }
     });
 
-    if (metaChanged) {
-      await saveMadrasaMetadata(finalMadrasaId, meta);
-    }
+    // Donor Subscriptions
+    (meta.donor_subscription_payments || []).forEach((sp: any) => {
+      if (
+        sp.id === txnId ||
+        (voucherNo && sp.receipt_no === voucherNo) ||
+        txnId.includes(sp.id)
+      ) {
+        sp.status = "VOID";
+        sp.cancellation_reason = cleanReason;
+        sp.void_reason = cleanReason;
+        sp.voided_at = now;
+        const cleanNotes = (sp.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+        sp.notes = `[VOID: ${cleanReason}] ${cleanNotes}`.trim();
+        metaChanged = true;
+        matchedAndVoided = true;
+      }
+    });
+
+    // Donation Boxes
+    (meta.donation_box_logs || []).forEach((b: any) => {
+      if (
+        b.id === txnId ||
+        (voucherNo && b.receipt_no === voucherNo) ||
+        txnId.includes(b.id)
+      ) {
+        b.status = "VOID";
+        b.cancellation_reason = cleanReason;
+        b.void_reason = cleanReason;
+        b.voided_at = now;
+        const cleanNotes = (b.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+        b.notes = `[VOID: ${cleanReason}] ${cleanNotes}`.trim();
+        metaChanged = true;
+        matchedAndVoided = true;
+      }
+    });
+
+    // Qurbani Leather Records
+    const updateLeatherVoid = (lr: any) => {
+      const isIncMatch = txnId === `leather_inc_${lr.id}` || lr.id === txnId || (voucherNo && lr.receipt_no === voucherNo);
+      const isExpMatch = txnId === `leather_exp_${lr.id}`;
+      if (isExpMatch) {
+        lr.expense_status = "VOID";
+        lr.exp_cancellation_reason = cleanReason;
+        const cleanExpNotes = (lr.exp_notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+        lr.exp_notes = `[VOID: ${cleanReason}] ${cleanExpNotes}`.trim();
+        metaChanged = true;
+        matchedAndVoided = true;
+      } else if (isIncMatch) {
+        lr.income_status = "VOID";
+        lr.status = "VOID";
+        lr.cancellation_reason = cleanReason;
+        lr.void_reason = cleanReason;
+        const cleanNotes = (lr.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+        lr.notes = `[VOID: ${cleanReason}] ${cleanNotes}`.trim();
+        metaChanged = true;
+        matchedAndVoided = true;
+      }
+    };
+    (meta.qurbani_leather_records || []).forEach(updateLeatherVoid);
+    (meta.leather_batches || []).forEach(updateLeatherVoid);
+
+    // Record Audit Log in metadata
+    const auditLogs = meta.audit_logs || [];
+    auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      madrasa_id: finalMadrasaId,
+      action: "VOID_FUND_TRANSACTION",
+      user_name: user?.email || "অ্যাডমিন",
+      user_role: "admin",
+      record_id: txnId,
+      details: `ফান্ড খতিয়ান হতে ভাউচার/রসিদ নং ${voucherNo || txnId} বাতিল (VOID) করা হয়েছে। কারণ: ${cleanReason}`,
+      created_at: now,
+    });
+    meta.audit_logs = auditLogs.slice(0, 100);
+    await saveMadrasaMetadata(finalMadrasaId, meta);
 
     revalidatePath("/dashboard/zakat/funds");
     revalidatePath("/dashboard/zakat");
+    revalidatePath("/dashboard/zakat/collection");
+    revalidatePath("/dashboard/zakat/reports");
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/funds");
     revalidatePath("/dashboard/accounting/fees");
@@ -2112,11 +2296,261 @@ export async function deleteFundTransaction(
     revalidatePath("/dashboard/accounting/expenses");
     revalidatePath("/dashboard/fundraising/mahfil");
 
-    return { success: true };
+    if (!matchedAndVoided && !metaChanged) {
+      return { error: "লেনদেনটি খুঁজে পাওয়া যায়নি বা ইতিপূর্বেই বাতিল করা হয়েছে।" };
+    }
+
+    return {
+      success: true,
+      message: `ভাউচার/রসিদ নং ${voucherNo || txnId} সফলভাবে বাতিল (VOID) করা হয়েছে।`,
+    };
   } catch (err: any) {
-    console.error("Error deleting fund transaction:", err);
-    return { error: err.message || "লেনদেন ডিলিট করতে সমস্যা হয়েছে" };
+    console.error("Error voiding fund transaction:", err);
+    return { error: err.message || "লেনদেন বাতিল করতে সমস্যা হয়েছে" };
   }
+}
+
+/**
+ * Unvoid / Reactivate a previously voided transaction from Fund Ledger
+ */
+export async function unvoidFundTransaction(
+  txnId: string,
+  txnType: string,
+  reason: string,
+  voucherNo?: string
+): Promise<{ success?: boolean; error?: string; message?: string }> {
+  {
+    const __authz = await writeGuard("zakat");
+    if (!__authz.allowed) return __authz.fallback;
+  }
+
+  try {
+    const cleanReason = (reason || "").trim();
+    if (!cleanReason) {
+      return { error: "পুনরায় সক্রিয় করার কারণ উল্লেখ করা আবশ্যক।" };
+    }
+
+    const adminClient = await createAdminClient();
+    const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!finalMadrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
+
+    const now = new Date().toISOString();
+    const isInflow = txnType === "INCOME" || txnType === "MAHFIL_SURPLUS";
+    const isOutflow = txnType === "EXPENSE" || txnType === "MAHFIL_DEFICIT";
+
+    // 1. Check Student Fee Payments first
+    const feeMeta = await getFeeMetadata(finalMadrasaId);
+    const baseFeeId = txnId.includes("_") && !txnId.startsWith("leather_") ? txnId.split("_")[0] : txnId;
+    const matchedFeePayment = (feeMeta.payments || []).find(
+      (p: any) =>
+        p.id === txnId ||
+        p.id === baseFeeId ||
+        (voucherNo && p.receipt_no === voucherNo)
+    );
+
+    if (matchedFeePayment) {
+      const feeUnvoidRes = await unvoidFeePayment(matchedFeePayment.id, cleanReason);
+      if (feeUnvoidRes?.error) {
+        return { error: feeUnvoidRes.error };
+      }
+      revalidatePath("/dashboard/zakat/funds");
+      revalidatePath("/dashboard/zakat");
+      return {
+        success: true,
+        message: feeUnvoidRes.message || `রসিদ নং ${voucherNo || matchedFeePayment.receipt_no} পুনরায় সক্রিয় করা হয়েছে।`,
+      };
+    }
+
+    // 2. Check SQL donations table
+    if (isInflow || txnId.startsWith("ZR-") || voucherNo?.startsWith("ZR-") || voucherNo?.startsWith("MHF-")) {
+      let existingDonation: any = null;
+      if (isUuid(txnId)) {
+        const { data } = await adminClient
+          .from("donations")
+          .select("*")
+          .eq("id", txnId)
+          .eq("madrasa_id", finalMadrasaId)
+          .maybeSingle();
+        if (data) existingDonation = data;
+      }
+      if (!existingDonation && voucherNo) {
+        const { data } = await adminClient
+          .from("donations")
+          .select("*")
+          .eq("receipt_no", voucherNo)
+          .eq("madrasa_id", finalMadrasaId)
+          .maybeSingle();
+        if (data) existingDonation = data;
+      }
+
+      if (existingDonation) {
+        const cleanNotes = (existingDonation.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+        await adminClient
+          .from("donations")
+          .update({ notes: cleanNotes })
+          .eq("id", existingDonation.id)
+          .eq("madrasa_id", finalMadrasaId);
+
+        await adminClient
+          .from("donations")
+          .update({ status: "COMPLETED" })
+          .eq("id", existingDonation.id)
+          .eq("madrasa_id", finalMadrasaId);
+      }
+    }
+
+    // 3. Check SQL expenses table
+    if (isOutflow || txnId.startsWith("EXP-") || voucherNo?.startsWith("EXP-")) {
+      let existingExpense: any = null;
+      if (isUuid(txnId)) {
+        const { data } = await adminClient
+          .from("expenses")
+          .select("*")
+          .eq("id", txnId)
+          .eq("madrasa_id", finalMadrasaId)
+          .maybeSingle();
+        if (data) existingExpense = data;
+      }
+      if (!existingExpense && voucherNo) {
+        const { data } = await adminClient
+          .from("expenses")
+          .select("*")
+          .eq("madrasa_id", finalMadrasaId)
+          .like("description", `%${voucherNo}%`)
+          .maybeSingle();
+        if (data) existingExpense = data;
+      }
+
+      if (existingExpense) {
+        const cleanDesc = (existingExpense.description || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+        const resExp = await adminClient
+          .from("expenses")
+          .update({ status: "COMPLETED", void_reason: null, description: cleanDesc })
+          .eq("id", existingExpense.id)
+          .eq("madrasa_id", finalMadrasaId);
+
+        if (resExp.error) {
+          await adminClient
+            .from("expenses")
+            .update({ description: cleanDesc })
+            .eq("id", existingExpense.id)
+            .eq("madrasa_id", finalMadrasaId);
+        }
+      }
+    }
+
+    // 4. Process metadata arrays
+    const meta = await getMadrasaMetadata(finalMadrasaId);
+
+    // Online Donations
+    (meta.online_donations || []).forEach((od: any) => {
+      if (
+        od.id === txnId ||
+        (voucherNo && (od.receipt_no === voucherNo || od.trx_id === voucherNo)) ||
+        txnId.includes(od.id)
+      ) {
+        od.status = od.previous_status || "VERIFIED";
+        delete od.cancellation_reason;
+        delete od.void_reason;
+        od.message = (od.message || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+      }
+    });
+
+    // Donor Subscriptions
+    (meta.donor_subscription_payments || []).forEach((sp: any) => {
+      if (
+        sp.id === txnId ||
+        (voucherNo && sp.receipt_no === voucherNo) ||
+        txnId.includes(sp.id)
+      ) {
+        sp.status = "COMPLETED";
+        delete sp.cancellation_reason;
+        delete sp.void_reason;
+        sp.notes = (sp.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+      }
+    });
+
+    // Donation Boxes
+    (meta.donation_box_logs || []).forEach((b: any) => {
+      if (
+        b.id === txnId ||
+        (voucherNo && b.receipt_no === voucherNo) ||
+        txnId.includes(b.id)
+      ) {
+        b.status = "COMPLETED";
+        delete b.cancellation_reason;
+        delete b.void_reason;
+        b.notes = (b.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+      }
+    });
+
+    // Qurbani Leather Records
+    const updateLeatherUnvoid = (lr: any) => {
+      const isIncMatch = txnId === `leather_inc_${lr.id}` || lr.id === txnId || (voucherNo && lr.receipt_no === voucherNo);
+      const isExpMatch = txnId === `leather_exp_${lr.id}`;
+      if (isExpMatch) {
+        lr.expense_status = "COMPLETED";
+        delete lr.exp_cancellation_reason;
+        lr.exp_notes = (lr.exp_notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+      } else if (isIncMatch) {
+        lr.income_status = "COMPLETED";
+        lr.status = "COMPLETED";
+        delete lr.cancellation_reason;
+        delete lr.void_reason;
+        lr.notes = (lr.notes || "").replace(/\[VOID:[^\]]+\]\s*/gi, "").trim();
+      }
+    };
+    (meta.qurbani_leather_records || []).forEach(updateLeatherUnvoid);
+    (meta.leather_batches || []).forEach(updateLeatherUnvoid);
+
+    // Record Audit Log
+    const auditLogs = meta.audit_logs || [];
+    auditLogs.unshift({
+      id: `audit_${Date.now()}`,
+      madrasa_id: finalMadrasaId,
+      action: "UNVOID_FUND_TRANSACTION",
+      user_name: user?.email || "অ্যাডমিন",
+      user_role: "admin",
+      record_id: txnId,
+      details: `ফান্ড খতিয়ান হতে ভাউচার/রসিদ নং ${voucherNo || txnId} পুনরায় সক্রিয় (UNVOID) করা হয়েছে। কারণ: ${cleanReason}`,
+      created_at: now,
+    });
+    meta.audit_logs = auditLogs.slice(0, 100);
+    await saveMadrasaMetadata(finalMadrasaId, meta);
+
+    revalidatePath("/dashboard/zakat/funds");
+    revalidatePath("/dashboard/zakat");
+    revalidatePath("/dashboard/zakat/collection");
+    revalidatePath("/dashboard/zakat/reports");
+    revalidatePath("/dashboard/accounting");
+    revalidatePath("/dashboard/accounting/funds");
+    revalidatePath("/dashboard/accounting/fees");
+    revalidatePath("/dashboard/accounting/payments");
+    revalidatePath("/dashboard/accounting/due");
+    revalidatePath("/dashboard/accounting/donations");
+    revalidatePath("/dashboard/accounting/expenses");
+    revalidatePath("/dashboard/fundraising/mahfil");
+
+    return {
+      success: true,
+      message: `ভাউচার/রসিদ নং ${voucherNo || txnId} সফলভাবে পুনরায় সক্রিয় করা হয়েছে।`,
+    };
+  } catch (err: any) {
+    console.error("Error unvoiding fund transaction:", err);
+    return { error: err.message || "পুনরায় সক্রিয় করতে সমস্যা হয়েছে" };
+  }
+}
+
+// Backwards-compatible alias that safely delegates to voidFundTransaction instead of hard deleting
+export async function deleteFundTransaction(
+  txnId: string,
+  txnType: string,
+  voucherNo?: string,
+  reason: string = "ভুল এন্ট্রি বাতিল"
+): Promise<{ success?: boolean; error?: string; message?: string }> {
+  return voidFundTransaction(txnId, txnType, reason, voucherNo);
 }
 
 // Add Collection with Fund Selection and Auto Receipt Generation
