@@ -42,11 +42,12 @@ export default async function TeacherPortalRoutine() {
     teacherDesignation = teacherRow.designation || teacherDesignation;
   }
 
+  const { getMadrasaMetadata } = await import("@/lib/sessions");
+  const madrasaMeta = madrasaId ? await getMadrasaMetadata(madrasaId) : null;
+
   // If not found in teachers table, look up in staff metadata
-  if (!teacherId) {
-    const { getMadrasaMetadata } = await import("@/lib/sessions");
-    const meta = (await getMadrasaMetadata(madrasaId)) as any;
-    const staffMembers = meta?.staff_members || [];
+  if (!teacherId && madrasaMeta) {
+    const staffMembers = (madrasaMeta as any)?.staff_members || [];
     const staff = staffMembers.find((s: any) => 
       (user.email && s.contact?.email?.toLowerCase() === user.email.toLowerCase()) ||
       (s.personal?.first_name && userData?.full_name?.includes(s.personal.first_name))
@@ -61,9 +62,19 @@ export default async function TeacherPortalRoutine() {
   // Load comprehensive academic schedule (subjects, in-charge classes, routines)
   const schedule = await getTeacherAcademicSchedule(teacherId || user.id);
 
+  const activeHolidays = (madrasaMeta?.academic_holidays || [])
+    .filter((h) => !h.is_archived && h.publish_to_portal !== false)
+    .map((h) => ({
+      id: h.id,
+      title: h.title,
+      start_date: h.start_date,
+      end_date: h.end_date,
+    }));
+
   return (
     <TeacherRoutineViewClient
       schedule={schedule}
+      holidays={activeHolidays}
       teacherName={teacherName}
       teacherDesignation={teacherDesignation}
     />

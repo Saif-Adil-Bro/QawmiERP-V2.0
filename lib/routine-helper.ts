@@ -199,37 +199,209 @@ export function timeStringToMinutes(timeStr?: string): number {
   return -1;
 }
 
+export interface DhakaClockParts {
+  dateStr: string;
+  dayOfWeekIndex: number;
+  englishDay: string;
+  banglaDay: string;
+  hours: number;
+  minutes: number;
+  totalMinutes: number;
+}
+
+const ENGLISH_DAYS_BY_JS_INDEX = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+const BN_DIGIT_CHARS = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
+function toBnTimeDigits(val: string | number): string {
+  return String(val).replace(/\d/g, (d) => BN_DIGIT_CHARS[Number(d)] ?? d);
+}
+
+/**
+ * Format 24h or 12h time strings into natural Bengali time labels:
+ * e.g. "08:30" -> "সকাল ০৮:৩০", "14:15" -> "দুপুর ০২:১৫"
+ */
+export function formatBanglaTime(timeStr?: string): string {
+  const mins = timeStringToMinutes(timeStr);
+  if (mins < 0) return formatTimeString(timeStr);
+
+  const hour24 = Math.floor(mins / 60) % 24;
+  const minute = mins % 60;
+  let periodLabel = "রাত";
+  if (hour24 >= 4 && hour24 < 6) periodLabel = "ভোর";
+  else if (hour24 >= 6 && hour24 < 12) periodLabel = "সকাল";
+  else if (hour24 >= 12 && hour24 < 15) periodLabel = "দুপুর";
+  else if (hour24 >= 15 && hour24 < 18) periodLabel = "বিকাল";
+  else if (hour24 >= 18 && hour24 < 20) periodLabel = "সন্ধ্যা";
+
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  const hStr = String(hour12).padStart(2, "0");
+  const mStr = String(minute).padStart(2, "0");
+  return `${periodLabel} ${toBnTimeDigits(hStr)}:${toBnTimeDigits(mStr)}`;
+}
+
+/**
+ * Deterministically resolve current Asia/Dhaka date, day-of-week, and minutes-since-midnight.
+ * Safe across UTC servers and client devices in any timezone.
+ */
+export function getDhakaClockParts(now: Date = new Date()): DhakaClockParts {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Dhaka",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      weekday: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+    const parts = formatter.formatToParts(now);
+    const getPart = (type: string) => parts.find((p) => p.type === type)?.value || "";
+    const year = getPart("year");
+    const month = getPart("month");
+    const day = getPart("day");
+    const weekday = getPart("weekday") || ENGLISH_DAYS_BY_JS_INDEX[now.getDay()];
+    const hours = parseInt(getPart("hour"), 10) % 24;
+    const minutes = parseInt(getPart("minute"), 10);
+    const dayOfWeekIndex = ENGLISH_DAYS_BY_JS_INDEX.indexOf(weekday as any);
+
+    return {
+      dateStr: `${year}-${month}-${day}`,
+      dayOfWeekIndex: dayOfWeekIndex >= 0 ? dayOfWeekIndex : now.getDay(),
+      englishDay: weekday,
+      banglaDay: DAY_TRANSLATIONS[weekday] || weekday,
+      hours: Number.isNaN(hours) ? now.getHours() : hours,
+      minutes: Number.isNaN(minutes) ? now.getMinutes() : minutes,
+      totalMinutes:
+        (Number.isNaN(hours) ? now.getHours() : hours) * 60 +
+        (Number.isNaN(minutes) ? now.getMinutes() : minutes),
+    };
+  } catch {
+    const englishDay = ENGLISH_DAYS_BY_JS_INDEX[now.getDay()];
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return {
+      dateStr: `${y}-${m}-${d}`,
+      dayOfWeekIndex: now.getDay(),
+      englishDay,
+      banglaDay: DAY_TRANSLATIONS[englishDay] || englishDay,
+      hours: now.getHours(),
+      minutes: now.getMinutes(),
+      totalMinutes: now.getHours() * 60 + now.getMinutes(),
+    };
+  }
+}
+
 export function getTodayDayKeys(now: Date = new Date()): { english: string; bangla: string } {
-  const dayNamesEnglish = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const english = dayNamesEnglish[now.getDay()];
-  const bangla = DAY_TRANSLATIONS[english] || english;
-  return { english, bangla };
+  const dhaka = getDhakaClockParts(now);
+  return { english: dhaka.englishDay, bangla: dhaka.banglaDay };
+}
+
+export interface HolidayRangeLike {
+  id?: string;
+  title?: string;
+  name?: string;
+  start_date?: string;
+  end_date?: string;
+  date?: string;
 }
 
 export interface RoutineLiveStatus {
+  todayDateStr: string;
   todayEnglish: string;
   todayBangla: string;
   nowMinutes: number;
   todayClasses: any[];
   currentClass: any | null;
   nextClass: any | null;
+  minutesLeft: number;
+  minutesUntilNext: number;
+  isOffDay: boolean;
+  offDayTitle: string | null;
+  isHoliday: boolean;
+  holidayTitle: string | null;
   isToday: (dayStr: string) => boolean;
   isCurrent: (routine: any) => boolean;
   isNext: (routine: any) => boolean;
 }
 
-export function getRoutineLiveStatus(routines: any[], now: Date = new Date()): RoutineLiveStatus {
-  const { english: todayEnglish, bangla: todayBangla } = getTodayDayKeys(now);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+function isRoutineOffDay(r: any): boolean {
+  if (!r) return false;
+  if (r.item_type === "OFFDAY") return true;
+  if (String(r.routine_type || "").toLowerCase() === "offday") return true;
+  if (String(r.room_number || "").startsWith("OFFDAY:")) return true;
+  return false;
+}
+
+function isWithinPeriod(nowMinutes: number, startM: number, endM: number): boolean {
+  if (startM < 0 || endM < 0) return false;
+  if (endM >= startM) {
+    return nowMinutes >= startM && nowMinutes <= endM;
+  }
+  // Overnight period crossing midnight (e.g., 22:30 - 01:00)
+  return nowMinutes >= startM || nowMinutes <= endM;
+}
+
+function computeMinutesRemaining(nowMinutes: number, startM: number, endM: number): number {
+  if (startM < 0 || endM < 0) return 0;
+  if (endM >= startM) {
+    return Math.max(0, endM - nowMinutes);
+  }
+  // Overnight crossing midnight
+  if (nowMinutes >= startM) {
+    return 24 * 60 - nowMinutes + endM;
+  }
+  return Math.max(0, endM - nowMinutes);
+}
+
+export function getRoutineLiveStatus(
+  routines: any[],
+  now: Date = new Date(),
+  holidays: HolidayRangeLike[] = []
+): RoutineLiveStatus {
+  const dhaka = getDhakaClockParts(now);
+  const todayEnglish = dhaka.englishDay;
+  const todayBangla = dhaka.banglaDay;
+  const todayDateStr = dhaka.dateStr;
+  const nowMinutes = dhaka.totalMinutes;
 
   const isToday = (dayStr: string) => {
     return dayStr === todayEnglish || dayStr === todayBangla || DAY_TRANSLATIONS[dayStr] === todayBangla;
   };
 
-  const todayClasses = (routines || []).filter((r) => isToday(r.day_of_week));
+  // Detect active academic calendar holiday
+  const matchingHoliday = (holidays || []).find((h) => {
+    const start = String(h?.start_date || h?.date || "").slice(0, 10);
+    const end = String(h?.end_date || h?.start_date || h?.date || "").slice(0, 10);
+    if (!start) return false;
+    return todayDateStr >= start && todayDateStr <= end;
+  });
+  const isHoliday = Boolean(matchingHoliday);
+  const holidayTitle = matchingHoliday?.title || matchingHoliday?.name || null;
+
+  const rawTodayItems = (routines || []).filter((r) => isToday(r.day_of_week));
+  const offDayItem = rawTodayItems.find(isRoutineOffDay);
+  const isOffDay = Boolean(offDayItem);
+  const offDayTitle = offDayItem
+    ? offDayItem.display_title ||
+      (String(offDayItem.room_number || "").startsWith("OFFDAY:")
+        ? String(offDayItem.room_number).substring(7)
+        : "সাপ্তাহিক ছুটি")
+    : null;
+
+  const activePeriods = rawTodayItems.filter((r) => !isRoutineOffDay(r));
 
   // Sort today's classes chronologically
-  const sortedToday = [...todayClasses].sort((a, b) => {
+  const sortedToday = [...activePeriods].sort((a, b) => {
     const startA = timeStringToMinutes(a.start_time);
     const startB = timeStringToMinutes(b.start_time);
     return startA - startB;
@@ -237,41 +409,58 @@ export function getRoutineLiveStatus(routines: any[], now: Date = new Date()): R
 
   let currentClass: any | null = null;
   let nextClass: any | null = null;
+  let minutesLeft = 0;
+  let minutesUntilNext = 0;
 
-  for (const r of sortedToday) {
-    const startM = timeStringToMinutes(r.start_time);
-    const endM = timeStringToMinutes(r.end_time);
+  if (!isHoliday && !isOffDay) {
+    for (const r of sortedToday) {
+      const startM = timeStringToMinutes(r.start_time);
+      const endM = timeStringToMinutes(r.end_time);
 
-    if (startM >= 0 && endM >= 0) {
-      if (nowMinutes >= startM && nowMinutes <= endM) {
-        currentClass = r;
-      } else if (nowMinutes < startM && !nextClass) {
-        nextClass = r;
+      if (startM >= 0 && endM >= 0) {
+        if (!currentClass && isWithinPeriod(nowMinutes, startM, endM)) {
+          currentClass = r;
+          minutesLeft = computeMinutesRemaining(nowMinutes, startM, endM);
+        } else if (nowMinutes < startM && !nextClass) {
+          nextClass = r;
+          minutesUntilNext = startM - nowMinutes;
+        }
       }
     }
   }
 
   const isCurrent = (routine: any) => {
-    if (!routine || !isToday(routine.day_of_week)) return false;
+    if (isHoliday || isOffDay || !routine || isRoutineOffDay(routine) || !isToday(routine.day_of_week)) {
+      return false;
+    }
+    if (currentClass && routine.id && currentClass.id === routine.id) return true;
     const startM = timeStringToMinutes(routine.start_time);
     const endM = timeStringToMinutes(routine.end_time);
-    return startM >= 0 && endM >= 0 && nowMinutes >= startM && nowMinutes <= endM;
+    return isWithinPeriod(nowMinutes, startM, endM);
   };
 
   const isNext = (routine: any) => {
-    return nextClass && nextClass.id === routine.id;
+    return Boolean(!isHoliday && !isOffDay && nextClass && routine && nextClass.id === routine.id);
   };
 
   return {
+    todayDateStr,
     todayEnglish,
     todayBangla,
     nowMinutes,
     todayClasses: sortedToday,
     currentClass,
     nextClass,
+    minutesLeft,
+    minutesUntilNext,
+    isOffDay,
+    offDayTitle,
+    isHoliday,
+    holidayTitle,
     isToday,
     isCurrent,
     isNext,
   };
 }
+
 

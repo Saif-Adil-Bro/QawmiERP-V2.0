@@ -18,6 +18,9 @@ import { toBanglaNumber } from "@/lib/numberToBangla";
 import { resolveStudentIdBn, sortStudentsByRoll } from "@/lib/student-utils";
 import { resolveGradeRule, getGradeBadgeClass } from "@/lib/exam-grading";
 import { apiUrl } from "@/lib/api-url";
+import { checkIsOnline } from "@/lib/syncManager";
+import { enqueueOfflineOutbox } from "@/lib/portal-sync";
+import { getOfflineDb } from "@/lib/offlineDb";
 
 export default function ExamMarksForm({
   exams,
@@ -164,18 +167,57 @@ export default function ExamMarksForm({
         return;
       }
 
-      // Try server API first with admin privileges
+      const payload = {
+        exam_id: currentExamId,
+        class_id: currentClassId,
+        subject_name: currentSubject,
+        madrasa_id: madrasaId,
+        records: recordsToUpsert,
+      };
+
+      const saveOfflineFallback = async () => {
+        await enqueueOfflineOutbox({
+          portal: "teacher",
+          actionType: "exam_marks",
+          endpoint: "/api/teacher/save-marks",
+          method: "POST",
+          payload,
+        });
+        try {
+          const db = getOfflineDb();
+          const nowIso = new Date().toISOString();
+          await db.examResults.bulkPut(
+            recordsToUpsert.map((rec: any) => ({
+              id: `${currentExamId}_${rec.student_id}_${currentSubject}`,
+              exam_id: currentExamId,
+              class_id: currentClassId,
+              student_id: rec.student_id,
+              subject_name: currentSubject,
+              marks_obtained: rec.marks_obtained,
+              total_marks: rec.total_marks,
+              updated_at: nowIso,
+              _offlinePending: true,
+            }))
+          );
+        } catch {
+          // Ignore Dexie optimistic cache errors
+        }
+        setMessage("অফলাইনে নম্বর সফলভাবে সংরক্ষিত হয়েছে! ইন্টারনেট সংযোগ পেলে স্বয়ংক্রিয়ভাবে সার্ভারে সিঙ্ক হয়ে যাবে।");
+        setTimeout(() => setMessage(""), 5000);
+      };
+
+      const isOnline = await checkIsOnline();
+      if (!isOnline) {
+        await saveOfflineFallback();
+        return;
+      }
+
+      // Online: try server API first, fallback to offline outbox on network error
       try {
         const res = await fetch(apiUrl("/api/teacher/save-marks"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            exam_id: currentExamId,
-            class_id: currentClassId,
-            subject_name: currentSubject,
-            madrasa_id: madrasaId,
-            records: recordsToUpsert,
-          }),
+          body: JSON.stringify(payload),
         });
         const apiData = await res.json();
         if (!res.ok || apiData.error) {
@@ -188,6 +230,10 @@ export default function ExamMarksForm({
           router.refresh();
         });
       } catch (apiErr: any) {
+        if (apiErr instanceof TypeError || !(await checkIsOnline())) {
+          await saveOfflineFallback();
+          return;
+        }
         console.error("Save marks error:", apiErr);
         setMessage(apiErr?.message || "নম্বর সংরক্ষণ করতে সমস্যা হয়েছে।");
       }
@@ -528,22 +574,22 @@ export default function ExamMarksForm({
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">পূর্ণমান</label>
+                      <label className="block text-[11px] font-bold text-slate-500 mb-1">পূর্ণমান</label>
                       <input
                         type="number"
                         value={state.total_marks}
                         onChange={(e) => handleChange(s.id, "total_marks", e.target.value)}
-                        className="w-full text-xs p-2 border border-slate-200 rounded-xl"
+                        className="w-full min-h-[44px] text-sm px-3 py-2 border border-slate-200 rounded-xl"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-bold text-purple-800 uppercase mb-1">প্রাপ্ত নম্বর</label>
+                      <label className="block text-[11px] font-bold text-purple-800 mb-1">প্রাপ্ত নম্বর</label>
                       <input
                         type="number"
                         placeholder="নম্বর লিখুন..."
                         value={state.marks_obtained}
                         onChange={(e) => handleChange(s.id, "marks_obtained", e.target.value)}
-                        className="w-full text-xs p-2 font-bold text-purple-900 border border-purple-300 bg-purple-50/40 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-600"
+                        className="w-full min-h-[44px] text-sm px-3 py-2 font-bold text-purple-900 border border-purple-300 bg-purple-50/40 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-600"
                       />
                     </div>
                   </div>
@@ -565,7 +611,7 @@ export default function ExamMarksForm({
         </div>
 
         {/* Save Bar */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+        <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="text-xs text-slate-500 font-medium">
             মোট পরীক্ষার্থী: <strong>{toBanglaNumber(students.length)}</strong> জন
           </div>
@@ -574,7 +620,7 @@ export default function ExamMarksForm({
             type="button"
             onClick={saveMarks}
             disabled={loading || students.length === 0}
-            className="px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center gap-2 disabled:opacity-50"
+            className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center justify-center gap-2 disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
             <span>{loading ? "সংরক্ষণ হচ্ছে..." : "নম্বর সংরক্ষণ করুন"}</span>

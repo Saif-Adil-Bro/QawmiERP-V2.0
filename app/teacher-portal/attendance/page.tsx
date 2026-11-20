@@ -23,8 +23,10 @@ export default async function TeacherAttendancePage(props: { searchParams?: Prom
       return (
         <div className="space-y-6">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Take Attendance</h1>
-            <p className="text-slate-500">Mark daily attendance for your classes.</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">দৈনিক হাজিরা গ্রহণ</h1>
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+              আপনার নির্ধারিত জামাতের শিক্ষার্থীদের দৈনিক উপস্থিতি ও অনুপস্থিতি লিপিবদ্ধ করুন।
+            </p>
           </div>
           <div className="p-8 bg-white rounded-2xl border border-slate-200 text-center text-slate-500">
             আপনাকে কোনো ক্লাস অর্পণ করা হয়নি। মাদরাসা কর্তৃপক্ষের সাথে যোগাযোগ করুন।
@@ -140,8 +142,10 @@ export default async function TeacherAttendancePage(props: { searchParams?: Prom
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Take Attendance</h1>
-        <p className="text-slate-500">Mark daily attendance for your classes.</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900">দৈনিক হাজিরা গ্রহণ</h1>
+        <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+          আপনার নির্ধারিত জামাতের শিক্ষার্থীদের দৈনিক উপস্থিতি ও অনুপস্থিতি লিপিবদ্ধ করুন।
+        </p>
       </div>
 
       <AttendanceForm 

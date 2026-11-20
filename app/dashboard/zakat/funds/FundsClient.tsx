@@ -339,6 +339,17 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
         fund={ledgerFund}
         isOpen={isLedgerOpen}
         onClose={() => setIsLedgerOpen(false)}
+        onTransactionChanged={async () => {
+          try {
+            const { getFunds } = await import("@/app/actions/zakat");
+            const refreshed = await getFunds();
+            if (refreshed && refreshed.length > 0) {
+              setFunds(refreshed as EnrichedFund[]);
+            }
+          } catch (err) {
+            console.error("Failed to refresh funds:", err);
+          }
+        }}
       />
     </div>
   );

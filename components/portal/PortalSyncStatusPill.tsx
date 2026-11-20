@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { WifiOff, RefreshCw, CheckCircle2, CloudUpload } from "lucide-react";
 import { useNetworkSync } from "@/hooks/useNetworkSync";
 import type { PortalSyncType } from "@/lib/portal-sync";
@@ -24,6 +24,7 @@ function formatSyncTime(ts: number | null): string {
 }
 
 export default function PortalSyncStatusPill({ portalType }: PortalSyncStatusPillProps) {
+  const [mounted, setMounted] = useState(false);
   const {
     isOnline,
     isSyncing,
@@ -32,6 +33,12 @@ export default function PortalSyncStatusPill({ portalType }: PortalSyncStatusPil
     triggerBackgroundSync,
   } = useNetworkSync(portalType);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const formattedTime = mounted ? formatSyncTime(lastSyncedAt) : "";
+
   return (
     <button
       type="button"
@@ -39,10 +46,10 @@ export default function PortalSyncStatusPill({ portalType }: PortalSyncStatusPil
       disabled={!isOnline || isSyncing}
       title={
         isOnline
-          ? `সর্বশেষ সিঙ্ক: ${formatSyncTime(lastSyncedAt)} (ট্যাপ করে রিফ্রেশ করুন)`
-          : `অফলাইন মোড • সর্বশেষ সিঙ্ক: ${formatSyncTime(lastSyncedAt)}`
+          ? `সর্বশেষ সিঙ্ক: ${formattedTime || "—"} (ট্যাপ করে রিফ্রেশ করুন)`
+          : `অফলাইন মোড • সর্বশেষ সিঙ্ক: ${formattedTime || "—"}`
       }
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-bold border transition active:scale-95 ${
+      className={`inline-flex items-center justify-center gap-1.5 min-h-[44px] md:min-h-[34px] px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition active:scale-95 shrink-0 ${
         !isOnline
           ? "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-200 dark:border-amber-800"
           : isSyncing
@@ -56,26 +63,26 @@ export default function PortalSyncStatusPill({ portalType }: PortalSyncStatusPil
         <>
           <WifiOff className="w-3.5 h-3.5 shrink-0" />
           <span>অফলাইন</span>
-          {lastSyncedAt && (
-            <span className="hidden sm:inline opacity-80">
-              • {formatSyncTime(lastSyncedAt)}
-            </span>
+          {mounted && lastSyncedAt && (
+            <span className="hidden sm:inline opacity-80">• {formattedTime}</span>
           )}
         </>
       ) : isSyncing ? (
         <>
           <RefreshCw className="w-3.5 h-3.5 shrink-0 animate-spin" />
-          <span>সিঙ্ক হচ্ছে...</span>
+          <span>সিঙ্ক হচ্ছে</span>
         </>
       ) : pendingOutboxCount > 0 ? (
         <>
           <CloudUpload className="w-3.5 h-3.5 shrink-0" />
-          <span>{toBanglaNumber(pendingOutboxCount)}টি অপেক্ষমাণ</span>
+          <span>{toBanglaNumber(pendingOutboxCount)}টি বাকি</span>
         </>
       ) : (
         <>
           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-          <span className="hidden sm:inline">সিঙ্কড: {formatSyncTime(lastSyncedAt)}</span>
+          <span className="hidden sm:inline">
+            সিঙ্কড{mounted && lastSyncedAt ? `: ${formattedTime}` : ""}
+          </span>
           <span className="sm:hidden">অনলাইন</span>
         </>
       )}

@@ -144,7 +144,9 @@ export async function initialFullSync(
           db.subjects,
           db.attendance,
           db.fees,
+          db.exams,
           db.examResults,
+          db.examSummaries,
           db.hifzLogs,
           db.kitabLogs,
           db.notices,
@@ -164,15 +166,21 @@ export async function initialFullSync(
             active_student: mainData.active_student || null,
             teacher: mainData.teacher || null,
             assigned_subjects: mainData.assigned_subjects || [],
+            in_charge_classes: mainData.in_charge_classes || [],
             updated_at: new Date(now).toISOString(),
           });
           counts.portalProfiles = 1;
+
+          const examsList = normalizeRows(mainData.exams || []);
+          if (examsList.length) await db.exams.bulkPut(examsList);
+          counts.exams = examsList.length;
 
           if (portalType === "student") {
             const students = normalizeRows(mainData.students || []);
             const attendance = normalizeRows(mainData.attendance || []);
             const fees = normalizeRows(mainData.fees || []);
             const examResults = normalizeRows(mainData.exam_results || []);
+            const examSummaries = normalizeRows(mainData.exam_summaries || []);
             const hifzLogs = normalizeRows(mainData.hifz_logs || []);
             const kitabLogs = normalizeRows(mainData.kitab_logs || []);
 
@@ -180,6 +188,7 @@ export async function initialFullSync(
             if (attendance.length) await db.attendance.bulkPut(attendance);
             if (fees.length) await db.fees.bulkPut(fees);
             if (examResults.length) await db.examResults.bulkPut(examResults);
+            if (examSummaries.length) await db.examSummaries.bulkPut(examSummaries);
             if (hifzLogs.length) await db.hifzLogs.bulkPut(hifzLogs);
             if (kitabLogs.length) await db.kitabLogs.bulkPut(kitabLogs);
 
@@ -187,12 +196,16 @@ export async function initialFullSync(
             counts.attendance = attendance.length;
             counts.fees = fees.length;
             counts.examResults = examResults.length;
+            counts.examSummaries = examSummaries.length;
             counts.hifzLogs = hifzLogs.length;
             counts.kitabLogs = kitabLogs.length;
           } else {
             const classes = normalizeRows(mainData.classes || []);
+            const students = normalizeRows(mainData.students || []);
             if (classes.length) await db.classes.bulkPut(classes);
+            if (students.length) await db.students.bulkPut(students);
             counts.classes = classes.length;
+            counts.students = students.length;
           }
 
           if (noticesData.length) await db.notices.bulkPut(noticesData);
@@ -351,3 +364,86 @@ export async function backgroundSync(portalOverride?: PortalSyncType): Promise<P
 
   return initialFullSync(resolved, { accessToken: session.accessToken });
 }
+
+export interface PortalSeedPayload {
+  profile?: Record<string, unknown> | null;
+  students?: Array<Record<string, unknown>>;
+  classes?: Array<Record<string, unknown>>;
+  attendance?: Array<Record<string, unknown>>;
+  fees?: Array<Record<string, unknown>>;
+  exams?: Array<Record<string, unknown>>;
+  examResults?: Array<Record<string, unknown>>;
+  examSummaries?: Array<Record<string, unknown>>;
+  hifzLogs?: Array<Record<string, unknown>>;
+  kitabLogs?: Array<Record<string, unknown>>;
+  notices?: Array<Record<string, unknown>>;
+  routines?: Array<Record<string, unknown>>;
+  academicCalendar?: Array<Record<string, unknown>>;
+  homework?: Array<Record<string, unknown>>;
+}
+
+/**
+ * Seeds Dexie IndexedDB silently from server-hydrated props so every visited
+ * portal view is immediately available offline via useLiveQuery().
+ */
+export async function seedPortalOfflineCache(
+  portalType: PortalSyncType,
+  payload: PortalSeedPayload
+): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const db = getOfflineDb();
+    const now = Date.now();
+
+    await db.transaction(
+      "rw",
+      [
+        db.portalProfiles,
+        db.students,
+        db.classes,
+        db.attendance,
+        db.fees,
+        db.exams,
+        db.examResults,
+        db.examSummaries,
+        db.hifzLogs,
+        db.kitabLogs,
+        db.notices,
+        db.routines,
+        db.academicCalendar,
+        db.homework,
+        db.syncMeta,
+      ],
+      async () => {
+        if (payload.profile && payload.profile.id) {
+          await db.portalProfiles.put({
+            ...payload.profile,
+            id: String(payload.profile.id),
+            updated_at: new Date(now).toISOString(),
+          });
+        }
+        if (payload.students?.length) await db.students.bulkPut(normalizeRows(payload.students));
+        if (payload.classes?.length) await db.classes.bulkPut(normalizeRows(payload.classes));
+        if (payload.attendance?.length) await db.attendance.bulkPut(normalizeRows(payload.attendance));
+        if (payload.fees?.length) await db.fees.bulkPut(normalizeRows(payload.fees));
+        if (payload.exams?.length) await db.exams.bulkPut(normalizeRows(payload.exams));
+        if (payload.examResults?.length) await db.examResults.bulkPut(normalizeRows(payload.examResults));
+        if (payload.examSummaries?.length) await db.examSummaries.bulkPut(normalizeRows(payload.examSummaries));
+        if (payload.hifzLogs?.length) await db.hifzLogs.bulkPut(normalizeRows(payload.hifzLogs));
+        if (payload.kitabLogs?.length) await db.kitabLogs.bulkPut(normalizeRows(payload.kitabLogs));
+        if (payload.notices?.length) await db.notices.bulkPut(normalizeRows(payload.notices));
+        if (payload.routines?.length) await db.routines.bulkPut(normalizeRows(payload.routines));
+        if (payload.academicCalendar?.length) await db.academicCalendar.bulkPut(normalizeRows(payload.academicCalendar));
+        if (payload.homework?.length) await db.homework.bulkPut(normalizeRows(payload.homework));
+
+        await db.syncMeta.put({
+          entity: `portal_${portalType}`,
+          lastSyncedAt: now,
+        });
+      }
+    );
+  } catch {
+    // Never block UI if IndexedDB quota or private browsing fails
+  }
+}
+
