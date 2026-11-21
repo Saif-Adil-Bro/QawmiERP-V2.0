@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getAccountingPeriods, getCanManageLocks } from "@/app/actions/locks";
-import { getExams } from "@/app/actions/exams";
+import { getExamFreezeList } from "@/app/actions/exams";
 import { getAcademicSessions } from "@/app/actions/sessions";
 import { getMetadataMigrationStatus } from "@/app/actions/metadata-migration";
 import DataGovernanceClient from "./DataGovernanceClient";
@@ -20,10 +20,10 @@ export default async function DataGovernancePage({
       ? resolvedSearchParams.tab
       : "accounting";
 
-  const [periodsRes, exams, sessions, migrationStatus, canManageLocks] =
+  const [periodsRes, examList, sessions, migrationStatus, canManageLocks] =
     await Promise.all([
       getAccountingPeriods(),
-      getExams(),
+      getExamFreezeList(),
       getAcademicSessions(),
       getMetadataMigrationStatus(),
       getCanManageLocks(),
@@ -64,7 +64,7 @@ export default async function DataGovernancePage({
         initialTab={initialTab}
         initialPeriods={periodsRes.periods}
         periodsStorage={periodsRes.storage}
-        initialExams={exams as any[]}
+        examList={examList}
         initialSessions={sessions as any[]}
         initialMigrationStatus={migrationStatus}
         canManageLocks={canManageLocks}
