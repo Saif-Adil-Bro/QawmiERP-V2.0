@@ -444,6 +444,17 @@ export function createTestHarness(): E2eTestHarness {
     return rows;
   }
 
+  // Simulated Data API boundary for the route suite. The actual SQL function and
+  // provider/login lifecycle run separately on disposable PostgreSQL over HTTP.
+  rpcs.set("current_app_session", (_, {authHeader}) => {
+    const login = activeTokens.get((authHeader || "").replace(/^Bearer /i, ""));
+    if (!login || login.revoked || missingTables.has("user_sessions")) return null;
+    const user = ensureTable("users").find(u => u.id === login.userId);
+    const row = ensureTable("user_sessions").find(s => s.user_id === user?.id && s.madrasa_id === user?.madrasa_id &&
+      s.provider_session_id === login.sessionId && s.is_active && !s.revoked_at && Date.parse(String(s.expires_at)) > Date.now());
+    return row ? {id:row.id,user_id:row.user_id,madrasa_id:row.madrasa_id} : null;
+  });
+
   function seed(table: string, rows: DbRow | DbRow[]): void {
     const arr = Array.isArray(rows) ? rows : [rows];
     const target = ensureTable(table);
@@ -1192,6 +1203,8 @@ export function createTestHarness(): E2eTestHarness {
       sessionId,
       revoked: false,
     });
+    seed("user_sessions", {id:sessionId, user_id:user.id, madrasa_id:user.madrasaId, provider_session_id:sessionId,
+      is_active:true, revoked_at:null, expires_at:new Date((nowSec+3600)*1000).toISOString()});
     currentAccessToken = accessToken;
 
     const sessionPayload = {
