@@ -18,11 +18,20 @@ try {
     "supabase_fix_account_model_migration.sql",
     "supabase_portal_parity_migration.sql",
     "supabase_portal_parity_migration.sql",
-    "tests/sql/portal-parity.sql",
   ]) {
     await db.exec(await readFile(file, "utf8"));
     console.log("OK", file);
   }
+  const checks = await readFile("tests/sql/portal-parity.sql", "utf8");
+  await db.exec(checks);
+  console.log("OK portal parity and exam insert (text users.role)");
+
+  // The fixtures have rolled back. Model lib/db/setup.sql's enum using the roles the tests need.
+  await db.exec(`CREATE TYPE public.user_role AS ENUM ('admin', 'teacher', 'parent');
+    ALTER TABLE public.users ALTER COLUMN role DROP DEFAULT;
+    ALTER TABLE public.users ALTER COLUMN role TYPE public.user_role USING role::public.user_role;`);
+  await db.exec(checks);
+  console.log("OK portal parity and exam insert (enum users.role)");
   await assertFeePreflight(db);
 } finally {
   await db.close();

@@ -3,9 +3,14 @@
 BEGIN;
 GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT SELECT ON public.students,public.madrasas,public.users,public.classes,public.exam_results TO authenticated;
+GRANT SELECT, INSERT ON public.exams TO authenticated;
 INSERT INTO public.madrasas(id,name,contact_email) VALUES ('a0000000-0000-4000-8000-000000000001','A','a@example.test'),('b0000000-0000-4000-8000-000000000001','B','b@example.test');
+INSERT INTO public.exams(madrasa_id,title,year) VALUES ('b0000000-0000-4000-8000-000000000001','Other school','2026');
 INSERT INTO auth.users(id) VALUES ('a0000000-0000-4000-8000-000000000011'),('a0000000-0000-4000-8000-000000000012'),('a0000000-0000-4000-8000-000000000013');
-INSERT INTO public.users(id,madrasa_id,full_name,email,role) SELECT id,'a0000000-0000-4000-8000-000000000001','Fixture',id::text||'@example.test', CASE right(id::text,2) WHEN '11' THEN 'teacher' WHEN '12' THEN 'parent' ELSE 'admin' END FROM auth.users WHERE id::text LIKE 'a0000000-0000-4000-8000-00000000001_';
+INSERT INTO public.users(id,madrasa_id,full_name,email,role) VALUES
+ ('a0000000-0000-4000-8000-000000000011','a0000000-0000-4000-8000-000000000001','Fixture','teacher@example.test','teacher'),
+ ('a0000000-0000-4000-8000-000000000012','a0000000-0000-4000-8000-000000000001','Fixture','parent@example.test','parent'),
+ ('a0000000-0000-4000-8000-000000000013','a0000000-0000-4000-8000-000000000001','Fixture','admin@example.test','admin');
 -- Fixtures simulate PostgREST's verified claims. No real tokens or provider involved here.
 INSERT INTO public.user_sessions(user_id,madrasa_id,provider_session_id,expires_at)
  SELECT id,madrasa_id,('f'||substr(id::text,2))::uuid,now()+interval '1 day' FROM public.users;
@@ -17,6 +22,10 @@ SELECT set_config('request.jwt.claims','{"session_id":"f0000000-0000-4000-8000-0
 DO $$ BEGIN
  IF public.portal_may_use_raw_erp_tables() OR EXISTS(SELECT 1 FROM public.students) OR EXISTS(SELECT 1 FROM public.madrasas) OR (SELECT count(*) FROM public.users)<>1 THEN RAISE EXCEPTION 'teacher raw access'; END IF;
  IF has_function_privilege(current_user,'public.apply_portal_promotion(uuid,jsonb,jsonb,jsonb)','EXECUTE') THEN RAISE EXCEPTION 'client promotion privilege'; END IF;
+ BEGIN
+   INSERT INTO public.exams(madrasa_id,title,year) VALUES(public.get_auth_madrasa_id(),'Portal write','2026');
+   RAISE EXCEPTION 'teacher raw exam insert allowed';
+ EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END $$;
 SELECT set_config('request.jwt.claim.sub','a0000000-0000-4000-8000-000000000012',true);
 SELECT set_config('request.jwt.claims','{"session_id":"f0000000-0000-4000-8000-000000000012"}',true);
@@ -24,6 +33,13 @@ DO $$ BEGIN IF public.portal_may_use_raw_erp_tables() OR EXISTS(SELECT 1 FROM pu
 SELECT set_config('request.jwt.claim.sub','a0000000-0000-4000-8000-000000000013',true);
 SELECT set_config('request.jwt.claims','{"session_id":"f0000000-0000-4000-8000-000000000013"}',true);
 DO $$ BEGIN IF NOT public.portal_may_use_raw_erp_tables() OR (SELECT count(*) FROM public.students)<>1 OR EXISTS(SELECT 1 FROM public.students WHERE first_name='B') THEN RAISE EXCEPTION 'admin tenant scope'; END IF; END $$;
+-- Exercise the same INSERT ... RETURNING and tenant-scoped visibility as the exam form.
+DO $$ DECLARE saved uuid; BEGIN
+ INSERT INTO public.exams(madrasa_id,title,year) VALUES(public.get_auth_madrasa_id(),'Own exam','2026') RETURNING id INTO STRICT saved;
+ IF (SELECT count(*) FROM public.exams) <> 1 OR NOT EXISTS(SELECT 1 FROM public.exams WHERE id=saved) THEN
+   RAISE EXCEPTION 'admin exam visibility';
+ END IF;
+END $$;
 DO $$ BEGIN
  IF public.current_app_session()->>'user_id' IS DISTINCT FROM auth.uid()::text THEN RAISE EXCEPTION 'missing own session'; END IF;
  IF has_any_column_privilege('authenticated','public.user_sessions','SELECT,INSERT,UPDATE') OR

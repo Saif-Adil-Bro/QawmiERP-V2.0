@@ -63,7 +63,8 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
 DECLARE account_role text; store jsonb; legacy text; profile jsonb;
   portal_roles text[] := ARRAY['parent','guardian','student','guardian_student','teacher','ustad','hifz_teacher','hifz_supervisor'];
 BEGIN
-  SELECT lower(u.role),to_jsonb(m)->'security_metadata',to_jsonb(m)->>'registration_no'
+  -- users.role is text in the base schema, but an enum in lib/db/setup.sql.
+  SELECT lower(u.role::text),to_jsonb(m)->'security_metadata',to_jsonb(m)->>'registration_no'
     INTO account_role,store,legacy FROM public.users u JOIN public.madrasas m ON m.id=u.madrasa_id WHERE u.id=auth.uid();
   IF account_role IS NULL OR account_role=ANY(portal_roles) OR public.current_app_session() IS NULL THEN RETURN false; END IF;
   IF (store IS NULL OR store='null'::jsonb) AND left(ltrim(legacy),1)='{' THEN store:=legacy::jsonb; END IF;
