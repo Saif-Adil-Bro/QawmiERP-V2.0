@@ -1,6 +1,7 @@
 import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import { redirect } from "next/navigation";
-import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { webIdentity } from "@/lib/portal/identity";
+import { createClient } from "@/lib/supabase/server";
 import { getStaffMetadataFull } from "@/app/actions/staff";
 import { getMadrasaMetadata } from "@/lib/sessions";
 import { getUnifiedFeePayments } from "@/app/actions/fee-management";
@@ -14,42 +15,21 @@ import DashboardViewSwitcher from "./components/DashboardViewSwitcher";
 import PremiumDashboardClient from "./components/PremiumDashboardClient";
 import { getFinancialAnomalies, type FinancialAnomalyRecord } from "@/lib/anomaly-detection-service";
 import FinancialAnomalyBanner from "@/components/anomalies/FinancialAnomalyBanner";
+import SickStudentsWidget from "@/components/widgets/SickStudentsWidget";
+import { healthWidget } from "@/lib/student-health/staff";
 import { getTenantWidgets } from "@/lib/widgets/service";
 import type { WidgetConfigItem } from "@/lib/widgets/types";
 
 
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  
-  // Timeout wrapper for Supabase queries
-  async function withTimeout<T>(promise: any, ms: number = 8000, context: string = "Request"): Promise<T> {
-    const timeout = new Promise<never>((_, reject) => 
-      setTimeout(() => reject(new Error(`${context} timed out after ${ms}ms. Please check database configuration.`)), ms)
-    );
-    return Promise.race([promise, timeout]);
-  }
-
-  let user = await getAuthUser(supabase);
-
-  if (!user) {
-    return <div className="p-8">ড্যাশবোর্ডে প্রবেশ করতে অনুগ্রহ করে লগইন করুন।</div>;
-  }
-
-  // Fetch the user profile and madrasa info
-  let profile, error;
-
-  // 1. First verify user profile and portal destination
-  const { data: userProfileData } = await supabase
-    .from("users")
-    .select("*, madrasas(name)")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  profile = userProfileData;
-
-  // Direct teachers, parents, and students to their designated portal
-  const targetUrl = getPortalRedirectUrl(profile?.role || user.user_metadata?.role);
+  // Reuse the layout's verified session (including secondary roles). A missing
+  // or ambiguous raw profile join must not turn a real clinic into an empty dashboard.
+  const [identity, supabase] = await Promise.all([webIdentity(), createClient()]);
+  if (!identity) return <div className="p-8">ড্যাশবোর্ডে প্রবেশ করতে অনুগ্রহ করে লগইন করুন।</div>;
+  const { user, userRow: profile } = identity;
+  let madrasaName: string | null = null, error: { message?: string } | undefined;
+  const targetUrl = getPortalRedirectUrl(profile.role, identity.perms.roles);
   if (targetUrl !== "/dashboard") {
     redirect(targetUrl);
   }
@@ -72,6 +52,7 @@ export default async function DashboardPage() {
   let earlyWarningData: any = { attendance_alerts: [], exam_drop_alerts: [], total_critical_students: 0, checked_at: "" };
   let anomaliesData: FinancialAnomalyRecord[] = [];
 
+  let health: Awaited<ReturnType<typeof healthWidget>> = null;
   let dashboardWidgets: WidgetConfigItem[] = [];
 
   try {
@@ -90,11 +71,41 @@ export default async function DashboardPage() {
       : Promise.resolve([]);
 
     if (profile?.madrasa_id) {
+      // Independent widgets remain available even when an unrelated statistics query fails.
+      const [widgets, healthData, { data: school }, stats] = await Promise.all([
+        widgetsPromise,
+        healthWidget({ tenant: identity.tenant, actor: user.id }),
+        supabase.from("madrasas").select("name").eq("id", identity.tenant).maybeSingle(),
+        Promise.all([
+          earlyWarningPromise,
+          anomaliesPromise,
+          supabase.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
+          supabase.from("teachers").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
+          supabase.from("classes").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
+          supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Present"),
+          supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Absent"),
+          supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Leave"),
+          supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Late"),
+
+          getUnifiedFeePayments(profile.madrasa_id),
+          supabase.from("donations").select("id, amount, donation_date, receipt_no, notes").eq("madrasa_id", profile.madrasa_id),
+          supabase.from("expenses").select("amount, expense_date, description").eq("madrasa_id", profile.madrasa_id),
+          supabase.from("bazar_expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
+          supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", toDhakaDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))).lte("date", today),
+          supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
+          getStaffMetadataFull(),
+          getMadrasaMetadata(profile.madrasa_id),
+          getFunds(),
+        ]).then(data => ({ ok: true as const, data }), error => ({ ok: false as const, error })),
+      ]);
+      dashboardWidgets = widgets;
+      health = healthData;
+      madrasaName = school?.name ?? null;
+      if (!stats.ok) throw stats.error;
       const [
         alerts,
         anomalies,
-        widgets,
-        { count: sCount }, 
+        { count: sCount },
         { count: tCount },
         { count: cCount },
         { count: presentCount },
@@ -111,33 +122,9 @@ export default async function DashboardPage() {
         staffFullData,
         madrasaMeta,
         fundsData,
-
-      ] = await Promise.all([
-        earlyWarningPromise,
-        anomaliesPromise,
-        widgetsPromise,
-        supabase.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
-        supabase.from("teachers").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
-        supabase.from("classes").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
-        supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Present"),
-        supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Absent"),
-        supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Leave"),
-        supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Late"),
-
-        getUnifiedFeePayments(profile.madrasa_id),
-        supabase.from("donations").select("id, amount, donation_date, receipt_no, notes").eq("madrasa_id", profile.madrasa_id),
-        supabase.from("expenses").select("amount, expense_date, description").eq("madrasa_id", profile.madrasa_id),
-        supabase.from("bazar_expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
-        supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", toDhakaDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))).lte("date", today),
-        supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
-        getStaffMetadataFull(),
-        getMadrasaMetadata(profile.madrasa_id),
-        getFunds(),
-      ]);
-
+      ] = stats.data;
       earlyWarningData = alerts;
       anomaliesData = anomalies;
-      dashboardWidgets = widgets;
 
       studentsCount = sCount || 0;
       const staffMembers = staffFullData?.staff_members || [];
@@ -395,10 +382,11 @@ export default async function DashboardPage() {
       }}
     >
       <PremiumDashboardClient
+        sickStudentsNode={health && dashboardWidgets.find(w => w.id === "builtin-sick-students")?.enabled !== false ? <SickStudentsWidget summary={health} tenant={profile.madrasa_id} actor={user.id} /> : null}
         profile={{
           full_name: profile?.full_name,
           role: profile?.role,
-          madrasa_name: profile?.madrasas?.name,
+          madrasa_name: madrasaName,
         }}
         stats={{
           studentsCount,

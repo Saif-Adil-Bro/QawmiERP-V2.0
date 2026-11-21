@@ -1,3 +1,4 @@
+import { HEALTH_ROLES } from "@/lib/student-health/model";
 import { cache } from "react";
 import { createAdminClient, getWebAppSession } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/permissions-server";
@@ -34,6 +35,7 @@ export type ModuleKey =
   | "fundraising"
   | "users"
   | "roles"
+  | "student_health"
   | "students"
   | "teachers"
   | "attendance"
@@ -140,6 +142,7 @@ export const MODULE_POLICIES: Record<ModuleKey, ModulePolicy> = {
   },
 
   // ── পড়াশোনা ও প্রশাসন: স্টাফ রোল + সংশ্লিষ্ট পারমিশন ──────────────────────
+  student_health: { roles: HEALTH_ROLES, denyRoles: PORTAL_ROLES, errorMessage: "স্বাস্থ্য নথি দেখার বা পরিবর্তনের অনুমতি নেই।" },
   students: {
     permissions: [
       "student.create",

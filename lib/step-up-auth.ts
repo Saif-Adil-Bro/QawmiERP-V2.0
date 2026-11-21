@@ -1144,7 +1144,7 @@ async function deliverSmsOtp(
     }
 
     // Dynamic import prevents circular dependency with lib/action-authorization -> lib/permissions-server
-    const { dispatchSMSGatewayRequest } = await import("@/app/actions/communication");
+    const { dispatchSMSGatewayRequest } = await import("@/lib/sms-gateway");
     const msg = `QawmiERP নিরাপত্তা যাচাইকরণ কোড: ${otpCode}। এই কোডটি ৫ মিনিট পর্যন্ত কার্যকর থাকবে।`;
     const res = await dispatchSMSGatewayRequest(config, phone, msg);
     return {

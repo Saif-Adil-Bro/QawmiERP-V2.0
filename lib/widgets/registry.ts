@@ -71,6 +71,11 @@ export const DEFAULT_BUILTIN_WIDGETS: WidgetConfigItem[] = [
     order: 6,
     size: "half",
   },
+  {
+    id: "builtin-sick-students", type: "builtin", title: "অসুস্থ শিক্ষার্থী ও স্বাস্থ্য আপডেট",
+    description: "বর্তমানে অসুস্থ ও চিকিৎসাধীন শিক্ষার্থীদের লাইভ তালিকা, গুরুতর সতর্কতা এবং দ্রুত অভিভাবক মেসেজ",
+    version: "1.0.0", author: "QawmiERP Core", enabled: true, order: 7, size: "half",
+  },
 ];
 
 /**

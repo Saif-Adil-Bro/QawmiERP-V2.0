@@ -43,6 +43,7 @@ function wire(child = "a", ids = ["a", "b"]) {
     fee_discounts: [],
     exams: [],
     exam_summaries: [],
+    health_records: [],
     exam_results: [],
     hifz_logs: [],
     kitab_logs: [],
@@ -76,6 +77,7 @@ describe("Owner-scoped Dexie transactions and replay", () => {
     let data: any = {
       ...wire(),
       notices: [{ id: "n" }],
+      health_records: [{id:"case",student_id:"a",status:"observing",severity:"mild",doctor_or_hospital:"Doctor A",treatment_notes:"Care A",timeline:[{note:"latest note"}]}],
       exam_summaries: [{ student_id: "a", exam_id: "e" }],
     };
     vi.stubGlobal(
@@ -83,6 +85,7 @@ describe("Owner-scoped Dexie transactions and replay", () => {
       vi.fn(async () => response(data)),
     );
     expect((await initialFullSync("student")).ok).toBe(true);
+    expect((await db.portalSnapshots.get("student:a"))?.data.healthRecords[0]).toMatchObject({doctor_or_hospital:"Doctor A",treatment_notes:"Care A",timeline:[{note:"latest note"}]});
     data = wire("b");
     await initialFullSync("student", { studentId: "b" });
     data = wire();
@@ -90,6 +93,7 @@ describe("Owner-scoped Dexie transactions and replay", () => {
     for (const key of ["student:", "student:a"])
       expect((await db.portalSnapshots.get(key))?.data).toMatchObject({
         examSummaries: [],
+        healthRecords: [],
         notices: [],
       });
     expect((await db.portalSnapshots.get("student:b"))?.studentId).toBe("b");
@@ -110,6 +114,8 @@ describe("Owner-scoped Dexie transactions and replay", () => {
     const good = await db.portalSnapshots.get("student:");
     for (const bad of [
       { ...wire(), assignments: null },
+      { ...wire(), health_records: null },
+      { ...wire(), health_records:[{id:"case",student_id:"b",status:"observing",severity:"moderate",timeline:[]}] },
       { ...wire(), profile: { id: "other", madrasa_id: `m${n}` } },
       { ...wire(), attendance: [{ id: "x", student_id: "b" }] },
     ]) {

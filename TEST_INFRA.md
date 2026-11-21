@@ -121,3 +121,5 @@ Because `tsconfig.json` includes `"**/*.ts"` with `strict: true`, `isolatedModul
   node --import ./tests/e2e/helpers/register-hooks.mjs --test "tests/e2e/tier1/*.test.ts" "tests/e2e/tier2/*.test.ts" "tests/e2e/tier3/*.test.ts" "tests/e2e/tier4/*.test.ts"
   ```
 - Typecheck Guardrail (MUST remain 0 errors at all times): `npm run lint` (`tsc --noEmit`)
+
+**Student health:** using the same disposable tools as the portal browser fixtures, run `node tests/sql/run-student-health.mjs` (PGlite; dependency via `QAWMI_BROWSER_TOOLS`), `node tests/browser/student-health.mjs` (local PostgreSQL, Next production build, provider login and Chromium), and `node tests/browser/portal-offline.mjs` (cold selected-child IndexedDB reader). These tests require no deployment or SMS credentials. See `docs/student-health.bn.md` for rollout and the encrypted fallback key lifecycle.

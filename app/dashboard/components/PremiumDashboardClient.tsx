@@ -50,6 +50,7 @@ export interface PremiumDashboardClientProps {
   };
   widgets?: WidgetConfigItem[];
   errorMessage?: string | null;
+  sickStudentsNode?: React.ReactNode;
   earlyWarningNode: React.ReactNode;
   anomalyBannerNode?: React.ReactNode;
   chartsNode: React.ReactNode;
@@ -68,6 +69,7 @@ export default function PremiumDashboardClient({
   stats,
   widgets,
   errorMessage,
+  sickStudentsNode,
   earlyWarningNode,
   anomalyBannerNode,
   chartsNode,
@@ -238,6 +240,7 @@ export default function PremiumDashboardClient({
               </div>
             );
           }
+          if (w.id === "builtin-sick-students") return sickStudentsNode ? <div key={w.id} className={spanClass}>{sickStudentsNode}</div> : null;
           if (w.id === "builtin-early-warning") {
             return (
               <div key={w.id} className={spanClass}>

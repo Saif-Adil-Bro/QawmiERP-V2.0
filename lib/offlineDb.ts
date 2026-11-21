@@ -92,6 +92,7 @@ export class QawmiERPOfflineDB extends Dexie {
   offlineOutbox!: Table<OfflineOutboxItem, string>;
   syncMeta!: Table<SyncMetaRecord, string>;
 
+  // Includes child-scoped clinical notes/timeline. Never copy these into shared entity stores.
   portalSnapshots!: Table<{id:string,owner:string,studentId:string|null,syncedAt:number,data:PortalSnapshotData},string>;
   constructor(name = 'QawmiERPOfflineDB') {
     super(name);

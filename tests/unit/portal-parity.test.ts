@@ -27,6 +27,7 @@ import { hydrateStudentWithMetadata } from "@/lib/sessions";
 
 const { meta } = vi.hoisted(() => ({
   meta: {
+    contact_phone: "01712345678",
     sessions: [
       {
         id: "old",
@@ -76,6 +77,11 @@ vi.mock("@/lib/structured-config", () => ({
 // Minimal PostgREST fixture: filters/pagination actually execute. No live database or keys.
 function fixture() {
   const table: Record<string, any[]> = {
+    student_health_records: [
+      ...["a","b","other"].map(id=>({id:`record-${id}`,student_id:id,illness_type:`illness-${id}`,status:"hospitalized",severity:"severe",updated_at:"2026-11-18T00:00:00Z",treatment_notes:`care-${id}`,reported_by:"private-staff",boarding_diet_note:"kitchen only"})),
+      {id:"foreign",madrasa_id:"B",student_id:"b"},
+    ],
+    student_health_timeline: ["a","b"].map(id=>({id:`visit-${id}`,record_id:`record-${id}`,status:"hospitalized",note:`note-${id}`,logged_by:"private-staff"})),
     students: [
       {
         id: "a",
@@ -488,10 +494,17 @@ describe("Cross-portal parity", () => {
   });
   it("selects only linked siblings in tenant; invalid explicit selection never chooses a fallback", async () => {
     const { i } = fixture();
+    vi.stubEnv("STUDENT_HEALTH_STORAGE_KEY", "local-test-key");
     const identity = i("guardian", { linkedStudentIds: ["b", "other"] });
     const data = await portalSnapshot(identity, "student", "b");
     expect(data?.students.map((x) => x.id)).toEqual(["a", "b"]);
     expect(data?.attendance.map((a) => a.student_id)).toEqual(["b"]);
+    expect(data?.health_records).toHaveLength(1);
+    expect(data?.health_records[0]).toMatchObject({student_id:"b",treatment_notes:"care-b",timeline:[{note:"note-b"}]});
+    expect(data?.emergency_phone).toBe("01712345678");
+    expect(JSON.stringify(data?.health_records)).not.toMatch(/care-a|foreign|private-staff|kitchen only/);
+    expect((await portalSnapshot(identity,"student","other"))?.health_records).toEqual([]);
+    vi.unstubAllEnvs();
     expect(data?.notices.map((n) => n.id)).toEqual(["pub", "other-class"]);
     expect(
       (await portalSnapshot(identity, "student", "other"))?.active_student,
@@ -517,6 +530,7 @@ describe("Cross-portal parity", () => {
     expect(data?.exam_results.map((m) => m.id)).toEqual(["m1"]);
     expect(data?.exams.map(e => [e.id, e.is_locked])).toEqual([["exam", true], ["oldEx", false]]);
     expect(data?.fee_invoices).toEqual([]);
+    expect(data?.health_records).toEqual([]);
     expect(data?.students[0]).not.toHaveProperty("fee_discount");
     identity.perms.profile.assignedClassIds = [];
     identity.userRow.teacher_id = "unlinked";

@@ -1,3 +1,4 @@
+import { severities, statuses, dialable } from "@/lib/student-health/model";
 // Wire contract shared by full and background sync. [] means an authoritative deletion;
 // a missing collection or profile is a failed/incomplete response, not an empty snapshot.
 const fields = {
@@ -12,6 +13,7 @@ const fields = {
   examSummaries: "exam_summaries",
   hifzLogs: "hifz_logs",
   kitabLogs: "kitab_logs",
+  healthRecords: "health_records",
   notices: "notices",
   routines: "routines",
   academicCalendar: "holidays",
@@ -34,6 +36,14 @@ export function mapPortalSnapshot(
     throw new Error("শিক্ষার্থীর তথ্য মেলেনি।");
   const mapped = {} as Record<keyof typeof fields, any[]>;
   for (const [key, wire] of Object.entries(fields)) {
+    if (
+      portal === "teacher" &&
+      wire === "health_records" &&
+      data[wire] === undefined
+    ) {
+      mapped.healthRecords = [];
+      continue;
+    }
     if (!Array.isArray(data[wire])) throw new Error(`অসম্পূর্ণ সিঙ্ক: ${wire}`);
     mapped[key as keyof typeof fields] = data[wire];
   }
@@ -53,6 +63,7 @@ export function mapPortalSnapshot(
       "discounts",
       "examResults",
       "examSummaries",
+      "healthRecords",
       "hifzLogs",
       "kitabLogs",
     ] as const) {
@@ -60,8 +71,20 @@ export function mapPortalSnapshot(
         throw new Error("শিক্ষার্থী মেলেনি।");
     }
   }
+  if (
+    (portal === "teacher" && mapped.healthRecords.length) ||
+    mapped.healthRecords.some(
+      (r) =>
+        !r.id ||
+        !statuses.includes(r.status) ||
+        !severities.includes(r.severity) ||
+        !Array.isArray(r.timeline),
+    )
+  )
+    throw new Error("অসম্পূর্ণ স্বাস্থ্য নথি।");
   return {
     ...mapped,
+    emergencyPhone: dialable(String(data.emergency_phone || "")),
     profile: data.profile,
     activeStudent: data.active_student ?? null,
     totalPaid: Number(data.total_paid ?? 0),

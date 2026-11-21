@@ -9,16 +9,18 @@ import {
   ClipboardList,
   FileText,
   CalendarDays,
+  Stethoscope,
   Users,
   Bell,
   Sparkles,
 } from "lucide-react";
 
 interface TeacherNavProps {
+  canUseHealth?: boolean;
   onItemClick?: () => void;
 }
 
-export default function TeacherNav({ onItemClick }: TeacherNavProps) {
+export default function TeacherNav({ onItemClick, canUseHealth }: TeacherNavProps) {
   const pathname = usePathname();
 
   const links = [
@@ -32,6 +34,7 @@ export default function TeacherNav({ onItemClick }: TeacherNavProps) {
     { href: "/teacher-portal/question-scanner", label: "এআই প্রশ্ন স্ক্যানার", icon: Sparkles },
     { href: "/teacher-portal/routine", label: "আমার ক্লাস রুটিন", icon: CalendarDays },
     { href: "/teacher-portal/students", label: "শিক্ষার্থী ও যোগাযোগ", icon: Users },
+    ...(canUseHealth ? [{ href: "/teacher-portal/health", label: "অসুস্থ শিক্ষার্থী ও স্বাস্থ্যসেবা", icon: Stethoscope }] : []),
     { href: "/teacher-portal/notices", label: "মাদরাসা নোটিশ বোর্ড", icon: Bell },
   ];
 

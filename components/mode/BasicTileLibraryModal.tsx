@@ -11,6 +11,7 @@ import {
   Layers,
 } from "lucide-react";
 import { ALL_BASIC_TILES, BasicTileItem } from "./menuCatalog";
+import { usePermissions } from "@/components/permissions/PermissionContext";
 import { useAppMode } from "./ModeContext";
 
 interface BasicTileLibraryModalProps {
@@ -19,6 +20,7 @@ interface BasicTileLibraryModalProps {
 }
 
 export function BasicTileLibraryModal({ isOpen, onClose }: BasicTileLibraryModalProps) {
+  const {summary}=usePermissions();
   const { pinnedTileIds, addTile, removeTile, resetTiles } = useAppMode();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
@@ -34,6 +36,7 @@ export function BasicTileLibraryModal({ isOpen, onClose }: BasicTileLibraryModal
   ];
 
   const filteredTiles = ALL_BASIC_TILES.filter((tile) => {
+    if(tile.roles && !tile.roles.some(r => summary?.roles.includes(r)))return false;
     const matchesCat =
       selectedCategory === "all" || tile.category === selectedCategory;
     const matchesSearch =

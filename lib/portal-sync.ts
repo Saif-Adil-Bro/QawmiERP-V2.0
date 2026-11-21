@@ -81,6 +81,7 @@ export function initialFullSync(
       if (res.status === 401 || res.status === 403)
         await db.portalSnapshots.clear();
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Replacing the complete selected snapshot also removes recovered/stale health alerts.
       const data = mapPortalSnapshot(
         (await res.json()).data,
         session.userId,

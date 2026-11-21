@@ -1,6 +1,6 @@
 // Private HTML/RSC (including /portal?student_id=...) must never be shared by URL.
 // Only immutable assets and the account-neutral offline reader live in Cache Storage.
-const STATIC_CACHE = "qawmi-static-v4";
+const STATIC_CACHE = "qawmi-static-v5";
 const PUBLIC = ["/offline.html", "/offline-portal.js", "/favicon.png"];
 self.addEventListener("install", (e) =>
   e.waitUntil(

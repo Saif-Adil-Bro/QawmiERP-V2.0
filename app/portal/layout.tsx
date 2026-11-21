@@ -6,8 +6,10 @@ import PortalShell from "./PortalShell";
 export const dynamic = "force-dynamic";
 export default async function Layout({
   children,
+  health,
 }: {
   children: React.ReactNode;
+  health: React.ReactNode;
 }) {
   const identity = await webIdentity();
   if (!identity) redirect("/login");
@@ -26,6 +28,7 @@ export default async function Layout({
             ) || "student",
         }}
       >
+        {health}
         {children}
       </PortalShell>
     </PortalOwnerProvider>

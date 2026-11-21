@@ -75,6 +75,8 @@ function wire(child) {
     exams: [],
     exam_results: [],
     exam_summaries: [],
+    health_records: active_student ? [{id:"case-"+active_student.id,student_id:active_student.id,status:"under_treatment",severity:"severe",illness_type:"জ্বর",doctor_or_hospital:`Doctor-${active_student.id}`,treatment_notes:`Care-${active_student.id}`,updated_at:"2026-11-18T00:00:00Z",timeline:[{status:"under_treatment",note:`Note-${active_student.id}`,created_at:"2026-11-18T00:00:00Z"}]}] : [],
+    emergency_phone: "01712345678",
     hifz_logs: [],
     kitab_logs: [],
     notices: [],
@@ -207,6 +209,9 @@ try {
   const cold = await a.$eval("#snapshot", (s) => s.textContent);
   assert.match(cold, /Pupil b/);
   assert.match(cold, /RCPT-b/);
+  for (const marker of ["Doctor-b","Care-b","Note-b"]) assert.ok(cold.includes(marker));
+  assert.doesNotMatch(cold,/Doctor-a|Care-a|Note-a/);
+  await a.waitForSelector("#snapshot dialog[open]");
   assert.doesNotMatch(cold, /Pupil a|RCPT-a/);
   await login(b, "p2", "m2", "parent");
   await a.waitForFunction(() => document.querySelector("#snapshot").hidden);

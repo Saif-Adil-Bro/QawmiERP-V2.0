@@ -14,6 +14,7 @@ import {
   Wallet,
   Users,
 } from "lucide-react";
+import { usePermissions } from "@/components/permissions/PermissionContext";
 import { useAppMode } from "./ModeContext";
 import { BasicTileLibraryModal } from "./BasicTileLibraryModal";
 import { toDhakaDateString } from "@/lib/date-utils";
@@ -29,7 +30,9 @@ interface BasicMetroDashboardProps {
 }
 
 export function BasicMetroDashboard({ stats }: BasicMetroDashboardProps) {
-  const { pinnedTiles, removeTile, mode } = useAppMode();
+  const { pinnedTiles: allTiles, removeTile, mode } = useAppMode();
+  const {summary}=usePermissions();
+  const pinnedTiles=allTiles.filter(t=>!t.roles || t.roles.some(r=>summary?.roles.includes(r)));
   const [libraryModalOpen, setLibraryModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
