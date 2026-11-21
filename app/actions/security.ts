@@ -2,12 +2,11 @@
 
 import { cookies, headers } from "next/headers";
 import QRCode from "qrcode";
-import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
+import { createAdminClient, getWebAppSession } from "@/lib/supabase/server";
 import { loadServerPermissions } from "@/lib/permissions-server";
 import { writeGuard } from "@/lib/action-authorization";
 import {
-  SESSION_COOKIE_NAME,
-  listUserSessions,
+  listUserSessions, mayManageTenantSessions,
   revokeUserSession,
   revokeOtherSessions,
   revokeAllUserSessions,
@@ -33,17 +32,17 @@ import {
 } from "@/lib/step-up-auth";
 
 async function getAuthenticatedSecurityActor() {
-  const supabase = await createClient();
-  const authUser = await getAuthUser(supabase);
-  if (!authUser) {
+  const verified = await getWebAppSession().catch(() => null);
+  if (!verified) {
     return { error: "অননুমোদিত প্রবেশ। অনুগ্রহ করে লগইন করুন।" as const };
   }
 
+  const {user:authUser, session} = verified;
   const admin = await createAdminClient();
   const { data: userRow } = await admin
     .from("users")
     .select("madrasa_id, full_name, email, phone, role")
-    .eq("id", authUser.id)
+    .eq("id", authUser.id).eq("madrasa_id",session.madrasa_id)
     .maybeSingle();
 
   const madrasaId = String((userRow as any)?.madrasa_id || "");
@@ -52,15 +51,11 @@ async function getAuthenticatedSecurityActor() {
   }
 
   const permCtx = await loadServerPermissions(authUser.id, madrasaId);
-  if (!permCtx || permCtx.status === "SUSPENDED" || permCtx.status === "DISABLED") {
+  if (permCtx?.status !== "ACTIVE") {
     return { error: "আপনার অ্যাকাউন্টটি স্থগিত বা নিষ্ক্রিয় করা হয়েছে।" as const };
   }
 
-  const canManageAllSessions =
-    permCtx.roles.includes("super_admin") ||
-    permCtx.roles.includes("admin") ||
-    permCtx.roles.includes("muhtamim") ||
-    permCtx.summary.effectivePermissions.includes("security.sessions.manage");
+  const canManageAllSessions = mayManageTenantSessions(permCtx);
 
   const canManageTenantPolicy =
     permCtx.roles.some((r) =>
@@ -71,6 +66,7 @@ async function getAuthenticatedSecurityActor() {
   return {
     actor: {
       userId: authUser.id,
+      currentSessionId:session.id,
       madrasaId,
       fullName: (userRow as any)?.full_name || authUser.email || "User",
       email: (userRow as any)?.email || authUser.email || "",
@@ -109,7 +105,7 @@ export async function getSecurityOverviewAction(scope: "self" | "madrasa" = "sel
 
   const filterUserId = actor.canManageAllSessions && scope === "madrasa" ? undefined : actor.userId;
 
-  const [sessionsRes, mfa, stepUpPolicy, maskingPolicy, cookieStore] = await Promise.all([
+  const [sessionsRes, mfa, stepUpPolicy, maskingPolicy] = await Promise.all([
     listUserSessions({
       madrasaId: actor.madrasaId,
       userId: filterUserId,
@@ -119,14 +115,13 @@ export async function getSecurityOverviewAction(scope: "self" | "madrasa" = "sel
     getUserMfaSettings(actor.userId, actor.madrasaId),
     getTenantStepUpPolicy(actor.madrasaId),
     getTenantMaskingPolicy(actor.madrasaId),
-    cookies(),
   ]);
 
   return {
     success: true,
     sessions: sessionsRes.sessions,
     storage: sessionsRes.storage,
-    currentSessionId: cookieStore.get(SESSION_COOKIE_NAME)?.value || null,
+    currentSessionId: actor.currentSessionId,
     canManageAllSessions: actor.canManageAllSessions,
     canManageTenantPolicy: actor.canManageTenantPolicy,
     mfa: {
@@ -151,19 +146,9 @@ export async function terminateSessionAction(sessionId: string) {
   if ("error" in res && res.error) return { success: false, error: res.error };
   const { actor } = res;
 
-  if (!actor.canManageAllSessions) {
-    const { sessions } = await listUserSessions({
-      madrasaId: actor.madrasaId,
-      userId: actor.userId,
-      includeRevoked: true,
-    });
-    if (!sessions.some((s) => s.id === sessionId)) {
-      return { success: false, error: "এই সেশনটি বাতিল করার অনুমতি আপনার নেই।" };
-    }
-  }
-
   return revokeUserSession({
     sessionId,
+    ownerUserId: actor.canManageAllSessions ? undefined : actor.userId,
     madrasaId: actor.madrasaId,
     revokedBy: actor.userId,
     actorName: actor.fullName,
@@ -178,8 +163,7 @@ export async function terminateOtherSessionsAction() {
   if ("error" in res && res.error) return { success: false, count: 0, error: res.error };
   const { actor } = res;
 
-  const cookieStore = await cookies();
-  const currentSessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value || null;
+  const { currentSessionId } = actor;
 
   return revokeOtherSessions({
     madrasaId: actor.madrasaId,

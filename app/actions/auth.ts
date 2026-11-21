@@ -1,12 +1,14 @@
 "use server";
-import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
+import {writeGuard} from '@/lib/action-authorization';
+import { createClient, createAdminClient, getAuthUser, getWebAppSession } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
+import { completeAppLogin } from "@/lib/app-login";
+import { createStatelessSupabaseClient } from "@/lib/supabase/stateless";
+import { cookies, headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
 import {
   findStudentByIdentifier,
-  ensureStudentGuardianAuthUser,
   syncAllStudentsDefaultLogins,
   SyncStudentLoginsResult,
 } from "@/lib/student-auth";
@@ -39,12 +41,7 @@ export async function login(prevState: any, formData: FormData) {
         isStudentLogin = true;
         canonicalEmail = resolved.portalEmail;
         legacyEmail = resolved.legacyPortalEmail;
-        const authRes = await ensureStudentGuardianAuthUser(
-          resolved.student,
-          resolved.canonicalStudentId,
-          "123456"
-        );
-        targetEmail = authRes.email || canonicalEmail;
+        targetEmail = canonicalEmail;
       } else if (!rawIdentifier.includes("@")) {
         return {
           error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: AHH480001 বা 480001) প্রদান করুন।`,
@@ -93,102 +90,10 @@ export async function login(prevState: any, formData: FormData) {
     if (error || !data?.user) {
       return { error: error?.message || "লগইন ব্যর্থ হয়েছে।" };
     }
-    // ⛔ CR-4: অ্যাকাউন্ট স্ট্যাটাস (SUSPENDED / DISABLED) এখানেই যাচাই করা হয়।
-    // আগে স্ট্যাটাস শুধু ক্লায়েন্ট কম্পোনেন্টে দেখা হতো — ফলে স্থগিত ইউজারও লগইন করে
-    // server action সরাসরি কল করে সব কাজ করতে পারত।
-    try {
-      const statusClient = await createAdminClient();
-      const { data: statusRow } = await statusClient
-        .from("users")
-        .select("madrasa_id, role")
-        .eq("id", data.user.id)
-        .maybeSingle();
-
-      if (statusRow?.madrasa_id) {
-        const { loadServerPermissions } = await import("@/lib/permissions-server");
-        const permCtx = await loadServerPermissions(data.user.id, statusRow.madrasa_id);
-        if (permCtx && (permCtx.status === "SUSPENDED" || permCtx.status === "DISABLED")) {
-          await supabase.auth.signOut();
-          return {
-            error:
-              permCtx.status === "SUSPENDED"
-                ? "আপনার অ্যাকাউন্টটি সাময়িকভাবে স্থগিত করা হয়েছে। মাদ্রাসা প্রশাসনের সাথে যোগাযোগ করুন।"
-                : "আপনার অ্যাকাউন্টটি নিষ্ক্রিয় (Disabled) করা হয়েছে। মাদ্রাসা প্রশাসনের সাথে যোগাযোগ করুন।",
-          };
-        }
-      }
-    } catch (statusErr) {
-      console.warn("Account status check during login failed:", statusErr);
-    }
-
-
-    if (data.user) {
-      let userRole = data.user.user_metadata?.role || (isStudentLogin ? "parent" : "staff");
-      let additionalRoles: string[] = [];
-
-      try {
-        const adminClient = await createAdminClient();
-        const { data: userData } = await adminClient
-          .from("users")
-          .select("role, madrasa_id")
-          .eq("id", data.user.id)
-          .maybeSingle();
-
-        if (userData?.role) {
-          userRole = userData.role;
-        }
-
-        if (userRole === "staff" || !userRole) {
-          const { data: teacherRow } = await adminClient
-            .from("teachers")
-            .select("id")
-            .eq("email", targetEmail)
-            .maybeSingle();
-          if (teacherRow) {
-            userRole = "teacher";
-          }
-        }
-
-        if (userData?.madrasa_id) {
-          try {
-            const { registerUserSession, SESSION_COOKIE_NAME } = await import("@/lib/session-manager");
-            const sessionRec = await registerUserSession({
-              userId: data.user.id,
-              madrasaId: String(userData.madrasa_id),
-              accessToken: data.session?.access_token || null,
-              channel: "web",
-            });
-            const cookieStore = await cookies();
-            cookieStore.set(SESSION_COOKIE_NAME, sessionRec.id, {
-              path: "/",
-              httpOnly: true,
-              sameSite: "lax",
-              secure: process.env.NODE_ENV === "production",
-              maxAge: 60 * 60 * 24 * 7,
-            });
-          } catch (sessErr) {
-            console.warn("Session registration in login action warning:", sessErr);
-          }
-
-          const { data: madrasaRow } = await adminClient
-            .from("madrasas")
-            .select("registration_no")
-            .eq("id", userData.madrasa_id)
-            .maybeSingle();
-          if (madrasaRow?.registration_no?.startsWith("{")) {
-            const parsed = JSON.parse(madrasaRow.registration_no);
-            const profile = parsed.user_security_profiles?.[data.user.id];
-            if (profile?.primaryRole) userRole = profile.primaryRole;
-            if (profile?.roles) additionalRoles = profile.roles;
-          }
-        }
-      } catch (e) {
-        console.warn("Role lookup in login action error:", e);
-      }
-
-      targetRedirectUrl = getPortalRedirectUrl(userRole, additionalRoles);
-    }
-
+    if (!data.session) return {error: "লগইন ব্যর্থ হয়েছে।"};
+    const login = await completeAppLogin(supabase, data.session, "web", false, await headers());
+    if (!login.ok) return {error: login.message};
+    targetRedirectUrl = getPortalRedirectUrl(login.perms.role, login.perms.roles);
     isSuccess = true;
   } catch (err: any) {
     console.error("SignIn catch block:", err);
@@ -238,7 +143,9 @@ export async function changeGuardianPassword(
 
     // Verify current password by test sign-in if email exists
     if (user.email) {
-      const { error: verifyErr } = await supabase.auth.signInWithPassword({
+      // Password verification must not replace the registered SSR session.
+      const verifier = createStatelessSupabaseClient();
+      const { error: verifyErr } = await verifier.auth.signInWithPassword({
         email: user.email,
         password: cur,
       });
@@ -249,6 +156,7 @@ export async function changeGuardianPassword(
           error: "আপনার বর্তমান পাসওয়ার্ডটি সঠিক নয়। অনুগ্রহ করে তথ্য যাচাই করে সঠিক পাসওয়ার্ড দিন।",
         };
       }
+      await verifier.auth.signOut({scope:"local"});
     }
 
     const adminClient = await createAdminClient();
@@ -281,14 +189,9 @@ export async function changeGuardianPassword(
  */
 export async function syncAllStudentLoginsAction(): Promise<SyncStudentLoginsResult> {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { success: false, error: "অননুমোদিত অ্যাক্সেস।" };
-
-    const adminClient = await createAdminClient();
-    const { data: userRow } = await adminClient.from("users").select("madrasa_id").eq("id", user.id).maybeSingle();
-    const madrasaId = userRow?.madrasa_id;
-
+    const guard = await writeGuard('users');
+    if (!guard.allowed || !guard.madrasaId) return {success:false,error:'অনুমতি নেই।'};
+    const madrasaId = guard.madrasaId;
     const res = await syncAllStudentsDefaultLogins(madrasaId);
     revalidatePath("/dashboard/users");
     revalidatePath("/dashboard/students");
@@ -299,37 +202,23 @@ export async function syncAllStudentLoginsAction(): Promise<SyncStudentLoginsRes
 }
 
 export async function logout() {
+  let confirmed = true;
   try {
     const supabase = await createClient();
-    const currentUser = await getAuthUser(supabase);
-    const cookieStore = await cookies();
-    const sessionId = cookieStore.get("qawmi_session_id")?.value;
-    if (currentUser && sessionId) {
-      try {
-        const admin = await createAdminClient();
-        const { data: uRow } = await admin
-          .from("users")
-          .select("madrasa_id")
-          .eq("id", currentUser.id)
-          .maybeSingle();
-        if (uRow?.madrasa_id) {
-          const { revokeUserSession } = await import("@/lib/session-manager");
-          await revokeUserSession({
-            sessionId,
-            madrasaId: String(uRow.madrasa_id),
-            revokedBy: currentUser.id,
-            reason: "USER_LOGOUT",
-            skipAudit: true,
-          });
-        }
-      } catch {
-        // ignore session revocation failure on logout
-      }
-    }
-    await supabase.auth.signOut();
-  } catch (err) {
-    console.warn("Logout error:", err);
-  }
+    try {
+      const verified = await getWebAppSession(supabase);
+      if (verified) {
+        const {revokeUserSession} = await import("@/lib/session-manager");
+        const result = await revokeUserSession({sessionId:verified.session.id, madrasaId:verified.session.madrasa_id,
+          ownerUserId:verified.user.id, revokedBy:verified.user.id, reason:"USER_LOGOUT", skipAudit:true});
+        if (!result.success) confirmed = false;
+      } else { confirmed = false; }
+    } catch { confirmed = false; }
+    // Still attempt issuer sign-out if the app registry was unavailable. Other
+    // devices are independent logins; clearing this browser must not end theirs.
+    const {error} = await supabase.auth.signOut({scope:"local"});
+    if (error) confirmed = false;
+  } catch { confirmed = false; }
 
   // ⛔ L-3 ফিক্স: signOut() সেশন সার্ভারে বাতিল করে এবং `setAll` দিয়ে cookie মুছতে চায় —
   // কিন্তু `createClient` React `cache()`-এ মোড়ানো এবং RSC-তে cookie লেখা নীরবে ব্যর্থ হয়।
@@ -363,6 +252,6 @@ export async function logout() {
     /* ক্যাশ রিভ্যালিডেশন ব্যর্থ হলেও লগআউট চলবে */
   }
 
-  redirect("/login");
+  redirect(confirmed ? "/login" : "/login?logout=unconfirmed");
 }
 

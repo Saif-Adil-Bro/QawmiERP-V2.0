@@ -36,7 +36,6 @@ import { MODULE_POLICIES } from "@/lib/action-authorization";
 import {
   parseUserAgent,
   hashSessionToken,
-  evaluateSessionRecordRevoked,
 } from "@/lib/session-manager";
 import {
   maskPhoneNumber,
@@ -395,8 +394,8 @@ describe("Feature 1.2 — requirePermission CRITICAL Step-Up Gating", () => {
   });
 });
 
-describe("Feature 1.2 — Session Parsing & Revocation Evaluation", () => {
-  it("parses web and mobile User-Agent strings and evaluates revocation states", () => {
+describe("Feature 1.2 — Session Parsing", () => {
+  it("parses web and mobile User-Agent strings and hashes audit tokens", () => {
     const winChrome = parseUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
     );
@@ -410,27 +409,7 @@ describe("Feature 1.2 — Session Parsing & Revocation Evaluation", () => {
 
     expect(hashSessionToken("tok-123")).toHaveLength(64);
 
-    const now = 1_700_000_000_000;
-    expect(
-      evaluateSessionRecordRevoked(
-        { is_active: true, revoked_at: null, expires_at: new Date(now + 60_000).toISOString() },
-        now
-      ).revoked
-    ).toBe(false);
-
-    expect(
-      evaluateSessionRecordRevoked(
-        { is_active: false, revoked_at: new Date(now - 1000).toISOString(), expires_at: null },
-        now
-      )
-    ).toEqual({ revoked: true, reason: "REVOKED" });
-
-    expect(
-      evaluateSessionRecordRevoked(
-        { is_active: true, revoked_at: null, expires_at: new Date(now - 1000).toISOString() },
-        now
-      )
-    ).toEqual({ revoked: true, reason: "EXPIRED" });
+    // Live revocation and expiry are checked in SQL, not against JavaScript fixtures.
   });
 });
 

@@ -1,3 +1,5 @@
+import {ownerKey,browserSession} from './offline-auth';
+import type {PortalSnapshotData} from './portal/offline-snapshot';
 import Dexie, { type Table } from "dexie";
 
 export type OfflineEntity =
@@ -35,6 +37,7 @@ export interface SyncQueueItem {
   status: SyncStatus;
   retryCount: number;
   lastError?: string;
+  leaseUntil?: number;
 }
 
 export interface OfflineOutboxItem {
@@ -48,6 +51,7 @@ export interface OfflineOutboxItem {
   status: SyncStatus;
   retryCount: number;
   lastError?: string;
+  leaseUntil?: number;
 }
 
 export interface SyncMetaRecord {
@@ -87,8 +91,9 @@ export class QawmiERPOfflineDB extends Dexie {
   offlineOutbox!: Table<OfflineOutboxItem, string>;
   syncMeta!: Table<SyncMetaRecord, string>;
 
-  constructor() {
-    super("QawmiERPOfflineDB");
+  portalSnapshots!: Table<{id:string,owner:string,studentId:string|null,syncedAt:number,data:PortalSnapshotData},string>;
+  constructor(name = 'QawmiERPOfflineDB') {
+    super(name);
 
     this.version(1).stores({
       students: "id, madrasa_id, class_id, student_id_code, status, updated_at",
@@ -154,6 +159,7 @@ export class QawmiERPOfflineDB extends Dexie {
       offlineOutbox: "id, portal, actionType, createdAt, status, retryCount",
       syncMeta: "entity, lastSyncedAt",
     });
+    this.version(4).stores({portalSnapshots:'id, owner, studentId'});
   }
 
   getEntityTable(entity: OfflineEntity): Table<OfflineRecord, string> {
@@ -161,16 +167,14 @@ export class QawmiERPOfflineDB extends Dexie {
   }
 }
 
-let dbInstance: QawmiERPOfflineDB | null = null;
-
-export function getOfflineDb(): QawmiERPOfflineDB {
-  if (typeof window === "undefined") {
-    throw new Error("OfflineDB can only be accessed in the browser.");
-  }
-  if (!dbInstance) {
-    dbInstance = new QawmiERPOfflineDB();
-  }
-  return dbInstance;
+// Never import the legacy, unowned database into a signed-in account. Record IDs (e.g.
+// metadata IDs) need not be globally unique. Admin caches and portal outboxes are isolated too.
+const databases = new Map<string,QawmiERPOfflineDB>();
+export function getOfflineDb(owner = ownerKey(browserSession())):QawmiERPOfflineDB {
+  if (typeof window === 'undefined') throw new Error('IndexedDB requires a browser');
+  const name = `QawmiERP-scope-${owner || 'guest'}`;
+  if (!databases.has(name)) databases.set(name,new QawmiERPOfflineDB(name));
+  return databases.get(name)!;
 }
 
 export function generateOfflineId(prefix = "offline"): string {

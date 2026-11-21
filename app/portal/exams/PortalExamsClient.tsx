@@ -20,7 +20,6 @@ import {
   type StudentExamSummary,
   type MeritPositionResult,
 } from "@/lib/exam-grading";
-import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
 
 interface PortalExamsClientProps {
@@ -30,11 +29,8 @@ interface PortalExamsClientProps {
   selectedExamId: string | null;
   currentExam: any | null;
   isCurrentExamPublished: boolean;
-  rawResults: any[];
   summary: StudentExamSummary;
   merit: MeritPositionResult;
-  gradingConfig: ExamGradingConfig;
-  evalOptions?: ExamEvaluationOptions;
 }
 
 export default function PortalExamsClient({
@@ -44,108 +40,19 @@ export default function PortalExamsClient({
   selectedExamId,
   currentExam,
   isCurrentExamPublished,
-  rawResults,
   summary,
   merit,
-  gradingConfig,
-  evalOptions,
 }: PortalExamsClientProps) {
   const offlineSnapshot = useOfflinePortalSnapshot();
 
-  // Seed Dexie IndexedDB silently for offline access
-  useEffect(() => {
-    if (!child?.id) return;
-    const summaryRecord =
-      isCurrentExamPublished && selectedExamId
-        ? [
-            {
-              id: `${child.id}_${selectedExamId}`,
-              student_id: child.id,
-              exam_id: selectedExamId,
-              exam_title: currentExam?.title || currentExam?.name || "সাময়িক পরীক্ষা",
-              exam_year: currentExam?.year || null,
-              has_marks: summary.hasMarks,
-              grade_label: summary.gradeLabel,
-              gpa: summary.gpa,
-              percentage: summary.percentage,
-              total_obtained: summary.totalObtained,
-              total_max: summary.totalMax,
-              is_passed: summary.isPassed,
-              status_label: summary.statusLabel,
-              merit_position: merit.meritPosition,
-              merit_label: merit.formattedPosition,
-              formatted_merit: merit.formattedPosition,
-              total_candidates: merit.totalCandidates,
-              updated_at: new Date().toISOString(),
-            },
-          ]
-        : [];
-
-    seedPortalOfflineCache("student", {
-      exams: enrichedExams,
-      examResults: rawResults,
-      examSummaries: summaryRecord,
-    });
-  }, [
-    child?.id,
-    enrichedExams,
-    rawResults,
-    isCurrentExamPublished,
-    selectedExamId,
-    currentExam,
-    summary,
-    merit,
-  ]);
-
-  // Offline fallback if server results empty but local Dexie has rows
-  const effectiveSummary = useMemo(() => {
-    if (summary.hasMarks) return summary;
-    if (!selectedExamId || !offlineSnapshot?.examResults?.length) return summary;
-    const cachedRows = offlineSnapshot.examResults.filter(
-      (r: any) =>
-        (!child?.id || String(r.student_id) === String(child.id)) &&
-        (!selectedExamId || String(r.exam_id) === String(selectedExamId))
-    );
-    if (cachedRows.length === 0) return summary;
-    return computeStudentExamSummary(cachedRows, gradingConfig, evalOptions);
-  }, [summary, selectedExamId, offlineSnapshot?.examResults, child?.id, gradingConfig, evalOptions]);
-
-  const effectiveMerit: MeritPositionResult = useMemo(() => {
-    if (merit.meritPosition !== null || merit.totalCandidates > 0) return merit;
-    const cached = (offlineSnapshot?.examSummaries || []).find(
-      (s: any) =>
-        (!child?.id || String(s.student_id) === String(child.id)) &&
-        (!selectedExamId || String(s.exam_id) === String(selectedExamId))
-    ) as any;
-    if (!cached) return merit;
-    const pos =
-      cached.merit_position !== null && cached.merit_position !== undefined
-        ? Number(cached.merit_position)
-        : null;
-    const label =
-      cached.merit_label ||
-      cached.formatted_merit ||
-      (pos && pos > 0
-        ? toBanglaOrdinal(pos)
-        : effectiveSummary.hasMarks
-        ? effectiveSummary.isPassed
-          ? "অপেক্ষমাণ"
-          : "প্রযোজ্য নয়"
-        : "অপেক্ষমাণ");
-    return {
-      meritPosition: pos,
-      totalCandidates: Number(cached.total_candidates || 0),
-      formattedPosition: label,
-    };
-  }, [
-    merit,
-    offlineSnapshot?.examSummaries,
-    child?.id,
-    selectedExamId,
-    effectiveSummary.hasMarks,
-    effectiveSummary.isPassed,
-  ]);
-
+  if (offlineSnapshot && offlineSnapshot.activeStudent?.id===child.id) {
+    enrichedExams=offlineSnapshot.exams;
+    currentExam=enrichedExams.find(e=>e.id===selectedExamId);
+    isCurrentExamPublished=!!currentExam?.is_published && offlineSnapshot.examSummaries.some(s=>s.exam_id===selectedExamId);
+  }
+  const cached = offlineSnapshot?.examSummaries.find((s:any) => s.student_id === child.id && s.exam_id === selectedExamId) as any;
+  const effectiveSummary: StudentExamSummary = cached?.summary ?? summary;
+  const effectiveMerit: MeritPositionResult = cached?.merit ?? merit;
   // Clean Bengali display text for Merit Position covering every edge case
   const meritDisplayLabel = useMemo(() => {
     if (!isCurrentExamPublished || !effectiveSummary.hasMarks) {
@@ -455,7 +362,7 @@ export default function PortalExamsClient({
                           <p className="text-xs text-slate-500 mt-0.5">
                             প্রাপ্ত নম্বর:{" "}
                             <strong className="text-slate-900">
-                              {toBanglaNumber(sub.marksObtained)}
+                              {sub.hasEntered ? toBanglaNumber(sub.marksObtained) : "—"}
                             </strong>{" "}
                             / {toBanglaNumber(sub.totalMarks)} ({toBanglaNumber(sub.percentage)}%)
                           </p>
@@ -483,7 +390,7 @@ export default function PortalExamsClient({
                             sub.isFailed ? "text-rose-600" : "text-emerald-600"
                           }`}
                         >
-                          {sub.isFailed ? "অকৃতকার্য" : "উত্তীর্ণ"}
+                          {!sub.hasEntered ? "অপেক্ষমাণ" : sub.isFailed ? "অকৃতকার্য" : "উত্তীর্ণ"}
                         </span>
                       </div>
                     </div>
@@ -511,7 +418,7 @@ export default function PortalExamsClient({
                             {toBanglaNumber(sub.totalMarks)}
                           </td>
                           <td className="px-4 py-3 font-bold text-slate-900 text-sm">
-                            {toBanglaNumber(sub.marksObtained)}
+                            {sub.hasEntered ? toBanglaNumber(sub.marksObtained) : "—"}
                           </td>
                           <td className="px-4 py-3 text-slate-600 text-xs sm:text-sm">
                             {toBanglaNumber(sub.percentage)}%

@@ -1,66 +1,42 @@
 "use client";
-
+import { createContext, useContext, useSyncExternalStore } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { useSearchParams } from "next/navigation";
 import { getOfflineDb } from "@/lib/offlineDb";
-
-/**
- * Reactive live queries from Dexie IndexedDB for Student / Guardian / Teacher portals.
- * Automatically updates UI whenever initialFullSync() or backgroundSync() updates local tables.
- */
+import { ownerKey, browserSession } from "@/lib/offline-auth";
+export const PortalOwner = createContext("");
+export const usePortalOwner = () => useContext(PortalOwner);
+function subscribe(cb: () => void) {
+  window.addEventListener("online", cb);
+  window.addEventListener("offline", cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    window.removeEventListener("online", cb);
+    window.removeEventListener("offline", cb);
+    window.removeEventListener("storage", cb);
+  };
+}
 export function useOfflinePortalSnapshot() {
-  const data = useLiveQuery(async () => {
-    if (typeof window === "undefined") return null;
-    const db = getOfflineDb();
-    const [
-      profiles,
-      students,
-      classes,
-      attendance,
-      fees,
-      exams,
-      examResults,
-      examSummaries,
-      hifzLogs,
-      kitabLogs,
-      notices,
-      routines,
-      academicCalendar,
-      homework,
-    ] = await Promise.all([
-      db.portalProfiles.toArray(),
-      db.students.toArray(),
-      db.classes.toArray(),
-      db.attendance.toArray(),
-      db.fees.toArray(),
-      db.exams.toArray(),
-      db.examResults.toArray(),
-      db.examSummaries.toArray(),
-      db.hifzLogs.toArray(),
-      db.kitabLogs.toArray(),
-      db.notices.toArray(),
-      db.routines.toArray(),
-      db.academicCalendar.toArray(),
-      db.homework.toArray(),
-    ]);
-
-    return {
-      profile: profiles[0] || null,
-      profiles,
-      students,
-      classes,
-      attendance,
-      fees,
-      exams,
-      examResults,
-      examSummaries,
-      hifzLogs,
-      kitabLogs,
-      notices,
-      routines,
-      academicCalendar,
-      homework,
-    };
-  }, []);
-
-  return data ?? null;
+  const owner = usePortalOwner();
+  const student = useSearchParams()?.get("student_id") || "";
+  const offlineOwner = useSyncExternalStore(
+    subscribe,
+    () => (navigator.onLine ? "" : ownerKey(browserSession())),
+    () => "",
+  );
+  const id = owner.endsWith(":teacher") ? "teacher:" : `student:${student}`;
+  const row = useLiveQuery(
+    () =>
+      owner && offlineOwner === owner
+        ? getOfflineDb(owner).portalSnapshots.get(id)
+        : undefined,
+    [owner, id, offlineOwner],
+  );
+  // An online empty result is authoritative. Never rehydrate from a different render/child.
+  return owner &&
+    offlineOwner === owner &&
+    row?.owner === owner &&
+    row.id === id
+    ? row.data
+    : null;
 }

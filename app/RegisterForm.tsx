@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { registerMadrasa, getSuggestedMadrasaPrefixAction, checkPrefixAvailabilityAction } from "./actions/tenant";
 import { generateSuggestedPrefix } from "@/lib/madrasa-prefix";
-import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { Sparkles, ShieldCheck, CheckCircle2, AlertCircle, ArrowRight, ArrowLeft, BookOpen } from "lucide-react";
 
@@ -21,19 +20,6 @@ export default function RegisterForm() {
   const [adminPassword, setAdminPassword] = useState("");
   const [isManualPrefix, setIsManualPrefix] = useState(false);
   const [prefixStatus, setPrefixStatus] = useState<{ available?: boolean; message?: string } | null>(null);
-
-  useEffect(() => {
-    try {
-      const supabase = createClient();
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user) {
-          window.location.href = "/dashboard";
-        }
-      });
-    } catch (err) {
-      console.warn("Client session check warning:", err);
-    }
-  }, []);
 
   const handleMadrasaNameChange = (val: string) => {
     setMadrasaName(val);

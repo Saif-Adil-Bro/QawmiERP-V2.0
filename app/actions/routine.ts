@@ -1,19 +1,20 @@
 "use server";
 
+import {resolveTeacherUuid} from "@/lib/teacher-profile-write";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
-import { resolveTeacherUuid } from "./teacher_subjects";
 import { encodeRoutineMeta, RoutineItemType } from "@/lib/routine-helper";
 
+async function validReferences(db:any,tenant:string,refs:Record<string,string|null>) {
+  return (await Promise.all(Object.entries(refs).filter(([,id])=>id).map(([table,id])=>db.from(table).select('id').eq('madrasa_id',tenant).eq('id',id).maybeSingle()))).every(r=>r.data);
+}
 export async function addRoutine(formData: FormData) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("routine");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const guard = await writeGuard("routine");
+  if (!guard.allowed || !guard.madrasaId) return {error:"অনুমতি নেই।"};
 
   try {
     const supabase = await createClient();
@@ -44,11 +45,11 @@ export async function addRoutine(formData: FormData) {
       return { error: "শুরুর সময় এবং শেষের সময় দেওয়া আবশ্যক।" };
     }
 
+    if (!await validReferences(supabase,guard.madrasaId,{classes:class_id,subjects:subject_id})) return {error:'রুটিনের বরাদ্দ সঠিক নয়।'};
+    const selectedTeacher = item_type === "SUBJECT" && teacher_id;
+    const resolvedTeacherId = selectedTeacher ? await resolveTeacherUuid(selectedTeacher, guard.madrasaId) : null;
+    if (selectedTeacher && !resolvedTeacherId) return {error: "শিক্ষক এই প্রতিষ্ঠানে যুক্ত নেই।"};
     const encodedRoom = encodeRoutineMeta(item_type, custom_title, raw_room);
-    const resolvedTeacherId =
-      item_type === "SUBJECT" && teacher_id
-        ? await resolveTeacherUuid(teacher_id, finalMadrasaId)
-        : null;
 
     const insertPayload = {
       madrasa_id: finalMadrasaId,
@@ -72,8 +73,8 @@ export async function addRoutine(formData: FormData) {
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/academic/routine/builder");
     revalidatePath("/portal");
-    revalidatePath("/portal/routine");
     revalidatePath("/teacher-portal");
+    revalidatePath("/portal/routine");
     revalidatePath("/teacher-portal/routine");
     return { success: true };
   } catch (err: any) {
@@ -85,10 +86,8 @@ export async function addRoutine(formData: FormData) {
 export async function updateRoutine(formData: FormData) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("routine");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const guard = await writeGuard("routine");
+  if (!guard.allowed || !guard.madrasaId) return {error:"অনুমতি নেই।"};
 
   try {
     const supabase = await createClient();
@@ -108,12 +107,11 @@ export async function updateRoutine(formData: FormData) {
     const custom_title = (formData.get("custom_title") as string) || "";
     const raw_room = (formData.get("room_number") as string) || "";
 
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+    if (!await validReferences(supabase,guard.madrasaId,{subjects:subject_id})) return {error:'রুটিনের বরাদ্দ সঠিক নয়।'};
+    const selectedTeacher = item_type === "SUBJECT" && teacher_id;
+    const resolvedTeacherId = selectedTeacher ? await resolveTeacherUuid(selectedTeacher, guard.madrasaId) : null;
+    if (selectedTeacher && !resolvedTeacherId) return {error: "শিক্ষক এই প্রতিষ্ঠানে যুক্ত নেই।"};
     const encodedRoom = encodeRoutineMeta(item_type, custom_title, raw_room);
-    const resolvedTeacherId =
-      item_type === "SUBJECT" && teacher_id
-        ? await resolveTeacherUuid(teacher_id, finalMadrasaId || undefined)
-        : null;
 
     const updatePayload = {
       subject_id: item_type === "SUBJECT" ? (subject_id || null) : null,
@@ -128,7 +126,7 @@ export async function updateRoutine(formData: FormData) {
     const { error } = await supabase
       .from("routines")
       .update(updatePayload)
-      .eq("id", routine_id);
+      .eq("madrasa_id",guard.madrasaId).eq("id", routine_id).select("id").single();
 
     if (error) {
       console.error("Error updating routine:", error);
@@ -138,8 +136,8 @@ export async function updateRoutine(formData: FormData) {
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/academic/routine/builder");
     revalidatePath("/portal");
-    revalidatePath("/portal/routine");
     revalidatePath("/teacher-portal");
+    revalidatePath("/portal/routine");
     revalidatePath("/teacher-portal/routine");
     return { success: true };
   } catch (err: any) {
@@ -151,14 +149,12 @@ export async function updateRoutine(formData: FormData) {
 export async function deleteRoutine(id: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("routine");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const guard = await writeGuard("routine");
+  if (!guard.allowed || !guard.madrasaId) return {error:"অনুমতি নেই।"};
 
   try {
     const supabase = await createClient();
-    const { error } = await supabase.from("routines").delete().eq("id", id);
+    const { error } = await supabase.from("routines").delete().eq("madrasa_id",guard.madrasaId).eq("id", id).select("id").single();
 
     if (error) {
       console.error("Error deleting routine:", error);
@@ -168,8 +164,8 @@ export async function deleteRoutine(id: string) {
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/academic/routine/builder");
     revalidatePath("/portal");
-    revalidatePath("/portal/routine");
     revalidatePath("/teacher-portal");
+    revalidatePath("/portal/routine");
     revalidatePath("/teacher-portal/routine");
     return { success: true };
   } catch (err: any) {
@@ -193,10 +189,8 @@ export async function copyDayRoutine(params: {
 }) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("routine");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const guard = await writeGuard("routine");
+  if (!guard.allowed || !guard.madrasaId) return {error:"অনুমতি নেই।"};
 
   try {
     const { class_id, routine_type, from_day, to_days, overwrite = true } = params;
@@ -215,7 +209,7 @@ export async function copyDayRoutine(params: {
     const { data: sourceRoutines, error: srcErr } = await supabase
       .from("routines")
       .select("*")
-      .eq("class_id", class_id)
+      .eq("madrasa_id",guard.madrasaId).eq("class_id", class_id)
       .eq("routine_type", routine_type)
       .eq("day_of_week", from_day)
       .order("start_time", { ascending: true });
@@ -228,12 +222,13 @@ export async function copyDayRoutine(params: {
     if (overwrite) {
       for (const targetDay of to_days) {
         if (targetDay !== from_day) {
-          await supabase
+          const {error} = await supabase
             .from("routines")
             .delete()
-            .eq("class_id", class_id)
+            .eq("madrasa_id",guard.madrasaId).eq("class_id", class_id)
             .eq("routine_type", routine_type)
             .eq("day_of_week", targetDay);
+          if (error) return {error:error.message};
         }
       }
     }
@@ -268,8 +263,8 @@ export async function copyDayRoutine(params: {
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/academic/routine/builder");
     revalidatePath("/portal");
-    revalidatePath("/portal/routine");
     revalidatePath("/teacher-portal");
+    revalidatePath("/portal/routine");
     revalidatePath("/teacher-portal/routine");
     return { success: true, count: newItems.length };
   } catch (err: any) {
@@ -285,17 +280,15 @@ export async function clearDayRoutines(params: {
 }) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("routine");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const guard = await writeGuard("routine");
+  if (!guard.allowed || !guard.madrasaId) return {error:"অনুমতি নেই।"};
 
   try {
     const supabase = await createClient();
     const { error } = await supabase
       .from("routines")
       .delete()
-      .eq("class_id", params.class_id)
+      .eq("madrasa_id",guard.madrasaId).eq("class_id", params.class_id)
       .eq("routine_type", params.routine_type)
       .eq("day_of_week", params.day_of_week);
 
@@ -306,8 +299,8 @@ export async function clearDayRoutines(params: {
     revalidatePath("/dashboard/academic/routine");
     revalidatePath("/dashboard/academic/routine/builder");
     revalidatePath("/portal");
-    revalidatePath("/portal/routine");
     revalidatePath("/teacher-portal");
+    revalidatePath("/portal/routine");
     revalidatePath("/teacher-portal/routine");
     return { success: true };
   } catch (err: any) {

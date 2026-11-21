@@ -7,7 +7,7 @@ import {
 } from "@/lib/offline-auth";
 import { QawmiERPOfflineDB } from "@/lib/offlineDb";
 
-describe("Portal Offline-First Auth & Dexie v2 Schema", () => {
+describe("Portal Offline Auth", () => {
   beforeEach(() => {
     // Provide minimal localStorage polyfill for Node test environment if needed
     const store = new Map<string, string>();
@@ -53,7 +53,7 @@ describe("Portal Offline-First Auth & Dexie v2 Schema", () => {
     expect(afterClear).toBeNull();
   });
 
-  it("defines QawmiERPOfflineDB class with version 2 portal tables", () => {
+  it("exports the browser database class", () => {
     expect(typeof QawmiERPOfflineDB).toBe("function");
   });
 });

@@ -1,5 +1,7 @@
 "use client";
 
+import {useRouter} from 'next/navigation';
+import {usePortalOwner,useOfflinePortalSnapshot} from '@/hooks/useOfflinePortalData';
 import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect, useMemo } from "react";
 import {
@@ -33,10 +35,12 @@ export default function ParentAssignmentsClient({
   selectedStudentId,
 }: ParentAssignmentsClientProps) {
   // Current selected student
-  const [activeStudentId, setActiveStudentId] = useState<string>(
-    selectedStudentId || students[0]?.id || ""
-  );
-
+  const activeStudentId = selectedStudentId || students[0]?.id || '';
+  const router=useRouter(), owner=usePortalOwner();
+  const setActiveStudentId = (id:string)=>router.push(`/portal/assignments?student_id=${encodeURIComponent(id)}`);
+  const offline=useOfflinePortalSnapshot();
+  if (offline?.activeStudent?.id===activeStudentId && offline) initialAssignments=offline.homework;
+  const storageKey = `qawmi_completed:${owner}:${activeStudentId}`;
   const [activeTab, setActiveTab] = useState<string>("ALL");
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
@@ -45,14 +49,12 @@ export default function ParentAssignmentsClient({
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem("qawmi_parent_completed_assignments");
-      if (stored) {
-        setParentCheckedIds(JSON.parse(stored));
-      }
+      const stored = localStorage.getItem(storageKey);
+      setParentCheckedIds(stored ? JSON.parse(stored) : []);
     } catch {
       // ignore
     }
-  }, []);
+  }, [storageKey]);
 
   const toggleParentCheck = (id: string) => {
     const updated = parentCheckedIds.includes(id)
@@ -60,7 +62,7 @@ export default function ParentAssignmentsClient({
       : [...parentCheckedIds, id];
     setParentCheckedIds(updated);
     try {
-      localStorage.setItem("qawmi_parent_completed_assignments", JSON.stringify(updated));
+      localStorage.setItem(storageKey, JSON.stringify(updated));
     } catch {
       // ignore
     }

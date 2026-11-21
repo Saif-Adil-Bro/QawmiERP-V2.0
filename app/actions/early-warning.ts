@@ -1,4 +1,7 @@
 "use server";
+import {getMadrasaMetadata} from '@/lib/sessions';
+import {studentRoles} from '@/lib/portal/rules';
+import {webIdentity,hasRole,webTeacher} from '@/lib/portal/identity';
 
 import {
   createClient,
@@ -61,7 +64,8 @@ export async function getEarlyWarningAlerts(
     const user = await getAuthUser(supabase);
     const madrasaId = await getAuthMadrasaId(supabase, user);
 
-    if (!madrasaId) return result;
+    const i = await webIdentity();
+    if (!i || !madrasaId || hasRole(i,studentRoles)) return result;
 
     const masking = await getCurrentUserMaskingContext("students", "phone");
     const allowUnmasked = masking.allowUnmasked === true;
@@ -70,18 +74,24 @@ export async function getEarlyWarningAlerts(
     let studentQuery = adminClient
       .from("students")
       .select(
-        "id, first_name, last_name, roll_number, class_id, parent_phone, classes(id, name)"
+        "*, classes(id, name)"
       )
       .eq("madrasa_id", madrasaId);
 
+    const teacher = await webTeacher();
+    if (teacher) {
+      if (!teacher.scope.classes.length) return result;
+      studentQuery = studentQuery.in('class_id',teacher.scope.classes.map(c=>c.id));
+    }
     if (classId && classId !== "All" && classId !== "all") {
       studentQuery = studentQuery.eq("class_id", classId);
     }
-    if (sectionId && sectionId !== "All" && sectionId !== "all") {
-      studentQuery = studentQuery.eq("section_id", sectionId);
-    }
 
-    const { data: students, error: studentsError } = await studentQuery;
+
+    const { data: studentRows, error: studentsError } = await studentQuery;
+    const section = sectionId && !['All','all'].includes(sectionId) && sectionId;
+    const profiles = section ? (teacher?.scope.meta || await getMadrasaMetadata(madrasaId)).student_profiles : undefined;
+    const students = section ? studentRows?.filter(s=>[profiles?.[s.id]?.section_id,profiles?.[s.id]?.section,(s as any).section_id,(s as any).section].includes(section)) : studentRows;
 
     if (studentsError || !students || students.length === 0) {
       return result;
@@ -284,9 +294,7 @@ export async function getEarlyWarningAlerts(
     result.total_critical_students = criticalStudentIds.size;
 
     // Attach persisted composite risk scores if available
-    const allPersistedScores = await getStudentRiskScores(madrasaId, {
-      classId,
-    });
+    const allPersistedScores = (await getStudentRiskScores(madrasaId, {classId})).filter(s=>studentMap.has(s.student_id));
     if (allPersistedScores.length > 0) {
       result.risk_scores = allPersistedScores.slice(0, 50);
       result.risk_distribution = {

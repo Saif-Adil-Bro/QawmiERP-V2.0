@@ -13,21 +13,11 @@ import {
   deleteClass, 
   updateClass, 
   updateClassSequences, 
-  getStudentsByClass, 
-  promoteStudents, 
   getClasses,
   assignClassTeacher,
   AvailableTeacher,
   EnrichedClassItem
 } from "@/app/actions/classes";
-
-interface StudentItem {
-  id: string;
-  first_name: string;
-  last_name: string;
-  roll_number: string | null;
-  father_name: string | null;
-}
 
 interface ClassesClientProps {
   initialClasses: EnrichedClassItem[];
@@ -35,7 +25,7 @@ interface ClassesClientProps {
 }
 
 export default function ClassesClient({ initialClasses, availableTeachers = [] }: ClassesClientProps) {
-  const [activeTab, setActiveTab] = useState<"list" | "jimmadar" | "sequence" | "promotion">("list");
+  const [activeTab, setActiveTab] = useState<"list" | "jimmadar" | "sequence">("list");
   const [classes, setClasses] = useState<EnrichedClassItem[]>(initialClasses || []);
   const [teachers, setTeachers] = useState<AvailableTeacher[]>(availableTeachers || []);
   const [searchQuery, setSearchQuery] = useState("");
@@ -64,15 +54,6 @@ export default function ClassesClient({ initialClasses, availableTeachers = [] }
 
   // Sequence Configuration State
   const [seqMap, setSeqMap] = useState<Record<string, number>>({});
-
-  // Promotion Portal State
-  const [fromClassId, setFromClassId] = useState("");
-  const [toClassId, setToClassId] = useState("");
-  const [students, setStudents] = useState<StudentItem[]>([]);
-  const [selectedStudentIds, setSelectedStudentIds] = useState<Record<string, boolean>>({});
-  const [isLoadingStudents, setIsLoadingStudents] = useState(false);
-  const [isPromoting, setIsPromoting] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   // Sync initial matrix and sequence map
   useEffect(() => {
@@ -273,110 +254,6 @@ export default function ClassesClient({ initialClasses, availableTeachers = [] }
     }
   };
 
-  // Fetch students for promotion when fromClassId changes
-  useEffect(() => {
-    if (!fromClassId) {
-      setStudents([]);
-      setSelectedStudentIds({});
-      return;
-    }
-
-    let isMounted = true;
-    async function load() {
-      setIsLoadingStudents(true);
-      try {
-        const list = await getStudentsByClass(fromClassId);
-        if (isMounted) {
-          setStudents(list || []);
-          const selMap: Record<string, boolean> = {};
-          (list || []).forEach(s => {
-            selMap[s.id] = true;
-          });
-          setSelectedStudentIds(selMap);
-        }
-      } catch (err) {
-        console.error("Error loading students:", err);
-      } finally {
-        if (isMounted) {
-          setIsLoadingStudents(false);
-        }
-      }
-    }
-
-    load();
-
-    const sorted = [...classes].sort((a, b) => a.sequence - b.sequence);
-    const currentIndex = sorted.findIndex(c => c.id === fromClassId);
-    
-    if (currentIndex !== -1 && currentIndex < sorted.length - 1) {
-      setToClassId(sorted[currentIndex + 1].id);
-    } else if (currentIndex !== -1 && currentIndex === sorted.length - 1) {
-      setToClassId("graduated");
-    } else {
-      setToClassId("");
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [fromClassId, classes]);
-
-  // Toggle Single Student
-  const toggleStudentSelection = (id: string) => {
-    setSelectedStudentIds(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
-  };
-
-  // Toggle Select All
-  const toggleSelectAll = () => {
-    const allSelected = students.length > 0 && students.every(s => selectedStudentIds[s.id]);
-    const nextMap: Record<string, boolean> = {};
-    students.forEach(s => {
-      nextMap[s.id] = !allSelected;
-    });
-    setSelectedStudentIds(nextMap);
-  };
-
-  // Execute Student Promotion
-  const handleExecutePromotion = async () => {
-    const studentIdsToPromote = Object.entries(selectedStudentIds)
-      .filter(([_, isSelected]) => isSelected)
-      .map(([id]) => id);
-
-    if (studentIdsToPromote.length === 0) {
-      setMsg({ type: "error", text: "অনুগ্রহ করে অন্তত একজন শিক্ষার্থী নির্বাচন করুন।" });
-      setShowConfirmModal(false);
-      return;
-    }
-
-    setIsPromoting(true);
-    setMsg(null);
-    try {
-      const res = await promoteStudents(studentIdsToPromote, toClassId || null);
-      if (res.success) {
-        setMsg({ 
-          type: "success", 
-          text: `সফলভাবে ${studentIdsToPromote.length} জন শিক্ষার্থীকে প্রমোশন দেওয়া হয়েছে!` 
-        });
-        setFromClassId("");
-        setToClassId("");
-        setStudents([]);
-        setSelectedStudentIds({});
-        await reloadClasses();
-        setActiveTab("list");
-      } else {
-        setMsg({ type: "error", text: res.error || "প্রমোশন সম্পন্ন করা সম্ভব হয়নি।" });
-      }
-    } catch {
-      setMsg({ type: "error", text: "সার্ভারে সমস্যা হয়েছে।" });
-    } finally {
-      setIsPromoting(false);
-      setShowConfirmModal(false);
-    }
-  };
-
   // Filtered and sorted classes
   const filteredClasses = useMemo(() => {
     return classes.filter(cls => {
@@ -400,10 +277,6 @@ export default function ClassesClient({ initialClasses, availableTeachers = [] }
   const uniqueTeachersAssigned = new Set(classes.map(c => c.class_teacher_id).filter(Boolean)).size;
 
   const sortedClassesFlow = [...classes].sort((a, b) => a.sequence - b.sequence);
-  const selectedStudentsCount = Object.values(selectedStudentIds).filter(Boolean).length;
-  const currentClassObj = classes.find(c => c.id === fromClassId);
-  const targetClassObj = toClassId === "graduated" ? { name: "শিক্ষা সমাপ্ত (Graduated)" } : classes.find(c => c.id === toClassId);
-
   return (
     <div className="space-y-6">
       {/* Toast Alert */}
@@ -495,22 +368,9 @@ export default function ClassesClient({ initialClasses, availableTeachers = [] }
             <span className="truncate">জামাত ক্রমবিন্যাস</span>
           </button>
 
-          {/* TAB 4: PROMOTION */}
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab("promotion");
-              setMsg(null);
-            }}
-            className={`flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer select-none min-h-[44px] ${
-              activeTab === "promotion"
-                ? "bg-amber-600 text-white shadow-sm shadow-amber-600/30"
-                : "bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/80"
-            }`}
-          >
-            <Award className={`w-4 h-4 shrink-0 ${activeTab === "promotion" ? "text-white" : "text-amber-600"}`} />
-            <span className="truncate">শিক্ষার্থী প্রমোশন</span>
-          </button>
+          <Link href="/dashboard/students/promotion" className="flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-700 bg-slate-50 border border-slate-200/80">
+            <Award className="w-4 h-4 text-amber-600" /> শিক্ষার্থী প্রমোশন
+          </Link>
         </div>
 
         {activeTab === "list" && (
@@ -958,226 +818,6 @@ export default function ClassesClient({ initialClasses, availableTeachers = [] }
                   <>
                     <CheckSquare className="w-4 h-4" />
                     <span>ক্রম সংরক্ষণ করুন</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ================= TAB 4: STUDENT PROMOTION PORTAL ================= */}
-      {activeTab === "promotion" && (
-        <div className="space-y-6 animate-fade-in">
-          {/* Controls Selector Card */}
-          <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-            <div className="flex items-center gap-2 text-amber-600">
-              <Award className="w-5 h-5" />
-              <h3 className="text-lg font-bold text-slate-900">
-                প্রমোশন ক্লাস ও টার্গেট ক্লাস নির্ধারণ করুন
-              </h3>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 items-end">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2">
-                  বর্তমান জামাত (যেখান থেকে প্রমোশন হবে)
-                </label>
-                <select
-                  value={fromClassId}
-                  onChange={(e) => {
-                    setFromClassId(e.target.value);
-                    setMsg(null);
-                  }}
-                  className="w-full p-3 border border-slate-300 rounded-xl bg-white text-slate-800 text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none"
-                >
-                  <option value="">-- বর্তমান জামাত নির্বাচন করুন --</option>
-                  {classes.map((cls) => (
-                    <option key={cls.id} value={cls.id}>
-                      {cls.name} (ক্রম: {cls.sequence})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2">
-                  পরবর্তী জামাত (যেটিতে প্রমোশন পাবে)
-                </label>
-                <select
-                  value={toClassId}
-                  onChange={(e) => {
-                    setToClassId(e.target.value);
-                    setMsg(null);
-                  }}
-                  className="w-full p-3 border border-slate-300 rounded-xl bg-white text-slate-800 text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none"
-                  disabled={!fromClassId}
-                >
-                  <option value="">-- পরবর্তী জামাত নির্বাচন করুন --</option>
-                  {classes.map((cls) => (
-                    <option key={cls.id} value={cls.id} disabled={cls.id === fromClassId}>
-                      {cls.name} (ক্রম: {cls.sequence})
-                    </option>
-                  ))}
-                  <option value="graduated" className="text-emerald-600 font-bold">
-                    🎓 শিক্ষা সমাপ্ত / গ্র্যাজুয়েট (Graduated)
-                  </option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Students List Box */}
-          {fromClassId && (
-            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden animate-fade-in">
-              <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <div>
-                  <h4 className="font-bold text-slate-900 text-sm sm:text-base">
-                    {currentClassObj?.name} জামাতের শিক্ষার্থীদের তালিকা
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    মোট {students.length} জন শিক্ষার্থীর মধ্যে {selectedStudentsCount} জন নির্বাচিত।
-                  </p>
-                </div>
-
-                {students.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={toggleSelectAll}
-                    className="text-xs font-bold px-3.5 py-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-700 transition cursor-pointer"
-                  >
-                    {students.every(s => selectedStudentIds[s.id]) ? "সব আন-সিলেক্ট করুন" : "সব সিলেক্ট করুন"}
-                  </button>
-                )}
-              </div>
-
-              {isLoadingStudents ? (
-                <div className="p-16 text-center text-slate-500">
-                  <RefreshCw className="w-8 h-8 animate-spin mx-auto text-amber-500 mb-3" />
-                  <span className="text-sm font-bold">শিক্ষার্থীদের তালিকা লোড হচ্ছে...</span>
-                </div>
-              ) : students.length === 0 ? (
-                <div className="p-16 text-center text-slate-500">
-                  <AlertTriangle className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <h4 className="font-bold text-slate-700">কোনো শিক্ষার্থী পাওয়া যায়নি</h4>
-                  <p className="text-xs text-slate-400 mt-1">নির্বাচিত বর্তমান জামাতটিতে কোনো শিক্ষার্থীর ডাটা এন্ট্রি করা নেই।</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse text-sm">
-                      <thead>
-                        <tr className="bg-slate-50/50 border-b border-slate-200">
-                          <th className="p-3 text-center w-12 font-bold text-slate-500">সিলেক্ট</th>
-                          <th className="p-3 text-center w-20 font-bold text-slate-500">রোল</th>
-                          <th className="p-3 font-bold text-slate-700">শিক্ষার্থীর নাম</th>
-                          <th className="p-3 font-bold text-slate-700">পিতার নাম</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-slate-800">
-                        {students.map((student) => {
-                          const isSelected = !!selectedStudentIds[student.id];
-                          return (
-                            <tr 
-                              key={student.id} 
-                              onClick={() => toggleStudentSelection(student.id)}
-                              className={`cursor-pointer transition duration-150 ${isSelected ? 'bg-amber-50/40 hover:bg-amber-50/60' : 'hover:bg-slate-50/50'}`}
-                            >
-                              <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleStudentSelection(student.id)}
-                                  className="text-slate-600 focus:outline-none cursor-pointer"
-                                >
-                                  {isSelected ? (
-                                    <CheckSquare className="w-5 h-5 text-amber-600" />
-                                  ) : (
-                                    <Square className="w-5 h-5 text-slate-300 hover:text-slate-400" />
-                                  )}
-                                </button>
-                              </td>
-                              <td className="p-3 text-center font-mono font-bold text-slate-700">
-                                {student.roll_number || "-"}
-                              </td>
-                              <td className="p-3 font-bold text-slate-900">
-                                {student.first_name} {student.last_name}
-                              </td>
-                              <td className="p-3 text-slate-500">
-                                {student.father_name || "-"}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Summary & Promotion Execution Bar */}
-                  <div className="p-5 bg-slate-50 flex flex-col sm:flex-row justify-between items-center gap-4">
-                    <div className="text-center sm:text-left">
-                      <p className="text-sm font-bold text-slate-800">
-                        নির্বাচিত <span className="text-amber-600 font-black px-1 text-base">{selectedStudentsCount}</span> জন শিক্ষার্থীকে
-                        <span className="text-indigo-600 font-bold"> {currentClassObj?.name}</span> জামাত থেকে
-                        <span className="text-emerald-600 font-bold"> {targetClassObj?.name}</span>-এ স্থানান্তর করা হবে।
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmModal(true)}
-                      disabled={selectedStudentsCount === 0 || !toClassId}
-                      className="w-full sm:w-auto bg-slate-950 hover:bg-slate-850 disabled:opacity-50 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer min-h-[44px]"
-                    >
-                      <UserCheck className="w-4 h-4 text-emerald-400" />
-                      <span>প্রমোশন সম্পন্ন করুন</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ================= CONFIRM PROMOTION MODAL ================= */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-xl border border-slate-200 overflow-hidden p-6 space-y-4 animate-scale-in">
-            <div className="flex items-center gap-3 text-amber-600">
-              <AlertTriangle className="w-8 h-8 shrink-0 bg-amber-50 p-1 rounded-lg" />
-              <h3 className="text-lg font-bold text-slate-900">আপনি কি নিশ্চিত?</h3>
-            </div>
-            
-            <p className="text-sm text-slate-600 leading-relaxed">
-              আপনি <span className="font-bold text-slate-950">{selectedStudentsCount}</span> জন শিক্ষার্থীকে 
-              <span className="font-bold text-indigo-700"> {currentClassObj?.name} </span> থেকে 
-              <span className="font-bold text-emerald-700"> {targetClassObj?.name} </span>-এ প্রমোশন বা স্থানান্তরিত করতে যাচ্ছেন।
-            </p>
-
-            <div className="flex justify-end gap-3 pt-3">
-              <button
-                type="button"
-                onClick={() => setShowConfirmModal(false)}
-                className="px-4 py-2 border rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
-              >
-                বাতিল করুন
-              </button>
-              
-              <button
-                type="button"
-                onClick={handleExecutePromotion}
-                disabled={isPromoting}
-                className="px-4 py-2 bg-slate-950 hover:bg-slate-850 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-              >
-                {isPromoting ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>প্রমোশন হচ্ছে...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>হ্যাঁ, নিশ্চিত করুন</span>
                   </>
                 )}
               </button>

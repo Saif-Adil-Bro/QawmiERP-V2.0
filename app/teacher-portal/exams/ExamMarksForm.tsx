@@ -1,4 +1,6 @@
 "use client";
+import {postTeacherEntry} from '@/lib/portal-sync';
+import {usePortalOwner} from '@/hooks/useOfflinePortalData';
 
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -19,8 +21,8 @@ import { resolveStudentIdBn, sortStudentsByRoll } from "@/lib/student-utils";
 import { resolveGradeRule, getGradeBadgeClass } from "@/lib/exam-grading";
 import { apiUrl } from "@/lib/api-url";
 import { checkIsOnline } from "@/lib/syncManager";
-import { enqueueOfflineOutbox } from "@/lib/portal-sync";
-import { getOfflineDb } from "@/lib/offlineDb";
+
+
 
 export default function ExamMarksForm({
   exams,
@@ -31,21 +33,16 @@ export default function ExamMarksForm({
   currentClassId,
   currentSubject,
   madrasaId,
-  gradeRules,
+  subjects, subject, gradeRules,
 }: any) {
   const router = useRouter();
+  const syncOwner = usePortalOwner();
   const [loading, setLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "completed">("all");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const [subjectInput, setSubjectInput] = useState(currentSubject || "কুরআন মাজীদ");
-
-  useEffect(() => {
-    setSubjectInput(currentSubject || "কুরআন মাজীদ");
-  }, [currentSubject]);
-
   const [marksState, setMarksState] = useState<
     Record<string, { marks_obtained: string; total_marks: string }>
   >(() => {
@@ -54,7 +51,7 @@ export default function ExamMarksForm({
       const existing = (existingMarks || []).find((m: any) => m.student_id === s.id);
       initialState[s.id] = {
         marks_obtained: existing?.marks_obtained?.toString() || "",
-        total_marks: existing?.total_marks?.toString() || "100",
+        total_marks: String(subject?.total_marks ?? 100),
       };
     });
     return initialState;
@@ -66,14 +63,15 @@ export default function ExamMarksForm({
       const existing = (existingMarks || []).find((m: any) => m.student_id === s.id);
       initialState[s.id] = {
         marks_obtained: existing?.marks_obtained?.toString() || "",
-        total_marks: existing?.total_marks?.toString() || "100",
+        total_marks: String(subject?.total_marks ?? 100),
       };
     });
     setMarksState(initialState);
-  }, [students, existingMarks]);
+  }, [students, existingMarks, subject]);
 
   const handleFilterChange = (key: string, value: string) => {
     const params = new URLSearchParams(window.location.search);
+    if (key !== "subject_name") params.delete("subject_name");
     params.set(key, value);
     startTransition(() => {
       router.push(`/teacher-portal/exams?${params.toString()}`);
@@ -90,7 +88,7 @@ export default function ExamMarksForm({
   const getGradeInfo = (obtained: number, total: number) => {
     if (!total || isNaN(obtained)) return { grade: "-", color: "text-slate-400" };
     const pct = (obtained / total) * 100;
-    const rule = resolveGradeRule(pct, gradeRules);
+    const rule = resolveGradeRule(pct, gradeRules, obtained < Number(subject?.pass_marks ?? 33));
     return {
       grade: rule.label,
       color: getGradeBadgeClass(rule.color),
@@ -175,68 +173,9 @@ export default function ExamMarksForm({
         records: recordsToUpsert,
       };
 
-      const saveOfflineFallback = async () => {
-        await enqueueOfflineOutbox({
-          portal: "teacher",
-          actionType: "exam_marks",
-          endpoint: "/api/teacher/save-marks",
-          method: "POST",
-          payload,
-        });
-        try {
-          const db = getOfflineDb();
-          const nowIso = new Date().toISOString();
-          await db.examResults.bulkPut(
-            recordsToUpsert.map((rec: any) => ({
-              id: `${currentExamId}_${rec.student_id}_${currentSubject}`,
-              exam_id: currentExamId,
-              class_id: currentClassId,
-              student_id: rec.student_id,
-              subject_name: currentSubject,
-              marks_obtained: rec.marks_obtained,
-              total_marks: rec.total_marks,
-              updated_at: nowIso,
-              _offlinePending: true,
-            }))
-          );
-        } catch {
-          // Ignore Dexie optimistic cache errors
-        }
-        setMessage("অফলাইনে নম্বর সফলভাবে সংরক্ষিত হয়েছে! ইন্টারনেট সংযোগ পেলে স্বয়ংক্রিয়ভাবে সার্ভারে সিঙ্ক হয়ে যাবে।");
-        setTimeout(() => setMessage(""), 5000);
-      };
-
-      const isOnline = await checkIsOnline();
-      if (!isOnline) {
-        await saveOfflineFallback();
-        return;
-      }
-
-      // Online: try server API first, fallback to offline outbox on network error
-      try {
-        const res = await fetch(apiUrl("/api/teacher/save-marks"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const apiData = await res.json();
-        if (!res.ok || apiData.error) {
-          throw new Error(apiData.error || "সার্ভার রেসপন্স ব্যর্থ হয়েছে");
-        }
-
-        setMessage("পরীক্ষার নম্বর ও গ্রেড সফলভাবে সংরক্ষিত হয়েছে!");
-        setTimeout(() => setMessage(""), 4000);
-        startTransition(() => {
-          router.refresh();
-        });
-      } catch (apiErr: any) {
-        if (apiErr instanceof TypeError || !(await checkIsOnline())) {
-          await saveOfflineFallback();
-          return;
-        }
-        console.error("Save marks error:", apiErr);
-        setMessage(apiErr?.message || "নম্বর সংরক্ষণ করতে সমস্যা হয়েছে।");
-      }
+      const result = await postTeacherEntry('exam_marks',payload,syncOwner);
+      setMessage(result.offlineQueued ? 'নম্বর অফলাইন সারিতে আছে; এখনও সার্ভারে পোস্ট হয়নি।' : 'পরীক্ষার নম্বর সংরক্ষিত হয়েছে।');
+      if (!result.offlineQueued) router.refresh();
     } catch (err: any) {
       console.error(err);
       setMessage("নম্বর সংরক্ষণ করতে সমস্যা হয়েছে।");
@@ -301,50 +240,10 @@ export default function ExamMarksForm({
               বিষয়ের নাম <span className="text-purple-600">*</span>
             </label>
             <div className="flex gap-2">
-              <input
-                type="text"
-                list="popular-subjects"
-                disabled={isPending || loading}
-                value={subjectInput}
-                onChange={(e) => setSubjectInput(e.target.value)}
-                onBlur={() => {
-                  if (subjectInput.trim() && subjectInput !== currentSubject) {
-                    handleFilterChange("subject_name", subjectInput.trim());
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    if (subjectInput.trim() && subjectInput !== currentSubject) {
-                      handleFilterChange("subject_name", subjectInput.trim());
-                    }
-                  }
-                }}
-                placeholder="যেমন: কুরআন মাজীদ, হাদিস, আরবি"
-                className="w-full p-2.5 sm:p-3 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-purple-600 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400"
-              />
-              <datalist id="popular-subjects">
-                <option value="কুরআন মাজীদ" />
-                <option value="হিফজ" />
-                <option value="হাদিস শরীফ" />
-                <option value="ফিকহ" />
-                <option value="নাহব ও সরফ" />
-                <option value="আকাইদ" />
-                <option value="তাফসীর" />
-                <option value="বাংলা" />
-                <option value="গণিত" />
-                <option value="ইংরেজি" />
-              </datalist>
-              {subjectInput !== currentSubject && (
-                <button
-                  type="button"
-                  disabled={isPending || loading}
-                  onClick={() => handleFilterChange("subject_name", subjectInput.trim())}
-                  className="px-3 py-1 bg-purple-600 text-white rounded-xl text-xs font-bold shrink-0 hover:bg-purple-700 transition disabled:opacity-50"
-                >
-                  প্রয়োগ
-                </button>
-              )}
+              <select value={currentSubject} disabled={isPending || loading} className="w-full p-2.5 border rounded-xl" onChange={e=>handleFilterChange('subject_name',e.target.value)}>
+                <option value="">বিষয় নির্বাচন করুন</option>
+                {subjects.map((d:any)=><option key={d.subject_name} value={d.subject_name}>{d.subject_name}</option>)}
+              </select>
             </div>
           </div>
         </div>
@@ -479,7 +378,7 @@ export default function ExamMarksForm({
                           <div>
                             <div className="font-bold text-slate-900">{s.first_name} {s.last_name}</div>
                             <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
-                              <span className="font-mono">আইডি: {resolveStudentIdBn(s, students)}</span>
+                              <span className="font-mono">আইডি: {toBanglaNumber(s.student_id_formatted || s.student_id || "—")}</span>
                               {s.phone && (
                                 <>
                                   <span>•</span>
@@ -497,7 +396,7 @@ export default function ExamMarksForm({
                         <input
                           type="number"
                           value={state.total_marks}
-                          onChange={(e) => handleChange(s.id, "total_marks", e.target.value)}
+                          readOnly
                           className="w-24 text-xs p-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-600 focus:outline-none"
                         />
                       </td>
@@ -554,7 +453,7 @@ export default function ExamMarksForm({
                       <div>
                         <strong className="text-sm text-slate-900 leading-tight block">{s.first_name} {s.last_name}</strong>
                         <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
-                          <span>আইডি: {resolveStudentIdBn(s, students)}</span>
+                          <span>আইডি: {toBanglaNumber(s.student_id_formatted || s.student_id || "—")}</span>
                           {s.phone && (
                             <>
                               <span>•</span>
@@ -578,7 +477,7 @@ export default function ExamMarksForm({
                       <input
                         type="number"
                         value={state.total_marks}
-                        onChange={(e) => handleChange(s.id, "total_marks", e.target.value)}
+                        readOnly
                         className="w-full min-h-[44px] text-sm px-3 py-2 border border-slate-200 rounded-xl"
                       />
                     </div>

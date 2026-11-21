@@ -1,8 +1,10 @@
 "use client";
+import {postTeacherEntry} from '@/lib/portal-sync';
+import {usePortalOwner} from '@/hooks/useOfflinePortalData';
 
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { offlineMutate } from "@/lib/syncManager";
+
 import {
   Calendar,
   CheckCircle2,
@@ -52,6 +54,7 @@ export default function AttendanceForm({
   holidayInfo,
 }: AttendanceFormProps) {
   const router = useRouter();
+  const syncOwner = usePortalOwner();
   const [loading, setLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
@@ -184,13 +187,8 @@ export default function AttendanceForm({
         };
       });
 
-      const result = await offlineMutate({
-        entity: "attendance",
-        action: "CREATE",
-        endpoint: "/api/attendance/bulk",
-        method: "POST",
-        payload: { records: recordsToUpsert },
-      });
+      const result = await postTeacherEntry('attendance',{ records: recordsToUpsert },syncOwner);
+
 
       if (!result.success) {
         throw new Error(result.error || "Failed to save attendance");
@@ -241,7 +239,7 @@ export default function AttendanceForm({
                   <>
                     মেয়াদ: <span className="font-semibold">{holidayInfo.holiday.start_date}</span> হতে{" "}
                     <span className="font-semibold">{holidayInfo.holiday.end_date}</span>{" "}
-                    ({toBanglaNumber(holidayInfo.holiday.total_days || 1)} দিন)। ছুটির দিনের সকল শিক্ষার্থীর হাজিরা স্বয়ংক্রিয়ভাবে &quot;ছুটি (Leave)&quot; হিসেবে সংরক্ষিত হয়েছে।
+                    ({toBanglaNumber(holidayInfo.holiday.total_days || 1)} দিন)। ছুটির দিনের সকল শিক্ষার্থীর হাজিরা ফর্মে &quot;ছুটি (Leave)&quot; হিসেবে দেখানো হয়েছে। নিশ্চিত করতে সংরক্ষণ করুন।
                   </>
                 ) : (
                   <>
@@ -429,7 +427,7 @@ export default function AttendanceForm({
                           <div>
                             <div className="font-bold text-slate-900 leading-tight">{s.first_name} {s.last_name}</div>
                             <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
-                              <span>আইডি: {resolveStudentIdBn(s, allStudents)}</span>
+                              <span>আইডি: {toBanglaNumber(s.student_id_formatted || s.student_id || "—")}</span>
                               {s.parent_phone && (
                                 <a
                                   href={`tel:${s.parent_phone}`}
@@ -510,7 +508,7 @@ export default function AttendanceForm({
                       <div>
                         <strong className="text-sm text-slate-900 leading-tight block">{s.first_name} {s.last_name}</strong>
                         <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
-                          <span>আইডি: {resolveStudentIdBn(s, allStudents)}</span>
+                          <span>আইডি: {toBanglaNumber(s.student_id_formatted || s.student_id || "—")}</span>
                           {s.parent_phone && (
                             <a
                               href={`tel:${s.parent_phone}`}

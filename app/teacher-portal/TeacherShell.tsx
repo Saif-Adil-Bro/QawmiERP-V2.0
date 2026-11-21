@@ -24,7 +24,6 @@ import {
   getOfflineAuthSession,
   saveOfflineAuthSession,
 } from "@/lib/offline-auth";
-import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
 
 interface TeacherShellProps {
@@ -47,12 +46,8 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
 
   useEffect(() => {
     if (user?.id) {
-      const existingToken =
-        typeof window !== "undefined"
-          ? window.localStorage.getItem("qawmi_access_token") || ""
-          : "";
       saveOfflineAuthSession({
-        accessToken: existingToken,
+        accessToken: '',
         role: userData?.role || user?.user_metadata?.role || "teacher",
         madrasaId: userData?.madrasa_id || "",
         userId: user.id,
@@ -62,15 +57,6 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
         savedAt: Date.now(),
       }).catch(() => {});
 
-      seedPortalOfflineCache("teacher", {
-        profile: {
-          id: user.id,
-          role: userData?.role || user?.user_metadata?.role || "teacher",
-          madrasa_id: userData?.madrasa_id || "",
-          full_name: userData?.full_name || user?.user_metadata?.full_name || "",
-          email: user?.email || "",
-        },
-      }).catch(() => {});
     } else {
       getOfflineAuthSession()
         .then((sess) => {
@@ -105,8 +91,7 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
   const handleLogout = async () => {
     try {
       setLoggingOut(true);
-      await clearOfflineAuthSession();
-      await logout();
+      try { await clearOfflineAuthSession(); } finally { await logout(); }
     } catch (e) {
       console.error(e);
       setLoggingOut(false);

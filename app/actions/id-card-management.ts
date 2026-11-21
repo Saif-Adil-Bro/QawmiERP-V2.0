@@ -4,7 +4,7 @@ import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents } from "@/app/actions/students";
-import { getMadrasaMetadata, saveMadrasaMetadata, getDefaultSessions, AcademicSession } from "@/lib/sessions";
+import { getMadrasaMetadata, saveMadrasaMetadata, AcademicSession } from "@/lib/sessions";
 import {
   StudentIDCard,
   IDCardStatus,
@@ -254,7 +254,7 @@ export async function issueStudentIdCard(payload: {
     }
 
     // Session resolution
-    const sessions: AcademicSession[] = meta.sessions || getDefaultSessions(madrasaId);
+    const sessions: AcademicSession[] = meta.sessions || [];
     let targetSession = sessions.find((s) => s.id === payload.session_id);
     if (!targetSession) {
       targetSession = sessions.find((s) => s.is_current) || sessions[0];
@@ -386,7 +386,7 @@ export async function bulkGenerateIdCards(payload: {
       return { error: "বাছাইকৃত জামাতে কোনো শিক্ষার্থী পাওয়া যায়নি।" };
     }
 
-    const sessions: AcademicSession[] = meta.sessions || getDefaultSessions(madrasaId);
+    const sessions: AcademicSession[] = meta.sessions || [];
     let targetSession = sessions.find((s) => s.id === payload.session_id);
     if (!targetSession) {
       targetSession = sessions.find((s) => s.is_current) || sessions[0];
@@ -628,10 +628,14 @@ export async function updateIdCardStatus(cardId: string, newStatus: IDCardStatus
  */
 export async function getStudentDigitalId(studentId: string) {
   try {
+    const {getUserDataAccessScope} = await import('@/lib/data-access-guards');
+    const scope = await getUserDataAccessScope();
+    if (!scope.madrasaId || (!scope.isUnrestricted && !scope.allowedStudentIds.includes(studentId))) return null;
     const adminClient = await createAdminClient();
     const { data: student } = await adminClient
       .from("students")
       .select("*, classes(name)")
+      .eq("madrasa_id",scope.madrasaId)
       .eq("id", studentId)
       .single();
 
@@ -641,74 +645,10 @@ export async function getStudentDigitalId(studentId: string) {
     const meta = await getMadrasaMetadata(madrasaId);
     const cards: StudentIDCard[] = meta.id_cards || [];
 
-    let activeCard = cards.find((c) => c.student_id === studentId && c.status === "ACTIVE");
+    const today=toDhakaDateString();
+    const activeCard=cards.find(c=>c.student_id===studentId && c.status==="ACTIVE" && (!c.expiry_date || c.expiry_date>=today));
 
-    // If no active card exists, auto issue one for digital view
-    if (!activeCard) {
-      const issueRes = await issueStudentIdCard({ student_id: studentId });
-      if (issueRes.card) {
-        activeCard = issueRes.card;
-      }
-    }
-
-    // Ensure activeCard is always synchronized with the current student profile photo and attributes
-    if (activeCard && student) {
-      let isChanged = false;
-      const profile = meta.student_profiles?.[studentId];
-      const admission = (meta.admissions || []).find((a: any) => a.confirmed_student_id === studentId);
-      const currentPhoto = student.photo_url || student.avatar_url || profile?.photo_url || admission?.photo_url || undefined;
-      if (currentPhoto && (activeCard.photo_url !== currentPhoto || activeCard.snapshot?.photo_url !== currentPhoto)) {
-        activeCard.photo_url = currentPhoto;
-        activeCard.snapshot = {
-          ...activeCard.snapshot,
-          photo_url: currentPhoto,
-        };
-        isChanged = true;
-      }
-
-      const currentName = `${student.first_name || ""} ${student.last_name || ""}`.trim();
-      if (currentName && activeCard.snapshot?.student_name !== currentName) {
-        activeCard.snapshot = {
-          ...activeCard.snapshot,
-          student_name: currentName,
-        };
-        isChanged = true;
-      }
-
-      if (student.classes?.name && activeCard.snapshot?.class_name !== student.classes.name) {
-        activeCard.snapshot = {
-          ...activeCard.snapshot,
-          class_name: student.classes.name,
-        };
-        isChanged = true;
-      }
-
-      if (student.roll_number && activeCard.snapshot?.roll_number !== student.roll_number) {
-        activeCard.snapshot = {
-          ...activeCard.snapshot,
-          roll_number: student.roll_number,
-        };
-        isChanged = true;
-      }
-
-      if (student.blood_group && activeCard.snapshot?.blood_group !== student.blood_group) {
-        activeCard.snapshot = {
-          ...activeCard.snapshot,
-          blood_group: student.blood_group,
-        };
-        isChanged = true;
-      }
-
-      if (isChanged) {
-        const cardIdx = cards.findIndex((c) => c.id === activeCard!.id);
-        if (cardIdx >= 0) {
-          cards[cardIdx] = activeCard;
-        }
-        meta.id_cards = cards;
-        await saveMadrasaMetadata(madrasaId, meta);
-      }
-    }
-
+    // Rendering a digital copy must neither issue a credential nor mutate its signed snapshot.
     // Get madrasa info
     const { data: madrasa } = await adminClient
       .from("madrasas")
@@ -720,9 +660,9 @@ export async function getStudentDigitalId(studentId: string) {
       card: activeCard || null,
       student,
       madrasaInfo: {
-        name: madrasa?.name || "মাদরাসাতুল মুসলিমীন",
-        address: madrasa?.address || "ঢাকা, বাংলাদেশ",
-        phone: madrasa?.contact_phone || "01700000000",
+        name: madrasa?.name || "",
+        address: madrasa?.address || "",
+        phone: madrasa?.contact_phone || "",
       },
       builderConfig: meta.id_card_builder_config || DEFAULT_BUILDER_CONFIG,
     };

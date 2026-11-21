@@ -1,10 +1,29 @@
 "use server";
+import {
+  webTeacher,
+  webIdentity,
+  teacherStudents,
+  hasRole,
+} from "@/lib/portal/identity";
+import { verifyRoster } from "@/lib/portal/teacher-entry";
+import {
+  studentRoles,
+  validDate,
+  attendanceStats,
+  attendanceStatuses,
+  holidayApplies,
+} from "@/lib/portal/rules";
+import { toDhakaDateString } from "@/lib/date-utils";
+import { rows, childLogs } from "@/lib/portal/queries";
 
 import { writeGuard } from "@/lib/action-authorization";
-import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
+import {
+  createClient,
+  createAdminClient,
+  getAuthUser,
+} from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
-import { getStaffMetadataFull } from "./staff";
 import { getMadrasaMetadata } from "@/lib/sessions";
 
 export async function getStudentsForAttendance(date: string, classId?: string) {
@@ -15,109 +34,64 @@ export async function getStudentsForAttendance(date: string, classId?: string) {
     if (!__authz.allowed) return __authz.fallback;
   }
 
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return [];
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-
-  let query = supabase
-    .from("students")
-    .select("id, first_name, last_name, roll_number, class_id, classes(name)")
-    .order("roll_number");
-
-  if (finalMadrasaId) {
-    query = query.eq("madrasa_id", finalMadrasaId);
-  }
-
-  if (classId && classId !== "All") {
-    query = query.eq("class_id", classId);
-  }
-
-  // Fetch students
-  const { data: students, error: studentsError } = await query;
-
-  if (studentsError) {
-    console.error("Attendance students error:", studentsError);
-    return [];
-  }
-
-  // Fetch existing attendance for the given date
-  let attQuery = supabase
-    .from("attendance")
-    .select("student_id, status")
-    .eq("date", date);
-
-  if (finalMadrasaId) {
-    attQuery = attQuery.eq("madrasa_id", finalMadrasaId);
-  }
-
-  const { data: attendance, error: attendanceError } = await attQuery;
-
-  if (attendanceError) return [];
-
-  // Map attendance status to students
-  const attendanceMap = new Map((attendance || []).map(a => [a.student_id, a.status]));
-
-  // Check if date is an academic holiday or weekly weekend
-  let isHolidayDate = false;
-  if (finalMadrasaId) {
-    try {
-      const meta = await getMadrasaMetadata(finalMadrasaId);
-      const holidays = meta.academic_holidays || [];
-      const matchedHoliday = holidays.find(
-        (h: any) => !h.is_archived && date >= h.start_date && date <= h.end_date
+  const i = await webIdentity();
+  if (!i || hasRole(i, studentRoles) || !validDate(date)) return [];
+  const teacher = await webTeacher(),
+    target = classId && classId !== "All" ? classId : null;
+  const students = teacher
+    ? await teacherStudents(i, teacher.scope, target ? [target] : undefined)
+    : await rows(() => {
+        const q = i.db
+          .from("students")
+          .select("id,first_name,last_name,roll_number,class_id,classes(*)")
+          .eq("madrasa_id", i.tenant);
+        return target ? q.eq("class_id", target) : q;
+      });
+  const [meta, logs] = await Promise.all([
+    getMadrasaMetadata(i.tenant, true),
+    childLogs(
+      i.db,
+      i.tenant,
+      "attendance",
+      students.map((s) => s.id),
+      date,
+    ),
+  ]);
+  const marked = new Map(logs.map((r) => [r.student_id, r.status]));
+  const day = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ][new Date(date + "T00:00:00Z").getUTCDay()];
+  const weekend = (meta.weekend_days || ["Friday"]).includes(day);
+  return students
+    .map((s) => {
+      const holiday = meta.academic_holidays?.some(
+        (h) =>
+          !h.is_archived &&
+          date >= h.start_date &&
+          date <= h.end_date &&
+          holidayApplies(h, s.classes ? [s.classes] : []),
       );
-
-      const [y, m, d] = date.split("-").map(Number);
-      const dateObj = new Date(y, m - 1, d);
-      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-      const currentDayName = dayNames[dateObj.getDay()];
-      const weekendDays = meta.weekend_days || ["Friday"];
-      const isWeekend = weekendDays.includes(currentDayName);
-
-      isHolidayDate = Boolean(matchedHoliday) || isWeekend;
-    } catch (e) {
-      console.warn("Holiday check error in getStudentsForAttendance:", e);
-    }
-  }
-
-  // If holiday/weekend, auto-persist any unsaved student as "Leave" in database
-  if (isHolidayDate && finalMadrasaId && students && students.length > 0) {
-    const unsavedStudents = students.filter(s => !attendanceMap.has(s.id));
-    if (unsavedStudents.length > 0) {
-      try {
-        const adminClient = await createAdminClient();
-        const autoLeaveRecords = unsavedStudents.map(s => ({
-          madrasa_id: finalMadrasaId,
-          student_id: s.id,
-          date: date,
-          status: "Leave",
-        }));
-        const { error: upsertErr } = await adminClient
-          .from("attendance")
-          .upsert(autoLeaveRecords, { onConflict: "student_id, date" });
-
-        if (!upsertErr) {
-          unsavedStudents.forEach(s => attendanceMap.set(s.id, "Leave"));
-        }
-      } catch (upsertCatch) {
-        console.warn("Auto-save holiday leave attendance error:", upsertCatch);
-      }
-    }
-  }
-
-  const defaultStatus = isHolidayDate ? "Leave" : "Present";
-
-  const result = (students || []).map(student => ({
-    ...student,
-    status: attendanceMap.get(student.id) || defaultStatus,
-  }));
-
-  return result.sort((a, b) => (parseInt(a.roll_number) || 999999) - (parseInt(b.roll_number) || 999999));
+      return {
+        ...s,
+        status: marked.get(s.id) || (weekend || holiday ? "Leave" : "Present"),
+      };
+    })
+    .sort(
+      (a, b) =>
+        Number(a.roll_number || Infinity) - Number(b.roll_number || Infinity),
+    );
 }
 
-export async function saveAttendance(date: string, attendanceData: { student_id: string, status: string }[]) {
+export async function saveAttendance(
+  date: string,
+  attendanceData: { student_id: string; status: string; notes?: string }[],
+) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
@@ -132,17 +106,28 @@ export async function saveAttendance(date: string, attendanceData: { student_id:
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
-  const recordsToUpsert = attendanceData.map(record => ({
+  if (
+    !validDate(date) ||
+    date > toDhakaDateString() ||
+    attendanceData.some(
+      (r) => !attendanceStatuses.some((s) => s === r.status),
+    ) ||
+    !(await verifyRoster(finalMadrasaId, attendanceData))
+  )
+    return { error: "শিক্ষার্থী বা হাজিরা বৈধ নয়।" };
+  const recordsToUpsert = attendanceData.map((record) => ({
     madrasa_id: finalMadrasaId,
     student_id: record.student_id,
     date: date,
+    leave_request_id: null,
     status: record.status,
+    ...(record.notes !== undefined ? { notes: record.notes } : {}),
   }));
 
   const adminClient = await createAdminClient();
   const { error } = await adminClient
     .from("attendance")
-    .upsert(recordsToUpsert, { onConflict: 'student_id, date' });
+    .upsert(recordsToUpsert, { onConflict: "student_id, date" });
 
   if (error) {
     console.error("Error saving attendance:", error);
@@ -151,6 +136,8 @@ export async function saveAttendance(date: string, attendanceData: { student_id:
 
   revalidatePath("/dashboard/attendance");
   revalidatePath("/dashboard/attendance/students");
+  revalidatePath("/portal", "layout");
+  revalidatePath("/teacher-portal", "layout");
   return { success: true };
 }
 
@@ -162,57 +149,35 @@ export async function getTeachersForAttendance(date: string) {
     if (!__authz.allowed) return __authz.fallback;
   }
 
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return [];
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-
-  // Fetch staff metadata to trigger bi-directional sync
-  const staffData = await getStaffMetadataFull();
-  const staffMembers = staffData?.staff_members || [];
-
-  let query = supabase
-    .from("teachers")
-    .select("id, first_name, last_name, designation")
-    .order("first_name");
-
-  if (finalMadrasaId) {
-    query = query.eq("madrasa_id", finalMadrasaId);
-  }
-
-  const { data: teachersData, error: teachersError } = await query;
-  let teachersList = teachersData || [];
-
-  // Merge any staff members from metadata missing from teachers table
-  const existingTeacherIds = new Set(teachersList.map((t) => t.id));
-  staffMembers.forEach((s) => {
-    if (!existingTeacherIds.has(s.id)) {
-      teachersList.push({
-        id: s.id,
-        first_name: s.personal.first_name || s.personal.full_name_bn || "শিক্ষক",
-        last_name: s.personal.last_name || "",
-        designation: s.employment.designation || "সহকারী শিক্ষক",
-      });
-    }
-  });
-
-  // Fetch existing attendance for the given date
-  let attQuery = supabase
-    .from("teacher_attendance")
-    .select("teacher_id, status")
-    .eq("date", date);
-
-  if (finalMadrasaId) {
-    attQuery = attQuery.eq("madrasa_id", finalMadrasaId);
-  }
-
-  const { data: attendance, error: attendanceError } = await attQuery;
-
-  if (attendanceError) return [];
-
-  // Map attendance status to teachers
-  const attendanceMap = new Map((attendance || []).map(a => [a.teacher_id, a.status]));
+  const i = await webIdentity();
+  if (
+    !i ||
+    hasRole(i, studentRoles) ||
+    (await webTeacher()) ||
+    !validDate(date)
+  )
+    return [];
+  const finalMadrasaId = i.tenant;
+  // The attendance FK accepts teachers.id, not an unlinked staff metadata ID.
+  const [teachersList, attendance] = await Promise.all([
+    rows(() =>
+      i.db
+        .from("teachers")
+        .select("id,first_name,last_name,designation")
+        .eq("madrasa_id", i.tenant)
+        .order("first_name"),
+    ),
+    rows(() =>
+      i.db
+        .from("teacher_attendance")
+        .select("id,teacher_id,status")
+        .eq("madrasa_id", i.tenant)
+        .eq("date", date),
+    ),
+  ]);
+  const attendanceMap = new Map(
+    attendance.map((a) => [a.teacher_id, a.status]),
+  );
 
   // Check if date is an academic holiday or weekly weekend
   let isHolidayDate = false;
@@ -221,12 +186,24 @@ export async function getTeachersForAttendance(date: string) {
       const meta = await getMadrasaMetadata(finalMadrasaId);
       const holidays = meta.academic_holidays || [];
       const matchedHoliday = holidays.find(
-        (h: any) => !h.is_archived && date >= h.start_date && date <= h.end_date
+        (h: any) =>
+          !h.is_archived &&
+          holidayApplies(h, []) &&
+          date >= h.start_date &&
+          date <= h.end_date,
       );
 
       const [y, m, d] = date.split("-").map(Number);
       const dateObj = new Date(y, m - 1, d);
-      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const dayNames = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+      ];
       const currentDayName = dayNames[dateObj.getDay()];
       const weekendDays = meta.weekend_days || ["Friday"];
       const isWeekend = weekendDays.includes(currentDayName);
@@ -237,40 +214,18 @@ export async function getTeachersForAttendance(date: string) {
     }
   }
 
-  // If holiday/weekend, auto-persist any unsaved teacher as "Leave" in database
-  if (isHolidayDate && finalMadrasaId && teachersList && teachersList.length > 0) {
-    const unsavedTeachers = teachersList.filter(t => !attendanceMap.has(t.id));
-    if (unsavedTeachers.length > 0) {
-      try {
-        const adminClient = await createAdminClient();
-        const autoLeaveRecords = unsavedTeachers.map(t => ({
-          madrasa_id: finalMadrasaId,
-          teacher_id: t.id,
-          date: date,
-          status: "Leave",
-        }));
-        const { error: upsertErr } = await adminClient
-          .from("teacher_attendance")
-          .upsert(autoLeaveRecords, { onConflict: "teacher_id, date" });
-
-        if (!upsertErr) {
-          unsavedTeachers.forEach(t => attendanceMap.set(t.id, "Leave"));
-        }
-      } catch (upsertCatch) {
-        console.warn("Auto-save holiday leave teacher attendance error:", upsertCatch);
-      }
-    }
-  }
-
   const defaultStatus = isHolidayDate ? "Leave" : "Present";
 
-  return teachersList.map(teacher => ({
+  return teachersList.map((teacher) => ({
     ...teacher,
     status: attendanceMap.get(teacher.id) || defaultStatus,
   }));
 }
 
-export async function saveTeacherAttendance(date: string, attendanceData: { teacher_id: string, status: string }[]) {
+export async function saveTeacherAttendance(
+  date: string,
+  attendanceData: { teacher_id: string; status: string }[],
+) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
@@ -285,17 +240,38 @@ export async function saveTeacherAttendance(date: string, attendanceData: { teac
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
-  const recordsToUpsert = attendanceData.map(record => ({
+  if (
+    (await webTeacher()) ||
+    date > toDhakaDateString() ||
+    !validDate(date) ||
+    !attendanceData?.length ||
+    attendanceData.some((r) => !attendanceStatuses.some((s) => s === r.status))
+  )
+    return { error: "কর্মীর হাজিরা বা অনুমতি সঠিক নয়।" };
+  const ids = await rows(() =>
+    supabase
+      .from("teachers")
+      .select("id")
+      .eq("madrasa_id", finalMadrasaId)
+      .in(
+        "id",
+        attendanceData.map((r) => r.teacher_id),
+      ),
+  );
+  if (attendanceData.some((r) => !ids.some((s) => s.id === r.teacher_id)))
+    return { error: "কর্মী এই প্রতিষ্ঠানের নয়।" };
+  const recordsToUpsert = attendanceData.map((record) => ({
     madrasa_id: finalMadrasaId,
     teacher_id: record.teacher_id,
     date: date,
+    leave_request_id: null,
     status: record.status,
   }));
 
   const adminClient = await createAdminClient();
   const { error } = await adminClient
     .from("teacher_attendance")
-    .upsert(recordsToUpsert, { onConflict: 'teacher_id, date' });
+    .upsert(recordsToUpsert, { onConflict: "teacher_id, date" });
 
   if (error) {
     console.error("Error saving teacher attendance:", error);
@@ -307,7 +283,11 @@ export async function saveTeacherAttendance(date: string, attendanceData: { teac
   return { success: true };
 }
 
-export async function getAttendanceReport(month: string, year: string, type: 'student' | 'teacher') {
+export async function getAttendanceReport(
+  month: string,
+  year: string,
+  type: "student" | "teacher",
+) {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) return [];
@@ -315,56 +295,65 @@ export async function getAttendanceReport(month: string, year: string, type: 'st
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return [];
 
-  const startDate = `${year}-${month.padStart(2, '0')}-01`;
-  const endDate = new Date(Date.UTC(parseInt(year), parseInt(month), 0)).toISOString().split('T')[0];
+  if (
+    !/^\d{4}$/.test(year) ||
+    !/^(?:0?[1-9]|1[0-2])$/.test(month) ||
+    !(await writeGuard("attendance")).allowed
+  )
+    return [];
+  const teacher = await webTeacher();
+  if (teacher && type === "teacher") return [];
+  const startDate = `${year}-${month.padStart(2, "0")}-01`;
+  const endDate = new Date(Date.UTC(parseInt(year), parseInt(month), 0))
+    .toISOString()
+    .split("T")[0];
 
-  const table = type === 'student' ? 'attendance' : 'teacher_attendance';
-  const personTable = type === 'student' ? 'students' : 'teachers';
-  const personIdColumn = type === 'student' ? 'student_id' : 'teacher_id';
+  const table = type === "student" ? "attendance" : "teacher_attendance";
+  const personTable = type === "student" ? "students" : "teachers";
+  const personIdColumn = type === "student" ? "student_id" : "teacher_id";
 
-  // Fetch all persons
-  const { data: persons, error: personsError } = await supabase
-    .from(personTable)
-    .select(type === 'student' ? "id, first_name, last_name, roll_number, class_id, classes(name)" : "id, first_name, last_name, designation")
-    .eq('madrasa_id', finalMadrasaId);
+  const [persons, records] = await Promise.all([
+    rows(() =>
+      supabase
+        .from(personTable)
+        .select(
+          type === "student"
+            ? "id,first_name,last_name,roll_number,class_id,classes(name)"
+            : "id,first_name,last_name,designation",
+        )
+        .eq("madrasa_id", finalMadrasaId),
+    ),
+    rows(() =>
+      supabase
+        .from(table)
+        .select(`id,date,status,${personIdColumn}`)
+        .eq("madrasa_id", finalMadrasaId)
+        .gte("date", startDate)
+        .lte("date", endDate),
+    ),
+  ]);
+  const byPerson = new Map<string, any[]>();
+  for (const r of records) {
+    const id = r[personIdColumn];
+    if (!byPerson.has(id)) byPerson.set(id, []);
+    byPerson.get(id)!.push(r);
+  }
+  const result = persons
+    .filter(
+      (s) => !teacher || teacher.scope.classes.some((c) => c.id === s.class_id),
+    )
+    .map((person) => ({
+      ...person,
+      stats: attendanceStats(byPerson.get(person.id) || []),
+    }));
 
-  if (personsError) return [];
-
-  // Fetch attendance records for the month
-  const { data: records, error: recordsError } = await supabase
-    .from(table)
-    .select(`date, status, ${personIdColumn}`)
-    .eq('madrasa_id', finalMadrasaId)
-    .gte('date', startDate)
-    .lte('date', endDate);
-
-  if (recordsError) return [];
-
-  // Calculate statistics
-  const statsMap = new Map();
-
-  records?.forEach((record: any) => {
-    const pId = record[personIdColumn];
-    if (!statsMap.has(pId)) {
-      statsMap.set(pId, { present: 0, absent: 0, late: 0, leave: 0, total: 0 });
-    }
-    const stats = statsMap.get(pId);
-    stats.total++;
-    if (record.status === 'Present') stats.present++;
-    if (record.status === 'Absent') stats.absent++;
-    if (record.status === 'Late') stats.late++;
-    if (record.status === 'Leave') stats.leave++;
-  });
-
-  const result = persons?.map((person: any) => ({
-    ...person,
-    stats: statsMap.get(person.id) || { present: 0, absent: 0, late: 0, leave: 0, total: 0 }
-  })) || [];
-
-  if (type === 'student') {
-    return result.sort((a: any, b: any) => (parseInt(a.roll_number) || 999999) - (parseInt(b.roll_number) || 999999));
+  if (type === "student") {
+    return result.sort(
+      (a: any, b: any) =>
+        (parseInt(a.roll_number) || 999999) -
+        (parseInt(b.roll_number) || 999999),
+    );
   }
 
   return result;
 }
-

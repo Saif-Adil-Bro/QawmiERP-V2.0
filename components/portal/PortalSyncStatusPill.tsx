@@ -29,7 +29,7 @@ export default function PortalSyncStatusPill({ portalType }: PortalSyncStatusPil
     isOnline,
     isSyncing,
     lastSyncedAt,
-    pendingOutboxCount,
+    pendingOutboxCount, failedOutboxCount, syncMessage,
     triggerBackgroundSync,
   } = useNetworkSync(portalType);
 
@@ -72,6 +72,8 @@ export default function PortalSyncStatusPill({ portalType }: PortalSyncStatusPil
           <RefreshCw className="w-3.5 h-3.5 shrink-0 animate-spin" />
           <span>সিঙ্ক হচ্ছে</span>
         </>
+      ) : syncMessage || failedOutboxCount ? (
+        <span>সিঙ্ক অসম্পূর্ণ</span>
       ) : pendingOutboxCount > 0 ? (
         <>
           <CloudUpload className="w-3.5 h-3.5 shrink-0" />
@@ -81,7 +83,7 @@ export default function PortalSyncStatusPill({ portalType }: PortalSyncStatusPil
         <>
           <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
           <span className="hidden sm:inline">
-            সিঙ্কড{mounted && lastSyncedAt ? `: ${formattedTime}` : ""}
+            {mounted && lastSyncedAt ? `সিঙ্কড: ${formattedTime}` : "সিঙ্ক হয়নি"}
           </span>
           <span className="sm:hidden">অনলাইন</span>
         </>

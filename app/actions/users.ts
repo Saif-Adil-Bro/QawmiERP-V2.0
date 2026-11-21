@@ -4,6 +4,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { requirePermission } from "@/lib/permissions-server";
+import { linkCreatedTeacherAccount } from "@/lib/teacher-profile-write";
 import { logAuditEvent } from "@/lib/audit-log";
 
 export interface MadrasaUser {
@@ -174,6 +175,7 @@ export async function createUserAccount(prevState: any, formData: FormData) {
 
     const adminClient = await createAdminClient();
 
+    if (!await validLinks(adminClient,madrasaId,studentId,teacherId)) return {error:'সংযুক্তি এই প্রতিষ্ঠানের নয়।'};
     // Check if user with this email already exists in Auth
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email,
@@ -200,6 +202,8 @@ export async function createUserAccount(prevState: any, formData: FormData) {
     const { error: userError } = await adminClient.from("users").upsert({
       id: authUserId,
       madrasa_id: madrasaId,
+      student_id: studentId || null,
+      teacher_id: teacherId || null,
       full_name: fullName,
       email: email,
       phone: phone || null,
@@ -219,44 +223,9 @@ export async function createUserAccount(prevState: any, formData: FormData) {
       return { error: `ডাটাবেজ প্রোফাইল তৈরিতে ত্রুটি: ${userError.message}` };
     }
 
-    // Auto-link teacher profile with auth_user_id (and populate email if blank)
     if (role === "teacher") {
-      try {
-        let linkedTeacherId = teacherId;
-        if (!linkedTeacherId && email) {
-          const { data: emailMatches } = await adminClient
-            .from("teachers")
-            .select("id, email")
-            .eq("madrasa_id", madrasaId)
-            .ilike("email", email);
-          if (emailMatches && emailMatches.length === 1) {
-            linkedTeacherId = emailMatches[0].id;
-          }
-        }
-
-        if (linkedTeacherId) {
-          const { data: existingTeacher } = await adminClient
-            .from("teachers")
-            .select("id, email")
-            .eq("id", linkedTeacherId)
-            .eq("madrasa_id", madrasaId)
-            .maybeSingle();
-
-          if (existingTeacher) {
-            const teacherPatch: Record<string, any> = { auth_user_id: authUserId };
-            if (!existingTeacher.email && email) {
-              teacherPatch.email = email;
-            }
-            await adminClient
-              .from("teachers")
-              .update(teacherPatch)
-              .eq("id", existingTeacher.id)
-              .eq("madrasa_id", madrasaId);
-          }
-        }
-      } catch (linkErr) {
-        console.warn("Non-fatal teacher auth_user_id link warning:", linkErr);
-      }
+      try { await linkCreatedTeacherAccount(adminClient, madrasaId, authUserId, teacherId, email); }
+      catch { console.warn("Teacher account created; SQL profile link needs review."); }
     }
 
     await logAuditEvent({
@@ -341,6 +310,8 @@ export async function updateUserAccount(prevState: any, formData: FormData) {
       full_name: fullName,
       phone: phone,
     };
+    for (const link of ['student_id','teacher_id']) if (formData.has(link)) updatePayload[link]=String(formData.get(link) || '').trim() || null;
+    if (!beforeTarget || !await validLinks(adminClient,madrasaId,updatePayload.student_id,updatePayload.teacher_id)) return {error:'অ্যাকাউন্ট বা সংযুক্তি এই প্রতিষ্ঠানের নয়।'};
     if (role) {
       const ALLOWED_ROLES_UPDATE = [
         "super_admin", "admin", "muhtamim", "teacher", "accountant",
@@ -578,4 +549,13 @@ export async function deleteUserAccount(userId: string) {
     console.error("Catch in deleteUserAccount:", err);
     return { error: err.message || "ইউজার মুছে ফেলতে ব্যর্থ হয়েছে।" };
   }
+}
+
+async function validLinks(db:any,tenant:string,student?:string|null,teacher?:string|null) {
+  if (student && !(await db.from('students').select('id').eq('madrasa_id',tenant).eq('id',student).maybeSingle()).data) return false;
+  if (teacher && !(await db.from('teachers').select('id').eq('madrasa_id',tenant).eq('id',teacher).maybeSingle()).data) {
+    const {getMadrasaMetadata}=await import('@/lib/sessions');
+    return (await getMadrasaMetadata(tenant,true)).staff_members?.some((s:any)=>s.id===teacher || s.legacy_id===teacher) ?? false;
+  }
+  return true;
 }

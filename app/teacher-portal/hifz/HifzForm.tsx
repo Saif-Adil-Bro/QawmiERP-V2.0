@@ -1,8 +1,10 @@
 "use client";
+import {postTeacherEntry} from '@/lib/portal-sync';
+import {usePortalOwner} from '@/hooks/useOfflinePortalData';
 
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { offlineMutate } from "@/lib/syncManager";
+
 import {
   Save,
   CheckCircle2,
@@ -28,6 +30,7 @@ export default function HifzForm({
   madrasaId,
 }: any) {
   const router = useRouter();
+  const syncOwner = usePortalOwner();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -46,7 +49,7 @@ export default function HifzForm({
         sabak_para: existing?.sabak_para || existing?.para_number || "",
         saboki_para: existing?.saboki_para || existing?.sabqi || "",
         amukhta_para: existing?.amukhta_para || existing?.manzil || "",
-        performance_rating: existing?.performance_rating || existing?.performance || "মুমতাজ (Excellent)",
+        performance_rating: existing?.performance_rating || existing?.performance || "",
         remarks: existing?.remarks || existing?.notes || "",
       };
     });
@@ -61,7 +64,7 @@ export default function HifzForm({
         sabak_para: existing?.sabak_para || existing?.para_number || "",
         saboki_para: existing?.saboki_para || existing?.sabqi || "",
         amukhta_para: existing?.amukhta_para || existing?.manzil || "",
-        performance_rating: existing?.performance_rating || existing?.performance || "মুমতাজ (Excellent)",
+        performance_rating: existing?.performance_rating || existing?.performance || "",
         remarks: existing?.remarks || existing?.notes || "",
       };
     });
@@ -127,23 +130,19 @@ export default function HifzForm({
           sabak_para: parsePara(state.sabak_para),
           saboki_para: parsePara(state.saboki_para),
           amukhta_para: parsePara(state.amukhta_para),
-          performance_rating: state.performance_rating || "মুমতাজ (Excellent)",
+          performance_rating: state.performance_rating || "",
           notes: state.remarks || null,
         };
-      });
+      }).filter((r:any) => r.sabak_para || r.saboki_para || r.amukhta_para || r.notes || r.performance_rating || r.existing_id);
+      if (!recordsToSave.length) throw new Error("আগে সবকের তথ্য দিন।");
 
-      const result = await offlineMutate({
-        entity: "hifzLogs",
-        action: "CREATE",
-        endpoint: "/api/teacher/save-hifz",
-        method: "POST",
-        payload: {
+      const result = await postTeacherEntry('hifz',{
           madrasa_id: madrasaId,
           current_class_id: currentClassId,
           current_date: currentDate,
           records: recordsToSave,
-        },
-      });
+        },syncOwner);
+
 
       if (!result.success) {
         throw new Error(result.error || "সংরক্ষণ ব্যর্থ হয়েছে");
@@ -282,7 +281,7 @@ export default function HifzForm({
                             <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
                               <span>রোল: <strong className="text-slate-700">{toBanglaNumber(s.roll_number || "-")}</strong></span>
                               <span>•</span>
-                              <span className="font-mono">আইডি: {resolveStudentIdBn(s, students)}</span>
+                              <span className="font-mono">আইডি: {toBanglaNumber(s.student_id_formatted || s.student_id || "—")}</span>
                               {s.phone && (
                                 <>
                                   <span>•</span>
@@ -329,10 +328,11 @@ export default function HifzForm({
 
                       <td className="px-4 py-3.5">
                         <select
-                          value={state.performance_rating || "মুমতাজ (Excellent)"}
+                          value={state.performance_rating || ""}
                           onChange={(e) => handleChange(s.id, "performance_rating", e.target.value)}
                           className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-teal-600 focus:outline-none font-semibold"
                         >
+                          <option value="">মূল্যায়ন নির্বাচন করুন</option>
                           <option value="মুমতাজ (Excellent)">মুমতাজ (Excellent)</option>
                           <option value="জায়্যিদ জিদ্দান (Very Good)">জায়্যিদ জিদ্দান (Very Good)</option>
                           <option value="জায়্যিদ (Good)">জায়্যিদ (Good)</option>
@@ -383,7 +383,7 @@ export default function HifzForm({
                       <div>
                         <strong className="text-sm text-slate-900 leading-tight block">{s.first_name} {s.last_name}</strong>
                         <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
-                          <span>আইডি: {resolveStudentIdBn(s, students)}</span>
+                          <span>আইডি: {toBanglaNumber(s.student_id_formatted || s.student_id || "—")}</span>
                           {s.phone && (
                             <>
                               <span>•</span>
@@ -440,11 +440,12 @@ export default function HifzForm({
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">মূল্যায়ন রেটিং</label>
                       <select
-                        value={state.performance_rating || "মুমতাজ (Excellent)"}
+                        value={state.performance_rating || ""}
                         onChange={(e) => handleChange(s.id, "performance_rating", e.target.value)}
                         className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-white font-semibold"
                       >
-                        <option value="মুমতাজ (Excellent)">মুমতাজ (Excellent)</option>
+                        <option value="">মূল্যায়ন নির্বাচন করুন</option>
+                          <option value="মুমতাজ (Excellent)">মুমতাজ (Excellent)</option>
                         <option value="জায়্যিদ জিদ্দান (Very Good)">জায়্যিদ জিদ্দান (Very Good)</option>
                         <option value="জায়্যিদ (Good)">জায়্যিদ (Good)</option>
                         <option value="মাকবুল (Pass)">মাকবুল (Pass)</option>

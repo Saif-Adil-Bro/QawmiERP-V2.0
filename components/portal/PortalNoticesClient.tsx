@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Bell, Calendar, Tag } from "lucide-react";
-import { seedPortalOfflineCache, type PortalSyncType } from "@/lib/portal-sync";
+import type { PortalSyncType } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
 
 interface PortalNoticesClientProps {
@@ -46,15 +46,9 @@ export default function PortalNoticesClient({
     setMounted(true);
   }, []);
 
-  useEffect(() => {
-    if (!notices?.length) return;
-    seedPortalOfflineCache(portalType, { notices });
-  }, [portalType, notices]);
 
-  const effectiveNotices = useMemo(() => {
-    if (notices.length > 0) return notices;
-    return offlineSnapshot?.notices || [];
-  }, [notices, offlineSnapshot?.notices]);
+
+  const effectiveNotices=offlineSnapshot?.notices ?? notices;
 
   const isRose = accent === "rose";
 

@@ -18,7 +18,6 @@ import OnlinePaymentCheckoutModal from "@/components/payments/OnlinePaymentCheck
 import DualMoneyReceipt from "@/components/accounting/DualMoneyReceipt";
 import type { PublicPaymentGatewayConfig } from "@/lib/payment-gateway";
 import type { PublicMadrasaInfo } from "@/lib/getMadrasaInfo";
-import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
 
 interface Props {
@@ -35,7 +34,7 @@ interface Props {
   students: any[];
   totalPaid: number;
   totalDue: number;
-  unpaidInvoices: any[];
+  invoices: any[]; discounts:any[];
   combinedPayments: any[];
   gatewayConfig?: PublicPaymentGatewayConfig;
   madrasaInfo?: PublicMadrasaInfo;
@@ -45,8 +44,8 @@ export default function ParentPortalFeesClient({
   child,
   students,
   totalPaid,
-  totalDue,
-  unpaidInvoices,
+  totalDue:liveDue,
+  invoices:liveInvoices, discounts:liveDiscounts,
   combinedPayments,
   gatewayConfig,
   madrasaInfo,
@@ -55,39 +54,11 @@ export default function ParentPortalFeesClient({
   const [selectedReceiptFee, setSelectedReceiptFee] = useState<any | null>(null);
   const offlineSnapshot = useOfflinePortalSnapshot();
 
-  // Seed Dexie IndexedDB silently for offline access
-  useEffect(() => {
-    if (!combinedPayments?.length) return;
-    seedPortalOfflineCache("student", {
-      fees: combinedPayments.map((p) => ({
-        ...p,
-        id: String(p.id),
-        student_id: child.id,
-        amount_paid: Number(p.total_amount_received || p.amount_paid || 0),
-      })),
-    });
-  }, [combinedPayments, child.id]);
-
-  const effectivePayments = useMemo(() => {
-    if (combinedPayments.length > 0) return combinedPayments;
-    if (!offlineSnapshot?.fees?.length) return [];
-    return offlineSnapshot.fees
-      .filter((f: any) => !child?.id || f.student_id === child.id)
-      .map((f: any) => ({
-        ...f,
-        receipt_no: f.receipt_no || f.receipt_number || `REC-${String(f.id).slice(0, 6).toUpperCase()}`,
-        total_amount_received: Number(f.total_amount_received ?? f.amount_paid ?? f.amount ?? 0),
-      }));
-  }, [combinedPayments, offlineSnapshot?.fees, child.id]);
-
-  const effectiveTotalPaid =
-    totalPaid > 0
-      ? totalPaid
-      : effectivePayments.reduce(
-          (acc: number, curr: any) => acc + (Number(curr.total_amount_received) || 0),
-          0
-        );
-
+  const cache = offlineSnapshot?.activeStudent?.id === child.id ? offlineSnapshot : null;
+  const effectivePayments = cache?.feePayments ?? combinedPayments;
+  const effectiveTotalPaid = cache?.totalPaid ?? totalPaid;
+  const totalDue=cache?.totalDue ?? liveDue, invoices=cache?.fees ?? liveInvoices, discounts=cache?.discounts ?? liveDiscounts;
+  const unpaidInvoices=invoices.filter(f=>Number(f.due_amount)>0);
   const openReceipt = (p: any) => {
     setSelectedReceiptFee({
       id: p.id,
@@ -280,6 +251,12 @@ export default function ParentPortalFeesClient({
         </div>
       )}
 
+      <section className="p-4 bg-white rounded-2xl border border-slate-200 space-y-2">
+        <h3 className="font-bold">বিল ও ছাড়</h3>
+        {invoices.length===0 && <p className="text-sm text-slate-500">কোনো বিল নেই।</p>}
+        {invoices.map(f=><p key={f.id} className="text-sm">{f.fee_type_name} • {f.billing_period} — ধার্য ৳{formatBanglaCurrency(f.base_amount)}, ছাড় ৳{formatBanglaCurrency(f.discount_amount)}, বকেয়া ৳{formatBanglaCurrency(f.due_amount)}</p>)}
+        {discounts.map(d=><p key={d.id} className="text-sm">{d.reason} • {d.discount_type} • {d.status}</p>)}
+      </section>
       {/* Payment History: Mobile Stacked Cards + Desktop Table */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">

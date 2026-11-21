@@ -28,7 +28,7 @@ import {
 import { collectFeePayment } from "./fee-management";
 import { createExpense } from "./accounting";
 import { promoteStaffMember, updateStaffMember } from "./staff";
-import { toggleExamPublish } from "./exams";
+import { publishExam } from "@/lib/portal/publish";
 import { issueStudentCertificate } from "./certificates";
 
 function generateUuid(): string {
@@ -453,7 +453,7 @@ async function executeApprovedPayload(
     }
 
     if (actionKind === "publish_exam_result" && payload.examId) {
-      const res = await toggleExamPublish(
+      const res = await publishExam(
         String(payload.examId),
         Boolean(payload.isPublished ?? true),
         payload.note,

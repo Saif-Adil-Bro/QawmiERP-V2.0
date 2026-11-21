@@ -12,7 +12,7 @@ import {
   deleteStructuredStaffLeavesForStaff,
 } from "@/lib/structured-config";
 import { logAuditEvent } from "@/lib/audit-log";
-import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
+import { getMadrasaInfo,toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import {
   StaffMember,
   StaffCategory,
@@ -342,7 +342,7 @@ export async function getStaffDashboardData() {
 
     // Recent activity log
     const recentActivity = (meta.staff_audit_logs || []).slice(-10).reverse();
-    const madrasaInfo = await getMadrasaInfo();
+    const madrasaInfo = toPublicMadrasaInfo(await getMadrasaInfo());
 
     return {
       stats,
@@ -441,6 +441,7 @@ export async function getStaffList(filters?: {
  * Fetch a single staff member by ID with all relations
  */
 export async function getStaffMember(id: string): Promise<StaffMember | null> {
+  if (!(await writeGuard('staff')).allowed) return null;
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -1740,7 +1741,7 @@ export async function getStaffMetadataFull() {
     if (!__authz.allowed) return __authz.fallback;
   }
 
-  const madrasaInfo = await getMadrasaInfo();
+  const madrasaInfo = toPublicMadrasaInfo(await getMadrasaInfo());
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
   if (!user) {

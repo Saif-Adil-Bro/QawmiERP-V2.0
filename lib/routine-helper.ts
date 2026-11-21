@@ -307,6 +307,7 @@ export function getTodayDayKeys(now: Date = new Date()): { english: string; bang
 }
 
 export interface HolidayRangeLike {
+  portalClassIds?:string[];
   id?: string;
   title?: string;
   name?: string;
@@ -345,10 +346,10 @@ function isRoutineOffDay(r: any): boolean {
 function isWithinPeriod(nowMinutes: number, startM: number, endM: number): boolean {
   if (startM < 0 || endM < 0) return false;
   if (endM >= startM) {
-    return nowMinutes >= startM && nowMinutes <= endM;
+    return nowMinutes >= startM && nowMinutes < endM;
   }
   // Overnight period crossing midnight (e.g., 22:30 - 01:00)
-  return nowMinutes >= startM || nowMinutes <= endM;
+  return nowMinutes >= startM || nowMinutes < endM;
 }
 
 function computeMinutesRemaining(nowMinutes: number, startM: number, endM: number): number {
@@ -379,26 +380,16 @@ export function getRoutineLiveStatus(
   };
 
   // Detect active academic calendar holiday
-  const matchingHoliday = (holidays || []).find((h) => {
-    const start = String(h?.start_date || h?.date || "").slice(0, 10);
-    const end = String(h?.end_date || h?.start_date || h?.date || "").slice(0, 10);
-    if (!start) return false;
-    return todayDateStr >= start && todayDateStr <= end;
-  });
-  const isHoliday = Boolean(matchingHoliday);
-  const holidayTitle = matchingHoliday?.title || matchingHoliday?.name || null;
-
-  const rawTodayItems = (routines || []).filter((r) => isToday(r.day_of_week));
-  const offDayItem = rawTodayItems.find(isRoutineOffDay);
-  const isOffDay = Boolean(offDayItem);
-  const offDayTitle = offDayItem
-    ? offDayItem.display_title ||
-      (String(offDayItem.room_number || "").startsWith("OFFDAY:")
-        ? String(offDayItem.room_number).substring(7)
-        : "সাপ্তাহিক ছুটি")
-    : null;
-
-  const activePeriods = rawTodayItems.filter((r) => !isRoutineOffDay(r));
+  const dated=(holidays || []).filter(h=>{const start=(h.start_date || h.date || '').slice(0,10),end=(h.end_date || start).slice(0,10);return !!start && start<=todayDateStr && end>=todayDateStr;});
+  const rawTodayItems=(routines || []).filter(r=>isToday(r.day_of_week));
+  const closed=(id:string)=>dated.some(h=>!h.portalClassIds || h.portalClassIds.includes(id));
+  const offDays=rawTodayItems.filter(isRoutineOffDay);
+  const off=(id:string)=>offDays.some(r=>!r.class_id || r.class_id===id);
+  const isHoliday=dated.length>0 && rawTodayItems.every(r=>closed(r.class_id));
+  const holidayTitle=isHoliday ? dated[0].title || dated[0].name || null : null;
+  const isOffDay=offDays.length>0 && rawTodayItems.every(r=>off(r.class_id) || closed(r.class_id));
+  const offDayTitle=isOffDay ? offDays[0].display_title || 'সাপ্তাহিক ছুটি' : null;
+  const activePeriods=rawTodayItems.filter(r=>!off(r.class_id) && !closed(r.class_id));
 
   // Sort today's classes chronologically
   const sortedToday = [...activePeriods].sort((a, b) => {
@@ -430,7 +421,7 @@ export function getRoutineLiveStatus(
   }
 
   const isCurrent = (routine: any) => {
-    if (isHoliday || isOffDay || !routine || isRoutineOffDay(routine) || !isToday(routine.day_of_week)) {
+    if (isHoliday || isOffDay || !routine || closed(routine.class_id) || off(routine.class_id) || isRoutineOffDay(routine) || !isToday(routine.day_of_week)) {
       return false;
     }
     if (currentClass && routine.id && currentClass.id === routine.id) return true;
@@ -517,33 +508,7 @@ export function getNextActiveAcademicDay(
     const candidateDate = new Date(now.getTime() + offset * 24 * 60 * 60 * 1000);
     const dhaka = getDhakaClockParts(candidateDate);
 
-    // Skip academic holidays
-    const onHoliday = (holidays || []).some((h) => {
-      const start = String(h?.start_date || h?.date || "").slice(0, 10);
-      const end = String(h?.end_date || h?.start_date || h?.date || "").slice(0, 10);
-      if (!start) return false;
-      return dhaka.dateStr >= start && dhaka.dateStr <= end;
-    });
-    if (onHoliday) continue;
-
-    const dayItems = routines.filter((r) => {
-      const d = String(r?.day_of_week || "");
-      return (
-        d === dhaka.englishDay ||
-        d === dhaka.banglaDay ||
-        DAY_TRANSLATIONS[d] === dhaka.banglaDay
-      );
-    });
-
-    if (dayItems.length === 0) continue;
-    if (dayItems.some(isRoutineOffDay)) continue;
-
-    const activePeriods = dayItems
-      .filter((r) => !isRoutineOffDay(r))
-      .sort(
-        (a, b) => timeStringToMinutes(a.start_time) - timeStringToMinutes(b.start_time)
-      );
-
+    const activePeriods=getRoutineLiveStatus(routines,candidateDate,holidays).todayClasses;
     if (activePeriods.length > 0) {
       return {
         daysAhead: offset,

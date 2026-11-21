@@ -26,6 +26,7 @@ export interface StudentEnrollment {
   session_id: string;
   class_id?: string;
   class_name?: string;
+  section?: string;
   roll_number?: string;
   status: "ACTIVE" | "PROMOTED" | "REPEAT" | "TRANSFERRED" | "GRADUATED" | "WITHDRAWN";
   enrollment_date: string;
@@ -48,41 +49,6 @@ export interface StudentEnrollment {
     id: string;
     name: string;
   };
-}
-
-// Fallback initial default sessions when a madrasa has none yet
-export function getDefaultSessions(madrasaId: string): AcademicSession[] {
-  const now = new Date().toISOString();
-  return [
-    {
-      id: `session_${madrasaId.substring(0, 8)}_1447_48`,
-      madrasa_id: madrasaId,
-      name: "১৪৪৭-৪৮ হিজরি",
-      academic_year: "২০২৬-২৭",
-      hijri_year: "১৪৪৭-৪৮",
-      start_date: "2026-04-15",
-      end_date: "2027-04-05",
-      status: "ACTIVE",
-      is_current: true,
-      description: "বর্তমান শিক্ষাবর্ষ (১৪৪৭-৪৮ হিজরি / ২০২৬-২৭ ইংরেজি)",
-      created_at: now,
-      updated_at: now,
-    },
-    {
-      id: `session_${madrasaId.substring(0, 8)}_1446_47`,
-      madrasa_id: madrasaId,
-      name: "১৪৪৬-৪৭ হিজরি",
-      academic_year: "২০২৫-২৬",
-      hijri_year: "১৪৪৬-৪৭",
-      start_date: "2025-04-20",
-      end_date: "2026-04-10",
-      status: "ARCHIVED",
-      is_current: false,
-      description: "পূর্ববর্তী শিক্ষাবর্ষ (১৪৪৬-৪৭ হিজরি / ২০২৫-২৬ ইংরেজি - সংরক্ষিত)",
-      created_at: now,
-      updated_at: now,
-    },
-  ];
 }
 
 /**
@@ -152,6 +118,8 @@ export interface ExtendedStudentProfile {
   roll_number?: string;
   class_id?: string;
   class_name?: string;
+  section?: string;
+  section_id?: string;
   department_id?: string | null;
   father_name?: string;
   parent_phone?: string;
@@ -213,29 +181,29 @@ export interface MadrasaMetaWithSessions {
 /**
  * Helper to get parsed metadata from madrasas table
  */
-export async function getMadrasaMetadata(madrasaId: string): Promise<MadrasaMetaWithSessions> {
+export async function getMadrasaMetadata(madrasaId: string, strict = false): Promise<MadrasaMetaWithSessions> {
   try {
     const adminClient = await createAdminClient();
-    const { data, error } = await adminClient
-      .from("madrasas")
-      .select("registration_no")
-      .eq("id", madrasaId)
-      .single();
-
-    if (error || !data || !data.registration_no) {
-      return {};
+    const {data,error}=await adminClient.from('madrasas').select('*').eq('id',madrasaId).single();
+    if (strict && (error || !data)) throw new Error(error?.message || "প্রতিষ্ঠানের তথ্য পাওয়া যায়নি।");
+    if (error || !data) return {};
+    const dedicated=data.metadata && typeof data.metadata==='object' ? data.metadata : {};
+    if (!data.registration_no) {
+      return dedicated;
     }
 
     if (data.registration_no.startsWith("{")) {
       try {
-        return JSON.parse(data.registration_no);
+        return {...dedicated,...JSON.parse(data.registration_no)};
       } catch {
-        return { reg_no: data.registration_no };
+        if (strict) throw new Error("প্রতিষ্ঠানের সংরক্ষিত ডেটা পড়া যায়নি।");
+        return {...dedicated, reg_no: data.registration_no };
       }
     }
 
-    return { reg_no: data.registration_no };
+    return {...dedicated, reg_no: data.registration_no };
   } catch (err) {
+    if (strict) throw err;
     console.error("Error reading madrasa metadata:", err);
     return {};
   }
@@ -284,8 +252,10 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
     ? profile.boarding_type
     : (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক");
 
-  const resolvedClassId = profile.class_id || student.class_id || "";
-  const resolvedClassName = profile.class_name || (Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) || student.class_name || "";
+  // Promotion/transfer updates students.class_id (including an intentional NULL).
+  const resolvedClassId = ('class_id' in student ? student.class_id : profile.class_id) || '';
+  const sameClass = resolvedClassId && (!profile.class_id || profile.class_id === resolvedClassId);
+  const resolvedClassName = (Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) || (sameClass && profile.class_name) || (resolvedClassId && student.class_name) || "";
 
   const rawExplicitId =
     profile.student_code ||
@@ -307,7 +277,9 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
     last_name: profile.last_name || student.last_name || "",
     student_id: resolvedStudentId,
     student_id_formatted: resolvedStudentId,
-    roll_number: profile.roll_number !== undefined && profile.roll_number !== "" ? profile.roll_number : (student.roll_number || ""),
+    roll_number: 'roll_number' in student ? (student.roll_number || '') : (profile.roll_number || ''),
+    section: 'section' in student ? student.section || '' : sameClass && profile.section || '',
+    department_id: student.department_id ?? profile.department_id ?? null,
     class_id: resolvedClassId,
     class_name: resolvedClassName,
     classes: student.classes || (resolvedClassName ? { id: resolvedClassId, name: resolvedClassName } : undefined),
@@ -348,7 +320,7 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
     remarks: profile.remarks !== undefined ? profile.remarks : (student.remarks || ""),
     blood_group: profile.blood_group || student.blood_group || admission?.blood_group || "",
     date_of_birth: profile.date_of_birth || student.date_of_birth || admission?.date_of_birth || "",
-    gender: profile.gender || student.gender || admission?.gender || "MALE",
+    gender: profile.gender || student.gender || admission?.gender || "",
     madrasa_prefix: meta?.prefix || meta?.short_code || student.madrasa_prefix || "",
     prefix: meta?.prefix || meta?.short_code || student.prefix || "",
   };

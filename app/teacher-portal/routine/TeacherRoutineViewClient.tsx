@@ -20,7 +20,6 @@ import {
   getRoutineLiveStatus,
   type HolidayRangeLike,
 } from "@/lib/routine-helper";
-import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
 import CurrentClassLiveBanner from "@/components/routine/CurrentClassLiveBanner";
 
@@ -69,29 +68,8 @@ export default function TeacherRoutineViewClient({
     return () => clearInterval(timer);
   }, []);
 
-  // Seed Dexie IndexedDB silently for offline availability
-  useEffect(() => {
-    const isOnlineNow = typeof navigator === "undefined" ? true : navigator.onLine;
-    seedPortalOfflineCache("teacher", {
-      routines: schedule.routines || [],
-      replaceRoutines: isOnlineNow,
-      academicCalendar: holidays.map((h, i) => ({
-        ...h,
-        id: String(h.id || `hol_${i}`),
-      })),
-    });
-  }, [schedule.routines, holidays]);
-
-  const effectiveRoutines = useMemo(() => {
-    if (schedule.routines?.length) return schedule.routines;
-    return offlineSnapshot?.routines || [];
-  }, [schedule.routines, offlineSnapshot?.routines]);
-
-  const effectiveHolidays: HolidayRangeLike[] = useMemo(() => {
-    if (holidays?.length) return holidays;
-    return (offlineSnapshot?.academicCalendar || []) as HolidayRangeLike[];
-  }, [holidays, offlineSnapshot?.academicCalendar]);
-
+  const effectiveRoutines=offlineSnapshot?.routines ?? schedule.routines;
+  const effectiveHolidays:HolidayRangeLike[]=offlineSnapshot?.academicCalendar ?? holidays;
   const liveStatus = useMemo(
     () => (now ? getRoutineLiveStatus(effectiveRoutines, now, effectiveHolidays) : null),
     [effectiveRoutines, now, effectiveHolidays]
