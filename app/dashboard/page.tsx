@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getStaffMetadataFull } from "@/app/actions/staff";
 import { getMadrasaMetadata } from "@/lib/sessions";
-import { getFeeMetadata } from "@/app/actions/fee-management";
+import { getUnifiedFeePayments } from "@/app/actions/fee-management";
 import ReportingCharts from "./components/ReportingCharts";
 import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
@@ -102,7 +102,7 @@ export default async function DashboardPage() {
         { count: leaveCount },
         { count: lateCount },
 
-        { data: feesData },
+        feePayments,
         { data: donationsData },
         { data: expensesData },
         { data: bazarData },
@@ -111,7 +111,6 @@ export default async function DashboardPage() {
         staffFullData,
         madrasaMeta,
         fundsData,
-        feeMetaData
 
       ] = await Promise.all([
         earlyWarningPromise,
@@ -125,7 +124,7 @@ export default async function DashboardPage() {
         supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Leave"),
         supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Late"),
 
-        supabase.from("fees").select("amount, payment_date").eq("madrasa_id", profile.madrasa_id),
+        getUnifiedFeePayments(profile.madrasa_id),
         supabase.from("donations").select("id, amount, donation_date, receipt_no, notes").eq("madrasa_id", profile.madrasa_id),
         supabase.from("expenses").select("amount, expense_date, description").eq("madrasa_id", profile.madrasa_id),
         supabase.from("bazar_expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
@@ -134,7 +133,6 @@ export default async function DashboardPage() {
         getStaffMetadataFull(),
         getMadrasaMetadata(profile.madrasa_id),
         getFunds(),
-        getFeeMetadata(profile.madrasa_id),
       ]);
 
       earlyWarningData = alerts;
@@ -149,6 +147,7 @@ export default async function DashboardPage() {
       todayAbsent = absentCount || 0;
 
 
+      const feesData=feePayments.filter(f=>f.status==='COMPLETED').map(p=>({...p,amount:p.total_amount_received}));
       const feesSum = (feesData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       const validDonations = (donationsData || []).filter((d: any) => !isVoidDonation(d));
       const donationsSum = validDonations.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
@@ -187,14 +186,6 @@ export default async function DashboardPage() {
       todayExpense = todayExpensesSum + todayBazarSum;
 
       // Sets to track IDs, receipt numbers, and transaction IDs to strictly avoid double counting
-      const trackedFeeKeys = new Set<string>();
-      (feesData || []).forEach((f: any) => {
-        if (f.id) trackedFeeKeys.add(f.id);
-        if (f.receipt_no) trackedFeeKeys.add(f.receipt_no);
-        const rMatch = f.notes?.match(/\[(?:রিসিট|অনলাইন পেমেন্ট):\s*([^\]|]+)/)?.[1];
-        if (rMatch) trackedFeeKeys.add(rMatch.trim());
-      });
-
       const trackedDonationKeys = new Set<string>();
       validDonations.forEach((d: any) => {
         if (d.id) trackedDonationKeys.add(d.id);
@@ -220,32 +211,6 @@ export default async function DashboardPage() {
 
       // Include all Madrasa Metadata Live Collections ONLY if not already tracked in DB tables
       const meta = madrasaMeta || {};
-
-      // 1. Fee management payments from relational tables (with metadata fallback)
-      const feePaymentsList = (feeMetaData?.payments && feeMetaData.payments.length > 0)
-        ? feeMetaData.payments
-        : (meta.payments || []);
-
-      feePaymentsList.forEach((p: any) => {
-        if (
-          (p.status === "COMPLETED" || !p.status || p.status === "SUCCESS") &&
-          p.status !== "REVERSED" &&
-          p.status !== "VOID" &&
-          !trackedFeeKeys.has(p.id) &&
-          !trackedFeeKeys.has(p.db_fee_id) &&
-          !trackedFeeKeys.has(p.receipt_no)
-        ) {
-          const amt = Number(p.total_amount_received || 0);
-          const dt = p.payment_date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
-          if (amt > 0) {
-            totalIncome += amt;
-            addMonthly(dt, amt, 'income');
-            if (dt === today) {
-              todayIncome += amt;
-            }
-          }
-        }
-      });
 
       // 2. Mahfil Receipt Books & Direct Transactions (untracked)
       const mahfils = meta.mahfils || [];

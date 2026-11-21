@@ -49,14 +49,7 @@ export default function MeritListClient({
     setLoading(true);
     const data = await getStudentReportCard(examId, classId || undefined);
     
-    // Sort by percentage descending, then total marks, then total max
-    const sortedData = data.sort((a, b) => {
-      if (b.percentage !== a.percentage) {
-        return Number(b.percentage) - Number(a.percentage);
-      }
-      return Number(b.totalObtained) - Number(a.totalObtained);
-    });
-
+    const sortedData = data.filter(s=>s.merit_position != null).sort((a,b)=>a.merit_position! - b.merit_position!);
     setResults(sortedData);
     setLoading(false);
   };
@@ -66,7 +59,7 @@ export default function MeritListClient({
   };
   
   const selectedClassName = classes.find(c => c.id === classId)?.name || '';
-  const filteredResults = results.slice(0, topCount);
+  const filteredResults = results.filter(s=>s.merit_position <= topCount);
 
   return (
     <div className="space-y-6">
@@ -150,7 +143,7 @@ export default function MeritListClient({
             </p>
           ) : (
             <p className="text-slate-500 font-semibold text-xs print:text-[10px] mt-1">
-              (সকল জামাত)
+              (প্রতিটি জামাতের নিজস্ব মেধাক্রম)
             </p>
           )}
         </div>
@@ -193,9 +186,9 @@ export default function MeritListClient({
               </thead>
               <tbody className="divide-y divide-slate-300 text-slate-800">
                 {filteredResults.map((student, index) => {
-                  const isFirst = index === 0;
-                  const isSecond = index === 1;
-                  const isThird = index === 2;
+                  const isFirst = student.merit_position === 1;
+                  const isSecond = student.merit_position === 2;
+                  const isThird = student.merit_position === 3;
                   
                   let positionStyle = "text-slate-900";
                   if (isFirst) positionStyle = "text-amber-600 font-extrabold";
@@ -203,20 +196,13 @@ export default function MeritListClient({
                   else if (isThird) positionStyle = "text-amber-800 font-extrabold";
 
                   const isFailed = student.is_failed || student.grade?.includes('রাসিব');
-                  const gpaVal = isFailed ? '০.০০' :
-                    student.percentage >= 80 ? '৫.০০' :
-                    student.percentage >= 70 ? '৪.০০' :
-                    student.percentage >= 60 ? '৩.৫০' :
-                    student.percentage >= 50 ? '৩.০০' :
-                    student.percentage >= 40 ? '২.০০' :
-                    student.percentage >= 33 ? '১.০০' : '০.০০';
-                  
+                  const gpaVal = toBanglaNumber(student.gpa);
                   return (
                     <tr key={student.id} className="hover:bg-slate-50/70 transition print:hover:bg-transparent print:break-inside-avoid">
                       <td className={`px-2 py-1.5 print:px-1.5 print:py-1 text-center font-bold ${positionStyle} border border-slate-300 print:border-slate-500`}>
                         <div className="flex items-center justify-center space-x-1">
-                          {index < 3 && <Trophy className="w-3.5 h-3.5 text-amber-500 print:hidden" />}
-                          <span>{toBanglaNumber(index + 1)}</span>
+                          {student.merit_position <= 3 && <Trophy className="w-3.5 h-3.5 text-amber-500 print:hidden" />}
+                          <span>{toBanglaNumber(student.merit_position)}</span>
                         </div>
                       </td>
                       <td className="px-2 py-1.5 print:px-1.5 print:py-1 font-bold text-slate-900 text-left border border-slate-300 print:border-slate-500">
@@ -244,12 +230,7 @@ export default function MeritListClient({
                       </td>
                       <td className="px-2 py-1.5 print:px-1.5 print:py-1 text-center border border-slate-300 print:border-slate-500">
                         <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] print:text-[10px] print:p-0 print:border-none print:text-black ${
-                          isFailed ? 'bg-red-100 text-red-800' :
-                          student.percentage >= 80 ? 'bg-emerald-100 text-emerald-800' :
-                          student.percentage >= 60 ? 'bg-blue-100 text-blue-800' :
-                          student.percentage >= 45 ? 'bg-amber-100 text-amber-800' :
-                          student.percentage >= 33 ? 'bg-slate-100 text-slate-800' :
-                          'bg-red-100 text-red-800'
+                          student.badgeClass || 'bg-slate-100 text-slate-800'
                         }`}>
                           {student.grade}
                         </span>

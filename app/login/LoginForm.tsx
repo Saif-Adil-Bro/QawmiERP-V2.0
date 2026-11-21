@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Eye, EyeOff, KeyRound, User, Sparkles, Check } from "lucide-react";
 import Link from "next/link";
@@ -24,23 +23,11 @@ export default function LoginForm() {
   const [rememberMe, setRememberMe] = useState(true);
   const [syncProgress, setSyncProgress] = useState<number>(0);
   const [syncLabel, setSyncLabel] = useState<string>("");
-  const router = useRouter();
 
-  // On mount: check if client already has an active session (or offline saved session), and restore saved identifier
+  // The server already checked the registered session. A local provider token
+  // alone must not bounce a revoked user back to a protected page.
   useEffect(() => {
     (async () => {
-      try {
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          const saved = await getOfflineAuthSession();
-          window.location.href = saved?.redirectUrl || "/dashboard";
-          return;
-        }
-      } catch (sessionCheckErr) {
-        console.warn("Client session check warning:", sessionCheckErr);
-      }
-
       // Offline bypass: if offline and valid portal session is saved in @capacitor/preferences, load portal immediately
       try {
         const online = await checkIsOnline();
@@ -173,9 +160,9 @@ export default function LoginForm() {
 
       // 2.5 Persist auth session in @capacitor/preferences for offline app launch & trigger initialFullSync
       const targetUrl = loginData.redirectUrl || "/dashboard";
-      const userRole = loginData.user?.role || loginData.session?.user?.user_metadata?.role || "";
+      const userRole = loginData.role || "";
       const madrasaId =
-        loginData.user?.madrasa_id || loginData.session?.user?.user_metadata?.madrasa_id || "";
+        loginData.madrasaId || "";
       const userId = loginData.user?.id || loginData.session?.user?.id || "";
 
       if (loginData.session?.access_token && userId) {
@@ -196,7 +183,6 @@ export default function LoginForm() {
           setSyncProgress(10);
           setSyncLabel("অফলাইন ডেটা ডাউনলোড হচ্ছে...");
           await initialFullSync(portalType, {
-            accessToken: loginData.session.access_token,
             onProgress: (pct, label) => {
               setSyncProgress(pct);
               setSyncLabel(label);

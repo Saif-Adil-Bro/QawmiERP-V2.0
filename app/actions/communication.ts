@@ -32,11 +32,14 @@ export async function addNotice(formData: FormData) {
   const content = formData.get("content") as string;
   const target_audience = formData.get("target_audience") as string;
 
+  const class_id = String(formData.get('class_id') || '') || null;
+  if (!['All','Teachers','Students'].includes(target_audience)) throw new Error('প্রাপক নির্বাচন করুন।');
+  if (class_id && !(await supabase.from('classes').select('id').eq('madrasa_id',finalMadrasaId).eq('id',class_id).maybeSingle()).data) throw new Error('অবৈধ জামাত।');
   const { error } = await supabase.from("notices").insert({
     madrasa_id: finalMadrasaId,
     title,
     content,
-    target_audience,
+    target_audience, class_id,
   });
 
   if (error) {
@@ -44,6 +47,8 @@ export async function addNotice(formData: FormData) {
   }
 
   revalidatePath("/dashboard/communication/notices");
+  revalidatePath("/portal", "layout");
+  revalidatePath("/teacher-portal", "layout");
 }
 
 export async function deleteNotice(id: string) {
@@ -55,13 +60,15 @@ export async function deleteNotice(id: string) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("notices").delete().eq("id", id);
+  const { error } = await supabase.from("notices").delete().eq("madrasa_id",await getAuthMadrasaId()).eq("id", id);
   
   if (error) {
     throw new Error(error.message);
   }
 
   revalidatePath("/dashboard/communication/notices");
+  revalidatePath("/portal", "layout");
+  revalidatePath("/teacher-portal", "layout");
 }
 
 export async function getServerOutboundIP(): Promise<string> {

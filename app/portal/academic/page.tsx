@@ -1,3 +1,4 @@
+import {childLogs} from '@/lib/portal/queries';
 import {
   BookOpen,
   Award,
@@ -34,20 +35,7 @@ export default async function ParentPortalAcademic(props: {
 
   const activeTab = params.tab || "hifz";
 
-  // Fetch Hifz Logs via adminClient to avoid RLS drop
-  const { data: hifzLogs } = await adminClient
-    .from("hifz_logs")
-    .select("*, teachers(first_name, last_name)")
-    .eq("student_id", child.id)
-    .order("log_date", { ascending: false });
-
-  // Fetch Kitab Logs via adminClient
-  const { data: kitabLogs } = await adminClient
-    .from("kitab_logs")
-    .select("*, teachers(first_name, last_name)")
-    .eq("student_id", child.id)
-    .order("log_date", { ascending: false });
-
+  const [hifzLogs,kitabLogs] = await Promise.all([childLogs(adminClient,portalData.madrasaId,'hifz_logs',[child.id]),childLogs(adminClient,portalData.madrasaId,'kitab_logs',[child.id])]);
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -153,7 +141,7 @@ export default async function ParentPortalAcademic(props: {
 
                     <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
                       <Star className="w-3.5 h-3.5 fill-current text-amber-500" />
-                      <span>{log.performance_rating || log.performance || "মুমতাজ"}</span>
+                      <span>{log.performance_rating || log.performance || "—"}</span>
                     </span>
                   </div>
 
@@ -174,7 +162,7 @@ export default async function ParentPortalAcademic(props: {
                         {log.saboki_para ? `পারা ${toBanglaNumber(log.saboki_para)}` : log.sabqi || "-"}
                       </span>
                       <span className="text-[11px] text-slate-600 block truncate">
-                        {log.saboki_page ? `পৃষ্ঠা ${toBanglaNumber(log.saboki_page)}` : "চলমান সবকি"}
+                        {log.saboki_page ? `পৃষ্ঠা ${toBanglaNumber(log.saboki_page)}` : "—"}
                       </span>
                     </div>
 
@@ -184,7 +172,7 @@ export default async function ParentPortalAcademic(props: {
                         {log.amukhta_para ? `পারা ${toBanglaNumber(log.amukhta_para)}` : log.manzil || "-"}
                       </span>
                       <span className="text-[11px] text-slate-600 block truncate">
-                        {log.amukhta_page ? `পৃষ্ঠা ${toBanglaNumber(log.amukhta_page)}` : "পুনরাবৃত্তি"}
+                        {log.amukhta_page ? `পৃষ্ঠা ${toBanglaNumber(log.amukhta_page)}` : "—"}
                       </span>
                     </div>
                   </div>
@@ -234,12 +222,12 @@ export default async function ParentPortalAcademic(props: {
                       })}
                     </span>
                     <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
-                      {log.performance_rating || "নিয়মিত"}
+                      {log.performance_rating || "—"}
                     </span>
                   </div>
 
                   <div className="space-y-1 text-sm text-slate-800">
-                    <p><strong>কিতাবের নাম:</strong> {log.kitab_name || log.subject_name || "দরসি কিতাব"}</p>
+                    <p><strong>কিতাবের নাম:</strong> {log.kitab_name || log.subject_name || "—"}</p>
                     <p className="text-xs text-slate-600"><strong>পঠিত অংশ / পৃষ্ঠা:</strong> {log.page_from ? `পৃষ্ঠা ${toBanglaNumber(log.page_from)} হতে ${toBanglaNumber(log.page_to || log.page_from)}` : "-"}</p>
                   </div>
 

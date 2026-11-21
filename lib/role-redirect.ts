@@ -11,27 +11,7 @@ export function getPortalRedirectUrl(
     .filter(Boolean)
     .map((r) => String(r).toLowerCase().trim());
 
-  // 1. Administrative / Institutional Staff Roles -> Full Main Dashboard
-  const isAdminOrStaff = allRoles.some((r) =>
-    [
-      "super_admin",
-      "admin",
-      "muhtamim",
-      "naib_muhtamim",
-      "education_secretary",
-      "exam_manager",
-      "accountant",
-      "hostel_manager",
-      "library_manager",
-      "attendance_manager",
-      "hr_manager",
-    ].includes(r)
-  );
-
-  if (isAdminOrStaff) {
-    return "/dashboard";
-  }
-
+  // A portal grant cannot widen access to tenant-wide tables on a shared/multi-role account.
   // 2. Parent & Student Roles -> Parent Portal (/portal)
   const isParentOrStudent = allRoles.some((r) =>
     ["parent", "guardian", "student", "guardian_student"].includes(r)

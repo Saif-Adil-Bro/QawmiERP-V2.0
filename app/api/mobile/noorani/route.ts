@@ -9,7 +9,6 @@ export async function GET(req: NextRequest) {
   const auth = await authenticateMobileRequest(req, {
     module: "hifz",
     requireWrite: false,
-    allowPortalRoles: true,
   });
   if (!auth.ok) return auth.response;
 

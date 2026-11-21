@@ -1,26 +1,27 @@
-import type { CapacitorConfig } from '@capacitor/cli';
+import type { CapacitorConfig } from "@capacitor/cli";
 
-const serverUrl =
-  process.env.CAPACITOR_SERVER_URL?.trim() ||
-  process.env.NEXT_PUBLIC_APP_URL?.trim();
+import { capacitorServerUrl } from "./scripts/capacitor-server-url.cjs";
+
+const serverUrl = capacitorServerUrl();
 
 const config: CapacitorConfig = {
-  appId: 'com.qawmierp.app',
-  appName: 'QawmiERP',
-  webDir: 'out',
+  appId: "com.qawmierp.app",
+  appName: "QawmiERP",
+  webDir: "out",
   server: {
-    androidScheme: 'https',
+    androidScheme: "https",
     cleartext: true,
-    errorPath: 'offline.html',
-    ...(serverUrl && !serverUrl.includes('your-domain.com')
-      ? { url: serverUrl }
-      : {}),
+    // A main-frame native error navigates to the *local* origin, not the failed URL.
+    errorPath: "native-offline.html",
+    // Android also uses server.url as a WebView allowed-origin rule (no path).
+    ...(serverUrl ? { url: serverUrl.origin } : {}),
+    ...(serverUrl && serverUrl.pathname !== "/" ? { appStartPath: serverUrl.pathname } : {}),
   },
   plugins: {
     StatusBar: {
       overlaysWebView: false,
-      style: 'DARK',
-      backgroundColor: '#0f172a',
+      style: "DARK",
+      backgroundColor: "#0f172a",
     },
   },
 };

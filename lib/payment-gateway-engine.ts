@@ -8,7 +8,8 @@
  * If credentials are missing, placeholder, or invalid, returns explicit errors and aborts payment.
  */
 
-import { PaymentGatewayConfig, PaymentGatewayProvider } from "./payment-gateway";
+import { createHash } from "node:crypto";
+import type { PaymentGatewayConfig, PaymentGatewayProvider } from "./payment-gateway";
 
 export interface GatewaySessionRequest {
   tran_id: string;
@@ -51,7 +52,44 @@ export interface GatewayValidationResponse {
   bank_tran_id?: string;
   status: "VALID" | "FAILED" | "CANCELLED" | "UNATTEMPTED";
   error_message?: string;
-  raw_data?: any;
+  unavailable?: boolean;
+  currency?: string;
+}
+
+// Reject partial parses and sub-poisha amounts; do not round a different charge to a match.
+export function bdtPoisha(value: unknown): number | null {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  const m = /^(\d{1,10})(?:\.(\d{1,2}))?$/.exec(String(value).trim());
+  return m ? Number(m[1]) * 100 + Number((m[2] || "").padEnd(2, "0")) : null;
+}
+
+export function matchesVerifiedPayment(v: GatewayValidationResponse, reference: string, expected: number, validationId: string) {
+  const due = bdtPoisha(expected);
+  return !!reference && !!validationId && v.is_valid && v.status === "VALID" && v.tran_id === reference &&
+    v.val_id === validationId && v.currency === "BDT" && due !== null && due > 0 && bdtPoisha(v.amount) === due;
+}
+
+// Bind receipts to the merchant + mode that actually opened checkout, not a mutable
+// active-provider setting. Rotating the password of the same store preserves the binding.
+export function sslCommerzAccount(config?: PaymentGatewayConfig) {
+  const ssl = config?.sslcommerz;
+  const id = typeof ssl?.store_id === "string" ? ssl.store_id.trim() : "";
+  const password = typeof ssl?.store_passwd === "string" ? ssl.store_passwd.trim() : "";
+  if (!config || !ssl || !id || !password || id === "testbox_madrasa" || password === "testbox_secret" ||
+      !["SANDBOX", "LIVE"].includes(config.environment) || ssl.is_live !== (config.environment === "LIVE")) return null;
+  return {
+    scope: `${config.environment}:${createHash("sha256").update(id).digest("hex")}`,
+    origin: ssl.is_live ? "https://securepay.sslcommerz.com" : "https://sandbox.sslcommerz.com",
+  };
+}
+
+// Never send a staging callback to a hardcoded production site or to a request Host.
+export function paymentCallbackOrigin(value = process.env.NEXT_PUBLIC_APP_URL) {
+  try {
+    const u = new URL(value || "");
+    return u.protocol === "https:" && !u.username && !u.password && !u.search && !u.hash &&
+      u.pathname === "/" && u.hostname !== "your-domain.com" ? u.origin : null;
+  } catch { return null; }
 }
 
 /**
@@ -70,20 +108,10 @@ export function validateGatewayCredentials(
 
   switch (provider) {
     case "SSLCOMMERZ": {
-      const { store_id, store_passwd } = config.sslcommerz || {};
-      if (!store_id || store_id.trim() === "") {
-        return {
-          isValid: false,
-          error: "SSLCommerz Store ID কনফিগার করা নেই। অনুগ্রহ করে অ্যাডমিন প্যানেল থেকে সঠিক Store ID প্রদান করুন।",
-        };
-      }
-      if (!store_passwd || store_passwd.trim() === "") {
-        return {
-          isValid: false,
-          error: "SSLCommerz Store Password কনফিগার করা নেই। অনুগ্রহ করে সঠিক পাসওয়ার্ড প্রদান করুন।",
-        };
-      }
-      return { isValid: true };
+      return sslCommerzAccount(config) ? { isValid: true } : {
+        isValid: false,
+        error: "SSLCommerz-এর নিজস্ব Store ID ও password দিন এবং Sandbox/Live মোড মিলিয়ে সেভ করুন।",
+      };
     }
 
     case "BKASH_CHECKOUT": {
@@ -166,10 +194,7 @@ export async function createRealGatewaySession(
     // Provider A: SSLCOMMERZ
     // -------------------------------------------------------------
     if (provider === "SSLCOMMERZ") {
-      const isLive = config.environment === "LIVE" && config.sslcommerz.is_live;
-      const endpoint = isLive
-        ? "https://securepay.sslcommerz.com/gwprocess/v4/api.php"
-        : "https://sandbox.sslcommerz.com/gwprocess/v4/api.php";
+      const endpoint = `${sslCommerzAccount(config)!.origin}/gwprocess/v4/api.php`;
 
       const formData = new URLSearchParams();
       formData.append("store_id", config.sslcommerz.store_id.trim());
@@ -209,6 +234,8 @@ export async function createRealGatewaySession(
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: formData.toString(),
+        redirect: "error",
+        signal: AbortSignal.timeout(15000),
         cache: "no-store",
       });
 
@@ -530,56 +557,56 @@ export async function createRealGatewaySession(
  */
 export async function validateSSLCommerzTransaction(
   val_id: string,
-  config: PaymentGatewayConfig
+  config: PaymentGatewayConfig,
 ): Promise<GatewayValidationResponse> {
+  const failure = (unavailable = false): GatewayValidationResponse => ({
+    is_valid: false,
+    status: "FAILED",
+    tran_id: "",
+    amount: 0,
+    unavailable,
+  });
+  const account = sslCommerzAccount(config);
+  if (!account || !val_id) return failure();
   try {
-    const isLive = config.environment === "LIVE" && config.sslcommerz.is_live;
-    const endpoint = isLive
-      ? "https://securepay.sslcommerz.com/validator/api/validationserverAPI.php"
-      : "https://sandbox.sslcommerz.com/validator/api/validationserverAPI.php";
-
     const query = new URLSearchParams({
       val_id,
       store_id: config.sslcommerz.store_id.trim(),
       store_passwd: config.sslcommerz.store_passwd.trim(),
       format: "json",
     });
-
-    const res = await fetch(`${endpoint}?${query.toString()}`, {
+    // The query contains merchant credentials. Never follow redirects, log the URL
+    // or return a transport exception to a browser/IPN client.
+    const res = await fetch(`${account.origin}/validator/api/validationserverAPI.php?${query}`, {
       method: "GET",
       cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(15000),
     });
-
-    const data = await res.json().catch(() => null);
-
-    if (data && (data.status === "VALID" || data.status === "VALIDATED")) {
-      return {
-        is_valid: true,
-        status: "VALID",
-        tran_id: data.tran_id,
-        val_id: data.val_id,
-        amount: parseFloat(data.amount || "0"),
-        card_type: data.card_type,
-        bank_tran_id: data.bank_tran_id,
-        raw_data: data,
-      };
-    } else {
-      return {
-        is_valid: false,
-        status: "FAILED",
-        tran_id: data?.tran_id || "",
-        amount: 0,
-        error_message: data?.error || "পেমেন্ট ভ্যালিডেশন ব্যর্থ হয়েছে। লেনদেনটি বৈধ নয়।",
-        raw_data: data,
-      };
-    }
-  } catch (err: any) {
+    if (!res.ok) return failure(res.status >= 500 || res.status === 429 || res.status === 408);
+    const data = await res.json();
+    const poisha = bdtPoisha(data?.amount);
+    if (
+      !data ||
+      !["VALID", "VALIDATED"].includes(data.status) ||
+      typeof data.tran_id !== "string" ||
+      !data.tran_id ||
+      data.val_id !== val_id ||
+      data.currency !== "BDT" ||
+      poisha === null ||
+      poisha === 0
+    )
+      return failure();
     return {
-      is_valid: false,
-      status: "FAILED",
-      tran_id: "",
-      amount: 0,
-      error_message: `ভ্যালিডেশন সার্ভার ত্রুটি: ${err.message}`,
+      is_valid: true,
+      status: "VALID",
+      tran_id: data.tran_id,
+      val_id: data.val_id,
+      amount: poisha / 100,
+      bank_tran_id: typeof data.bank_tran_id === "string" ? data.bank_tran_id.trim() || undefined : undefined,
+      currency: data.currency,
     };
+  } catch {
+    return failure(true);
   }
 }

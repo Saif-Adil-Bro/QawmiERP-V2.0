@@ -68,8 +68,8 @@ export default function StudentDirectoryClient({
         address.toLowerCase().includes(q) ||
         String(s.roll_number || "").includes(q) ||
         String(s.student_id || "").toLowerCase().includes(q) ||
-        resolveStudentIdBn(s, students).includes(q) ||
-        getStudentIdNumber(s, students).toLowerCase().includes(q)
+        toBanglaNumber(s.student_id_formatted || s.student_id || "—").includes(q) ||
+        String(s.student_id || "").toLowerCase().includes(q)
       );
     });
   }, [students, searchQuery]);
@@ -198,7 +198,7 @@ export default function StudentDirectoryClient({
                         {s.first_name} {s.last_name}
                       </h3>
                       <p className="text-xs text-slate-500 font-mono mt-0.5">
-                        রোল: <strong className="text-slate-800">{toBanglaNumber(s.roll_number || "-")}</strong> | আইডি: {resolveStudentIdBn(s, students)}
+                        রোল: <strong className="text-slate-800">{toBanglaNumber(s.roll_number || "-")}</strong> | আইডি: {toBanglaNumber(s.student_id_formatted || s.student_id || "—")}
                       </p>
                     </div>
                   </div>
@@ -212,7 +212,7 @@ export default function StudentDirectoryClient({
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1.5 text-xs text-slate-700">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500">জামাত:</span>
-                    <span className="font-semibold text-slate-900">{s.classes?.name || s.class_name || "হিফজ"}</span>
+                    <span className="font-semibold text-slate-900">{s.classes?.name || s.class_name || "—"}</span>
                   </div>
 
                   <div className="flex items-center justify-between">
@@ -402,7 +402,7 @@ export default function StudentDirectoryClient({
                       {selectedStudent.first_name} {selectedStudent.last_name}
                     </h3>
                     <div className="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/30 text-blue-200 border border-blue-400/40">
-                      আইডি: {resolveStudentIdBn(selectedStudent, students)}
+                      আইডি: {toBanglaNumber(selectedStudent.student_id_formatted || selectedStudent.student_id || "—")}
                     </div>
                     <div className="text-xs text-blue-200/90 pt-1 space-y-0.5 font-medium">
                       <div>জামাত: <strong>{selectedStudent.classes?.name || selectedStudent.class_name || "হিফজ"}</strong></div>

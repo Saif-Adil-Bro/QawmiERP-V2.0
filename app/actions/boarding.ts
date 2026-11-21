@@ -724,7 +724,7 @@ export async function syncBoardingBillsToAccounting(year: string, month: string,
       return { error: "এই মাসের জন্য কোনো বোর্ডিং রিপোর্ট পাওয়া যায়নি।" };
     }
 
-    const { getFeeMetadata, saveFeeMetadata } = await import("./fee-management");
+    const { getFeeMetadata, saveFeeMetadata } = await import("@/lib/fee-store");
     const meta = await getFeeMetadata(madrasaId);
 
     const feeTypes = meta.fee_types || [];
@@ -916,7 +916,7 @@ export async function addBoardingMealPayment(params: {
       console.warn("Error checking recent boarding duplicate payments:", recentErr);
     }
 
-    const { getFeeMetadata, saveFeeMetadata } = await import("./fee-management");
+    const { getFeeMetadata, saveFeeMetadata } = await import("@/lib/fee-store");
     const meta = await getFeeMetadata(finalMadrasaId);
 
     const now = new Date().toISOString();
@@ -1028,7 +1028,7 @@ export async function addBoardingMealPayment(params: {
     }
 
     // 2. Create fee_payments entry in relational database table & feeMetadata
-    const { generateNextReceiptNumber } = await import("./fee-management");
+    const { generateNextReceiptNumber } = await import("@/lib/fee-store");
     const receiptNo = await generateNextReceiptNumber(adminClient, finalMadrasaId, getDhakaYear());
     const newPayment: any = {
       id: `pay_bdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,

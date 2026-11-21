@@ -14,16 +14,18 @@ import {
   Plus,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import {useRouter} from "next/navigation";
 import { submitStudentLeaveRequest } from "@/app/actions/leaves";
 
 interface Props {
-  students: any[];
+  selectedStudentId:string;students: any[];
   userProfile: any;
   initialApplications?: any[];
 }
 
-export default function LeaveClient({ students, userProfile, initialApplications = [] }: Props) {
-  const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id || "");
+export default function LeaveClient({ students,selectedStudentId, userProfile, initialApplications = [] }: Props) {
+  const router=useRouter();
+  const setSelectedStudentId=(id:string)=>router.push(`/portal/leave?student_id=${encodeURIComponent(id)}`);
   const [startDate, setStartDate] = useState(toDhakaDateString());
   const [endDate, setEndDate] = useState(toDhakaDateString());
   const [reason, setReason] = useState("");
@@ -214,8 +216,8 @@ export default function LeaveClient({ students, userProfile, initialApplications
 
           <div className="space-y-3">
             {applications.map((app) => {
-              const isApproved = app.status === "Approved" || app.status === "RESOLVED";
-              const isRejected = app.status === "Rejected" || app.status === "CLOSED";
+              const isApproved = app.status === "APPROVED" || app.status === "Approved" || app.status === "RESOLVED";
+              const isRejected = app.status === "REJECTED" || app.status === "Rejected" || app.status === "CLOSED";
               const statusText = isApproved
                 ? "অনুমোদিত (Approved)"
                 : isRejected

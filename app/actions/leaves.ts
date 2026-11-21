@@ -1,5 +1,7 @@
 "use server";
 
+import {webIdentity,hasRole,webTeacher,linkedStudents,teacherStudents} from '@/lib/portal/identity';
+import {validDate,studentRoles,isLeaveFeedback} from '@/lib/portal/rules';
 import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
@@ -110,7 +112,22 @@ function calculateDays(startDate: string, endDate: string): number {
 /**
  * Fetch all leave data (both student and teacher applications)
  */
+function validLeaveRange(start:string,end:string) {return validDate(start) && validDate(end) && start<=end && calculateDays(start,end)<=180;}
+async function syncApprovedAttendance(db:any,tenant:string,kind:'student'|'teacher',person:string,request:string,status:string,start:string,end:string) {
+  const table=kind==='student'?'attendance':'teacher_attendance', key=`${kind}_id`;
+  // Never remove a holiday, an independent request or a manually posted mark.
+  let clean=db.from(table).delete().eq('madrasa_id',tenant).eq(key,person).eq('leave_request_id',request).eq('status','Leave');
+  if(status==='APPROVED') clean=clean.or(`date.lt.${start},date.gt.${end}`);
+  const {error}=await clean; if(error) throw new Error(error.message);
+  const dates=calculateDatesInRange(start,end).filter(date=>date<=toDhakaDateString());
+  if(status==='APPROVED' && dates.length){
+    const records=dates.map(date=>({madrasa_id:tenant,[key]:person,date,status:'Leave',leave_request_id:request}));
+    const {error}=await db.from(table).upsert(records,{onConflict:`${key},date`,ignoreDuplicates:true});if(error) throw new Error(error.message);
+  }
+}
+
 export async function getAllLeaveData() {
+  if (!(await writeGuard('leaves')).allowed || await webTeacher()) return {error:'ছুটির তালিকা দেখার অনুমতি নেই।'};
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
@@ -162,17 +179,11 @@ export async function getAllLeaveData() {
     const studentsMap = new Map<string, any>(studentsList.map((s: any) => [s.id, s]));
 
     // Fetch all feedbacks / leave requests from parent communication log
-    const allParentFeedbacks: ParentFeedbackItem[] = await getParentFeedbacks();
+    const allParentFeedbacks: ParentFeedbackItem[] = await getParentFeedbacks({leaveOnly:true});
     const existingFeedbackIds = new Set(studentLeaves.map((sl) => sl.feedback_id).filter(Boolean));
 
     // Filter feedback entries that are leave applications
-    const leaveFeedbacks = allParentFeedbacks.filter((fb) => {
-      const isLeaveCategory = fb.category === "ছুটির আবেদন";
-      const isLeaveAction = fb.action_type === "GENERAL" || (fb.action_type as string) === "LEAVE_APPLICATION";
-      const subjectHasLeave = Boolean(fb.subject && fb.subject.includes("ছুটি"));
-      const descHasLeave = Boolean(fb.description && fb.description.includes("ছুটি"));
-      return isLeaveCategory || isLeaveAction || subjectHasLeave || descHasLeave;
-    });
+    const leaveFeedbacks = allParentFeedbacks.filter(isLeaveFeedback);
 
     leaveFeedbacks.forEach((fb: ParentFeedbackItem) => {
       if (!existingFeedbackIds.has(fb.id)) {
@@ -187,24 +198,7 @@ export async function getAllLeaveData() {
           endDate = dateMatch[2];
         }
 
-        // Deduplicate against already-present studentLeaves (e.g. from earlier dual-submission)
-        const fbTime = fb.created_at ? new Date(fb.created_at).getTime() : 0;
-        const isDuplicateLeave = studentLeaves.some((sl) => {
-          if (fb.student_id && sl.student_id !== fb.student_id) return false;
-          if (sl.start_date !== startDate || sl.end_date !== endDate) return false;
-          if (!fbTime || !sl.created_at) return false;
-          return Math.abs(new Date(sl.created_at).getTime() - fbTime) < 60000;
-        });
-        if (isDuplicateLeave) return;
-
-        // Try to match student info from student list if missing or partial
-        let matchedStudent = fb.student_id ? studentsMap.get(fb.student_id) : undefined;
-        if (!matchedStudent && fb.student_name) {
-          matchedStudent = studentsList.find((s: any) =>
-            `${s.first_name || ""} ${s.last_name || ""}`.trim().toLowerCase() === fb.student_name?.trim().toLowerCase()
-          );
-        }
-
+        const matchedStudent=fb.student_id ? studentsMap.get(fb.student_id) : undefined;
         const resolvedStudentName =
           fb.student_name ||
           (matchedStudent ? `${matchedStudent.first_name || ""} ${matchedStudent.last_name || ""}`.trim() : "শিক্ষার্থী");
@@ -274,7 +268,7 @@ export async function getAllLeaveData() {
       const adminClient = await createAdminClient();
       const { data: rawTeachers } = await adminClient
         .from("teachers")
-        .select("id, first_name, last_name, designation, phone")
+        .select("id, first_name, last_name, designation, phone").eq("madrasa_id",madrasaId)
         .order("first_name");
       if (rawTeachers && rawTeachers.length > 0) {
         teachersData = rawTeachers;
@@ -308,16 +302,13 @@ export async function submitStudentLeaveRequest(payload: {
   source?: "PORTAL" | "ADMIN" | "TEACHER";
 }) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অনুমতি নেই।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
-    if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
-
-    const allStudents = await getStudents();
-    const student = (allStudents || []).find((s: any) => s.id === payload.studentId);
-
+    const i=await webIdentity(); if(!i) return {error:'অনুমতি নেই।'};
+    if (!payload.reason?.trim() || !validLeaveRange(payload.startDate,payload.endDate)) return {error:'ছুটির কারণ ও তারিখ যাচাই করুন।'};
+    const teacher=await webTeacher();
+    const source=hasRole(i,studentRoles) ? 'PORTAL' : teacher ? 'TEACHER' : 'ADMIN';
+    if(source==='ADMIN' && !(await writeGuard('leaves')).allowed) return {error:'অনুমতি নেই।'};
+    const madrasaId=i.tenant;
+    const student=source==='PORTAL' ? (await linkedStudents(i,payload.studentId)).child : teacher ? (await teacherStudents(i,teacher.scope)).find(s=>s.id===payload.studentId) : (await i.db.from('students').select('*').eq('madrasa_id',madrasaId).eq('id',payload.studentId).maybeSingle()).data;
     if (!student) return { error: "শিক্ষার্থী পাওয়া যায়নি।" };
 
     const studentName = `${student.first_name || ""} ${student.last_name || ""}`.trim() || student.name || "শিক্ষার্থী";
@@ -346,15 +337,17 @@ export async function submitStudentLeaveRequest(payload: {
         guardian_phone: guardianPhone,
         preferred_date: payload.startDate,
       });
+      if (fbRes?.error) return {error:fbRes.error};
       if (fbRes?.id) {
         syncedFeedbackId = fbRes.id;
       }
     } catch (fbErr) {
-      console.warn("Could not sync to parent feedback log:", fbErr);
+      throw fbErr;
     }
 
+    if (!syncedFeedbackId) return {error:'আবেদন সংরক্ষিত হয়নি।'};
     const newApp: StudentLeaveApplication = {
-      id: `std_leave_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      id: `portal_fb_${syncedFeedbackId}`,
       feedback_id: syncedFeedbackId || undefined,
       madrasa_id: madrasaId,
       student_id: student.id,
@@ -370,15 +363,11 @@ export async function submitStudentLeaveRequest(payload: {
       reason: payload.reason,
       status: "PENDING",
       created_at: new Date().toISOString(),
-      source: payload.source || "ADMIN",
+      source,
     };
 
-    const meta = await getMadrasaMetadata(madrasaId);
-    if (!meta.student_leave_applications) meta.student_leave_applications = [];
-    meta.student_leave_applications.unshift(newApp);
-
-    await saveMadrasaMetadata(madrasaId, meta);
-
+    // The feedback ID is the pending application's single persisted identity. On review
+    // it gets a canonical decision linked by this same ID; do not double-write on submit.
     revalidatePath("/dashboard/attendance");
     revalidatePath("/dashboard/attendance/leaves");
     revalidatePath("/dashboard/attendance/students");
@@ -409,6 +398,7 @@ export async function submitTeacherLeaveRequest(payload: {
   {
     const __authz = await writeGuard("leaves");
     if (!__authz.allowed) return __authz.fallback;
+    if (await webTeacher()) return {error:'প্রশাসনিক অনুমতি প্রয়োজন।'};
   }
 
   try {
@@ -422,9 +412,10 @@ export async function submitTeacherLeaveRequest(payload: {
     const { data: teacher } = await supabase
       .from("teachers")
       .select("id, first_name, last_name, designation, phone")
-      .eq("id", payload.teacherId)
+      .eq("madrasa_id",madrasaId).eq("id", payload.teacherId)
       .single();
 
+    if (!teacher || !validLeaveRange(payload.startDate,payload.endDate)) return {error:'শিক্ষক বা তারিখ সঠিক নয়।'};
     const teacherName = teacher ? `${teacher.first_name || ""} ${teacher.last_name || ""}`.trim() : "শিক্ষক";
     const totalDays = calculateDays(payload.startDate, payload.endDate);
 
@@ -450,7 +441,7 @@ export async function submitTeacherLeaveRequest(payload: {
     if (!meta.teacher_leave_applications) meta.teacher_leave_applications = [];
     meta.teacher_leave_applications.unshift(newApp);
 
-    await saveMadrasaMetadata(madrasaId, meta);
+    if (!await saveMadrasaMetadata(madrasaId, meta)) return {error:'পরিবর্তন সংরক্ষিত হয়নি।'};
 
     revalidatePath("/dashboard/attendance");
     revalidatePath("/dashboard/attendance/leaves");
@@ -483,6 +474,7 @@ export async function reviewStudentLeaveRequest(payload: {
   {
     const __authz = await writeGuard("leaves");
     if (!__authz.allowed) return __authz.fallback;
+    if (await webTeacher()) return {error:'প্রশাসনিক অনুমতি প্রয়োজন।'};
   }
 
   try {
@@ -503,9 +495,9 @@ export async function reviewStudentLeaveRequest(payload: {
     // Check if it was imported from feedback
     if (appIndex === -1 && payload.requestId.startsWith("portal_fb_")) {
       const fbId = payload.requestId.replace("portal_fb_", "");
-      const allParentFeedbacks = await getParentFeedbacks();
+      const allParentFeedbacks = await getParentFeedbacks({leaveOnly:true});
       const fb = allParentFeedbacks.find((f) => f.id === fbId);
-      if (fb) {
+      if (fb && isLeaveFeedback(fb)) {
         let sd = fb.preferred_date || (fb.created_at ? toDhakaDateStringFrom(fb.created_at) : toDhakaDateString());
         let ed = sd;
         const dateMatch = fb.description?.match(/(\d{4}-\d{2}-\d{2})\s*(?:হতে|থেকে|-|to)\s*(\d{4}-\d{2}-\d{2})/i);
@@ -544,9 +536,11 @@ export async function reviewStudentLeaveRequest(payload: {
 
     const effectiveStartDate = payload.startDate || app.approved_start_date || app.start_date;
     const effectiveEndDate = payload.endDate || app.approved_end_date || app.end_date;
+    if (!['APPROVED','REJECTED'].includes(payload.status) || !validLeaveRange(effectiveStartDate,effectiveEndDate)) return {error:'সিদ্ধান্ত বা তারিখ সঠিক নয়।'};
     const effectiveTotalDays = calculateDays(effectiveStartDate, effectiveEndDate);
     const nowStr = new Date().toISOString();
 
+    if(!app.student_id || !(await adminClient.from('students').select('id').eq('madrasa_id',madrasaId).eq('id',app.student_id).maybeSingle()).data) return {error:'শিক্ষার্থী সংযুক্ত নেই।'};
     app.status = payload.status;
     app.approved_start_date = effectiveStartDate;
     app.approved_end_date = effectiveEndDate;
@@ -557,7 +551,7 @@ export async function reviewStudentLeaveRequest(payload: {
 
     applications[appIndex] = app;
     meta.student_leave_applications = applications;
-    await saveMadrasaMetadata(madrasaId, meta);
+    if (!await saveMadrasaMetadata(madrasaId, meta)) return {error:'পরিবর্তন সংরক্ষিত হয়নি।'};
 
     // Sync with linked parent feedback entry if exists
     if (app.feedback_id) {
@@ -577,40 +571,7 @@ export async function reviewStudentLeaveRequest(payload: {
       }
     }
 
-    // AUTOMATIC ATTENDANCE SYNC
-    if (app.student_id) {
-      const datesToSync = calculateDatesInRange(effectiveStartDate, effectiveEndDate);
-
-      if (payload.status === "APPROVED") {
-        // Upsert 'Leave' status into attendance table for each day in range
-        const recordsToUpsert = datesToSync.map((d) => ({
-          madrasa_id: madrasaId,
-          student_id: app!.student_id,
-          date: d,
-          status: "Leave",
-        }));
-
-        const { error: upsertErr } = await adminClient
-          .from("attendance")
-          .upsert(recordsToUpsert, { onConflict: "student_id, date" });
-
-        if (upsertErr) {
-          console.error("Error auto-syncing student leave attendance:", upsertErr);
-        }
-      } else if (payload.status === "REJECTED") {
-        // If rejected, remove any auto-synced 'Leave' attendance for this student in this date range
-        const { error: delErr } = await adminClient
-          .from("attendance")
-          .delete()
-          .eq("student_id", app.student_id)
-          .eq("status", "Leave")
-          .in("date", datesToSync);
-
-        if (delErr) {
-          console.warn("Could not delete rejected leave attendance records:", delErr);
-        }
-      }
-    }
+    await syncApprovedAttendance(adminClient,madrasaId,'student',app.student_id,app.id,payload.status,effectiveStartDate,effectiveEndDate);
 
     revalidatePath("/dashboard/attendance");
     revalidatePath("/dashboard/attendance/leaves");
@@ -622,7 +583,7 @@ export async function reviewStudentLeaveRequest(payload: {
       success: true,
       application: app,
       message: payload.status === "APPROVED"
-        ? `ছুটি সফলভাবে অনুমোদন করা হয়েছে এবং ${effectiveTotalDays} দিনের হাজিরা 'ছুটি (Leave)' হিসেবে সংরক্ষিত হয়েছে।`
+        ? `ছুটি সফলভাবে অনুমোদন করা হয়েছে ।`
         : "ছুটির আবেদনটি বাতিল করা হয়েছে।",
     };
   } catch (err: any) {
@@ -650,6 +611,7 @@ export async function reviewTeacherLeaveRequest(payload: {
   {
     const __authz = await writeGuard("leaves");
     if (!__authz.allowed) return __authz.fallback;
+    if (await webTeacher()) return {error:'প্রশাসনিক অনুমতি প্রয়োজন।'};
   }
 
   try {
@@ -670,9 +632,11 @@ export async function reviewTeacherLeaveRequest(payload: {
     const app = applications[appIndex];
     const effectiveStartDate = payload.startDate || app.approved_start_date || app.start_date;
     const effectiveEndDate = payload.endDate || app.approved_end_date || app.end_date;
+    if (!['APPROVED','REJECTED'].includes(payload.status) || !validLeaveRange(effectiveStartDate,effectiveEndDate)) return {error:'সিদ্ধান্ত বা তারিখ সঠিক নয়।'};
     const effectiveTotalDays = calculateDays(effectiveStartDate, effectiveEndDate);
     const nowStr = new Date().toISOString();
 
+    if(!app.teacher_id || !(await adminClient.from('teachers').select('id').eq('madrasa_id',madrasaId).eq('id',app.teacher_id).maybeSingle()).data) return {error:'শিক্ষক সংযুক্ত নেই।'};
     app.status = payload.status;
     app.approved_start_date = effectiveStartDate;
     app.approved_end_date = effectiveEndDate;
@@ -683,36 +647,9 @@ export async function reviewTeacherLeaveRequest(payload: {
 
     applications[appIndex] = app;
     meta.teacher_leave_applications = applications;
-    await saveMadrasaMetadata(madrasaId, meta);
+    if (!await saveMadrasaMetadata(madrasaId, meta)) return {error:'পরিবর্তন সংরক্ষিত হয়নি।'};
 
-    // AUTOMATIC TEACHER ATTENDANCE SYNC
-    if (app.teacher_id) {
-      const datesToSync = calculateDatesInRange(effectiveStartDate, effectiveEndDate);
-
-      if (payload.status === "APPROVED") {
-        const recordsToUpsert = datesToSync.map((d) => ({
-          madrasa_id: madrasaId,
-          teacher_id: app.teacher_id,
-          date: d,
-          status: "Leave",
-        }));
-
-        const { error: upsertErr } = await adminClient
-          .from("teacher_attendance")
-          .upsert(recordsToUpsert, { onConflict: "teacher_id, date" });
-
-        if (upsertErr) {
-          console.error("Error auto-syncing teacher leave attendance:", upsertErr);
-        }
-      } else if (payload.status === "REJECTED") {
-        await adminClient
-          .from("teacher_attendance")
-          .delete()
-          .eq("teacher_id", app.teacher_id)
-          .eq("status", "Leave")
-          .in("date", datesToSync);
-      }
-    }
+    await syncApprovedAttendance(adminClient,madrasaId,'teacher',app.teacher_id,app.id,payload.status,effectiveStartDate,effectiveEndDate);
 
     revalidatePath("/dashboard/attendance");
     revalidatePath("/dashboard/attendance/leaves");
@@ -722,7 +659,7 @@ export async function reviewTeacherLeaveRequest(payload: {
       success: true,
       application: app,
       message: payload.status === "APPROVED"
-        ? `শিক্ষকের ছুটি সফলভাবে অনুমোদন করা হয়েছে এবং ${effectiveTotalDays} দিনের হাজিরা 'ছুটি (Leave)' হিসেবে সংরক্ষিত হয়েছে।`
+        ? `শিক্ষকের ছুটি সফলভাবে অনুমোদন করা হয়েছে ।`
         : "শিক্ষকের ছুটির আবেদনটি বাতিল করা হয়েছে।",
     };
   } catch (err: any) {
@@ -740,6 +677,7 @@ export async function deleteLeaveApplication(requestId: string, type: "STUDENT" 
   {
     const __authz = await writeGuard("leaves");
     if (!__authz.allowed) return __authz.fallback;
+    if (await webTeacher()) return {error:'প্রশাসনিক অনুমতি প্রয়োজন।'};
   }
 
   try {
@@ -756,14 +694,14 @@ export async function deleteLeaveApplication(requestId: string, type: "STUDENT" 
       let list: StudentLeaveApplication[] = meta.student_leave_applications || [];
       const itemToDelete = list.find((a: StudentLeaveApplication) => a.id === requestId);
       meta.student_leave_applications = list.filter((a: StudentLeaveApplication) => a.id !== requestId);
-      await saveMadrasaMetadata(madrasaId, meta);
+      if (!await saveMadrasaMetadata(madrasaId, meta)) return {error:'পরিবর্তন সংরক্ষিত হয়নি।'};
 
       const targetFeedbackId =
         itemToDelete?.feedback_id || (requestId.startsWith("portal_fb_") ? requestId.replace("portal_fb_", "") : undefined);
       if (targetFeedbackId) {
         try {
           const adminClient = await createAdminClient();
-          await adminClient.from("fee_audit_logs").delete().eq("id", targetFeedbackId);
+          await adminClient.from("fee_audit_logs").delete().eq("madrasa_id",madrasaId).like("action","PARENT_FEEDBACK%").eq("id", targetFeedbackId);
         } catch (delLogErr) {
           console.warn("Could not delete from fee_audit_logs:", delLogErr);
         }
@@ -771,7 +709,7 @@ export async function deleteLeaveApplication(requestId: string, type: "STUDENT" 
     } else {
       let list: TeacherLeaveApplication[] = meta.teacher_leave_applications || [];
       meta.teacher_leave_applications = list.filter((a: TeacherLeaveApplication) => a.id !== requestId);
-      await saveMadrasaMetadata(madrasaId, meta);
+      if (!await saveMadrasaMetadata(madrasaId, meta)) return {error:'পরিবর্তন সংরক্ষিত হয়নি।'};
     }
 
     revalidatePath("/dashboard/attendance/leaves");

@@ -1,4 +1,7 @@
 "use server";
+import { realAssignments, studentHomework, studentRoles } from '@/lib/portal/rules';
+import { webIdentity, hasRole, webTeacher, teacherStudents } from '@/lib/portal/identity';
+import { getPortalStudentData } from '@/lib/portal-data';
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
@@ -18,100 +21,6 @@ import { recordDailyClassAction } from "@/app/actions/syllabus";
 
 export type { AssignmentItem, AssignmentType, AssignmentTargetType };
 
-/**
- * Seed initial sample assignments if none exist (using real teacher names)
- */
-function getDefaultAssignmentsSeed(
-  madrasaId: string,
-  classes: any[],
-  teachers: any[] = [],
-  defaultTeacherName: string = "উস্তাদ"
-): AssignmentItem[] {
-  const today = toDhakaDateString();
-  const tomorrow = toDhakaDateString(new Date(Date.now() + 86400000));
-
-  const firstClass = classes[0] || { id: "c1", name: "হিফজুল কুরআন" };
-  const secondClass = classes[1] || { id: "c2", name: "মিযান জামাত" };
-
-  const firstTeacher = teachers[0]
-    ? `${teachers[0].first_name || ""} ${teachers[0].last_name || ""}`.trim()
-    : defaultTeacherName;
-  const secondTeacher = teachers[1]
-    ? `${teachers[1].first_name || ""} ${teachers[1].last_name || ""}`.trim()
-    : firstTeacher;
-
-  return [
-    {
-      id: "asg-seed-1",
-      madrasa_id: madrasaId,
-      title: "সূরা মুলক ১ হতে ১০ আয়াত শুদ্ধ তিলাওয়াত ও হিফজ",
-      type: "TODAY_LESSON",
-      type_bangla: "আজকের পড়া",
-      target_type: "CLASS",
-      class_id: firstClass.id,
-      class_name: firstClass.name,
-      subject_name: "হিফজুল কুরআন",
-      description: "সূরা মুলক ১-১০ আয়াত তাজবীদসহ মাখরাজ ঠিক করে কমপক্ষে ১০ বার মশ্‌ক করতে হবে এবং মুখস্থ শুনাতে হবে।",
-      image_urls: ["https://iili.io/J7qKxPs.jpg"],
-      assigned_date: today,
-      due_date: today,
-      teacher_name: firstTeacher,
-      created_by_role: "TEACHER",
-      created_at: new Date(Date.now() - 3600000).toISOString(),
-      status: "ACTIVE",
-    },
-    {
-      id: "asg-seed-2",
-      madrasa_id: madrasaId,
-      title: "মিযানুস সরফ: ছিগাহ ও বহস ইসবাত ফে'লে মাযী মারূফ",
-      type: "TOMORROW_LESSON",
-      type_bangla: "আগামীকালের পড়া",
-      target_type: "CLASS",
-      class_id: secondClass.id,
-      class_name: secondClass.name,
-      subject_name: "আরবি ব্যাকরণ (ছরফ)",
-      description: "পৃষ্ঠা নং ১৮-২০ এর সকল ছিগাহের অর্থসহ মুখস্থ করে খাতায় একবার লিখে আনতে হবে। ক্লাসে পড়া ধরা হবে।",
-      image_urls: [],
-      assigned_date: today,
-      due_date: tomorrow,
-      teacher_name: secondTeacher,
-      created_by_role: "TEACHER",
-      created_at: new Date(Date.now() - 7200000).toISOString(),
-      status: "ACTIVE",
-    },
-    {
-      id: "asg-seed-3",
-      madrasa_id: madrasaId,
-      title: "আমুক্তা ও পেছনের সবক দোহরানো (পারা ১-২)",
-      type: "HOMEWORK",
-      type_bangla: "হোমওয়ার্ক",
-      target_type: "CLASS",
-      class_id: firstClass.id,
-      class_name: firstClass.name,
-      subject_name: "আমুক্তা রিভিশন",
-      description: "মাগরিবের পর পেছনের দুই পারা সহপাঠীর সাথে মশ্‌ক করে উস্তাদকে শুনাতে হবে। অভিভাবকগণ বাসায় তদারকি করবেন।",
-      image_urls: [],
-      assigned_date: today,
-      due_date: today,
-      teacher_name: firstTeacher,
-      created_by_role: "TEACHER",
-      created_at: new Date(Date.now() - 10800000).toISOString(),
-      status: "ACTIVE",
-    },
-  ];
-}
-
-const LEGACY_DUMMY_TEACHER_NAMES = [
-  "হাফেজ মাওলানা ইব্রাহীম",
-  "মুফতি মাহমুদুল হাসান",
-  "মাওলানা আব্দুল্লাহ",
-  "সম্মানিত উস্তাদ",
-  "সম্মানিত শিক্ষক",
-];
-
-/**
- * Fetch all assignments with flexible filters
- */
 export async function getAssignments(filters?: {
   class_id?: string;
   student_id?: string;
@@ -127,71 +36,14 @@ export async function getAssignments(filters?: {
   currentTeacherName: string;
 }> {
   try {
-    const supabase = await createClient();
-    const admin = await createAdminClient();
-    const user = await getAuthUser(supabase);
-    const madrasaId = await getAuthMadrasaId(supabase, user);
-
-    const classes = await getClasses();
-
-    if (!madrasaId) {
-      return { assignments: [], classes: classes || [], teachers: [], currentTeacherName: "উস্তাদ" };
-    }
-
-    // Fetch real teachers registered in this madrasa
-    const { data: teachersData } = await admin
-      .from("teachers")
-      .select("id, first_name, last_name, designation, phone")
-      .eq("madrasa_id", madrasaId)
-      .order("first_name");
-    const teachers = teachersData || [];
-
-    // Fetch user info for current user
-    let currentTeacherName = "উস্তাদ";
-    if (user) {
-      const { data: userData } = await admin
-        .from("users")
-        .select("full_name, email, role")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (userData?.full_name && userData.full_name.trim() !== "" && userData.full_name !== "user") {
-        currentTeacherName = userData.full_name;
-      } else if (teachers.length > 0) {
-        currentTeacherName = `${teachers[0].first_name || ""} ${teachers[0].last_name || ""}`.trim();
-      }
-    }
-
-    const meta = await getMadrasaMetadata(madrasaId);
-    let list: AssignmentItem[] = meta.assignments || [];
-
-    if (!list || list.length === 0) {
-      list = getDefaultAssignmentsSeed(madrasaId, classes || [], teachers, currentTeacherName);
-      meta.assignments = list;
-      await saveMadrasaMetadata(madrasaId, meta);
-    } else {
-      // Auto-heal any legacy dummy teacher names in metadata with real madrasa teachers
-      let hasHealed = false;
-      list = list.map((item, idx) => {
-        const tName = item.teacher_name ? item.teacher_name.trim() : "";
-        if (!tName || LEGACY_DUMMY_TEACHER_NAMES.includes(tName)) {
-          hasHealed = true;
-          const assignedTeacher = teachers.length > 0
-            ? `${teachers[idx % teachers.length].first_name || ""} ${teachers[idx % teachers.length].last_name || ""}`.trim()
-            : currentTeacherName;
-          return {
-            ...item,
-            teacher_name: assignedTeacher,
-          };
-        }
-        return item;
-      });
-
-      if (hasHealed) {
-        meta.assignments = list;
-        await saveMadrasaMetadata(madrasaId, meta);
-      }
-    }
-
+    const i = await webIdentity();
+    if (!i || hasRole(i,studentRoles)) return {assignments:[],classes:[],teachers:[],currentTeacherName:''};
+    const teacher = await webTeacher();
+    const meta = teacher?.scope.meta || await getMadrasaMetadata(i.tenant);
+    const classes = teacher ? teacher.scope.classes : await getClasses();
+    const teachers = teacher ? [teacher.scope.teacher].filter(Boolean) : (await i.db.from('teachers').select('id,first_name,last_name,designation').eq('madrasa_id',i.tenant)).data || [];
+    const currentTeacherName = i.userRow.full_name || '';
+    let list = realAssignments(meta.assignments).filter(a=> !teacher || classes.some((c:any)=>c.id===a.class_id));
     // Filter by class_id
     if (filters?.class_id && filters.class_id !== "ALL") {
       list = list.filter((item) => item.class_id === filters.class_id);
@@ -260,46 +112,8 @@ export async function getStudentAssignments(
   studentId: string,
   classId?: string
 ): Promise<AssignmentItem[]> {
-  try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    const madrasaId = await getAuthMadrasaId(supabase, user);
-
-    if (!madrasaId) return [];
-
-    const meta = await getMadrasaMetadata(madrasaId);
-    let list: AssignmentItem[] = meta.assignments || [];
-
-    if (!list || list.length === 0) {
-      const classes = await getClasses();
-      list = getDefaultAssignmentsSeed(madrasaId, classes || []);
-      meta.assignments = list;
-      await saveMadrasaMetadata(madrasaId, meta);
-    }
-
-    // Filter items meant for this student:
-    // 1. target_type == 'CLASS' and class matches
-    // 2. target_type == 'STUDENT' and student_id matches
-    const relevant = list.filter((item) => {
-      if (item.status === "ARCHIVED") return false;
-
-      if (item.target_type === "STUDENT" && item.student_id === studentId) {
-        return true;
-      }
-
-      if (item.target_type === "CLASS" && classId && item.class_id === classId) {
-        return true;
-      }
-
-      return false;
-    });
-
-    relevant.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    return relevant;
-  } catch (err) {
-    console.error("getStudentAssignments error:", err);
-    return [];
-  }
+  const data = await getPortalStudentData(studentId);
+  return data?.child ? studentHomework(data.meta.assignments,data.child) : [];
 }
 
 /**
@@ -336,7 +150,7 @@ export async function saveAssignment(data: {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
-    const __authz = await writeGuard("generic");
+    const __authz = await writeGuard("syllabus");
     if (!__authz.allowed) return __authz.fallback;
   }
 
@@ -353,6 +167,11 @@ export async function saveAssignment(data: {
       meta.assignments = [];
     }
 
+    const teacher = await webTeacher();
+    if (teacher) {
+      if (!teacher.scope.classes.some(c=>c.id===data.class_id) || (data.id && !teacher.scope.classes.some(c=>c.id===meta.assignments.find((a:any)=>a.id===data.id)?.class_id))) return {error:'জামাতটি আপনাকে বরাদ্দ করা নেই।'};
+      if (data.target_type === 'STUDENT' && !(await teacherStudents(teacher.i,teacher.scope,[data.class_id])).some(s=>s.id===data.student_id)) return {error:'শিক্ষার্থী এই জামাতের নয়।'};
+    }
     const { data: userData } = await supabase
       .from("users")
       .select("role, full_name")
@@ -363,7 +182,8 @@ export async function saveAssignment(data: {
     const authorRole = ["super_admin", "admin", "muhtamim"].includes(role)
       ? "ADMIN"
       : "TEACHER";
-    const authorName =
+    const authorId = teacher?.scope.teacher?.id || user.id;
+    const authorName = teacher ? teacher.i.userRow.full_name :
       data.teacher_name && data.teacher_name.trim() !== ""
         ? data.teacher_name.trim()
         : userData?.full_name && userData.full_name !== "user"
@@ -433,7 +253,7 @@ export async function saveAssignment(data: {
               class_name: data.class_name,
               subject_id: targetSyllabus.subject_id || "",
               subject_name: targetSyllabus.book_name || targetSyllabus.subject_name || data.subject_name || "",
-              teacher_id: user.id,
+              teacher_id: authorId,
               teacher_name: authorName,
               class_type: classType,
               chapter_id: data.chapter_id,
@@ -511,7 +331,7 @@ export async function saveAssignment(data: {
         image_urls: data.image_urls || [],
         assigned_date: data.assigned_date || toDhakaDateString(),
         due_date: data.due_date || null,
-        teacher_id: user.id,
+        teacher_id: authorId,
         teacher_name: authorName,
         created_by_role: authorRole,
         created_at: new Date().toISOString(),
@@ -579,7 +399,7 @@ export async function deleteAssignment(id: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
-    const __authz = await writeGuard("generic");
+    const __authz = await writeGuard("syllabus");
     if (!__authz.allowed) return __authz.fallback;
   }
 
@@ -594,6 +414,8 @@ export async function deleteAssignment(id: string) {
     const meta = await getMadrasaMetadata(madrasaId);
     let list: AssignmentItem[] = meta.assignments || [];
 
+    const teacher = await webTeacher();
+    if (teacher && !teacher.scope.classes.some(c=>c.id===list.find(a=>a.id===id)?.class_id)) return {error:'অনুমতি নেই।'};
     meta.assignments = list.filter((item) => item.id !== id);
     await saveMadrasaMetadata(madrasaId, meta);
 
@@ -618,7 +440,7 @@ export async function updateAssignmentStatus(
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
-    const __authz = await writeGuard("generic");
+    const __authz = await writeGuard("syllabus");
     if (!__authz.allowed) return __authz.fallback;
   }
 
@@ -633,6 +455,8 @@ export async function updateAssignmentStatus(
     const meta = await getMadrasaMetadata(madrasaId);
     let list: AssignmentItem[] = meta.assignments || [];
 
+    const teacher = await webTeacher();
+    if (teacher && !teacher.scope.classes.some(c=>c.id===list.find(a=>a.id===id)?.class_id)) return {error:'অনুমতি নেই।'};
     const index = list.findIndex((item) => item.id === id);
     if (index !== -1) {
       list[index].status = status;

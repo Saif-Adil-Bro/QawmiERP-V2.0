@@ -1,4 +1,7 @@
 "use server";
+import {rows} from '@/lib/portal/queries';
+import {getPortalStudentData} from '@/lib/portal-data';
+import {portalHolidays,holidayApplies} from '@/lib/portal/rules';
 
 import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
@@ -49,7 +52,7 @@ async function syncHolidayNotice(holiday: AcademicHoliday, madrasaId: string) {
     }
 
     const noticeTitle = `ছুটির বিজ্ঞপ্তি: ${holiday.title}`;
-    const reopenTimeStr = holiday.reopen_time ? ` (${holiday.reopen_time})` : " (সকাল ৮:০০ ঘটিকা)";
+    const reopenTimeStr = holiday.reopen_time ? ` (${holiday.reopen_time})` : "";
     const reopenNotice = holiday.reopen_date
       ? `\n\nছুটি শেষে মাদরাসা পুনরায় খোলার তারিখ: ${holiday.reopen_date} খ্রিষ্টাব্দ${reopenTimeStr}`
       : "";
@@ -153,6 +156,7 @@ export async function syncHolidayAttendanceRecords({
   {
     const __authz = await writeGuard("holidays");
     if (!__authz.allowed) return __authz.fallback;
+    if (__authz.madrasaId!==madrasaId) return {error:'অনুমতি নেই।'};
   }
 
   try {
@@ -168,23 +172,11 @@ export async function syncHolidayAttendanceRecords({
     if (eligibleDates.length === 0) return { success: true, count: 0 };
 
     // 1. Fetch students for this madrasa
-    let studentQuery = admin
-      .from("students")
-      .select("id, class_id")
-      .eq("madrasa_id", madrasaId);
-
-    if (applicableTo === "specific_classes" && applicableClasses && applicableClasses.length > 0) {
-      studentQuery = studentQuery.in("class_id", applicableClasses);
-    }
-
-    const { data: students } = await studentQuery;
-
-    // 2. Fetch staff/teachers for this madrasa
-    const { data: teachers } = await admin
-      .from("teachers")
-      .select("id")
-      .eq("madrasa_id", madrasaId);
-
+    const classes = await rows(()=>admin.from('classes').select('*').eq('madrasa_id',madrasaId));
+    const applicable = classes.filter(c=>holidayApplies({applicable_to:applicableTo,applicable_classes:applicableClasses},[c])).map(c=>c.id);
+    const students = applicable.length ? await rows(()=>admin.from('students').select('id,class_id').eq('madrasa_id',madrasaId).in('class_id',applicable)) : [];
+    // A class/department closure is not staff-wide leave.
+    const teachers = applicableTo==='all' ? await rows(()=>admin.from('teachers').select('id').eq('madrasa_id',madrasaId)) : [];
     // 3. Upsert student attendance as Leave
     if (students && students.length > 0) {
       const studentRecords: {
@@ -207,9 +199,10 @@ export async function syncHolidayAttendanceRecords({
 
       for (let i = 0; i < studentRecords.length; i += 250) {
         const chunk = studentRecords.slice(i, i + 250);
-        await admin
+        const {error} = await admin
           .from("attendance")
-          .upsert(chunk, { onConflict: "student_id, date" });
+          .upsert(chunk, { onConflict: "student_id, date", ignoreDuplicates:true });
+        if (error) throw error;
       }
     }
 
@@ -235,9 +228,10 @@ export async function syncHolidayAttendanceRecords({
 
       for (let i = 0; i < teacherRecords.length; i += 250) {
         const chunk = teacherRecords.slice(i, i + 250);
-        await admin
+        const {error} = await admin
           .from("teacher_attendance")
-          .upsert(chunk, { onConflict: "teacher_id, date" });
+          .upsert(chunk, { onConflict: "teacher_id, date", ignoreDuplicates:true });
+        if (error) throw error;
       }
     }
 
@@ -855,7 +849,7 @@ export async function seedDefaultQawmiHolidays(year?: string) {
 /**
  * Check if a specific date is a registered holiday or weekend
  */
-export async function checkHolidayForDate(dateStr: string) {
+export async function checkHolidayForDate(dateStr: string, targetClass?: {id:string;name?:string}) {
   try {
     const { madrasaId } = await resolveCurrentMadrasaId();
     if (!madrasaId) return { isHoliday: false, isWeekend: false, holiday: null };
@@ -865,7 +859,7 @@ export async function checkHolidayForDate(dateStr: string) {
 
     // Find active holiday covering dateStr
     const matchedHoliday = holidays.find(
-      (h) => !h.is_archived && dateStr >= h.start_date && dateStr <= h.end_date
+      (h) => !h.is_archived && holidayApplies(h,targetClass ? [targetClass] : []) && dateStr >= h.start_date && dateStr <= h.end_date
     );
 
     // Check weekly weekend timezone-safely
@@ -882,7 +876,7 @@ export async function checkHolidayForDate(dateStr: string) {
       isWeekend,
       holiday: matchedHoliday || null,
       dayName: currentDayName,
-      autoSavedAsLeave: isHoliday || isWeekend,
+      autoSavedAsLeave: false,
     };
   } catch (err) {
     console.error("checkHolidayForDate error:", err);
@@ -893,20 +887,11 @@ export async function checkHolidayForDate(dateStr: string) {
 /**
  * Public/Portal fetch holidays for parents and students
  */
-export async function getPublicHolidaysForPortal(madrasaId?: string) {
+export async function getPublicHolidaysForPortal(studentId?: string) {
   try {
-    let targetMadrasaId = madrasaId;
-
-    if (!targetMadrasaId) {
-      const res = await resolveCurrentMadrasaId();
-      targetMadrasaId = res.madrasaId || undefined;
-    }
-
-    if (!targetMadrasaId) return [];
-
-    const meta = await getMadrasaMetadata(targetMadrasaId);
-    const holidays = (meta.academic_holidays || [])
-      .filter((h) => !h.is_archived && h.publish_to_portal !== false)
+    const data = await getPortalStudentData(studentId);
+    if (!data) return [];
+    const holidays = portalHolidays(data.meta.academic_holidays, data.child?.classes ? [data.child.classes] : [])
       .map((h) => ({
         ...h,
         total_days: h.total_days || calculateDays(h.start_date, h.end_date),

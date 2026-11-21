@@ -136,10 +136,10 @@ export default function MarksEntryClient({
         student_id: s.id,
         marks_obtained: Number(s.marks_obtained),
         total_marks: Number(s.total_marks || 100),
-        written_marks: Number(s.written_marks) || 0,
-        oral_marks: Number(s.oral_marks) || 0,
-        tutorial_marks: Number(s.tutorial_marks) || 0,
-        attendance_marks: Number(s.attendance_marks) || 0
+        written_marks: s.written_marks === '' || s.written_marks == null ? null : Number(s.written_marks),
+        oral_marks: s.oral_marks === '' || s.oral_marks == null ? null : Number(s.oral_marks),
+        tutorial_marks: s.tutorial_marks === '' || s.tutorial_marks == null ? null : Number(s.tutorial_marks),
+        attendance_marks: s.attendance_marks === '' || s.attendance_marks == null ? null : Number(s.attendance_marks)
       }));
 
     if (marksData.length === 0) {
@@ -149,7 +149,7 @@ export default function MarksEntryClient({
     }
 
     try {
-      const result = await saveExamMarks(examId, subjectName, marksData);
+      const result = await saveExamMarks(examId, subjectName, marksData,classId);
       
       if (result?.error) {
         setMessage({ type: 'error', text: result.error });

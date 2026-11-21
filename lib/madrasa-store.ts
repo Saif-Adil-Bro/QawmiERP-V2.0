@@ -22,7 +22,7 @@ const COLUMN: Record<JsonStoreKind, string> = {
 
 function parseJsonBlob(raw: unknown): Record<string, any> | null {
   if (!raw) return null;
-  if (typeof raw === "object") return raw as Record<string, any>;
+  if (typeof raw === "object") return Array.isArray(raw) ? null : raw as Record<string, any>;
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   if (!trimmed.startsWith("{")) return null;
@@ -39,7 +39,7 @@ function parseJsonBlob(raw: unknown): Record<string, any> | null {
  */
 export async function readJsonStore(
   madrasaId: string,
-  kind: JsonStoreKind
+  kind: JsonStoreKind, strict=false
 ): Promise<Record<string, any>> {
   if (!madrasaId) return {};
   const adminClient = await createAdminClient();
@@ -56,11 +56,14 @@ export async function readJsonStore(
     const value = (primary.data as any)[column];
     const parsed = parseJsonBlob(value);
     if (parsed) return parsed;
+    if(strict && value) throw new Error('Invalid security profile store');
     // Column exists but empty -> also honour legacy registration_no blob (one-time upgrade path)
     const legacy = parseJsonBlob((primary.data as any).registration_no);
+    if(strict && String((primary.data as any).registration_no || '').trimStart().startsWith('{') && !legacy) throw new Error('Invalid legacy profile store');
     return legacy || {};
   }
 
+  if(strict && primary.error && !['42703','PGRST204'].includes(primary.error.code)) throw new Error(primary.error.message);
   // 2) Column missing in this database -> legacy behaviour.
   const legacyOnly = await adminClient
     .from("madrasas")
@@ -68,7 +71,10 @@ export async function readJsonStore(
     .eq("id", madrasaId)
     .maybeSingle();
 
-  return parseJsonBlob(legacyOnly.data?.registration_no) || {};
+  if(strict && (legacyOnly.error || !legacyOnly.data)) throw new Error('Cannot load security profile');
+  const raw=legacyOnly.data?.registration_no, parsed=parseJsonBlob(raw);
+  if(strict && String(raw || '').trimStart().startsWith('{') && !parsed) throw new Error('Invalid legacy profile store');
+  return parsed || {};
 }
 
 /**

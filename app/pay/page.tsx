@@ -45,7 +45,7 @@ export default async function DirectPayPage(props: {
           </div>
           <h2 className="text-lg font-bold text-slate-800">শিক্ষার্থীর তথ্য পাওয়া যায়নি</h2>
           <p className="text-xs text-slate-500">
-            প্রদত্ত আইডি অনুযায়ী শিক্ষার্থীর ফি সংক্রান্ত কোনো রেকর্ড খুঁজে পাওয়া যায়নি।
+            বিল দেখতে শিক্ষার্থীর সংযুক্ত অ্যাকাউন্ট দিয়ে <Link className="underline" href="/login">লগইন করুন</Link>। অন্য শিক্ষার্থীর বিল দেখা যাবে না।
           </p>
         </div>
       </div>

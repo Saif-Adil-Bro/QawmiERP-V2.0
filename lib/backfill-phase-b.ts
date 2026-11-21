@@ -2,7 +2,6 @@ import { toDhakaDateString } from "@/lib/date-utils";
 import { createAdminClient } from "@/lib/supabase/server";
 import { DEFAULT_FEE_TYPES } from "@/lib/fee-management";
 import { DEFAULT_FUNDS } from "@/lib/fund-utils";
-import { getDefaultSessions } from "@/lib/sessions";
 
 /**
  * Backfill & Data Migration Script:
@@ -104,7 +103,7 @@ export async function runPhaseBBackfill(options: { dryRun?: boolean; targetMadra
       // -------------------------------------------------------------
       const sessionsList = (meta.sessions && Array.isArray(meta.sessions) && meta.sessions.length > 0)
         ? meta.sessions
-        : getDefaultSessions(madrasaId);
+        : [];
 
       for (const s of sessionsList) {
         const sessionPayload = {

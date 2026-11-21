@@ -9,8 +9,8 @@ import { toBanglaNumber } from "@/lib/numberToBangla";
 
 export const dynamic = "force-dynamic";
 
-export default async function PortalHolidaysPage() {
-  const holidays = await getPublicHolidaysForPortal();
+export default async function PortalHolidaysPage({searchParams}:{searchParams:Promise<{student_id?:string}>}) {
+  const {student_id}=await searchParams;const holidays = await getPublicHolidaysForPortal(student_id);
 
   const today = toDhakaDateString();
   const ongoingHolidays = holidays.filter((h) => today >= h.start_date && today <= h.end_date);
@@ -40,7 +40,7 @@ export default async function PortalHolidaysPage() {
 
         <div className="flex items-center gap-2 shrink-0">
           <Link
-            href="/portal/leave"
+            href={student_id ? `/portal/leave?student_id=${encodeURIComponent(student_id)}` : "/portal/leave"}
             className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-xs sm:text-sm font-bold transition flex items-center gap-2 shadow-md shadow-emerald-950/40"
           >
             <Send className="w-4 h-4" />

@@ -1,4 +1,4 @@
-import { getAssignments } from "@/app/actions/assignments";
+import {studentHomework} from '@/lib/portal/rules';
 import ParentAssignmentsClient from "./ParentAssignmentsClient";
 import { AlertCircle } from "lucide-react";
 import { getPortalStudentData } from "@/lib/portal-data";
@@ -29,13 +29,13 @@ export default async function ParentAssignmentsPage(props: {
     );
   }
 
-  const { assignments } = await getAssignments();
+  const assignments = studentHomework(portalData.meta.assignments,child);
 
   return (
     <ParentAssignmentsClient
       students={students}
       initialAssignments={assignments}
-      selectedStudentId={params.student_id}
+      selectedStudentId={child.id}
     />
   );
 }

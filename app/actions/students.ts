@@ -1,4 +1,7 @@
 "use server";
+import {webIdentity,webTeacher,teacherStudents,hasRole,linkedStudents} from '@/lib/portal/identity';
+import {studentRoles} from '@/lib/portal/rules';
+import {rows} from '@/lib/portal/queries';
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
@@ -8,18 +11,21 @@ import {
   getMadrasaMetadata,
   saveMadrasaMetadata,
   ExtendedStudentProfile,
-  getDefaultSessions,
   hydrateStudentWithMetadata,
 } from "@/lib/sessions";
 import { getStudentIdNumber, generateNextUniqueStudentId, isUuid, getActiveMadrasaPrefix } from "@/lib/student-utils";
 
 export async function getStudents() {
   try {
+    const i=await webIdentity();
+    if (!i) return [];
+    if (hasRole(i,studentRoles)) return (await linkedStudents(i)).students;
+    const t=await webTeacher(); if(t) return teacherStudents(i,t.scope);
     const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
     const scope = await getUserDataAccessScope();
 
     const supabase = await createClient();
-    let query = supabase.from("students").select("*, classes(*)").order("created_at", { ascending: false });
+    let query = supabase.from("students").select("*, classes(*)").eq("madrasa_id",scope.madrasaId).order("created_at", { ascending: false });
 
     if (!scope.isUnrestricted) {
       if (scope.allowedStudentIds.length === 0) {
@@ -34,7 +40,7 @@ export async function getStudents() {
       console.warn("Retrying students fetch with admin fallback...");
       try {
         const adminClient = await createAdminClient();
-        let adminQuery = adminClient.from("students").select("*, classes(*)").order("created_at", { ascending: false });
+        let adminQuery = adminClient.from("students").select("*, classes(*)").eq("madrasa_id",scope.madrasaId).order("created_at", { ascending: false });
         if (!scope.isUnrestricted) {
           if (scope.allowedStudentIds.length === 0) return [];
           adminQuery = adminQuery.in("id", scope.allowedStudentIds);
@@ -43,7 +49,7 @@ export async function getStudents() {
         if (adminData && adminData.length > 0) {
           data = adminData;
         } else {
-          let fallbackQuery = adminClient.from("students").select("*").order("created_at", { ascending: false });
+          let fallbackQuery = adminClient.from("students").select("*").eq("madrasa_id",scope.madrasaId).order("created_at", { ascending: false });
           if (!scope.isUnrestricted) {
             if (scope.allowedStudentIds.length === 0) return [];
             fallbackQuery = fallbackQuery.in("id", scope.allowedStudentIds);
@@ -102,72 +108,18 @@ export async function getStudents() {
 }
 
 export async function getClasses(targetMadrasaId?: string) {
-  try {
-    const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
-    const scope = await getUserDataAccessScope();
-
-    const supabase = await createClient();
-    let query = supabase.from("classes").select("*").order("name");
-
-    if (targetMadrasaId) {
-      query = query.eq("madrasa_id", targetMadrasaId);
-    }
-
-    if (!scope.isUnrestricted && scope.userRole === "teacher") {
-      if (scope.allowedClassIds.length === 0) {
-        return [];
-      }
-      query = query.in("id", scope.allowedClassIds);
-    }
-
-    const { data, error } = await query;
-
-    if (error || !data || data.length === 0) {
-      try {
-        const adminClient = await createAdminClient();
-        let adminQuery = adminClient.from("classes").select("*").order("name");
-        if (targetMadrasaId) {
-          adminQuery = adminQuery.eq("madrasa_id", targetMadrasaId);
-        } else if (scope.madrasaId) {
-          // ⛔ P2-Fix: explicit madrasa ছাড়া → নিজের মাদরাসা (legacy null row সহ)
-          adminQuery = adminQuery.or(`madrasa_id.eq.${scope.madrasaId},madrasa_id.is.null`);
-        } else {
-          // ⛔ P2-Fix: anonymous/unlinked caller → সব মাদরাসার class দেওয়া যাবে না (fail-closed)
-          return [];
-        }
-        if (!scope.isUnrestricted && scope.userRole === "teacher") {
-          if (scope.allowedClassIds.length === 0) return [];
-          adminQuery = adminQuery.in("id", scope.allowedClassIds);
-        }
-        const { data: adminData } = await adminQuery;
-        if (adminData && adminData.length > 0) {
-          return adminData;
-        }
-
-        // If targetMadrasaId had no specific classes, fallback to any classes
-        // ⛔ P2-Fix: fallback-ও এখন সেই মাদরাসা-scoped (legacy null row সহ)
-        if (targetMadrasaId) {
-          const { data: anyClasses } = await adminClient
-            .from("classes")
-            .select("*")
-            .order("name")
-            .or(`madrasa_id.eq.${targetMadrasaId},madrasa_id.is.null`);
-          if (anyClasses && anyClasses.length > 0) return anyClasses;
-        }
-        return [];
-      } catch {
-        return [];
-      }
-    }
-    return data;
-  } catch (err) {
-    console.error("Exception in getClasses:", err);
-    return [];
-  }
+  const i = await webIdentity(); if (!i || (targetMadrasaId && targetMadrasaId!==i.tenant)) return [];
+  const teacher = await webTeacher(); if (teacher) return teacher.scope.classes;
+  if (hasRole(i,studentRoles)) return (await linkedStudents(i)).students.map(s=>s.classes).filter(Boolean);
+  return rows(()=>i.db.from('classes').select('*').eq('madrasa_id',i.tenant).order('name'));
 }
 
 export async function getStudentById(id: string) {
   try {
+    const i=await webIdentity();
+    if (!i) return null;
+    if (hasRole(i,studentRoles)) return (await linkedStudents(i,id)).child;
+    const t=await webTeacher(); if(t) return (await teacherStudents(i,t.scope)).find(s=>s.id===id) || null;
     const { getUserDataAccessScope } = await import("@/lib/data-access-guards");
     const scope = await getUserDataAccessScope();
 
@@ -180,7 +132,7 @@ export async function getStudentById(id: string) {
     const { data, error } = await supabase
       .from("students")
       .select("*, classes(*)")
-      .eq("id", id)
+      .eq("madrasa_id",scope.madrasaId).eq("id", id)
       .single();
 
     let student = data;
@@ -190,7 +142,7 @@ export async function getStudentById(id: string) {
         const { data: fallbackData } = await adminClient
           .from("students")
           .select("*, classes(*)")
-          .eq("id", id)
+          .eq("madrasa_id",scope.madrasaId).eq("id", id)
           .single();
         student = fallbackData || null;
       } catch {
@@ -221,6 +173,8 @@ export async function getStudentById(id: string) {
 
 export async function getAuthMadrasaId(supabase?: any, user?: any): Promise<string> {
   try {
+    user = await getAuthUser(await createClient()); // Never accept a client-supplied identity.
+    if (!user) return '';
     const adminClient = await createAdminClient();
 
     // 1. Try getting user's madrasa_id from users table using adminClient
@@ -233,35 +187,6 @@ export async function getAuthMadrasaId(supabase?: any, user?: any): Promise<stri
 
       if (userData?.madrasa_id) {
         return userData.madrasa_id;
-      }
-    }
-
-    // 2. Check user_metadata
-    if (user?.user_metadata?.madrasa_id) {
-      return user.user_metadata.madrasa_id;
-    }
-
-    // 3. Check if user is an invited teacher or staff member by email
-    if (user?.email) {
-      const { data: teacherData } = await adminClient
-        .from("teachers")
-        .select("madrasa_id")
-        .eq("email", user.email.toLowerCase())
-        .maybeSingle();
-
-      if (teacherData?.madrasa_id) {
-        if (user.id) {
-          try {
-            await adminClient.from("users").upsert({
-              id: user.id,
-              madrasa_id: teacherData.madrasa_id,
-              full_name: user.email?.split("@")[0] || "Teacher",
-              email: user.email,
-              role: "teacher",
-            });
-          } catch {}
-        }
-        return teacherData.madrasa_id;
       }
     }
 
@@ -591,6 +516,8 @@ export async function createStudent(prevState: any, formData: FormData) {
   if (authUserId && insertedStudent?.id) {
     try {
       const adminClient = await createAdminClient();
+      const link = await adminClient.from("users").update({ student_id: insertedStudent.id }).eq("id", authUserId).eq("madrasa_id", finalMadrasaId);
+      if (link.error) throw link.error;
       await adminClient.auth.admin.updateUserById(authUserId, {
         user_metadata: {
           student_id: insertedStudent.id,
@@ -606,7 +533,7 @@ export async function createStudent(prevState: any, formData: FormData) {
   // Auto enroll student into current active academic session & save extended student profile
   if (insertedStudent?.id) {
     try {
-      const { getMadrasaMetadata, saveMadrasaMetadata, getDefaultSessions } = await import("@/lib/sessions");
+      const { getMadrasaMetadata, saveMadrasaMetadata } = await import("@/lib/sessions");
       const meta = await getMadrasaMetadata(finalMadrasaId);
 
       // 1. Save extended student profile with strictly unique sequential student_id
@@ -672,7 +599,7 @@ export async function createStudent(prevState: any, formData: FormData) {
       };
 
       // 2. Auto enroll into current session
-      const sessions = meta.sessions || getDefaultSessions(finalMadrasaId);
+      const sessions = meta.sessions || [];
       const currentSession = sessions.find((s) => s.is_current) || sessions[0];
       if (currentSession) {
         const enrollments = meta.enrollments || [];
@@ -766,6 +693,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
   const supabase = await createClient();
   const adminClient = await createAdminClient();
   const user = await getAuthUser(supabase);
+  if (!user) return { error: "Unauthorized" };
 
   const id = formData.get("id") as string;
   const firstName = (formData.get("first_name") as string)?.trim();
@@ -994,7 +922,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
       };
 
       // 4b. Synchronize academic session enrollment (class, roll, status)
-      const sessions = meta.sessions || getDefaultSessions(madrasaId);
+      const sessions = meta.sessions || [];
       const currentSession = sessions.find((s: any) => s.is_current) || sessions[0];
       const enrollmentStatus = (
         studentStatus === "DROPOUT"
@@ -1447,7 +1375,7 @@ export async function bulkCreateStudents(
     try {
       const meta = await getMadrasaMetadata(finalMadrasaId);
       const studentProfiles = meta.student_profiles || {};
-      const sessions = meta.sessions || getDefaultSessions(finalMadrasaId);
+      const sessions = meta.sessions || [];
       const currentSession = sessions.find((s) => s.is_current) || sessions[0];
       const enrollments = meta.enrollments || [];
       const prefix = getActiveMadrasaPrefix() || meta?.madrasa_info?.prefix || "";

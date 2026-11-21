@@ -1,3 +1,5 @@
+import { completeAppLogin } from "@/lib/app-login";
+import { privateResponseHeaders } from "@/lib/private-response";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ensureDemoMadrasaExists } from "@/app/actions/demo-seed";
@@ -5,7 +7,7 @@ import { DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from "@/lib/demo-data";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
     // 1. Ensure demo madrasa, admin user, and complete demo records exist in database
     const seedResult = await ensureDemoMadrasaExists();
@@ -30,13 +32,15 @@ export async function POST() {
       );
     }
 
+    const login = await completeAppLogin(supabase, data.session, "web", true, req.headers);
+    if (!login.ok) return NextResponse.json({error: login.message}, {status:login.status, headers:privateResponseHeaders});
     const res = NextResponse.json({
       success: true,
       message: "ডেমো অ্যাকাউন্টে সফলভাবে লগইন হয়েছে!",
       redirectUrl: "/dashboard",
       session: data.session,
       user: data.user,
-    });
+    }, {headers:privateResponseHeaders});
 
     res.cookies.set("qawmi_remember_me", "1", {
       path: "/",

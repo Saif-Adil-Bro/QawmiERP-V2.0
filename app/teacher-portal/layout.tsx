@@ -1,69 +1,33 @@
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import PortalOwnerProvider from "@/components/portal/PortalOwnerProvider";
 import { redirect } from "next/navigation";
+import { webIdentity, hasRole } from "@/lib/portal/identity";
+import { teacherRoles } from "@/lib/portal/rules";
 import TeacherShell from "./TeacherShell";
-
 export const dynamic = "force-dynamic";
-
-export default async function TeacherPortalLayout({
+export default async function Layout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-
-  // Cookie-based local session check first (no network round-trip required)
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) {
-    redirect("/login");
-  }
-
-  // Verify against auth server when reachable, but do not bounce on transient refresh/offline errors
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (!user && userError) {
-    console.warn(
-      "TeacherPortal: সেশন আছে কিন্তু সার্ভার যাচাইয়ে সাময়িক ত্রুটি হয়েছে:",
-      userError.message
-    );
-  }
-
-  const effectiveUser = user ?? session.user;
-  if (!effectiveUser) {
-    redirect("/login");
-  }
-
-  // Fetch teacher profile safely
-  let userData: any = null;
-  try {
-    const admin = await createAdminClient();
-    const { data } = await admin
-      .from("users")
-      .select("*")
-      .eq("id", effectiveUser.id)
-      .maybeSingle();
-    userData = data;
-  } catch {
-    try {
-      const { data } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", effectiveUser.id)
-        .maybeSingle();
-      userData = data;
-    } catch {
-      userData = null;
-    }
-  }
-
+  const identity = await webIdentity();
+  if (!identity) redirect("/login");
+  if (!hasRole(identity, teacherRoles)) redirect("/dashboard");
   return (
-    <TeacherShell user={effectiveUser} userData={userData}>
-      {children}
-    </TeacherShell>
+    <PortalOwnerProvider
+      owner={`${identity.tenant}:${identity.user.id}:teacher`}
+    >
+      <TeacherShell
+        user={identity.user}
+        userData={{
+          ...identity.userRow,
+          role:
+            [identity.userRow.role, ...identity.perms.roles].find((r) =>
+              teacherRoles.includes(r),
+            ) || "teacher",
+        }}
+      >
+        {children}
+      </TeacherShell>
+    </PortalOwnerProvider>
   );
 }

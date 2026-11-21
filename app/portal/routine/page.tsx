@@ -1,3 +1,5 @@
+import {routines as getRoutines} from '@/lib/portal/queries';
+import {portalHolidays} from '@/lib/portal/rules';
 import { getPortalStudentData } from "@/lib/portal-data";
 import { getMadrasaMetadata, type MadrasaMetaWithSessions } from "@/lib/sessions";
 import { parseRoutineItem } from "@/lib/routine-helper";
@@ -30,32 +32,8 @@ export default async function ParentPortalRoutine(props: {
     child?.class_name ||
     "নির্ধারিত জামাত";
 
-  let routineQuery = adminClient
-    .from("routines")
-    .select("*, subjects(name), teachers(first_name, last_name)")
-    .eq("madrasa_id", madrasaId);
-
-  if (classId) {
-    routineQuery = routineQuery.eq("class_id", classId);
-  }
-
-  const [{ data: rawRoutines }, madrasaMeta] = await Promise.all([
-    routineQuery.order("start_time", { ascending: true }),
-    madrasaId
-      ? getMadrasaMetadata(madrasaId)
-      : Promise.resolve({} as MadrasaMetaWithSessions),
-  ]);
-
-  const routines = (rawRoutines || []).map(parseRoutineItem);
-  const activeHolidays = (madrasaMeta?.academic_holidays || [])
-    .filter((h) => !h.is_archived && h.publish_to_portal !== false)
-    .map((h) => ({
-      id: h.id,
-      title: h.title,
-      start_date: h.start_date,
-      end_date: h.end_date,
-    }));
-
+  const routines = await getRoutines(adminClient,madrasaId,classId ? [classId] : []);
+  const activeHolidays = portalHolidays(portalData.meta.academic_holidays,child.classes ? [child.classes] : []);
   return (
     <PortalRoutineClient
       students={students}

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {useSearchParams,useRouter} from 'next/navigation';
+import {usePortalOwner} from './useOfflinePortalData';
 import { Network } from "@capacitor/network";
 import { useLiveQuery } from "dexie-react-hooks";
 import { getOfflineDb, type OfflineOutboxItem } from "@/lib/offlineDb";
@@ -14,6 +16,9 @@ import {
 import { checkIsOnline } from "@/lib/syncManager";
 
 export function useNetworkSync(portalType?: PortalSyncType) {
+  const owner = usePortalOwner(); const router = useRouter();
+  const selectedStudent = useSearchParams()?.get('student_id');
+  const studentId = portalType==='student' ? selectedStudent || '' : '';
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncProgress, setSyncProgress] = useState<number>(0);
@@ -22,21 +27,20 @@ export function useNetworkSync(portalType?: PortalSyncType) {
 
   const outboxStats = useLiveQuery(async () => {
     if (typeof window === "undefined") return { pending: 0, failed: 0 };
-    const db = getOfflineDb();
+    const db = getOfflineDb(owner);
     const all = await db.offlineOutbox.toArray();
     return {
       pending: all.filter((i) => i.status === "pending" || i.status === "syncing").length,
       failed: all.filter((i) => i.status === "failed").length,
     };
-  }, []);
+  }, [owner]);
 
   const lastSyncedAt = useLiveQuery(async () => {
     if (typeof window === "undefined") return null;
-    const db = getOfflineDb();
-    const key = portalType ? `portal_${portalType}` : "portal_last_sync";
-    const meta = await db.syncMeta.get(key);
-    return meta?.lastSyncedAt ?? null;
-  }, [portalType]);
+    const db = getOfflineDb(owner);
+    const record = await db.portalSnapshots.get(`${portalType}:${studentId}`);
+    return record?.syncedAt ?? null;
+  }, [portalType,studentId,owner]);
 
   const triggerInitialSync = useCallback(
     async (overridePortal?: PortalSyncType): Promise<PortalSyncResult | null> => {
@@ -61,11 +65,14 @@ export function useNetworkSync(portalType?: PortalSyncType) {
   const triggerBackgroundSync = useCallback(async () => {
     setIsSyncing(true);
     try {
-      return await backgroundSync(portalType);
+      const result = await backgroundSync(portalType,studentId);
+      setSyncMessage(result && !result.ok ? result.error || 'সিঙ্ক ব্যর্থ' : '');
+      if (result?.ok) router.refresh();
+      return result;
     } finally {
       setIsSyncing(false);
     }
-  }, [portalType]);
+  }, [portalType,studentId,router]);
 
   const queueOfflineAction = useCallback(
     async (input: {
@@ -110,12 +117,15 @@ export function useNetworkSync(portalType?: PortalSyncType) {
       })
       .catch(() => {});
 
+    const onFocus = () => { if (document.visibilityState === 'visible') triggerBackgroundSync().catch(()=>{}); };
+    document.addEventListener('visibilitychange',onFocus);
     const onOnline = () => handleConnectivityChange(true);
     const onOffline = () => handleConnectivityChange(false);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
 
     return () => {
+      document.removeEventListener('visibilitychange',onFocus);
       listener?.remove().catch(() => {});
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);

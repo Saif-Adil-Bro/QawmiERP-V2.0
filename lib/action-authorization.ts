@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
+import { createAdminClient, getWebAppSession } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/permissions-server";
 import { logAuditEvent, type AuditSeverity } from "@/lib/audit-log";
 import type { PermissionRiskLevel } from "@/lib/permissions";
@@ -74,7 +74,7 @@ type ModulePolicy = {
 };
 
 /** পোর্টাল ব্যবহারকারীরা ড্যাশবোর্ডের write action সরাসরি চালাতে পারবেন না। */
-const PORTAL_ROLES = ["student", "parent", "guardian"];
+const PORTAL_ROLES = ["student", "parent", "guardian", "guardian_student"];
 
 const FINANCE_PERMS = [
   "finance.create",
@@ -424,15 +424,15 @@ async function resolveGuardUncached(
   stepUpOptions?: WriteGuardStepUpOptions
 ): Promise<ActionGuardResult> {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return denied(UNAUTHENTICATED_ERROR, "UNAUTHENTICATED");
+    const verified = await getWebAppSession();
+    if (!verified) return denied(UNAUTHENTICATED_ERROR, "UNAUTHENTICATED");
+    const {user,session} = verified;
 
     const adminClient = await createAdminClient();
     const { data: userRow, error: userErr } = await adminClient
       .from("users")
       .select("madrasa_id, full_name, email, role")
-      .eq("id", user.id)
+      .eq("id", user.id).eq("madrasa_id", session.madrasa_id)
       .maybeSingle();
 
     if (userErr) {

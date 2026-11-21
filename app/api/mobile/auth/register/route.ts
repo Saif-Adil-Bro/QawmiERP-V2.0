@@ -1,3 +1,4 @@
+import { completeAppLogin } from "@/lib/app-login";
 import { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -101,13 +102,19 @@ export async function POST(req: NextRequest) {
       password,
     });
 
+    const session = signInData.session;
+    // Registration already committed. Keep the 201 and identity payload, but if
+    // sign-in/registration failed the client must login, not create another tenant.
+    const login = session && await completeAppLogin(supabase, session, "mobile", true, req.headers);
+    const bound = login?.ok ? session : null;
     return mobileSuccess(
       {
-        access_token: signInData?.session?.access_token || null,
-        refresh_token: signInData?.session?.refresh_token || null,
+        login_required: !bound,
+        access_token: bound?.access_token || null,
+        refresh_token: bound?.refresh_token || null,
         token_type: "Bearer",
-        expires_in: signInData?.session?.expires_in || null,
-        expires_at: signInData?.session?.expires_at || null,
+        expires_in: bound?.expires_in || null,
+        expires_at: bound?.expires_at || null,
         user: {
           id: createdUser.user.id,
           email,

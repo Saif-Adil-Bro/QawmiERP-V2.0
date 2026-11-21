@@ -67,37 +67,6 @@ export default function ReportCardsClient({
     ? results 
     : results.filter(r => r.id === selectedStudentId);
 
-  // Compute true merit rank independent of roll-number print ordering
-  const meritRankMap = useMemo(() => {
-    const map = new Map<string, number>();
-    const meritSorted = [...results].sort((a, b) => {
-      // Passed students always rank above failed students
-      if (Boolean(a.is_failed) !== Boolean(b.is_failed)) {
-        return a.is_failed ? 1 : -1;
-      }
-      const pctDiff = Number(b.percentage || 0) - Number(a.percentage || 0);
-      if (pctDiff !== 0) return pctDiff;
-      return Number(b.totalObtained || 0) - Number(a.totalObtained || 0);
-    });
-
-    let lastRank = 1;
-    meritSorted.forEach((student, idx) => {
-      if (idx > 0) {
-        const prev = meritSorted[idx - 1];
-        const sameStatus = Boolean(student.is_failed) === Boolean(prev.is_failed);
-        const samePct = Number(student.percentage || 0) === Number(prev.percentage || 0);
-        const sameTotal = Number(student.totalObtained || 0) === Number(prev.totalObtained || 0);
-        if (sameStatus && samePct && sameTotal) {
-          map.set(student.id, lastRank);
-          return;
-        }
-      }
-      lastRank = idx + 1;
-      map.set(student.id, lastRank);
-    });
-    return map;
-  }, [results]);
-
   const activeMadrasa = profileAndLogo?.madrasa || madrasaInfo;
   const madrasaName = activeMadrasa?.name || "কওমি মাদ্রাসা";
   const madrasaAddress = activeMadrasa?.address || "";
@@ -292,7 +261,7 @@ export default function ReportCardsClient({
                 {/* Vertical Center Cutting Guide at exact 148.5mm horizontal midpoint */}
                 <div className="a4-landscape-cut-line" aria-hidden="true" />
                 {pair.map((student) => {
-                  const meritRank = meritRankMap.get(student.id) || 1;
+                  const meritRank = student.merit_position ?? 0;
                   return (
                     <div key={student.id} className="a4-landscape-slot">
                       <KidsVisualReportCard
@@ -322,7 +291,7 @@ export default function ReportCardsClient({
                 {/* Center Cutting Guide at exact 148.5mm vertical midpoint */}
                 <div className="a4-cut-line" aria-hidden="true" />
                 {pair.map((student) => {
-                  const meritRank = meritRankMap.get(student.id) || 1;
+                  const meritRank = student.merit_position ?? 0;
                   return (
                     <div key={student.id} className="a4-page-slot">
                       <div className="border border-slate-900 rounded-lg p-2.5 w-full h-full flex flex-col justify-between relative bg-white overflow-hidden">
@@ -380,7 +349,7 @@ export default function ReportCardsClient({
                               </div>
                               <div className="flex">
                                 <span className="font-bold text-slate-700 w-24">মেধা স্থান:</span>
-                                <span className="font-black text-blue-900 flex-1">{toBanglaNumber(meritRank)} তম</span>
+                                <span className="font-black text-blue-900 flex-1">{meritRank ? `${toBanglaNumber(meritRank)} তম` : "—"}</span>
                               </div>
                             </div>
 
@@ -510,7 +479,7 @@ export default function ReportCardsClient({
           })
         ) : (
           filteredResults.map((student) => {
-            const meritRank = meritRankMap.get(student.id) || 1;
+            const meritRank = student.merit_position ?? 0;
             return (
               <div key={student.id} className="a4-marksheet-sheet bg-white text-slate-900 font-sans">
                 <div className="border-2 border-slate-900 rounded-xl p-5 h-full flex flex-col justify-between relative">
@@ -567,7 +536,7 @@ export default function ReportCardsClient({
                       </div>
                       <div className="flex">
                         <span className="font-bold text-slate-700 w-28">মেধা স্থান (Merit):</span>
-                        <span className="font-black text-blue-900 flex-1">{toBanglaNumber(meritRank)} তম</span>
+                        <span className="font-black text-blue-900 flex-1">{meritRank ? `${toBanglaNumber(meritRank)} তম` : "—"}</span>
                       </div>
                     </div>
 
@@ -700,7 +669,7 @@ export default function ReportCardsClient({
         <div className="print:hidden space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredResults.map((student, index) => {
-                const meritRank = meritRankMap.get(student.id) || 1;
+                const meritRank = student.merit_position ?? 0;
                 return (
                   <div key={student.id} className="bg-white border border-slate-200 p-5 rounded-xl shadow-xs hover:shadow-md transition flex flex-col justify-between">
                     <div>
@@ -719,7 +688,7 @@ export default function ReportCardsClient({
                       <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-2.5 rounded-lg mb-3">
                         <div>
                           <span className="text-slate-500 block">মেধা স্থান:</span>
-                          <span className="font-bold text-slate-900 text-sm">{toBanglaNumber(meritRank)} তম</span>
+                          <span className="font-bold text-slate-900 text-sm">{meritRank ? `${toBanglaNumber(meritRank)} তম` : "—"}</span>
                         </div>
                         <div>
                           <span className="text-slate-500 block">প্রাপ্ত বিভাগ:</span>
@@ -759,7 +728,7 @@ export default function ReportCardsClient({
                                   সর্বোচ্চ: {toBanglaNumber(m.highest_marks !== undefined ? m.highest_marks : (m.marks_obtained || 0))}
                                 </span>
                                 <span className={`font-bold ${m.is_failed ? 'text-red-600' : 'text-slate-900'}`}>
-                                  {toBanglaNumber(m.marks_obtained)} / {toBanglaNumber(m.total_marks)}
+                                  {m.has_entered_marks === false ? '—' : toBanglaNumber(m.marks_obtained)} / {toBanglaNumber(m.total_marks)}
                                 </span>
                                 {student.grading_mode !== "average_percentage" && m.grade && (
                                   <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-1 rounded">

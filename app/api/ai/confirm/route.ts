@@ -1,9 +1,7 @@
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { getAuthUser, createAdminClient } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { loadServerPermissions } from "@/lib/permissions-server";
-import { isSessionRevoked, SESSION_COOKIE_NAME } from "@/lib/session-manager";
 import { logAuditEvent } from "@/lib/audit-log";
 import { toDhakaDateString, toDhakaMonthString } from "@/lib/date-utils";
 import { generateNextUniqueStudentId } from "@/lib/student-utils";
@@ -69,27 +67,6 @@ export async function POST(req: Request) {
       permCtx.roles.some((r) => PORTAL_ROLES.has(r))
     ) {
       return Response.json({ error: "এই কাজের অনুমতি নেই।" }, { status: 403 });
-    }
-
-    let sessionId = "";
-    try {
-      const cookieStore = await cookies();
-      sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value || "";
-    } catch {
-      sessionId = "";
-    }
-    if (sessionId) {
-      const revoked = await isSessionRevoked({
-        sessionId,
-        userId: user.id,
-        madrasaId,
-      });
-      if (revoked) {
-        return Response.json(
-          { error: "সেশন বাতিল বা মেয়াদোত্তীর্ণ হয়েছে।" },
-          { status: 401 }
-        );
-      }
     }
 
     const body = await req.json();

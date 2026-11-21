@@ -1,4 +1,8 @@
 "use server";
+import {webIdentity,hasRole,webTeacher,teacherSchedule,teacherStudents} from '@/lib/portal/identity';
+import {rows,childLogs} from '@/lib/portal/queries';
+import {studentRoles,portalHolidays,validDate} from '@/lib/portal/rules';
+import {toDhakaDateString} from '@/lib/date-utils';
 
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
@@ -26,65 +30,39 @@ import {
 /**
  * Resolves the authenticated user and target madrasa ID
  */
-async function resolveContext() {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) throw new Error("Unauthorized");
-
-  const madrasaId = await getAuthMadrasaId(supabase, user);
-  if (!madrasaId) throw new Error("Madrasa not found");
-
-  return { supabase, user, madrasaId };
+async function resolveContext(allowTeacher=false) {
+  const guard=await writeGuard('syllabus');
+  const i=await webIdentity();
+  if (!guard.allowed || !i || hasRole(i,studentRoles)) throw new Error('অনুমতি নেই।');
+  const t=await webTeacher();
+  if (t && !allowTeacher) throw new Error('এই পরিবর্তন প্রশাসনের জন্য সংরক্ষিত।');
+  return {user:i.user,madrasaId:i.tenant,t};
 }
-
+function ownsLesson(t:NonNullable<Awaited<ReturnType<typeof webTeacher>>>,lesson:any) {
+  return t.scope.classes.some(c=>c.id===lesson.class_id) && (lesson.teacher_id ? t.scope.keys.includes(lesson.teacher_id) || lesson.teacher_id===t.i.user.id : t.scope.assignments.some(a=>a.class_id===lesson.class_id && a.subject_id===lesson.subject_id));
+}
 /**
  * Fetches all necessary intelligence and operational data for Syllabus Intelligence
  */
 export async function getSyllabusDashboardData(overrideTeacherId?: string) {
   try {
-    const { supabase, user, madrasaId } = await resolveContext();
+    const { user, madrasaId,t } = await resolveContext(true);
     const admin = await createAdminClient();
 
     // 1. Fetch metadata and auxiliary tables concurrently
-    const [
-      meta,
-      { data: classes },
-      { data: subjects },
-      { data: teachers },
-      { data: routines },
-      { data: madrasa },
-    ] = await Promise.all([
-      getMadrasaMetadata(madrasaId),
-      admin.from("classes").select("id, name").order("name"),
-      admin.from("subjects").select("id, name, code").order("name"),
-      admin.from("teachers").select("id, first_name, last_name, phone"),
-      admin.from("routines").select("*, classes(name), subjects(name), teachers(first_name, last_name)"),
-      admin.from("madrasas").select("id, name, address, phone").eq("id", madrasaId).maybeSingle(),
+    const [meta,classes,subjects,teachers,routines,{data:madrasa}] = await Promise.all([
+      t?.scope.meta || getMadrasaMetadata(madrasaId),t?.scope.classes || rows(()=>admin.from('classes').select('*').eq('madrasa_id',madrasaId).order('name')),
+      t ? t.scope.assignments.map(a=>a.subjects).filter(Boolean) : rows(()=>admin.from('subjects').select('id,name,code').eq('madrasa_id',madrasaId).order('name')),
+      t ? [t.scope.teacher].filter(Boolean) : rows(()=>admin.from('teachers').select('id,first_name,last_name,phone').eq('madrasa_id',madrasaId)),
+      t ? teacherSchedule(t.i,t.scope).then(s=>s.routines) : rows(()=>admin.from('routines').select('*, classes(name), subjects(name), teachers(first_name,last_name)').eq('madrasa_id',madrasaId)),
+      admin.from('madrasas').select('*').eq('id',madrasaId).maybeSingle(),
     ]);
-
-    const madrasaName = madrasa?.name || "কওমি মাদরাসা";
-    const madrasaAddress = madrasa?.address || "";
-
-    const activeHolidays = (meta.academic_holidays || []).filter((h) => !h.is_archived);
-
-    // 2. Fetch syllabuses (clean without auto-injecting mock data)
-    let syllabuses: Syllabus[] = (meta as any)?.syllabuses || [];
-
-    // 3. Daily class records
-    const dailyClasses: DailyClassRecord[] = (meta as any)?.daily_classes || [];
-
-    // Filter by teacher if requested (e.g. teacher portal)
-    const targetTeacherId = overrideTeacherId;
-    const filteredSyllabuses = targetTeacherId
-      ? syllabuses.filter((s) => s.teacher_id === targetTeacherId)
-      : syllabuses;
-
-    // 4. Compute intelligence metrics for all relevant syllabuses
-    const todayStr = AcademicWorkingDayCalculator.formatDate(new Date());
-    const allMetrics = (filteredSyllabuses.length > 0 ? filteredSyllabuses : syllabuses).map((s) =>
-      SyllabusProgressEngine.calculateMetrics(s, dailyClasses, activeHolidays, routines || [], todayStr)
-    );
-
+    const madrasaName=madrasa?.name || '', madrasaAddress=madrasa?.address || '';
+    const activeHolidays=t ? portalHolidays(meta.academic_holidays,t.scope.classes) : (meta.academic_holidays || []).filter(h=>!h.is_archived);
+    const filteredSyllabuses:Syllabus[] = ((meta as any).syllabuses || []).filter((s:any)=> t ? ownsLesson(t,s) : !overrideTeacherId || s.teacher_id===overrideTeacherId);
+    const dailyClasses:DailyClassRecord[] = ((meta as any).daily_classes || []).filter((s:any)=>!t || ownsLesson(t,s));
+    const todayStr=toDhakaDateString();
+    const allMetrics=filteredSyllabuses.map(s=>SyllabusProgressEngine.calculateMetrics(s,dailyClasses,activeHolidays,routines,todayStr));
     // 5. Aggregate KPIs
     const totalSyllabuses = allMetrics.length;
     let totalTopics = 0;
@@ -113,7 +91,7 @@ export async function getSyllabusDashboardData(overrideTeacherId?: string) {
     // 6. Today's Academic Activity Breakdown
     // Day of week in English
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const todayDayName = dayNames[new Date().getDay()];
+    const todayDayName = dayNames[new Date(todayStr+'T00:00:00Z').getUTCDay()];
 
     const todayScheduledRoutines = (routines || []).filter(
       (r) => String(r.day_of_week).toLowerCase() === todayDayName.toLowerCase()
@@ -162,7 +140,7 @@ export async function getSyllabusDashboardData(overrideTeacherId?: string) {
         remainingWorkingDays,
         allMetrics,
         syllabuses: filteredSyllabuses,
-        allSyllabuses: syllabuses,
+        allSyllabuses: filteredSyllabuses,
         dailyClasses,
         todayActivity: {
           todayStr,
@@ -183,7 +161,7 @@ export async function getSyllabusDashboardData(overrideTeacherId?: string) {
         currentUser: user,
         madrasaName: madrasaName,
         madrasaAddress: madrasaAddress,
-        madrasa: madrasa || null,
+        madrasa: {id:madrasaId,name:madrasaName,address:madrasaAddress},
       },
     };
   } catch (err: any) {
@@ -197,9 +175,8 @@ export async function getSyllabusDashboardData(overrideTeacherId?: string) {
  */
 export async function getSyllabusesForClassAction(classId?: string) {
   try {
-    const { madrasaId } = await resolveContext();
-    const syllabuses = await getMadrasaSyllabuses(madrasaId);
-    const filtered = classId ? syllabuses.filter((s) => s.class_id === classId) : syllabuses;
+    const { madrasaId,t } = await resolveContext(true);
+    const filtered = (await getMadrasaSyllabuses(madrasaId)).filter(s=>(!classId || classId===s.class_id) && (!t || ownsLesson(t,s)));
     return { success: true, syllabuses: filtered };
   } catch (err: any) {
     console.error("Error in getSyllabusesForClassAction:", err);
@@ -260,7 +237,7 @@ export async function saveSyllabusAction(syllabusData: Partial<Syllabus>) {
       syllabuses.unshift(newSyllabus);
     }
 
-    await saveMadrasaSyllabuses(madrasaId, syllabuses);
+    if (!await saveMadrasaSyllabuses(madrasaId, syllabuses)) throw new Error('সিলেবাস সংরক্ষিত হয়নি।');
 
     revalidatePath("/dashboard/academic/syllabus");
     revalidatePath("/teacher-portal/syllabus");
@@ -336,25 +313,28 @@ export async function recordDailyClassAction(payload: {
   }
 
   try {
-    const { madrasaId, user } = await resolveContext();
+    const { madrasaId, user,t } = await resolveContext(true);
     const admin = await createAdminClient();
 
     const now = new Date().toISOString();
     const syllabuses = await getMadrasaSyllabuses(madrasaId);
     const dailyClasses = await getMadrasaDailyClasses(madrasaId);
 
-    // 1. Pull existing Attendance for this class on this date to connect real hajira
-    const { data: attendanceRows } = await admin
-      .from("attendance")
-      .select("student_id, status, students(id, first_name, last_name, roll_number)")
-      .eq("date", payload.date);
-
-    // Also fetch students of this class to determine attendance summary accurately
-    const { data: classStudents } = await admin
-      .from("students")
-      .select("id, first_name, last_name, roll_number")
-      .eq("class_id", payload.class_id);
-
+    if (!validDate(payload.date)) throw new Error('তারিখ সঠিক নয়।');
+    const available=syllabuses.filter(s=>s.class_id===payload.class_id && (!t || ownsLesson(t,s)));
+    const targetSyllabus=payload.syllabus_id ? available.find(s=>s.id===payload.syllabus_id) : available.find(s=>payload.subject_id ? s.subject_id===payload.subject_id : s.subject_name===payload.subject_name);
+    if (payload.syllabus_id && !targetSyllabus) throw new Error('জামাত বা সিলেবাস বরাদ্দ করা নেই।');
+    if (t) {
+      const existing=dailyClasses.find(d=>d.id===payload.record_id);
+      if (!t.scope.classes.some(c=>c.id===payload.class_id) || (payload.record_id && (!existing || !ownsLesson(t,existing) || existing.class_id!==payload.class_id))) throw new Error('জামাত বরাদ্দ করা নেই।');
+      if (!targetSyllabus && !t.scope.assignments.some(a=>a.class_id===payload.class_id && a.subject_id===payload.subject_id)) throw new Error('বিষয়টি আপনাকে বরাদ্দ করা নেই।');
+      if (targetSyllabus) {payload.subject_id=targetSyllabus.subject_id; payload.subject_name=targetSyllabus.book_name || targetSyllabus.subject_name;}
+      payload.teacher_id=t.scope.teacher?.id || ''; payload.teacher_name=t.i.userRow.full_name;
+    }
+    const classStudents=t ? await teacherStudents(t.i,t.scope,[payload.class_id]) : await rows(()=>admin.from('students').select('id,first_name,last_name,roll_number').eq('madrasa_id',madrasaId).eq('class_id',payload.class_id));
+    const roster=new Set(classStudents.map(s=>s.id));
+    if (payload.student_evaluations?.some(e=>!roster.has(e.student_id))) throw new Error('মূল্যায়নের শিক্ষার্থী এই জামাতের নয়।');
+    const attendanceRows=await childLogs(admin,madrasaId,'attendance',Array.from(roster),payload.date);
     const totalStudentsCount = classStudents?.length || 0;
     const presentStudents: any[] = [];
     const absentStudents: any[] = [];
@@ -372,9 +352,6 @@ export async function recordDailyClassAction(payload: {
           name: `${st.first_name || ""} ${st.last_name || ""}`.trim() || `রোল ${st.roll_number}`,
           roll: st.roll_number,
         });
-      } else {
-        // If no explicit attendance recorded today, default to present for daily class engagement
-        presentStudents.push(st);
       }
     });
 
@@ -385,15 +362,6 @@ export async function recordDailyClassAction(payload: {
       leave: leaveCount,
       absent_students: absentStudents,
     };
-
-    // 2. Find target syllabus
-    let targetSyllabus = syllabuses.find(
-      (s) =>
-        s.id === payload.syllabus_id ||
-        (s.class_id === payload.class_id &&
-          (s.subject_id === payload.subject_id ||
-            (s.subject_name && payload.subject_name && s.subject_name.trim() === payload.subject_name.trim())))
-    );
 
     // 3. Update Syllabus Topics if academic teaching occurred
     if (
@@ -472,7 +440,7 @@ export async function recordDailyClassAction(payload: {
       }
 
       targetSyllabus.updated_at = now;
-      await saveMadrasaSyllabuses(madrasaId, syllabuses);
+      if (!await saveMadrasaSyllabuses(madrasaId, syllabuses)) throw new Error('সিলেবাস সংরক্ষিত হয়নি।');
     }
 
     // 4. Save DailyClassRecord
@@ -514,7 +482,7 @@ export async function recordDailyClassAction(payload: {
       dailyClasses.unshift(newRecord);
     }
 
-    await saveMadrasaDailyClasses(madrasaId, dailyClasses);
+    if (!await saveMadrasaDailyClasses(madrasaId, dailyClasses)) throw new Error('ক্লাস রেকর্ড সংরক্ষিত হয়নি।');
 
     // 5. Direct Link with existing kitab_logs for continuous backward compatibility
     if (classStudents && classStudents.length > 0 && payload.class_type !== "NO_ACADEMIC_CLASS") {
@@ -527,7 +495,8 @@ export async function recordDailyClassAction(payload: {
 
       for (const student of classStudents) {
         const studentEval = payload.student_evaluations?.find((e) => e.student_id === student.id);
-        const rating = studentEval ? studentEval.rating : "Good";
+        if (!studentEval && !presentStudents.some(s=>s.id===student.id)) continue;
+        const rating = studentEval?.rating || null;
 
         const logRecord = {
           madrasa_id: madrasaId,
@@ -541,19 +510,17 @@ export async function recordDailyClassAction(payload: {
           notes: topicsText || payload.notes || "দৈনিক পাঠ সম্পন্ন",
         };
 
-        const { data: existing } = await admin
+        const { data: existing, error: lookupError } = await admin
           .from("kitab_logs")
           .select("id")
-          .eq("student_id", student.id)
+          .eq("madrasa_id",madrasaId).eq("student_id", student.id)
           .eq("log_date", payload.date)
           .eq("kitab_name", kitabName)
           .maybeSingle();
 
-        if (existing?.id) {
-          await admin.from("kitab_logs").update(logRecord).eq("id", existing.id);
-        } else {
-          await admin.from("kitab_logs").insert([logRecord]);
-        }
+        if (lookupError) throw lookupError;
+        const write = existing?.id ? await admin.from('kitab_logs').update(logRecord).eq('id',existing.id).eq('madrasa_id',madrasaId) : await admin.from('kitab_logs').insert(logRecord);
+        if (write.error) throw write.error;
       }
     }
 
@@ -582,13 +549,14 @@ export async function markStudentMakeupDoneAction(
   studentId: string
 ) {
   try {
-    const { madrasaId } = await resolveContext();
+    const { madrasaId,t } = await resolveContext(true);
     const syllabuses = await getMadrasaSyllabuses(madrasaId);
 
     const sIndex = syllabuses.findIndex((s) => s.id === syllabusId);
     if (sIndex === -1) return { success: false, error: "সিলেবাস পাওয়া যায়নি" };
 
     const targetSyllabus = syllabuses[sIndex];
+    if (t && !ownsLesson(t,targetSyllabus)) throw new Error('সিলেবাস বরাদ্দ করা নেই।');
     let found = false;
 
     for (const ch of targetSyllabus.chapters || []) {
@@ -607,7 +575,7 @@ export async function markStudentMakeupDoneAction(
     if (!found) return { success: false, error: "রেকর্ড পাওয়া যায়নি" };
 
     targetSyllabus.updated_at = new Date().toISOString();
-    await saveMadrasaSyllabuses(madrasaId, syllabuses);
+    if (!await saveMadrasaSyllabuses(madrasaId, syllabuses)) throw new Error('সিলেবাস সংরক্ষিত হয়নি।');
 
     revalidatePath("/dashboard/academic/syllabus");
     revalidatePath("/teacher-portal/syllabus");
@@ -635,7 +603,7 @@ export async function updateSyllabusSettingsAction(
     target.revision_interval_days = revisionIntervalDays;
     target.updated_at = new Date().toISOString();
 
-    await saveMadrasaSyllabuses(madrasaId, syllabuses);
+    if (!await saveMadrasaSyllabuses(madrasaId, syllabuses)) throw new Error('সিলেবাস সংরক্ষিত হয়নি।');
 
     revalidatePath("/dashboard/academic/syllabus");
     revalidatePath("/teacher-portal/syllabus");

@@ -89,9 +89,10 @@ export async function loadServerPermissions(
       .eq("id", userId)
       .maybeSingle();
 
-    const role = (userRow as any)?.role || "staff";
+    if (!userRow || userRow.madrasa_id !== madrasaId) return null;
+    const role = userRow.role || 'staff';
 
-    const store = await readJsonStore(madrasaId, "security");
+    const store = await readJsonStore(madrasaId, "security",true);
     const customRoles: RoleDefinition[] = store.custom_roles || [];
     const allRoles = [...DEFAULT_SYSTEM_ROLES, ...customRoles];
 
@@ -127,7 +128,7 @@ export async function loadServerPermissions(
       userId,
       madrasaId,
       role,
-      roles: profile.roles,
+      roles: [...new Set([role,profile.primaryRole,...profile.roles])],
       status: profile.status,
       summary,
       profile,
@@ -152,7 +153,7 @@ export async function assertActiveAccount(
 ): Promise<PermissionResult> {
   const ctx = await loadServerPermissions(userId, madrasaId);
   if (!ctx) return { allowed: false, error: NO_PERMISSION_ERROR, errorCode: "FORBIDDEN" };
-  if (ctx.status === "SUSPENDED" || ctx.status === "DISABLED") {
+  if (ctx.status !== "ACTIVE") {
     return {
       allowed: false,
       error: ACCOUNT_DISABLED_ERROR,
@@ -224,7 +225,7 @@ export async function evaluatePermissionAndStepUp(
   opts: RequirePermissionOptions,
   tenantEnforceCritical = true
 ): Promise<PermissionResult> {
-  if (ctx.status === "SUSPENDED" || ctx.status === "DISABLED") {
+  if (ctx.status !== "ACTIVE") {
     return {
       allowed: false,
       error: ACCOUNT_DISABLED_ERROR,

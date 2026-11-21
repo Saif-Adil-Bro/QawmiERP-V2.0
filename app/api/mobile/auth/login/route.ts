@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { completeAppLogin } from "@/lib/app-login";
 import {
   createStatelessSupabaseClient,
   mobileError,
@@ -8,10 +8,8 @@ import {
 } from "@/lib/mobile-api";
 import {
   findStudentByIdentifier,
-  ensureStudentGuardianAuthUser,
   banglaToEnglishDigits,
 } from "@/lib/student-auth";
-import { assertActiveAccount } from "@/lib/permissions-server";
 import { DEMO_ADMIN_EMAIL } from "@/lib/demo-data";
 import { ensureDemoMadrasaExists } from "@/app/actions/demo-seed";
 
@@ -49,12 +47,7 @@ export async function POST(req: NextRequest) {
         studentIdCode = resolved.canonicalStudentId;
         canonicalEmail = resolved.portalEmail;
         legacyEmail = resolved.legacyPortalEmail;
-        const authRes = await ensureStudentGuardianAuthUser(
-          resolved.student,
-          studentIdCode,
-          "123456"
-        );
-        targetEmail = authRes.email || canonicalEmail;
+        targetEmail = canonicalEmail;
       } else if (!rawIdentifier.includes("@")) {
         return mobileError(
           `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি।`,
@@ -115,55 +108,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const adminClient = await createAdminClient();
-    const { data: userRow } = await adminClient
-      .from("users")
-      .select("*, madrasas(id, name, address, contact_phone, contact_email, logo_url)")
-      .eq("id", data.user.id)
-      .maybeSingle();
-
-    const madrasaId = String(
-      (userRow as any)?.madrasa_id || data.user.user_metadata?.madrasa_id || ""
-    );
-
-    let role = String(
-      (userRow as any)?.role ||
-        data.user.user_metadata?.role ||
-        (isStudentLogin ? "parent" : "staff")
-    ).toLowerCase();
-    let roles: string[] = [role];
-    let permissions: string[] = [];
-
-    if (madrasaId) {
-      const active = await assertActiveAccount(data.user.id, madrasaId);
-      if (!active.allowed) {
-        return mobileError(
-          active.error || "আপনার অ্যাকাউন্টটি সক্রিয় নয়।",
-          403,
-          "ACCOUNT_INACTIVE"
-        );
-      }
-      if (active.context) {
-        role = String(active.context.role || role).toLowerCase();
-        roles = (active.context.roles || [role]).map((r) => String(r).toLowerCase());
-        permissions = active.context.summary?.effectivePermissions || [];
-      }
-
-      try {
-        const { registerUserSession } = await import("@/lib/session-manager");
-        const forwarded = req.headers.get("x-forwarded-for");
-        const ipAddress = forwarded ? forwarded.split(",")[0].trim() : req.headers.get("x-real-ip");
-        await registerUserSession({
-          userId: data.user.id,
-          madrasaId,
-          ipAddress,
-          userAgent: req.headers.get("user-agent") || "QawmiERP Mobile App",
-          accessToken: data.session.access_token,
-          remember: true,
-          channel: "mobile",
-        });
-      } catch {}
-    }
+    const login = await completeAppLogin(supabase, data.session, "mobile", true, req.headers);
+    if (!login.ok) return mobileError(login.message, login.status, login.code);
+    const {row:userRow, perms} = login;
+    const {role, roles, madrasaId} = perms;
+    const permissions = perms.summary.effectivePermissions;
 
     return mobileSuccess(
       {

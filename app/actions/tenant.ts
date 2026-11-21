@@ -1,5 +1,8 @@
 "use server";
 
+import {webIdentity,hasRole} from '@/lib/portal/identity';
+import {studentRoles,teacherRoles} from '@/lib/portal/rules';
+import {getMadrasaInfo,toPublicMadrasaInfo} from '@/lib/getMadrasaInfo';
 import { writeGuard } from "@/lib/action-authorization";
 import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
@@ -122,22 +125,9 @@ export async function registerMadrasa(formData: FormData) {
 
 
 export async function getMadrasaDetails() {
-  const adminClient = await createAdminClient();
-  let madrasaId: string | null = null;
-
-  try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (user) {
-      madrasaId = await getAuthMadrasaId(supabase, user);
-    }
-  } catch {
-    // Auth check failed
-  }
-
-  // P2-Fix: first-madrasa fallback সরানো — user-এর মাদরাসা নেই → null (fail-closed)
-  if (!madrasaId) return null;
-  
+  const i=await webIdentity(); if (!i) return null;
+  const adminClient=i.db, madrasaId=i.tenant;
+  if(!hasRole(i,['admin','super_admin','muhtamim']) || hasRole(i,[...studentRoles,...teacherRoles])) return toPublicMadrasaInfo(await getMadrasaInfo(madrasaId));
   const { data, error } = await adminClient
     .from("madrasas")
     .select("*")

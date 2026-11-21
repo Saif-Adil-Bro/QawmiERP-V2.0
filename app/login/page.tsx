@@ -1,18 +1,15 @@
 import LoginForm from "./LoginForm";
 import { BookOpen } from "lucide-react";
-import { getAuthUser } from "@/lib/supabase/server";
+import { webIdentity } from "@/lib/portal/identity";
 import { redirect } from "next/navigation";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
 
 export const dynamic = "force-dynamic";
 
-export default async function LoginPage() {
-  const user = await getAuthUser();
-  if (user) {
-    const role = user.user_metadata?.role;
-    const targetUrl = getPortalRedirectUrl(role);
-    redirect(targetUrl || "/dashboard");
-  }
+export default async function LoginPage({searchParams}: {searchParams:Promise<{logout?:string}>}) {
+  const logoutUnconfirmed = (await searchParams).logout === "unconfirmed";
+  const identity = await webIdentity();
+  if (identity) redirect(getPortalRedirectUrl(identity.userRow.role, identity.perms.roles));
   return (
     <div className="h-dvh overflow-hidden sm:h-auto sm:min-h-screen sm:overflow-auto bg-white dark:bg-slate-900 sm:bg-gradient-to-br sm:from-emerald-950 sm:via-slate-900 sm:to-slate-950 flex flex-col justify-between sm:justify-center sm:py-12 sm:px-6 lg:px-8">
       <div className="bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-950 sm:bg-none px-5 pt-6 pb-5 sm:p-0 sm:mx-auto sm:w-full sm:max-w-md text-center shrink-0">
@@ -29,6 +26,9 @@ export default async function LoginPage() {
 
       <div className="flex-1 flex flex-col justify-center sm:flex-none sm:mt-8 sm:mx-auto sm:w-full sm:max-w-md overflow-hidden">
         <div className="login-card-container bg-white dark:bg-slate-900 px-5 py-4 sm:py-8 sm:px-10 sm:shadow-2xl sm:rounded-2xl sm:border sm:border-slate-200 dark:sm:border-slate-800 transition-colors">
+          {logoutUnconfirmed && <p role="status" className="mb-3 text-sm text-amber-800 dark:text-amber-300">
+            সার্ভারে সেশন বন্ধ হওয়া নিশ্চিত করা যায়নি। সংযোগ ফিরলে অন্য ডিভাইস থেকে সক্রিয় সেশনের তালিকা দেখুন বা প্রশাসনের সঙ্গে যোগাযোগ করুন।
+          </p>}
           <LoginForm />
         </div>
       </div>

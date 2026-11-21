@@ -7,7 +7,6 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const auth = await authenticateMobileRequest(req, {
     requireWrite: false,
-    allowPortalRoles: true,
   });
   if (!auth.ok) return auth.response;
 
@@ -44,7 +43,6 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const auth = await authenticateMobileRequest(req, {
     requireWrite: false,
-    allowPortalRoles: true,
   });
   if (!auth.ok) return auth.response;
 

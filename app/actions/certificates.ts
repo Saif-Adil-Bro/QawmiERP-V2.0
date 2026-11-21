@@ -4,7 +4,7 @@ import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents } from "@/app/actions/students";
-import { getMadrasaMetadata, saveMadrasaMetadata, AcademicSession, getDefaultSessions } from "@/lib/sessions";
+import { getMadrasaMetadata, saveMadrasaMetadata, AcademicSession } from "@/lib/sessions";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { submitWorkflowHookApproval } from "@/lib/approval-workflow";
 import {
@@ -247,7 +247,7 @@ export async function issueStudentCertificate(payload: {
     const certType = types.find((t) => t.id === payload.certificate_type_id) || types[0];
 
     // Current Session
-    const sessions: AcademicSession[] = meta.sessions || getDefaultSessions(madrasaId);
+    const sessions: AcademicSession[] = meta.sessions || [];
     const currentSession = sessions.find((s) => s.is_current) || sessions[0];
 
     const yearShort = String(getDhakaYear());
@@ -817,12 +817,12 @@ export async function getStudentCertificates(studentId: string) {
       return [];
     }
 
-    const madrasaId = await getAuthMadrasaId();
+    const madrasaId = scope.madrasaId;
     if (!madrasaId) return [];
 
     const meta = await getMadrasaMetadata(madrasaId);
     const certs: StudentCertificate[] = meta.certificates || [];
-    return certs.filter((c) => c.student_id === studentId);
+    return certs.filter((c) => c.student_id === studentId && (scope.isUnrestricted || ["ISSUED","REISSUED"].includes(c.status)));
   } catch (err) {
     console.error("Error getting student certificates:", err);
     return [];

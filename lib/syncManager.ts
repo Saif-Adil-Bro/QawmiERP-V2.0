@@ -1,3 +1,4 @@
+import {browserSession,ownerKey,resolvePortalTypeFromRole} from './offline-auth';
 import { Network } from "@capacitor/network";
 import { apiUrl } from "./api-url";
 import {
@@ -47,7 +48,7 @@ const CORE_PULL_ENTITIES: OfflineEntity[] = [
 ];
 
 let syncInProgress = false;
-const tempIdToServerId = new Map<string, string>();
+const ownerIds = new Map<string,Map<string,string>>();
 
 export async function checkIsOnline(): Promise<boolean> {
   if (typeof window === "undefined") return true;
@@ -59,14 +60,13 @@ export async function checkIsOnline(): Promise<boolean> {
   }
 }
 
-function buildAuthHeaders(): Record<string, string> {
+function buildAuthHeaders(owner=ownerKey(browserSession())): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "X-Qawmi-Sync-Owner": owner,
   };
   if (typeof window !== "undefined") {
-    const token =
-      window.localStorage.getItem("qawmi_access_token") ||
-      window.localStorage.getItem("access_token");
+    const token = browserSession()?.accessToken;
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     }
@@ -78,7 +78,7 @@ function buildAuthHeaders(): Record<string, string> {
   return headers;
 }
 
-function resolveTargetEndpoint(item: SyncQueueItem): { url: string; method: string } {
+function resolveTargetEndpoint(item: SyncQueueItem,tempIdToServerId:Map<string,string>): { url: string; method: string } {
   const basePath = item.endpoint || ENTITY_API_PATHS[item.entity];
   const resolvedRecordId = item.recordId
     ? tempIdToServerId.get(item.recordId) || item.recordId
@@ -116,7 +116,8 @@ export async function processSyncQueue(): Promise<SyncProcessResult> {
     return { processed: 0, succeeded: 0, failed: 0, skippedOffline: true };
   }
 
-  if (syncInProgress) {
+  const session = browserSession(), owner = ownerKey(session);
+  if (!owner || resolvePortalTypeFromRole(session?.role)!=='admin' || syncInProgress) {
     return { processed: 0, succeeded: 0, failed: 0, skippedOffline: false };
   }
 
@@ -125,29 +126,28 @@ export async function processSyncQueue(): Promise<SyncProcessResult> {
     return { processed: 0, succeeded: 0, failed: 0, skippedOffline: true };
   }
 
+  if (syncInProgress || owner!==ownerKey(browserSession())) return {processed:0,succeeded:0,failed:0,skippedOffline:false};
   syncInProgress = true;
-  const db = getOfflineDb();
+  const headers=buildAuthHeaders(owner);
+  const db = getOfflineDb(owner);
+  const tempIdToServerId=ownerIds.get(owner) || new Map<string,string>(); ownerIds.set(owner,tempIdToServerId);
   let processed = 0;
   let succeeded = 0;
   let failed = 0;
 
   try {
     const allItems = await db.syncQueue.orderBy("timestamp").toArray();
-    const pendingItems = allItems.filter(
-      (item) =>
-        item.status === "pending" ||
-        (item.status === "failed" && item.retryCount < MAX_SYNC_RETRIES)
-    );
-
-    for (const item of pendingItems) {
-      const stillOnline = await checkIsOnline();
-      if (!stillOnline) break;
-
+    for (const item of allItems) {
+      if (!await checkIsOnline() || ownerKey(browserSession())!==owner || item.retryCount>=MAX_SYNC_RETRIES) break;
+      const claimed=await db.transaction('rw',db.syncQueue,async()=>{
+        const live=await db.syncQueue.get(item.id);
+        if (!live || (live.leaseUntil || 0)>Date.now() || live.retryCount>=MAX_SYNC_RETRIES) return false;
+        await db.syncQueue.update(item.id,{status:'syncing',leaseUntil:Date.now()+120000});return true;
+      });
+      if (!claimed) break;
       processed++;
-      await db.syncQueue.update(item.id, { status: "syncing" });
-
       try {
-        const { url, method } = resolveTargetEndpoint(item);
+        const { url, method } = resolveTargetEndpoint(item,tempIdToServerId);
         const bodyPayload = { ...item.payload };
 
         // Remap any temp IDs inside payload if created earlier in queue
@@ -159,8 +159,9 @@ export async function processSyncQueue(): Promise<SyncProcessResult> {
         }
 
         const res = await fetch(url, {
+          signal:AbortSignal.timeout(45000),
           method,
-          headers: buildAuthHeaders(),
+          headers,
           credentials: "include",
           body: method === "DELETE" && Object.keys(bodyPayload).length === 0
             ? undefined
@@ -173,6 +174,7 @@ export async function processSyncQueue(): Promise<SyncProcessResult> {
         }
 
         const json = await res.json().catch(() => null);
+        if (!json?.success) throw new Error('সার্ভার পরিবর্তন নিশ্চিত করেনি।');
         const serverRecord = json?.data && !Array.isArray(json.data) ? json.data : null;
 
         // Reconcile local Dexie cache
@@ -210,10 +212,10 @@ export async function processSyncQueue(): Promise<SyncProcessResult> {
         const nextRetry = (item.retryCount || 0) + 1;
         await db.syncQueue.update(item.id, {
           status: nextRetry >= MAX_SYNC_RETRIES ? "failed" : "pending",
-          retryCount: nextRetry,
+          retryCount: nextRetry,leaseUntil:0,
           lastError: message.slice(0, 300),
         });
-        failed++;
+        failed++; break;
       }
     }
   } finally {
@@ -227,10 +229,13 @@ export async function pullEntityFromServer(
   entity: OfflineEntity,
   query = "limit=200"
 ): Promise<OfflineRecord[]> {
-  const db = getOfflineDb();
+  const owner=ownerKey(browserSession());
+  if(!owner.endsWith(':admin')) return [];
+  const db = getOfflineDb(owner);
   const table = db.getEntityTable(entity);
   const online = await checkIsOnline();
 
+  if (owner!==ownerKey(browserSession())) return [];
   if (!online) {
     return table.filter((r) => !r._deleted).toArray();
   }
@@ -239,7 +244,7 @@ export async function pullEntityFromServer(
     const endpoint = ENTITY_API_PATHS[entity];
     const separator = endpoint.includes("?") ? "&" : "?";
     const res = await fetch(apiUrl(`${endpoint}${separator}${query}`), {
-      headers: buildAuthHeaders(),
+      headers: buildAuthHeaders(owner),
       credentials: "include",
     });
 
@@ -268,6 +273,7 @@ export async function pullEntityFromServer(
         _offlinePending: false,
       }));
 
+    if (owner!==ownerKey(browserSession())) return [];
     if (cleanRows.length > 0) {
       await table.bulkPut(cleanRows);
     }
@@ -279,6 +285,7 @@ export async function pullEntityFromServer(
 
     return table.filter((r) => !r._deleted).toArray();
   } catch (err: unknown) {
+    if (owner!==ownerKey(browserSession())) return [];
     const message = err instanceof Error ? err.message : "Pull failed";
     await db.syncMeta.put({
       entity,
@@ -290,6 +297,7 @@ export async function pullEntityFromServer(
 }
 
 export async function pullAllCoreEntities(): Promise<void> {
+  const session=browserSession(); if (!ownerKey(session) || resolvePortalTypeFromRole(session?.role)!=='admin') return;
   const online = await checkIsOnline();
   if (!online) return;
 
@@ -315,13 +323,13 @@ export interface OfflineMutateResult<T = unknown> {
 }
 
 async function applyOptimisticLocalUpdate(
+  db:ReturnType<typeof getOfflineDb>,
   entity: OfflineEntity,
   action: SyncAction,
   payload: Record<string, unknown>,
   recordId: string,
   pending: boolean
 ) {
-  const db = getOfflineDb();
   const table = db.getEntityTable(entity);
   const nowIso = new Date().toISOString();
 
@@ -355,19 +363,12 @@ async function applyOptimisticLocalUpdate(
 export async function queueOfflineOperation(
   options: OfflineMutateOptions
 ): Promise<OfflineMutateResult> {
+  if(!ownerKey(browserSession()).endsWith(':admin')) throw new Error('অ্যাডমিন সেশন নেই।');
   const db = getOfflineDb();
   const effectiveRecordId =
     options.recordId ||
     (typeof options.payload.id === "string" ? options.payload.id : undefined) ||
     generateOfflineId(options.entity);
-
-  await applyOptimisticLocalUpdate(
-    options.entity,
-    options.action,
-    options.payload,
-    effectiveRecordId,
-    true
-  );
 
   const queueItem: SyncQueueItem = {
     id: generateOfflineId("sync"),
@@ -381,7 +382,17 @@ export async function queueOfflineOperation(
     retryCount: 0,
   };
 
-  await db.syncQueue.add(queueItem);
+  await db.transaction('rw',db.syncQueue,db.getEntityTable(options.entity),async()=>{
+  await applyOptimisticLocalUpdate(
+    db,options.entity,
+    options.action,
+    options.payload,
+    effectiveRecordId,
+    true
+  );
+
+    await db.syncQueue.add(queueItem);
+  });
 
   return {
     success: true,
@@ -393,12 +404,14 @@ export async function queueOfflineOperation(
 export async function offlineMutate<T = unknown>(
   options: OfflineMutateOptions
 ): Promise<OfflineMutateResult<T>> {
+  const owner=ownerKey(browserSession()); if(!owner.endsWith(':admin')) throw new Error('অ্যাডমিন সেশন নেই।');
   const online = await checkIsOnline();
   const effectiveRecordId =
     options.recordId ||
     (typeof options.payload.id === "string" ? options.payload.id : undefined) ||
     generateOfflineId(options.entity);
 
+  if(owner!==ownerKey(browserSession())) throw new Error('অ্যাকাউন্ট বদলেছে।');
   if (!online) {
     return (await queueOfflineOperation({
       ...options,
@@ -445,9 +458,10 @@ export async function offlineMutate<T = unknown>(
     }
 
     // Update local Dexie cache with synced server data
+    if (owner!==ownerKey(browserSession()) || !json?.success) throw new Error('অ্যাকাউন্ট বা রেসপন্স বদলেছে।');
     const serverRecord = json?.data && !Array.isArray(json.data) ? json.data : null;
     await applyOptimisticLocalUpdate(
-      options.entity,
+      getOfflineDb(owner),options.entity,
       options.action,
       serverRecord || options.payload,
       String(serverRecord?.id || effectiveRecordId),
@@ -462,6 +476,7 @@ export async function offlineMutate<T = unknown>(
   } catch (err: unknown) {
     // Network failure mid-request -> queue offline seamlessly
     const stillOnline = await checkIsOnline();
+    if (owner!==ownerKey(browserSession())) return {success:false,offlineQueued:false,error:'অ্যাকাউন্ট বদলেছে।'};
     if (!stillOnline || err instanceof TypeError) {
       return (await queueOfflineOperation({
         ...options,

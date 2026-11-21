@@ -75,10 +75,10 @@ export async function saveStructuredExamSetting(
       return { ok: true, storage: "sql" };
     }
     if (!isMissingTableError(error)) {
-      console.warn(`saveStructuredExamSetting(${settingKey}) error:`, error.message);
+      throw new Error(error.message);
     }
   } catch (err) {
-    console.warn(`saveStructuredExamSetting(${settingKey}) catch:`, err);
+    throw err;
   }
 
   return { ok: false, storage: "fallback" };
@@ -157,7 +157,7 @@ export async function getExamSettingsBundle(
   let compulsorySubjects: Record<string, boolean> | null = null;
   let publishInfo: any = null;
 
-  try {
+  {
     const adminClient = await createAdminClient();
     const { data, error } = await adminClient
       .from("exam_settings")
@@ -165,6 +165,7 @@ export async function getExamSettingsBundle(
       .eq("madrasa_id", madrasaId)
       .in("scope_key", [GLOBAL_EXAM_SCOPE, examId]);
 
+    if (error && !['42P01','PGRST205'].includes(error.code)) throw new Error(error.message);
     if (!error && Array.isArray(data)) {
       for (const row of data) {
         if (row.scope_key === GLOBAL_EXAM_SCOPE && row.setting_key === "grading_config") {
@@ -176,13 +177,11 @@ export async function getExamSettingsBundle(
         }
       }
     }
-  } catch {
-    // fallback below
   }
 
   // Only read metadata JSON if any setting wasn't found in SQL
   if (!gradingConfig || !evaluationRules || !compulsorySubjects || !publishInfo) {
-    const meta = await getMadrasaMetadata(madrasaId);
+    const meta = await getMadrasaMetadata(madrasaId,true);
     if (!gradingConfig) {
       gradingConfig = normalizeGradingConfig(meta?.exam_grading_config || meta?.exam_grade_scale);
     }

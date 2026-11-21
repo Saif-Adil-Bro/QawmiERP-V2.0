@@ -123,17 +123,7 @@ export default function LiveRoutineCarousel({
 
   // Offline-first fallback: use props when populated, otherwise read reactively from Dexie IndexedDB
   const effectiveRoutines = useMemo(() => {
-    const source =
-      Array.isArray(routines) && routines.length > 0
-        ? routines
-        : Array.isArray(offlineSnapshot?.routines)
-        ? variant === "student" && studentClassId
-          ? offlineSnapshot.routines.filter(
-              (r: any) => !r.class_id || r.class_id === studentClassId
-            )
-          : offlineSnapshot.routines
-        : [];
-
+    const source=offlineSnapshot?.routines ?? routines ?? [];
     return source.map((r: any) => {
       if (r && r.display_title && r.item_type) return r;
       const parsed = parseRoutineItem(r);
@@ -146,8 +136,7 @@ export default function LiveRoutineCarousel({
   }, [routines, offlineSnapshot?.routines, variant, studentClassId]);
 
   const effectiveHolidays: HolidayRangeLike[] = useMemo(() => {
-    if (Array.isArray(holidays) && holidays.length > 0) return holidays;
-    return (offlineSnapshot?.academicCalendar || []) as HolidayRangeLike[];
+    return offlineSnapshot?.academicCalendar ?? holidays;
   }, [holidays, offlineSnapshot?.academicCalendar]);
 
   const liveStatus = useMemo(

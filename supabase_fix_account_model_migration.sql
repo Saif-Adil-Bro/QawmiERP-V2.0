@@ -26,6 +26,7 @@ BEGIN;
 -- ----------------------------------------------------------------------------
 -- ধাপ ১: মাদ্রাসা — JSON store-এর জন্য dedicated কলাম + আসল নিবন্ধন নম্বর
 -- ----------------------------------------------------------------------------
+ALTER TABLE public.madrasas ADD COLUMN IF NOT EXISTS registration_no TEXT;
 ALTER TABLE public.madrasas ADD COLUMN IF NOT EXISTS security_metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE public.madrasas ADD COLUMN IF NOT EXISTS metadata          JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE public.madrasas ADD COLUMN IF NOT EXISTS reg_no            TEXT;

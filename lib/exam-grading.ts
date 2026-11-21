@@ -271,6 +271,7 @@ export interface ExamEvaluationOptions {
 export interface ComputedSubjectResult {
   id: string;
   subjectName: string;
+  hasEntered: boolean;
   marksObtained: number;
   totalMarks: number;
   passMarks: number;
@@ -299,19 +300,6 @@ export interface StudentExamSummary {
   subjects: ComputedSubjectResult[];
 }
 
-function parseExplicitMeritRank(rows: Array<Record<string, any>>): number | null {
-  for (const r of rows || []) {
-    const raw = r?.merit_position ?? r?.merit_rank ?? r?.rank ?? r?.position;
-    if (raw !== null && raw !== undefined && raw !== "") {
-      const parsed = Number(raw);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        return Math.trunc(parsed);
-      }
-    }
-  }
-  return null;
-}
-
 export function computeStudentExamSummary(
   rows: Array<Record<string, any>>,
   gradingConfigOrRules?: ExamGradingConfig | GradeRule[] | null,
@@ -335,28 +323,10 @@ export function computeStudentExamSummary(
     subjectDefMap.set(subDef.subject_name.trim(), subDef);
   }
 
-  const validRows = (rows || []).filter(
-    (r) => r && r.marks_obtained !== null && r.marks_obtained !== undefined && r.marks_obtained !== ""
-  );
-
-  if (validRows.length === 0) {
-    return {
-      hasMarks: false,
-      subjectCount: 0,
-      failedSubjectCount: 0,
-      totalObtained: 0,
-      totalMax: 0,
-      percentage: 0,
-      gpa: 0,
-      gradeLabel: "অপেক্ষমাণ",
-      gradeColor: "slate",
-      badgeClass: getGradeBadgeClass("slate"),
-      isPassed: false,
-      statusLabel: "অপেক্ষমাণ",
-      subjects: [],
-    };
-  }
-
+  const entered = new Map(rows.filter(r => r?.subject_name && r.marks_obtained != null && r.marks_obtained !== '').map(r=>[r.subject_name.trim(),r]));
+  const names = Array.from(subjectDefMap.size ? subjectDefMap.keys() : entered.keys());
+  const validRows = names.map(name => entered.get(name) ?? {subject_name:name,marks_obtained:null});
+  const hasMarks = validRows.some(r=>r.marks_obtained != null);
   let totalObtained = 0;
   let totalMax = 0;
   let failedSubjectCount = 0;
@@ -377,13 +347,13 @@ export function computeStudentExamSummary(
         ? Number(subDef?.total_marks)
         : 100;
     const obtM = Math.max(0, Number(r.marks_obtained) || 0);
-    const pct = maxM > 0 ? Math.round((obtM / maxM) * 100) : 0;
+    const pct = maxM > 0 ? (obtM / maxM) * 100 : 0;
 
     // Resolve per-subject pass mark & compulsory flag matching Admin ReportCardsClient
     const passMarks =
-      subDef?.pass_marks !== undefined && subDef?.pass_marks !== null && Number(subDef.pass_marks) > 0
+      subDef?.pass_marks !== undefined && subDef?.pass_marks !== null && Number(subDef.pass_marks) >= 0
         ? Number(subDef.pass_marks)
-        : (maxM * minPassPct) / 100;
+        : 33;
 
     const compKey = classId ? `${classId}:${subjectName}` : "";
     const isCompulsory =
@@ -393,10 +363,11 @@ export function computeStudentExamSummary(
         ? Boolean(subDef.is_compulsory)
         : true;
 
-    const isSubFailed = obtM < passMarks;
+    const hasEntered = r.marks_obtained != null;
+    const isSubFailed = hasEntered && obtM < passMarks;
     const rule = resolveGradeRule(pct, rules, isSubFailed);
-    const isFailed = Boolean(rule.isFail || isSubFailed);
-    const gpa = isFailed ? 0 : rule.gpa;
+    const isFailed = isSubFailed;
+    const gpa = !hasEntered || isFailed ? 0 : rule.gpa;
 
     totalObtained += obtM;
     totalMax += maxM;
@@ -407,6 +378,7 @@ export function computeStudentExamSummary(
 
     return {
       id: String(r.id || `sub_${idx}`),
+      hasEntered,
       subjectName,
       marksObtained: obtM,
       totalMarks: maxM,
@@ -414,7 +386,7 @@ export function computeStudentExamSummary(
       isCompulsory,
       percentage: pct,
       gpa,
-      gradeLabel: rule.label,
+      gradeLabel: hasEntered ? rule.label : "—",
       gradeColor: rule.color,
       badgeClass: getGradeBadgeClass(rule.color),
       isFailed,
@@ -422,19 +394,19 @@ export function computeStudentExamSummary(
   });
 
   const exactPct = totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
-  const percentage = Math.round(exactPct);
+  const percentage = Number(exactPct.toFixed(2));
 
   // Determine overall pass/fail matching Admin ReportCardsClient fail_policy
   let isOverallFailed = false;
   if (failPolicy === "any_subject_fail") {
-    isOverallFailed = failedSubjectCount > 0;
+    isOverallFailed = failedSubjectCount > 0 || exactPct < minPassPct;
   } else if (failPolicy === "percentage_only") {
     isOverallFailed = exactPct < minPassPct;
   } else {
     // Default "compulsory_subject_fail"
     isOverallFailed = failedCompulsoryCount > 0 || exactPct < minPassPct;
   }
-  const isPassed = !isOverallFailed;
+  const isPassed = hasMarks && !isOverallFailed;
 
   let gpa = 0;
   let overallRule: GradeRule;
@@ -453,22 +425,22 @@ export function computeStudentExamSummary(
     const denom = compulsorySubs.length > 0 ? compulsorySubs.length : subjects.length;
     const rawGpa = denom > 0 ? Math.min(5.0, (compulsoryGpaSum + optionalBonus) / denom) : 0;
     gpa = Math.round(rawGpa * 100) / 100;
-    overallRule = resolveGradeFromGpa(gpa, rules, false);
+    overallRule = resolveGradeFromGpa(rawGpa, rules, false);
   }
 
   return {
-    hasMarks: true,
+    hasMarks,
     subjectCount: subjects.length,
     failedSubjectCount,
     totalObtained,
     totalMax,
     percentage,
     gpa,
-    gradeLabel: overallRule.label,
+    gradeLabel: hasMarks ? overallRule.label : "অপেক্ষমাণ",
     gradeColor: overallRule.color,
     badgeClass: getGradeBadgeClass(overallRule.color),
     isPassed,
-    statusLabel: isPassed ? "উত্তীর্ণ" : "অকৃতকার্য",
+    statusLabel: !hasMarks ? "অপেক্ষমাণ" : isPassed ? "উত্তীর্ণ" : "অকৃতকার্য",
     subjects,
   };
 }
@@ -484,128 +456,14 @@ export interface MeritPositionResult {
  * Matches Admin ReportCardsClient ranking: passed students rank above failed,
  * then higher percentage, then higher total marks, with shared rank on ties.
  */
-export function computeClassMeritPosition(
-  targetStudentId: string,
-  allClassExamRows: Array<Record<string, any>>,
-  gradingConfigOrRules?: ExamGradingConfig | GradeRule[] | null,
-  options?: ExamEvaluationOptions
-): MeritPositionResult {
-  if (!targetStudentId || !Array.isArray(allClassExamRows) || allClassExamRows.length === 0) {
-    return {
-      meritPosition: null,
-      totalCandidates: 0,
-      formattedPosition: "অপেক্ষমাণ",
-    };
-  }
-
-  const byStudent = new Map<string, Array<Record<string, any>>>();
-  for (const row of allClassExamRows) {
-    if (!row?.student_id) continue;
-    const sid = String(row.student_id);
-    const list = byStudent.get(sid) || [];
-    list.push(row);
-    byStudent.set(sid, list);
-  }
-
-  // If the target student has an explicit pre-stored merit_position/rank column, capture it as fallback
-  const targetRows = byStudent.get(String(targetStudentId)) || [];
-  const explicitStoredRank = parseExplicitMeritRank(targetRows);
-
-  const candidates: Array<{
-    studentId: string;
-    isFailed: boolean;
-    percentage: number;
-    totalObtained: number;
-  }> = [];
-
-  for (const [sid, rows] of byStudent.entries()) {
-    const summary = computeStudentExamSummary(rows, gradingConfigOrRules, options);
-    if (!summary.hasMarks) continue;
-    const exactPct = summary.totalMax > 0 ? (summary.totalObtained / summary.totalMax) * 100 : 0;
-    candidates.push({
-      studentId: sid,
-      isFailed: !summary.isPassed,
-      percentage: Number(exactPct.toFixed(4)),
-      totalObtained: summary.totalObtained,
-    });
-  }
-
-  if (candidates.length === 0) {
-    if (explicitStoredRank !== null) {
-      return {
-        meritPosition: explicitStoredRank,
-        totalCandidates: 0,
-        formattedPosition: toBanglaOrdinal(explicitStoredRank),
-      };
-    }
-    return {
-      meritPosition: null,
-      totalCandidates: 0,
-      formattedPosition: "অপেক্ষমাণ",
-    };
-  }
-
-  candidates.sort((a, b) => {
-    if (a.isFailed !== b.isFailed) return a.isFailed ? 1 : -1;
-    if (b.percentage !== a.percentage) return b.percentage - a.percentage;
-    return b.totalObtained - a.totalObtained;
+export function rankSummaries(candidates: {id:string; summary:StudentExamSummary}[]) {
+  const entered = candidates.filter(c=>c.summary.hasMarks);
+  const passed = entered.filter(c=>c.summary.isPassed).sort((a,b)=>b.summary.percentage-a.summary.percentage || b.summary.totalObtained-a.summary.totalObtained);
+  const ranks = new Map<string,number>();
+  let rank = 0;
+  passed.forEach(({id,summary},idx) => {
+    if (!idx || summary.percentage !== passed[idx-1].summary.percentage || summary.totalObtained !== passed[idx-1].summary.totalObtained) rank = idx + 1;
+    ranks.set(id,rank);
   });
-
-  let lastRank = 1;
-  let targetRank: number | null = null;
-  let targetFailed = false;
-
-  candidates.forEach((cand, idx) => {
-    if (idx > 0) {
-      const prev = candidates[idx - 1];
-      const isTie =
-        cand.isFailed === prev.isFailed &&
-        Math.abs(cand.percentage - prev.percentage) < 0.001 &&
-        Math.abs(cand.totalObtained - prev.totalObtained) < 0.001;
-      if (!isTie) {
-        lastRank = idx + 1;
-      }
-    } else {
-      lastRank = 1;
-    }
-
-    if (cand.studentId === String(targetStudentId)) {
-      targetRank = lastRank;
-      targetFailed = cand.isFailed;
-    }
-  });
-
-  if (targetRank === null) {
-    if (explicitStoredRank !== null) {
-      return {
-        meritPosition: explicitStoredRank,
-        totalCandidates: candidates.length,
-        formattedPosition: toBanglaOrdinal(explicitStoredRank),
-      };
-    }
-    return {
-      meritPosition: null,
-      totalCandidates: candidates.length,
-      formattedPosition: "অপেক্ষমাণ",
-    };
-  }
-
-  if (targetFailed) {
-    return {
-      meritPosition: null,
-      totalCandidates: candidates.length,
-      formattedPosition: "প্রযোজ্য নয়",
-    };
-  }
-
-  const finalRank =
-    candidates.length === 1 && explicitStoredRank !== null ? explicitStoredRank : targetRank;
-
-  return {
-    meritPosition: finalRank,
-    totalCandidates: candidates.length,
-    formattedPosition: toBanglaOrdinal(finalRank),
-  };
+  return {ranks, totalCandidates:entered.length};
 }
-
-

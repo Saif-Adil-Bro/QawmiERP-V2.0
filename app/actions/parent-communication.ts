@@ -1,4 +1,7 @@
 "use server";
+import {rows} from "@/lib/portal/queries";
+import {webIdentity, hasRole, linkedStudents} from '@/lib/portal/identity';
+import {studentRoles,teacherRoles,isLeaveFeedback} from '@/lib/portal/rules';
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
@@ -25,23 +28,13 @@ export type {
   FeeAlertStudentInfo,
 };
 
-/**
- * পোর্টাল-শুধু রোল। এই রোলধারীরা ড্যাশবোর্ডের সম্পূর্ণ তালিকা নয় — কেবল
- * নিজের (বা নিজের সন্তানের) অভিভাবক-ফিডব্যাক দেখতে পারবেন।
- */
-const PORTAL_ONLY_ROLES = ["student", "parent", "guardian"];
-
-/** ফোন নম্বরের শেষ ১০ ডিজিট — +৮৮/০১ প্রিফিক্স-ভিন্নতা উপেক্ষা করতে। */
-function normalizePhoneForMatch(value: unknown): string {
-  return String(value || "").replace(/[^0-9]/g, "").slice(-10);
-}
-
 // -------------------------------------------------------------
 // 1. PARENT FEEDBACK & APPOINTMENTS (CRUD)
 // -------------------------------------------------------------
 
 export async function getParentFeedbacks(filter?: {
   studentId?: string;
+  leaveOnly?: boolean;
   status?: string;
   type?: string;
 }): Promise<ParentFeedbackItem[]> {
@@ -58,82 +51,36 @@ export async function getParentFeedbacks(filter?: {
     // ⛔ পোর্টাল প্রাইভেসি: অভিভাবক/শিক্ষার্থী যেন অন্য অভিভাবকের অভিযোগ,
     // পরামর্শ বা সাক্ষাতের আবেদন পড়তে না পারেন। স্টাফ/কর্মকর্তা (যাঁদের
     // communication মডিউলে অনুমতি আছে) আগের মতোই মাদ্রাসার সব ফিডব্যাক দেখবেন।
-    const staffView = (await writeGuard("communication")).allowed;
+    const staffView = (await writeGuard(filter?.leaveOnly ? "leaves" : "communication")).allowed;
 
-    let portalOwnership: {
-      userId: string;
-      phone: string;
-      studentIds: Set<string>;
-    } | null = null;
-
-    if (!staffView) {
-      // পোর্টাল ব্যবহারকারীর মালিকানা নির্ধারণ। permission-context লোড
-      // ব্যর্থ হলেও `users.role` ভিত্তিতে fail-closed থাকা হয়।
-      const { data: userRow } = await adminClient
-        .from("users")
-        .select("role, phone")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      const baseRole = String((userRow as any)?.role || "").toLowerCase();
-      const permCtx = await loadServerPermissions(user.id, madrasaId);
-      const activeRoles = (
-        permCtx?.roles?.length
-          ? permCtx.roles
-          : [permCtx?.role || baseRole]
-      ).map((role) => String(role || "").toLowerCase());
-
-      const isPortalUser =
-        activeRoles.length > 0 &&
-        activeRoles.every((role) => PORTAL_ONLY_ROLES.includes(role));
-
-      if (isPortalUser) {
-        portalOwnership = {
-          userId: user.id,
-          phone: normalizePhoneForMatch(
-            (userRow as any)?.phone || user.user_metadata?.phone
-          ),
-          studentIds: new Set<string>(
-            (permCtx?.profile?.linkedStudentIds || []).map(String)
-          ),
-        };
-      }
-    }
-
-    let query = adminClient
+    const i = await webIdentity(); if (!i) return [];
+    const portal = hasRole(i,studentRoles);
+    if ((!staffView || hasRole(i,teacherRoles)) && !portal) return [];
+    const portalOwnership = portal ? {userId:i.user.id,studentIds:new Set((await linkedStudents(i)).students.map(s=>s.id))} : null;
+    const records = await rows(()=>adminClient
       .from("fee_audit_logs")
       .select("*")
       .eq("madrasa_id", madrasaId)
       .like("action", "PARENT_FEEDBACK%")
-      .order("created_at", { ascending: false });
-
-    const { data: rows, error } = await query;
-    if (error || !rows) {
-      console.warn("getParentFeedbacks fetch error:", error?.message);
-      return [];
-    }
+      .order("created_at", { ascending: false }));
 
     const items: ParentFeedbackItem[] = [];
 
-    for (const r of rows) {
+    for (const r of records) {
       try {
         const parsed = JSON.parse(r.details || "{}");
 
+        if (filter?.leaveOnly && !isLeaveFeedback(parsed)) continue;
         // ⛔ পোর্টাল ব্যবহারকারী কেবল নিজের/নিজের সন্তানের ফিডব্যাক দেখবেন
         if (portalOwnership) {
-          const guardianPhone = normalizePhoneForMatch(parsed.guardian_phone);
           const ownsFeedback =
-            parsed.created_by_user_id === portalOwnership.userId ||
-            (portalOwnership.phone.length >= 6 &&
-              guardianPhone === portalOwnership.phone) ||
-            (!!parsed.student_id &&
-              portalOwnership.studentIds.has(String(parsed.student_id)));
+            parsed.student_id ? portalOwnership.studentIds.has(String(parsed.student_id)) : parsed.created_by_user_id === portalOwnership.userId;
 
           if (!ownsFeedback) continue;
         }
 
         // Filter by studentId if specified
-        if (filter?.studentId && parsed.student_id && parsed.student_id !== filter.studentId) {
+        if (filter?.studentId && parsed.student_id !== filter.studentId) {
           continue;
         }
 
@@ -211,6 +158,8 @@ export async function createParentFeedback(data: {
     // ⛔ প্রথম-মাদ্রাসা fallback বাদ — অন্যথায় ভিন্ন মাদ্রাসার নোটিশে আবেদন জমা পড়ত
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
+    const i = await webIdentity();
+    if (!i || (hasRole(i,studentRoles) && data.student_id && !(await linkedStudents(i,data.student_id)).child)) return {error:'শিক্ষার্থী সংযুক্ত নয়।'};
     if (!data.subject?.trim() || !data.description?.trim()) {
       return { error: "বিষয় এবং বিস্তারিত বিবরণ লেখা আবশ্যক" };
     }

@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { getDefaultMadrasaId } from "@/lib/madrasa-default";
 import { toDhakaDateStringFrom, toDhakaDateString, toDhakaMonthString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
@@ -27,6 +28,7 @@ import { DEFAULT_FUNDS, normalizeFundName } from "@/lib/fund-utils";
 import { getFunds, getNextMahfilVoucherNo } from "@/app/actions/zakat";
 import {
   createRealGatewaySession,
+  bdtPoisha, paymentCallbackOrigin,
   validateGatewayCredentials,
 } from "@/lib/payment-gateway-engine";
 import { DEFAULT_GATEWAY_CONFIG, PaymentGatewayConfig } from "@/lib/payment-gateway";
@@ -2884,12 +2886,13 @@ export async function initiateOnlineDonationGateway(params: {
   is_anonymous?: boolean;
 }) {
   try {
+    if (typeof params.amount !== "number" || !(bdtPoisha(params.amount) ?? 0))
+      return { error: "অনুদানের অঙ্ক সঠিক নয়।" };
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const config: PaymentGatewayConfig =
-      meta.payment_gateway_config || DEFAULT_GATEWAY_CONFIG;
+    const meta = await getMadrasaMetadata(finalMadrasaId, true);
+    const config: PaymentGatewayConfig = meta.payment_gateway_config || DEFAULT_GATEWAY_CONFIG;
 
     if (!config.is_enabled) {
       return {
@@ -2906,38 +2909,12 @@ export async function initiateOnlineDonationGateway(params: {
     }
 
     const nowIso = new Date().toISOString();
-    const dateStr = toDhakaMonthString().replace("-", ""); // P2-Fix: YYYYMM ঢাকা টাইমজোনে
-    const randSuffix = Math.floor(100000 + Math.random() * 900000);
-    const transactionId = `DON-TXN-${dateStr}-${randSuffix}`;
+    const transactionId = `DON-${randomBytes(12).toString("hex")}`;
 
     // 2. Call Real Payment Gateway Provider
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://qawmimanager.app";
-    const sessionRes = await createRealGatewaySession(
-      {
-        tran_id: transactionId,
-        amount: params.amount,
-        cus_name: params.donor_name || "শুভাকাঙ্ক্ষী",
-        cus_phone: params.phone || "01700000000",
-        cus_email: params.email || "donor@qawmimanager.app",
-        product_name: `Donation: ${params.fund_category}`,
-        product_category: "Donation",
-        success_url: `${appUrl}/api/payments/sslcommerz/success?type=donation`,
-        fail_url: `${appUrl}/api/payments/sslcommerz/fail?type=donation`,
-        cancel_url: `${appUrl}/api/payments/sslcommerz/cancel?type=donation`,
-        ipn_url: `${appUrl}/api/payments/sslcommerz/ipn?type=donation`,
-        payment_channel: params.payment_channel,
-      },
-      config
-    );
-
-    if (!sessionRes.success || !sessionRes.gateway_url) {
-      return {
-        error:
-          sessionRes.error ||
-          "পেমেন্ট গেটওয়ে সার্ভার থেকে কোনো পেমেন্ট লিংক তৈরি করা যায়নি। গেটওয়ে সেটিংস যাচাই করুন।",
-      };
-    }
-
+    const appUrl = paymentCallbackOrigin();
+    if (!appUrl)
+      return { error: "পেমেন্ট callback-এর জন্য এই পরিবেশের NEXT_PUBLIC_APP_URL (HTTPS origin) সেট করুন।" };
     // Save pending donation record
     const donations: OnlineDonation[] = meta.online_donations || [];
     const receiptNo = generateNextOnlineDonationReceiptNo(donations, getDhakaYear());
@@ -2962,9 +2939,40 @@ export async function initiateOnlineDonationGateway(params: {
       created_at: nowIso,
     };
 
-    donations.unshift(pendingDonation);
-    meta.online_donations = donations;
-    await saveMadrasaMetadata(finalMadrasaId, meta);
+    const db = await createAdminClient();
+    const { error: saveError } = await db.rpc("replace_portal_gateway_key", {
+      p_tenant: finalMadrasaId,
+      p_key: "online_donations",
+      p_before: meta.online_donations ?? null,
+      p_after: [pendingDonation, ...donations],
+    });
+    if (saveError) return { error: "অনুদানের তথ্য বদলেছে বা সংরক্ষণ হয়নি। চেকআউট খোলা হয়নি।" };
+
+    const sessionRes = await createRealGatewaySession(
+      {
+        tran_id: transactionId,
+        amount: params.amount,
+        cus_name: params.donor_name || "শুভাকাঙ্ক্ষী",
+        cus_phone: params.phone || "01700000000",
+        cus_email: params.email || "donor@qawmimanager.app",
+        product_name: `Donation: ${params.fund_category}`,
+        product_category: "Donation",
+        success_url: `${appUrl}/api/payments/sslcommerz/success?type=donation&tenant=${finalMadrasaId}`,
+        fail_url: `${appUrl}/api/payments/sslcommerz/fail?type=donation`,
+        cancel_url: `${appUrl}/api/payments/sslcommerz/cancel?type=donation`,
+        ipn_url: `${appUrl}/api/payments/sslcommerz/ipn?type=donation&tenant=${finalMadrasaId}`,
+        payment_channel: params.payment_channel,
+      },
+      config,
+    );
+
+    if (!sessionRes.success || !sessionRes.gateway_url) {
+      return {
+        error:
+          sessionRes.error ||
+          "পেমেন্ট গেটওয়ে সার্ভার থেকে কোনো পেমেন্ট লিংক তৈরি করা যায়নি। গেটওয়ে সেটিংস যাচাই করুন।",
+      };
+    }
 
     return {
       success: true,
