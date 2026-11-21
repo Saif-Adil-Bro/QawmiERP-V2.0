@@ -1,9 +1,11 @@
 "use client";
 
+import { HEALTH_ROLES } from "@/lib/student-health/model";
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Stethoscope,
   LayoutDashboard,
   Users,
   BookOpen,
@@ -110,6 +112,11 @@ const navGroups: NavGroup[] = [
         permission: "student.view",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "office_staff", "teacher", "education_secretary"],
         keywords: ["student", "shikkharthi", "talika", "profile", "ছাত্র", "তালিকা"],
+      },
+      {
+        icon: Stethoscope, name: "অসুস্থ শিক্ষার্থী ও স্বাস্থ্যসেবা", href: "/dashboard/students/health",
+        roles: HEALTH_ROLES, badge: "স্বাস্থ্য", badgeColor: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+        keywords: ["health", "sick", "medical", "অসুস্থ", "স্বাস্থ্য", "চিকিৎসা"],
       },
       {
         name: "নতুন শিক্ষার্থী যোগ (Add Student)",

@@ -26,6 +26,8 @@ export interface NotificationDispatchPayload {
   variables?: Record<string, string | number | null | undefined>;
   channels?: NotificationChannel[];
   fallbackChannels?: NotificationChannel[];
+  /** Deliver inline without persisting sensitive message bodies, destinations or provider responses. No queue/retries. */
+  confidential?: boolean;
   maxAttempts?: number;
   actorId?: string | null;
   metadata?: Record<string, unknown>;
@@ -141,13 +143,13 @@ export async function dispatchNotification(
   payload: NotificationDispatchPayload
 ): Promise<NotificationDispatchResult> {
   const madrasaId = payload.madrasaId;
-  const tpl = await resolveTemplate(madrasaId, event, payload);
+  const tpl = payload.confidential ? null : await resolveTemplate(madrasaId, event, payload);
 
   const rawBody = payload.body || payload.message || payload.text || tpl?.body || "";
   const rawSubject = payload.subject || tpl?.subject || "কওমি ইআরপি নোটিফিকেশন";
   const vars = payload.variables || {};
 
-  const renderedBody = renderNotificationTemplate(rawBody, vars);
+  const renderedBody = payload.confidential ? rawBody : renderNotificationTemplate(rawBody, vars);
   const renderedSubject = renderNotificationTemplate(rawSubject, vars);
 
   const chain: NotificationChannel[] =
@@ -181,6 +183,8 @@ export async function dispatchNotification(
       break; // Stop immediately on first successful delivery
     }
   }
+
+  if (payload.confidential) return { ok: !!deliveredChannel, status: deliveredChannel ? "SENT" : "FAILED", deliveredChannel, attemptedChannels, renderedBody };
 
   const maxAttempts = Math.max(1, payload.maxAttempts ?? 3);
   const lastError =

@@ -25,6 +25,7 @@ import {
   LineChart,
   CalendarClock,
   Zap,
+  Stethoscope,
   LayoutGrid,
 } from "lucide-react";
 import {
@@ -53,6 +54,8 @@ function getWidgetVisual(w: WidgetConfigItem) {
     };
   }
   switch (w.id) {
+    case "builtin-sick-students":
+      return { icon: Stethoscope, boxClass: "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800" };
     case "builtin-kpi":
       return {
         icon: BarChart3,

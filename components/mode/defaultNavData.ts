@@ -1,3 +1,4 @@
+import { HEALTH_ROLES } from "@/lib/student-health/model";
 export interface SerializedNavItem {
   id: string;
   name: string;
@@ -67,6 +68,11 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         badge: "অনলাইন পোর্টাল",
         badgeColor: "bg-blue-500/20 text-blue-300 border-blue-500/30",
         keywords: ["admission", "vorti", "abedon", "ভর্তি", "আবেদন", "অনলাইন ভর্তি"],
+      },
+      {
+        id: "student_health", iconName: "Stethoscope", name: "অসুস্থ শিক্ষার্থী ও স্বাস্থ্যসেবা", href: "/dashboard/students/health",
+        roles: HEALTH_ROLES, badge: "স্বাস্থ্য", badgeColor: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+        keywords: ["health", "sick", "medical", "অসুস্থ", "স্বাস্থ্য", "চিকিৎসা"],
       },
       {
         id: "promotion",

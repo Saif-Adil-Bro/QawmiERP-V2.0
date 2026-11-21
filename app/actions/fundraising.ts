@@ -3151,7 +3151,8 @@ export async function sendDonationNotificationSMS(params: {
     const madrasaName = madrasa?.name || "আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা";
     const msg = `মুহতারাম ${params.donor_name}, ${madrasaName}-এ আপনার ৳${params.amount} অনুদান (${params.fund_category || "সাধারণ"}) সফলভাবে গৃহীত ও অনুমোদিত হয়েছে। রসিদ নং: ${params.receipt_no}। জাযাকুমুল্লাহু খাইরান।`;
 
-    const { getSMSGatewayConfig, dispatchSMSGatewayRequest } = await import("./communication");
+    const { getSMSGatewayConfig } = await import("./communication");
+    const { dispatchSMSGatewayRequest } = await import("@/lib/sms-gateway");
     const gatewayConfig = await getSMSGatewayConfig();
 
     if (gatewayConfig.isEnabled && gatewayConfig.apiKey) {

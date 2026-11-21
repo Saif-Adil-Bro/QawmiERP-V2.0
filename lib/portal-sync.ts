@@ -81,6 +81,7 @@ export function initialFullSync(
       if (res.status === 401 || res.status === 403)
         await db.portalSnapshots.clear();
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Replacing the complete selected snapshot also removes recovered/stale health alerts.
       const data = mapPortalSnapshot(
         (await res.json()).data,
         session.userId,
@@ -168,10 +169,14 @@ const teacherEndpoints = {
   kitab: "/api/teacher/save-kitab",
   exam_marks: "/api/teacher/save-marks",
 } as const;
+export class TeacherEntryError extends Error {
+  constructor(message: string, readonly code?: string) { super(message); }
+}
 export async function postTeacherEntry(
   actionType: keyof typeof teacherEndpoints,
   payload: Record<string, unknown>,
   expectedOwner: string,
+  ensureWritable?: () => void,
 ) {
   const endpoint = teacherEndpoints[actionType];
   if (!expectedOwner || expectedOwner !== ownerKey(browserSession()))
@@ -179,6 +184,7 @@ export async function postTeacherEntry(
   if (await checkIsOnline()) {
     if (expectedOwner !== ownerKey(browserSession()))
       throw new Error("অ্যাকাউন্ট বদলেছে।");
+    ensureWritable?.();
     try {
       const res = await fetch(apiUrl(endpoint), {
         method: "POST",
@@ -191,7 +197,7 @@ export async function postTeacherEntry(
       });
       const json = await res.json();
       if (!res.ok || !json.success)
-        throw new Error(json.error || `HTTP ${res.status}`);
+        throw new TeacherEntryError(json.error || `HTTP ${res.status}`, json.code);
       if (expectedOwner !== ownerKey(browserSession()))
         throw new Error("অ্যাকাউন্ট বদলেছে।");
       return { success: true, offlineQueued: false, error: "" };
@@ -201,6 +207,7 @@ export async function postTeacherEntry(
   }
   if (expectedOwner !== ownerKey(browserSession()))
     throw new Error("অ্যাকাউন্ট বদলেছে।");
+  ensureWritable?.();
   await enqueueOfflineOutbox({
     portal: "teacher",
     actionType,
@@ -220,12 +227,13 @@ export async function processOfflineOutbox() {
     const db = getOfflineDb(owner);
     for (const item of await db.offlineOutbox.orderBy("createdAt").toArray()) {
       if (ownerKey(browserSession()) !== owner) break;
+      if (item.rejected) continue;
       if (item.retryCount >= MAX_SYNC_RETRIES) break;
       // Claim the head in IndexedDB, not just a tab-local mutex. A crashed tab's lease expires.
       const claimed = await db.transaction("rw", db.offlineOutbox, async () => {
         const live = await db.offlineOutbox.get(item.id);
         if (
-          !live ||
+          !live || live.rejected ||
           live.retryCount >= MAX_SYNC_RETRIES ||
           (live.leaseUntil || 0) > Date.now()
         )
@@ -249,8 +257,16 @@ export async function processOfflineOutbox() {
           },
           body: JSON.stringify(item.payload),
         });
-        if (!res.ok || !(await res.json()).success)
-          throw new Error(`HTTP ${res.status}`);
+        const response = await res.json();
+        if (!res.ok || !response.success) {
+          if (item.actionType === "exam_marks" && response.code === "EXAM_LOCKED") {
+            // A final freeze refusal isn't a transient network failure. Keep the rejected draft
+            // for its owner; neither replay it after unlock nor block unrelated attendance etc.
+            await db.offlineOutbox.update(item.id, {status: "failed", rejected: "EXAM_LOCKED", leaseUntil: 0, lastError: response.error});
+            continue;
+          }
+          throw new Error(response.error || `HTTP ${res.status}`);
+        }
         await db.offlineOutbox.delete(item.id);
       } catch (e) {
         await db.offlineOutbox.update(item.id, {

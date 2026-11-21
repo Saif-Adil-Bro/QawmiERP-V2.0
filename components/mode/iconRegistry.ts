@@ -1,4 +1,5 @@
 import {
+  Stethoscope,
   LayoutDashboard,
   Users,
   BookOpen,
@@ -47,6 +48,7 @@ import {
 } from "lucide-react";
 
 export const ICON_MAP: Record<string, any> = {
+  Stethoscope,
   LayoutDashboard,
   Users,
   UserPlus,

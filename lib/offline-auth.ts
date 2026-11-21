@@ -94,6 +94,11 @@ export async function clearOfflineAuthSession(): Promise<void> {
   try {
     await Preferences.remove({ key: AUTH_PREF_KEY });
   } catch {}
+  // A fresh login in the same tab is a new family-alert session.
+  try {
+    for (const key of Object.keys(window.sessionStorage))
+      if (key.startsWith("health-seen:")) window.sessionStorage.removeItem(key);
+  } catch { /* storage can be unavailable in private browsing */ }
   // Pending writes stay quarantined in the owner's database for their next verified login.
   if (owner && typeof indexedDB !== "undefined") {
     const { getOfflineDb } = await import("./offlineDb");

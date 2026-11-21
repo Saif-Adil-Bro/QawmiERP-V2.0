@@ -1,3 +1,4 @@
+import { saveExamMarks } from "@/app/actions/exams";
 import { revalidatePath } from "next/cache";
 import { getAuthUser, createAdminClient } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
@@ -1050,21 +1051,12 @@ export async function POST(req: Request) {
         );
       }
 
-      const { error } = await adminClient.from("exam_results").upsert(
-        {
-          madrasa_id: madrasaId,
-          exam_id: examId,
-          student_id: studentId,
-          subject_name: subjectName,
-          marks_obtained: marksObtained,
-          total_marks: totalMarks,
-        },
-        { onConflict: "exam_id, student_id, subject_name" }
-      );
-
-      if (error) {
-        return Response.json({ error: error.message }, { status: 500 });
-      }
+      const { data: student } = await adminClient.from("students").select("class_id")
+        .eq("madrasa_id", madrasaId).eq("id", studentId).maybeSingle();
+      // Use the same exam freeze, roster/subject, component and audit rules as manual entry.
+      const result = await saveExamMarks(examId, subjectName, [{ student_id: studentId,
+        marks_obtained: marksObtained, total_marks: totalMarks }], payload.classId || student?.class_id);
+      if (result.error) return Response.json(result, { status: "code" in result && result.code === "EXAM_LOCKED" ? 409 : 403 });
 
       await recordAiAudit({
         entityType: "exam_result",

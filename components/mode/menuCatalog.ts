@@ -1,3 +1,4 @@
+import { HEALTH_ROLES } from "@/lib/student-health/model";
 import {
   Users,
   CheckSquare,
@@ -19,6 +20,7 @@ import {
   FileSpreadsheet,
   IdCard,
   UserPlus,
+  Stethoscope,
   LayoutDashboard,
   Lock,
   CheckCircle2,
@@ -42,6 +44,7 @@ export interface BasicTileItem {
   borderColor: string;
   shadowColor: string;
   accentBg: string;
+  roles?: string[];
   badge?: string;
   badgeColor?: string;
   category: "academic" | "finance" | "management" | "services";
@@ -77,6 +80,12 @@ export const ALL_BASIC_TILES: BasicTileItem[] = [
     badgeColor: "bg-blue-400/20 text-blue-100 border-blue-400/30",
     category: "academic",
     defaultPinned: true,
+  },
+  {
+    id: "student_health", roles: HEALTH_ROLES, defaultPinned: true, title: "অসুস্থ শিক্ষার্থী ও স্বাস্থ্যসেবা", subtitle: "স্বাস্থ্য নথি, পরিচর্যা ও অভিভাবককে বার্তা",
+    href: "/dashboard/students/health", icon: Stethoscope, badge: "স্বাস্থ্য", category: "academic",
+    gradient: "from-teal-700 to-emerald-700", borderColor: "border-teal-400/40",
+    shadowColor: "shadow-teal-500/25", accentBg: "bg-teal-500/20 text-teal-100",
   },
   {
     id: "add_student",

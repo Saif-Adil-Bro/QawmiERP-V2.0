@@ -131,7 +131,7 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
         </div>
 
         {/* Sidebar Navigation Links */}
-        <TeacherNav />
+        <TeacherNav canUseHealth={userData?.canUseHealth} />
 
         {/* Sidebar Footer User Info */}
         <div className="p-3.5 bg-slate-900/90 border-t border-slate-800 space-y-2">
@@ -195,7 +195,7 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
               </div>
             </div>
 
-            <TeacherNav onItemClick={() => setIsMobileMenuOpen(false)} />
+            <TeacherNav canUseHealth={userData?.canUseHealth} onItemClick={() => setIsMobileMenuOpen(false)} />
 
             <div className="pb-safe bg-slate-900 border-t border-slate-800">
               <div className="p-4 space-y-3">

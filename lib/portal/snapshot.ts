@@ -1,3 +1,5 @@
+import { familyHealth } from "@/lib/student-health/portal";
+import { withExamLocks } from "@/lib/lock-guards";
 import { teacherExamData } from "./teacher-entry";
 import {
   linkedStudents,
@@ -48,6 +50,8 @@ export async function portalSnapshot(
     exam_summaries: [] as any[],
     hifz_logs: [] as any[],
     kitab_logs: [] as any[],
+    health_records: [] as any[],
+    emergency_phone: "",
     notices: [] as any[],
     routines: [] as any[],
     holidays: [] as any[],
@@ -105,7 +109,7 @@ export async function portalSnapshot(
       classes: s.classes,
       routines: schedule.routines,
       notices: news,
-      exams,
+      exams: await withExamLocks(i.tenant, exams, s.meta),
       attendance,
       hifz_logs,
       kitab_logs,
@@ -119,7 +123,7 @@ export async function portalSnapshot(
   if (!child) return { ...base, students };
   const ids = [child.id],
     classIds = child.class_id ? [child.class_id] : [];
-  const [attendance, hifz_logs, kitab_logs, timetable, news, exams, ledger] =
+  const [attendance, hifz_logs, kitab_logs, timetable, news, exams, ledger, health] =
     await Promise.all([
       childLogs(i.db, i.tenant, "attendance", ids),
       childLogs(i.db, i.tenant, "hifz_logs", ids),
@@ -137,6 +141,7 @@ export async function portalSnapshot(
       ),
       portalExams(i.db, i.tenant, meta),
       studentLedger(i.db, i.tenant, child.id, meta),
+      familyHealth(i.db, i.tenant, child.id, meta),
     ]);
   const results = [],
     summaries = [];
@@ -181,6 +186,7 @@ export async function portalSnapshot(
     students,
     classes,
     active_student: child,
+    ...health,
     attendance,
     hifz_logs,
     kitab_logs,

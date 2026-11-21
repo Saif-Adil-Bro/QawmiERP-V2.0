@@ -1,7 +1,8 @@
 import PortalOwnerProvider from "@/components/portal/PortalOwnerProvider";
 import { redirect } from "next/navigation";
 import { webIdentity, hasRole } from "@/lib/portal/identity";
-import { teacherRoles } from "@/lib/portal/rules";
+import { HEALTH_ROLES } from "@/lib/student-health/model";
+import { teacherRoles, studentRoles } from "@/lib/portal/rules";
 import TeacherShell from "./TeacherShell";
 export const dynamic = "force-dynamic";
 export default async function Layout({
@@ -20,6 +21,7 @@ export default async function Layout({
         user={identity.user}
         userData={{
           ...identity.userRow,
+          canUseHealth: hasRole(identity, HEALTH_ROLES) && !hasRole(identity, studentRoles),
           role:
             [identity.userRow.role, ...identity.perms.roles].find((r) =>
               teacherRoles.includes(r),

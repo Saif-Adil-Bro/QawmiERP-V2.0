@@ -43,6 +43,7 @@ function wire(child = "a", ids = ["a", "b"]) {
     fee_discounts: [],
     exams: [],
     exam_summaries: [],
+    health_records: [],
     exam_results: [],
     hifz_logs: [],
     kitab_logs: [],
@@ -76,6 +77,7 @@ describe("Owner-scoped Dexie transactions and replay", () => {
     let data: any = {
       ...wire(),
       notices: [{ id: "n" }],
+      health_records: [{id:"case",student_id:"a",status:"observing",severity:"mild",doctor_or_hospital:"Doctor A",treatment_notes:"Care A",timeline:[{note:"latest note"}]}],
       exam_summaries: [{ student_id: "a", exam_id: "e" }],
     };
     vi.stubGlobal(
@@ -83,6 +85,7 @@ describe("Owner-scoped Dexie transactions and replay", () => {
       vi.fn(async () => response(data)),
     );
     expect((await initialFullSync("student")).ok).toBe(true);
+    expect((await db.portalSnapshots.get("student:a"))?.data.healthRecords[0]).toMatchObject({doctor_or_hospital:"Doctor A",treatment_notes:"Care A",timeline:[{note:"latest note"}]});
     data = wire("b");
     await initialFullSync("student", { studentId: "b" });
     data = wire();
@@ -90,6 +93,7 @@ describe("Owner-scoped Dexie transactions and replay", () => {
     for (const key of ["student:", "student:a"])
       expect((await db.portalSnapshots.get(key))?.data).toMatchObject({
         examSummaries: [],
+        healthRecords: [],
         notices: [],
       });
     expect((await db.portalSnapshots.get("student:b"))?.studentId).toBe("b");
@@ -110,6 +114,8 @@ describe("Owner-scoped Dexie transactions and replay", () => {
     const good = await db.portalSnapshots.get("student:");
     for (const bad of [
       { ...wire(), assignments: null },
+      { ...wire(), health_records: null },
+      { ...wire(), health_records:[{id:"case",student_id:"b",status:"observing",severity:"moderate",timeline:[]}] },
       { ...wire(), profile: { id: "other", madrasa_id: `m${n}` } },
       { ...wire(), attendance: [{ id: "x", student_id: "b" }] },
     ]) {
@@ -157,6 +163,31 @@ describe("Owner-scoped Dexie transactions and replay", () => {
     expect(f).toHaveBeenCalledTimes(2);
     expect(f.mock.calls[1][1].headers["X-Qawmi-Sync-Owner"]).toBe(owner);
     expect(await db.offlineOutbox.count()).toBe(0);
+  });
+  it("never posts or queues a known freeze; marks refused on replay aren't retried after unlock or in the way of other entries", async () => {
+    const owner = login("one", "teacher"), db = getOfflineDb(owner);
+    const payload = {exam_id: "e", records: [{student_id: "s", marks_obtained: 0}]};
+    const send = vi.fn(async () => Response.json({error: "লক করা", code: "EXAM_LOCKED"}, {status: 409}));
+    vi.stubGlobal("fetch", send);
+    const refuse = () => { throw new Error("read only"); };
+    for (const online of [true, false]) {
+      network.connected = online;
+      await expect(postTeacherEntry("exam_marks", payload, owner, refuse)).rejects.toThrow("read only");
+    }
+    expect(send).not.toHaveBeenCalled();
+    expect(await db.offlineOutbox.count()).toBe(0);
+    await postTeacherEntry("exam_marks", payload, owner); // was unlocked at offline entry
+    network.connected = true;
+    await processOfflineOutbox();
+    expect(await db.offlineOutbox.toArray()).toMatchObject([{rejected: "EXAM_LOCKED", status: "failed"}]);
+    network.connected = false;
+    await postTeacherEntry("attendance", {}, owner);
+    network.connected = true;
+    send.mockImplementation(async () => Response.json({success: true}));
+    await processOfflineOutbox();
+    await processOfflineOutbox();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(await db.offlineOutbox.toArray()).toMatchObject([{rejected: "EXAM_LOCKED"}]);
   });
   it("isolates Admin operations from portals and checks server acknowledgement before removal", async () => {
     const owner = login("admin", "admin"),

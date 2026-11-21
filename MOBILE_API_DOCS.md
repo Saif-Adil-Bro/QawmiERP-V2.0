@@ -163,6 +163,9 @@ All `[id]` endpoints support `GET`, `PATCH`, `PUT`, and `DELETE`.
 | Assignments | `/api/mobile/assignments` | `/api/mobile/assignments/[id]` |
 
 ### Exams, Admissions, Leaves & Certificates
+
+`/exams` and `/exam-results` below are staff endpoints. Teacher and student/guardian apps read their scoped `/portal/teacher` or `/portal/student` snapshot instead. In the teacher snapshot, `exams[].is_locked` is the effective freeze flag (independent of publication). Display frozen marks as text, not entry fields. Staff result writes to a frozen exam return `409 EXAM_LOCKED`; a failed freeze check blocks the write (`503 EXAM_LOCK_UNAVAILABLE`). Use the privileged dashboard action for changing a freeze, not generic CRUD.
+
 | Entity | List & Create (`GET`, `POST`) | Detail, Update & Delete (`GET`, `PATCH`, `PUT`, `DELETE`) |
 | :--- | :--- | :--- |
 | Exams | `/api/mobile/exams` | `/api/mobile/exams/[id]` |
@@ -245,3 +248,9 @@ All `[id]` endpoints support `GET`, `PATCH`, `PUT`, and `DELETE`.
   "message": "Success"
 }
 ```
+
+### Student health (family portal)
+
+`GET /api/mobile/portal/student?student_id=<linked UUID>` includes `health_records` (active cases + recoveries within 48 hours), most recent first within clinical priority, and `emergency_phone`. Each case includes `student_id`, `id`, `illness_type`, `severity`, `status`, `doctor_or_hospital`, `treatment_notes`, clinical `updated_at`, `guardian_acknowledged_at`, `recovered_at` and newest-first `timeline`. Unlinked selections have no health records. An empty successful array removes old alerts on sync; an incomplete or unsuccessful response does not replace the last good copy. Do not place this data in global device storage or push it to analytics.
+
+`POST /api/mobile/portal/student` with the same active bearer session and API key, JSON `{"record_id":"<record UUID>","updated_at":"<clinical version read above>"}`, acknowledges a linked child's current update. `updated_at` is optional but recommended to avoid acknowledging an unseen follow-up. The endpoint does not accept a guardian phone, actor ID or tenant ID. Read-only offline views must not report a successful acknowledgment.
