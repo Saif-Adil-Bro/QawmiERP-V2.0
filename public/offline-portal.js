@@ -119,8 +119,10 @@
         list(
           "নম্বর",
           d.examResults,
-          (r) =>
-            `${d.students.find((s) => s.id === r.student_id)?.first_name || ""} • ${r.subject_name} • ${r.marks_obtained}/${r.total_marks}`,
+          (r) => {
+            const exam = d.exams.find(e => e.id === r.exam_id);
+            return `${exam?.title || "পরীক্ষা"}${exam?.is_locked === true ? " (লক করা)" : ""} • ${d.students.find(s => s.id === r.student_id)?.first_name || ""} • ${r.subject_name} • ${r.marks_obtained ?? "—"}/${r.total_marks}`;
+          },
         );
       if (module === "students")
         list(

@@ -51,6 +51,7 @@ export interface OfflineOutboxItem {
   status: SyncStatus;
   retryCount: number;
   lastError?: string;
+  rejected?: "EXAM_LOCKED"; // Retain for the teacher to review; never automatically replay after an unlock.
   leaseUntil?: number;
 }
 

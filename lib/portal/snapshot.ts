@@ -1,3 +1,4 @@
+import { withExamLocks } from "@/lib/lock-guards";
 import { teacherExamData } from "./teacher-entry";
 import {
   linkedStudents,
@@ -105,7 +106,7 @@ export async function portalSnapshot(
       classes: s.classes,
       routines: schedule.routines,
       notices: news,
-      exams,
+      exams: await withExamLocks(i.tenant, exams, s.meta),
       attendance,
       hifz_logs,
       kitab_logs,

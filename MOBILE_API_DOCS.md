@@ -163,6 +163,9 @@ All `[id]` endpoints support `GET`, `PATCH`, `PUT`, and `DELETE`.
 | Assignments | `/api/mobile/assignments` | `/api/mobile/assignments/[id]` |
 
 ### Exams, Admissions, Leaves & Certificates
+
+`/exams` and `/exam-results` below are staff endpoints. Teacher and student/guardian apps read their scoped `/portal/teacher` or `/portal/student` snapshot instead. In the teacher snapshot, `exams[].is_locked` is the effective freeze flag (independent of publication). Display frozen marks as text, not entry fields. Staff result writes to a frozen exam return `409 EXAM_LOCKED`; a failed freeze check blocks the write (`503 EXAM_LOCK_UNAVAILABLE`). Use the privileged dashboard action for changing a freeze, not generic CRUD.
+
 | Entity | List & Create (`GET`, `POST`) | Detail, Update & Delete (`GET`, `PATCH`, `PUT`, `DELETE`) |
 | :--- | :--- | :--- |
 | Exams | `/api/mobile/exams` | `/api/mobile/exams/[id]` |

@@ -1,3 +1,4 @@
+import { assertExamUnlocked } from "@/lib/lock-guards";
 import { tool } from "ai";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/server";
@@ -999,6 +1000,8 @@ export function createErpTools(ctx: ServerPermissionContext) {
                 "নম্বর এন্ট্রির জন্য পরীক্ষা, শিক্ষার্থী, বিষয় এবং প্রাপ্ত নম্বর প্রয়োজন।",
             };
           }
+          const lock = await assertExamUnlocked(madrasaId, payload.examId);
+          if (lock.locked) return {error: lock.error};
         } else if (actionType === "create_question") {
           if (!hasPerm(ctx, "exam.edit", STAFF_ACADEMIC_ROLES)) {
             return {

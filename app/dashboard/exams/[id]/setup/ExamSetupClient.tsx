@@ -2,7 +2,8 @@
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
-import { getExamSubjects, saveExamSubjects, updateExamDetails, getExamEvaluationSettings, saveExamEvaluationSettings } from "@/app/actions/exams";
+import { getExamSubjects, saveExamSubjects, updateExamDetails, getExamEvaluationSettings } from "@/app/actions/exams";
+import { useExamLock } from "@/hooks/useExamLock";
 import { getClassSubjects } from "@/app/actions/class_subjects";
 import { Plus, Trash2, Save, Calendar, Sparkles, CheckCircle2, AlertCircle, ShieldCheck, CheckSquare, Square } from "lucide-react";
 
@@ -63,10 +64,23 @@ function getDynamicStatusInfo(startDate: string, endDate: string) {
   }
 }
 
-export default function ExamSetupClient({ examId, exam, classes }: { examId: string, exam?: any, classes: any[] }) {
+type SetupProps = { examId: string; exam: any; classes: any[] };
+export default function ExamSetupClient(props: SetupProps) {
   const [classId, setClassId] = useState("");
+  const {readOnly, unavailable, observeFailure} = useExamLock(props.examId, props.exam.is_locked);
+  return <>
+    {readOnly && <p role="status" className="mb-4 rounded-lg bg-amber-50 p-3 text-amber-900">
+      {unavailable ? "লক অবস্থা যাচাই করা যায়নি।" : "পরীক্ষাটি লক করা আছে।"} তারিখ, মূল্যায়ন নীতি ও বিষয় শুধু দেখা যাবে।
+    </p>}
+    <SetupForm key={`${props.examId}:${props.exam.is_locked}:${readOnly}`} {...props} classId={classId} setClassId={setClassId} readOnly={readOnly} observeFailure={observeFailure} />
+  </>;
+}
+function SetupForm({examId, exam, classes, classId, setClassId, readOnly, observeFailure}: SetupProps & {
+  classId: string; setClassId: (id: string) => void; readOnly: boolean; observeFailure: (code: unknown) => void;
+}) {
   const [subjects, setSubjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [subjectError, setSubjectError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failPolicy, setFailPolicy] = useState("compulsory_subject_fail");
 
@@ -86,17 +100,10 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
     loadGlobalSettings();
   }, [examId]);
 
-  useEffect(() => {
-    if (classId) {
-      loadSubjects();
-    } else {
-      setSubjects([]);
-    }
-  }, [classId]);
-
   const statusInfo = getDynamicStatusInfo(startDate, endDate);
 
   const handleSaveDates = async () => {
+    if (readOnly) return;
     setSavingDate(true);
     setDateSuccess(false);
     const res = await updateExamDetails(examId, {
@@ -107,6 +114,7 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
     });
     setSavingDate(false);
     if (res?.error) {
+      if ("code" in res) observeFailure(res.code);
       alert("Error: " + res.error);
     } else {
       setDateSuccess(true);
@@ -114,32 +122,25 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
     }
   };
 
-  const loadSubjects = async () => {
-    setLoading(true);
-    const data = await getExamSubjects(examId, classId);
-    if (data && data.length > 0) {
-      setSubjects(data);
-    } else {
+  useEffect(() => {
+    let active = true;
+    setSubjects([]);
+    setLoading(!!classId);
+    setSubjectError(false);
+    if (classId) void (async () => {
       try {
-        const classSubjectsData = await getClassSubjects(classId);
-        if (classSubjectsData && classSubjectsData.length > 0) {
-          const autoSubjects = classSubjectsData.map((cs: any) => ({
-            subject_name: cs.subjects?.name || "",
-            total_marks: 100,
-            pass_marks: 33,
-            is_compulsory: true,
-            exam_type: "Written"
-          }));
-          setSubjects(autoSubjects);
-        } else {
-          setSubjects([{ subject_name: "", total_marks: 100, pass_marks: 33, is_compulsory: true, exam_type: "Written" }]);
-        }
-      } catch (err) {
-        setSubjects([{ subject_name: "", total_marks: 100, pass_marks: 33, is_compulsory: true, exam_type: "Written" }]);
-      }
-    }
-    setLoading(false);
-  };
+        const data = await getExamSubjects(examId, classId);
+        if (!active) return;
+        if (data.length || readOnly) { setSubjects(data); return; }
+        const defaults = await getClassSubjects(classId);
+        if (active) setSubjects((defaults.length ? defaults : [{}]).map((cs: any) => ({
+          subject_name: cs.subjects?.name || "", total_marks: 100, pass_marks: 33, is_compulsory: true, exam_type: "Written",
+        })));
+      } catch { if (active) setSubjectError(true); }
+      finally { if (active) setLoading(false); }
+    })();
+    return () => { active = false; };
+  }, [classId, examId, readOnly]);
 
   const handleAddSubject = () => {
     setSubjects([...subjects, { subject_name: "", total_marks: 100, pass_marks: 33, is_compulsory: true, exam_type: "Written" }]);
@@ -158,6 +159,7 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
   };
 
   const handleSave = async () => {
+    if (readOnly) return;
     if (!classId) return alert("দয়া করে ক্লাস নির্বাচন করুন");
     
     for (const sub of subjects) {
@@ -168,6 +170,7 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
     try {
       const res = await saveExamSubjects(examId, classId, subjects, failPolicy);
       if (res?.error) {
+        if ("code" in res) observeFailure(res.code);
         alert("Error: " + res.error);
       } else {
         alert("সফলভাবে সেভ হয়েছে!");
@@ -183,7 +186,7 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
   return (
     <div className="space-y-8">
       {/* Exam Date & Automatic Status Card */}
-      <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4 shadow-xs">
+      <fieldset disabled={readOnly} className="p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
           <div>
             <h3 className="font-bold text-slate-800 text-base">পরীক্ষার তারিখ ও স্বয়ংক্রিয় অবস্থা</h3>
@@ -236,19 +239,19 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
             <span>{statusInfo.description}</span>
           </p>
 
-          <button
+          {!readOnly && <button
             onClick={handleSaveDates}
             disabled={savingDate}
             className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
           >
             {savingDate ? "সেভ হচ্ছে..." : dateSuccess ? "আপডেট সম্পন্ন!" : "তারিখ আপডেট করুন"}
             {dateSuccess && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-          </button>
+          </button>}
         </div>
-      </div>
+      </fieldset>
 
       {/* Global Evaluation & Fail Policy Card */}
-      <div className="p-5 bg-emerald-50/60 border border-emerald-200/80 rounded-xl space-y-3">
+      <fieldset disabled={readOnly} className="p-5 bg-emerald-50/60 border border-emerald-200/80 rounded-xl space-y-3">
         <div className="flex items-start gap-3">
           <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
           <div className="flex-1">
@@ -317,7 +320,7 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
             </div>
           </div>
         </div>
-      </div>
+      </fieldset>
 
       {/* Class Selector for Subject Setup */}
       <div className="max-w-md">
@@ -335,22 +338,22 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
       </div>
 
       {classId && (
-        <div className="space-y-4">
+        <fieldset disabled={readOnly} className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
             <div>
               <h3 className="text-base font-bold text-slate-900">বিষয়ের তালিকা ও মান বণ্টন</h3>
               <p className="text-xs text-slate-500 mt-0.5">প্রতিটি বিষয়ের মোট নম্বর, পাস নম্বর ও আবশ্যক কিনা তা নির্ধারণ করুন</p>
             </div>
-            <button
+            {!readOnly && <button
               onClick={handleAddSubject}
               className="flex items-center space-x-1 text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-3.5 py-2 rounded-lg transition border border-emerald-200 cursor-pointer shadow-xs"
             >
               <Plus className="w-4 h-4" />
               <span>নতুন বিষয় যোগ করুন</span>
-            </button>
+            </button>}
           </div>
 
-          {loading ? (
+          {subjectError ? <p role="alert">বিষয়ের তালিকা পড়া যায়নি। জামাতটি আবার নির্বাচন করুন।</p> : loading ? (
             <div className="py-8 text-center text-slate-500">লোড হচ্ছে...</div>
           ) : (
             <div className="border border-slate-200 rounded-xl overflow-x-auto shadow-xs bg-white">
@@ -425,20 +428,20 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
                         </select>
                       </td>
                       <td className="px-4 py-2.5 text-center">
-                        <button
+                        {!readOnly && <button
                           onClick={() => handleRemoveSubject(idx)}
                           className="text-red-500 hover:bg-red-50 p-1.5 rounded-md transition cursor-pointer"
                           title="মুছুন"
                         >
                           <Trash2 className="w-4 h-4" />
-                        </button>
+                        </button>}
                       </td>
                     </tr>
                   ))}
                   {subjects.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-4 py-8 text-center text-slate-500 text-sm">
-                        কোনো বিষয় যোগ করা হয়নি। উপরে &apos;নতুন বিষয় যোগ করুন&apos; বাটনে চাপ দিন।
+                        কোনো বিষয় যোগ করা হয়নি।
                       </td>
                     </tr>
                   )}
@@ -448,16 +451,16 @@ export default function ExamSetupClient({ examId, exam, classes }: { examId: str
           )}
 
           <div className="flex justify-end pt-4">
-            <button
+            {!readOnly && <button
               onClick={handleSave}
-              disabled={saving || subjects.length === 0}
+              disabled={saving || loading || subjectError || subjects.length === 0}
               className="flex items-center space-x-2 bg-emerald-700 text-white px-6 py-2.5 rounded-lg hover:bg-emerald-800 transition disabled:opacity-50 font-bold shadow-sm cursor-pointer text-sm"
             >
               <Save className="w-4 h-4" />
               <span>{saving ? "সেভ হচ্ছে..." : "বিষয় ও নিয়মাবলী সেভ করুন"}</span>
-            </button>
+            </button>}
           </div>
-        </div>
+        </fieldset>
       )}
     </div>
   );

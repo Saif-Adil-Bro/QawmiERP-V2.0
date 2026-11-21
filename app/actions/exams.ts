@@ -44,6 +44,7 @@ import {
 import {
   assertExamUnlocked,
   getExamLockState,
+  withExamLocks,
   hasLockPrivilege,
   LOCK_PRIVILEGED_ROLES,
   type ExamLockState,
@@ -151,20 +152,12 @@ async function readExamList() {
           .select("id, exam_id, exam_date")
           .in("exam_id", examIds)
       : Promise.resolve({ data: [] }),
-    getMadrasaMetadata(finalMadrasaId),
+    getMadrasaMetadata(finalMadrasaId, exams.some(e => typeof e.is_locked !== "boolean")),
   ]);
 
   const publishedExams = await publicationFlags(supabase,finalMadrasaId,madrasaMeta);
   const examEndDates = madrasaMeta?.exam_end_dates || {};
-  const fallbackLocksSetting = await getStructuredMadrasaSetting<Record<string, ExamLockState>>(
-    finalMadrasaId,
-    "locks",
-    "exam_locks"
-  );
-  const fallbackLocks: Record<string, ExamLockState> =
-    (fallbackLocksSetting.found && fallbackLocksSetting.value) ||
-    (madrasaMeta as any)?.exam_locks ||
-    {};
+  const lockAwareExams = await withExamLocks(finalMadrasaId, exams, madrasaMeta);
 
   const routinesByExam = new Map<string, any[]>();
   (routines || []).forEach(r => {
@@ -174,15 +167,12 @@ async function readExamList() {
     routinesByExam.get(r.exam_id)!.push(r);
   });
 
-  const enriched = exams.map(exam => {
+  const enriched = lockAwareExams.map(exam => {
     const examRoutines = routinesByExam.get(exam.id) || [];
     const effectiveStoredEndDate = exam.end_date || examEndDates[exam.id] || null;
     const computed = computeExamStatus(exam.start_date, examRoutines, exam.status, effectiveStoredEndDate);
     const publishInfo = publishedExams[exam.id];
     const isPublished = published(publishedExams,exam);
-    const lockInfo = fallbackLocks[exam.id];
-    const isLocked = typeof exam.is_locked === "boolean" ? exam.is_locked : Boolean(lockInfo?.is_locked);
-
     return {
       ...exam,
       end_date: effectiveStoredEndDate,
@@ -194,11 +184,6 @@ async function readExamList() {
       published_at: publishInfo?.published_at || null,
       published_by: publishInfo?.published_by || null,
       publish_note: publishInfo?.note || null,
-      is_locked: isLocked,
-      locked_by: exam.locked_by || lockInfo?.locked_by || null,
-      locked_by_name: exam.locked_by_name || lockInfo?.locked_by_name || null,
-      locked_at: exam.locked_at || lockInfo?.locked_at || null,
-      lock_reason: exam.lock_reason || lockInfo?.lock_reason || null,
       effective_start_date: computed.effectiveStartDate,
       effective_end_date: computed.effectiveEndDate,
       routine_count: computed.totalRoutineDays,
@@ -230,6 +215,17 @@ export async function getExamFreezeList() {
 
 export type ExamFreezeList = Awaited<ReturnType<typeof getExamFreezeList>>;
 
+/** Read-only freshness check. No caller-supplied tenant and no raw ERP row in the response. */
+export async function readExamLocked(examId: string): Promise<boolean | null> {
+  const i = await webIdentity();
+  if (!i || !examId || hasRole(i, studentRoles)) return null;
+  try {
+    const teacher = hasRole(i, teacherRoles);
+    // Dashboard uses the same RLS read as getExamById; the teacher page has its own scoped reader.
+    return (await getExamLockState(i.tenant, examId, teacher ? i.db : await createClient())).is_locked;
+  } catch { return null; }
+}
+
 export async function getExamById(id: string) {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
@@ -249,15 +245,15 @@ export async function getExamById(id: string) {
   }
 
   const madrasaId = finalMadrasaId || data.madrasa_id;
-  const [{ data: routines }, madrasaMeta, lockState] = await Promise.all([
+  const [{ data: routines }, madrasaMeta] = await Promise.all([
     supabase
       .from("exam_routines")
       .select("id, exam_id, exam_date")
       .eq("exam_id", id),
-    madrasaId ? getMadrasaMetadata(madrasaId) : Promise.resolve({} as MadrasaMetaWithSessions),
-    madrasaId ? getExamLockState(madrasaId, id) : Promise.resolve({ is_locked: false } as ExamLockState),
+    getMadrasaMetadata(madrasaId, typeof data.is_locked !== "boolean"),
   ]);
 
+  const [lockState] = await withExamLocks(madrasaId, [data], madrasaMeta);
   const examEndDates = madrasaMeta?.exam_end_dates || {};
   const effectiveStoredEndDate = data.end_date || examEndDates[id] || null;
   const computed = computeExamStatus(data.start_date, routines, data.status, effectiveStoredEndDate);
@@ -338,14 +334,15 @@ export async function toggleExamLock(
     }
 
     const adminClient = await createAdminClient();
-    const { data: examRow,error:statusError } = await adminClient
+    const { data: examRow, error: statusError } = await adminClient
       .from("exams")
-      .select("id, title, year")
+      .select("*")
       .eq("id", examId)
       .eq("madrasa_id", madrasaId)
       .maybeSingle();
 
-    const examLabel = examRow ? `${examRow.title} (${examRow.year})` : examId;
+    if (statusError || !examRow) return { error: "পরীক্ষাটি পাওয়া যায়নি বা পড়া যায়নি।" };
+    const examLabel = `${examRow.title} (${examRow.year})`;
     const now = new Date().toISOString();
     const cleanReason =
       (reason || "").trim() ||
@@ -359,19 +356,14 @@ export async function toggleExamLock(
       lock_reason: shouldLock ? cleanReason : null,
     };
 
-    // 1. Update relational exams table columns if migrated
-    const { error: colErr } = await adminClient
-      .from("exams")
-      .update(lockPayload)
-      .eq("id", examId)
-      .eq("madrasa_id", madrasaId);
-
-    // 2. Always persist fallback in madrasa_settings (or metadata) if exams.is_locked column isn't added yet
-    if (colErr) {
+    if (Object.hasOwn(examRow, "is_locked")) {
+      const fields = Object.fromEntries(Object.entries(lockPayload).filter(([key]) => Object.hasOwn(examRow, key)));
+      const updated = await adminClient.from("exams").update(fields)
+        .eq("id", examId).eq("madrasa_id", madrasaId).select("is_locked").single();
+      if (updated.error || updated.data?.is_locked !== shouldLock) return { error: "পরীক্ষার লক পরিবর্তন করা যায়নি।" };
+    } else {
       const existingSetting = await getStructuredMadrasaSetting<Record<string, ExamLockState>>(
-        madrasaId,
-        "locks",
-        "exam_locks"
+        madrasaId, "locks", "exam_locks", true
       );
       const nextMap: Record<string, ExamLockState> = {
         ...(existingSetting.value || {}),
@@ -385,9 +377,10 @@ export async function toggleExamLock(
         user.id
       );
       if (!savedSetting.ok) {
-        const meta: any = await getMadrasaMetadata(madrasaId);
+        if (existingSetting.value?.[examId]) return { error: "পরীক্ষার লক সংরক্ষণ করা যায়নি।" };
+        const meta: any = await getMadrasaMetadata(madrasaId, true);
         meta.exam_locks = { ...(meta.exam_locks || {}), [examId]: lockPayload };
-        await saveMadrasaMetadata(madrasaId, meta);
+        if (!await saveMadrasaMetadata(madrasaId, meta)) return { error: "পরীক্ষার লক সংরক্ষণ করা যায়নি।" };
       }
     }
 
@@ -415,6 +408,7 @@ export async function toggleExamLock(
     revalidatePath(`/dashboard/exams/${examId}/setup`);
     revalidatePath(`/dashboard/exams/${examId}/results`);
     revalidatePath("/dashboard/settings/data-governance");
+    revalidatePath("/teacher-portal/exams");
 
     return {
       success: true,
@@ -547,10 +541,9 @@ export async function updateExamDetails(examId: string, data: { title?: string; 
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (finalMadrasaId) {
-    const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার তথ্য সংশোধন");
-    if (lockCheck.locked) return { error: lockCheck.error };
-  }
+  if (!finalMadrasaId) return { error: "মাদরাসার তথ্য পাওয়া যায়নি।" };
+  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার তথ্য সংশোধন");
+  if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
 
   const { data: oldExam } = await supabase
     .from("exams")
@@ -623,10 +616,9 @@ export async function deleteExam(examId: string) {
   const user = await getAuthUser(supabase);
   const finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-  if (finalMadrasaId) {
-    const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষাটি মুছে ফেলা");
-    if (lockCheck.locked) return { error: lockCheck.error };
-  }
+  if (!finalMadrasaId) return { error: "মাদরাসার তথ্য পাওয়া যায়নি।" };
+  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষাটি মুছে ফেলা");
+  if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
 
   const { data: oldExam } = await supabase
     .from("exams")
@@ -693,22 +685,19 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
   const __authz = await writeGuard("exams");
   if (!__authz.allowed) return __authz.fallback;
 
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "Unauthorized" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "Madrasa not found" };
+  const identity = await webIdentity();
+  if (!identity || hasRole(identity, studentRoles)) return { error: "নম্বর এন্ট্রির অনুমতি যাচাই করা যায়নি।" };
+  const finalMadrasaId = identity.tenant;
 
   // 1.3 Granular Exam Marks Freeze Guard
   if (!Array.isArray(marksData) || !marksData.length || marksData.some(m=>!m || !Number.isFinite(m.marks_obtained) || !Number.isFinite(m.total_marks) || m.total_marks<=0 || m.marks_obtained<0 || m.marks_obtained>m.total_marks)) return {error:'নম্বর বা পূর্ণমান সঠিক নয়।'};
-  const writer = await createAdminClient();
+  const writer = identity.db as Awaited<ReturnType<typeof createAdminClient>>;
   const {data:ownedExam} = await writer.from('exams').select('*').eq('id',examId).eq('madrasa_id',finalMadrasaId).maybeSingle();
   if (!ownedExam || !classId || !subjectName?.trim()) return {error:'পরীক্ষা বা জামাত সঠিক নয়।'};
-  const teacher = await webTeacher();
-  if (teacher) {
-    const roster=await teacherStudents(teacher.i,teacher.scope,[classId]);
-    const entry=await teacherExamData(teacher.i,teacher.scope,ownedExam,roster,classId);
+  if (hasRole(identity, teacherRoles)) {
+    const scope = await teacherScope(identity);
+    const roster = await teacherStudents(identity, scope, [classId]);
+    const entry = await teacherExamData(identity, scope, ownedExam, roster, classId);
     const def=entry.subjects.find(s=>s.subject_name===subjectName);
     if (!def || marksData.some(m=>m.total_marks!==Number(def.total_marks) || !entry.students.some(s=>s.id===m.student_id))) return {error:'বরাদ্দকৃত বিষয়, শিক্ষার্থী ও পূর্ণমান ব্যবহার করুন।'};
   } else {
@@ -719,9 +708,6 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
     const defs=await rows(()=>writer.from('exam_subjects').select('*').eq('madrasa_id',finalMadrasaId).eq('exam_id',examId).eq('class_id',classId),true);
     if(marksData.some(m=>!eligible.has(m.student_id) || defs.length && !defs.some(d=>d.subject_name===subjectName && Number(d.total_marks)===m.total_marks))) return {error:'পরীক্ষার জামাত, বিষয় বা পূর্ণমান মিলছে না।'};
   }
-  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার নম্বর এন্ট্রি বা পরিবর্তন");
-  if (lockCheck.locked) return { error: lockCheck.error };
-
   // Snapshot existing marks before upsert so we can track exact changes in system_audit_logs
   const studentIds = marksData.map((m) => m.student_id);
   const { data: prevRows, error:beforeError } = await writer
@@ -732,14 +718,6 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
     .in("student_id", studentIds);
 
   if (beforeError) return {error:beforeError.message};
-  const prevMap = new Map<string, { marks_obtained: number; total_marks: number }>();
-  (prevRows || []).forEach((r: any) => {
-    prevMap.set(r.student_id, {
-      marks_obtained: Number(r.marks_obtained),
-      total_marks: Number(r.total_marks),
-    });
-  });
-
   const fields=['written_marks','oral_marks','tutorial_marks','attendance_marks'] as const;
   const previous=new Map((prevRows || []).map(m=>[m.student_id,m]));
   const recordsToUpsert = marksData.map(record => ({
@@ -749,13 +727,19 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
     subject_name: subjectName,
     marks_obtained: record.marks_obtained,
     total_marks: record.total_marks,
-    ...Object.fromEntries(fields.map(key=>[key,key in record ? record[key] : previous.get(record.student_id)?.[key] ?? null])),
+    ...Object.fromEntries(fields.map(key => {
+      const stored = previous.get(record.student_id)?.[key];
+      return [key, key in record ? record[key] : stored == null ? null : Number(stored)];
+    })),
   }));
 
   for (const record of recordsToUpsert) {
     const parts=fields.map(k=>(record as Record<string,unknown>)[k]).filter((v):v is number=>v!=null);
     if(parts.some(v=>!Number.isFinite(v) || v<0) || parts.length && Math.abs(parts.reduce((n,v)=>n+v,0)-record.marks_obtained)>0.000001) return {error:'বিভাগভিত্তিক নম্বর ও মোট নম্বর মিলছে না। বিভাগভিত্তিক ফর্মে সংশোধন করুন।'};
   }
+  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার নম্বর এন্ট্রি বা পরিবর্তন");
+  if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
+
   const { error } = await writer
     .from("exam_results")
     .upsert(recordsToUpsert, { onConflict: 'exam_id, student_id, subject_name' });
@@ -766,26 +750,15 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
   }
 
   // Build compact changed-marks diff for immutable audit trail
-  const changedEntries = marksData
-    .map((m) => {
-      const prev = prevMap.get(m.student_id);
-      if (!prev) {
-        return {
-          student_id: m.student_id,
-          before: null,
-          after: { marks_obtained: m.marks_obtained, total_marks: m.total_marks },
-        };
-      }
-      if (prev.marks_obtained !== m.marks_obtained || prev.total_marks !== m.total_marks) {
-        return {
-          student_id: m.student_id,
-          before: prev,
-          after: { marks_obtained: m.marks_obtained, total_marks: m.total_marks },
-        };
-      }
-      return null;
-    })
-    .filter(Boolean);
+  const keys = ["marks_obtained", "total_marks", ...fields] as const;
+  const values = (row: Record<string, unknown>) => Object.fromEntries(keys.map(k => [k, row[k] == null ? null : Number(row[k])]));
+  const changedEntries = recordsToUpsert.flatMap(record => {
+    const prior = previous.get(record.student_id);
+    const before = prior ? values(prior) : null;
+    const after = values(record);
+    // Changing the split without changing the total is still a marks correction.
+    return !before || keys.some(k => before[k] !== after[k]) ? [{student_id: record.student_id, before, after}] : [];
+  });
 
   if (changedEntries.length > 0) {
     const updatedCount = changedEntries.filter((c: any) => c.before !== null).length;
@@ -1000,7 +973,7 @@ export async function saveExamEvaluationSettings(examId: string, settings: { fai
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
   const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার মূল্যায়ন নীতিমালা পরিবর্তন");
-  if (lockCheck.locked) return { error: lockCheck.error };
+  if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
 
   const prevRule = await getExamEvaluationSettings(examId);
   const nextRule = {
@@ -1060,7 +1033,7 @@ export async function saveExamSubjects(examId: string, classId: string, subjects
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
   const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার বিষয় ও পূর্ণমান পরিবর্তন");
-  if (lockCheck.locked) return { error: lockCheck.error };
+  if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
 
   if (!(await supabase.from('exams').select('id').eq('madrasa_id',finalMadrasaId).eq('id',examId).maybeSingle()).data || !(await supabase.from('classes').select('id').eq('madrasa_id',finalMadrasaId).eq('id',classId).maybeSingle()).data) return {error:'পরীক্ষা বা জামাত পাওয়া যায়নি।'};
   if (subjectsData.some(s=>!String(s.subject_name || '').trim() || !(Number(s.total_marks)>0) || Number(s.pass_marks??33)<0 || Number(s.pass_marks??33)>Number(s.total_marks))) return {error:'পূর্ণমান ও পাস নম্বর যাচাই করুন।'};

@@ -213,7 +213,8 @@ export async function getExamSettingsBundle(
 export async function getStructuredMadrasaSetting<T = any>(
   madrasaId: string,
   namespace: string,
-  settingKey: string
+  settingKey: string,
+  strict = false
 ): Promise<{ found: boolean; value: T | null; source: "sql" | "fallback" }> {
   if (!madrasaId) return { found: false, value: null, source: "fallback" };
 
@@ -227,10 +228,12 @@ export async function getStructuredMadrasaSetting<T = any>(
       .eq("setting_key", settingKey)
       .maybeSingle();
 
+    if (strict && error && !["42P01", "PGRST205"].includes(error.code)) throw error;
     if (!error && data && data.setting_value !== undefined) {
       return { found: true, value: data.setting_value as T, source: "sql" };
     }
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     // ignore and fallback
   }
 

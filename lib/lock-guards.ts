@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getMadrasaMetadata } from "@/lib/sessions";
+import { getMadrasaMetadata, type MadrasaMetaWithSessions } from "@/lib/sessions";
 import { getStructuredMadrasaSetting } from "@/lib/structured-config";
 import { isMissingTableError } from "@/lib/audit-log";
 
@@ -41,90 +41,90 @@ export function hasLockPrivilege(roles: string[], primaryRole?: string): boolean
   return LOCK_PRIVILEGED_ROLES.some((r) => all.has(r));
 }
 
-/**
- * Checks whether a specific Exam is currently frozen/locked.
- * Reads `exams.is_locked` first; falls back to `madrasa_settings` / `madrasas.metadata.exam_locks`.
- */
-export async function getExamLockState(
-  madrasaId: string,
-  examId: string
-): Promise<ExamLockState> {
-  if (!madrasaId || !examId) return { is_locked: false };
+const LOCK_UNAVAILABLE = "পরীক্ষার লক অবস্থা যাচাই করা যায়নি। পরিবর্তন না করে আবার চেষ্টা করুন।";
 
-  try {
-    const adminClient = await createAdminClient();
-    const { data, error } = await adminClient
-      .from("exams")
-      .select("is_locked, locked_by, locked_by_name, locked_at, lock_reason")
-      .eq("id", examId)
-      .eq("madrasa_id", madrasaId)
-      .maybeSingle();
-
-    if (!error && data) {
-      return {
-        is_locked: Boolean(data.is_locked),
-        locked_by: data.locked_by || null,
-        locked_by_name: data.locked_by_name || null,
-        locked_at: data.locked_at || null,
-        lock_reason: data.lock_reason || null,
-      };
-    }
-
-    // Column missing in old schema -> fallback to madrasa_settings or metadata
-    const settingRes = await getStructuredMadrasaSetting<Record<string, ExamLockState>>(
-      madrasaId,
+/** Resolve only rows the caller already read in its tenant. SQL false is authoritative too.
+ * Legacy schemas use the per-exam structured setting, then metadata. Never infer a lock from publication. */
+export async function withExamLocks<T extends { id: string } & Partial<ExamLockState>>(
+  tenant: string,
+  exams: T[],
+  meta?: MadrasaMetaWithSessions,
+): Promise<(T & ExamLockState)[]> {
+  const legacy = exams.filter((e) => typeof e.is_locked !== "boolean");
+  let settings: Record<string, ExamLockState> = {};
+  if (legacy.length) {
+    const setting = await getStructuredMadrasaSetting<Record<string, ExamLockState>>(
+      tenant,
       "locks",
-      "exam_locks"
+      "exam_locks",
+      true,
     );
-    if (settingRes.found && settingRes.value?.[examId]) {
-      return {
-        is_locked: Boolean(settingRes.value[examId].is_locked),
-        locked_by: settingRes.value[examId].locked_by || null,
-        locked_by_name: settingRes.value[examId].locked_by_name || null,
-        locked_at: settingRes.value[examId].locked_at || null,
-        lock_reason: settingRes.value[examId].lock_reason || null,
-      };
-    }
-
-    const meta: any = await getMadrasaMetadata(madrasaId);
-    const fallbackLock = meta?.exam_locks?.[examId];
-    if (fallbackLock) {
-      return {
-        is_locked: Boolean(fallbackLock.is_locked),
-        locked_by: fallbackLock.locked_by || null,
-        locked_by_name: fallbackLock.locked_by_name || null,
-        locked_at: fallbackLock.locked_at || null,
-        lock_reason: fallbackLock.lock_reason || null,
-      };
-    }
-  } catch (err) {
-    console.warn("getExamLockState error:", err);
+    if (
+      setting.found &&
+      (!setting.value || typeof setting.value !== "object" || Array.isArray(setting.value))
+    )
+      throw new Error(LOCK_UNAVAILABLE);
+    settings = setting.value ?? {};
+    if (!meta && legacy.some((e) => !settings[e.id])) meta = await getMadrasaMetadata(tenant, true);
   }
-
-  return { is_locked: false };
+  return exams.map((exam) => {
+    const lock =
+      typeof exam.is_locked === "boolean" ? exam : (settings[exam.id] ?? meta?.exam_locks?.[exam.id]);
+    if (lock != null && typeof lock.is_locked !== "boolean") throw new Error(LOCK_UNAVAILABLE);
+    return {
+      ...exam,
+      is_locked: lock?.is_locked ?? false,
+      locked_by: lock?.locked_by ?? null,
+      locked_by_name: lock?.locked_by_name ?? null,
+      locked_at: lock?.locked_at ?? null,
+      lock_reason: lock?.lock_reason ?? null,
+    };
+  });
 }
 
-/**
- * Server-side guard to prevent modifying marks/settings of a frozen exam.
- */
+export async function getExamLockState(
+  madrasaId: string,
+  examId: string,
+  client?: Awaited<ReturnType<typeof createAdminClient>>,
+): Promise<ExamLockState> {
+  if (!madrasaId || !examId) throw new Error(LOCK_UNAVAILABLE);
+  const db = client ?? (await createAdminClient());
+  // '*' works with both pre-freeze schemas and partially migrated optional lock metadata.
+  const { data, error } = await db
+    .from("exams")
+    .select("*")
+    .eq("id", examId)
+    .eq("madrasa_id", madrasaId)
+    .maybeSingle();
+  if (error || !data) throw new Error(LOCK_UNAVAILABLE);
+  const [{ is_locked, locked_by, locked_by_name, locked_at, lock_reason }] = await withExamLocks(madrasaId, [
+    data,
+  ]);
+  return { is_locked, locked_by, locked_by_name, locked_at, lock_reason };
+}
+
 export async function assertExamUnlocked(
   madrasaId: string,
   examId: string,
-  actionLabel = "এই পরীক্ষার নম্বর বা তথ্য পরিবর্তন"
-): Promise<{ locked: false } | { locked: true; error: string; lockState: ExamLockState }> {
-  const lockState = await getExamLockState(madrasaId, examId);
-  if (!lockState.is_locked) return { locked: false };
+  actionLabel = "এই পরীক্ষার নম্বর বা তথ্য পরিবর্তন",
+) {
+  let lockState: ExamLockState;
+  try {
+    lockState = await getExamLockState(madrasaId, examId);
+  } catch {
+    return { locked: true, code: "EXAM_LOCK_UNAVAILABLE", error: LOCK_UNAVAILABLE } as const;
+  }
+  if (!lockState.is_locked) return { locked: false } as const;
 
-  const lockedByInfo = lockState.locked_by_name
-    ? ` (${lockState.locked_by_name} কর্তৃক লক করা)`
-    : "";
+  const lockedByInfo = lockState.locked_by_name ? ` (${lockState.locked_by_name} কর্তৃক লক করা)` : "";
   const reasonInfo = lockState.lock_reason ? ` কারণ: ${lockState.lock_reason}।` : "";
 
   return {
     locked: true,
+    code: "EXAM_LOCKED",
     lockState,
-    error: `🔒 পরীক্ষাটি লক/ফ্রিজ করা আছে${lockedByInfo}! ${actionLabel} করা সম্ভব নয়।${reasonInfo} পরিবর্তন করতে হলে মুহতামিম বা সুপার অ্যাডমিনকে পরীক্ষাটি আনলক করতে হবে।`,
-  };
+    error: `🔒 পরীক্ষাটি লক/ফ্রিজ করা আছে${lockedByInfo}! ${actionLabel} করা সম্ভব নয়।${reasonInfo} পরিবর্তনের আগে অনুমোদিত প্রশাসককে পরীক্ষাটি আনলক করতে হবে।`,
+  } as const;
 }
 
 /**

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toggleExamLock } from "@/app/actions/exams";
 import {
   Lock,
@@ -50,6 +50,12 @@ export default function ExamLockToggle({
     type: "success" | "error";
     message: string;
   } | null>(null);
+
+  useEffect(() => {
+    setIsLocked(initialLocked);
+    setCurrentReason(lockReason ?? null);
+    setShowModal(false);
+  }, [examId, initialLocked, lockReason]);
 
   const openModal = (nextLocked: boolean) => {
     setTargetLock(nextLocked);

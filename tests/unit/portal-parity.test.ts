@@ -66,6 +66,7 @@ vi.mock("@/lib/sessions", async (importOriginal) => ({
   getMadrasaMetadata: async () => meta,
 }));
 vi.mock("@/lib/structured-config", () => ({
+  getStructuredMadrasaSetting: async () => ({found: true, value: {exam: {is_locked: true}}}),
   getExamSettingsBundle: async () => ({
     gradingConfig: DEFAULT_GRADING_CONFIG,
     evaluationRules: { fail_policy: "compulsory_subject_fail" },
@@ -514,6 +515,7 @@ describe("Cross-portal parity", () => {
     const data = await portalSnapshot(identity, "teacher");
     expect(data?.routines.map((r) => r.id)).toEqual(["mine"]);
     expect(data?.exam_results.map((m) => m.id)).toEqual(["m1"]);
+    expect(data?.exams.map(e => [e.id, e.is_locked])).toEqual([["exam", true], ["oldEx", false]]);
     expect(data?.fee_invoices).toEqual([]);
     expect(data?.students[0]).not.toHaveProperty("fee_discount");
     identity.perms.profile.assignedClassIds = [];

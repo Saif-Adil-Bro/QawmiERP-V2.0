@@ -390,7 +390,12 @@ export function parsePagination(req: NextRequest) {
   return { page, limit, search, sortBy, ascending: sortOrder, from, to, searchParams };
 }
 
+export type MobileWriteCheck = (input: {
+  db: Awaited<ReturnType<typeof createAdminClient>>; tenant: string; id?: string; payload: Record<string, unknown>;
+}) => Promise<NextResponse | undefined>;
+
 export interface TableCrudConfig {
+  beforeWrite?: MobileWriteCheck;
   table: string;
   module: ModuleKey;
   select?: string;
@@ -506,6 +511,8 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
         insertPayload[tenantCol] = auth.ctx.madrasaId;
       }
 
+      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, payload: insertPayload});
+      if (blocked) return blocked;
       const { data, error } = await auth.adminClient
         .from(config.table)
         .insert(insertPayload)
@@ -584,6 +591,8 @@ export function createMobileTableItemHandlers(config: TableCrudConfig) {
       delete updatePayload.id;
       if (tenantCol) delete updatePayload[tenantCol];
 
+      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, id, payload: updatePayload});
+      if (blocked) return blocked;
       let query = auth.adminClient
         .from(config.table)
         .update(updatePayload)
@@ -618,6 +627,8 @@ export function createMobileTableItemHandlers(config: TableCrudConfig) {
 
     try {
       const { id } = await context.params;
+      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, id, payload: {}});
+      if (blocked) return blocked;
       let query = auth.adminClient.from(config.table).delete().eq("id", id);
 
       if (tenantCol) {

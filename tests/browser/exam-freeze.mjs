@@ -5,6 +5,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { withSessionStack } from "../sql/session/session-stack.mjs";
+import { exerciseTeacherMarks } from "./teacher-marks-freeze.mjs";
 import { fixtureProxy } from "./fixture-proxy.mjs";
 
 const tools = createRequire(resolve(process.env.QAWMI_BROWSER_TOOLS || ".", "package.json"));
@@ -95,4 +96,7 @@ async function exercise({ db, lite, anon, base, api }) {
   }
 }
 
-await withSessionStack(exercise, { buildForBrowser: true });
+await withSessionStack(async stack => {
+  await exercise(stack);
+  await exerciseTeacherMarks(stack);
+}, { buildForBrowser: true });
