@@ -124,13 +124,13 @@ function computeExamStatus(
   };
 }
 
-export async function getExams() {
+async function readExamList() {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
-  if (!user) return [];
+  if (!user) return { ok: false, reason: "unavailable" } as const;
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return [];
+  if (!finalMadrasaId) return { ok: false, reason: "unavailable" } as const;
 
   const { data: exams, error } = await supabase
     .from("exams")
@@ -140,7 +140,7 @@ export async function getExams() {
 
   if (error || !exams) {
     console.error("Error fetching exams:", error);
-    return [];
+    return { ok: false, reason: error?.code === "42501" ? "forbidden" : "unavailable" } as const;
   }
 
   const examIds = exams.map(e => e.id);
@@ -174,7 +174,7 @@ export async function getExams() {
     routinesByExam.get(r.exam_id)!.push(r);
   });
 
-  return exams.map(exam => {
+  const enriched = exams.map(exam => {
     const examRoutines = routinesByExam.get(exam.id) || [];
     const effectiveStoredEndDate = exam.end_date || examEndDates[exam.id] || null;
     const computed = computeExamStatus(exam.start_date, examRoutines, exam.status, effectiveStoredEndDate);
@@ -205,7 +205,30 @@ export async function getExams() {
       last_routine_date: computed.effectiveEndDate,
     };
   });
+  return { ok: true, exams: enriched } as const;
 }
+
+export async function getExams() {
+  const result = await readExamList();
+  return result.ok ? result.exams : [];
+}
+
+/** Same tenant- and RLS-scoped list, but a failed read must not mean zero exams in the freeze console. */
+export async function getExamFreezeList() {
+  try {
+    const result = await readExamList();
+    if (!result.ok) return result;
+    const exams = result.exams.map(({ id, title, year, is_published, is_locked, locked_by_name, locked_at, lock_reason }) => ({
+      id, title, year, is_published, is_locked, locked_by_name, locked_at, lock_reason,
+    }));
+    return { ok: true, exams } as const;
+  } catch (error) {
+    console.error("Error loading the exam freeze list:", error);
+    return { ok: false, reason: "unavailable" } as const;
+  }
+}
+
+export type ExamFreezeList = Awaited<ReturnType<typeof getExamFreezeList>>;
 
 export async function getExamById(id: string) {
   const supabase = await createClient();
