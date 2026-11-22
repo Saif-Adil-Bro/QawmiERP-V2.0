@@ -9,6 +9,8 @@ import {
 } from "./identity";
 import { rows } from "./queries";
 import { selected, studentRoles } from "./rules";
+import { getExamSettingsBundle } from "../structured-config";
+import { sanitizeSubParts } from "../exam-subparts";
 
 export async function teacherClass(requested?: string) {
   const t = await webTeacher();
@@ -31,7 +33,7 @@ export async function teacherExamData(
   if (!classes.length || !exam)
     return { subjects: [] as any[], students: [] as any[], marks: [] as any[] };
   const classIds = classes.map((c) => c.id);
-  const [definitions, direct, cohort, explicit] = await Promise.all([
+  const [definitions, direct, cohort, explicit, settingsBundle] = await Promise.all([
     rows(
       () =>
         i.db
@@ -63,6 +65,7 @@ export async function teacherExamData(
             .in("subject_id", i.perms.profile.assignedSubjectIds),
         )
       : [],
+    getExamSettingsBundle(i.tenant, exam.id),
   ]);
   const subjects = classes.flatMap((c) => {
     const own = new Set(
@@ -73,7 +76,7 @@ export async function teacherExamData(
     );
     // A class-directory grant is not a grant to alter every subject in that class.
     const setup = definitions.filter((d) => d.class_id === c.id);
-    return setup.length
+    const list = setup.length
       ? setup.filter((d) => own.has(d.subject_name))
       : [...own].map((subject_name) => ({
           exam_id: exam.id,
@@ -82,6 +85,12 @@ export async function teacherExamData(
           total_marks: 100,
           pass_marks: 33,
         }));
+    return list.map((sub: any) => ({
+      ...sub,
+      sub_parts: sanitizeSubParts(
+        settingsBundle.subjectSubParts?.[`${c.id}:${sub.subject_name}`] ?? sub.sub_parts,
+      ),
+    }));
   });
   const resultStudents = students.filter(
     (s) => classIds.includes(s.class_id) && cohort(s).class_id === s.class_id,
@@ -95,18 +104,25 @@ export async function teacherExamData(
       .filter((d) => d.class_id === c.id)
       .map((d) => d.subject_name);
     if (!names.length) continue;
-    for (let pos = 0; pos < ids.length; pos += 80)
-      marks.push(
-        ...(await rows(() =>
-          i.db
-            .from("exam_results")
-            .select("*")
-            .eq("madrasa_id", i.tenant)
-            .eq("exam_id", exam.id)
-            .in("student_id", ids.slice(pos, pos + 80))
-            .in("subject_name", names),
-        )),
+    for (let pos = 0; pos < ids.length; pos += 80) {
+      const batch = await rows(() =>
+        i.db
+          .from("exam_results")
+          .select("*")
+          .eq("madrasa_id", i.tenant)
+          .eq("exam_id", exam.id)
+          .in("student_id", ids.slice(pos, pos + 80))
+          .in("subject_name", names),
       );
+      for (const row of batch) {
+        const storedSub =
+          settingsBundle.resultSubPartMarks?.[`${row.student_id}:${row.subject_name}`] || null;
+        marks.push({
+          ...row,
+          sub_part_marks: storedSub || row.sub_part_marks || null,
+        });
+      }
+    }
   }
   return { subjects, students: resultStudents, marks };
 }

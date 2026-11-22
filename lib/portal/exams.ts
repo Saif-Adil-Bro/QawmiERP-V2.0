@@ -8,6 +8,7 @@ import {
   toBanglaOrdinal,
 } from "../exam-grading";
 import { rows } from "./queries";
+import { extractSubPartMarks, sanitizeSubParts } from "../exam-subparts";
 
 export async function publicationFlags(
   db: any,
@@ -136,32 +137,59 @@ export const examReport = cache(
         compulsorySubjects: bundle.compulsorySubjects,
         failPolicy: bundle.evaluationRules.fail_policy,
       });
-      const marks = summary.subjects.map((m) => ({
-        id: m.id,
-        student_id: s.id,
-        exam_id: exam.id,
-        subject_name: m.subjectName,
-        marks_obtained: m.marksObtained,
-        total_marks: m.totalMarks,
-        pass_marks: m.passMarks,
-        is_compulsory: m.isCompulsory,
-        is_failed: m.isFailed,
-        has_entered_marks: m.hasEntered,
-        exam_type:
-          defs.find((d) => d.subject_name === m.subjectName)?.exam_type ||
-          "Written",
-        highest_marks:
-          highest.get(
-            `${bundle.gradingConfig.highestMarksScope === "exam" ? "*" : s.class_id}:${m.subjectName}`,
-          ) || 0,
-        grade: m.gradeLabel,
-        gpa: m.gpa,
-        percentage: m.percentage,
-      }));
+      const marks = summary.subjects.map((m) => {
+        const def = defs.find((d) => d.subject_name === m.subjectName);
+        const rawParts =
+          bundle.subjectSubParts?.[`${s.class_id}:${m.subjectName}`] ??
+          def?.sub_parts;
+        const subParts = sanitizeSubParts(rawParts);
+        const ownRow = s.own.find((r: any) => r.subject_name === m.subjectName);
+        const storedSubMarks =
+          bundle.resultSubPartMarks?.[`${s.id}:${m.subjectName}`] || null;
+        const subPartMarks = subParts.length
+          ? extractSubPartMarks(ownRow, subParts, storedSubMarks)
+          : undefined;
+        return {
+          id: m.id,
+          student_id: s.id,
+          exam_id: exam.id,
+          subject_name: m.subjectName,
+          marks_obtained: m.marksObtained,
+          total_marks: m.totalMarks,
+          pass_marks: m.passMarks,
+          is_compulsory: m.isCompulsory,
+          is_failed: m.isFailed,
+          has_entered_marks: m.hasEntered,
+          exam_type: def?.exam_type || "Written",
+          sub_parts: subParts,
+          sub_part_marks: subPartMarks,
+          highest_marks:
+            highest.get(
+              `${bundle.gradingConfig.highestMarksScope === "exam" ? "*" : s.class_id}:${m.subjectName}`,
+            ) || 0,
+          grade: m.gradeLabel,
+          gpa: m.gpa,
+          percentage: m.percentage,
+        };
+      });
+      const enrichedSummary = {
+        ...summary,
+        subjects: summary.subjects.map((sub, idx) => {
+          const m = marks[idx];
+          if (m?.sub_parts?.length) {
+            return {
+              ...sub,
+              subParts: m.sub_parts,
+              subPartMarks: m.sub_part_marks,
+            };
+          }
+          return sub;
+        }),
+      };
       return {
         ...s,
         marks,
-        summary,
+        summary: enrichedSummary,
         totalObtained: summary.totalObtained,
         totalMax: summary.totalMax,
         percentage: summary.percentage.toFixed(2),
