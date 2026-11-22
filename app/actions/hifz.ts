@@ -1,389 +1,256 @@
 "use server";
-
-import { getDhakaYear } from "@/lib/date-utils";
-import { writeGuard } from "@/lib/action-authorization";
-import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import { getAuthMadrasaId } from "./students";
+import { writeGuard } from "@/lib/action-authorization";
+import { webScope } from "@/lib/hifz/access";
+import { monthlySabina, readHifz, summarizeHifz } from "@/lib/hifz/read";
+import { EntryError } from "@/lib/hifz/entries";
+import { findDaily, removeDaily, writeHifz } from "@/lib/hifz/write";
+import { toDhakaDateString } from "@/lib/date-utils";
 import {
-  HifzLogMeta,
-  parseHifzLogNotes,
-  buildHifzLogNotes,
+  buildStudentHifzReportFromLogs,
   calculateHifzPages,
   getHifzLogPagesCount,
-  buildStudentHifzReportFromLogs,
+  parseHifzLogNotes,
 } from "@/lib/hifz-utils";
-
-export type { HifzLogMeta };
-
+export type { HifzLogMeta } from "@/lib/hifz-utils";
 export async function parseHifzLogNotesAction(rawNotes?: string | null) {
   return parseHifzLogNotes(rawNotes);
 }
-
-export async function calculateHifzPagesAction(startPage?: number | string | null, endPage?: number | string | null) {
-  return calculateHifzPages(startPage, endPage);
+export async function calculateHifzPagesAction(
+  start?: number | string | null,
+  end?: number | string | null,
+) {
+  return calculateHifzPages(start, end);
 }
-
-export async function getHifzLogPagesCountAction(startPage?: number | string | null, endPage?: number | string | null) {
-  return getHifzLogPagesCount(startPage, endPage);
+export async function getHifzLogPagesCountAction(
+  start?: number | string | null,
+  end?: number | string | null,
+) {
+  return getHifzLogPagesCount(start, end);
 }
-
+async function directory(classId?: string, child?: string) {
+  const c = await webScope(classId, child);
+  return {
+    c,
+    bundle: await readHifz(c.db, c.tenant, c.roster, c.legacy, !!child),
+  };
+}
+export async function getHifzDirectory(classId?: string) {
+  const { c, bundle } = await directory(classId);
+  const profiles = new Map(bundle.hifz_profiles.map((p) => [p.student_id, p]));
+  return {
+    students: c.roster
+      .map((s) => ({
+        ...s,
+        hifz_category: profiles.get(s.id)?.tracked
+          ? profiles.get(s.id)?.hifz_category
+          : null,
+      }))
+      .sort(
+        (a, b) =>
+          (Number(a.roll_number) || Infinity) -
+          (Number(b.roll_number) || Infinity),
+      ),
+    summary: summarizeHifz(bundle),
+  };
+}
 export async function getHifzStudents(classId?: string) {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return [];
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-
-  let query = supabase
-    .from("students")
-    .select("id, first_name, last_name, roll_number, class_id, classes(name)")
-    .order("roll_number");
-
-  if (finalMadrasaId) {
-    query = query.eq("madrasa_id", finalMadrasaId);
-  }
-
-  if (classId && classId !== "All") {
-    query = query.eq("class_id", classId);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("Error fetching Hifz students:", error);
-    return [];
-  }
-
-  return (data || []).sort(
-    (a: any, b: any) =>
-      (parseInt(a.roll_number) || 999999) - (parseInt(b.roll_number) || 999999)
-  );
+  return (await getHifzDirectory(classId)).students;
 }
-
-export async function getHifzLogs(studentId: string, limit = 20) {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("hifz_logs")
-    .select(`*`)
-    .eq("student_id", studentId)
-    .order("log_date", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (error) {
-    console.error("Error fetching hifz logs:", error);
-    return [];
-  }
-
-  return (data || []).map((log: any) => {
-    const parsed = parseHifzLogNotes(log.notes);
-    return {
-      ...log,
-      clean_notes: parsed.cleanNotes,
-      daily_tilawat: parsed.tilawatText,
-      meta: parsed.meta,
-      hifz_stage: parsed.meta.stage || "HIFZ",
-      sabak_page_from: parsed.meta.sabak_page_from ?? log.sabak_page,
-      sabak_page_to: parsed.meta.sabak_page_to ?? log.sabak_page,
-      sabak_lines: parsed.meta.sabak_lines || "",
-      is_sabak_paused: Boolean(parsed.meta.is_sabak_paused),
-      saboki_pages: parsed.meta.saboki_pages || "",
-      amukhta_amount: parsed.meta.amukhta_amount || "",
-      mistake_count: parsed.meta.mistake_count ?? 0,
-    };
-  });
+export async function getHifzChild(id: string) {
+  const { c, bundle } = await directory(undefined, id);
+  return c.roster[0] ? { student: c.roster[0], bundle } : null;
 }
-
-export async function createHifzLog(prevState: any, formData: FormData) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("hifz");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "Unauthorized" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "Madrasa not found" };
-
-  const studentId = formData.get("student_id") as string;
-  const logDate = formData.get("log_date") as string;
-
-  const hifzStage = (formData.get("hifz_stage") as string) || "HIFZ";
-  const sabakPara = formData.get("sabak_para") as string;
-  const sabakPage = formData.get("sabak_page") as string;
-  const sabakPageFrom = formData.get("sabak_page_from") as string;
-  const sabakPageTo = formData.get("sabak_page_to") as string;
-  const sabakLines = formData.get("sabak_lines") as string;
-  const isSabakPaused = formData.get("is_sabak_paused") === "true" || formData.get("is_sabak_paused") === "on";
-
-  const sabokiPara = formData.get("saboki_para") as string;
-  const sabokiPages = formData.get("saboki_pages") as string;
-
-  const amukhtaPara = formData.get("amukhta_para") as string;
-  const amukhtaAmount = formData.get("amukhta_amount") as string;
-  const mistakeCount = formData.get("mistake_count") as string;
-
-  const performance = formData.get("performance_rating") as string;
-  const rawNotes = formData.get("notes") as string;
-  const dailyTilawat = formData.get("daily_tilawat") as string;
-
-  if (!studentId || !logDate) {
-    return { error: "Student and Date are required." };
-  }
-
-  const primaryPage = sabakPageFrom ? parseInt(sabakPageFrom) : (sabakPage ? parseInt(sabakPage) : null);
-
-  const meta: HifzLogMeta = {
-    stage: hifzStage as any,
-    sabak_page_from: sabakPageFrom ? parseInt(sabakPageFrom) : primaryPage,
-    sabak_page_to: sabakPageTo ? parseInt(sabakPageTo) : primaryPage,
-    sabak_lines: sabakLines || "",
-    is_sabak_paused: isSabakPaused,
-    saboki_pages: sabokiPages || "",
-    amukhta_amount: amukhtaAmount || "",
-    mistake_count: mistakeCount ? parseInt(mistakeCount) : 0,
-  };
-
-  const finalNotes = buildHifzLogNotes({
-    rawNotes,
-    dailyTilawat,
-    meta,
-  });
-
-  const { error } = await supabase.from("hifz_logs").insert({
-    madrasa_id: finalMadrasaId,
-    student_id: studentId,
-    log_date: logDate,
-    sabak_para: sabakPara ? parseInt(sabakPara) : null,
-    sabak_page: primaryPage,
-    saboki_para: sabokiPara ? parseInt(sabokiPara) : null,
-    amukhta_para: amukhtaPara ? parseInt(amukhtaPara) : null,
-    performance_rating: performance || null,
-    notes: finalNotes,
-  });
-
-  if (error) {
-    console.error("Error creating hifz log:", error);
-    return { error: error.message };
-  }
-
-  revalidatePath("/dashboard", "layout");
-  revalidatePath(`/dashboard/hifz/${studentId}`);
-  return { success: true };
-}
-
-export async function updateHifzLog(logId: string, prevState: any, formData: FormData) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("hifz");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "Unauthorized" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "Madrasa not found" };
-
-  const logDate = formData.get("log_date") as string;
-
-  const hifzStage = (formData.get("hifz_stage") as string) || "HIFZ";
-  const sabakPara = formData.get("sabak_para") as string;
-  const sabakPage = formData.get("sabak_page") as string;
-  const sabakPageFrom = formData.get("sabak_page_from") as string;
-  const sabakPageTo = formData.get("sabak_page_to") as string;
-  const sabakLines = formData.get("sabak_lines") as string;
-  const isSabakPaused = formData.get("is_sabak_paused") === "true" || formData.get("is_sabak_paused") === "on";
-
-  const sabokiPara = formData.get("saboki_para") as string;
-  const sabokiPages = formData.get("saboki_pages") as string;
-
-  const amukhtaPara = formData.get("amukhta_para") as string;
-  const amukhtaAmount = formData.get("amukhta_amount") as string;
-  const mistakeCount = formData.get("mistake_count") as string;
-
-  const performance = formData.get("performance_rating") as string;
-  const rawNotes = formData.get("notes") as string;
-  const dailyTilawat = formData.get("daily_tilawat") as string;
-
-  if (!logId || !logDate) {
-    return { error: "Log ID and Date are required." };
-  }
-
-  const primaryPage = sabakPageFrom ? parseInt(sabakPageFrom) : (sabakPage ? parseInt(sabakPage) : null);
-
-  const meta: HifzLogMeta = {
-    stage: hifzStage as any,
-    sabak_page_from: sabakPageFrom ? parseInt(sabakPageFrom) : primaryPage,
-    sabak_page_to: sabakPageTo ? parseInt(sabakPageTo) : primaryPage,
-    sabak_lines: sabakLines || "",
-    is_sabak_paused: isSabakPaused,
-    saboki_pages: sabokiPages || "",
-    amukhta_amount: amukhtaAmount || "",
-    mistake_count: mistakeCount ? parseInt(mistakeCount) : 0,
-  };
-
-  const finalNotes = buildHifzLogNotes({
-    rawNotes,
-    dailyTilawat,
-    meta,
-  });
-
-  const { error } = await supabase
-    .from("hifz_logs")
-    .update({
-      log_date: logDate,
-      sabak_para: sabakPara ? parseInt(sabakPara) : null,
-      sabak_page: primaryPage,
-      saboki_para: sabokiPara ? parseInt(sabokiPara) : null,
-      amukhta_para: amukhtaPara ? parseInt(amukhtaPara) : null,
-      performance_rating: performance || null,
-      notes: finalNotes,
-    })
-    .eq("id", logId)
-    .eq("madrasa_id", finalMadrasaId);
-
-  if (error) {
-    console.error("Error updating hifz log:", error);
-    return { error: error.message };
-  }
-
-  revalidatePath("/dashboard", "layout");
-  return { success: true };
-}
-
-export async function deleteHifzLog(logId: string, studentId: string) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("hifz");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "Unauthorized" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "Madrasa not found" };
-
-  const { error } = await supabase
-    .from("hifz_logs")
-    .delete()
-    .eq("id", logId)
-    .eq("madrasa_id", finalMadrasaId);
-
-  if (error) {
-    console.error("Error deleting hifz log:", error);
-    return { error: error.message };
-  }
-
-  revalidatePath("/dashboard", "layout");
-  revalidatePath(`/dashboard/hifz/${studentId}`);
-  return { success: true };
-}
-
-export async function getStudentHifzReport(studentId: string, month?: string, year?: string) {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return null;
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return null;
-
-  const { data: student } = await supabase
-    .from("students")
-    .select("id, first_name, last_name, roll_number, class_id, classes(name)")
-    .eq("id", studentId)
-    .single();
-
-  if (!student) return null;
-
-  const { getMadrasaMetadata } = await import("@/lib/sessions");
-  const meta = await getMadrasaMetadata(finalMadrasaId);
-  const studentProfile = meta?.student_profiles?.[studentId] || {};
-
-  const { data: allStudentLogs } = await supabase
-    .from("hifz_logs")
-    .select("*")
-    .eq("student_id", studentId)
-    .order("log_date", { ascending: false });
-
+function report(s: any, p: any, logs: any[], month?: string, year?: string) {
   return buildStudentHifzReportFromLogs({
-    student,
-    allStudentLogs: allStudentLogs || [],
-    studentProfile,
+    student: s,
+    studentProfile: p,
+    allStudentLogs: logs,
     targetMonth: month,
     targetYear: year,
   });
 }
-
-export async function getMonthlyHifzSummary(classId?: string, month?: string, year?: string) {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { month: month || "", year: year || "", reports: [] };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { month: month || "", year: year || "", reports: [] };
-
-  const students = await getHifzStudents(classId);
-  if (!students || students.length === 0) {
+export async function getHifzLogs(id: string, limit = 20) {
+  const child = await getHifzChild(id);
+  return (child?.bundle.hifz_logs || []).slice(0, limit).map((log) => {
+    const { meta, cleanNotes, tilawatText } = parseHifzLogNotes(log.notes);
     return {
-      month: month || new Date().toISOString().slice(5, 7),
-      year: year || String(getDhakaYear()),
-      reports: [],
+      ...log,
+      ...meta,
+      clean_notes: cleanNotes,
+      daily_tilawat: tilawatText,
+      meta,
+      hifz_stage: meta.stage || "HIFZ",
+      sabak_page_from: meta.sabak_page_from ?? log.sabak_page,
+      sabak_page_to: meta.sabak_page_to ?? log.sabak_page,
     };
+  });
+}
+export async function getStudentHifzReport(
+  id: string,
+  month?: string,
+  year?: string,
+) {
+  const { c, bundle } = await directory(undefined, id);
+  return c.roster[0]
+    ? report(
+        c.roster[0],
+        { ...c.legacy?.[id], ...bundle.hifz_profiles[0] },
+        bundle.hifz_logs,
+        month,
+        year,
+      )
+    : null;
+}
+export async function getMonthlyHifzSummary(
+  classId?: string,
+  month?: string,
+  year?: string,
+) {
+  const today = toDhakaDateString(),
+    m = month?.padStart(2, "0") || today.slice(5, 7),
+    y = year || today.slice(0, 4);
+  if (!/^\d{4}$/.test(y) || !/^0[1-9]$|^1[0-2]$/.test(m))
+    throw new Error("সঠিক মাস নির্বাচন করুন।");
+  const { c, bundle } = await directory(classId);
+  const grouped = new Map<string, any[]>();
+  for (const l of bundle.hifz_logs) {
+    const a = grouped.get(l.student_id) || [];
+    a.push(l);
+    grouped.set(l.student_id, a);
   }
-
-  const studentIds = students.map((s: any) => s.id);
-
-  // Single bulk query for all students' hifz logs (Optimized N+1 fix)
-  const { data: allLogs } = await supabase
-    .from("hifz_logs")
-    .select("*")
-    .in("student_id", studentIds)
-    .order("log_date", { ascending: false });
-
-  // Single fetch for madrasa metadata (Optimized N+1 fix)
-  const { getMadrasaMetadata } = await import("@/lib/sessions");
-  const meta = await getMadrasaMetadata(finalMadrasaId);
-  const profilesMap = meta?.student_profiles || {};
-
-  // Group logs by student_id
-  const logsByStudent = new Map<string, any[]>();
-  (allLogs || []).forEach((log: any) => {
-    if (!logsByStudent.has(log.student_id)) {
-      logsByStudent.set(log.student_id, []);
-    }
-    logsByStudent.get(log.student_id)!.push(log);
-  });
-
-  const targetMonth = month || new Date().toISOString().slice(5, 7);
-  const targetYear = year || String(getDhakaYear());
-
-  const reports = students.map((student: any) => {
-    const studentLogs = logsByStudent.get(student.id) || [];
-    const studentProfile = profilesMap[student.id] || {};
-
-    return buildStudentHifzReportFromLogs({
-      student,
-      allStudentLogs: studentLogs,
-      studentProfile,
-      targetMonth,
-      targetYear,
-    });
-  });
-
+  const period = `${y}-${m}`;
+  const last = new Date(Date.UTC(+y, +m, 0)).toISOString().slice(0, 10);
   return {
-    month: targetMonth,
-    year: targetYear,
-    reports: reports.filter(Boolean),
+    month: m,
+    year: y,
+    sabina: monthlySabina(bundle, period),
+    summary: summarizeHifz(bundle, last < today ? last : today, period),
+    events: bundle.hifz_special_sabina.filter((e) => e.status === "ongoing"),
+    reports: c.roster.map((s, index) => {
+      const p = bundle.hifz_profiles[index];
+      return {
+        ...report(
+          s,
+          { ...c.legacy?.[s.id], ...p },
+          grouped.get(s.id) || [],
+          m,
+          y,
+        ),
+        category: p.hifz_category,
+        khatams: p.khatam_completion_dates.filter((d) => d.startsWith(period))
+          .length,
+        weekly: bundle.hifz_weekly_sabina.filter(
+          (w) => w.student_id === s.id && w.sabina_date.startsWith(period),
+        ),
+      };
+    }),
   };
+}
+function refresh() {
+  for (const path of ["/dashboard", "/teacher-portal", "/portal"])
+    revalidatePath(path, "layout");
+}
+const failure = (e: unknown) => ({
+  error:
+    e instanceof EntryError
+      ? e.message
+      : "সংরক্ষণ হয়নি। তথ্য যাচাই করে আবার চেষ্টা করুন।",
+});
+// writeHifz / removeDaily bind tenant + actor and await logAuditEvent for each successful change.
+type FormResult = { success?: boolean; error?: string };
+export async function createHifzLog(
+  _: unknown,
+  formData: FormData,
+): Promise<FormResult> {
+  const guard = await writeGuard("hifz");
+  if (!guard.allowed) return guard.fallback;
+  try {
+    const input = Object.fromEntries(formData),
+      c = await webScope(undefined, String(input.student_id));
+    await writeHifz(
+      c,
+      { current_date: input.log_date, records: [input] },
+      { insertOnly: true },
+    );
+    refresh();
+    return { success: true };
+  } catch (e) {
+    return failure(e);
+  }
+}
+export async function updateHifzLog(
+  id: string,
+  _: unknown,
+  formData: FormData,
+): Promise<FormResult> {
+  const guard = await writeGuard("hifz");
+  if (!guard.allowed) return guard.fallback;
+  try {
+    const c = await webScope(),
+      old = await findDaily(c, id),
+      input = Object.fromEntries(formData);
+    await writeHifz(
+      c,
+      {
+        current_date: input.log_date,
+        records: [
+          {
+            ...input,
+            is_sabak_paused: formData.has("is_sabak_paused"),
+            student_id: old.student_id,
+          },
+        ],
+      },
+      { editId: id },
+    );
+    refresh();
+    return { success: true };
+  } catch (e) {
+    return failure(e);
+  }
+}
+export async function deleteHifzLog(
+  id: string,
+  studentId: string,
+): Promise<FormResult> {
+  const guard = await writeGuard("hifz");
+  if (!guard.allowed) return guard.fallback;
+  try {
+    await removeDaily(await webScope(undefined, studentId), id);
+    refresh();
+    return { success: true };
+  } catch (e) {
+    return failure(e);
+  }
+}
+
+/** In-place daily/profile edits on a staff student's page; shared writer validates
+ * all ids against the verified student and records logAuditEvent after success. */
+export async function saveStudentHifzEntry(
+  studentId: string,
+  body: Record<string, unknown>,
+): Promise<FormResult> {
+  const guard = await writeGuard("hifz");
+  if (!guard.allowed) return guard.fallback;
+  try {
+    if (body.kind !== "daily" && body.kind !== "profile")
+      throw new EntryError("অজানা এন্ট্রি।");
+    const c = await webScope();
+    if (!c.roster.some((s) => s.id === studentId))
+      throw new EntryError("অনুমতি নেই।", 403);
+    if (
+      body.kind === "profile"
+        ? body.student_id !== studentId
+        : !Array.isArray(body.records) ||
+          body.records.length !== 1 ||
+          body.records[0]?.student_id !== studentId
+    )
+      throw new EntryError("শিক্ষার্থী মেলেনি।");
+    await writeHifz(c, body);
+    refresh();
+    return { success: true };
+  } catch (e) {
+    return failure(e);
+  }
 }

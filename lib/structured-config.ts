@@ -245,30 +245,40 @@ export async function saveStructuredMadrasaSetting(
   namespace: string,
   settingKey: string,
   settingValue: any,
-  updatedBy?: string | null
+  updatedBy?: string | null,
+  insertOnly = false,
 ): Promise<{ ok: boolean; storage: "sql" | "fallback" }> {
   if (!madrasaId) return { ok: false, storage: "fallback" };
 
   try {
     const adminClient = await createAdminClient();
-    const { error } = await adminClient.from("madrasa_settings").upsert(
-      {
-        madrasa_id: madrasaId,
-        namespace,
-        setting_key: settingKey,
-        setting_value: settingValue,
-        updated_by: updatedBy || null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "madrasa_id,namespace,setting_key" }
-    );
+    const payload = {
+      madrasa_id: madrasaId,
+      namespace,
+      setting_key: settingKey,
+      setting_value: settingValue,
+      updated_by: updatedBy || null,
+      updated_at: new Date().toISOString(),
+    };
+    const table = adminClient.from("madrasa_settings");
+    const { error } = insertOnly
+      ? await table.insert(payload)
+      : await table.upsert(payload, {
+          onConflict: "madrasa_id,namespace,setting_key",
+        });
 
     if (!error) return { ok: true, storage: "sql" };
     if (!isMissingTableError(error)) {
-      console.warn(`saveStructuredMadrasaSetting(${namespace}.${settingKey}) error:`, error.message);
+      console.warn(
+        `saveStructuredMadrasaSetting(${namespace}.${settingKey}) error:`,
+        error.message,
+      );
     }
   } catch (err) {
-    console.warn(`saveStructuredMadrasaSetting(${namespace}.${settingKey}) catch:`, err);
+    console.warn(
+      `saveStructuredMadrasaSetting(${namespace}.${settingKey}) catch:`,
+      err,
+    );
   }
 
   return { ok: false, storage: "fallback" };

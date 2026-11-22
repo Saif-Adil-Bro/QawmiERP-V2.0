@@ -8,7 +8,7 @@ const indexFile = path.join(outDir, "index.html");
 
 fs.mkdirSync(outDir, { recursive: true });
 // Keep the web reader and its dependency in sync, including for a static export.
-for (const file of ["offline.html", "offline-portal.js"]) {
+for (const file of ["offline.html", "offline-portal.js", "offline-hifz.js", "hifz.css"]) {
   fs.copyFileSync(path.resolve("public", file), path.join(outDir, file));
 }
 

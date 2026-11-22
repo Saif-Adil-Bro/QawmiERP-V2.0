@@ -193,6 +193,7 @@ export function extractBearerToken(req: NextRequest | Request): string | null {
 }
 
 export interface MobileAuthOptions {
+  portalSyncOwner?: "teacher"; // Only the roster-checked teacher mutation endpoint opts in.
   module?: ModuleKey;
   requireWrite?: boolean;
   allowPortalRoles?: boolean;
@@ -300,7 +301,17 @@ export async function authenticateMobileRequest(
     const isPortalUser = [String(userRow?.role).toLowerCase(),primaryRole,...roles].some(r=>PORTAL_ROLES.has(r));
     if (isPortalUser && !options.allowPortalRoles) return {ok:false,response:mobileError('পোর্টালের নির্দিষ্ট API ব্যবহার করুন।',403,'PORTAL_SCOPE_REQUIRED')};
     const owner=req.headers.get('X-Qawmi-Sync-Owner');
-    if(owner && (isPortalUser || owner!==`${madrasaId}:${user.id}:admin`)) return {ok:false,response:mobileError('সিঙ্ক অ্যাকাউন্ট বদলেছে।',409,'OWNER_CHANGED')};
+    const expectedOwner =
+      options.portalSyncOwner && isPortalUser
+        ? `${madrasaId}:${user.id}:${options.portalSyncOwner}`
+        : !isPortalUser
+          ? `${madrasaId}:${user.id}:admin`
+          : null;
+    if (owner && owner !== expectedOwner)
+      return {
+        ok: false,
+        response: mobileError("সিঙ্ক অ্যাকাউন্ট বদলেছে।", 409, "OWNER_CHANGED"),
+      };
     const permissions = permCtx?.summary?.effectivePermissions || [];
 
     // If write operation is requested, enforce portal block & module policy

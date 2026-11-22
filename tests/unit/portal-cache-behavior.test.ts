@@ -46,6 +46,10 @@ function wire(child = "a", ids = ["a", "b"]) {
     health_records: [],
     exam_results: [],
     hifz_logs: [],
+    hifz_profiles: [],
+    hifz_special_sabina: [],
+    hifz_weekly_sabina: [],
+    hifz_listeners: [],
     kitab_logs: [],
     notices: [],
     routines: [],
@@ -217,5 +221,64 @@ describe("Owner-scoped Dexie transactions and replay", () => {
     await Promise.all([processSyncQueue(), processSyncQueue()]);
     expect(await db.syncQueue.count()).toBe(0);
     expect(f).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Hifz snapshot and outbox isolation", () => {
+  it("atomically mirrors the selected child; bad or missing Hifz data cannot clear the previous snapshot", async () => {
+    const db = getOfflineDb(login());
+    const h = (id: string) => ({
+      student_id: id,
+      madrasa_id: `m${n}`,
+      hifz_category: "sabqi",
+    });
+    let data: any = { ...wire(), hifz_profiles: [h("a")] };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response(data)),
+    );
+    expect((await initialFullSync("student")).ok).toBe(true);
+    expect(await db.hifzProfiles.get("a")).toMatchObject({ student_id: "a" });
+    data = { ...wire("b"), hifz_profiles: [h("a")] };
+    expect((await initialFullSync("student", { studentId: "b" })).ok).toBe(
+      false,
+    );
+    data = { ...wire("b"), hifz_weekly_sabina: undefined };
+    expect((await initialFullSync("student", { studentId: "b" })).ok).toBe(
+      false,
+    );
+    expect(await db.hifzProfiles.count()).toBe(1);
+    data = { ...wire("b"), hifz_profiles: [h("b")] };
+    expect((await initialFullSync("student", { studentId: "b" })).ok).toBe(
+      true,
+    );
+    expect(await db.hifzProfiles.get("a")).toBeUndefined();
+    expect(
+      (await db.portalSnapshots.get("student:a"))?.data.hifzProfiles[0]
+        .student_id,
+    ).toBe("a");
+    await clearOfflineAuthSession();
+    expect(await db.hifzProfiles.count()).toBe(0);
+  });
+  it("keeps a stale correction for review without blocking later Hifz entries", async () => {
+    const owner = login("teach", "teacher"),
+      db = getOfflineDb(owner);
+    network.connected = false;
+    await postTeacherEntry("hifz", { kind: "daily" }, owner);
+    await postTeacherEntry("hifz", { kind: "weekly" }, owner);
+    network.connected = true;
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ error: "নতুন লগ এসেছে" }, { status: 409 }),
+      )
+      .mockResolvedValue(Response.json({ success: true }));
+    vi.stubGlobal("fetch", send);
+    await processOfflineOutbox();
+    await processOfflineOutbox();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(await db.offlineOutbox.toArray()).toMatchObject([
+      { rejected: "HIFZ_REVIEW", payload: { kind: "daily" } },
+    ]);
   });
 });

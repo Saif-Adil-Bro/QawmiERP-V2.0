@@ -1,105 +1,55 @@
-import { validDate } from "@/lib/portal/rules";
-import { matchesSyncOwner } from "@/lib/portal/teacher-entry";
-import { webTeacher } from "@/lib/portal/identity";
-import { verifyRoster } from "@/lib/portal/teacher-entry";
+import { matchesSyncOwner, teacherClass } from "@/lib/portal/teacher-entry";
+import { authorizeApi } from "@/lib/api-auth";
+import { EntryError } from "@/lib/hifz/entries";
+import { writeHifz } from "@/lib/hifz/write";
 import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/server";
-import { authorizeApi, getOwnedStudentIds } from "@/lib/api-auth";
-
-/**
- * হিফজ লগ সংরক্ষণ।
- *
- * ⛔ আগের সমস্যা: `madrasa_id` ক্লায়েন্টের বডি থেকে, student/teacher/existing_id
- * মালিকানা যাচাই নেই — টেন্যান্ট বদলে অন্য মাদ্রাসার `hifz_logs` লেখা/ওভাররাইট সম্ভব।
- *
- * এখন: writeGuard("hifz") → সার্ভার madrasaId → শিক্ষার্থী ও শিক্ষক মালিকানা যাচাই →
- * সব update/lookup মাদ্রাসা-স্কোপড।
- */
 export async function POST(req: NextRequest) {
-  if (!(await matchesSyncOwner(req)))
-    return NextResponse.json(
-      { error: "সিঙ্ক মুলতবি: অ্যাকাউন্ট বদলেছে।" },
-      { status: 409 },
-    );
   try {
+    if (!(await matchesSyncOwner(req)))
+      return NextResponse.json(
+        { error: "সিঙ্ক অ্যাকাউন্ট বদলেছে।",code:"OWNER_CHANGED" },
+        { status: 409 },
+      );
     const auth = await authorizeApi("hifz");
     if (!auth.ok) return auth.response;
-
-    const { madrasaId } = auth.ctx;
     const body = await req.json();
-    const { current_date, current_class_id, records } = body;
-
-    if (!Array.isArray(records) || records.length === 0) {
-      return NextResponse.json(
-        { error: "কোন রেকর্ড পাওয়া যায়নি।" },
-        { status: 400 },
-      );
-    }
-    if (!validDate(current_date) || !current_class_id) {
-      return NextResponse.json(
-        { error: "তারিখ আবশ্যক (current_date missing)।" },
-        { status: 400 },
-      );
-    }
-
-    const admin = await createAdminClient();
-
-    const teacher = await webTeacher();
-    if (!teacher || !(await verifyRoster(madrasaId, records, current_class_id)))
-      return NextResponse.json({ error: "অনুমতি নেই।" }, { status: 403 });
-    let saved = 0;
-    for (const rec of records) {
-      const dbRecord = {
-        madrasa_id: madrasaId,
-        student_id: rec.student_id,
-        teacher_id: teacher.scope.teacher?.id || null,
-        log_date: current_date,
-        sabak_para: rec.sabak_para,
-        saboki_para: rec.saboki_para,
-        amukhta_para: rec.amukhta_para,
-        performance_rating: rec.performance_rating || null,
-        notes: rec.notes || null,
-      };
-
-      const scoped = () =>
-        admin
-          .from("hifz_logs")
-          .select("id")
-          .eq("madrasa_id", madrasaId)
-          .eq("student_id", rec.student_id)
-          .eq("log_date", current_date);
-      const lookup = await (
-        rec.existing_id ? scoped().eq("id", rec.existing_id) : scoped()
-      ).maybeSingle();
-      if (lookup.error) throw lookup.error;
-      if (rec.existing_id && !lookup.data)
-        return NextResponse.json(
-          { error: "রেকর্ডটি পরিবর্তিত হয়েছে। রিফ্রেশ করুন।" },
-          { status: 409 },
-        );
-      const write = lookup.data
-        ? await admin
-            .from("hifz_logs")
-            .update(dbRecord)
-            .eq("id", lookup.data.id)
-            .eq("madrasa_id", madrasaId)
-            .eq("student_id", rec.student_id)
-            .select("id")
-            .single()
-        : await admin.from("hifz_logs").insert(dbRecord);
-      if (write.error) throw write.error;
-      saved++;
-    }
-
-    revalidatePath("/portal", "layout");
-    revalidatePath("/teacher-portal", "layout");
-    return NextResponse.json({ success: true, count: saved });
-  } catch (err: any) {
-    console.error("Error saving hifz logs in API:", err);
+    if (!body?.current_class_id) throw new EntryError("জামাত নির্বাচন করুন।");
+    const t = await teacherClass(body.current_class_id);
+    if (
+      !t?.current ||
+      t.i.tenant !== auth.ctx.madrasaId ||
+      t.current.id !== body.current_class_id
+    )
+      throw new EntryError("এই জামাতের অনুমতি নেই।", 403);
+    const data = await writeHifz(
+      {
+        db: t.i.db,
+        tenant: t.i.tenant,
+        actor: t.i.user.id,
+        teacherId: t.scope.teacher?.id,
+        roster: t.students,
+        legacy: t.scope.meta.student_profiles,
+      },
+      body,
+    );
+    for (const path of ["/dashboard", "/portal", "/teacher-portal"])
+      revalidatePath(path, "layout");
+    return NextResponse.json({
+      success: true,
+      count: Array.isArray(data) ? data.length : 1,
+      data,
+    });
+  } catch (e) {
+    if (!(e instanceof EntryError)) console.error("Hifz write failed", e);
     return NextResponse.json(
-      { error: err?.message || "সার্ভার এরর হয়েছে। দয়া করে আবার চেষ্টা করুন।" },
-      { status: 500 },
+      {
+        error:
+          e instanceof EntryError
+            ? e.message
+            : "সংরক্ষণ হয়নি। আবার চেষ্টা করুন।",
+      },
+      { status: e instanceof EntryError ? e.status : 500 },
     );
   }
 }

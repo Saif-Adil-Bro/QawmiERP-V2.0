@@ -1,3 +1,4 @@
+import { participantIds } from "../hifz-utils";
 import { severities, statuses, dialable } from "@/lib/student-health/model";
 // Wire contract shared by full and background sync. [] means an authoritative deletion;
 // a missing collection or profile is a failed/incomplete response, not an empty snapshot.
@@ -12,6 +13,10 @@ const fields = {
   examResults: "exam_results",
   examSummaries: "exam_summaries",
   hifzLogs: "hifz_logs",
+  hifzProfiles: "hifz_profiles",
+  hifzWeeklySabina: "hifz_weekly_sabina",
+  hifzSpecialSabina: "hifz_special_sabina",
+  hifzListeners: "hifz_listeners",
   kitabLogs: "kitab_logs",
   healthRecords: "health_records",
   notices: "notices",
@@ -54,6 +59,31 @@ export function mapPortalSnapshot(
       !mapped.students.some((s) => s.id === data.active_student.id))
   )
     throw new Error("শিক্ষার্থী সংযুক্ত নেই।");
+  const roster = new Set(mapped.students.map((s) => s.id));
+  for (const row of [
+    ...mapped.hifzProfiles,
+    ...mapped.hifzWeeklySabina,
+    ...mapped.hifzLogs,
+  ])
+    if (!roster.has(row.student_id) || row.madrasa_id !== tenant)
+      throw new Error("হিফজ নথির পরিচয় মেলেনি।");
+  for (const e of mapped.hifzSpecialSabina) {
+    const members = participantIds(e.participants);
+    if (
+      !members.length ||
+      e.madrasa_id !== tenant ||
+      members.some((id) => !roster.has(id)) ||
+      (portal === "student" &&
+        (members.some((id) => id !== data.active_student?.id) ||
+          e.session_logs.some(
+            (s: any) =>
+              s.reciter_id !== data.active_student?.id || s.listener_ids.length,
+          )))
+    )
+      throw new Error("সবিনার পরিচয় মেলেনি।");
+  }
+  if (portal === "student" && mapped.hifzListeners.length)
+    throw new Error("অপ্রত্যাশিত শ্রোতার তালিকা।");
   if (portal === "student") {
     const child = data.active_student?.id;
     for (const key of [
@@ -65,6 +95,9 @@ export function mapPortalSnapshot(
       "examSummaries",
       "healthRecords",
       "hifzLogs",
+      "hifzProfiles",
+      "hifzWeeklySabina",
+      "hifzSpecialSabina",
       "kitabLogs",
     ] as const) {
       if (mapped[key].some((r) => !child || r.student_id !== child))

@@ -1,5 +1,8 @@
 "use client";
 
+import { EventReport, bn, ParaMarks } from "@/components/hifz/Report";
+import type { SpecialSabina, WeeklySabina } from "@/lib/hifz-utils";
+import HifzSummaryWidget from "@/components/widgets/HifzSummaryWidget";
 import { getDhakaYear } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { getMonthlyHifzSummary } from "@/app/actions/hifz";
@@ -73,8 +76,12 @@ export default function HifzReportPage() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">কওমি হিফজ প্রোগ্রেস ও মূল্যায়ন রিপোর্ট</h1>
-            <p className="text-slate-500 text-xs mt-0.5">মাসিক সবক, সবকী, আমুখতা ও বেফাক/তাহফিজ স্ট্যান্ডার্ড মান নিয়ন্ত্রণ</p>
+            <h1 className="text-2xl font-bold text-slate-800">
+              কওমি হিফজ প্রোগ্রেস ও মূল্যায়ন রিপোর্ট
+            </h1>
+            <p className="text-slate-500 text-xs mt-0.5">
+              মাসিক সবক, সবকী, আমুখতা ও বেফাক/তাহফিজ স্ট্যান্ডার্ড মান নিয়ন্ত্রণ
+            </p>
           </div>
         </div>
 
@@ -134,15 +141,45 @@ export default function HifzReportPage() {
         </div>
       </div>
 
+      {!loading && summaryData?.summary && (
+        <HifzSummaryWidget
+          summary={summaryData.summary}
+          period={`${year}-${month}`}
+        />
+      )}
+      {!loading && summaryData?.sabina && (
+        <section className="hz hz-card hz-stack">
+          <link rel="stylesheet" href="/hifz.css" />
+          <h2>মাসের বৃহস্পতিবারের সবিনা</h2>
+          <p>
+            {bn(summaryData.sabina.days)} বৃহস্পতিবারে সম্পন্ন{" "}
+            {bn(summaryData.sabina.completed)}/{bn(summaryData.sabina.expected)}
+            টি শিক্ষার্থী-এন্ট্রি · হার {bn(summaryData.sabina.rate)}%
+          </p>
+          <p>
+            দুর্বল পারা:{" "}
+            {summaryData.sabina.weak
+              .map(([p, n]: number[]) => `পারা ${bn(p)} (${bn(n)} বার)`)
+              .join(", ") || "নেই"}
+          </p>
+          {summaryData.events.map((e: SpecialSabina) => (
+            <EventReport key={e.id} event={e} />
+          ))}
+        </section>
+      )}
       {/* Main Content Area */}
       {loading ? (
         <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center text-slate-500">
           রিপোর্ট ডাটা প্রসেস হচ্ছে...
         </div>
-      ) : !summaryData || !summaryData.reports || summaryData.reports.length === 0 ? (
+      ) : !summaryData ||
+        !summaryData.reports ||
+        summaryData.reports.length === 0 ? (
         <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center text-slate-500">
           <BookOpen className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-          <p className="font-bold text-slate-700">এই সময়ের জন্য কোনো হিফজ রেকর্ড পাওয়া যায়নি।</p>
+          <p className="font-bold text-slate-700">
+            এই সময়ের জন্য কোনো হিফজ রেকর্ড পাওয়া যায়নি।
+          </p>
         </div>
       ) : (
         <div className="space-y-8">
@@ -161,7 +198,12 @@ export default function HifzReportPage() {
                     </span>
                   </h2>
                   <p className="text-xs font-medium text-slate-500 mt-0.5">
-                    জামাত: {rep.student.class_name} | স্তর: <span className="font-bold text-emerald-700">{rep.student.hifz_stage}</span>
+                    জামাত: {rep.student.class_name} | স্তর:{" "}
+                    <span className="font-bold text-emerald-700">
+                      {rep.student.hifz_stage} ·{" "}
+                      {rep.category === "khatmi" ? "খতমী" : "সবকী"} · মাসে খতম{" "}
+                      {rep.khatams}
+                    </span>
                   </p>
                 </div>
 
@@ -176,29 +218,61 @@ export default function HifzReportPage() {
                 </div>
               </div>
 
+              {!!rep.weekly?.length && (
+                <details className="hz">
+                  <summary>পারা অনুযায়ী সাপ্তাহিক সবিনা</summary>
+                  {rep.weekly.map((w: WeeklySabina) => (
+                    <div key={w.id}>
+                      <strong>
+                        {bn(w.sabina_date)} ·{" "}
+                        {w.listener_name || "সঙ্গী নির্ধারিত নেই"}
+                      </strong>
+                      <ParaMarks rows={w.para_breakdown} />
+                    </div>
+                  ))}
+                </details>
+              )}
               {/* Monthly Stats Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  <div className="text-xs font-semibold text-slate-500">মোট সক্রিয় সবক দিন</div>
-                  <div className="text-lg font-bold text-slate-800">{rep.active_sabak_days} দিন</div>
+                  <div className="text-xs font-semibold text-slate-500">
+                    মোট সক্রিয় সবক দিন
+                  </div>
+                  <div className="text-lg font-bold text-slate-800">
+                    {rep.active_sabak_days} দিন
+                  </div>
                   {rep.paused_sabak_days > 0 && (
-                    <div className="text-[10px] text-amber-600 font-medium">কাঁচা থাকার কারণে বন্ধ: {rep.paused_sabak_days} দিন</div>
+                    <div className="text-[10px] text-amber-600 font-medium">
+                      কাঁচা থাকার কারণে বন্ধ: {rep.paused_sabak_days} দিন
+                    </div>
                   )}
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  <div className="text-xs font-semibold text-slate-500">হিফজকৃত পৃষ্ঠা (এই মাসে)</div>
-                  <div className="text-lg font-bold text-emerald-700">{rep.total_pages_memorized} পৃষ্ঠা</div>
+                  <div className="text-xs font-semibold text-slate-500">
+                    হিফজকৃত পৃষ্ঠা (এই মাসে)
+                  </div>
+                  <div className="text-lg font-bold text-emerald-700">
+                    {rep.total_pages_memorized} পৃষ্ঠা
+                  </div>
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  <div className="text-xs font-semibold text-slate-500">আমুখতা শোনানো হয়েছে</div>
-                  <div className="text-lg font-bold text-indigo-700">{rep.total_amukhta_paras} পারা</div>
+                  <div className="text-xs font-semibold text-slate-500">
+                    আমুখতা শোনানো হয়েছে
+                  </div>
+                  <div className="text-lg font-bold text-indigo-700">
+                    {rep.total_amukhta_paras} পারা
+                  </div>
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  <div className="text-xs font-semibold text-slate-500">গড় ভুল / লোকমা</div>
-                  <div className={`text-lg font-bold ${rep.avg_mistakes > 3 ? "text-rose-600" : "text-slate-800"}`}>
+                  <div className="text-xs font-semibold text-slate-500">
+                    গড় ভুল / লোকমা
+                  </div>
+                  <div
+                    className={`text-lg font-bold ${rep.avg_mistakes > 3 ? "text-rose-600" : "text-slate-800"}`}
+                  >
                     {rep.avg_mistakes} টি/দিন
                   </div>
                 </div>
@@ -209,9 +283,12 @@ export default function HifzReportPage() {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
                   <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                    <span>৩০ পারা হিফজ অগ্রগতির ম্যাপ ({rep.completed_paras_count} পারা সম্পূর্ণ - {rep.completion_percentage}%)</span>
+                    <span>
+                      ৩০ পারা হিফজ অগ্রগতির ম্যাপ ({rep.completed_paras_count}{" "}
+                      পারা সম্পূর্ণ - {rep.completion_percentage}%)
+                    </span>
                   </div>
-                  
+
                   <div className="flex items-center space-x-2 text-[11px] font-semibold">
                     <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200">
                       🟢 সম্পন্ন: {rep.completed_paras_count}
@@ -233,18 +310,20 @@ export default function HifzReportPage() {
                         p.status === "COMPLETED"
                           ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
                           : p.status === "RUNNING"
-                          ? "bg-amber-100 text-amber-900 border-amber-300 shadow-2xs"
-                          : "bg-white text-slate-400 border-slate-200"
+                            ? "bg-amber-100 text-amber-900 border-amber-300 shadow-2xs"
+                            : "bg-white text-slate-400 border-slate-200"
                       }`}
                       title={p.progress_text}
                     >
-                      <div className="text-[10px] opacity-80">পারা {p.para}</div>
+                      <div className="text-[10px] opacity-80">
+                        পারা {p.para}
+                      </div>
                       <div className="text-[11px] truncate mt-0.5">
                         {p.status === "COMPLETED"
                           ? "সম্পূর্ণ"
                           : p.status === "RUNNING"
-                          ? `${p.current_page}/${p.total_pages}পৃ.`
-                          : "—"}
+                            ? `${p.current_page}/${p.total_pages}পৃ.`
+                            : "—"}
                       </div>
                     </div>
                   ))}

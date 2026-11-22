@@ -1,6 +1,7 @@
 // Opt-in Chromium integration check. No app server, Supabase or gateway credentials.
 // See docs/portal-parity-rollout.bn.md for the disposable browser-tools install.
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
@@ -10,6 +11,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { build } from "esbuild";
 
+execFileSync(process.execPath, ["scripts/build-offline-hifz.mjs"]);
 const tools = createRequire(
   resolve(process.env.QAWMI_BROWSER_TOOLS || ".", "package.json"),
 );
@@ -75,15 +77,69 @@ function wire(child) {
     exams: [],
     exam_results: [],
     exam_summaries: [],
-    health_records: active_student ? [{id:"case-"+active_student.id,student_id:active_student.id,status:"under_treatment",severity:"severe",illness_type:"জ্বর",doctor_or_hospital:`Doctor-${active_student.id}`,treatment_notes:`Care-${active_student.id}`,updated_at:"2026-11-18T00:00:00Z",timeline:[{status:"under_treatment",note:`Note-${active_student.id}`,created_at:"2026-11-18T00:00:00Z"}]}] : [],
+    health_records: active_student
+      ? [
+          {
+            id: "case-" + active_student.id,
+            student_id: active_student.id,
+            status: "under_treatment",
+            severity: "severe",
+            illness_type: "জ্বর",
+            doctor_or_hospital: `Doctor-${active_student.id}`,
+            treatment_notes: `Care-${active_student.id}`,
+            updated_at: "2026-11-18T00:00:00Z",
+            timeline: [
+              {
+                status: "under_treatment",
+                note: `Note-${active_student.id}`,
+                created_at: "2026-11-18T00:00:00Z",
+              },
+            ],
+          },
+        ]
+      : [],
     emergency_phone: "01712345678",
     hifz_logs: [],
+    hifz_profiles: [],
+    hifz_special_sabina: [],
+    hifz_weekly_sabina: [],
+    hifz_listeners: [],
     kitab_logs: [],
     notices: [],
     routines: [],
     holidays: [],
     assignments: [],
   };
+}
+const hifzIds = [randomUUID(), randomUUID()],
+  classId = randomUUID();
+function teacherWire() {
+  const s = {
+    ...wire(""),
+    portal: "teacher",
+    profile: { id: "teacher", madrasa_id: "m1", full_name: "Fixture" },
+    active_student: null,
+    health_records: [],
+    students: hifzIds.map((id, i) => ({
+      id,
+      madrasa_id: "m1",
+      class_id: classId,
+      roll_number: i + 1,
+      first_name: `Pupil ${i + 1}`,
+    })),
+    classes: [{ id: classId, name: "হিফজ" }],
+  };
+  s.hifz_profiles = hifzIds.map((student_id) => ({
+    student_id,
+    madrasa_id: "m1",
+    hifz_category: "sabqi",
+    previously_memorized_paras: [],
+    current_khatam_paras_done: [],
+    total_khatams_completed: 0,
+    khatam_completion_dates: [],
+    default_sabina_partner_id: null,
+  }));
+  return s;
 }
 const server = createServer(async (req, res) => {
   // Break transport for *all* browser targets, including the independently running SW.
@@ -102,7 +158,12 @@ const server = createServer(async (req, res) => {
   if (url.pathname === "/api/portal/snapshot") {
     res.setHeader("Content-Type", "application/json");
     return res.end(
-      JSON.stringify({ data: wire(url.searchParams.get("student_id")) }),
+      JSON.stringify({
+        data:
+          url.searchParams.get("portal") === "teacher"
+            ? teacherWire()
+            : wire(url.searchParams.get("student_id")),
+      }),
     );
   }
   if (req.method !== "GET") {
@@ -121,6 +182,8 @@ const server = createServer(async (req, res) => {
   }
   const assets = {
     "/offline-portal.js": "text/javascript",
+    "/offline-hifz.js": "text/javascript",
+    "/hifz.css": "text/css",
     "/offline.html": "text/html; charset=utf-8",
     "/sw.js": "text/javascript",
     "/favicon.png": "image/png",
@@ -209,8 +272,9 @@ try {
   const cold = await a.$eval("#snapshot", (s) => s.textContent);
   assert.match(cold, /Pupil b/);
   assert.match(cold, /RCPT-b/);
-  for (const marker of ["Doctor-b","Care-b","Note-b"]) assert.ok(cold.includes(marker));
-  assert.doesNotMatch(cold,/Doctor-a|Care-a|Note-a/);
+  for (const marker of ["Doctor-b", "Care-b", "Note-b"])
+    assert.ok(cold.includes(marker));
+  assert.doesNotMatch(cold, /Doctor-a|Care-a|Note-a/);
   await a.waitForSelector("#snapshot dialog[open]");
   assert.doesNotMatch(cold, /Pupil a|RCPT-a/);
   await login(b, "p2", "m2", "parent");
@@ -348,6 +412,93 @@ try {
   assert.equal(await b.evaluate(() => db().offlineOutbox.count()), 0);
   console.log(
     "OK Chromium: owner-isolated queue, live and expired leases, overlapping drain in independent tabs",
+  );
+
+  // Cold Hifz form: actual production React/IDB outbox, not a mock offline page.
+  assert.ok((await a.evaluate(() => sync.initialFullSync("teacher"))).ok);
+  await a.goto(`${url}/teacher-portal/hifz`);
+  context.online = false;
+  await a.setOfflineMode(true);
+  await a.reload();
+  await state(true);
+  await a.waitForFunction(() => !navigator.onLine);
+  const button = async (text) => {
+    const h = await a.waitForFunction(
+      (t) =>
+        [...document.querySelectorAll("button")].find(
+          (b) =>
+            b.textContent.trim().normalize("NFC") === t.normalize("NFC") &&
+            !b.disabled &&
+            b.getClientRects().length,
+        ),
+      { timeout: 8000 },
+      text,
+    );
+    await h.asElement().click();
+    await h.dispose();
+  };
+  const queuedCount = async (n) => {
+    await b.waitForFunction(
+      async (n) => (await db().offlineOutbox.count()) === n,
+      { timeout: 8000 },
+      n,
+    );
+  };
+  await button("শিক্ষার্থী প্রোফাইল");
+  await a.click(".hz-paras button");
+  await button("প্রোফাইল সংরক্ষণ করুন");
+  await queuedCount(1);
+  await button("দৈনিক এন্ট্রি");
+  await a.type(".hz form input[type=number]", "1");
+  await button("দৈনিক এন্ট্রি সংরক্ষণ করুন");
+  await queuedCount(2);
+  await button("বৃহস্পতিবারের সবিনা");
+  await a.click('button[aria-label$="বাড়ান"]');
+  await button("সাপ্তাহিক সবিনা সংরক্ষণ করুন");
+  await queuedCount(3);
+  await button("বিশেষ সবিনা");
+  await a.type('input[maxlength="160"]', "Cold event");
+  await a.click(".hz form fieldset:first-of-type input[type=checkbox]");
+  await a.click(".hz form fieldset:nth-of-type(2) input[type=checkbox]");
+  await button("আয়োজন শুরু করুন");
+  await queuedCount(4);
+  await a.reload();
+  await state(true);
+  await a.waitForFunction(() => !navigator.onLine);
+  await button("বিশেষ সবিনা");
+  await a.waitForFunction(() =>
+    document.body.textContent.includes("Cold event"),
+  );
+  const sittingToggle = await a.waitForFunction(() =>
+    [...document.querySelectorAll("summary")].find((s) =>
+      s.textContent.includes("আসরের এন্ট্রি"),
+    ),
+  );
+  await sittingToggle.asElement().click();
+  await button("আসরের পাঠ সংরক্ষণ করুন");
+  await queuedCount(5);
+  context.online = true;
+  await a.setOfflineMode(false);
+  await state(false);
+  await b.evaluate(() => sync.backgroundSync("teacher"));
+  const left = await b.evaluate(async () =>
+    (await db().offlineOutbox.toArray()).map((i) => [
+      i.status,
+      i.payload.kind,
+      i.retryCount,
+      i.lastError,
+    ]),
+  );
+  assert.deepEqual(left, []);
+  assert.equal(
+    context.posts.filter(
+      (p) => p.path === "/api/teacher/save-hifz" && p.owner === owner,
+    ).length,
+    5,
+  );
+  await a.goto(url);
+  console.log(
+    "OK Chromium: cold four-tab teacher form, queued profile/daily/weekly/event, restored event + sitting after reload, owner-bound replay",
   );
 
   const original = await login(a, "admin", "m1", "admin");

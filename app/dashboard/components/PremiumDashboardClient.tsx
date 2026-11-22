@@ -50,6 +50,7 @@ export interface PremiumDashboardClientProps {
   };
   widgets?: WidgetConfigItem[];
   errorMessage?: string | null;
+  hifzSummaryNode?: React.ReactNode;
   sickStudentsNode?: React.ReactNode;
   earlyWarningNode: React.ReactNode;
   anomalyBannerNode?: React.ReactNode;
@@ -69,6 +70,7 @@ export default function PremiumDashboardClient({
   stats,
   widgets,
   errorMessage,
+  hifzSummaryNode,
   sickStudentsNode,
   earlyWarningNode,
   anomalyBannerNode,
@@ -239,6 +241,9 @@ export default function PremiumDashboardClient({
                 <CustomWidgetFrame widget={w} bridgeData={bridgeData} />
               </div>
             );
+          }
+          if (w.id === "builtin-hifz-tracker") {
+            return hifzSummaryNode ? <div key={w.id} className={spanClass}>{hifzSummaryNode}</div> : null;
           }
           if (w.id === "builtin-sick-students") return sickStudentsNode ? <div key={w.id} className={spanClass}>{sickStudentsNode}</div> : null;
           if (w.id === "builtin-early-warning") {

@@ -123,3 +123,7 @@ Because `tsconfig.json` includes `"**/*.ts"` with `strict: true`, `isolatedModul
 - Typecheck Guardrail (MUST remain 0 errors at all times): `npm run lint` (`tsc --noEmit`)
 
 **Student health:** using the same disposable tools as the portal browser fixtures, run `node tests/sql/run-student-health.mjs` (PGlite; dependency via `QAWMI_BROWSER_TOOLS`), `node tests/browser/student-health.mjs` (local PostgreSQL, Next production build, provider login and Chromium), and `node tests/browser/portal-offline.mjs` (cold selected-child IndexedDB reader). These tests require no deployment or SMS credentials. See `docs/student-health.bn.md` for rollout and the encrypted fallback key lifecycle.
+
+### Hifz upgrade
+
+`npm test -- hifz-upgrade portal-cache` covers the 30-para cycle, mistake bands, notes compatibility, widget defaults, populated Dexie v2/v3/v4 upgrades and private outbox/snapshot behavior. With the same disposable tools described above, run `node tests/sql/run-hifz-upgrade.mjs` (`QAWMI_BROWSER_TOOLS`), then `npm run build && node tests/sql/session/hifz-upgrade-http.mjs` (`QAWMI_PG_BIN` and `npm ci --prefix tests/sql/session`). The latter exercises actual authenticated writes before and after migration, concurrent completions, audit, mobile CRUD and the dashboard card. `node tests/browser/portal-offline.mjs` also tests the cold teacher forms and replay in Chromium. None of these scripts accept hosted database credentials.

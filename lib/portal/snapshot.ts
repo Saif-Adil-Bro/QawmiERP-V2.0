@@ -1,3 +1,4 @@
+import { readHifz } from "../hifz/read";
 import { familyHealth } from "@/lib/student-health/portal";
 import { withExamLocks } from "@/lib/lock-guards";
 import { teacherExamData } from "./teacher-entry";
@@ -49,6 +50,10 @@ export async function portalSnapshot(
     exam_results: [] as any[],
     exam_summaries: [] as any[],
     hifz_logs: [] as any[],
+    hifz_profiles: [],
+    hifz_weekly_sabina: [],
+    hifz_special_sabina: [],
+    hifz_listeners: [] as any[],
     kitab_logs: [] as any[],
     health_records: [] as any[],
     emergency_phone: "",
@@ -78,10 +83,16 @@ export async function portalSnapshot(
       ),
     ]);
     const ids = students.map((s) => s.id);
-    const [attendance, hifz_logs, kitab_logs] = await Promise.all([
+    const [attendance, hifz, kitab_logs, listeners] = await Promise.all([
       childLogs(i.db, i.tenant, "attendance", ids),
-      childLogs(i.db, i.tenant, "hifz_logs", ids),
+      readHifz(i.db, i.tenant, students, s.meta.student_profiles),
       childLogs(i.db, i.tenant, "kitab_logs", ids),
+      rows(() =>
+        i.db
+          .from("teachers")
+          .select("id,first_name,last_name")
+          .eq("madrasa_id", i.tenant),
+      ),
     ]);
     const marks: any[] = [],
       subjects: any[] = [];
@@ -111,7 +122,8 @@ export async function portalSnapshot(
       notices: news,
       exams: await withExamLocks(i.tenant, exams, s.meta),
       attendance,
-      hifz_logs,
+      ...hifz,
+      hifz_listeners: listeners,
       kitab_logs,
       holidays: portalHolidays(s.meta.academic_holidays, s.classes),
       assignments: realAssignments(s.meta.assignments).filter((a) =>
@@ -123,10 +135,10 @@ export async function portalSnapshot(
   if (!child) return { ...base, students };
   const ids = [child.id],
     classIds = child.class_id ? [child.class_id] : [];
-  const [attendance, hifz_logs, kitab_logs, timetable, news, exams, ledger, health] =
+  const [attendance, hifz, kitab_logs, timetable, news, exams, ledger, health] =
     await Promise.all([
       childLogs(i.db, i.tenant, "attendance", ids),
-      childLogs(i.db, i.tenant, "hifz_logs", ids),
+      readHifz(i.db, i.tenant, [child], meta.student_profiles, true),
       childLogs(i.db, i.tenant, "kitab_logs", ids),
       routines(i.db, i.tenant, classIds),
       notices(
@@ -188,7 +200,7 @@ export async function portalSnapshot(
     active_student: child,
     ...health,
     attendance,
-    hifz_logs,
+    ...hifz,
     kitab_logs,
     routines: timetable,
     notices: news,

@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
   )
     return mobileError("অনুমতি নেই।", 403, "FORBIDDEN");
   try {
+    // portalSnapshot projects daily/profile/weekly/special Hifz for the selected linked child only.
     const data = await portalSnapshot(
       {
         db,

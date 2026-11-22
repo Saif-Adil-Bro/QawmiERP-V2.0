@@ -22,6 +22,9 @@ export const ENTITY_API_PATHS: Record<OfflineEntity, string> = {
   feePayments: "/api/mobile/fee-payments",
   expenses: "/api/mobile/expenses",
   hifzLogs: "/api/mobile/hifz",
+  hifzProfiles: "/api/mobile/hifz?kind=profile",
+  hifzWeeklySabina: "/api/mobile/hifz?kind=weekly",
+  hifzSpecialSabina: "/api/mobile/hifz?kind=special",
   kitabLogs: "/api/mobile/kitab",
   notices: "/api/mobile/notices",
   exams: "/api/mobile/exams",
@@ -42,6 +45,9 @@ const CORE_PULL_ENTITIES: OfflineEntity[] = [
   "fees",
   "expenses",
   "hifzLogs",
+  "hifzProfiles",
+  "hifzSpecialSabina",
+  "hifzWeeklySabina",
   "kitabLogs",
   "notices",
   "exams",
@@ -243,6 +249,51 @@ export async function pullEntityFromServer(
   try {
     const endpoint = ENTITY_API_PATHS[entity];
     const separator = endpoint.includes("?") ? "&" : "?";
+    // A full Hifz pull is authoritative only after every page succeeds. Keep
+    // pending admin edits and the last good copy on transport/shape failures.
+    if (entity.startsWith("hifz") && /^limit=\d+$/.test(query)) {
+      const all: OfflineRecord[] = [],
+        tenant = browserSession()?.madrasaId;
+      let page = 1;
+      for (; ; page++) {
+        if (owner !== ownerKey(browserSession())) return [];
+        const res = await fetch(
+          apiUrl(`${endpoint}${separator}limit=100&page=${page}`),
+          { headers: buildAuthHeaders(owner), credentials: "include" },
+        );
+        if (res.status === 401 || res.status === 403)
+          await table.filter((r) => !r._offlinePending).delete();
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const packet = await res.json();
+        if (
+          !packet.success ||
+          !Array.isArray(packet.data) ||
+          !Number.isInteger(packet.meta?.totalPages) ||
+          packet.meta.page !== page
+        )
+          throw new Error("অসম্পূর্ণ হিফজ সিঙ্ক।");
+        for (const r of packet.data) {
+          const id = entity === "hifzProfiles" ? r.student_id : r.id;
+          if (!id || r.madrasa_id !== tenant)
+            throw new Error("হিফজ নথির পরিচয় মেলেনি।");
+          all.push({ ...r, id });
+        }
+        if (page >= packet.meta.totalPages) break;
+        if (!packet.data.length) throw new Error("অসম্পূর্ণ হিফজ সিঙ্ক।");
+      }
+      if (owner !== ownerKey(browserSession())) return [];
+      await db.transaction("rw", table, db.syncMeta, async () => {
+        const pending = new Set(
+          (await table.filter((r) => !!r._offlinePending).toArray()).map(
+            (r) => r.id,
+          ),
+        );
+        await table.filter((r) => !r._offlinePending).delete();
+        await table.bulkPut(all.filter((r) => !pending.has(r.id)));
+        await db.syncMeta.put({ entity, lastSyncedAt: Date.now() });
+      });
+      return table.filter((r) => !r._deleted).toArray();
+    }
     const res = await fetch(apiUrl(`${endpoint}${separator}${query}`), {
       headers: buildAuthHeaders(owner),
       credentials: "include",
@@ -256,8 +307,8 @@ export async function pullEntityFromServer(
     const rows: OfflineRecord[] = Array.isArray(json?.data)
       ? json.data
       : Array.isArray(json)
-      ? json
-      : [];
+        ? json
+        : [];
 
     // Preserve local unsynced records
     const existingPending = await table
@@ -266,6 +317,9 @@ export async function pullEntityFromServer(
     const pendingIds = new Set(existingPending.map((r) => r.id));
 
     const cleanRows = rows
+      .map((r) =>
+        entity === "hifzProfiles" ? { ...r, id: String(r.student_id) } : r,
+      )
       .filter((r) => r && r.id && !pendingIds.has(String(r.id)))
       .map((r) => ({
         ...r,
@@ -273,7 +327,7 @@ export async function pullEntityFromServer(
         _offlinePending: false,
       }));
 
-    if (owner!==ownerKey(browserSession())) return [];
+    if (owner !== ownerKey(browserSession())) return [];
     if (cleanRows.length > 0) {
       await table.bulkPut(cleanRows);
     }
