@@ -1,13 +1,12 @@
-import {readHifz} from '@/lib/hifz/read';
-import FamilyReport from '@/components/hifz/FamilyReport';
-import {childLogs} from '@/lib/portal/queries';
+import { readHifz } from "@/lib/hifz/read";
+import FamilyReport from "@/components/hifz/FamilyReport";
+import LiveStudentHifzReport from "@/components/hifz/LiveStudentHifzReport";
+import { getStudentParaRevisions } from "@/app/actions/hifz";
+import { childLogs } from "@/lib/portal/queries";
 import {
   BookOpen,
-  Calendar,
-  Star,
   FileText,
   User,
-  GraduationCap,
 } from "lucide-react";
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
@@ -35,7 +34,11 @@ export default async function ParentPortalAcademic(props: {
 
   const activeTab = params.tab || "hifz";
 
-  const [hifz,kitabLogs] = await Promise.all([readHifz(adminClient,portalData.madrasaId,[child],portalData.meta.student_profiles,true),childLogs(adminClient,portalData.madrasaId,'kitab_logs',[child.id])]);
+  const [hifz, kitabLogs, paraRevisions] = await Promise.all([
+    readHifz(adminClient, portalData.madrasaId, [child], portalData.meta.student_profiles, true),
+    childLogs(adminClient, portalData.madrasaId, "kitab_logs", [child.id]),
+    getStudentParaRevisions(portalData.madrasaId, child.id),
+  ]);
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -117,7 +120,19 @@ export default async function ParentPortalAcademic(props: {
       </div>
 
       {/* HIFZ TAB CONTENT */}
-      {activeTab === 'hifz' && <FamilyReport bundle={hifz} studentId={child.id}/>}
+      {activeTab === "hifz" && (
+        <div className="space-y-6">
+          <LiveStudentHifzReport
+            studentId={child.id}
+            studentName={`${child.first_name} ${child.last_name || ""}`.trim()}
+            rollNumber={child.roll_number}
+            bundle={hifz}
+            initialRevisions={paraRevisions}
+            canEditRevision={false}
+          />
+          <FamilyReport bundle={hifz} studentId={child.id} />
+        </div>
+      )}
 
       {/* KITAB TAB CONTENT */}
       {activeTab === "kitab" && (

@@ -521,6 +521,19 @@ export type HifzProfile = {
   completed_hifz_paras?: number[];
   total_khatams_completed: number;
   current_khatam_paras_done: number[];
+  current_khatam_para_pages?: Record<number, number>;
+  para_revisions?: Record<
+    number,
+    {
+      para: number;
+      revised: boolean;
+      revision_date?: string;
+      mistakes?: number;
+      rating?: "perfect" | "good" | "needs_repeat";
+      notes?: string;
+      updated_at?: string;
+    }
+  >;
   khatam_completion_dates: string[];
   default_sabina_partner_id: string | null;
   updated_at?: string;
