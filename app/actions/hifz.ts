@@ -59,7 +59,7 @@ export async function getHifzStudents(classId?: string) {
 }
 export async function getHifzChild(id: string) {
   const { c, bundle } = await directory(undefined, id);
-  return c.roster[0] ? { student: c.roster[0], bundle } : null;
+  return c.roster[0] ? { student: c.roster[0], bundle, madrasaId: c.tenant } : null;
 }
 function report(s: any, p: any, logs: any[], month?: string, year?: string) {
   return buildStudentHifzReportFromLogs({
@@ -274,4 +274,109 @@ export async function saveAdminHifzWorkspaceAction(
     return failure(e);
   }
 }
+
+const PARA_REVISIONS_KEY = "hifz_para_revisions_v1";
+
+export async function getStudentParaRevisions(
+  madrasaId: string,
+  studentId: string,
+): Promise<Record<number, import("@/lib/hifz-mushaf").ParaRevisionRecord>> {
+  const { getStructuredMadrasaSetting } = await import("@/lib/structured-config");
+  const stored = await getStructuredMadrasaSetting<
+    Record<string, Record<number, import("@/lib/hifz-mushaf").ParaRevisionRecord>>
+  >(madrasaId, "hifz", PARA_REVISIONS_KEY);
+  return stored?.value?.[studentId] || {};
+}
+
+export async function saveParaRevisionAction(
+  studentId: string,
+  input: {
+    para: number;
+    revised: boolean;
+    revision_date?: string;
+    mistakes?: number;
+    rating?: "perfect" | "good" | "needs_repeat";
+    notes?: string;
+  },
+): Promise<FormResult & { revision?: import("@/lib/hifz-mushaf").ParaRevisionRecord }> {
+  const guard = await writeGuard("hifz");
+  if (!guard.allowed) return guard.fallback;
+
+  try {
+    const para = Math.floor(Number(input.para));
+    if (!Number.isInteger(para) || para < 1 || para > 30) {
+      throw new EntryError("সঠিক পারা নম্বর (১–৩০) নির্বাচন করুন।");
+    }
+
+    const c = await webScope(undefined, studentId);
+    if (!c.roster.some((s) => s.id === studentId)) {
+      throw new EntryError("এই শিক্ষার্থীর অনুমতি নেই।", 403);
+    }
+
+    const { getStructuredMadrasaSetting, saveStructuredMadrasaSetting } = await import(
+      "@/lib/structured-config"
+    );
+    const { toDhakaDateString } = await import("@/lib/date-utils");
+    const { logAuditEvent } = await import("@/lib/audit-log");
+
+    const revision: import("@/lib/hifz-mushaf").ParaRevisionRecord = {
+      para,
+      revised: Boolean(input.revised),
+      revision_date: input.revision_date || toDhakaDateString(),
+      mistakes: Math.max(0, Math.floor(Number(input.mistakes) || 0)),
+      rating: input.rating || "good",
+      notes: (input.notes || "").trim().slice(0, 500),
+      updated_at: new Date().toISOString(),
+    };
+
+    const existingAll =
+      (
+        await getStructuredMadrasaSetting<
+          Record<string, Record<number, import("@/lib/hifz-mushaf").ParaRevisionRecord>>
+        >(c.tenant, "hifz", PARA_REVISIONS_KEY)
+      )?.value || {};
+
+    const studentMap = {
+      ...(existingAll[studentId] || {}),
+      [para]: revision,
+    };
+
+    await saveStructuredMadrasaSetting(
+      c.tenant,
+      "hifz",
+      PARA_REVISIONS_KEY,
+      { ...existingAll, [studentId]: studentMap },
+      c.actor,
+    );
+
+    // Best-effort sync to SQL column if migrated
+    try {
+      await c.db
+        .from("hifz_student_profiles")
+        .update({ para_revisions: studentMap, updated_at: new Date().toISOString() })
+        .eq("student_id", studentId)
+        .eq("madrasa_id", c.tenant);
+    } catch {
+      // Structured setting already persisted safely
+    }
+
+    await logAuditEvent({
+      madrasaId: c.tenant,
+      actorId: c.actor,
+      module: "hifz",
+      action: "hifz.para_revision.save",
+      entityType: "hifz_student_profile",
+      entityId: studentId,
+      summary: `পারা ${para}-এর রিভিশন আপডেট করা হয়েছে (${revision.revised ? "সম্পন্ন" : "বাকি"}, ভুল: ${revision.mistakes})।`,
+      newValue: revision,
+      severity: "INFO",
+    });
+
+    refresh();
+    return { success: true, revision };
+  } catch (e) {
+    return failure(e);
+  }
+}
+
 

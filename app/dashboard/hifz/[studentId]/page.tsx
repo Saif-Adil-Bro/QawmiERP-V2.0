@@ -1,8 +1,8 @@
-import { StudentReport } from "@/components/hifz/Report";
-import { getHifzChild } from "@/app/actions/hifz";
+import LiveStudentHifzReport from "@/components/hifz/LiveStudentHifzReport";
+import { getHifzChild, getStudentParaRevisions } from "@/app/actions/hifz";
 import { parseHifzLogNotes } from "@/lib/hifz-utils";
 import Link from "next/link";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import DailyPanel from "./DailyPanel";
 import { toDhakaDateString } from "@/lib/date-utils";
@@ -25,7 +25,8 @@ export default async function StudentHifzLogsPage({
   const { date } = await searchParams;
   const result = await getHifzChild(studentId);
   if (!result) return <p>শিক্ষার্থী পাওয়া যায়নি।</p>;
-  const { student, bundle } = result;
+  const { student, bundle, madrasaId } = result;
+  const paraRevisions = await getStudentParaRevisions(madrasaId, student.id);
   const logs = bundle.hifz_logs.slice(0, 20).map((log) => {
     const { cleanNotes, tilawatText, meta } = parseHifzLogNotes(log.notes);
     return {
@@ -41,7 +42,7 @@ export default async function StudentHifzLogsPage({
   });
   return (
     <div className="space-y-6">
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center space-x-4 print:hidden">
         <Link
           href="/dashboard/hifz"
           className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition"
@@ -58,9 +59,16 @@ export default async function StudentHifzLogsPage({
         </div>
       </div>
 
-      <StudentReport bundle={bundle} studentId={student.id} showDaily={false} />
+      <LiveStudentHifzReport
+        studentId={student.id}
+        studentName={`${student.first_name} ${student.last_name || ""}`.trim()}
+        rollNumber={student.roll_number}
+        bundle={bundle}
+        initialRevisions={paraRevisions}
+        canEditRevision={true}
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:hidden">
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white rounded-xl shadow-sm border p-6">
             <h2 className="text-lg font-bold text-slate-800 mb-4">

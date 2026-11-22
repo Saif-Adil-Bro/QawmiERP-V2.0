@@ -4,12 +4,14 @@ import { Counter, NumberField, type Submit } from "@/components/hifz/Controls";
 import { bn } from "@/components/hifz/Report";
 import {
   dailyFields,
+  getTotalPagesInPara,
   khatamCycles,
   memorizedParas,
   parseHifzLogNotes,
   sessionTimes,
   type HifzProfile,
 } from "@/lib/hifz-utils";
+import { computeKhatmiProgress, MUSHAF_TOTAL_PAGES } from "@/lib/hifz-mushaf";
 export default function DailyEntry({
   profile: p,
   date,
@@ -40,10 +42,14 @@ export default function DailyEntry({
   );
   const update = (k: string, v: any) => set((prev) => ({ ...prev, [k]: v }));
   const sabqi = d.student_category === "sabqi";
-  const cycle = khatamCycles([
+  const mergedLogs = [
     ...logs.filter((l) => l.log_date !== date),
     { ...d, log_date: date },
-  ]);
+  ];
+  const cycle = khatamCycles(mergedLogs);
+  const khatmiStats = computeKhatmiProgress(p, mergedLogs);
+  const currentSabakMaxPages = getTotalPagesInPara(Number(d.sabak_para) || 1);
+  const currentSabakPageTo = Number(d.sabak_page_to || d.sabak_page_from || 0);
   const promote = () =>
     submit({
       kind: "profile",
@@ -106,15 +112,15 @@ export default function DailyEntry({
                 {i === 0 ? (
                   <>
                     <NumberField
-                      label="শুরুর পৃষ্ঠা"
+                      label={`শুরুর পৃষ্ঠা (১–${bn(currentSabakMaxPages)})`}
                       value={d[page]}
-                      max={610}
+                      max={currentSabakMaxPages}
                       onChange={(v) => update(page, v)}
                     />
                     <NumberField
-                      label="শেষ পৃষ্ঠা"
+                      label={`শেষ পৃষ্ঠা (১–${bn(currentSabakMaxPages)})`}
                       value={d.sabak_page_to}
-                      max={610}
+                      max={currentSabakMaxPages}
                       onChange={(v) => update("sabak_page_to", v)}
                     />
                   </>
@@ -135,69 +141,109 @@ export default function DailyEntry({
                   onChange={(v) => update(mistake, v)}
                 />
               </div>
+              {i === 0 && Number(d.sabak_para) >= 1 && (
+                <p className="text-xs text-emerald-700 font-semibold mt-2">
+                  পারা {bn(d.sabak_para)}-এর মোট পৃষ্ঠা: {bn(currentSabakMaxPages)} (কওমি মুসহাফ ৬১০ পৃষ্ঠা ফরম্যাট)
+                  {currentSabakPageTo > 0 && (
+                    <>
+                      {" "}
+                      • ১–{bn(Math.min(currentSabakPageTo, currentSabakMaxPages))} পৃষ্ঠা সম্পন্ন (
+                      {bn(Math.min(100, Math.round((currentSabakPageTo / currentSabakMaxPages) * 100)))}%)
+                      {currentSabakPageTo >= currentSabakMaxPages && " — পারাটি সম্পন্ন হবে ✓"}
+                    </>
+                  )}
+                </p>
+              )}
             </fieldset>
           ))
         ) : (
           <>
-            {sessionTimes.map((t) => (
-              <fieldset key={t}>
-                <legend>
-                  {t === "morning" ? "সকালের দাওর" : "বিকেলের দাওর"}
-                </legend>
-                <label className="hz-check">
-                  <input
-                    type="checkbox"
-                    checked={d[`${t}_session_done`]}
-                    onChange={(e) =>
-                      update(`${t}_session_done`, e.target.checked)
-                    }
-                  />
-                  শোনানো হয়েছে
-                </label>
-                {d[`${t}_session_done`] && (
-                  <div className="hz-grid">
-                    {[
-                      ["para_from", "শুরুর পারা"],
-                      ["para_to", "শেষ পারা"],
-                      ["pages", "পৃষ্ঠা"],
-                    ].map(([k, l]) => (
-                      <NumberField
-                        key={k}
-                        label={l}
-                        value={d[`${t}_${k}`]}
-                        min={
-                          k === "pages"
-                            ? 0
-                            : k === "para_to"
-                              ? Number(d[`${t}_para_from`]) || 1
-                              : 1
-                        }
-                        max={k === "pages" ? 610 : 30}
-                        required
-                        onChange={(v) => update(`${t}_${k}`, v)}
-                      />
-                    ))}
-                    <Counter
-                      label="দাওরে ভুল"
-                      value={d[`${t}_mistakes`]}
-                      onChange={(v) => update(`${t}_mistakes`, v)}
+            {sessionTimes.map((t) => {
+              const pFrom = Number(d[`${t}_para_from`]) || 1;
+              const pMax = getTotalPagesInPara(pFrom);
+              const enteredPages = Number(d[`${t}_pages`]) || 0;
+              const partialPct =
+                enteredPages > 0 && Number(d[`${t}_para_to`] || pFrom) === pFrom
+                  ? Math.min(100, Math.round((enteredPages / pMax) * 100))
+                  : null;
+              return (
+                <fieldset key={t}>
+                  <legend>
+                    {t === "morning" ? "সকালের দাওর" : "বিকেলের দাওর"}
+                  </legend>
+                  <label className="hz-check">
+                    <input
+                      type="checkbox"
+                      checked={d[`${t}_session_done`]}
+                      onChange={(e) =>
+                        update(`${t}_session_done`, e.target.checked)
+                      }
                     />
-                  </div>
-                )}
-              </fieldset>
-            ))}
+                    শোনানো হয়েছে
+                  </label>
+                  {d[`${t}_session_done`] && (
+                    <>
+                      <div className="hz-grid">
+                        {[
+                          ["para_from", "শুরুর পারা"],
+                          ["para_to", "শেষ পারা"],
+                          ["pages", "পৃষ্ঠা (আংশিক হলে লিখুন)"],
+                        ].map(([k, l]) => (
+                          <NumberField
+                            key={k}
+                            label={l}
+                            value={d[`${t}_${k}`]}
+                            min={
+                              k === "pages"
+                                ? 0
+                                : k === "para_to"
+                                  ? Number(d[`${t}_para_from`]) || 1
+                                  : 1
+                            }
+                            max={k === "pages" ? MUSHAF_TOTAL_PAGES : 30}
+                            required
+                            onChange={(v) => update(`${t}_${k}`, v)}
+                          />
+                        ))}
+                        <Counter
+                          label="দাওরে ভুল"
+                          value={d[`${t}_mistakes`]}
+                          onChange={(v) => update(`${t}_mistakes`, v)}
+                        />
+                      </div>
+                      {partialPct !== null && (
+                        <p className="text-xs text-indigo-700 font-semibold mt-2">
+                          পারা {bn(pFrom)} আংশিক অগ্রগতি: {bn(enteredPages)}/{bn(pMax)} পৃষ্ঠা ({bn(partialPct)}%)
+                        </p>
+                      )}
+                    </>
+                  )}
+                </fieldset>
+              );
+            })}
             <div className="hz-summary">
               <strong>
-                এন্ট্রিসহ চলতি খতম: {bn(cycle.current_khatam_paras_done.length)}
-                /৩০ · সম্পন্ন খতম {bn(cycle.total_khatams_completed)}
+                চলতি খতম: {bn(khatmiStats.currentCyclePagesDone)}/{bn(MUSHAF_TOTAL_PAGES)} পৃষ্ঠা (
+                {bn(khatmiStats.currentCyclePercent)}%) · পূর্ণ পারা{" "}
+                {bn(khatmiStats.completedParasInCycle.length)}/৩০ · সম্পন্ন খতম{" "}
+                {bn(khatmiStats.totalKhatamsCompleted)}
               </strong>
               <progress
-                value={cycle.current_khatam_paras_done.length}
-                max={30}
+                value={khatmiStats.currentCyclePagesDone}
+                max={MUSHAF_TOTAL_PAGES}
               />
               <p>
-                শোনানো পারা:{" "}
-                {cycle.current_khatam_paras_done.map(bn).join(", ") || "—"}
+                পূর্ণ পারা:{" "}
+                {khatmiStats.completedParasInCycle.map(bn).join(", ") || "—"}
+                {khatmiStats.partialParasInCycle.length > 0 && (
+                  <>
+                    {" "}
+                    · আংশিক:{" "}
+                    {khatmiStats.partialParasInCycle
+                      .map((item) => `পারা ${bn(item.para)} (${bn(item.percent)}%)`)
+                      .join(", ")}
+                  </>
+                )}
               </p>
             </div>
           </>

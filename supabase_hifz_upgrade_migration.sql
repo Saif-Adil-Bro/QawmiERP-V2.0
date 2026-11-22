@@ -161,5 +161,9 @@ RETURNS TABLE(student_id uuid,entered_today boolean) LANGUAGE sql STABLE SECURIT
 $$;
 REVOKE ALL ON FUNCTION public.hifz_log_activity(uuid,date) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.hifz_log_activity(uuid,date) TO service_role;
+-- Qawmi 610-page Mushaf progress: Completed Para revision tracking & Khatmi partial-Para page persistence
+ALTER TABLE public.hifz_student_profiles
+  ADD COLUMN IF NOT EXISTS para_revisions JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS current_khatam_para_pages JSONB NOT NULL DEFAULT '{}'::jsonb;
 NOTIFY pgrst,'reload schema';
 COMMIT;
