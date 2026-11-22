@@ -26,6 +26,7 @@ import {
   CalendarClock,
   Zap,
   LayoutGrid,
+  BookOpen,
 } from "lucide-react";
 import {
   installCustomWidgetZipAction,
@@ -82,6 +83,11 @@ function getWidgetVisual(w: WidgetConfigItem) {
       return {
         icon: Zap,
         boxClass: "bg-purple-50 text-purple-600 border-purple-200 dark:bg-purple-950/60 dark:text-purple-400 dark:border-purple-800",
+      };
+    case "builtin-hifz-tracker":
+      return {
+        icon: BookOpen,
+        boxClass: "bg-teal-50 text-teal-600 border-teal-200 dark:bg-teal-950/60 dark:text-teal-400 dark:border-teal-800",
       };
     default:
       return {

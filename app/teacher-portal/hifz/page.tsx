@@ -1,7 +1,9 @@
 import { toDhakaDateString } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import HifzForm from "./HifzForm";
+import TeacherHifzTabsClient from "./TeacherHifzTabsClient";
 import { getMadrasaMetadata } from "@/lib/sessions";
+import { getHifzUpgradeBundleAction } from "@/app/actions/hifz-upgrade";
 
 export const dynamic = "force-dynamic";
 
@@ -125,22 +127,48 @@ export default async function TeacherHifzPage(props: { searchParams?: Promise<{ 
     }
   }
 
+  const hifzBundle = madrasaId
+    ? await getHifzUpgradeBundleAction(madrasaId).catch(() => ({
+        profiles: {},
+        weeklySabinas: [],
+        specialSabinas: [],
+      }))
+    : { profiles: {}, weeklySabinas: [], specialSabinas: [] };
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Daily Hifz Sabak</h1>
-        <p className="text-slate-500">Update Sabak, Saboki, and Amukhta progress for your class.</p>
+        <h1 className="text-2xl font-bold text-slate-900">হিফজুল কুরআন ও সবিনা ব্যবস্থাপনা</h1>
+        <p className="text-slate-500 text-sm">
+          সবকী (৩ স্তর), খতমী (সকাল ও বিকেল সেশন), বৃহস্পতিবারের সাপ্তাহিক সবিনা এবং বিশেষ সবিনা ট্র্যাকিং
+        </p>
       </div>
 
-      <HifzForm 
-        classes={classes || []} 
-        students={students} 
-        existingLogs={existingLogs}
-        currentDate={dateStr}
-        currentClassId={classId}
+      <TeacherHifzTabsClient
+        students={students}
         teacherId={teacherId}
-        madrasaId={madrasaId}
+        dateStr={dateStr}
+        initialProfiles={hifzBundle.profiles}
+        initialWeeklySabinas={hifzBundle.weeklySabinas}
+        initialSpecialSabinas={hifzBundle.specialSabinas}
       />
+
+      <details className="bg-white rounded-2xl border border-slate-200 p-4">
+        <summary className="text-xs font-bold text-slate-600 cursor-pointer select-none">
+          ক্লাসিক বাল্ক হিফজ এন্ট্রি ও জামাত/তারিখ ফিল্টার (Classic View)
+        </summary>
+        <div className="pt-4">
+          <HifzForm
+            classes={classes || []}
+            students={students}
+            existingLogs={existingLogs}
+            currentDate={dateStr}
+            currentClassId={classId}
+            teacherId={teacherId}
+            madrasaId={madrasaId}
+          />
+        </div>
+      </details>
     </div>
   );
 }

@@ -11,6 +11,12 @@ import {
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { getPortalStudentData } from "@/lib/portal-data";
+import PortalHifzUpgradeSection from "@/components/hifz/PortalHifzUpgradeSection";
+import {
+  getHifzSpecialSabinas,
+  getHifzStudentProfiles,
+  getHifzWeeklySabinas,
+} from "@/app/actions/hifz-upgrade";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +28,7 @@ export default async function ParentPortalAcademic(props: {
 
   if (!portalData || !portalData.user) return null;
 
-  const { students, child, adminClient } = portalData;
+  const { students, child, madrasaId, adminClient } = portalData;
 
   if (students.length === 0 || !child) {
     return (
@@ -34,19 +40,29 @@ export default async function ParentPortalAcademic(props: {
 
   const activeTab = params.tab || "hifz";
 
-  // Fetch Hifz Logs via adminClient to avoid RLS drop
-  const { data: hifzLogs } = await adminClient
-    .from("hifz_logs")
-    .select("*, teachers(first_name, last_name)")
-    .eq("student_id", child.id)
-    .order("log_date", { ascending: false });
-
-  // Fetch Kitab Logs via adminClient
-  const { data: kitabLogs } = await adminClient
-    .from("kitab_logs")
-    .select("*, teachers(first_name, last_name)")
-    .eq("student_id", child.id)
-    .order("log_date", { ascending: false });
+  // Fetch Hifz Logs, Kitab Logs, and Upgraded Hifz/Sabina data in parallel
+  const [
+    { data: hifzLogs },
+    { data: kitabLogs },
+    hifzProfilesMap,
+    studentWeeklySabinas,
+    specialSabinas,
+  ] = await Promise.all([
+    adminClient
+      .from("hifz_logs")
+      .select("*, teachers(first_name, last_name)")
+      .eq("student_id", child.id)
+      .order("log_date", { ascending: false }),
+    adminClient
+      .from("kitab_logs")
+      .select("*, teachers(first_name, last_name)")
+      .eq("student_id", child.id)
+      .order("log_date", { ascending: false }),
+    madrasaId ? getHifzStudentProfiles(madrasaId).catch(() => ({})) : Promise.resolve({}),
+    madrasaId ? getHifzWeeklySabinas(madrasaId, child.id).catch(() => []) : Promise.resolve([]),
+    madrasaId ? getHifzSpecialSabinas(madrasaId).catch(() => []) : Promise.resolve([]),
+  ]);
+  const studentHifzProfile = (hifzProfilesMap as Record<string, any>)[child.id] || null;
 
   return (
     <div className="space-y-6">
@@ -130,7 +146,14 @@ export default async function ParentPortalAcademic(props: {
 
       {/* HIFZ TAB CONTENT */}
       {activeTab === "hifz" && (
-        <div className="space-y-4">
+        <div className="space-y-5">
+          <PortalHifzUpgradeSection
+            studentId={child.id}
+            profile={studentHifzProfile}
+            hifzLogs={hifzLogs || []}
+            weeklySabinas={studentWeeklySabinas}
+            specialSabinas={specialSabinas}
+          />
           {hifzLogs && hifzLogs.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {hifzLogs.map((log: any) => (

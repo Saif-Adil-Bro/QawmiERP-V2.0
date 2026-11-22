@@ -18,7 +18,10 @@ export type OfflineEntity =
   | "portalProfiles"
   | "routines"
   | "academicCalendar"
-  | "homework";
+  | "homework"
+  | "hifzProfiles"
+  | "hifzWeeklySabina"
+  | "hifzSpecialSabina";
 
 export type SyncAction = "CREATE" | "UPDATE" | "DELETE";
 export type SyncStatus = "pending" | "syncing" | "failed";
@@ -83,6 +86,9 @@ export class QawmiERPOfflineDB extends Dexie {
   routines!: Table<OfflineRecord, string>;
   academicCalendar!: Table<OfflineRecord, string>;
   homework!: Table<OfflineRecord, string>;
+  hifzProfiles!: Table<OfflineRecord, string>;
+  hifzWeeklySabina!: Table<OfflineRecord, string>;
+  hifzSpecialSabina!: Table<OfflineRecord, string>;
   syncQueue!: Table<SyncQueueItem, string>;
   offlineOutbox!: Table<OfflineOutboxItem, string>;
   syncMeta!: Table<SyncMetaRecord, string>;
@@ -150,6 +156,33 @@ export class QawmiERPOfflineDB extends Dexie {
       routines: "id, class_id, teacher_id, day_of_week, updated_at",
       academicCalendar: "id, madrasa_id, start_date, updated_at",
       homework: "id, class_id, subject_id, due_date, updated_at",
+      syncQueue: "id, entity, action, timestamp, status, retryCount, recordId",
+      offlineOutbox: "id, portal, actionType, createdAt, status, retryCount",
+      syncMeta: "entity, lastSyncedAt",
+    });
+
+    this.version(4).stores({
+      students: "id, madrasa_id, class_id, student_id_code, status, updated_at",
+      teachers: "id, madrasa_id, status, updated_at",
+      classes: "id, madrasa_id, department, updated_at",
+      subjects: "id, madrasa_id, class_id, updated_at",
+      attendance: "id, student_id, date, status, class_id, updated_at",
+      fees: "id, student_id, status, due_date, updated_at",
+      feePayments: "id, student_id, payment_date, updated_at",
+      expenses: "id, madrasa_id, category, date, updated_at",
+      hifzLogs: "id, student_id, date, status, updated_at",
+      kitabLogs: "id, student_id, date, updated_at",
+      notices: "id, madrasa_id, created_at, updated_at",
+      exams: "id, madrasa_id, session_id, updated_at",
+      examResults: "id, exam_id, student_id, subject_id, updated_at",
+      examSummaries: "id, exam_id, student_id, updated_at",
+      portalProfiles: "id, role, madrasa_id, updated_at",
+      routines: "id, class_id, teacher_id, day_of_week, updated_at",
+      academicCalendar: "id, madrasa_id, start_date, updated_at",
+      homework: "id, class_id, subject_id, due_date, updated_at",
+      hifzProfiles: "id, student_id, madrasa_id, hifz_category, updated_at",
+      hifzWeeklySabina: "id, madrasa_id, student_id, sabina_date",
+      hifzSpecialSabina: "id, madrasa_id, status, start_date",
       syncQueue: "id, entity, action, timestamp, status, retryCount, recordId",
       offlineOutbox: "id, portal, actionType, createdAt, status, retryCount",
       syncMeta: "entity, lastSyncedAt",

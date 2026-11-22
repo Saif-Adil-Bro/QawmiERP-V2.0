@@ -1,6 +1,7 @@
 import { getDhakaYear } from "@/lib/date-utils";
 export interface HifzLogMeta {
   stage?: "QAIDA" | "NAZERA" | "HIFZ" | "DAWR";
+  student_category?: "sabqi" | "khatmi";
   sabak_page_from?: number | null;
   sabak_page_to?: number | null;
   sabak_lines?: string;
@@ -8,6 +9,19 @@ export interface HifzLogMeta {
   saboki_pages?: string;
   amukhta_amount?: string;
   mistake_count?: number;
+  sabak_mistakes?: number;
+  sat_sabak_mistakes?: number;
+  amukhta_mistakes?: number;
+  morning_session_done?: boolean;
+  morning_para_from?: number | null;
+  morning_para_to?: number | null;
+  morning_pages?: number | null;
+  morning_mistakes?: number;
+  afternoon_session_done?: boolean;
+  afternoon_para_from?: number | null;
+  afternoon_para_to?: number | null;
+  afternoon_pages?: number | null;
+  afternoon_mistakes?: number;
 }
 
 /**

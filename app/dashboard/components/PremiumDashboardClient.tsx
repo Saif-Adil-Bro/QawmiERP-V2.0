@@ -53,6 +53,7 @@ export interface PremiumDashboardClientProps {
   earlyWarningNode: React.ReactNode;
   anomalyBannerNode?: React.ReactNode;
   chartsNode: React.ReactNode;
+  hifzSummaryNode?: React.ReactNode;
 }
 
 const ROLE_LABELS_BN: Record<string, string> = {
@@ -71,6 +72,7 @@ export default function PremiumDashboardClient({
   earlyWarningNode,
   anomalyBannerNode,
   chartsNode,
+  hifzSummaryNode,
 }: PremiumDashboardClientProps) {
   const [financeScope, setFinanceScope] = useState<"total" | "today">("total");
   const [timeStr, setTimeStr] = useState<string>("");
@@ -272,6 +274,13 @@ export default function PremiumDashboardClient({
                 <QuickActionsWidget />
               </div>
             );
+          }
+          if (w.id === "builtin-hifz-tracker") {
+            return hifzSummaryNode ? (
+              <div key={w.id} className={spanClass}>
+                {hifzSummaryNode}
+              </div>
+            ) : null;
           }
           if (w.id === "builtin-kpi") {
             return (

@@ -1,11 +1,17 @@
 "use client";
 
 import { getHifzStudents } from "@/app/actions/hifz";
+import { getHifzUpgradeBundleAction } from "@/app/actions/hifz-upgrade";
+import type {
+  HifzSpecialSabinaRecord,
+  HifzStudentProfile,
+  HifzWeeklySabinaRecord,
+} from "@/lib/hifz-upgrade-utils";
 import { getClasses } from "@/app/actions/students";
 import { getAllNooraniProgressMap } from "@/app/actions/noorani";
 import { NOORANI_TAKHTIS } from "@/lib/noorani-utils";
 import Link from "next/link";
-import { BookOpen, Search, Users, Sparkles, Filter, ChevronRight, Award } from "lucide-react";
+import { BookOpen, Search, Users, Sparkles, Filter, ChevronRight, Award, Calendar, AlertTriangle } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
@@ -14,14 +20,27 @@ export default function HifzPage() {
   const [classes, setClasses] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
   const [nooraniMap, setNooraniMap] = useState<Record<string, any>>({});
+  const [hifzProfiles, setHifzProfiles] = useState<Record<string, HifzStudentProfile>>({});
+  const [weeklySabinas, setWeeklySabinas] = useState<HifzWeeklySabinaRecord[]>([]);
+  const [specialSabinas, setSpecialSabinas] = useState<HifzSpecialSabinaRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     async function loadClasses() {
       try {
-        const cls = await getClasses();
+        const [cls, bundle] = await Promise.all([
+          getClasses(),
+          getHifzUpgradeBundleAction().catch(() => ({
+            profiles: {},
+            weeklySabinas: [],
+            specialSabinas: [],
+          })),
+        ]);
         setClasses(cls || []);
+        setHifzProfiles(bundle.profiles || {});
+        setWeeklySabinas(bundle.weeklySabinas || []);
+        setSpecialSabinas(bundle.specialSabinas || []);
       } catch (err) {
         console.error("loadClasses failed:", err);
       }
@@ -118,6 +137,60 @@ export default function HifzPage() {
           </div>
         </div>
       </div>
+
+      {/* Sabqi vs Khatmi, Khatam & Sabina Overview */}
+      {(() => {
+        const profileValues = Object.values(hifzProfiles);
+        const sabqiCount = profileValues.filter((p) => p.hifz_category === "sabqi").length;
+        const khatmiCount = profileValues.filter((p) => p.hifz_category === "khatmi").length;
+        const totalKhatams = profileValues.reduce(
+          (sum, p) => sum + (Number(p.total_khatams_completed) || 0),
+          0
+        );
+        const weakParas = weeklySabinas.reduce(
+          (sum, s) => sum + (s.para_breakdown || []).filter((b) => b.status === "weak").length,
+          0
+        );
+        const ongoingSpecial = specialSabinas.filter((s) => s.status === "ongoing");
+
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-white p-4 rounded-2xl border border-emerald-200/70 shadow-xs">
+              <div className="text-xs font-semibold text-emerald-700">সবকী বনাম খতমী</div>
+              <div className="text-base font-extrabold text-slate-900 mt-1">
+                সবকী {toBanglaNumber(sabqiCount)} • খতমী {toBanglaNumber(khatmiCount)}
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-indigo-200/70 shadow-xs">
+              <div className="text-xs font-semibold text-indigo-700 flex items-center gap-1">
+                <Award className="w-3.5 h-3.5" />
+                সম্পন্ন খতম
+              </div>
+              <div className="text-base font-extrabold text-slate-900 mt-1">
+                {toBanglaNumber(totalKhatams)} বার
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-rose-200/70 shadow-xs">
+              <div className="text-xs font-semibold text-rose-700 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                বৃহস্পতিবারের সবিনা ও দুর্বল পারা
+              </div>
+              <div className="text-base font-extrabold text-slate-900 mt-1">
+                {toBanglaNumber(weeklySabinas.length)}টি • দুর্বল {toBanglaNumber(weakParas)} পারা
+              </div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-purple-200/70 shadow-xs">
+              <div className="text-xs font-semibold text-purple-700 flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5" />
+                চলমান বিশেষ সবিনা
+              </div>
+              <div className="text-sm font-extrabold text-slate-900 mt-1 truncate">
+                {ongoingSpecial[0]?.title || `${toBanglaNumber(ongoingSpecial.length)}টি চলমান`}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Filters and Search Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">

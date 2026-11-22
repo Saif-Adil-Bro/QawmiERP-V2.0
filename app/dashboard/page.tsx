@@ -16,6 +16,9 @@ import { getFinancialAnomalies, type FinancialAnomalyRecord } from "@/lib/anomal
 import FinancialAnomalyBanner from "@/components/anomalies/FinancialAnomalyBanner";
 import { getTenantWidgets } from "@/lib/widgets/service";
 import type { WidgetConfigItem } from "@/lib/widgets/types";
+import HifzSummaryWidget from "@/components/widgets/HifzSummaryWidget";
+import { getHifzDashboardSummaryForWidget } from "@/app/actions/hifz-upgrade";
+import type { HifzDashboardSummary } from "@/lib/hifz-upgrade-utils";
 
 
 
@@ -73,6 +76,17 @@ export default async function DashboardPage() {
   let anomaliesData: FinancialAnomalyRecord[] = [];
 
   let dashboardWidgets: WidgetConfigItem[] = [];
+  let hifzSummaryData: HifzDashboardSummary = {
+    sabqiCount: 0,
+    khatmiCount: 0,
+    todayEntriesCount: 0,
+    totalHifzStudents: 0,
+    monthlyKhatamsCount: 0,
+    thursdaySabinaCount: 0,
+    weakParasCount: 0,
+    ongoingSpecialSabinaTitle: null,
+    ongoingSpecialSabinaCount: 0,
+  };
 
   try {
     const today = toDhakaDateString();
@@ -88,12 +102,16 @@ export default async function DashboardPage() {
     const widgetsPromise = profile?.madrasa_id
       ? getTenantWidgets(profile.madrasa_id).catch(() => [])
       : Promise.resolve([]);
+    const hifzSummaryPromise = profile?.madrasa_id
+      ? getHifzDashboardSummaryForWidget(profile.madrasa_id).catch(() => hifzSummaryData)
+      : Promise.resolve(hifzSummaryData);
 
     if (profile?.madrasa_id) {
       const [
         alerts,
         anomalies,
         widgets,
+        hifzSummary,
         { count: sCount }, 
         { count: tCount },
         { count: cCount },
@@ -117,6 +135,7 @@ export default async function DashboardPage() {
         earlyWarningPromise,
         anomaliesPromise,
         widgetsPromise,
+        hifzSummaryPromise,
         supabase.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
         supabase.from("teachers").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
         supabase.from("classes").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
@@ -140,6 +159,7 @@ export default async function DashboardPage() {
       earlyWarningData = alerts;
       anomaliesData = anomalies;
       dashboardWidgets = widgets;
+      hifzSummaryData = hifzSummary;
 
       studentsCount = sCount || 0;
       const staffMembers = staffFullData?.staff_members || [];
@@ -464,6 +484,7 @@ export default async function DashboardPage() {
             examPassRateData={examPassRateData}
           />
         }
+        hifzSummaryNode={<HifzSummaryWidget summary={hifzSummaryData} />}
       />
     </DashboardViewSwitcher>
   );

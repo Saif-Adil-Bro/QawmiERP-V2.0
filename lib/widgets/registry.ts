@@ -71,6 +71,17 @@ export const DEFAULT_BUILTIN_WIDGETS: WidgetConfigItem[] = [
     order: 6,
     size: "half",
   },
+  {
+    id: "builtin-hifz-tracker",
+    type: "builtin",
+    title: "হিফজুল কুরআন ও সবিনা সারসংক্ষেপ",
+    description: "সবকী বনাম খতমী শিক্ষার্থী, আজকের এন্ট্রি, সাপ্তাহিক বৃহস্পতিবারের সবিনা ও চলমান বিশেষ সবিনা",
+    version: "1.0.0",
+    author: "QawmiERP Core",
+    enabled: true,
+    order: 7,
+    size: "half",
+  },
 ];
 
 /**

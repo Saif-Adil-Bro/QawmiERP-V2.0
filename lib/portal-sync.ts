@@ -153,6 +153,9 @@ export async function initialFullSync(
           db.routines,
           db.academicCalendar,
           db.homework,
+          db.hifzProfiles,
+          db.hifzWeeklySabina,
+          db.hifzSpecialSabina,
           db.syncMeta,
         ],
         async () => {
@@ -207,6 +210,20 @@ export async function initialFullSync(
             counts.classes = classes.length;
             counts.students = students.length;
           }
+
+          const hifzProfiles = normalizeRows(
+            Array.isArray(mainData.hifz_profiles)
+              ? mainData.hifz_profiles.map((p: any) => ({ ...p, id: p.id || p.student_id }))
+              : []
+          );
+          const hifzWeeklySabina = normalizeRows(mainData.hifz_weekly_sabina || []);
+          const hifzSpecialSabina = normalizeRows(mainData.hifz_special_sabina || []);
+          if (hifzProfiles.length) await db.hifzProfiles.bulkPut(hifzProfiles);
+          if (hifzWeeklySabina.length) await db.hifzWeeklySabina.bulkPut(hifzWeeklySabina);
+          if (hifzSpecialSabina.length) await db.hifzSpecialSabina.bulkPut(hifzSpecialSabina);
+          counts.hifzProfiles = hifzProfiles.length;
+          counts.hifzWeeklySabina = hifzWeeklySabina.length;
+          counts.hifzSpecialSabina = hifzSpecialSabina.length;
 
           if (noticesData.length) await db.notices.bulkPut(noticesData);
           if (routinesData.length) await db.routines.bulkPut(routinesData);
