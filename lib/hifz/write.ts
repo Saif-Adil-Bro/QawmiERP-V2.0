@@ -240,6 +240,10 @@ export async function writeHifz(
     member(c, v.student_id);
     const name = partner(c, v.listener_student_id, v.student_id);
     const { detail, total } = results(v);
+    const inferredMonth = v.month_key || v.sabina_date.slice(0, 7);
+    const inferredWeek =
+      v.week_number ??
+      Math.min(5, Math.max(1, Math.ceil(Number(v.sabina_date.slice(8, 10)) / 7)));
     const row = {
       id: weeklyId(c.tenant, v.student_id, v.sabina_date),
       madrasa_id: c.tenant,
@@ -248,6 +252,9 @@ export async function writeHifz(
       listener_name: name,
       verified_by_teacher_id: c.teacherId || null,
       sabina_date: v.sabina_date,
+      week_number: inferredWeek,
+      month_key: inferredMonth,
+      hijri_month_label: v.hijri_month_label || "",
       assigned_para_from: v.para_from,
       assigned_para_to: v.para_to,
       para_breakdown: v.status === "completed" ? detail : [],

@@ -47,6 +47,11 @@ export function projectDraft(
           ...v,
           id: old?.id || v.student_id + v.sabina_date,
           madrasa_id: t,
+          week_number:
+            v.week_number ??
+            Math.min(5, Math.max(1, Math.ceil(Number(v.sabina_date.slice(8, 10)) / 7))),
+          month_key: v.month_key || v.sabina_date.slice(0, 7),
+          hijri_month_label: v.hijri_month_label || "",
           listener_name: names[v.listener_student_id || ""],
           verified_by_teacher_id: null,
           assigned_para_from: v.para_from,

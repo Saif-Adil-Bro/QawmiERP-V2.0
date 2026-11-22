@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BookOpen, Search, ChevronRight } from "lucide-react";
+import { BookOpen, Search, ChevronRight, Printer } from "lucide-react";
 import HifzSummaryWidget from "@/components/widgets/HifzSummaryWidget";
 import HifzForm, { type HifzSeed } from "@/app/teacher-portal/hifz/HifzForm";
+import HifzReportPrintModal from "@/components/hifz/HifzReportPrintModal";
 import { saveAdminHifzWorkspaceAction } from "@/app/actions/hifz";
 import type { HifzSummary } from "@/lib/hifz-utils";
 import { toBanglaNumber } from "@/lib/numberToBangla";
@@ -22,6 +23,7 @@ export default function AdminHifzWorkspaceClient({
 }) {
   const [directoryClass, setDirectoryClass] = useState<string>("All");
   const [directorySearch, setDirectorySearch] = useState<string>("");
+  const [printModalOpen, setPrintModalOpen] = useState(false);
 
   const profileByStudent = useMemo(
     () =>
@@ -60,14 +62,32 @@ export default function AdminHifzWorkspaceClient({
           </p>
         </div>
 
-        <Link
-          href="/dashboard/hifz/report"
-          className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-xs transition"
-        >
-          <BookOpen className="w-4 h-4" />
-          <span>মাসিক প্রোগ্রেস ও কওমি সামারি রিপোর্ট</span>
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPrintModalOpen(true)}
+            className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-xs transition cursor-pointer"
+          >
+            <Printer className="w-4 h-4" />
+            <span>খাতা প্রিন্ট (A5 / A4)</span>
+          </button>
+          <Link
+            href="/dashboard/hifz/report"
+            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-xs transition"
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>মাসিক প্রোগ্রেস ও কওমি সামারি রিপোর্ট</span>
+          </Link>
+        </div>
       </div>
+
+      <HifzReportPrintModal
+        open={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        students={filteredStudents.length ? filteredStudents : seed.students}
+        bundle={seed.bundle}
+        classes={seed.classes}
+      />
 
       {/* Unified Hifz Overview */}
       <HifzSummaryWidget summary={summary} />

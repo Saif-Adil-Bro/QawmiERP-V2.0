@@ -13,6 +13,7 @@ import { projectDraft, snapshotBundle } from "@/lib/hifz/drafts";
 import { bn, studentName } from "@/components/hifz/Report";
 import DailyEntry from "./DailyEntry";
 import { ProfileForm, SpecialForm, WeeklyForm } from "./SabinaForms";
+import HifzReportPrintModal from "@/components/hifz/HifzReportPrintModal";
 export type HifzSeed = {
   classes: any[];
   students: any[];
@@ -49,6 +50,7 @@ export default function HifzForm({
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [changed, setChanged] = useState(false),
+    [printOpen, setPrintOpen] = useState(false),
     saving = useRef(false);
   const [immediate, setImmediate] = useState<{ body: any; time: number }[]>([]);
   useEffect(() => {
@@ -176,7 +178,27 @@ export default function HifzForm({
             {t}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => setPrintOpen(true)}
+          style={{
+            marginLeft: "auto",
+            background: "#0f172a",
+            color: "#ffffff",
+            borderColor: "#0f172a",
+          }}
+        >
+          🖨️ খাতা প্রিন্ট (A5 / A4)
+        </button>
       </nav>
+      <HifzReportPrintModal
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        students={roster.length ? roster : students}
+        bundle={b}
+        classes={classes}
+        defaultStudentId={id}
+      />
       <div className="hz-card hz-grid">
         <label>
           জামাত
@@ -274,20 +296,15 @@ export default function HifzForm({
             submit={submit}
           />
         ) : tab === 1 ? (
-          latestThursday(week) !== week ? (
-            <p role="alert">সাপ্তাহিক সবিনার জন্য বৃহস্পতিবার নির্বাচন করুন।</p>
-          ) : (
-            <WeeklyForm
-              key={id + week}
-              p={p}
-              peers={peers}
-              date={week}
-              old={b.hifz_weekly_sabina.find(
-                (w) => w.student_id === id && w.sabina_date === week,
-              )}
-              submit={submit}
-            />
-          )
+          <WeeklyForm
+            key={id}
+            p={p}
+            peers={peers}
+            date={week}
+            allWeekly={b.hifz_weekly_sabina}
+            onDateChange={setWeek}
+            submit={submit}
+          />
         ) : (
           <ProfileForm key={id} p={p} peers={peers} submit={submit} />
         )}
