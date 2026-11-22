@@ -261,6 +261,16 @@ const navGroups: NavGroup[] = [
         badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
         keywords: ["syllabus", "progress", "revision", "forecast", "সিলেবাস", "অগ্রগতি", "রিভিশন", "কর্মদিবস", "পড়া"],
       },
+      {
+        name: "নূরানী ও তাজবীদ ট্র্যাকার",
+        href: "/dashboard/noorani",
+        icon: BookOpen,
+        permission: "hifz.view",
+        roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "teacher", "hifz_teacher", "hifz_supervisor"],
+        badge: "নূরানী",
+        badgeColor: "bg-teal-500/20 text-teal-300 border-teal-500/30",
+        keywords: ["noorani", "tajweed", "takhti", "makhraj", "নূরানী", "তাজবীদ", "তখতি", "মাখরাজ"],
+      },
     ],
   },
   {

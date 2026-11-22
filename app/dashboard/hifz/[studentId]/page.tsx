@@ -1,7 +1,5 @@
 import { StudentReport } from "@/components/hifz/Report";
 import { getHifzChild } from "@/app/actions/hifz";
-import { getStudentNooraniProgress } from "@/app/actions/noorani";
-import NooraniMakhrajTracker from "@/components/hifz/NooraniMakhrajTracker";
 import { parseHifzLogNotes } from "@/lib/hifz-utils";
 import Link from "next/link";
 import { ArrowLeft, Plus } from "lucide-react";
@@ -41,7 +39,6 @@ export default async function StudentHifzLogsPage({
       sabak_page_to: meta.sabak_page_to ?? log.sabak_page,
     };
   });
-  const nooraniProgress = await getStudentNooraniProgress(studentId);
   return (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
@@ -62,12 +59,6 @@ export default async function StudentHifzLogsPage({
       </div>
 
       <StudentReport bundle={bundle} studentId={student.id} showDaily={false} />
-      {/* Noorani Qaida 27 Takhtis & 17 Makharij Milestones Tracker */}
-      <NooraniMakhrajTracker
-        studentId={student.id}
-        studentName={`${student.first_name} ${student.last_name}`}
-        initialProgress={nooraniProgress}
-      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 space-y-6">
