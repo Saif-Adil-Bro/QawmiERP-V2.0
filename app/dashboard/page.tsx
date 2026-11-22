@@ -1,3 +1,6 @@
+import HifzSummaryWidget from "@/components/widgets/HifzSummaryWidget";
+import {dashboardHifzSummary} from "@/lib/hifz/widget";
+import type {HifzSummary} from "@/lib/hifz-utils";
 import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import { redirect } from "next/navigation";
 import { webIdentity } from "@/lib/portal/identity";
@@ -52,6 +55,7 @@ export default async function DashboardPage() {
   let earlyWarningData: any = { attendance_alerts: [], exam_drop_alerts: [], total_critical_students: 0, checked_at: "" };
   let anomaliesData: FinancialAnomalyRecord[] = [];
 
+  let hifzSummary:HifzSummary|null=null;
   let health: Awaited<ReturnType<typeof healthWidget>> = null;
   let dashboardWidgets: WidgetConfigItem[] = [];
 
@@ -72,8 +76,9 @@ export default async function DashboardPage() {
 
     if (profile?.madrasa_id) {
       // Independent widgets remain available even when an unrelated statistics query fails.
-      const [widgets, healthData, { data: school }, stats] = await Promise.all([
+      const [widgets, hifzData, healthData, { data: school }, stats] = await Promise.all([
         widgetsPromise,
+        dashboardHifzSummary(identity).catch(()=>null),
         healthWidget({ tenant: identity.tenant, actor: user.id }),
         supabase.from("madrasas").select("name").eq("id", identity.tenant).maybeSingle(),
         Promise.all([
@@ -99,7 +104,7 @@ export default async function DashboardPage() {
         ]).then(data => ({ ok: true as const, data }), error => ({ ok: false as const, error })),
       ]);
       dashboardWidgets = widgets;
-      health = healthData;
+      health = healthData; hifzSummary=hifzData;
       madrasaName = school?.name ?? null;
       if (!stats.ok) throw stats.error;
       const [
@@ -382,6 +387,7 @@ export default async function DashboardPage() {
       }}
     >
       <PremiumDashboardClient
+        hifzSummaryNode={hifzSummary ? <HifzSummaryWidget summary={hifzSummary}/> : null}
         sickStudentsNode={health && dashboardWidgets.find(w => w.id === "builtin-sick-students")?.enabled !== false ? <SickStudentsWidget summary={health} tenant={profile.madrasa_id} actor={user.id} /> : null}
         profile={{
           full_name: profile?.full_name,

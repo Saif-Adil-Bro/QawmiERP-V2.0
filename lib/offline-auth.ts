@@ -102,7 +102,7 @@ export async function clearOfflineAuthSession(): Promise<void> {
   // Pending writes stay quarantined in the owner's database for their next verified login.
   if (owner && typeof indexedDB !== "undefined") {
     const { getOfflineDb } = await import("./offlineDb");
-    await getOfflineDb(owner).portalSnapshots.clear();
+    await getOfflineDb(owner).clearPrivatePortalData();
   }
 }
 

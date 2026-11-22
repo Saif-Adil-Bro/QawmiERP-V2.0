@@ -182,13 +182,12 @@
           d.academicCalendar,
           (r) => `${r.start_date}–${r.end_date} • ${r.title}`,
         );
-      if (module === "academic" || module === "hifz")
-        list(
-          "সবক",
-          d.hifzLogs,
-          (r) =>
-            `${r.log_date} • ${r.sabak_para ?? "—"} • ${r.performance_rating || "—"}`,
-        );
+      if (module === "academic" || module === "hifz") {
+        if (Array.isArray(d.hifzProfiles)) {
+          const node=document.createElement('div');target.append(node);
+          import('/offline-hifz.js').then(m=>{if(localStorage.getItem(authKey)===serialized)m.mount(node,row);}).catch(()=>{node.textContent='হিফজ ফর্ম খুলতে একবার অনলাইনে সিঙ্ক করুন।';});
+        } else list('সবক',d.hifzLogs,r=>`${r.log_date} • ${r.sabak_para ?? '—'} • ${r.performance_rating || '—'}`);
+      }
       if (module === "academic" || module === "kitab")
         list(
           "কিতাব",

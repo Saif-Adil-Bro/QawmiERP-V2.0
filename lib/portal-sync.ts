@@ -79,7 +79,7 @@ export function initialFullSync(
         },
       );
       if (res.status === 401 || res.status === 403)
-        await db.portalSnapshots.clear();
+        await db.clearPrivatePortalData();
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       // Replacing the complete selected snapshot also removes recovered/stale health alerts.
       const data = mapPortalSnapshot(
@@ -90,9 +90,19 @@ export function initialFullSync(
         portal,
       );
       const syncedAt = Date.now();
-      await db.transaction("rw", db.portalSnapshots, async () => {
+      await db.transaction("rw", db.privateTables, async () => {
         if (ownerKey(browserSession()) !== owner)
           throw new Error("অ্যাকাউন্ট বদলেছে।");
+        // Mirrors hold just this projection. An event may involve two siblings;
+        // only the separate child snapshot retains that child's personal sittings.
+        for (const name of [
+          "hifzProfiles",
+          "hifzWeeklySabina",
+          "hifzSpecialSabina",
+        ] as const) {
+          await db[name].clear();
+          await db.table(name).bulkPut(data[name]);
+        }
         const linked = new Set(data.students.map((s) => s.id));
         await db.portalSnapshots
           .filter((r) => !!r.studentId && !linked.has(r.studentId))
@@ -160,7 +170,14 @@ export async function enqueueOfflineOutbox(
     status: "pending",
     retryCount: 0,
   };
-  await getOfflineDb(owner).offlineOutbox.add(item);
+  const db = getOfflineDb(owner);
+  await db.transaction("rw", db.offlineOutbox, async () => {
+    if (ownerKey(browserSession()) !== owner)
+      throw new Error("অ্যাকাউন্ট বদলেছে।");
+    const last = await db.offlineOutbox.orderBy("createdAt").last();
+    item.createdAt = Math.max(item.createdAt, (last?.createdAt || 0) + 1);
+    await db.offlineOutbox.add(item);
+  });
   return item;
 }
 const teacherEndpoints = {
@@ -181,7 +198,14 @@ export async function postTeacherEntry(
   const endpoint = teacherEndpoints[actionType];
   if (!expectedOwner || expectedOwner !== ownerKey(browserSession()))
     throw new Error("অ্যাকাউন্ট বদলেছে। পেজ রিফ্রেশ করুন।");
-  if (await checkIsOnline()) {
+  const pending =
+    actionType === "hifz" &&
+    (await getOfflineDb(expectedOwner)
+      .offlineOutbox.where("actionType")
+      .equals("hifz")
+      .filter((i) => !i.rejected)
+      .count());
+  if (!pending && (await checkIsOnline())) {
     if (expectedOwner !== ownerKey(browserSession()))
       throw new Error("অ্যাকাউন্ট বদলেছে।");
     ensureWritable?.();
@@ -197,7 +221,10 @@ export async function postTeacherEntry(
       });
       const json = await res.json();
       if (!res.ok || !json.success)
-        throw new TeacherEntryError(json.error || `HTTP ${res.status}`, json.code);
+        throw new TeacherEntryError(
+          json.error || `HTTP ${res.status}`,
+          json.code,
+        );
       if (expectedOwner !== ownerKey(browserSession()))
         throw new Error("অ্যাকাউন্ট বদলেছে।");
       return { success: true, offlineQueued: false, error: "" };
@@ -215,6 +242,8 @@ export async function postTeacherEntry(
     method: "POST",
     payload,
   });
+  if (pending && (await checkIsOnline()))
+    void processOfflineOutbox().catch(() => {});
   return { success: true, offlineQueued: true, error: "" };
 }
 const draining = new Set<string>();
@@ -259,6 +288,21 @@ export async function processOfflineOutbox() {
         });
         const response = await res.json();
         if (!res.ok || !response.success) {
+          if (
+            item.actionType === "hifz" &&
+            [400, 403, 404, 409].includes(res.status) &&
+            response.code !== "OWNER_CHANGED"
+          ) {
+            // A changed roster or newer daily entry requires a person, not five
+            // identical retries. Keep it for its owner; allow later writes through.
+            await db.offlineOutbox.update(item.id, {
+              status: "failed",
+              rejected: "HIFZ_REVIEW",
+              leaseUntil: 0,
+              lastError: response.error || response.message,
+            });
+            continue;
+          }
           if (item.actionType === "exam_marks" && response.code === "EXAM_LOCKED") {
             // A final freeze refusal isn't a transient network failure. Keep the rejected draft
             // for its owner; neither replay it after unlock nor block unrelated attendance etc.

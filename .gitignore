@@ -42,3 +42,6 @@ tmp/
 
 # Agent working state
 .agents/
+
+# Account-neutral offline UI, built from the shared React forms
+/public/offline-hifz.js

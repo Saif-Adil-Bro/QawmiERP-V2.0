@@ -40,3 +40,17 @@ export function useOfflinePortalSnapshot() {
     ? row.data
     : null;
 }
+
+// A parent may have multiple cached children. Never read a shared event-store
+// row by event ID here: each child's snapshot has a different projection.
+export function useOfflineChildHifz(childId: string) {
+  const data = useOfflinePortalSnapshot();
+  return data?.activeStudent?.id === childId && data.hifzProfiles
+    ? {
+        hifz_logs: data.hifzLogs,
+        hifz_profiles: data.hifzProfiles,
+        hifz_weekly_sabina: data.hifzWeeklySabina,
+        hifz_special_sabina: data.hifzSpecialSabina,
+      }
+    : null;
+}

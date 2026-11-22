@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
@@ -25,6 +25,11 @@ function node(args: string[], server: string) {
 }
 const prepare = (url: string) => node(["scripts/prepare-capacitor-out.mjs"], url);
 
+beforeAll(() => {
+  execFileSync(process.execPath, ["scripts/build-offline-hifz.mjs"], {
+    cwd: root,
+  });
+});
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "qawmi-cap-assets-"));
   for (const file of [
@@ -34,6 +39,8 @@ beforeEach(() => {
     "scripts/prepare-capacitor-out.mjs",
     "public/offline.html",
     "public/offline-portal.js",
+    "public/offline-hifz.js",
+    "public/hifz.css",
     "android/app/src/main/AndroidManifest.xml",
   ]) {
     mkdirSync(dirname(join(dir, file)), { recursive: true });
@@ -57,7 +64,12 @@ describe("Capacitor offline packaging", () => {
     expect(errorPage).not.toMatch(
       /<script|\son\w+=|<iframe|\/portal\/fees|indexedDB|localStorage|#snapshot/i,
     );
-    for (const file of ["offline.html", "offline-portal.js"]) {
+    for (const file of [
+      "offline.html",
+      "offline-portal.js",
+      "offline-hifz.js",
+      "hifz.css",
+    ]) {
       expect(read(`${assets}/public/${file}`)).toBe(read(`public/${file}`));
     }
   }, 25_000);

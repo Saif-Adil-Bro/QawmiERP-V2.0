@@ -1,6 +1,8 @@
 "use client";
 
-import { getHifzStudents } from "@/app/actions/hifz";
+import HifzSummaryWidget from "@/components/widgets/HifzSummaryWidget";
+import type { HifzSummary } from "@/lib/hifz-utils";
+import { getHifzDirectory } from "@/app/actions/hifz";
 import { getClasses } from "@/app/actions/students";
 import { getAllNooraniProgressMap } from "@/app/actions/noorani";
 import { NOORANI_TAKHTIS } from "@/lib/noorani-utils";
@@ -12,6 +14,7 @@ import { toBanglaNumber } from "@/lib/numberToBangla";
 export default function HifzPage() {
   const [classId, setClassId] = useState<string>("All");
   const [classes, setClasses] = useState<any[]>([]);
+  const [summary, setSummary] = useState<HifzSummary | null>(null);
   const [students, setStudents] = useState<any[]>([]);
   const [nooraniMap, setNooraniMap] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
@@ -34,10 +37,11 @@ export default function HifzPage() {
       setLoading(true);
       try {
         const [data, nMap] = await Promise.all([
-          getHifzStudents(classId),
+          getHifzDirectory(classId),
           getAllNooraniProgressMap(),
         ]);
-        setStudents(data || []);
+        setStudents(data.students);
+        setSummary(data.summary);
         setNooraniMap(nMap || {});
       } catch (err) {
         console.error("getHifzStudents failed:", err);
@@ -71,8 +75,12 @@ export default function HifzPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">হিফজুল কুরআন ট্র্যাকিং</h1>
-          <p className="text-slate-500 text-sm">দৈনন্দিন সবক, সবকী এবং আমুখতার অগ্রগতি তদারকি ও মূল্যায়ন</p>
+          <h1 className="text-2xl font-bold text-slate-800">
+            হিফজুল কুরআন ট্র্যাকিং
+          </h1>
+          <p className="text-slate-500 text-sm">
+            দৈনন্দিন সবক, সবকী এবং আমুখতার অগ্রগতি তদারকি ও মূল্যায়ন
+          </p>
         </div>
 
         <Link
@@ -91,8 +99,12 @@ export default function HifzPage() {
             <BookOpen className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-xs font-semibold text-slate-500">মোট হিফজ শিক্ষার্থী</div>
-            <div className="text-xl font-bold text-slate-800">{students.length} জন</div>
+            <div className="text-xs font-semibold text-slate-500">
+              মোট হিফজ শিক্ষার্থী
+            </div>
+            <div className="text-xl font-bold text-slate-800">
+              {students.length} জন
+            </div>
           </div>
         </div>
 
@@ -101,9 +113,14 @@ export default function HifzPage() {
             <Filter className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-xs font-semibold text-slate-500">ফিল্টারকৃত জামাত</div>
+            <div className="text-xs font-semibold text-slate-500">
+              ফিল্টারকৃত জামাত
+            </div>
             <div className="text-sm font-bold text-slate-800 truncate">
-              {classId === "All" ? "সকল জামাত" : classes.find(c => c.id === classId)?.name || "নির্বাচিত জামাত"}
+              {classId === "All"
+                ? "সকল জামাত"
+                : classes.find((c) => c.id === classId)?.name ||
+                  "নির্বাচিত জামাত"}
             </div>
           </div>
         </div>
@@ -113,12 +130,17 @@ export default function HifzPage() {
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-xs font-semibold text-slate-500">খুঁজে পাওয়া গেছে</div>
-            <div className="text-xl font-bold text-slate-800">{filteredStudents.length} জন</div>
+            <div className="text-xs font-semibold text-slate-500">
+              খুঁজে পাওয়া গেছে
+            </div>
+            <div className="text-xl font-bold text-slate-800">
+              {filteredStudents.length} জন
+            </div>
           </div>
         </div>
       </div>
 
+      {summary && <HifzSummaryWidget summary={summary} />}
       {/* Filters and Search Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative flex-1">
@@ -133,7 +155,12 @@ export default function HifzPage() {
         </div>
 
         <div className="flex items-center space-x-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-          <label htmlFor="class_id" className="text-xs font-bold text-slate-600 shrink-0">জামাত:</label>
+          <label
+            htmlFor="class_id"
+            className="text-xs font-bold text-slate-600 shrink-0"
+          >
+            জামাত:
+          </label>
           <select
             id="class_id"
             value={classId}
@@ -142,7 +169,9 @@ export default function HifzPage() {
           >
             <option value="All">সকল জামাত</option>
             {classes.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
             ))}
           </select>
         </div>
@@ -151,12 +180,18 @@ export default function HifzPage() {
       {/* Students Table */}
       <div className="bg-white rounded-2xl shadow-xs border border-slate-200/80 overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-slate-500">তথ্য লোড হচ্ছে...</div>
+          <div className="p-12 text-center text-slate-500">
+            তথ্য লোড হচ্ছে...
+          </div>
         ) : filteredStudents.length === 0 ? (
           <div className="p-12 text-center text-slate-500">
             <BookOpen className="w-12 h-12 mx-auto text-slate-300 mb-4" />
-            <p className="font-semibold text-slate-700">কোনো শিক্ষার্থী পাওয়া যায়নি।</p>
-            <p className="text-xs text-slate-400 mt-1">অনুসন্ধান ফিল্টার পরিবর্তন করুন বা নতুন শিক্ষার্থী ভর্তি করুন।</p>
+            <p className="font-semibold text-slate-700">
+              কোনো শিক্ষার্থী পাওয়া যায়নি।
+            </p>
+            <p className="text-xs text-slate-400 mt-1">
+              অনুসন্ধান ফিল্টার পরিবর্তন করুন বা নতুন শিক্ষার্থী ভর্তি করুন।
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -164,26 +199,42 @@ export default function HifzPage() {
               <thead className="bg-slate-50/80 text-slate-700 border-b border-slate-200/80">
                 <tr>
                   <th className="px-6 py-3.5 font-bold text-xs">রোল নম্বর</th>
-                  <th className="px-6 py-3.5 font-bold text-xs">শিক্ষার্থীর নাম</th>
+                  <th className="px-6 py-3.5 font-bold text-xs">
+                    শিক্ষার্থীর নাম
+                  </th>
                   <th className="px-6 py-3.5 font-bold text-xs">জামাত</th>
-                  <th className="px-6 py-3.5 font-bold text-xs">নূরানী তখতি / তাজবীদ</th>
-                  <th className="px-6 py-3.5 font-bold text-xs text-right">পদক্ষেপ</th>
+                  <th className="px-6 py-3.5 font-bold text-xs">
+                    নূরানী তখতি / তাজবীদ
+                  </th>
+                  <th className="px-6 py-3.5 font-bold text-xs text-right">
+                    পদক্ষেপ
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredStudents.map((student) => {
                   const nProg = nooraniMap[student.id];
-                  const currentTakhti = nProg?.currentTakhtiId 
-                    ? NOORANI_TAKHTIS.find(t => t.id === nProg.currentTakhtiId) 
+                  const currentTakhti = nProg?.currentTakhtiId
+                    ? NOORANI_TAKHTIS.find(
+                        (t) => t.id === nProg.currentTakhtiId,
+                      )
                     : null;
 
                   return (
-                    <tr key={student.id} className="hover:bg-slate-50/70 transition">
+                    <tr
+                      key={student.id}
+                      className="hover:bg-slate-50/70 transition"
+                    >
                       <td className="px-6 py-4 text-slate-900 font-bold font-mono">
                         {student.roll_number || "-"}
                       </td>
                       <td className="px-6 py-4 text-slate-900 font-bold">
-                        {student.first_name} {student.last_name}
+                        {student.first_name} {student.last_name} ·{" "}
+                        {student.hifz_category === "khatmi"
+                          ? "খতমী"
+                          : student.hifz_category
+                            ? "সবকী"
+                            : "হিফজ এন্ট্রি নেই"}
                       </td>
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
@@ -194,20 +245,24 @@ export default function HifzPage() {
                         {currentTakhti ? (
                           <div className="flex items-center gap-1.5">
                             <span className="text-xs font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-md border border-emerald-200">
-                              তখতি {toBanglaNumber(currentTakhti.id)}: {currentTakhti.title}
+                              তখতি {toBanglaNumber(currentTakhti.id)}:{" "}
+                              {currentTakhti.title}
                             </span>
                             {nProg?.makhrajWeaknesses?.length > 0 && (
                               <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
-                                {toBanglaNumber(nProg.makhrajWeaknesses.length)} মাখরাজ
+                                {toBanglaNumber(nProg.makhrajWeaknesses.length)}{" "}
+                                মাখরাজ
                               </span>
                             )}
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400 italic">প্রারম্ভিক / নির্ধারিত নয়</span>
+                          <span className="text-xs text-slate-400 italic">
+                            প্রারম্ভিক / নির্ধারিত নয়
+                          </span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <Link 
+                        <Link
                           href={`/dashboard/hifz/${student.id}`}
                           className="inline-flex items-center space-x-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-1.5 rounded-xl border border-emerald-200 transition"
                         >

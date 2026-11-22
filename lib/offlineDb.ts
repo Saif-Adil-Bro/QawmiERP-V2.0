@@ -11,6 +11,9 @@ export type OfflineEntity =
   | "fees"
   | "feePayments"
   | "expenses"
+  | "hifzProfiles"
+  | "hifzWeeklySabina"
+  | "hifzSpecialSabina"
   | "hifzLogs"
   | "kitabLogs"
   | "notices"
@@ -43,7 +46,13 @@ export interface SyncQueueItem {
 export interface OfflineOutboxItem {
   id: string;
   portal: "teacher" | "student" | "guardian";
-  actionType: "attendance" | "hifz" | "kitab" | "exam_marks" | "leave_request" | "feedback";
+  actionType:
+    | "attendance"
+    | "hifz"
+    | "kitab"
+    | "exam_marks"
+    | "leave_request"
+    | "feedback";
   endpoint: string;
   method: "POST" | "PATCH" | "PUT";
   payload: Record<string, unknown>;
@@ -51,7 +60,7 @@ export interface OfflineOutboxItem {
   status: SyncStatus;
   retryCount: number;
   lastError?: string;
-  rejected?: "EXAM_LOCKED"; // Retain for the teacher to review; never automatically replay after an unlock.
+  rejected?: "EXAM_LOCKED" | "HIFZ_REVIEW"; // Retain for the teacher to review; never automatically replay after an unlock.
   leaseUntil?: number;
 }
 
@@ -78,6 +87,9 @@ export class QawmiERPOfflineDB extends Dexie {
   fees!: Table<OfflineRecord, string>;
   feePayments!: Table<OfflineRecord, string>;
   expenses!: Table<OfflineRecord, string>;
+  hifzProfiles!: Table<import("./hifz-utils").HifzProfile, string>;
+  hifzWeeklySabina!: Table<import("./hifz-utils").WeeklySabina, string>;
+  hifzSpecialSabina!: Table<import("./hifz-utils").SpecialSabina, string>;
   hifzLogs!: Table<OfflineRecord, string>;
   kitabLogs!: Table<OfflineRecord, string>;
   notices!: Table<OfflineRecord, string>;
@@ -93,8 +105,17 @@ export class QawmiERPOfflineDB extends Dexie {
   syncMeta!: Table<SyncMetaRecord, string>;
 
   // Includes child-scoped clinical notes/timeline. Never copy these into shared entity stores.
-  portalSnapshots!: Table<{id:string,owner:string,studentId:string|null,syncedAt:number,data:PortalSnapshotData},string>;
-  constructor(name = 'QawmiERPOfflineDB') {
+  portalSnapshots!: Table<
+    {
+      id: string;
+      owner: string;
+      studentId: string | null;
+      syncedAt: number;
+      data: PortalSnapshotData;
+    },
+    string
+  >;
+  constructor(name = "QawmiERPOfflineDB") {
     super(name);
 
     this.version(1).stores({
@@ -161,9 +182,28 @@ export class QawmiERPOfflineDB extends Dexie {
       offlineOutbox: "id, portal, actionType, createdAt, status, retryCount",
       syncMeta: "entity, lastSyncedAt",
     });
-    this.version(4).stores({portalSnapshots:'id, owner, studentId'});
+    this.version(4).stores({ portalSnapshots: "id, owner, studentId" });
+    // Preserve every deployed v2–v4 database, including pending teachers' writes.
+    this.version(5).stores({
+      hifzProfiles: "student_id, madrasa_id, hifz_category, updated_at",
+      hifzWeeklySabina: "id, madrasa_id, student_id, sabina_date",
+      hifzSpecialSabina: "id, madrasa_id, status, start_date",
+    });
   }
 
+  get privateTables() {
+    return [
+      this.portalSnapshots,
+      this.hifzProfiles,
+      this.hifzWeeklySabina,
+      this.hifzSpecialSabina,
+    ];
+  }
+  clearPrivatePortalData() {
+    return this.transaction("rw", this.privateTables, () =>
+      Promise.all(this.privateTables.map((t) => t.clear())),
+    );
+  }
   getEntityTable(entity: OfflineEntity): Table<OfflineRecord, string> {
     return this[entity] as Table<OfflineRecord, string>;
   }
