@@ -15,11 +15,11 @@ import { toBanglaNumber } from "@/lib/numberToBangla";
 import {
   computeStudentExamSummary,
   toBanglaOrdinal,
+  type ExamEvaluationOptions,
   type ExamGradingConfig,
   type StudentExamSummary,
   type MeritPositionResult,
 } from "@/lib/exam-grading";
-import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
 
 interface PortalExamsClientProps {
@@ -29,10 +29,8 @@ interface PortalExamsClientProps {
   selectedExamId: string | null;
   currentExam: any | null;
   isCurrentExamPublished: boolean;
-  rawResults: any[];
   summary: StudentExamSummary;
   merit: MeritPositionResult;
-  gradingConfig: ExamGradingConfig;
 }
 
 export default function PortalExamsClient({
@@ -42,86 +40,38 @@ export default function PortalExamsClient({
   selectedExamId,
   currentExam,
   isCurrentExamPublished,
-  rawResults,
   summary,
   merit,
-  gradingConfig,
 }: PortalExamsClientProps) {
   const offlineSnapshot = useOfflinePortalSnapshot();
 
-  // Seed Dexie IndexedDB silently for offline access
-  useEffect(() => {
-    if (!child?.id) return;
-    const summaryRecord =
-      isCurrentExamPublished && selectedExamId
-        ? [
-            {
-              id: `${child.id}_${selectedExamId}`,
-              student_id: child.id,
-              exam_id: selectedExamId,
-              exam_title: currentExam?.title || currentExam?.name || "সাময়িক পরীক্ষা",
-              exam_year: currentExam?.year || null,
-              has_marks: summary.hasMarks,
-              grade_label: summary.gradeLabel,
-              gpa: summary.gpa,
-              percentage: summary.percentage,
-              total_obtained: summary.totalObtained,
-              total_max: summary.totalMax,
-              is_passed: summary.isPassed,
-              status_label: summary.statusLabel,
-              merit_position: merit.meritPosition,
-              merit_label: merit.formattedPosition,
-              total_candidates: merit.totalCandidates,
-              updated_at: new Date().toISOString(),
-            },
-          ]
-        : [];
-
-    seedPortalOfflineCache("student", {
-      exams: enrichedExams,
-      examResults: rawResults,
-      examSummaries: summaryRecord,
-    });
-  }, [
-    child?.id,
-    enrichedExams,
-    rawResults,
-    isCurrentExamPublished,
-    selectedExamId,
-    currentExam,
-    summary,
-    merit,
-  ]);
-
-  // Offline fallback if server results empty but local Dexie has rows
-  const effectiveSummary = useMemo(() => {
-    if (summary.hasMarks) return summary;
-    if (!selectedExamId || !offlineSnapshot?.examResults?.length) return summary;
-    const cachedRows = offlineSnapshot.examResults.filter(
-      (r: any) =>
-        (!child?.id || r.student_id === child.id) &&
-        (!selectedExamId || r.exam_id === selectedExamId)
-    );
-    if (cachedRows.length === 0) return summary;
-    return computeStudentExamSummary(cachedRows, gradingConfig);
-  }, [summary, selectedExamId, offlineSnapshot?.examResults, child?.id, gradingConfig]);
-
-  const effectiveMerit: MeritPositionResult = useMemo(() => {
-    if (merit.meritPosition !== null || merit.totalCandidates > 0) return merit;
-    const cached = (offlineSnapshot?.examSummaries || []).find(
-      (s: any) =>
-        (!child?.id || s.student_id === child.id) &&
-        (!selectedExamId || s.exam_id === selectedExamId)
-    ) as any;
-    if (!cached) return merit;
-    return {
-      meritPosition: cached.merit_position ?? null,
-      totalCandidates: Number(cached.total_candidates || 0),
-      formattedPosition:
-        cached.merit_label ||
-        (cached.merit_position ? toBanglaOrdinal(cached.merit_position) : "অপ্রযোজ্য"),
-    };
-  }, [merit, offlineSnapshot?.examSummaries, child?.id, selectedExamId]);
+  if (offlineSnapshot && offlineSnapshot.activeStudent?.id===child.id) {
+    enrichedExams=offlineSnapshot.exams;
+    currentExam=enrichedExams.find(e=>e.id===selectedExamId);
+    isCurrentExamPublished=!!currentExam?.is_published && offlineSnapshot.examSummaries.some(s=>s.exam_id===selectedExamId);
+  }
+  const cached = offlineSnapshot?.examSummaries.find((s:any) => s.student_id === child.id && s.exam_id === selectedExamId) as any;
+  const effectiveSummary: StudentExamSummary = cached?.summary ?? summary;
+  const effectiveMerit: MeritPositionResult = cached?.merit ?? merit;
+  // Clean Bengali display text for Merit Position covering every edge case
+  const meritDisplayLabel = useMemo(() => {
+    if (!isCurrentExamPublished || !effectiveSummary.hasMarks) {
+      return "অপেক্ষমাণ";
+    }
+    if (!effectiveSummary.isPassed) {
+      return "প্রযোজ্য নয়";
+    }
+    if (effectiveMerit.meritPosition !== null && effectiveMerit.meritPosition > 0) {
+      return toBanglaOrdinal(effectiveMerit.meritPosition);
+    }
+    if (
+      effectiveMerit.formattedPosition &&
+      effectiveMerit.formattedPosition !== "অপ্রযোজ্য"
+    ) {
+      return effectiveMerit.formattedPosition;
+    }
+    return "অপেক্ষমাণ";
+  }, [isCurrentExamPublished, effectiveSummary.hasMarks, effectiveSummary.isPassed, effectiveMerit]);
 
   const className =
     (Array.isArray(child?.classes) ? child.classes[0]?.name : child?.classes?.name) ||
@@ -277,23 +227,41 @@ export default function PortalExamsClient({
               </div>
 
               {effectiveSummary.hasMarks && (
-                <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl border self-start md:self-center shrink-0 bg-white/10 border-white/20">
-                  {effectiveSummary.isPassed ? (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-                  ) : (
-                    <XCircle className="w-5 h-5 text-rose-400 shrink-0" />
-                  )}
-                  <div>
-                    <span className="text-[10px] text-purple-200 block font-semibold">
-                      ফলাফলের অবস্থা
-                    </span>
-                    <span
-                      className={`text-sm sm:text-base font-black ${
-                        effectiveSummary.isPassed ? "text-emerald-300" : "text-rose-300"
-                      }`}
-                    >
-                      {effectiveSummary.statusLabel}
-                    </span>
+                <div className="flex flex-wrap items-center gap-2.5 self-start md:self-center shrink-0">
+                  {/* Highlighted Merit Position Badge in Result Header */}
+                  <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl border bg-amber-400/20 border-amber-300/45">
+                    <Trophy className="w-5 h-5 text-amber-300 shrink-0" />
+                    <div>
+                      <span className="text-[10px] text-amber-100/90 block font-semibold">
+                        মেধাস্থান
+                      </span>
+                      <span className="text-sm sm:text-base font-black text-amber-300 tabular-nums">
+                        {effectiveMerit.meritPosition
+                          ? `মেধাস্থান: ${meritDisplayLabel}`
+                          : meritDisplayLabel}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Pass / Fail Status Badge */}
+                  <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl border bg-white/10 border-white/20">
+                    {effectiveSummary.isPassed ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                    ) : (
+                      <XCircle className="w-5 h-5 text-rose-400 shrink-0" />
+                    )}
+                    <div>
+                      <span className="text-[10px] text-purple-200 block font-semibold">
+                        ফলাফলের অবস্থা
+                      </span>
+                      <span
+                        className={`text-sm sm:text-base font-black ${
+                          effectiveSummary.isPassed ? "text-emerald-300" : "text-rose-300"
+                        }`}
+                      >
+                        {effectiveSummary.statusLabel}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -306,7 +274,7 @@ export default function PortalExamsClient({
                   প্রাপ্ত বিভাগ / গ্রেড
                 </span>
                 <span className="text-base sm:text-lg font-extrabold text-amber-300 block mt-0.5 break-words">
-                  {effectiveSummary.hasMarks ? effectiveSummary.gradeLabel : "অনির্ধারিত"}
+                  {effectiveSummary.hasMarks ? effectiveSummary.gradeLabel : "অপেক্ষমাণ"}
                 </span>
               </div>
 
@@ -314,39 +282,52 @@ export default function PortalExamsClient({
                 <span className="text-[11px] text-purple-200 font-semibold block">
                   জিপিএ (GPA)
                 </span>
-                <span className="text-base sm:text-lg font-extrabold text-white block mt-0.5">
+                <span className="text-base sm:text-lg font-extrabold text-white block mt-0.5 tabular-nums">
                   {effectiveSummary.hasMarks
                     ? toBanglaNumber(effectiveSummary.gpa.toFixed(2))
-                    : "অপ্রযোজ্য"}
+                    : "অপেক্ষমাণ"}
                 </span>
               </div>
 
-              <div className="p-3.5 bg-amber-400/15 backdrop-blur-xs border border-amber-300/35 rounded-2xl">
+              <div className="p-3.5 bg-amber-400/15 backdrop-blur-xs border border-amber-300/40 rounded-2xl">
                 <span className="text-[11px] text-amber-200 font-semibold flex items-center gap-1">
                   <Trophy className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                  <span>মেধাস্থান</span>
+                  <span>মেধাস্থান (জামাত ভিত্তিক)</span>
                 </span>
-                <span className="text-base sm:text-lg font-black text-amber-300 block mt-0.5">
-                  {effectiveSummary.hasMarks ? effectiveMerit.formattedPosition : "অপ্রযোজ্য"}
+                <span className="text-base sm:text-lg font-black text-amber-300 block mt-0.5 tabular-nums">
+                  {meritDisplayLabel}
                 </span>
-                {effectiveSummary.hasMarks && effectiveMerit.totalCandidates > 0 && (
-                  <span className="text-[10px] text-amber-100/80 block mt-0.5">
-                    মোট {toBanglaNumber(effectiveMerit.totalCandidates)} জন পরীক্ষার্থীর মধ্যে
+                {effectiveSummary.hasMarks &&
+                  effectiveSummary.isPassed &&
+                  effectiveMerit.totalCandidates > 0 && (
+                    <span className="text-[10px] text-amber-100/85 block mt-0.5 tabular-nums">
+                      মোট {toBanglaNumber(effectiveMerit.totalCandidates)} জন পরীক্ষার্থীর মধ্যে
+                    </span>
+                  )}
+                {effectiveSummary.hasMarks && !effectiveSummary.isPassed && (
+                  <span className="text-[10px] text-rose-200/90 block mt-0.5">
+                    অকৃতকার্য হওয়ায় মেধাতালিকায় অন্তর্ভুক্ত নয়
                   </span>
                 )}
               </div>
 
               <div className="p-3.5 bg-white/10 backdrop-blur-xs border border-white/15 rounded-2xl">
                 <span className="text-[11px] text-purple-200 font-semibold block">
-                  মোট বিষয় ও শতকরা
+                  মোট নম্বর ও শতকরা
                 </span>
-                <span className="text-base sm:text-lg font-extrabold text-white block mt-0.5">
+                <span className="text-base sm:text-lg font-extrabold text-white block mt-0.5 tabular-nums">
                   {effectiveSummary.hasMarks
-                    ? `${toBanglaNumber(effectiveSummary.subjectCount)} বিষয় • ${toBanglaNumber(
-                        effectiveSummary.percentage
-                      )}%`
-                    : "০ বিষয়"}
+                    ? `${toBanglaNumber(effectiveSummary.totalObtained)} / ${toBanglaNumber(
+                        effectiveSummary.totalMax
+                      )}`
+                    : "অপেক্ষমাণ"}
                 </span>
+                {effectiveSummary.hasMarks && (
+                  <span className="text-[10px] text-purple-200/85 block mt-0.5 tabular-nums">
+                    {toBanglaNumber(effectiveSummary.subjectCount)} বিষয় •{" "}
+                    {toBanglaNumber(effectiveSummary.percentage)}%
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -381,7 +362,7 @@ export default function PortalExamsClient({
                           <p className="text-xs text-slate-500 mt-0.5">
                             প্রাপ্ত নম্বর:{" "}
                             <strong className="text-slate-900">
-                              {toBanglaNumber(sub.marksObtained)}
+                              {sub.hasEntered ? toBanglaNumber(sub.marksObtained) : "—"}
                             </strong>{" "}
                             / {toBanglaNumber(sub.totalMarks)} ({toBanglaNumber(sub.percentage)}%)
                           </p>
@@ -409,7 +390,7 @@ export default function PortalExamsClient({
                             sub.isFailed ? "text-rose-600" : "text-emerald-600"
                           }`}
                         >
-                          {sub.isFailed ? "অকৃতকার্য" : "উত্তীর্ণ"}
+                          {!sub.hasEntered ? "অপেক্ষমাণ" : sub.isFailed ? "অকৃতকার্য" : "উত্তীর্ণ"}
                         </span>
                       </div>
                     </div>
@@ -437,7 +418,7 @@ export default function PortalExamsClient({
                             {toBanglaNumber(sub.totalMarks)}
                           </td>
                           <td className="px-4 py-3 font-bold text-slate-900 text-sm">
-                            {toBanglaNumber(sub.marksObtained)}
+                            {sub.hasEntered ? toBanglaNumber(sub.marksObtained) : "—"}
                           </td>
                           <td className="px-4 py-3 text-slate-600 text-xs sm:text-sm">
                             {toBanglaNumber(sub.percentage)}%

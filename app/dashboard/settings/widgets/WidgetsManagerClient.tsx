@@ -25,8 +25,9 @@ import {
   LineChart,
   CalendarClock,
   Zap,
-  LayoutGrid,
   BookOpen,
+  Stethoscope,
+  LayoutGrid,
 } from "lucide-react";
 import {
   installCustomWidgetZipAction,
@@ -54,6 +55,10 @@ function getWidgetVisual(w: WidgetConfigItem) {
     };
   }
   switch (w.id) {
+    case "builtin-hifz-tracker":
+      return { icon: BookOpen, boxClass: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800" };
+    case "builtin-sick-students":
+      return { icon: Stethoscope, boxClass: "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800" };
     case "builtin-kpi":
       return {
         icon: BarChart3,
@@ -83,11 +88,6 @@ function getWidgetVisual(w: WidgetConfigItem) {
       return {
         icon: Zap,
         boxClass: "bg-purple-50 text-purple-600 border-purple-200 dark:bg-purple-950/60 dark:text-purple-400 dark:border-purple-800",
-      };
-    case "builtin-hifz-tracker":
-      return {
-        icon: BookOpen,
-        boxClass: "bg-teal-50 text-teal-600 border-teal-200 dark:bg-teal-950/60 dark:text-teal-400 dark:border-teal-800",
       };
     default:
       return {

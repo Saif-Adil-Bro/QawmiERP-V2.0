@@ -13,6 +13,7 @@ import {
   LayoutGrid,
   LayoutDashboard,
 } from "lucide-react";
+import { usePermissions } from "@/components/permissions/PermissionContext";
 import { useAppMode } from "./ModeContext";
 import { BasicTileLibraryModal } from "./BasicTileLibraryModal";
 
@@ -27,7 +28,9 @@ interface WindowsStartScreenProps {
 }
 
 export function WindowsStartScreen({ stats }: WindowsStartScreenProps) {
-  const { isStartMenuOpen, closeStartMenu, pinnedTiles, removeTile } = useAppMode();
+  const { isStartMenuOpen, closeStartMenu, pinnedTiles: allTiles, removeTile } = useAppMode();
+  const {summary}=usePermissions();
+  const pinnedTiles=allTiles.filter(t=>!t.roles || t.roles.some(r=>summary?.roles.includes(r)));
   const [libraryModalOpen, setLibraryModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
 

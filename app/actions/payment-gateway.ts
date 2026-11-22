@@ -1,12 +1,13 @@
 "use server";
+import { webIdentity, hasRole, linkedStudents } from "@/lib/portal/identity";
+import { studentRoles, teacherRoles } from "@/lib/portal/rules";
+import { randomBytes } from "node:crypto";
 
-import { getDefaultMadrasaId } from "@/lib/madrasa-default";
-import { toDhakaDateStringFrom, getDhakaYear, toDhakaMonthString } from "@/lib/date-utils";
+import { verifyInteractiveFee, type FeeVerificationInput } from "@/lib/fee-settlement";
 import { writeGuard } from "@/lib/action-authorization";
-import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
-import { getAuthMadrasaId } from "./students";
-import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
-import { getFullPaymentGatewayConfig } from "@/lib/payment-gateway-config";
+import { createAdminClient } from "@/lib/supabase/server";
+import { getMadrasaMetadata } from "@/lib/sessions";
+import { getFullPaymentGatewayConfig, gatewayManagerIdentity } from "@/lib/payment-gateway-config";
 import { revalidatePath } from "next/cache";
 import {
   PaymentGatewayConfig,
@@ -16,29 +17,11 @@ import {
 import {
   createRealGatewaySession,
   validateGatewayCredentials,
-  validateSSLCommerzTransaction,
+  bdtPoisha,
+  paymentCallbackOrigin,
+  sslCommerzAccount,
 } from "@/lib/payment-gateway-engine";
-import {
-  getFeeMetadata,
-  saveFeeMetadata,
-  getStudentFeeProfile,
-  generateNextReceiptNumber,
-} from "./fee-management";
-import { FeePayment, PaymentAllocation } from "@/lib/fee-management";
-
-export async function getSafeMadrasaId(): Promise<string | null> {
-  // P2-Fix: fake placeholder UUID + first-madrasa fallback সরানো হয়েছে —
-  // user-এর মাদরাসা → central default (DEFAULT_MADRASA_ID env → সবচেয়ে পুরোনো) → null
-  try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
-    if (madrasaId) return madrasaId;
-    return await getDefaultMadrasaId();
-  } catch {
-    return null;
-  }
-}
+import { getStudentFeeProfile } from "./fee-management";
 
 /**
  * 1. পেমেন্ট গেটওয়ে কনফিগ সংক্রান্ত নোট
@@ -51,27 +34,13 @@ export async function getSafeMadrasaId(): Promise<string | null> {
 /**
  * 2. Save / Update Payment Gateway Configuration
  */
-export async function savePaymentGatewayConfig(
-  config: Partial<PaymentGatewayConfig>
-) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("finance");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
+export async function savePaymentGatewayConfig(config: Partial<PaymentGatewayConfig>) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস। অনুগ্রহ করে লগইন করুন।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
-    if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি।" };
-
-    const currentMeta = await getMadrasaMetadata(madrasaId);
-    const existingConfig =
-      currentMeta.payment_gateway_config || DEFAULT_GATEWAY_CONFIG;
+    const manager = await gatewayManagerIdentity();
+    if (!manager) return { error: "গেটওয়ে কনফিগারেশন পরিবর্তনের অনুমতি নেই।" };
+    const madrasaId = manager.tenant;
+    const currentMeta = await getMadrasaMetadata(madrasaId, true);
+    const existingConfig = currentMeta.payment_gateway_config || DEFAULT_GATEWAY_CONFIG;
 
     const mergedConfig: PaymentGatewayConfig = {
       ...existingConfig,
@@ -87,12 +56,21 @@ export async function savePaymentGatewayConfig(
       updated_at: new Date().toISOString(),
     };
 
-    const success = await saveMadrasaMetadata(madrasaId, {
-      ...currentMeta,
-      payment_gateway_config: mergedConfig,
+    if (
+      mergedConfig.is_enabled &&
+      mergedConfig.active_provider === "SSLCOMMERZ" &&
+      !sslCommerzAccount(mergedConfig)
+    ) {
+      return { error: "SSLCommerz চালুর আগে Store ID, password ও Sandbox/Live মোড মিলিয়ে দিন।" };
+    }
+    const { error } = await manager.db.rpc("replace_portal_gateway_key", {
+      p_tenant: madrasaId,
+      p_key: "payment_gateway_config",
+      p_before: currentMeta.payment_gateway_config ?? null,
+      p_after: mergedConfig,
     });
 
-    if (!success) {
+    if (error) {
       return { error: "গেটওয়ে কনফিগারেশন সেভ করতে সমস্যা হয়েছে।" };
     }
 
@@ -114,6 +92,12 @@ export async function savePaymentGatewayConfig(
 /**
  * 3. Initiate Online Payment Transaction
  */
+async function paymentOwner(id: string) {
+  const i = await webIdentity();
+  if (!i || hasRole(i, teacherRoles)) return null;
+  if (hasRole(i, studentRoles)) return (await linkedStudents(i, id)).child ? i : null;
+  return (await writeGuard("finance")).allowed ? i : null;
+}
 export async function initiateOnlinePayment(params: {
   student_id: string;
   amount: number;
@@ -123,12 +107,23 @@ export async function initiateOnlinePayment(params: {
   selected_fee_ids?: string[];
 }) {
   try {
+    const principal = bdtPoisha(params.amount);
+    const owner = await paymentOwner(params.student_id);
+    if (
+      !owner ||
+      typeof params.amount !== "number" ||
+      principal === null ||
+      principal <= 0 ||
+      principal > 9999999999
+    )
+      return { error: "শিক্ষার্থী, অনুমতি বা অঙ্ক সঠিক নয়।" };
     const adminClient = await createAdminClient();
 
     // 1. Fetch Student Info
     const { data: student, error: stdErr } = await adminClient
       .from("students")
       .select("id, madrasa_id, first_name, last_name, roll_number, class_name, parent_phone, classes(name)")
+      .eq("madrasa_id", owner.tenant)
       .eq("id", params.student_id)
       .single();
 
@@ -137,37 +132,45 @@ export async function initiateOnlinePayment(params: {
     }
 
     const madrasaId = student.madrasa_id;
-    const meta = await getMadrasaMetadata(madrasaId);
-    const config: PaymentGatewayConfig =
-      meta.payment_gateway_config || DEFAULT_GATEWAY_CONFIG;
-
+    const config = await getFullPaymentGatewayConfig(madrasaId);
+    const channelKey = (
+      {
+        bKash: "bkash",
+        Nagad: "nagad",
+        Rocket: "rocket",
+        "Islami Bank": "islami_bank",
+        "Card / Other": "cards",
+      } as const
+    )[params.payment_channel];
+    if (!channelKey || !config.enabled_methods[channelKey]) return { error: "পেমেন্ট মাধ্যম বা অঙ্ক সঠিক নয়।" };
     if (!config.is_enabled) {
       return {
         error: "অনলাইন পেমেন্ট গেটওয়ে বর্তমানে সাময়িকভাবে স্থগিত রয়েছে।",
       };
     }
 
-    const clsObj: any = Array.isArray(student.classes)
-      ? student.classes[0]
-      : student.classes;
+    const clsObj: any = Array.isArray(student.classes) ? student.classes[0] : student.classes;
     const studentName = `${student.first_name || ""} ${student.last_name || ""}`.trim();
     const className = student.class_name || clsObj?.name || "সাধারণ";
     const studentRoll = student.roll_number ? String(student.roll_number) : "";
 
     // Generate unique transaction reference
     const now = new Date();
-    const dateStr = toDhakaMonthString(now).replace("-", ""); // P2-Fix: YYYYMM ঢাকা টাইমজোনে
-    const randSuffix = Math.floor(100000 + Math.random() * 900000);
-    const transactionId = `TXN-${dateStr}-${randSuffix}`;
+    const transactionId = `TXN-${randomBytes(12).toString("hex")}`;
 
     // Calculate convenience fee if applicable
-    const convPercent = config.convenience_fee_percent || 0;
+    const convPercent = config.convenience_fee_percent ?? 0;
+    if (!Number.isFinite(convPercent) || convPercent < 0 || convPercent > 100)
+      return { error: "গেটওয়ে চার্জের হার সঠিক নয়।" };
     const convenienceFee = Math.round((params.amount * convPercent) / 100);
-    const totalPayable = params.amount + convenienceFee;
+    const totalPayable = (principal + convenienceFee * 100) / 100;
 
     // Get allocations based on selected_fee_ids or auto-match
     const feeProfile = await getStudentFeeProfile(params.student_id);
-    const unpaidFees = feeProfile ? feeProfile.fees.filter((f) => f.due_amount > 0) : [];
+    if (!feeProfile) return { error: "বিলের তথ্য যাচাই করা যায়নি।" };
+    const unpaidFees = feeProfile.fees.filter((f) => Number(f.due_amount) > 0);
+    if (params.selected_fee_ids?.some((id) => !unpaidFees.some((f) => f.id === id)))
+      return { error: "নির্বাচিত বিল আর বকেয়া নেই।" };
 
     const allocations: {
       student_fee_id?: string;
@@ -177,46 +180,27 @@ export async function initiateOnlinePayment(params: {
       allocated_amount: number;
     }[] = [];
 
-    let remaining = params.amount;
-
-    if (params.selected_fee_ids && params.selected_fee_ids.length > 0) {
-      for (const feeId of params.selected_fee_ids) {
-        const target = unpaidFees.find((f) => f.id === feeId);
-        if (target && remaining > 0) {
-          const allocAmt = Math.min(remaining, target.due_amount);
-          allocations.push({
-            student_fee_id: target.id,
-            fee_type_id: target.fee_type_id,
-            fee_type_name: target.fee_type_name,
-            billing_period: target.billing_period,
-            allocated_amount: allocAmt,
-          });
-          remaining -= allocAmt;
-        }
-      }
-    } else {
-      // Auto match
-      for (const target of unpaidFees) {
-        if (remaining <= 0) break;
-        const allocAmt = Math.min(remaining, target.due_amount);
-        allocations.push({
-          student_fee_id: target.id,
-          fee_type_id: target.fee_type_id,
-          fee_type_name: target.fee_type_name,
-          billing_period: target.billing_period,
-          allocated_amount: allocAmt,
-        });
-        remaining -= allocAmt;
-      }
-    }
-
-    if (remaining > 0 || allocations.length === 0) {
+    if (params.selected_fee_ids && new Set(params.selected_fee_ids).size !== params.selected_fee_ids.length)
+      return { error: "একই বিল একাধিকবার নির্বাচন করা হয়েছে।" };
+    const selected = params.selected_fee_ids?.length
+      ? params.selected_fee_ids.map((id) => unpaidFees.find((f) => f.id === id)!)
+      : unpaidFees;
+    // Work in poisha; no silent overpayment or unallocated dummy fee.
+    let poisha = principal;
+    for (const fee of selected) {
+      const cents = Math.min(poisha, Math.round(100 * Number(fee.due_amount)));
+      if (cents <= 0) continue;
       allocations.push({
-        fee_type_name: "অনলাইন বেতন ও ফি",
-        billing_period: "চলতি মাস",
-        allocated_amount: remaining > 0 ? remaining : params.amount,
+        student_fee_id: fee.id,
+        fee_type_id: fee.fee_type_id,
+        fee_type_name: fee.fee_type_name,
+        billing_period: fee.billing_period,
+        allocated_amount: cents / 100,
       });
+      poisha -= cents;
+      if (!poisha) break;
     }
+    if (poisha || !allocations.length) return { error: "অঙ্কটি নির্বাচিত বিলের বকেয়ার চেয়ে বেশি।" };
 
     const newTxn: OnlinePaymentTransaction = {
       id: `otxn_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -230,7 +214,7 @@ export async function initiateOnlinePayment(params: {
       convenience_fee: convenienceFee,
       total_payable: totalPayable,
       payment_channel: params.payment_channel,
-      provider: config.active_provider,
+      provider: params.payment_channel === "Islami Bank" ? "DIRECT_ISLAMI_BANK" : config.active_provider,
       status: "PENDING",
       payer_phone: params.payer_phone,
       notes: params.notes,
@@ -245,15 +229,11 @@ export async function initiateOnlinePayment(params: {
         return { error: ibCheck.error || "ইসলামী ব্যাংক একাউন্ট নম্বর সেটিংসে কনফিগার করা নেই।" };
       }
 
-      // Save transaction in online_transactions array in metadata
-      const existingTransactions: OnlinePaymentTransaction[] =
-        meta.online_transactions || [];
-      existingTransactions.unshift(newTxn);
-
-      await saveMadrasaMetadata(madrasaId, {
-        ...meta,
-        online_transactions: existingTransactions.slice(0, 500),
+      const { error } = await adminClient.rpc("write_portal_fee_intent", {
+        p_tenant: madrasaId,
+        p_txn: newTxn,
       });
+      if (error) return { error: "বিল যাচাই বা ট্রানজেকশন সংরক্ষণ হয়নি।" };
 
       return {
         success: true,
@@ -287,8 +267,16 @@ export async function initiateOnlinePayment(params: {
       };
     }
 
+    const appUrl = paymentCallbackOrigin();
+    if (!appUrl)
+      return { error: "পেমেন্ট callback-এর জন্য এই পরিবেশের NEXT_PUBLIC_APP_URL (HTTPS origin) সেট করুন।" };
+    if (newTxn.provider === "SSLCOMMERZ") newTxn.sslcommerz_scope = sslCommerzAccount(config)!.scope;
+    const { error: saveError } = await adminClient.rpc("write_portal_fee_intent", {
+      p_tenant: madrasaId,
+      p_txn: newTxn,
+    });
+    if (saveError) return { error: "বিল যাচাই বা ট্রানজেকশন সংরক্ষণ হয়নি।" };
     // Call Real Gateway Provider API
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://qawmimanager.app";
     const sessionRes = await createRealGatewaySession(
       {
         tran_id: transactionId,
@@ -298,13 +286,13 @@ export async function initiateOnlinePayment(params: {
         cus_email: "student_fee@madrasa.internal",
         product_name: `Student Fee - ${studentName}`,
         product_category: "Education",
-        success_url: `${appUrl}/api/payments/sslcommerz/success`,
+        success_url: `${appUrl}/api/payments/sslcommerz/success?tenant=${madrasaId}`,
         fail_url: `${appUrl}/api/payments/sslcommerz/fail`,
         cancel_url: `${appUrl}/api/payments/sslcommerz/cancel`,
-        ipn_url: `${appUrl}/api/payments/sslcommerz/ipn`,
+        ipn_url: `${appUrl}/api/payments/sslcommerz/ipn?tenant=${madrasaId}`,
         payment_channel: params.payment_channel,
       },
-      config
+      config,
     );
 
     if (!sessionRes.success || !sessionRes.gateway_url) {
@@ -314,16 +302,6 @@ export async function initiateOnlinePayment(params: {
           "পেমেন্ট গেটওয়ে সার্ভার থেকে কোনো ভ্যালিড পেমেন্ট লিঙ্ক তৈরি করা যায়নি। ক্রেডেনশিয়ালস বা সংযোগ যাচাই করুন।",
       };
     }
-
-    // Save transaction in online_transactions array in metadata
-    const existingTransactions: OnlinePaymentTransaction[] =
-      meta.online_transactions || [];
-    existingTransactions.unshift(newTxn);
-
-    await saveMadrasaMetadata(madrasaId, {
-      ...meta,
-      online_transactions: existingTransactions.slice(0, 500),
-    });
 
     return {
       success: true,
@@ -344,262 +322,8 @@ export async function initiateOnlinePayment(params: {
 /**
  * 4. Verify & Settle Online Payment (completes transaction, generates receipt, updates fee records)
  */
-export async function verifyAndCompleteOnlinePayment(params: {
-  transaction_id: string;
-  gateway_ref?: string;
-  bank_tran_id?: string;
-  payer_phone?: string;
-  is_simulated?: boolean;
-}) {
-  try {
-    const adminClient = await createAdminClient();
-
-    // Look for madrasa with this transaction
-    const { data: madrasas } = await adminClient
-      .from("madrasas")
-      .select("id, name, registration_no");
-
-    if (!madrasas || madrasas.length === 0) {
-      return { error: "মাদরাসার তথ্য পাওয়া যায়নি।" };
-    }
-
-    let targetMadrasa: any = null;
-    let targetMeta: any = null;
-    let targetTxn: OnlinePaymentTransaction | null = null;
-    let txnIndex = -1;
-
-    for (const m of madrasas) {
-      if (m.registration_no && m.registration_no.startsWith("{")) {
-        try {
-          const parsed = JSON.parse(m.registration_no);
-          const txns: OnlinePaymentTransaction[] = parsed.online_transactions || [];
-          const idx = txns.findIndex((t) => t.transaction_id === params.transaction_id);
-          if (idx >= 0) {
-            targetMadrasa = m;
-            targetMeta = parsed;
-            targetTxn = txns[idx];
-            txnIndex = idx;
-            break;
-          }
-        } catch {}
-      }
-    }
-
-    if (!targetMadrasa || !targetTxn) {
-      return { error: "ট্রানজেকশন তথ্য পাওয়া যায়নি।" };
-    }
-
-    if (targetTxn.status === "SUCCESS") {
-      return {
-        success: true,
-        already_paid: true,
-        message: "এই পেমেন্টটি ইতিমধ্যে পরিশোধিত হয়েছে।",
-        receipt_no: targetTxn.receipt_no,
-        transaction_id: targetTxn.transaction_id,
-      };
-    }
-
-    // 0. Strict Gateway Verification
-    const config = await getFullPaymentGatewayConfig();
-    const isGatewaySimulated = Boolean(params.is_simulated);
-
-    // ⛔ সিকিউরিটি ফিক্স: এই ফাংশনটি `"use server"` ফাইলে export করা, অর্থাৎ ব্রাউজার
-    // থেকে সরাসরি RPC-তে কলযোগ্য। আগে:
-    //   • `is_simulated: true` দিয়ে যেকোনো **লগইন করা** ব্যবহারকারী (এমনকি অভিভাবকও)
-    //     ট্রানজেকশন SUCCESS বানাতে পারত — কোনো finance permission যাচাই ছিল না।
-    //   • SSLCOMMERZ ছাড়া অন্য প্রোভাইডারে (SHURJOPAY / BKASH_CHECKOUT / AAMARPAY /
-    //     DIRECT_ISLAMI_BANK) কোনো সার্ভার-সাইড ভ্যালিডেশনই নেই — শুধু একটি
-    //     transaction_id জানলেই পেমেন্ট "সফল" হয়ে যেত।
-    // এখন: সিমুলেশন অথবা নন-SSLCommerz (ম্যানুয়াল) ভেরিফিকেশনে `finance` পারমিশন
-    // বাধ্যতামূলক। SSLCommerz-এর আসল গেটওয়ে কলব্যাক (৩য় পক্ষ) আগের মতোই ভ্যালিডেশন
-    // করে, তাই সেখানে লগইন ছাড়াও কাজ করবে।
-    const requiresManualAuthorization =
-      isGatewaySimulated || targetTxn.provider !== "SSLCOMMERZ";
-
-    if (requiresManualAuthorization) {
-      const manualAuth = await writeGuard("finance");
-      if (!manualAuth.allowed) {
-        return {
-          error: manualAuth.error ||
-            "এই পেমেন্টটি ম্যানুয়ালি সম্পন্ন করার অনুমতি নেই। শুধুমাত্র finance অনুমতিপ্রাপ্ত অ্যাকাউন্ট পারবে।",
-        };
-      }
-    }
-
-    if (isGatewaySimulated) {
-      if (config.environment === "LIVE") {
-        return { error: "লাইভ প্রোডাকশন সিস্টেমে টেস্ট পেমেন্ট সিমুলেশন কঠোরভাবে নিষিদ্ধ।" };
-      }
-    } else if (targetTxn.provider === "SSLCOMMERZ") {
-      const valId = params.gateway_ref || params.bank_tran_id;
-      if (!valId) {
-        return { error: "SSLCommerz ভ্যালিডেশন আইডি (val_id) অনুপস্থিত। পেমেন্ট সম্পন্ন করা সম্ভব নয়।" };
-      }
-      const validation = await validateSSLCommerzTransaction(valId, config);
-      if (!validation.is_valid || validation.status !== "VALID") {
-        return { error: validation.error_message || "SSLCommerz গেটওয়ে থেকে পেমেন্ট ভ্যালিডেশন সম্পন্ন হয়নি।" };
-      }
-      if (validation.tran_id && validation.tran_id !== targetTxn.transaction_id) {
-        return { error: "গেটওয়ের ট্রানজেকশন আইডি এবং মাদরাসার ট্রানজেকশন আইডি মেলেনি।" };
-      }
-      if (validation.amount && Math.abs(validation.amount - targetTxn.total_payable) > 2) {
-        return { error: "পরিশোধিত টাকার পরিমাণ এবং দাবিকৃত ফি এর মিল নেই।" };
-      }
-    }
-
-    const madrasaId = targetMadrasa.id;
-    const now = new Date().toISOString();
-
-    // 1. Generate Atomic Unique Serial Receipt Number from relational table
-    const currentYear = getDhakaYear();
-    const receiptNo = await generateNextReceiptNumber(adminClient, madrasaId, currentYear);
-
-    // 2. Update Student Fees
-    const feeMeta = await getFeeMetadata(madrasaId);
-    const studentFees = [...(feeMeta.student_fees || [])];
-    const finalAllocations: PaymentAllocation[] = [];
-
-    if (targetTxn.allocations && targetTxn.allocations.length > 0) {
-      for (const alloc of targetTxn.allocations) {
-        finalAllocations.push({
-          student_fee_id: alloc.student_fee_id,
-          fee_type_id: alloc.fee_type_id,
-          fee_type_name: alloc.fee_type_name,
-          billing_period: alloc.billing_period,
-          allocated_amount: alloc.allocated_amount,
-        });
-
-        if (alloc.student_fee_id) {
-          const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
-          if (feeIdx >= 0) {
-            const target = studentFees[feeIdx];
-            const newPaid = (target.paid_amount || 0) + alloc.allocated_amount;
-            const newDue = Math.max(0, target.payable_amount - newPaid);
-            studentFees[feeIdx] = {
-              ...target,
-              paid_amount: newPaid,
-              due_amount: newDue,
-              status: newDue === 0 ? "PAID" : "PARTIAL",
-              updated_at: now,
-            };
-          }
-        }
-      }
-    }
-
-    // Map payment channel to standard PaymentMethod
-    let paymentMethodCode: "bKash" | "Nagad" | "Rocket" | "Bank" | "Other" = "bKash";
-    if (targetTxn.payment_channel === "Nagad") paymentMethodCode = "Nagad";
-    else if (targetTxn.payment_channel === "Rocket") paymentMethodCode = "Rocket";
-    else if (targetTxn.payment_channel === "Islami Bank") paymentMethodCode = "Bank";
-    else if (targetTxn.payment_channel === "Card / Other") paymentMethodCode = "Other";
-
-    // 3. Create Official Payment Receipt Record
-    const newPayment: FeePayment = {
-      id: `pay_online_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      receipt_no: receiptNo,
-      madrasa_id: madrasaId,
-      session_id: "online",
-      student_id: targetTxn.student_id,
-      student_name: targetTxn.student_name,
-      student_roll: targetTxn.student_roll,
-      class_name: targetTxn.class_name,
-      total_amount_received: targetTxn.amount,
-      payment_date: toDhakaDateStringFrom(now),
-      payment_method: paymentMethodCode,
-      transaction_ref: params.gateway_ref || targetTxn.transaction_id,
-      allocations: finalAllocations,
-      discount_total: 0,
-      fine_total: 0,
-      advance_amount: 0,
-      collector_name: `অনলাইন গেটওয়ে (${targetTxn.payment_channel})`,
-      notes: `[অনলাইন ট্রানজেকশন ID: ${targetTxn.transaction_id}] ${targetTxn.notes || ""}`,
-      status: "COMPLETED",
-      created_at: now,
-    };
-
-    const payments = [...(feeMeta.payments || [])];
-    payments.unshift(newPayment);
-
-    // 4. Update the Online Transaction status to SUCCESS
-    const updatedTxn: OnlinePaymentTransaction = {
-      ...targetTxn,
-      status: "SUCCESS",
-      receipt_no: receiptNo,
-      gateway_ref: params.gateway_ref || targetTxn.transaction_id,
-      bank_tran_id: params.bank_tran_id || `BANK-${Date.now()}`,
-      payer_phone: params.payer_phone || targetTxn.payer_phone,
-      completed_at: now,
-    };
-
-    const txns = targetMeta.online_transactions || [];
-    txns[txnIndex] = updatedTxn;
-
-    // 5. Insert into Supabase `fees` table for backwards compatibility
-    const { data: dbFee } = await adminClient.from("fees").insert({
-      madrasa_id: madrasaId,
-      student_id: targetTxn.student_id,
-      fee_type: "Monthly",
-      amount: targetTxn.amount,
-      payment_date: toDhakaDateStringFrom(now),
-      fee_month: new Date().toLocaleString("en-US", { month: "long" }),
-      fee_year: currentYear,
-      notes: `[অনলাইন পেমেন্ট: ${receiptNo} | Trx: ${targetTxn.transaction_id}]`,
-    }).select("id").single();
-
-    if (dbFee?.id) {
-      newPayment.db_fee_id = dbFee.id;
-    }
-
-    // 6. Save fee metadata and relational records
-    await saveFeeMetadata(madrasaId, {
-      student_fees: studentFees,
-      payments: payments.slice(0, 500),
-    });
-
-    // 7. Save online transactions into madrasa metadata
-    await saveMadrasaMetadata(madrasaId, {
-      ...targetMeta,
-      online_transactions: txns.slice(0, 500),
-    });
-
-    revalidatePath("/dashboard/accounting");
-    revalidatePath("/dashboard/accounting/fees");
-    revalidatePath("/dashboard/accounting/payments");
-    revalidatePath("/dashboard/accounting/due");
-    revalidatePath("/portal/fees");
-
-    // Non-blocking webhook event for online payment confirmation (Feature 2.4)
-    try {
-      const { dispatchWebhookEvent } = await import("@/lib/webhooks/dispatcher");
-      await dispatchWebhookEvent(madrasaId, "payment.confirmed", {
-        receipt_no: receiptNo,
-        transaction_id: targetTxn.transaction_id,
-        student_id: targetTxn.student_id,
-        student_name: targetTxn.student_name,
-        amount: targetTxn.amount,
-        payment_channel: targetTxn.payment_channel,
-        payment_date: toDhakaDateStringFrom(now),
-        status: "COMPLETED",
-      });
-    } catch {
-      // non-blocking webhook dispatch
-    }
-
-    return {
-      success: true,
-      message: "আলহামদুলিল্লাহ! আপনার ফি পেমেন্ট সফলভাবে সম্পন্ন হয়েছে।",
-      receipt_no: receiptNo,
-      transaction_id: targetTxn.transaction_id,
-      amount: targetTxn.amount,
-      student_name: targetTxn.student_name,
-      payment_date: toDhakaDateStringFrom(now),
-      payment_channel: targetTxn.payment_channel,
-    };
-  } catch (err: any) {
-    console.error("Error in verifyAndCompleteOnlinePayment:", err);
-    return { error: err.message || "পেমেন্ট ভেরিফিকেশনে ত্রুটি হয়েছে।" };
-  }
+export async function verifyAndCompleteOnlinePayment(params: FeeVerificationInput) {
+  return verifyInteractiveFee(params);
 }
 
 /**
@@ -607,16 +331,13 @@ export async function verifyAndCompleteOnlinePayment(params: {
  */
 export async function getOnlinePaymentHistory(limit: number = 50) {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    let madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
-
-    // P2-Fix: first-madrasa fallback সরানো — user-এর মাদরাসা নেই → খালি তালিকা (fail-closed)
-    if (!madrasaId) return [];
-
+    const i = await webIdentity();
+    if (!i || hasRole(i, [...studentRoles, ...teacherRoles]) || !(await writeGuard("finance")).allowed)
+      return [];
+    const madrasaId = i.tenant;
     const meta = await getMadrasaMetadata(madrasaId);
     const txns: OnlinePaymentTransaction[] = meta.online_transactions || [];
-    return txns.slice(0, limit);
+    return txns.slice(0, Math.max(0, Math.min(limit, 500)));
   } catch (err) {
     console.error("Error in getOnlinePaymentHistory:", err);
     return [];
@@ -628,10 +349,13 @@ export async function getOnlinePaymentHistory(limit: number = 50) {
  */
 export async function getStudentPublicFeeInfo(studentId: string) {
   try {
+    const owner = await paymentOwner(studentId);
+    if (!owner) return null;
     const adminClient = await createAdminClient();
     const { data: student, error: stdErr } = await adminClient
       .from("students")
       .select("id, madrasa_id, first_name, last_name, roll_number, class_name, parent_phone, classes(name)")
+      .eq("madrasa_id", owner.tenant)
       .eq("id", studentId)
       .single();
 
@@ -642,17 +366,16 @@ export async function getStudentPublicFeeInfo(studentId: string) {
     // Get madrasa info
     const { data: madrasa } = await adminClient
       .from("madrasas")
-      .select("id, name, address, phone")
+      .select("*")
       .eq("id", student.madrasa_id)
       .single();
 
     // Get fee profile
     const feeProfile = await getStudentFeeProfile(student.id);
-    const config = await getFullPaymentGatewayConfig();
+    if (!feeProfile) return null;
+    const config = await getFullPaymentGatewayConfig(owner.tenant);
 
-    const clsObj: any = Array.isArray(student.classes)
-      ? student.classes[0]
-      : student.classes;
+    const clsObj: any = Array.isArray(student.classes) ? student.classes[0] : student.classes;
 
     return {
       student: {
@@ -690,14 +413,9 @@ export async function getStudentPublicFeeInfo(studentId: string) {
  * 7. Test Gateway Credentials Action
  */
 export async function testGatewayCredentialsAction(config: PaymentGatewayConfig) {
-  // ⛔ ক্লায়েন্ট-সরবরাহকৃত কনফিগ নিয়ে গেটওয়ে endpoint-এ রিকোয়েস্ট যায় — finance
-  // পারমিশন ছাড়া এটি SSRF/অপব্যবহারের মাধ্যম হতে পারত।
-  {
-    const __authz = await writeGuard("finance");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
   try {
+    if (!(await gatewayManagerIdentity()))
+      return { success: false, error: "গেটওয়ে কনফিগারেশন যাচাইয়ের অনুমতি নেই।" };
     const credCheck = validateGatewayCredentials(config.active_provider, config);
     if (!credCheck.isValid) {
       return {
@@ -719,7 +437,7 @@ export async function testGatewayCredentialsAction(config: PaymentGatewayConfig)
         fail_url: "https://example.com/fail",
         cancel_url: "https://example.com/cancel",
       },
-      config
+      config,
     );
 
     if (!testSession.success) {
@@ -753,7 +471,7 @@ export async function testGatewayCredentialsAction(config: PaymentGatewayConfig)
 /**
  * 8. Admin Manual Verification of Pending Online Transaction
  */
-export async function verifyOnlineTransactionAsAdmin(transactionId: string) {
+export async function verifyOnlineTransactionAsAdmin(transactionId: string, validationId?: string) {
   // ⛔ CR-2: admin-finance guard — আগে এই action-টি guard-হীন ছিল, ফলে লগইন করা
   // যেকোনো ব্যবহারকারী pending ট্রানজেকশন "সফল" হিসেবে চিহ্নিত করতে পারত।
   {
@@ -763,7 +481,7 @@ export async function verifyOnlineTransactionAsAdmin(transactionId: string) {
 
   return verifyAndCompleteOnlinePayment({
     transaction_id: transactionId,
-    gateway_ref: `ADMIN-VERIFIED-${Date.now()}`,
+    gateway_ref: validationId, // SSL requires the real val_id; manual transfers use their own transaction reference.
     is_simulated: false,
   });
 }
@@ -771,10 +489,7 @@ export async function verifyOnlineTransactionAsAdmin(transactionId: string) {
 /**
  * 9. Admin Rejection of Online Transaction
  */
-export async function rejectOnlineTransactionAsAdmin(
-  transactionId: string,
-  reason?: string
-) {
+export async function rejectOnlineTransactionAsAdmin(transactionId: string, reason?: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
@@ -783,34 +498,17 @@ export async function rejectOnlineTransactionAsAdmin(
   }
 
   try {
-    const adminClient = await createAdminClient();
-    const { data: madrasas } = await adminClient
-      .from("madrasas")
-      .select("id, registration_no");
-
-    if (!madrasas) return { error: "মাদরাসার তথ্য পাওয়া যায়নি" };
-
-    for (const m of madrasas) {
-      if (m.registration_no && m.registration_no.startsWith("{")) {
-        try {
-          const parsed = JSON.parse(m.registration_no);
-          const txns: OnlinePaymentTransaction[] = parsed.online_transactions || [];
-          const idx = txns.findIndex((t) => t.transaction_id === transactionId);
-          if (idx >= 0) {
-            txns[idx].status = "FAILED";
-            txns[idx].notes = `[অ্যাডমিন কর্তৃক বাতিল: ${reason || "অননুমোদিত বা ভুল ট্রানজেকশন"}] ${txns[idx].notes || ""}`;
-            parsed.online_transactions = txns;
-            await saveMadrasaMetadata(m.id, parsed);
-            revalidatePath("/dashboard/accounting/gateway");
-            return { success: true, message: "ট্রানজেকশনটি সফলভাবে বাতিল করা হয়েছে।" };
-          }
-        } catch {}
-      }
-    }
-
-    return { error: "ট্রানজেকশন পাওয়া যায়নি।" };
+    const i = await webIdentity();
+    if (!i || hasRole(i, [...studentRoles, ...teacherRoles])) return { error: "অনুমতি নেই।" };
+    const { error } = await i.db.rpc("write_portal_fee_intent", {
+      p_tenant: i.tenant,
+      p_txn: { madrasa_id: i.tenant, transaction_id: transactionId, notes: reason || "প্রশাসন কর্তৃক বাতিল" },
+      p_cancel: true,
+    });
+    if (error) return { error: "অপেক্ষমাণ ট্রানজেকশন পাওয়া যায়নি।" };
+    revalidatePath("/dashboard/accounting/gateway");
+    return { success: true, message: "ট্রানজেকশন বাতিল হয়েছে।" };
   } catch (err: any) {
     return { error: err.message || "বাতিল করতে সমস্যা হয়েছে।" };
   }
 }
-

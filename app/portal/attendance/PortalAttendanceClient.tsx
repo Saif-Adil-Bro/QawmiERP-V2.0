@@ -1,4 +1,5 @@
 "use client";
+import {attendanceStats} from '@/lib/portal/rules';
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -11,13 +12,12 @@ import {
   CalendarCheck,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
 
 interface PortalAttendanceClientProps {
   students: any[];
   child: any;
-  attendanceLogs: any[];
+  attendanceLogs: any[];month?:string;
 }
 
 type AttendanceFilter = "all" | "Present" | "Absent" | "Other";
@@ -46,7 +46,7 @@ function formatBanglaAttendanceDate(dateStr?: string | null): string {
 export default function PortalAttendanceClient({
   students,
   child,
-  attendanceLogs,
+  attendanceLogs,month,
 }: PortalAttendanceClientProps) {
   const offlineSnapshot = useOfflinePortalSnapshot();
   const [filter, setFilter] = useState<AttendanceFilter>("all");
@@ -56,27 +56,10 @@ export default function PortalAttendanceClient({
     setMounted(true);
   }, []);
 
-  useEffect(() => {
-    if (!attendanceLogs?.length) return;
-    seedPortalOfflineCache("student", { attendance: attendanceLogs });
-  }, [attendanceLogs]);
 
-  const effectiveLogs = useMemo(() => {
-    if (attendanceLogs.length > 0) return attendanceLogs;
-    if (!offlineSnapshot?.attendance?.length) return [];
-    return offlineSnapshot.attendance
-      .filter((a: any) => !child?.id || a.student_id === child.id)
-      .sort((a: any, b: any) => String(b.date || "").localeCompare(String(a.date || "")));
-  }, [attendanceLogs, offlineSnapshot?.attendance, child?.id]);
 
-  const totalDays = effectiveLogs.length;
-  const presentDays = effectiveLogs.filter((log: any) => log.status === "Present").length;
-  const absentDays = effectiveLogs.filter((log: any) => log.status === "Absent").length;
-  const lateDays = effectiveLogs.filter((log: any) => log.status === "Late").length;
-  const leaveDays = effectiveLogs.filter((log: any) => log.status === "Leave").length;
-  const attendancePercentage =
-    totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
-
+  const effectiveLogs=offlineSnapshot && offlineSnapshot.activeStudent?.id===child.id ? offlineSnapshot.attendance.filter(a=>!month || a.date.startsWith(month)) : attendanceLogs;
+  const {total:totalDays,present:presentDays,absent:absentDays,late:lateDays,leave:leaveDays,percentage:attendancePercentage} = attendanceStats(effectiveLogs);
   const filteredLogs = useMemo(() => {
     if (filter === "all") return effectiveLogs;
     if (filter === "Present") return effectiveLogs.filter((l: any) => l.status === "Present");
@@ -155,7 +138,7 @@ export default function PortalAttendanceClient({
             {students.map((s: any) => (
               <Link
                 key={s.id}
-                href={`/portal/attendance?student_id=${s.id}`}
+                href={`/portal/attendance?student_id=${s.id}${month ? `&month=${month}` : ''}`}
                 className={`min-h-[44px] sm:min-h-0 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 shrink-0 ${
                   s.id === child.id
                     ? "bg-emerald-600 text-white shadow-xs"
@@ -228,7 +211,7 @@ export default function PortalAttendanceClient({
           <div className="min-w-0">
             <p className="text-[11px] font-semibold text-purple-600">উপস্থিতির হার</p>
             <p className="text-lg sm:text-2xl font-bold text-purple-800">
-              {toBanglaNumber(attendancePercentage)}%
+              {attendancePercentage === null ? '—' : `${toBanglaNumber(attendancePercentage)}%`}
             </p>
           </div>
         </div>

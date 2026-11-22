@@ -6,6 +6,7 @@ import { getClassSubjects } from "@/app/actions/class_subjects";
 import { Search, ArrowUpDown, CheckCircle, Clock, ListFilter } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { sortStudentsByRoll } from "@/lib/student-utils";
+import { useExamLock } from "@/hooks/useExamLock";
 import ExamLockToggle from "../../ExamLockToggle";
 
 interface MarksEntryClientProps {
@@ -29,10 +30,13 @@ export default function MarksEntryClient({
   lockReason = null,
   canManageLocks = false,
 }: MarksEntryClientProps) {
-  const [isLocked, setIsLocked] = useState<boolean>(initialLocked);
+  const {readOnly: isLocked, unavailable, observe, observeFailure} = useExamLock(examId, initialLocked);
   const [classId, setClassId] = useState("");
   const [subjectName, setSubjectName] = useState("");
-  const [students, setStudents] = useState<any[]>([]);
+  const [saved, setSaved] = useState<any[]>([]);
+  const [edited, setStudents] = useState<any[]>([]);
+  const students = isLocked ? saved : edited;
+  const [loadRequest, setLoadRequest] = useState(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -45,12 +49,16 @@ export default function MarksEntryClient({
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
+    let active = true;
+    setLoadRequest(0);
+    setSaved([]);
     if (classId) {
       // Fetch both standard class subjects and exam-specific setup
       Promise.all([
         getClassSubjects(classId),
         getExamSubjects(examId, classId)
       ]).then(([classSubjData, examSubjData]) => {
+        if (!active) return;
         let finalSubjects = [];
         if (examSubjData && examSubjData.length > 0) {
           finalSubjects = examSubjData.map((s: any) => ({ id: s.id, name: s.subject_name }));
@@ -69,29 +77,24 @@ export default function MarksEntryClient({
       setSubjectName("");
       setStudents([]);
     }
+    return () => { active = false; };
   }, [classId, examId]);
 
-  const loadStudents = async () => {
-    if (!classId || !subjectName) {
-      alert("ক্লাস এবং বিষয়ের নাম নির্বাচন করুন।");
-      return;
-    }
+  useEffect(() => {
+    if (!loadRequest || !classId || !subjectName) { setLoading(false); return; }
+    let active = true;
     setLoading(true);
     setMessage(null);
-    const data = await getExamResults(examId, classId, subjectName);
-    
-    // Auto-fill total marks if set in exam setup
-    const setupInfo = examSubjectsDetails.find(s => s.subject_name === subjectName);
-    const configuredTotal = setupInfo ? setupInfo.total_marks : 100;
-    
-    const studentsWithMarks = data.map((student: any) => ({
-      ...student,
-      total_marks: student.total_marks || configuredTotal
-    }));
-    
-    setStudents(studentsWithMarks);
-    setLoading(false);
-  };
+    getExamResults(examId, classId, subjectName).then(data => {
+      if (!active) return;
+      const configured = examSubjectsDetails.find(s => s.subject_name === subjectName)?.total_marks;
+      const rows = data.map((student: any) => ({ ...student, total_marks: student.total_marks ?? configured ?? 100 }));
+      setSaved(rows);
+      setStudents(configured != null ? rows.map(s => ({ ...s, total_marks: configured })) : rows);
+    }).catch(() => { if (active) setMessage({type: "error", text: "নম্বর পড়া যায়নি। আবার চেষ্টা করুন।"}); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [examId, classId, subjectName, examSubjectsDetails, loadRequest, isLocked]);
 
   const handleMarksChange = (studentId: string, field: 'marks_obtained' | 'total_marks' | 'written_marks' | 'oral_marks' | 'tutorial_marks' | 'attendance_marks', value: string) => {
     if (isLocked) return;
@@ -136,10 +139,10 @@ export default function MarksEntryClient({
         student_id: s.id,
         marks_obtained: Number(s.marks_obtained),
         total_marks: Number(s.total_marks || 100),
-        written_marks: Number(s.written_marks) || 0,
-        oral_marks: Number(s.oral_marks) || 0,
-        tutorial_marks: Number(s.tutorial_marks) || 0,
-        attendance_marks: Number(s.attendance_marks) || 0
+        written_marks: s.written_marks === '' || s.written_marks == null ? null : Number(s.written_marks),
+        oral_marks: s.oral_marks === '' || s.oral_marks == null ? null : Number(s.oral_marks),
+        tutorial_marks: s.tutorial_marks === '' || s.tutorial_marks == null ? null : Number(s.tutorial_marks),
+        attendance_marks: s.attendance_marks === '' || s.attendance_marks == null ? null : Number(s.attendance_marks)
       }));
 
     if (marksData.length === 0) {
@@ -149,9 +152,10 @@ export default function MarksEntryClient({
     }
 
     try {
-      const result = await saveExamMarks(examId, subjectName, marksData);
+      const result = await saveExamMarks(examId, subjectName, marksData,classId);
       
       if (result?.error) {
+        if ("code" in result) observeFailure(result.code);
         setMessage({ type: 'error', text: result.error });
       } else {
         setMessage({ type: 'success', text: 'নম্বর সফলভাবে সেভ করা হয়েছে!' });
@@ -213,7 +217,7 @@ export default function MarksEntryClient({
 
   return (
     <div className="space-y-6">
-      <ExamLockToggle
+      {unavailable ? <p role="status">পরীক্ষার লক অবস্থা যাচাই করা যায়নি। আপাতত নম্বর শুধু দেখা যাবে।</p> : <ExamLockToggle
         examId={examId}
         examTitle={examTitle}
         initialLocked={isLocked}
@@ -222,8 +226,8 @@ export default function MarksEntryClient({
         lockReason={lockReason}
         canManageLocks={canManageLocks}
         size="full"
-        onStatusChange={(locked) => setIsLocked(locked)}
-      />
+        onStatusChange={observe}
+      />}
 
       {message && (
         <div className={`p-4 rounded-md text-sm font-medium ${message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
@@ -236,7 +240,7 @@ export default function MarksEntryClient({
           <label className="block text-sm font-medium text-slate-700 mb-1">ক্লাস</label>
           <select 
             value={classId}
-            onChange={(e) => setClassId(e.target.value)}
+            onChange={(e) => { setClassId(e.target.value); setSubjectName(""); setSaved([]); setStudents([]); setLoadRequest(0); }}
             className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white"
           >
             <option value="">নির্বাচন করুন</option>
@@ -250,7 +254,7 @@ export default function MarksEntryClient({
           <label className="block text-sm font-medium text-slate-700 mb-1">বিষয়</label>
           <select 
             value={subjectName}
-            onChange={(e) => { setSubjectName(e.target.value); setStudents([]); }}
+            onChange={(e) => { setSubjectName(e.target.value); setSaved([]); setStudents([]); setLoadRequest(0); }}
             className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white"
             disabled={!classId}
           >
@@ -263,7 +267,7 @@ export default function MarksEntryClient({
 
         <div className="w-full sm:w-1/3">
           <button 
-            onClick={loadStudents}
+            onClick={() => setLoadRequest(n => n + 1)}
             disabled={!classId || !subjectName || loading}
             className="w-full px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50 transition disabled:opacity-50 font-medium shadow-sm"
           >
@@ -285,7 +289,7 @@ export default function MarksEntryClient({
             </div>
             <button 
               onClick={handleSave}
-              disabled={saving || isLocked}
+              disabled={saving || loading || isLocked}
               className="px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm font-medium shrink-0 shadow-xs"
             >
               {isLocked ? "পরীক্ষা লকড (ফ্রিজ)" : saving ? "সেভ হচ্ছে..." : "সব সেভ করুন"}
@@ -394,7 +398,7 @@ export default function MarksEntryClient({
                         type="number" 
                         value={student.total_marks}
                         onChange={(e) => handleMarksChange(student.id, 'total_marks', e.target.value)}
-                        disabled={isLocked}
+                        disabled={loading || isLocked || !!examSubjectsDetails.length}
                         className="w-full px-2 py-1.5 border rounded focus:outline-none focus:ring-1 focus:ring-slate-900 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                       />
@@ -404,7 +408,7 @@ export default function MarksEntryClient({
                         type="number" 
                         value={student.written_marks}
                         onChange={(e) => handleMarksChange(student.id, 'written_marks', e.target.value)}
-                        disabled={isLocked}
+                        disabled={loading || isLocked}
                         className="w-full px-2 py-1.5 border border-orange-200 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 bg-orange-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                         placeholder="0"
@@ -415,7 +419,7 @@ export default function MarksEntryClient({
                         type="number" 
                         value={student.oral_marks}
                         onChange={(e) => handleMarksChange(student.id, 'oral_marks', e.target.value)}
-                        disabled={isLocked}
+                        disabled={loading || isLocked}
                         className="w-full px-2 py-1.5 border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-blue-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                         placeholder="0"
@@ -426,7 +430,7 @@ export default function MarksEntryClient({
                         type="number" 
                         value={student.tutorial_marks}
                         onChange={(e) => handleMarksChange(student.id, 'tutorial_marks', e.target.value)}
-                        disabled={isLocked}
+                        disabled={loading || isLocked}
                         className="w-full px-2 py-1.5 border border-purple-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-purple-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                         placeholder="0"
@@ -437,7 +441,7 @@ export default function MarksEntryClient({
                         type="number" 
                         value={student.attendance_marks}
                         onChange={(e) => handleMarksChange(student.id, 'attendance_marks', e.target.value)}
-                        disabled={isLocked}
+                        disabled={loading || isLocked}
                         className="w-full px-2 py-1.5 border border-green-200 rounded focus:outline-none focus:ring-1 focus:ring-green-500 bg-green-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                         placeholder="0"
@@ -448,7 +452,7 @@ export default function MarksEntryClient({
                         type="number" 
                         value={student.marks_obtained}
                         onChange={(e) => handleMarksChange(student.id, 'marks_obtained', e.target.value)}
-                        disabled={isLocked}
+                        disabled={loading || isLocked || [student.written_marks, student.oral_marks, student.tutorial_marks, student.attendance_marks].some(v => v != null && v !== "")}
                         className="w-full px-2 py-1.5 border-2 border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-slate-900 font-bold bg-slate-50 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                         min="0"
                         placeholder="0"

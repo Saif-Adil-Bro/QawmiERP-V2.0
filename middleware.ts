@@ -1,3 +1,4 @@
+import { currentAppSession } from "./lib/current-app-session";
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -86,6 +87,7 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
           });
+          supabaseResponse = NextResponse.next({request});
           cookiesToSet.forEach(({ name, value, options }) => {
             supabaseResponse.cookies.set(name, value, {
               ...options,
@@ -118,52 +120,10 @@ export async function middleware(request: NextRequest) {
       user = error ? null : data?.user || null;
     }
 
-    const sessionId = request.cookies.get("qawmi_session_id")?.value || "";
-    let cachedMw: { uid?: string; sid?: string; role?: string; exp?: number } | null = null;
-    try {
-      const rawCache = request.cookies.get("qawmi_mw_cache")?.value;
-      if (rawCache) {
-        const parsed = JSON.parse(rawCache);
-        if (
-          parsed &&
-          parsed.uid === user?.id &&
-          parsed.sid === sessionId &&
-          typeof parsed.exp === "number" &&
-          parsed.exp > Date.now()
-        ) {
-          cachedMw = parsed;
-        }
-      }
-    } catch {
-      cachedMw = null;
-    }
-
-    // Active Session Revocation Check (Feature 1.2) — skip DB hit on soft nav if 60s cache is valid
-    if (user && !isApiRoute && !isPublicRoute && sessionId && !(isSoftNavigation && cachedMw)) {
-      const { data: sessRow, error: sessErr } = await supabase
-        .from("user_sessions")
-        .select("is_active, revoked_at, expires_at")
-        .eq("id", sessionId)
-        .maybeSingle();
-
-      if (!sessErr && sessRow) {
-        const isRevoked =
-          Boolean(sessRow.revoked_at) ||
-          sessRow.is_active === false ||
-          (sessRow.expires_at && new Date(sessRow.expires_at).getTime() <= Date.now());
-        if (isRevoked) {
-          user = null;
-          cachedMw = null;
-          supabaseResponse.cookies.delete("qawmi_session_id");
-          supabaseResponse.cookies.delete("qawmi_step_up_token");
-          supabaseResponse.cookies.delete("qawmi_mw_cache");
-          for (const c of request.cookies.getAll()) {
-            if (c.name.startsWith("sb-")) {
-              supabaseResponse.cookies.delete(c.name);
-            }
-          }
-        }
-      }
+    // API routes authenticate their own cookie/Bearer transport. Protected page
+    // navigations (including RSC) use the same issuer-bound lookup as the layouts.
+    if (user && !isApiRoute && !isPublicRoute && !isAuthRoute) {
+      if ((await currentAppSession(supabase))?.user_id !== user.id) user = null;
     }
   } catch (error) {
     console.warn("Middleware Supabase auth validation warning:", error);
@@ -182,115 +142,13 @@ export async function middleware(request: NextRequest) {
     return redirectResponse;
   }
 
-  const isDashboardRoute = isSameOrChildPath(pathname, "/dashboard");
-  const isTeacherPortalRoute = isSameOrChildPath(pathname, "/teacher-portal");
-
-  if (user && (isAuthRoute || isDashboardRoute || isTeacherPortalRoute)) {
-    const sessionId = request.cookies.get("qawmi_session_id")?.value || "";
-    let userRole: string | null = null;
-    try {
-      const rawCache = request.cookies.get("qawmi_mw_cache")?.value;
-      if (rawCache) {
-        const parsed = JSON.parse(rawCache);
-        if (
-          parsed &&
-          parsed.uid === user.id &&
-          parsed.sid === sessionId &&
-          typeof parsed.exp === "number" &&
-          parsed.exp > Date.now()
-        ) {
-          userRole = parsed.role || null;
-        }
-      }
-    } catch {
-      userRole = null;
-    }
-
-    if (!userRole) {
-      try {
-        const supabaseForRole = createServerClient(supabaseUrl, supabaseKey, {
-          cookies: {
-            getAll() {
-              return request.cookies.getAll();
-            },
-            setAll() {},
-          },
-        });
-        const { data: dbUser } = await supabaseForRole
-          .from("users")
-          .select("role")
-          .eq("id", user.id)
-          .maybeSingle();
-        if (dbUser?.role) userRole = String(dbUser.role).toLowerCase().trim();
-      } catch {
-        userRole = null;
-      }
-
-      if (!userRole) {
-        const metaRole = user.user_metadata?.role;
-        userRole = typeof metaRole === "string" ? metaRole.toLowerCase().trim() : null;
-      }
-
-      if (userRole) {
-        supabaseResponse.cookies.set(
-          "qawmi_mw_cache",
-          JSON.stringify({
-            uid: user.id,
-            sid: sessionId,
-            role: userRole,
-            exp: Date.now() + 60_000,
-          }),
-          {
-            httpOnly: true,
-            sameSite: "lax",
-            path: "/",
-            maxAge: 60,
-            secure: process.env.NODE_ENV === "production",
-          }
-        );
-      }
-    }
-
-    let targetPath = "/dashboard";
-    if (
-      userRole === "teacher" ||
-      userRole === "hifz_teacher" ||
-      userRole === "hifz_supervisor" ||
-      userRole === "ustad"
-    ) {
-      targetPath = "/teacher-portal";
-    } else if (
-      userRole === "parent" ||
-      userRole === "guardian" ||
-      userRole === "student" ||
-      userRole === "guardian_student"
-    ) {
-      targetPath = "/portal";
-    }
-
-    const shouldRedirect =
-      isAuthRoute ||
-      (isDashboardRoute && targetPath !== "/dashboard") ||
-      (isTeacherPortalRoute && targetPath === "/portal");
-
-    if (shouldRedirect) {
-      const url = request.nextUrl.clone();
-      url.pathname = targetPath;
-      const redirectResponse = NextResponse.redirect(url);
-
-      const setCookies = supabaseResponse.headers.getSetCookie();
-      for (const cookie of setCookies) {
-        redirectResponse.headers.append("set-cookie", cookie);
-      }
-      return redirectResponse;
-    }
-  }
-
+  // Layouts resolve the complete server-owned role set; never send an inactive
+  // session away from /login or infer a role from editable Auth metadata here.
   return supabaseResponse;
 }
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|fonts/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ttf|woff|woff2|otf|eot)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sw\\.js$|offline\\.html$|offline-portal\\.js$|offline-hifz\\.js$|hifz\\.css$|fonts/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ttf|woff|woff2|otf|eot)$).*)',
   ],
 };

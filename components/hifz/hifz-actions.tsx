@@ -13,7 +13,7 @@ export function HifzDeleteButton({ logId, studentId }: { logId: string; studentI
     if (confirm("আপনি কি নিশ্চিত যে এই হিফজ লগটি মুছে ফেলতে চান?")) {
       setIsDeleting(true);
       try {
-        await deleteHifzLog(logId, studentId);
+        const result=await deleteHifzLog(logId, studentId);if(result?.error)alert(result.error);
       } catch (err) {
         console.error("deleteHifzLog failed:", err);
         alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
@@ -27,7 +27,7 @@ export function HifzDeleteButton({ logId, studentId }: { logId: string; studentI
     <button
       onClick={handleDelete}
       disabled={isDeleting}
-      className="text-rose-500 hover:text-rose-700 font-medium transition flex items-center justify-center p-1.5 rounded-lg hover:bg-rose-50 disabled:opacity-50 cursor-pointer"
+      className="min-h-11 min-w-11 text-rose-500 hover:text-rose-700 font-medium transition flex items-center justify-center p-1.5 rounded-lg hover:bg-rose-50 disabled:opacity-50 cursor-pointer"
       title="লগ মুছুন"
     >
       <Trash2 className="w-4 h-4" />

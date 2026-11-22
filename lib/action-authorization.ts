@@ -1,5 +1,6 @@
+import { HEALTH_ROLES } from "@/lib/student-health/model";
 import { cache } from "react";
-import { createAdminClient, createClient, getAuthUser } from "@/lib/supabase/server";
+import { createAdminClient, getWebAppSession } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/permissions-server";
 import { logAuditEvent, type AuditSeverity } from "@/lib/audit-log";
 import type { PermissionRiskLevel } from "@/lib/permissions";
@@ -34,6 +35,7 @@ export type ModuleKey =
   | "fundraising"
   | "users"
   | "roles"
+  | "student_health"
   | "students"
   | "teachers"
   | "attendance"
@@ -74,7 +76,7 @@ type ModulePolicy = {
 };
 
 /** পোর্টাল ব্যবহারকারীরা ড্যাশবোর্ডের write action সরাসরি চালাতে পারবেন না। */
-const PORTAL_ROLES = ["student", "parent", "guardian"];
+const PORTAL_ROLES = ["student", "parent", "guardian", "guardian_student"];
 
 const FINANCE_PERMS = [
   "finance.create",
@@ -140,6 +142,7 @@ export const MODULE_POLICIES: Record<ModuleKey, ModulePolicy> = {
   },
 
   // ── পড়াশোনা ও প্রশাসন: স্টাফ রোল + সংশ্লিষ্ট পারমিশন ──────────────────────
+  student_health: { roles: HEALTH_ROLES, denyRoles: PORTAL_ROLES, errorMessage: "স্বাস্থ্য নথি দেখার বা পরিবর্তনের অনুমতি নেই।" },
   students: {
     permissions: [
       "student.create",
@@ -424,15 +427,15 @@ async function resolveGuardUncached(
   stepUpOptions?: WriteGuardStepUpOptions
 ): Promise<ActionGuardResult> {
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return denied(UNAUTHENTICATED_ERROR, "UNAUTHENTICATED");
+    const verified = await getWebAppSession();
+    if (!verified) return denied(UNAUTHENTICATED_ERROR, "UNAUTHENTICATED");
+    const {user,session} = verified;
 
     const adminClient = await createAdminClient();
     const { data: userRow, error: userErr } = await adminClient
       .from("users")
       .select("madrasa_id, full_name, email, role")
-      .eq("id", user.id)
+      .eq("id", user.id).eq("madrasa_id", session.madrasa_id)
       .maybeSingle();
 
     if (userErr) {

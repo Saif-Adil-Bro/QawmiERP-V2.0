@@ -10,7 +10,7 @@ import {
   DEFAULT_SMS_GATEWAY_CONFIG,
   SMSGatewayConfig,
   MRAM_ERROR_CODES,
-  normalizePhoneNumber,
+  dispatchSMSGatewayRequest,
 } from "@/lib/sms-gateway";
 
 export async function addNotice(formData: FormData) {
@@ -32,11 +32,14 @@ export async function addNotice(formData: FormData) {
   const content = formData.get("content") as string;
   const target_audience = formData.get("target_audience") as string;
 
+  const class_id = String(formData.get('class_id') || '') || null;
+  if (!['All','Teachers','Students'].includes(target_audience)) throw new Error('প্রাপক নির্বাচন করুন।');
+  if (class_id && !(await supabase.from('classes').select('id').eq('madrasa_id',finalMadrasaId).eq('id',class_id).maybeSingle()).data) throw new Error('অবৈধ জামাত।');
   const { error } = await supabase.from("notices").insert({
     madrasa_id: finalMadrasaId,
     title,
     content,
-    target_audience,
+    target_audience, class_id,
   });
 
   if (error) {
@@ -44,6 +47,8 @@ export async function addNotice(formData: FormData) {
   }
 
   revalidatePath("/dashboard/communication/notices");
+  revalidatePath("/portal", "layout");
+  revalidatePath("/teacher-portal", "layout");
 }
 
 export async function deleteNotice(id: string) {
@@ -55,13 +60,15 @@ export async function deleteNotice(id: string) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("notices").delete().eq("id", id);
+  const { error } = await supabase.from("notices").delete().eq("madrasa_id",await getAuthMadrasaId()).eq("id", id);
   
   if (error) {
     throw new Error(error.message);
   }
 
   revalidatePath("/dashboard/communication/notices");
+  revalidatePath("/portal", "layout");
+  revalidatePath("/teacher-portal", "layout");
 }
 
 export async function getServerOutboundIP(): Promise<string> {
@@ -293,288 +300,6 @@ export async function saveSMSGatewayConfig(config: Partial<SMSGatewayConfig>) {
     return { success: true, config: mergedGateway };
   } catch (err: any) {
     return { error: err.message || "গেটওয়ে সংরক্ষণে সমস্যা হয়েছে" };
-  }
-}
-
-/**
- * Execute HTTP call to SMS Provider API
- */
-export async function dispatchSMSGatewayRequest(
-  config: SMSGatewayConfig,
-  recipientPhone: string,
-  messageText: string
-): Promise<{ success: boolean; rawResponse: string; statusCode: number; error?: string }> {
-  try {
-    const rawDigits = normalizePhoneNumber(recipientPhone, false); // 01XXXXXXXXX
-    const bdFullNumber = normalizePhoneNumber(recipientPhone, true); // 8801XXXXXXXXX
-
-    if (!config.apiEndpoint) {
-      return {
-        success: false,
-        rawResponse: "API Endpoint is empty",
-        statusCode: 400,
-        error: "এপিআই এন্ডপয়েন্ট ইউআরএল দেওয়া হয়নি",
-      };
-    }
-
-    // Provider Specific Handling
-    if (config.provider === "mram") {
-      // Mram SMS: https://sms.mram.com.bd/smsapi
-      // Parameters:
-      // api_key: Your API Key
-      // type: text/unicode
-      // contacts: 88017XXXXXXXX or multi 88017XXXXXXXX+88018XXXXXXXX
-      // senderid: Approved Sender ID
-      // msg: SMS body (URL encoded)
-      // label: transactional / promotional
-      const endpoint = config.apiEndpoint || "https://sms.mram.com.bd/smsapi";
-      const url = new URL(endpoint);
-      url.searchParams.set("api_key", config.apiKey.trim());
-      url.searchParams.set("type", config.unicode !== false ? "unicode" : "text");
-      url.searchParams.set("contacts", bdFullNumber);
-      if (config.senderId && config.senderId.trim()) {
-        url.searchParams.set("senderid", config.senderId.trim());
-      }
-      url.searchParams.set("msg", messageText);
-      url.searchParams.set("label", config.smsLabel || "transactional");
-
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        signal: AbortSignal.timeout(12000),
-      });
-
-      const bodyText = (await res.text()).trim();
-      
-      // Parse Mram Error codes or shoot ID
-      const trimmedCode = bodyText.replace(/[^0-9]/g, "");
-      let errorMessage = "";
-      
-      if (MRAM_ERROR_CODES[bodyText] || MRAM_ERROR_CODES[trimmedCode]) {
-        errorMessage = MRAM_ERROR_CODES[bodyText] || MRAM_ERROR_CODES[trimmedCode];
-      } else if (/^10\d{2}$/.test(trimmedCode) && Number(trimmedCode) >= 1002 && Number(trimmedCode) <= 1099) {
-        // Any 4-digit code starting with 10 (except 1001) is an error in Mram API
-        errorMessage = `এমরাম এপিআই ত্রুটি কোড: ${trimmedCode}`;
-      } else if (
-        bodyText.toLowerCase().includes("invalid") ||
-        bodyText.toLowerCase().includes("error") ||
-        bodyText.toLowerCase().includes("failed") ||
-        bodyText.toLowerCase().includes("not allowed")
-      ) {
-        errorMessage = bodyText;
-      }
-
-      const isSuccess = res.ok && !errorMessage && (
-        bodyText.toLowerCase().includes("sms submitted") ||
-        bodyText.toLowerCase().includes("success") ||
-        bodyText === "1001" ||
-        (/^\d+$/.test(bodyText) && bodyText.length >= 6) // Numeric Shoot ID (e.g. 54321987)
-      );
-
-      return {
-        success: isSuccess,
-        rawResponse: bodyText,
-        statusCode: res.status,
-        error: errorMessage || (!isSuccess ? (MRAM_ERROR_CODES[bodyText] || MRAM_ERROR_CODES[trimmedCode] || bodyText) : undefined),
-      };
-    } else if (config.provider === "greenweb") {
-      // Greenweb: https://api.greenweb.com.bd/api.php
-      // Params: token, to, message
-      const endpoint = config.apiEndpoint || "https://api.greenweb.com.bd/api.php";
-      const url = new URL(endpoint);
-      url.searchParams.set("token", config.apiKey);
-      url.searchParams.set("to", bdFullNumber);
-      url.searchParams.set("message", messageText);
-
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        signal: AbortSignal.timeout(10000),
-      });
-      const bodyText = await res.text();
-      const isSuccess = res.ok && (bodyText.includes("Ok:") || bodyText.toLowerCase().includes("success") || !bodyText.toLowerCase().includes("error"));
-
-      return {
-        success: isSuccess,
-        rawResponse: bodyText,
-        statusCode: res.status,
-      };
-    } else if (config.provider === "bulksmsbd") {
-      // BulkSMSBD: https://bulksmsbd.net/api/smsapi
-      // Params: api_key, type=unicode, number, senderid, message
-      const endpoint = config.apiEndpoint || "https://bulksmsbd.net/api/smsapi";
-      const url = new URL(endpoint);
-      url.searchParams.set("api_key", config.apiKey);
-      url.searchParams.set("type", config.unicode !== false ? "unicode" : "text");
-      url.searchParams.set("number", rawDigits);
-      if (config.senderId) {
-        url.searchParams.set("senderid", config.senderId);
-      }
-      url.searchParams.set("message", messageText);
-
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        signal: AbortSignal.timeout(10000),
-      });
-      const bodyText = await res.text();
-      const isSuccess = res.ok && (bodyText.includes('"response_code":202') || bodyText.includes('"success"') || !bodyText.toLowerCase().includes("error"));
-
-      return {
-        success: isSuccess,
-        rawResponse: bodyText,
-        statusCode: res.status,
-      };
-    } else if (config.provider === "alphasms") {
-      // Alpha SMS: https://api.sms4bd.net/api/v1/send
-      const endpoint = config.apiEndpoint || "https://api.sms4bd.net/api/v1/send";
-      const payload = {
-        api_key: config.apiKey,
-        sender_id: config.senderId,
-        number: bdFullNumber,
-        message: messageText,
-      };
-
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(10000),
-      });
-      const bodyText = await res.text();
-      const isSuccess = res.ok && !bodyText.toLowerCase().includes("error");
-
-      return {
-        success: isSuccess,
-        rawResponse: bodyText,
-        statusCode: res.status,
-      };
-    } else if (config.provider === "elitbuzz") {
-      // ElitBuzz: https://msg.elitbuzz-bd.com/smsapi
-      const endpoint = config.apiEndpoint || "https://msg.elitbuzz-bd.com/smsapi";
-      const url = new URL(endpoint);
-      url.searchParams.set("api_key", config.apiKey);
-      url.searchParams.set("type", config.unicode !== false ? "unicode" : "text");
-      url.searchParams.set("contacts", bdFullNumber);
-      if (config.senderId) {
-        url.searchParams.set("senderid", config.senderId);
-      }
-      url.searchParams.set("msg", messageText);
-
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        signal: AbortSignal.timeout(10000),
-      });
-      const bodyText = await res.text();
-      const isSuccess = res.ok && !bodyText.toLowerCase().includes("error");
-
-      return {
-        success: isSuccess,
-        rawResponse: bodyText,
-        statusCode: res.status,
-      };
-    } else {
-      // Custom Generic API
-      const apiKeyParam = config.apiKeyParamName || "api_key";
-      const phoneParam = config.phoneParamName || "contacts";
-      const msgParam = config.messageParamName || "msg";
-      const senderIdParam = config.senderIdParamName || "senderid";
-
-      if (config.httpMethod === "POST_JSON") {
-        let bodyData: any = {
-          [apiKeyParam]: config.apiKey,
-          [phoneParam]: bdFullNumber,
-          [msgParam]: messageText,
-        };
-        if (config.senderId) {
-          bodyData[senderIdParam] = config.senderId;
-        }
-        if (config.extraParams) {
-          bodyData = { ...bodyData, ...config.extraParams };
-        }
-
-        const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...(config.customHeaders || {}),
-        };
-
-        const res = await fetch(config.apiEndpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(bodyData),
-          signal: AbortSignal.timeout(10000),
-        });
-        const bodyText = await res.text();
-        return {
-          success: res.ok,
-          rawResponse: bodyText,
-          statusCode: res.status,
-        };
-      } else if (config.httpMethod === "POST_FORM") {
-        const formData = new URLSearchParams();
-        formData.append(apiKeyParam, config.apiKey);
-        formData.append(phoneParam, bdFullNumber);
-        formData.append(msgParam, messageText);
-        if (config.senderId) {
-          formData.append(senderIdParam, config.senderId);
-        }
-        if (config.extraParams) {
-          for (const [k, v] of Object.entries(config.extraParams)) {
-            formData.append(k, v);
-          }
-        }
-
-        const res = await fetch(config.apiEndpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            ...(config.customHeaders || {}),
-          },
-          body: formData.toString(),
-          signal: AbortSignal.timeout(10000),
-        });
-        const bodyText = await res.text();
-        return {
-          success: res.ok,
-          rawResponse: bodyText,
-          statusCode: res.status,
-        };
-      } else {
-        // GET Request
-        const url = new URL(config.apiEndpoint);
-        url.searchParams.set(apiKeyParam, config.apiKey);
-        url.searchParams.set(phoneParam, bdFullNumber);
-        url.searchParams.set(msgParam, messageText);
-        if (config.senderId) {
-          url.searchParams.set(senderIdParam, config.senderId);
-        }
-        if (config.extraParams) {
-          for (const [k, v] of Object.entries(config.extraParams)) {
-            url.searchParams.set(k, v);
-          }
-        }
-
-        const res = await fetch(url.toString(), {
-          method: "GET",
-          headers: config.customHeaders || {},
-          signal: AbortSignal.timeout(10000),
-        });
-        const bodyText = await res.text();
-        return {
-          success: res.ok,
-          rawResponse: bodyText,
-          statusCode: res.status,
-        };
-      }
-    }
-  } catch (err: any) {
-    return {
-      success: false,
-      rawResponse: err.message || "Connection timeout / Network Error",
-      statusCode: 500,
-      error: err.message,
-    };
   }
 }
 

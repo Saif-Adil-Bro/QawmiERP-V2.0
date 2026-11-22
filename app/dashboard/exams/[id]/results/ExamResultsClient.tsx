@@ -182,15 +182,7 @@ export default function ExamResultsClient({
               </thead>
               <tbody className="divide-y divide-slate-300 text-slate-800">
                 {results.map((student, index) => {
-                  const isFailed = student.is_failed || student.grade?.includes('রাসিব');
-                  const gpaVal = isFailed ? '০.০০' :
-                    student.percentage >= 80 ? '৫.০০' :
-                    student.percentage >= 70 ? '৪.০০' :
-                    student.percentage >= 60 ? '৩.৫০' :
-                    student.percentage >= 50 ? '৩.০০' :
-                    student.percentage >= 40 ? '২.০০' :
-                    student.percentage >= 33 ? '১.০০' : '০.০০';
-
+                  const gpaVal = toBanglaNumber(student.gpa);
                   return (
                     <tr key={student.id} className="hover:bg-slate-50/70 transition print:hover:bg-transparent print:break-inside-avoid">
                       <td className="px-1.5 py-1.5 print:px-1 print:py-1 font-bold text-slate-900 border border-slate-300 print:border-slate-500">
@@ -209,7 +201,7 @@ export default function ExamResultsClient({
                       )}
                       {subjectList.map(sub => {
                         const markObj = student.marks?.find((m: any) => m.subject_name === sub);
-                        const markVal = markObj ? markObj.marks_obtained : null;
+                        const markVal = markObj?.has_entered_marks ? markObj.marks_obtained : null;
                         const isSubFailed = markObj?.is_failed;
                         return (
                           <td 
@@ -230,13 +222,7 @@ export default function ExamResultsClient({
                       </td>
                       <td className="px-1.5 py-1.5 print:px-1 print:py-1 text-center font-bold border border-slate-300 print:border-slate-500">
                         <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] print:text-[10px] print:p-0 print:border-none print:text-black ${
-                          isFailed ? 'bg-red-100 text-red-800' :
-                          student.percentage >= 80 ? 'bg-emerald-100 text-emerald-800' :
-                          student.percentage >= 60 ? 'bg-blue-100 text-blue-800' :
-                          student.percentage >= 45 ? 'bg-amber-100 text-amber-800' :
-                          student.percentage >= 33 ? 'bg-slate-100 text-slate-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
+                          student.badgeClass}`}>
                           {student.grade}
                         </span>
                       </td>

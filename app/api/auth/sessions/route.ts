@@ -1,48 +1,62 @@
+import { privateResponseHeaders } from "@/lib/private-response";
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
+import { createAdminClient, getWebAppSession } from "@/lib/supabase/server";
 import { loadServerPermissions } from "@/lib/permissions-server";
 import {
-  SESSION_COOKIE_NAME,
   listUserSessions,
+  mayManageTenantSessions,
   revokeUserSession,
   revokeOtherSessions,
   revokeAllUserSessions,
 } from "@/lib/session-manager";
 
 async function resolveSessionActor() {
-  const supabase = await createClient();
-  const authUser = await getAuthUser(supabase);
-  if (!authUser) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  let verified;
+  try {
+    verified = await getWebAppSession();
+  } catch {
+    return {
+      error: NextResponse.json(
+        { error: "Session registry unavailable" },
+        { status: 503 },
+      ),
+    };
+  }
+  if (!verified) {
+    return {
+      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    };
   }
 
+  const { user: authUser, session } = verified;
   const admin = await createAdminClient();
   const { data: userRow } = await admin
     .from("users")
     .select("id, madrasa_id, full_name, email, role")
     .eq("id", authUser.id)
+    .eq("madrasa_id", session.madrasa_id)
     .maybeSingle();
 
   const madrasaId = String((userRow as any)?.madrasa_id || "");
   if (!madrasaId) {
-    return { error: NextResponse.json({ error: "No madrasa linked" }, { status: 403 }) };
+    return {
+      error: NextResponse.json({ error: "No madrasa linked" }, { status: 403 }),
+    };
   }
 
   const permCtx = await loadServerPermissions(authUser.id, madrasaId);
-  if (!permCtx || permCtx.status === "SUSPENDED" || permCtx.status === "DISABLED") {
-    return { error: NextResponse.json({ error: "Account disabled" }, { status: 403 }) };
+  if (permCtx?.status !== "ACTIVE") {
+    return {
+      error: NextResponse.json({ error: "Account disabled" }, { status: 403 }),
+    };
   }
 
-  const canManageAll =
-    permCtx.roles.includes("super_admin") ||
-    permCtx.roles.includes("admin") ||
-    permCtx.roles.includes("muhtamim") ||
-    permCtx.summary.effectivePermissions.includes("security.sessions.manage");
+  const canManageAll = mayManageTenantSessions(permCtx);
 
   return {
     actor: {
       userId: authUser.id,
+      currentSessionId: session.id,
       madrasaId,
       actorName: (userRow as any)?.full_name || authUser.email || "User",
       actorEmail: (userRow as any)?.email || authUser.email || "",
@@ -76,15 +90,17 @@ export async function GET(req: NextRequest) {
     limit: 150,
   });
 
-  const cookieStore = await cookies();
-  const currentSessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value || null;
+  const { currentSessionId } = actor;
 
-  return NextResponse.json({
-    sessions,
-    storage,
-    currentSessionId,
-    canManageAll: actor.canManageAll,
-  });
+  return NextResponse.json(
+    {
+      sessions,
+      storage,
+      currentSessionId,
+      canManageAll: actor.canManageAll,
+    },
+    { headers: privateResponseHeaders },
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -96,7 +112,10 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid JSON payload" },
+      { status: 400 },
+    );
   }
 
   const rawAction = body?.action;
@@ -104,14 +123,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   }
   const action = rawAction === undefined ? "terminate_single" : rawAction;
-  const cookieStore = await cookies();
-  const currentSessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value || null;
+  const { currentSessionId } = actor;
 
   if (action === "terminate_others") {
     const res = await revokeOtherSessions({
       madrasaId: actor.madrasaId,
       userId: actor.userId,
-      currentSessionId: body.currentSessionId || currentSessionId,
+      currentSessionId,
       revokedBy: actor.userId,
       actorName: actor.actorName,
       actorEmail: actor.actorEmail,
@@ -145,24 +163,15 @@ export async function POST(req: NextRequest) {
   // Default: terminate_single
   const sessionId = String(body.sessionId || "").trim();
   if (!sessionId) {
-    return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
-  }
-
-  // Verify ownership unless actor has security.sessions.manage
-  if (!actor.canManageAll) {
-    const { sessions } = await listUserSessions({
-      madrasaId: actor.madrasaId,
-      userId: actor.userId,
-      includeRevoked: true,
-    });
-    const owns = sessions.some((s) => s.id === sessionId);
-    if (!owns) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    return NextResponse.json(
+      { error: "sessionId is required" },
+      { status: 400 },
+    );
   }
 
   const res = await revokeUserSession({
     sessionId,
+    ownerUserId: actor.canManageAll ? undefined : actor.userId,
     madrasaId: actor.madrasaId,
     revokedBy: actor.userId,
     actorName: actor.actorName,
@@ -171,6 +180,8 @@ export async function POST(req: NextRequest) {
     reason: String(body.reason || "REMOTE_TERMINATED"),
   });
 
+  if (res.notFound && !actor.canManageAll)
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return NextResponse.json(res, {
     status: res.success ? 200 : res.notFound ? 404 : 400,
   });
@@ -185,8 +196,7 @@ export async function DELETE(req: NextRequest) {
   const sessionId = (searchParams.get("sessionId") || "").trim();
   const rawMode = searchParams.get("mode");
   const mode = rawMode === null ? "single" : rawMode;
-  const cookieStore = await cookies();
-  const currentSessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value || null;
+  const { currentSessionId } = actor;
 
   if (mode === "others") {
     const res = await revokeOtherSessions({
@@ -206,22 +216,15 @@ export async function DELETE(req: NextRequest) {
   }
 
   if (!sessionId) {
-    return NextResponse.json({ error: "sessionId query parameter is required" }, { status: 400 });
-  }
-
-  if (!actor.canManageAll) {
-    const { sessions } = await listUserSessions({
-      madrasaId: actor.madrasaId,
-      userId: actor.userId,
-      includeRevoked: true,
-    });
-    if (!sessions.some((s) => s.id === sessionId)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    return NextResponse.json(
+      { error: "sessionId query parameter is required" },
+      { status: 400 },
+    );
   }
 
   const res = await revokeUserSession({
     sessionId,
+    ownerUserId: actor.canManageAll ? undefined : actor.userId,
     madrasaId: actor.madrasaId,
     revokedBy: actor.userId,
     actorName: actor.actorName,
@@ -230,6 +233,8 @@ export async function DELETE(req: NextRequest) {
     reason: "REMOTE_TERMINATED",
   });
 
+  if (res.notFound && !actor.canManageAll)
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return NextResponse.json(res, {
     status: res.success ? 200 : res.notFound ? 404 : 400,
   });

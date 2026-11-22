@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import type { ExamFreezeList } from "@/app/actions/exams";
 import {
   toggleAccountingPeriodLock,
   toggleAcademicSessionLock,
@@ -50,7 +52,7 @@ interface DataGovernanceClientProps {
   initialTab: "accounting" | "exams" | "migration";
   initialPeriods: AccountingPeriodRecord[];
   periodsStorage: "sql" | "fallback";
-  initialExams: any[];
+  examList: ExamFreezeList;
   initialSessions: any[];
   initialMigrationStatus: MetadataMigrationStatus;
   canManageLocks: boolean;
@@ -115,7 +117,7 @@ export default function DataGovernanceClient({
   initialTab,
   initialPeriods,
   periodsStorage,
-  initialExams,
+  examList,
   initialSessions,
   initialMigrationStatus,
   canManageLocks,
@@ -125,7 +127,9 @@ export default function DataGovernanceClient({
   );
   const { runWithStepUp, stepUpModal } = useStepUpAction();
   const [periods, setPeriods] = useState<AccountingPeriodRecord[]>(initialPeriods);
-  const [exams, setExams] = useState<any[]>(initialExams);
+  const router = useRouter();
+  const [refreshingExams, startExamRefresh] = useTransition();
+  const refreshExams = () => startExamRefresh(() => router.refresh());
   const [sessions, setSessions] = useState<any[]>(initialSessions);
   const [migrationStatus, setMigrationStatus] =
     useState<MetadataMigrationStatus>(initialMigrationStatus);
@@ -173,10 +177,8 @@ export default function DataGovernanceClient({
     () => periods.filter((p) => p.is_locked).length,
     [periods]
   );
-  const lockedExamsCount = useMemo(
-    () => exams.filter((e) => e.is_locked).length,
-    [exams]
-  );
+  // Use the current server snapshot, including revalidation after a lock change.
+  const lockedExamsCount = examList.ok ? examList.exams.filter((e) => e.is_locked).length : null;
 
   const openPeriodModal = (
     item: {
@@ -415,7 +417,12 @@ export default function DataGovernanceClient({
 
         <button
           type="button"
-          onClick={() => setActiveTab("exams")}
+          onClick={() => {
+            if (activeTab !== "exams") {
+              setActiveTab("exams");
+              refreshExams();
+            }
+          }}
           className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-2 ${
             activeTab === "exams"
               ? "bg-slate-900 text-white shadow-xs"
@@ -431,7 +438,7 @@ export default function DataGovernanceClient({
                 : "bg-slate-100 text-slate-600"
             }`}
           >
-            {toBanglaNumber(lockedExamsCount)}
+            {refreshingExams || lockedExamsCount === null ? "—" : toBanglaNumber(lockedExamsCount)}
           </span>
         </button>
 
@@ -637,8 +644,8 @@ export default function DataGovernanceClient({
       {activeTab === "exams" && (
         <div className="space-y-6">
           {/* Exams Freeze Table */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div aria-busy={refreshingExams} className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-bold text-slate-900">
                   পরীক্ষার নম্বর ফ্রিজ (Exam Marks Freeze)
@@ -647,18 +654,35 @@ export default function DataGovernanceClient({
                   ফ্রিজ করা পরীক্ষায় নম্বর এন্ট্রি, বিষয় পরিবর্তন, বা পরীক্ষা ডিলিট সার্ভার-সাইডে সম্পূর্ণ ব্লক থাকে।
                 </p>
               </div>
-              <span className="text-xs font-semibold text-slate-500">
-                মোট {toBanglaNumber(exams.length)} টি পরীক্ষা
-              </span>
+              <div className="flex items-center gap-3">
+                {examList.ok && !refreshingExams && (
+                  <span className="text-xs font-semibold text-slate-500">
+                    মোট {toBanglaNumber(examList.exams.length)} টি পরীক্ষা
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={refreshExams}
+                  disabled={refreshingExams}
+                  aria-label="পরীক্ষার তালিকা আবার পড়ুন"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <RefreshCw className={`size-3.5 ${refreshingExams ? "animate-spin" : ""}`} /> আবার পড়ুন
+                </button>
+              </div>
             </div>
 
-            {exams.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-400">
-                কোনো পরীক্ষা পাওয়া যায়নি।
-              </div>
+            {refreshingExams ? (
+              <p role="status" className="p-8 text-center text-sm text-slate-500">পরীক্ষার তালিকা পড়া হচ্ছে…</p>
+            ) : !examList.ok ? (
+              <p role="alert" className="p-8 text-center text-sm text-rose-700">
+                {examList.reason === "forbidden" ? "পরীক্ষার তালিকা পড়ার অনুমতি পাওয়া যায়নি।" : "পরীক্ষার তালিকা পড়া যায়নি। আবার চেষ্টা করুন।"}
+              </p>
+            ) : examList.exams.length === 0 ? (
+              <p className="p-8 text-center text-sm text-slate-500">এই অ্যাকাউন্টে কোনো পরীক্ষা দেখা যাচ্ছে না।</p>
             ) : (
               <div className="divide-y divide-slate-100">
-                {exams.map((exam) => (
+                {examList.exams.map((exam) => (
                   <div
                     key={exam.id}
                     className="px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70"
@@ -694,19 +718,6 @@ export default function DataGovernanceClient({
                       lockReason={exam.lock_reason}
                       canManageLocks={canManageLocks}
                       size="compact"
-                      onStatusChange={(locked, meta) => {
-                        setExams((prev) =>
-                          prev.map((item) =>
-                            item.id === exam.id
-                              ? {
-                                  ...item,
-                                  is_locked: locked,
-                                  lock_reason: meta?.lockReason || null,
-                                }
-                              : item
-                          )
-                        );
-                      }}
                     />
                   </div>
                 ))}

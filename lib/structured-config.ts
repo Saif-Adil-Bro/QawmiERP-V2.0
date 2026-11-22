@@ -75,10 +75,10 @@ export async function saveStructuredExamSetting(
       return { ok: true, storage: "sql" };
     }
     if (!isMissingTableError(error)) {
-      console.warn(`saveStructuredExamSetting(${settingKey}) error:`, error.message);
+      throw new Error(error.message);
     }
   } catch (err) {
-    console.warn(`saveStructuredExamSetting(${settingKey}) catch:`, err);
+    throw err;
   }
 
   return { ok: false, storage: "fallback" };
@@ -157,7 +157,7 @@ export async function getExamSettingsBundle(
   let compulsorySubjects: Record<string, boolean> | null = null;
   let publishInfo: any = null;
 
-  try {
+  {
     const adminClient = await createAdminClient();
     const { data, error } = await adminClient
       .from("exam_settings")
@@ -165,6 +165,7 @@ export async function getExamSettingsBundle(
       .eq("madrasa_id", madrasaId)
       .in("scope_key", [GLOBAL_EXAM_SCOPE, examId]);
 
+    if (error && !['42P01','PGRST205'].includes(error.code)) throw new Error(error.message);
     if (!error && Array.isArray(data)) {
       for (const row of data) {
         if (row.scope_key === GLOBAL_EXAM_SCOPE && row.setting_key === "grading_config") {
@@ -176,13 +177,11 @@ export async function getExamSettingsBundle(
         }
       }
     }
-  } catch {
-    // fallback below
   }
 
   // Only read metadata JSON if any setting wasn't found in SQL
   if (!gradingConfig || !evaluationRules || !compulsorySubjects || !publishInfo) {
-    const meta = await getMadrasaMetadata(madrasaId);
+    const meta = await getMadrasaMetadata(madrasaId,true);
     if (!gradingConfig) {
       gradingConfig = normalizeGradingConfig(meta?.exam_grading_config || meta?.exam_grade_scale);
     }
@@ -214,7 +213,8 @@ export async function getExamSettingsBundle(
 export async function getStructuredMadrasaSetting<T = any>(
   madrasaId: string,
   namespace: string,
-  settingKey: string
+  settingKey: string,
+  strict = false
 ): Promise<{ found: boolean; value: T | null; source: "sql" | "fallback" }> {
   if (!madrasaId) return { found: false, value: null, source: "fallback" };
 
@@ -228,10 +228,12 @@ export async function getStructuredMadrasaSetting<T = any>(
       .eq("setting_key", settingKey)
       .maybeSingle();
 
+    if (strict && error && !["42P01", "PGRST205"].includes(error.code)) throw error;
     if (!error && data && data.setting_value !== undefined) {
       return { found: true, value: data.setting_value as T, source: "sql" };
     }
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     // ignore and fallback
   }
 
@@ -243,30 +245,40 @@ export async function saveStructuredMadrasaSetting(
   namespace: string,
   settingKey: string,
   settingValue: any,
-  updatedBy?: string | null
+  updatedBy?: string | null,
+  insertOnly = false,
 ): Promise<{ ok: boolean; storage: "sql" | "fallback" }> {
   if (!madrasaId) return { ok: false, storage: "fallback" };
 
   try {
     const adminClient = await createAdminClient();
-    const { error } = await adminClient.from("madrasa_settings").upsert(
-      {
-        madrasa_id: madrasaId,
-        namespace,
-        setting_key: settingKey,
-        setting_value: settingValue,
-        updated_by: updatedBy || null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "madrasa_id,namespace,setting_key" }
-    );
+    const payload = {
+      madrasa_id: madrasaId,
+      namespace,
+      setting_key: settingKey,
+      setting_value: settingValue,
+      updated_by: updatedBy || null,
+      updated_at: new Date().toISOString(),
+    };
+    const table = adminClient.from("madrasa_settings");
+    const { error } = insertOnly
+      ? await table.insert(payload)
+      : await table.upsert(payload, {
+          onConflict: "madrasa_id,namespace,setting_key",
+        });
 
     if (!error) return { ok: true, storage: "sql" };
     if (!isMissingTableError(error)) {
-      console.warn(`saveStructuredMadrasaSetting(${namespace}.${settingKey}) error:`, error.message);
+      console.warn(
+        `saveStructuredMadrasaSetting(${namespace}.${settingKey}) error:`,
+        error.message,
+      );
     }
   } catch (err) {
-    console.warn(`saveStructuredMadrasaSetting(${namespace}.${settingKey}) catch:`, err);
+    console.warn(
+      `saveStructuredMadrasaSetting(${namespace}.${settingKey}) catch:`,
+      err,
+    );
   }
 
   return { ok: false, storage: "fallback" };

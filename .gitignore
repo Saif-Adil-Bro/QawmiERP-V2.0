@@ -37,5 +37,11 @@ backups/
 *.backup.json
 tmp/
 
+# Disposable, production-mode browser test project
+/.cache/qawmi-shared-ui-*/
+
 # Agent working state
 .agents/
+
+# Account-neutral offline UI, built from the shared React forms
+/public/offline-hifz.js

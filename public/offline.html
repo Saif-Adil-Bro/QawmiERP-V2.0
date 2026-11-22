@@ -55,6 +55,8 @@
       text-decoration: none;
       margin-bottom: 10px;
     }
+    dialog {max-width:min(90vw,400px);max-height:85vh;border:2px solid #f59e0b;border-radius:16px;background:#1e293b;color:#fff;text-align:left;padding:20px;overflow:auto}
+    dialog::backdrop {background:#020617b3} dialog button, dialog a {min-height:44px}
     .btn-secondary {
       background: #334155;
       color: #e2e8f0;
@@ -65,7 +67,9 @@
   <div class="card">
     <div class="icon">📡</div>
     <h1>ইন্টারনেট সংযোগ নেই</h1>
-    <p>আপনি এই মুহূর্তে অফলাইনে আছেন এবং এই পেজটি এখনো অফলাইন ক্যাশে সংরক্ষিত হয়নি। ইন্টারনেট চালু করে আবার চেষ্টা করুন।</p>
+    <p>আপনি এই মুহূর্তে অফলাইনে আছেন। সর্বশেষ তথ্য পেতে ইন্টারনেট চালু করে আবার চেষ্টা করুন।</p>
+    <section id="snapshot" hidden style="text-align:left;max-height:55vh;overflow:auto"></section>
+    <script src="/offline-portal.js" defer></script>
     <button class="btn" onclick="window.location.reload()">আবার চেষ্টা করুন</button>
     <button class="btn btn-secondary" onclick="window.history.back()">পেছনে যান</button>
   </div>

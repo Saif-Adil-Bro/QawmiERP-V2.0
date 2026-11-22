@@ -39,9 +39,12 @@ import {
   Webhook,
   Puzzle,
   AlertTriangle,
+  Stethoscope,
   ShieldAlert,
   CreditCard,
 } from "lucide-react";
+import { HEALTH_ROLES } from "@/lib/student-health/model";
+import { usePermissions } from "@/components/permissions/PermissionContext";
 import { searchUniversalCommand, UniversalSearchResultItem } from "@/app/actions/universal-search";
 
 interface QuickAction {
@@ -54,6 +57,7 @@ interface QuickAction {
   badge?: string;
   color: string;
   keywords: string[];
+  roles?: string[];
 }
 
 const STATIC_QUICK_ACTIONS: QuickAction[] = [
@@ -155,6 +159,11 @@ const STATIC_QUICK_ACTIONS: QuickAction[] = [
     badge: "আমলনামা",
     color: "text-emerald-600 bg-emerald-50",
     keywords: ["amal", "amal tracker", "namaz", "routine", "আমল", "আমলনামা", "আমল ট্র্যাকার", "নামাজ", "ছুটির আমল", "বাড়ির পড়া"],
+  },
+  {
+    id: "nav-student-health", roles: HEALTH_ROLES, title: "অসুস্থ শিক্ষার্থী ও স্বাস্থ্যসেবা", subtitle: "অসুস্থ শিক্ষার্থীর নথি ও ফলো-আপ",
+    href: "/dashboard/students/health", icon: Stethoscope, badge: "স্বাস্থ্য", category: "নেভিগেশন",
+    color: "text-teal-700 bg-teal-50", keywords: ["health", "sick", "medical", "জ্বর", "চিকিৎসা", "অসুস্থ"],
   },
   {
     id: "nav-students",
@@ -317,6 +326,7 @@ export function UniversalCommandPalette({
   onClose: () => void;
   onOpenExecutiveSummary?: () => void;
 }) {
+  const {summary}=usePermissions();
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UniversalSearchResultItem[]>([]);
@@ -378,6 +388,7 @@ export function UniversalCommandPalette({
 
   // Filter static actions based on query
   const filteredQuickActions = STATIC_QUICK_ACTIONS.filter((act) => {
+    if(act.roles && !act.roles.some(r=>summary?.roles.includes(r)))return false;
     if (!query.trim()) return true;
     const q = query.toLowerCase();
     return (

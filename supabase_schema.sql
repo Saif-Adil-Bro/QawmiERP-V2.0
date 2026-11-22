@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS public.madrasas (
   name TEXT NOT NULL,
   contact_email TEXT NOT NULL,
   subscription_plan TEXT DEFAULT 'free',
+  registration_no TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 

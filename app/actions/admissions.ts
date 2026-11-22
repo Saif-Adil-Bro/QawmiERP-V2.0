@@ -772,8 +772,7 @@ export async function confirmAdmissionToStudent(params: {
 
     // 5. Auto enroll student into current active academic session
     try {
-      const { getDefaultSessions } = await import("@/lib/sessions");
-      const sessions = meta.sessions || getDefaultSessions(madrasaId);
+      const sessions = meta.sessions || [];
       const currentSession = sessions.find((s: any) => s.is_current) || sessions[0];
       if (currentSession) {
         const enrollments = meta.enrollments || [];

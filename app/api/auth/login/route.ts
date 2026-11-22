@@ -1,9 +1,10 @@
+import { completeAppLogin } from "@/lib/app-login";
+import { privateResponseHeaders } from "@/lib/private-response";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
 import {
   findStudentByIdentifier,
-  ensureStudentGuardianAuthUser,
   banglaToEnglishDigits,
 } from "@/lib/student-auth";
 import { DEMO_ADMIN_EMAIL } from "@/lib/demo-data";
@@ -43,13 +44,7 @@ export async function POST(req: NextRequest) {
         canonicalEmail = resolved.portalEmail;
         legacyEmail = resolved.legacyPortalEmail;
 
-        // Auto-provision if account doesn't exist yet, or sync credentials
-        const authRes = await ensureStudentGuardianAuthUser(
-          matchedStudent,
-          studentIdCode,
-          "123456"
-        );
-        targetEmail = authRes.email || canonicalEmail;
+        targetEmail = canonicalEmail;
       } else if (!rawIdentifier.includes("@")) {
         return NextResponse.json(
           {
@@ -106,7 +101,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (error || !data || !data.user) {
+    if (error || !data?.session || !data.user) {
       if (isStudentLogin) {
         return NextResponse.json(
           {
@@ -118,94 +113,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error?.message || "লগইন ব্যর্থ হয়েছে। তথ্য যাচাই করে আবার চেষ্টা করুন।" }, { status: 401 });
     }
 
-    // Resolve user role
-    let userRole = data.user.user_metadata?.role || (isStudentLogin ? "parent" : "staff");
-    let roles: string[] = [];
-    let resolvedMadrasaId = String(data.user.user_metadata?.madrasa_id || "");
-
-    try {
-      const adminClient = await createAdminClient();
-      const { data: userRow } = await adminClient
-        .from("users")
-        .select("role, madrasa_id")
-        .eq("id", data.user.id)
-        .maybeSingle();
-
-      if (userRow?.role) {
-        userRole = userRow.role;
-      }
-      if (userRow?.madrasa_id) {
-        resolvedMadrasaId = String(userRow.madrasa_id);
-      }
-
-      // If role still not determined or default, check if user exists in teachers table
-      if (userRole === "staff" || !userRole) {
-        const { data: teacherRow } = await adminClient
-          .from("teachers")
-          .select("id")
-          .eq("email", targetEmail)
-          .maybeSingle();
-        if (teacherRow) {
-          userRole = "teacher";
-        }
-      }
-
-      // Check madrasa security store for custom user profiles
-      if (userRow?.madrasa_id) {
-        const { data: madrasaRow } = await adminClient
-          .from("madrasas")
-          .select("registration_no")
-          .eq("id", userRow.madrasa_id)
-          .maybeSingle();
-        if (madrasaRow?.registration_no?.startsWith("{")) {
-          const parsed = JSON.parse(madrasaRow.registration_no);
-          const profileOverride = parsed.user_security_profiles?.[data.user.id];
-          if (profileOverride?.primaryRole) {
-            userRole = profileOverride.primaryRole;
-          }
-          if (profileOverride?.roles) {
-            roles = profileOverride.roles;
-          }
-        }
-      }
-    } catch (dbErr) {
-      console.warn("Role lookup in login API fallback:", dbErr);
-    }
-
-    let createdSessionId: string | null = null;
-    if (resolvedMadrasaId) {
-      try {
-        const { registerUserSession } = await import("@/lib/session-manager");
-        const forwarded = req.headers.get("x-forwarded-for");
-        const ipAddress = forwarded ? forwarded.split(",")[0].trim() : req.headers.get("x-real-ip");
-        const sessionRec = await registerUserSession({
-          userId: data.user.id,
-          madrasaId: resolvedMadrasaId,
-          ipAddress,
-          userAgent: req.headers.get("user-agent"),
-          accessToken: data.session?.access_token || null,
-          remember,
-          channel: "web",
-        });
-        createdSessionId = sessionRec.id;
-      } catch (sessErr) {
-        console.warn("Session registration warning:", sessErr);
-      }
-    }
-
-    const redirectUrl = getPortalRedirectUrl(userRole, roles);
+    const login = await completeAppLogin(supabase, data.session, "web", remember, req.headers);
+    if (!login.ok) return NextResponse.json({ error: login.message }, { status: login.status, headers: privateResponseHeaders });
+    const {perms:ctx} = login;
+    const userRole = ctx.profile.primaryRole, resolvedMadrasaId = ctx.madrasaId;
+    const redirectUrl = getPortalRedirectUrl(userRole, ctx.roles);
 
     const res = NextResponse.json({
       success: true,
       user: data.user,
       session: data.session,
-      role: userRole,
+      role: userRole, madrasaId:resolvedMadrasaId,
       redirectUrl,
       resolvedEmail: targetEmail,
       studentIdCode: studentIdCode || data.user?.user_metadata?.student_id_code || null,
       isDefaultPassword: Boolean(data.user?.user_metadata?.is_default_password ?? true),
       remember,
-    });
+    }, { headers: privateResponseHeaders });
 
     res.cookies.set("qawmi_remember_me", remember ? "1" : "0", {
       path: "/",
@@ -213,16 +137,6 @@ export async function POST(req: NextRequest) {
       secure: process.env.NODE_ENV === "production",
       maxAge: remember ? 60 * 60 * 24 * 365 : 60 * 60 * 24 * 1,
     });
-
-    if (createdSessionId) {
-      res.cookies.set("qawmi_session_id", createdSessionId, {
-        path: "/",
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        maxAge: remember ? 60 * 60 * 24 * 365 : 60 * 60 * 24 * 1,
-      });
-    }
 
     return res;
   } catch (err: any) {

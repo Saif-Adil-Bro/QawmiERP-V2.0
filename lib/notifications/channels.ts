@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mergeJsonStore } from "@/lib/madrasa-store";
 import { getStructuredMadrasaSetting } from "@/lib/structured-config";
-import type { SMSGatewayConfig } from "@/lib/sms-gateway";
+import { hasSmsReceipt, type SMSGatewayConfig } from "@/lib/sms-gateway";
 
 export type NotificationChannel = "push" | "whatsapp" | "sms" | "email" | "in_app";
 
@@ -108,6 +108,7 @@ export async function sendPushNotification(input: ChannelSendInput): Promise<Cha
 
   try {
     const res = await fetch("https://fcm.googleapis.com/fcm/send", {
+      signal: AbortSignal.timeout(12000),
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -134,7 +135,7 @@ export async function sendPushNotification(input: ChannelSendInput): Promise<Cha
       // keep raw text
     }
 
-    if (!res.ok) {
+    if (!res.ok || (input.event === "STUDENT_HEALTH_ALERT" && !(Number(parsed?.success) > 0))) {
       return {
         ok: false,
         channel: "push",
@@ -198,6 +199,7 @@ export async function sendWhatsAppNotification(input: ChannelSendInput): Promise
   try {
     const endpoint = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`;
     const res = await fetch(endpoint, {
+      signal: AbortSignal.timeout(12000),
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -223,7 +225,7 @@ export async function sendWhatsAppNotification(input: ChannelSendInput): Promise
       // keep raw text
     }
 
-    if (!res.ok) {
+    if (!res.ok || (input.event === "STUDENT_HEALTH_ALERT" && !parsed?.messages?.[0]?.id)) {
       return {
         ok: false,
         channel: "whatsapp",
@@ -336,7 +338,7 @@ export async function sendSmsNotification(input: ChannelSendInput): Promise<Chan
       if (config.senderId) {
         url.searchParams.set(config.senderIdParamName, config.senderId);
       }
-      res = await fetch(url.toString(), { method: "GET" });
+      res = await fetch(url.toString(), { method: "GET", signal: AbortSignal.timeout(12000) });
     } else if (config.httpMethod === "POST_FORM") {
       const form = new URLSearchParams();
       form.set(config.apiKeyParamName, config.apiKey);
@@ -346,12 +348,14 @@ export async function sendSmsNotification(input: ChannelSendInput): Promise<Chan
         form.set(config.senderIdParamName, config.senderId);
       }
       res = await fetch(config.apiUrl, {
+        signal: AbortSignal.timeout(12000),
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
       });
     } else {
       res = await fetch(config.apiUrl, {
+        signal: AbortSignal.timeout(12000),
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -367,7 +371,7 @@ export async function sendSmsNotification(input: ChannelSendInput): Promise<Chan
     }
 
     const text = await res.text();
-    if (!res.ok) {
+    if (!res.ok || (input.event === "STUDENT_HEALTH_ALERT" && !hasSmsReceipt(text))) {
       return {
         ok: false,
         channel: "sms",

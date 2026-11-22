@@ -1,3 +1,4 @@
+import {childLogs} from '@/lib/portal/queries';
 import { getPortalStudentData } from "@/lib/portal-data";
 import PortalAttendanceClient from "./PortalAttendanceClient";
 
@@ -21,17 +22,13 @@ export default async function ParentPortalAttendance(props: {
     );
   }
 
-  const { data: attendanceLogs } = await adminClient
-    .from("attendance")
-    .select("*")
-    .eq("student_id", child.id)
-    .order("date", { ascending: false });
-
+  const attendanceLogs = (await childLogs(adminClient,portalData.madrasaId,'attendance',[child.id]))
+    .filter(log=> !params.month || log.date.startsWith(params.month));
   return (
     <PortalAttendanceClient
       students={students}
       child={child}
-      attendanceLogs={attendanceLogs || []}
+      month={params.month} attendanceLogs={attendanceLogs || []}
     />
   );
 }

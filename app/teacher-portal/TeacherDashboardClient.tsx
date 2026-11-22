@@ -25,10 +25,9 @@ import {
   getRoutineLiveStatus,
   type HolidayRangeLike,
 } from "@/lib/routine-helper";
-import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
-import CurrentClassLiveBanner from "@/components/routine/CurrentClassLiveBanner";
+import LiveRoutineCarousel from "@/components/routine/LiveRoutineCarousel";
 
 interface TeacherDashboardClientProps {
   teacherId: string;
@@ -73,54 +72,15 @@ export default function TeacherDashboardClient({
     return () => clearInterval(timer);
   }, []);
 
-  // Seed Dexie IndexedDB silently for instant offline availability
-  useEffect(() => {
-    seedPortalOfflineCache("teacher", {
-      profile: teacherId
-        ? {
-            id: teacherId,
-            role: "teacher",
-            full_name: teacherName,
-            teacher: { id: teacherId, name: teacherName, designation },
-            assigned_subjects: teacherSchedule.assignedSubjects,
-            in_charge_classes: teacherSchedule.inChargeClasses,
-          }
-        : null,
-      classes,
-      notices,
-      routines: teacherSchedule.routines,
-      academicCalendar: holidays.map((h, i) => ({
-        ...h,
-        id: String(h.id || `hol_${i}`),
-      })),
-    });
-  }, [
-    teacherId,
-    teacherName,
-    designation,
-    classes,
-    notices,
-    holidays,
-    teacherSchedule.assignedSubjects,
-    teacherSchedule.inChargeClasses,
-    teacherSchedule.routines,
-  ]);
-
-  const effectiveRoutines = useMemo(() => {
-    if (teacherSchedule.routines?.length) return teacherSchedule.routines;
-    return offlineSnapshot?.routines || [];
-  }, [teacherSchedule.routines, offlineSnapshot?.routines]);
-
-  const effectiveHolidays: HolidayRangeLike[] = useMemo(() => {
-    if (holidays?.length) return holidays;
-    return (offlineSnapshot?.academicCalendar || []) as HolidayRangeLike[];
-  }, [holidays, offlineSnapshot?.academicCalendar]);
-
-  const effectiveNotices = useMemo(() => {
-    if (notices?.length) return notices;
-    return (offlineSnapshot?.notices || []).slice(0, 3);
-  }, [notices, offlineSnapshot?.notices]);
-
+  const effectiveRoutines=offlineSnapshot?.routines ?? teacherSchedule.routines;
+  const effectiveHolidays:HolidayRangeLike[]=offlineSnapshot?.academicCalendar ?? holidays;
+  const effectiveNotices=offlineSnapshot?.notices.slice(0,3) ?? notices;
+  if (offlineSnapshot && now) {
+    const today=getDhakaClockParts(now).dateStr;
+    todayAttendanceCount=offlineSnapshot.attendance.filter(a=>a.date===today).length;
+    todayHifzCount=offlineSnapshot.hifzLogs.filter(a=>a.log_date===today).length;
+    classes=offlineSnapshot.classes;
+  }
   const liveStatus = useMemo(
     () => (now ? getRoutineLiveStatus(effectiveRoutines, now, effectiveHolidays) : null),
     [effectiveRoutines, now, effectiveHolidays]
@@ -179,6 +139,14 @@ export default function TeacherDashboardClient({
           </Link>
         </div>
       </div>
+
+      {/* Live & Upcoming Class Routine Carousel (Immediately Below Hero) */}
+      <LiveRoutineCarousel
+        routines={effectiveRoutines}
+        holidays={effectiveHolidays}
+        variant="teacher"
+        fullRoutineHref="/teacher-portal/routine"
+      />
 
       {/* In-Charge Classes Announcement Card */}
       {teacherSchedule.inChargeClasses.length > 0 && (
@@ -267,16 +235,6 @@ export default function TeacherDashboardClient({
           </div>
         </div>
       </div>
-
-      {/* Real-time Current Class Live Banner */}
-      {effectiveRoutines.length > 0 && (
-        <CurrentClassLiveBanner
-          routines={effectiveRoutines}
-          holidays={effectiveHolidays}
-          isTeacherView={true}
-          teacherName={teacherName}
-        />
-      )}
 
       {/* Today's Teaching Schedule Card */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 sm:p-6 space-y-4">

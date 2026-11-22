@@ -79,6 +79,8 @@ export interface OnlinePaymentTransaction {
   payment_channel: "bKash" | "Nagad" | "Rocket" | "Islami Bank" | "Card / Other";
   provider: PaymentGatewayProvider;
   status: "PENDING" | "SUCCESS" | "FAILED" | "CANCELLED";
+  /** Non-secret merchant/mode binding for newly opened SSLCommerz fee checkouts. */
+  sslcommerz_scope?: string;
   gateway_ref?: string;
   receipt_no?: string;
   bank_tran_id?: string;
@@ -132,38 +134,38 @@ export function toPublicPaymentGatewayConfig(
 }
 
 export const DEFAULT_GATEWAY_CONFIG: PaymentGatewayConfig = {
-  is_enabled: true,
+  is_enabled: false,
   active_provider: "SSLCOMMERZ",
   environment: "SANDBOX",
   sslcommerz: {
-    store_id: "testbox_madrasa",
-    store_passwd: "testbox_secret",
+    store_id: "",
+    store_passwd: "",
     is_live: false,
   },
   shurjopay: {
-    merchant_username: "sp_madrasa",
-    merchant_password: "sp_password",
-    merchant_prefix: "MDR",
+    merchant_username: "",
+    merchant_password: "",
+    merchant_prefix: "",
     is_live: false,
   },
   bkash: {
-    app_key: "bkash_sandbox_app_key",
-    app_secret: "bkash_sandbox_secret",
-    username: "bkash_merchant_user",
-    password: "bkash_merchant_password",
+    app_key: "",
+    app_secret: "",
+    username: "",
+    password: "",
     is_live: false,
   },
   aamarpay: {
-    store_id: "aamarpay_test",
-    signature_key: "aamarpay_key",
+    store_id: "",
+    signature_key: "",
     is_live: false,
   },
   islami_bank: {
-    account_name: "কওমি মাদরাসা সাধারণ তহবিল",
-    account_number: "20501234567890123",
-    branch_name: "মিরপুর শাখা, ঢাকা",
-    routing_number: "125270123",
-    cellfin_number: "01700000000",
+    account_name: "",
+    account_number: "",
+    branch_name: "",
+    routing_number: "",
+    cellfin_number: "",
     instructions: "ইসলামী ব্যাংক ইন্টারনেট ব্যাংকিং (iBanking) অথবা সেলফিন (CellFin) অ্যাপ থেকে ট্রান্সফার করতে পারেন।",
   },
   enabled_methods: {
@@ -174,6 +176,6 @@ export const DEFAULT_GATEWAY_CONFIG: PaymentGatewayConfig = {
     cards: true,
   },
   convenience_fee_percent: 0,
-  sandbox_test_mode: true,
+  sandbox_test_mode: false,
   updated_at: new Date().toISOString(),
 };

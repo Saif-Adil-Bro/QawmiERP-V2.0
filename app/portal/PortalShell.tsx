@@ -26,7 +26,6 @@ import {
   getOfflineAuthSession,
   saveOfflineAuthSession,
 } from "@/lib/offline-auth";
-import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
 
 interface PortalShellProps {
@@ -54,12 +53,8 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
   // Persist active session/profile for offline resilience & hydrate fallback if offline
   useEffect(() => {
     if (user?.id) {
-      const existingToken =
-        typeof window !== "undefined"
-          ? window.localStorage.getItem("qawmi_access_token") || ""
-          : "";
       saveOfflineAuthSession({
-        accessToken: existingToken,
+        accessToken: '',
         role: userData?.role || user?.user_metadata?.role || "student",
         madrasaId: userData?.madrasa_id || "",
         userId: user.id,
@@ -69,16 +64,6 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
         savedAt: Date.now(),
       }).catch(() => {});
 
-      seedPortalOfflineCache("student", {
-        profile: {
-          id: user.id,
-          role: userData?.role || user?.user_metadata?.role || "student",
-          madrasa_id: userData?.madrasa_id || "",
-          full_name: userData?.full_name || user?.user_metadata?.full_name || "",
-          email: user?.email || "",
-          photo_url: userData?.photo_url || user?.user_metadata?.avatar_url || "",
-        },
-      }).catch(() => {});
     } else {
       getOfflineAuthSession()
         .then((sess) => {
@@ -127,8 +112,7 @@ export default function PortalShell({ user, userData, children }: PortalShellPro
   const handleLogout = async () => {
     try {
       setLoggingOut(true);
-      await clearOfflineAuthSession();
-      await logout();
+      try { await clearOfflineAuthSession(); } finally { await logout(); }
     } catch (e) {
       console.error(e);
       setLoggingOut(false);

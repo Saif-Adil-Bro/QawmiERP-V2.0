@@ -1,11 +1,12 @@
-import { createMobileTableItemHandlers } from "@/lib/mobile-api";
-
+import { NextRequest } from "next/server";
+import { mobileHifz } from "@/lib/hifz/mobile";
 export const dynamic = "force-dynamic";
-
-const { GET, PATCH, PUT, DELETE } = createMobileTableItemHandlers({
-  table: "hifz_logs",
-  module: "hifz",
-  detailSelect: "*, students(id, full_name, roll_number, student_id_code)",
-});
-
-export { GET, PATCH, PUT, DELETE };
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  return mobileHifz(req, (await params).id);
+}
+export const PATCH = GET,
+  PUT = GET,
+  DELETE = GET;

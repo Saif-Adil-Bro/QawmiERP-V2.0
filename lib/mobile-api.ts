@@ -1,6 +1,10 @@
+import { privateResponseHeaders } from './private-response';
+import {studentRoles,teacherRoles} from './portal/rules';
+import {authUnavailable, currentAppSession, SessionUnavailableError} from "./current-app-session";
+import {createStatelessSupabaseClient} from "./supabase/stateless";
+export { createStatelessSupabaseClient };
 import { timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertActiveAccount, type ServerPermissionContext } from "@/lib/permissions-server";
 import { MODULE_POLICIES, type ModuleKey } from "@/lib/action-authorization";
@@ -27,7 +31,7 @@ export interface MobileAuthContext {
   permCtx: ServerPermissionContext | null;
 }
 
-const PORTAL_ROLES = new Set(["student", "parent", "guardian"]);
+const PORTAL_ROLES = new Set([...studentRoles,...teacherRoles]);
 
 const MEDIA_KEYS = new Set([
   "avatar",
@@ -135,7 +139,7 @@ export function mobileSuccess<T>(
   if (meta) {
     payload.meta = meta;
   }
-  return NextResponse.json(payload, { status });
+  return NextResponse.json(payload, { status, headers: privateResponseHeaders });
 }
 
 /**
@@ -156,18 +160,18 @@ export function mobileError(
   if (details !== undefined) {
     payload.details = details;
   }
-  return NextResponse.json(payload, { status });
+  return NextResponse.json(payload, { status, headers: privateResponseHeaders });
 }
 
 /**
  * Validates `x-api-key` header against `process.env.MOBILE_API_KEY`.
  * Uses constant-time comparison. If `MOBILE_API_KEY` is not configured in env,
- * allows local development while still enforcing when configured.
+ * allows local development only; missing production configuration denies access.
  */
 export function verifyMobileApiKey(req: NextRequest | Request): boolean {
   const expected = (process.env.MOBILE_API_KEY || "").trim();
   if (!expected) {
-    return true;
+    return process.env.NODE_ENV !== "production";
   }
   const provided = (req.headers.get("x-api-key") || "").trim();
   if (!provided) return false;
@@ -176,24 +180,6 @@ export function verifyMobileApiKey(req: NextRequest | Request): boolean {
   const b = Buffer.from(provided);
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
-}
-
-/**
- * Creates a stateless Supabase client using the anon key for verifying/signing Bearer tokens.
- */
-export function createStatelessSupabaseClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Supabase URL or Anon Key is not configured.");
-  }
-  return createSupabaseJsClient(supabaseUrl, supabaseKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  });
 }
 
 /**
@@ -207,6 +193,7 @@ export function extractBearerToken(req: NextRequest | Request): string | null {
 }
 
 export interface MobileAuthOptions {
+  portalSyncOwner?: "teacher"; // Only the roster-checked teacher mutation endpoint opts in.
   module?: ModuleKey;
   requireWrite?: boolean;
   allowPortalRoles?: boolean;
@@ -247,9 +234,10 @@ export async function authenticateMobileRequest(
   }
 
   try {
-    const supabase = createStatelessSupabaseClient();
+    const supabase = createStatelessSupabaseClient(token);
     const { data: userData, error: userError } = await supabase.auth.getUser(token);
 
+    if (authUnavailable(userError)) throw new SessionUnavailableError();
     if (userError || !userData?.user) {
       return {
         ok: false,
@@ -262,16 +250,20 @@ export async function authenticateMobileRequest(
     }
 
     const user = userData.user;
+    const session = await currentAppSession(supabase);
+    if (!session || session.user_id !== user.id)
+      return {ok:false,response:mobileError('সেশন বাতিল হয়েছে। আবার লগইন করুন।',401,'SESSION_REVOKED')};
     const adminClient = await createAdminClient();
 
-    const { data: userRow } = await adminClient
+    const { data: userRow, error: profileError } = await adminClient
       .from("users")
-      .select("*, madrasas(id, name, address, contact_phone, contact_email, logo_url)")
-      .eq("id", user.id)
+      .select("*, madrasas!madrasa_id(id, name, contact_email)")
+      .eq("id", user.id).eq("madrasa_id",session.madrasa_id)
       .maybeSingle();
+    if (profileError) return {ok:false,response:mobileError("প্রোফাইল যাচাই করা যায়নি।",503,"PROFILE_UNAVAILABLE")};
 
     const madrasaId = String(
-      (userRow as any)?.madrasa_id || user.user_metadata?.madrasa_id || ""
+      (userRow as any)?.madrasa_id || ""
     );
 
     if (!madrasaId) {
@@ -286,6 +278,7 @@ export async function authenticateMobileRequest(
     }
 
     const activeCheck = await assertActiveAccount(user.id, madrasaId);
+    if (!activeCheck.context) throw new SessionUnavailableError();
     if (!activeCheck.allowed) {
       return {
         ok: false,
@@ -299,16 +292,26 @@ export async function authenticateMobileRequest(
 
     const permCtx = activeCheck.context || null;
     const primaryRole = String(
-      permCtx?.role || (userRow as any)?.role || user.user_metadata?.role || "staff"
+      permCtx?.role || (userRow as any)?.role || "staff"
     ).toLowerCase();
     const roles = (
       permCtx?.roles && permCtx.roles.length > 0 ? permCtx.roles : [primaryRole]
     ).map((r) => String(r).toLowerCase());
 
-    const isPortalUser =
-      PORTAL_ROLES.has(primaryRole) &&
-      !roles.some((r) => !PORTAL_ROLES.has(r));
-
+    const isPortalUser = [String(userRow?.role).toLowerCase(),primaryRole,...roles].some(r=>PORTAL_ROLES.has(r));
+    if (isPortalUser && !options.allowPortalRoles) return {ok:false,response:mobileError('পোর্টালের নির্দিষ্ট API ব্যবহার করুন।',403,'PORTAL_SCOPE_REQUIRED')};
+    const owner=req.headers.get('X-Qawmi-Sync-Owner');
+    const expectedOwner =
+      options.portalSyncOwner && isPortalUser
+        ? `${madrasaId}:${user.id}:${options.portalSyncOwner}`
+        : !isPortalUser
+          ? `${madrasaId}:${user.id}:admin`
+          : null;
+    if (owner && owner !== expectedOwner)
+      return {
+        ok: false,
+        response: mobileError("সিঙ্ক অ্যাকাউন্ট বদলেছে।", 409, "OWNER_CHANGED"),
+      };
     const permissions = permCtx?.summary?.effectivePermissions || [];
 
     // If write operation is requested, enforce portal block & module policy
@@ -364,6 +367,7 @@ export async function authenticateMobileRequest(
       },
     };
   } catch (err: any) {
+    if (err instanceof SessionUnavailableError) return {ok:false,response:mobileError("সেশন যাচাই করা যায়নি।",503,"SESSION_UNAVAILABLE")};
     return {
       ok: false,
       response: mobileError(
@@ -397,7 +401,12 @@ export function parsePagination(req: NextRequest) {
   return { page, limit, search, sortBy, ascending: sortOrder, from, to, searchParams };
 }
 
+export type MobileWriteCheck = (input: {
+  db: Awaited<ReturnType<typeof createAdminClient>>; tenant: string; id?: string; payload: Record<string, unknown>;
+}) => Promise<NextResponse | undefined>;
+
 export interface TableCrudConfig {
+  beforeWrite?: MobileWriteCheck;
   table: string;
   module: ModuleKey;
   select?: string;
@@ -513,6 +522,8 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
         insertPayload[tenantCol] = auth.ctx.madrasaId;
       }
 
+      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, payload: insertPayload});
+      if (blocked) return blocked;
       const { data, error } = await auth.adminClient
         .from(config.table)
         .insert(insertPayload)
@@ -591,6 +602,8 @@ export function createMobileTableItemHandlers(config: TableCrudConfig) {
       delete updatePayload.id;
       if (tenantCol) delete updatePayload[tenantCol];
 
+      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, id, payload: updatePayload});
+      if (blocked) return blocked;
       let query = auth.adminClient
         .from(config.table)
         .update(updatePayload)
@@ -625,6 +638,8 @@ export function createMobileTableItemHandlers(config: TableCrudConfig) {
 
     try {
       const { id } = await context.params;
+      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, id, payload: {}});
+      if (blocked) return blocked;
       let query = auth.adminClient.from(config.table).delete().eq("id", id);
 
       if (tenantCol) {

@@ -1,15 +1,18 @@
 import { apiUrl } from "./api-url";
 import {
-  generateOfflineId,
   getOfflineDb,
+  generateOfflineId,
   type OfflineOutboxItem,
-  type OfflineRecord,
 } from "./offlineDb";
+import {
+  browserSession,
+  ownerKey,
+  resolvePortalTypeFromRole,
+} from "./offline-auth";
 import { checkIsOnline, MAX_SYNC_RETRIES } from "./syncManager";
-import { getOfflineAuthSession, resolvePortalTypeFromRole } from "./offline-auth";
+import { mapPortalSnapshot } from "./portal/offline-snapshot";
 
 export type PortalSyncType = "student" | "teacher";
-
 export interface PortalSyncResult {
   ok: boolean;
   portal: PortalSyncType;
@@ -17,450 +20,327 @@ export interface PortalSyncResult {
   counts: Record<string, number>;
   error?: string;
 }
-
 export type SyncProgressCallback = (percent: number, label: string) => void;
-
-function getAuthHeaders(accessToken?: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  let token = accessToken;
-  if (!token && typeof window !== "undefined") {
-    token =
-      window.localStorage.getItem("qawmi_access_token") ||
-      window.localStorage.getItem("access_token") ||
-      undefined;
-  }
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  const apiKey = process.env.NEXT_PUBLIC_MOBILE_API_KEY?.trim();
-  if (apiKey) {
-    headers["x-api-key"] = apiKey;
-  }
-  return headers;
-}
-
-async function fetchJsonSafe(path: string, headers: Record<string, string>): Promise<any | null> {
-  try {
-    const res = await fetch(apiUrl(path), {
-      method: "GET",
-      headers,
-      credentials: "include",
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-function normalizeRows(rows: unknown): OfflineRecord[] {
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object" && (r as any).id != null))
-    .map((r) => ({
-      ...r,
-      id: String((r as any).id),
-      _offlinePending: false,
-    }));
-}
-
-let activePortalSync: Promise<PortalSyncResult> | null = null;
-
-/**
- * Initial full sync immediately after online login (or manual refresh).
- * Fetches all portal-specific endpoints concurrently, normalizes payloads,
- * and persists them into IndexedDB via Dexie.
- */
-export async function initialFullSync(
-  portalType: PortalSyncType,
-  options?: { accessToken?: string; onProgress?: SyncProgressCallback }
+const pulls = new Map<string, Promise<PortalSyncResult>>();
+export function initialFullSync(
+  portal: PortalSyncType,
+  options?: {
+    accessToken?: string;
+    studentId?: string;
+    onProgress?: SyncProgressCallback;
+  },
 ): Promise<PortalSyncResult> {
-  if (typeof window === "undefined") {
-    return { ok: false, portal: portalType, syncedAt: 0, counts: {}, error: "SSR" };
-  }
-
-  if (activePortalSync) {
-    return activePortalSync;
-  }
-
+  const session = browserSession(),
+    owner = ownerKey(session);
+  const studentId =
+    portal === "student"
+      ? (options?.studentId ??
+        (typeof window !== "undefined"
+          ? new URLSearchParams(window.location?.search).get("student_id")
+          : "") ??
+        "")
+      : "";
+  const id = `${portal}:${studentId}`,
+    key = `${owner}/${id}`;
+  const fail = (error: string): PortalSyncResult => ({
+    ok: false,
+    portal,
+    syncedAt: 0,
+    counts: {},
+    error,
+  });
+  if (!session || !owner || resolvePortalTypeFromRole(session.role) !== portal)
+    return Promise.resolve(fail("অ্যাকাউন্টের সংযোগ নেই।"));
+  const running = pulls.get(key);
+  if (running) return running;
   const run = async (): Promise<PortalSyncResult> => {
-    const onProgress = options?.onProgress;
-    const online = await checkIsOnline();
-    if (!online) {
-      return {
-        ok: false,
-        portal: portalType,
-        syncedAt: Date.now(),
-        counts: {},
-        error: "অফলাইন অবস্থায় সিঙ্ক করা সম্ভব নয়",
-      };
-    }
-
-    onProgress?.(10, "সার্ভারের সাথে সংযোগ স্থাপন করা হচ্ছে...");
-
-    const savedSession = await getOfflineAuthSession();
-    const headers = getAuthHeaders(options?.accessToken || savedSession?.accessToken);
-    const db = getOfflineDb();
-    const now = Date.now();
-    const counts: Record<string, number> = {};
-
     try {
-      const mainEndpoint =
-        portalType === "teacher" ? "/api/mobile/portal/teacher" : "/api/mobile/portal/student";
-
-      onProgress?.(25, "পোর্টাল ডেটা ডাউনলোড হচ্ছে...");
-
-      const [mainRes, routinesRes, holidaysRes, assignmentsRes, noticesRes] =
-        await Promise.all([
-          fetchJsonSafe(mainEndpoint, headers),
-          fetchJsonSafe("/api/mobile/routines", headers),
-          fetchJsonSafe("/api/mobile/holidays", headers),
-          fetchJsonSafe("/api/mobile/assignments", headers),
-          fetchJsonSafe("/api/mobile/notices", headers),
-        ]);
-
-      onProgress?.(65, "অফলাইন ডাটাবেস সংরক্ষণ করা হচ্ছে...");
-
-      const mainData = mainRes?.data || {};
-      const routinesData = normalizeRows(
-        routinesRes?.data?.routines || routinesRes?.data || mainData.routines || []
+      if (!(await checkIsOnline())) return fail("অফলাইন");
+      options?.onProgress?.(20, "পোর্টালের তথ্য আনা হচ্ছে…");
+      const db = getOfflineDb(owner);
+      const params = new URLSearchParams();
+      if (studentId) params.set("student_id", studentId);
+      const native = !!options?.accessToken;
+      if (!native) params.set("portal", portal);
+      const headers: Record<string, string> = {};
+      if (options?.accessToken) {
+        headers.Authorization = `Bearer ${options.accessToken}`;
+        if (process.env.NEXT_PUBLIC_MOBILE_API_KEY)
+          headers["x-api-key"] = process.env.NEXT_PUBLIC_MOBILE_API_KEY;
+      }
+      const res = await fetch(
+        apiUrl(
+          `${native ? `/api/mobile/portal/${portal}` : "/api/portal/snapshot"}?${params}`,
+        ),
+        {
+          headers,
+          credentials: native ? "omit" : "include",
+          cache: "no-store",
+        },
       );
-      const holidaysData = normalizeRows(holidaysRes?.data?.holidays || holidaysRes?.data || []);
-      const homeworkData = normalizeRows(
-        assignmentsRes?.data?.assignments || assignmentsRes?.data || []
+      if (res.status === 401 || res.status === 403)
+        await db.clearPrivatePortalData();
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Replacing the complete selected snapshot also removes recovered/stale health alerts.
+      const data = mapPortalSnapshot(
+        (await res.json()).data,
+        session.userId,
+        session.madrasaId,
+        studentId,
+        portal,
       );
-      const noticesData = normalizeRows(
-        noticesRes?.data?.notices || noticesRes?.data || mainData.notices || []
-      );
-
-      await db.transaction(
-        "rw",
-        [
-          db.portalProfiles,
-          db.students,
-          db.classes,
-          db.subjects,
-          db.attendance,
-          db.fees,
-          db.exams,
-          db.examResults,
-          db.examSummaries,
-          db.hifzLogs,
-          db.kitabLogs,
-          db.notices,
-          db.routines,
-          db.academicCalendar,
-          db.homework,
-          db.hifzProfiles,
-          db.hifzWeeklySabina,
-          db.hifzSpecialSabina,
-          db.syncMeta,
-        ],
-        async () => {
-          // Save portal profile snapshot
-          const profileId = savedSession?.userId || `active_${portalType}`;
-          await db.portalProfiles.put({
-            id: profileId,
-            role: savedSession?.role || portalType,
-            madrasa_id: savedSession?.madrasaId || "",
-            full_name: savedSession?.fullName || mainData.teacher?.name || mainData.active_student?.name || "",
-            active_student: mainData.active_student || null,
-            teacher: mainData.teacher || null,
-            assigned_subjects: mainData.assigned_subjects || [],
-            in_charge_classes: mainData.in_charge_classes || [],
-            updated_at: new Date(now).toISOString(),
-          });
-          counts.portalProfiles = 1;
-
-          const examsList = normalizeRows(mainData.exams || []);
-          if (examsList.length) await db.exams.bulkPut(examsList);
-          counts.exams = examsList.length;
-
-          if (portalType === "student") {
-            const students = normalizeRows(mainData.students || []);
-            const attendance = normalizeRows(mainData.attendance || []);
-            const fees = normalizeRows(mainData.fees || []);
-            const examResults = normalizeRows(mainData.exam_results || []);
-            const examSummaries = normalizeRows(mainData.exam_summaries || []);
-            const hifzLogs = normalizeRows(mainData.hifz_logs || []);
-            const kitabLogs = normalizeRows(mainData.kitab_logs || []);
-
-            if (students.length) await db.students.bulkPut(students);
-            if (attendance.length) await db.attendance.bulkPut(attendance);
-            if (fees.length) await db.fees.bulkPut(fees);
-            if (examResults.length) await db.examResults.bulkPut(examResults);
-            if (examSummaries.length) await db.examSummaries.bulkPut(examSummaries);
-            if (hifzLogs.length) await db.hifzLogs.bulkPut(hifzLogs);
-            if (kitabLogs.length) await db.kitabLogs.bulkPut(kitabLogs);
-
-            counts.students = students.length;
-            counts.attendance = attendance.length;
-            counts.fees = fees.length;
-            counts.examResults = examResults.length;
-            counts.examSummaries = examSummaries.length;
-            counts.hifzLogs = hifzLogs.length;
-            counts.kitabLogs = kitabLogs.length;
-          } else {
-            const classes = normalizeRows(mainData.classes || []);
-            const students = normalizeRows(mainData.students || []);
-            if (classes.length) await db.classes.bulkPut(classes);
-            if (students.length) await db.students.bulkPut(students);
-            counts.classes = classes.length;
-            counts.students = students.length;
-          }
-
-          const hifzProfiles = normalizeRows(
-            Array.isArray(mainData.hifz_profiles)
-              ? mainData.hifz_profiles.map((p: any) => ({ ...p, id: p.id || p.student_id }))
-              : []
-          );
-          const hifzWeeklySabina = normalizeRows(mainData.hifz_weekly_sabina || []);
-          const hifzSpecialSabina = normalizeRows(mainData.hifz_special_sabina || []);
-          if (hifzProfiles.length) await db.hifzProfiles.bulkPut(hifzProfiles);
-          if (hifzWeeklySabina.length) await db.hifzWeeklySabina.bulkPut(hifzWeeklySabina);
-          if (hifzSpecialSabina.length) await db.hifzSpecialSabina.bulkPut(hifzSpecialSabina);
-          counts.hifzProfiles = hifzProfiles.length;
-          counts.hifzWeeklySabina = hifzWeeklySabina.length;
-          counts.hifzSpecialSabina = hifzSpecialSabina.length;
-
-          if (noticesData.length) await db.notices.bulkPut(noticesData);
-          if (routinesData.length) await db.routines.bulkPut(routinesData);
-          if (holidaysData.length) await db.academicCalendar.bulkPut(holidaysData);
-          if (homeworkData.length) await db.homework.bulkPut(homeworkData);
-
-          counts.notices = noticesData.length;
-          counts.routines = routinesData.length;
-          counts.academicCalendar = holidaysData.length;
-          counts.homework = homeworkData.length;
-
-          await db.syncMeta.put({
-            entity: `portal_${portalType}`,
-            lastSyncedAt: now,
-          });
-          await db.syncMeta.put({
-            entity: "portal_last_sync",
-            lastSyncedAt: now,
-          });
+      const syncedAt = Date.now();
+      await db.transaction("rw", db.privateTables, async () => {
+        if (ownerKey(browserSession()) !== owner)
+          throw new Error("অ্যাকাউন্ট বদলেছে।");
+        // Mirrors hold just this projection. An event may involve two siblings;
+        // only the separate child snapshot retains that child's personal sittings.
+        for (const name of [
+          "hifzProfiles",
+          "hifzWeeklySabina",
+          "hifzSpecialSabina",
+        ] as const) {
+          await db[name].clear();
+          await db.table(name).bulkPut(data[name]);
         }
-      );
-
-      onProgress?.(100, "অফলাইন সিঙ্ক সম্পন্ন হয়েছে!");
-
+        const linked = new Set(data.students.map((s) => s.id));
+        await db.portalSnapshots
+          .filter((r) => !!r.studentId && !linked.has(r.studentId))
+          .delete();
+        const child = data.activeStudent?.id ?? null;
+        const keys = new Set([id]);
+        if (child) {
+          keys.add(`student:${child}`);
+          if (data.students[0]?.id === child) keys.add("student:");
+        }
+        const previousDefault = await db.portalSnapshots.get("student:");
+        if (
+          previousDefault &&
+          previousDefault.studentId !== data.students[0]?.id
+        )
+          await db.portalSnapshots.delete("student:");
+        for (const k of keys)
+          await db.portalSnapshots.put({
+            id: k,
+            owner,
+            studentId: child,
+            syncedAt,
+            data,
+          });
+      });
+      options?.onProgress?.(100, "সিঙ্ক সম্পন্ন");
       return {
         ok: true,
-        portal: portalType,
-        syncedAt: now,
-        counts,
+        portal,
+        syncedAt,
+        counts: Object.fromEntries(
+          Object.entries(data)
+            .filter(([, v]) => Array.isArray(v))
+            .map(([k, v]) => [k, (v as any[]).length]),
+        ),
       };
-    } catch (err: any) {
-      return {
-        ok: false,
-        portal: portalType,
-        syncedAt: now,
-        counts,
-        error: err?.message || "সিঙ্ক করতে সমস্যা হয়েছে",
-      };
+    } catch (e) {
+      return fail(e instanceof Error ? e.message : "সিঙ্ক ব্যর্থ");
     }
   };
-
-  activePortalSync = run().finally(() => {
-    activePortalSync = null;
-  });
-
-  return activePortalSync;
+  const p = run().finally(() => pulls.delete(key));
+  pulls.set(key, p);
+  return p;
 }
-
-/**
- * Enqueue a teacher/portal offline write action into IndexedDB offlineOutbox.
- */
-export async function enqueueOfflineOutbox(input: {
-  portal: "teacher" | "student" | "guardian";
-  actionType: OfflineOutboxItem["actionType"];
-  endpoint: string;
-  method?: "POST" | "PATCH" | "PUT";
-  payload: Record<string, unknown>;
-}): Promise<OfflineOutboxItem> {
-  const db = getOfflineDb();
+export async function enqueueOfflineOutbox(
+  input: Pick<
+    OfflineOutboxItem,
+    "portal" | "actionType" | "endpoint" | "payload"
+  > & { method?: OfflineOutboxItem["method"] },
+) {
+  const session = browserSession(),
+    owner = ownerKey(session);
+  if (
+    !session ||
+    !owner ||
+    resolvePortalTypeFromRole(session.role) !==
+      (input.portal === "guardian" ? "student" : input.portal)
+  )
+    throw new Error("অ্যাকাউন্ট যাচাই করুন।");
   const item: OfflineOutboxItem = {
+    ...input,
     id: generateOfflineId("outbox"),
-    portal: input.portal,
-    actionType: input.actionType,
-    endpoint: input.endpoint,
     method: input.method || "POST",
-    payload: input.payload,
     createdAt: Date.now(),
     status: "pending",
     retryCount: 0,
   };
-  await db.offlineOutbox.put(item);
+  const db = getOfflineDb(owner);
+  await db.transaction("rw", db.offlineOutbox, async () => {
+    if (ownerKey(browserSession()) !== owner)
+      throw new Error("অ্যাকাউন্ট বদলেছে।");
+    const last = await db.offlineOutbox.orderBy("createdAt").last();
+    item.createdAt = Math.max(item.createdAt, (last?.createdAt || 0) + 1);
+    await db.offlineOutbox.add(item);
+  });
   return item;
 }
-
-/**
- * Drains offlineOutbox items to the backend API when online.
- */
-export async function processOfflineOutbox(): Promise<{
-  processed: number;
-  succeeded: number;
-  failed: number;
-}> {
-  if (typeof window === "undefined") {
-    return { processed: 0, succeeded: 0, failed: 0 };
-  }
-  const online = await checkIsOnline();
-  if (!online) return { processed: 0, succeeded: 0, failed: 0 };
-
-  const db = getOfflineDb();
-  const savedSession = await getOfflineAuthSession();
-  const headers = getAuthHeaders(savedSession?.accessToken);
-
-  const items = await db.offlineOutbox.orderBy("createdAt").toArray();
-  const pending = items.filter(
-    (it) => it.status === "pending" || (it.status === "failed" && it.retryCount < MAX_SYNC_RETRIES)
-  );
-
-  let processed = 0;
-  let succeeded = 0;
-  let failed = 0;
-
-  for (const item of pending) {
-    if (!(await checkIsOnline())) break;
-    processed++;
-    await db.offlineOutbox.update(item.id, { status: "syncing" });
-
+const teacherEndpoints = {
+  attendance: "/api/attendance/bulk",
+  hifz: "/api/teacher/save-hifz",
+  kitab: "/api/teacher/save-kitab",
+  exam_marks: "/api/teacher/save-marks",
+} as const;
+export class TeacherEntryError extends Error {
+  constructor(message: string, readonly code?: string) { super(message); }
+}
+export async function postTeacherEntry(
+  actionType: keyof typeof teacherEndpoints,
+  payload: Record<string, unknown>,
+  expectedOwner: string,
+  ensureWritable?: () => void,
+) {
+  const endpoint = teacherEndpoints[actionType];
+  if (!expectedOwner || expectedOwner !== ownerKey(browserSession()))
+    throw new Error("অ্যাকাউন্ট বদলেছে। পেজ রিফ্রেশ করুন।");
+  const pending =
+    actionType === "hifz" &&
+    (await getOfflineDb(expectedOwner)
+      .offlineOutbox.where("actionType")
+      .equals("hifz")
+      .filter((i) => !i.rejected)
+      .count());
+  if (!pending && (await checkIsOnline())) {
+    if (expectedOwner !== ownerKey(browserSession()))
+      throw new Error("অ্যাকাউন্ট বদলেছে।");
+    ensureWritable?.();
     try {
-      const res = await fetch(apiUrl(item.endpoint), {
-        method: item.method,
-        headers,
+      const res = await fetch(apiUrl(endpoint), {
+        method: "POST",
         credentials: "include",
-        body: JSON.stringify(item.payload),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Qawmi-Sync-Owner": expectedOwner,
+        },
+        body: JSON.stringify(payload),
       });
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => `HTTP ${res.status}`);
-        throw new Error(errText || `HTTP ${res.status}`);
-      }
-
-      await db.offlineOutbox.delete(item.id);
-      succeeded++;
-    } catch (err: any) {
-      failed++;
-      await db.offlineOutbox.update(item.id, {
-        status: "failed",
-        retryCount: item.retryCount + 1,
-        lastError: err?.message || "Sync failed",
-      });
+      const json = await res.json();
+      if (!res.ok || !json.success)
+        throw new TeacherEntryError(
+          json.error || `HTTP ${res.status}`,
+          json.code,
+        );
+      if (expectedOwner !== ownerKey(browserSession()))
+        throw new Error("অ্যাকাউন্ট বদলেছে।");
+      return { success: true, offlineQueued: false, error: "" };
+    } catch (e) {
+      if (!(e instanceof TypeError)) throw e;
     }
   }
-
-  return { processed, succeeded, failed };
+  if (expectedOwner !== ownerKey(browserSession()))
+    throw new Error("অ্যাকাউন্ট বদলেছে।");
+  ensureWritable?.();
+  await enqueueOfflineOutbox({
+    portal: "teacher",
+    actionType,
+    endpoint,
+    method: "POST",
+    payload,
+  });
+  if (pending && (await checkIsOnline()))
+    void processOfflineOutbox().catch(() => {});
+  return { success: true, offlineQueued: true, error: "" };
 }
-
-/**
- * Background sync triggered on app launch or offline -> online reconnection.
- * Drains offlineOutbox first, then refreshes portal data silently.
- */
-export async function backgroundSync(portalOverride?: PortalSyncType): Promise<PortalSyncResult | null> {
-  if (typeof window === "undefined") return null;
-  const online = await checkIsOnline();
-  if (!online) return null;
-
-  await processOfflineOutbox();
-
-  if (portalOverride) {
-    return initialFullSync(portalOverride);
-  }
-
-  const session = await getOfflineAuthSession();
-  if (!session) return null;
-
-  const resolved = resolvePortalTypeFromRole(session.role);
-  if (resolved === "admin") return null;
-
-  return initialFullSync(resolved, { accessToken: session.accessToken });
-}
-
-export interface PortalSeedPayload {
-  profile?: Record<string, unknown> | null;
-  students?: Array<Record<string, unknown>>;
-  classes?: Array<Record<string, unknown>>;
-  attendance?: Array<Record<string, unknown>>;
-  fees?: Array<Record<string, unknown>>;
-  exams?: Array<Record<string, unknown>>;
-  examResults?: Array<Record<string, unknown>>;
-  examSummaries?: Array<Record<string, unknown>>;
-  hifzLogs?: Array<Record<string, unknown>>;
-  kitabLogs?: Array<Record<string, unknown>>;
-  notices?: Array<Record<string, unknown>>;
-  routines?: Array<Record<string, unknown>>;
-  academicCalendar?: Array<Record<string, unknown>>;
-  homework?: Array<Record<string, unknown>>;
-}
-
-/**
- * Seeds Dexie IndexedDB silently from server-hydrated props so every visited
- * portal view is immediately available offline via useLiveQuery().
- */
-export async function seedPortalOfflineCache(
-  portalType: PortalSyncType,
-  payload: PortalSeedPayload
-): Promise<void> {
-  if (typeof window === "undefined") return;
+const draining = new Set<string>();
+export async function processOfflineOutbox() {
+  const owner = ownerKey(browserSession());
+  if (!owner || draining.has(owner) || !(await checkIsOnline())) return;
+  if (draining.has(owner)) return;
+  draining.add(owner);
   try {
-    const db = getOfflineDb();
-    const now = Date.now();
-
-    await db.transaction(
-      "rw",
-      [
-        db.portalProfiles,
-        db.students,
-        db.classes,
-        db.attendance,
-        db.fees,
-        db.exams,
-        db.examResults,
-        db.examSummaries,
-        db.hifzLogs,
-        db.kitabLogs,
-        db.notices,
-        db.routines,
-        db.academicCalendar,
-        db.homework,
-        db.syncMeta,
-      ],
-      async () => {
-        if (payload.profile && payload.profile.id) {
-          await db.portalProfiles.put({
-            ...payload.profile,
-            id: String(payload.profile.id),
-            updated_at: new Date(now).toISOString(),
-          });
-        }
-        if (payload.students?.length) await db.students.bulkPut(normalizeRows(payload.students));
-        if (payload.classes?.length) await db.classes.bulkPut(normalizeRows(payload.classes));
-        if (payload.attendance?.length) await db.attendance.bulkPut(normalizeRows(payload.attendance));
-        if (payload.fees?.length) await db.fees.bulkPut(normalizeRows(payload.fees));
-        if (payload.exams?.length) await db.exams.bulkPut(normalizeRows(payload.exams));
-        if (payload.examResults?.length) await db.examResults.bulkPut(normalizeRows(payload.examResults));
-        if (payload.examSummaries?.length) await db.examSummaries.bulkPut(normalizeRows(payload.examSummaries));
-        if (payload.hifzLogs?.length) await db.hifzLogs.bulkPut(normalizeRows(payload.hifzLogs));
-        if (payload.kitabLogs?.length) await db.kitabLogs.bulkPut(normalizeRows(payload.kitabLogs));
-        if (payload.notices?.length) await db.notices.bulkPut(normalizeRows(payload.notices));
-        if (payload.routines?.length) await db.routines.bulkPut(normalizeRows(payload.routines));
-        if (payload.academicCalendar?.length) await db.academicCalendar.bulkPut(normalizeRows(payload.academicCalendar));
-        if (payload.homework?.length) await db.homework.bulkPut(normalizeRows(payload.homework));
-
-        await db.syncMeta.put({
-          entity: `portal_${portalType}`,
-          lastSyncedAt: now,
+    const db = getOfflineDb(owner);
+    for (const item of await db.offlineOutbox.orderBy("createdAt").toArray()) {
+      if (ownerKey(browserSession()) !== owner) break;
+      if (item.rejected) continue;
+      if (item.retryCount >= MAX_SYNC_RETRIES) break;
+      // Claim the head in IndexedDB, not just a tab-local mutex. A crashed tab's lease expires.
+      const claimed = await db.transaction("rw", db.offlineOutbox, async () => {
+        const live = await db.offlineOutbox.get(item.id);
+        if (
+          !live || live.rejected ||
+          live.retryCount >= MAX_SYNC_RETRIES ||
+          (live.leaseUntil || 0) > Date.now()
+        )
+          return false;
+        await db.offlineOutbox.update(item.id, {
+          status: "syncing",
+          leaseUntil: Date.now() + 120000,
         });
+        return true;
+      });
+      if (!claimed) break;
+      try {
+        if (ownerKey(browserSession()) !== owner) break;
+        const res = await fetch(apiUrl(item.endpoint), {
+          signal: AbortSignal.timeout(45000),
+          method: item.method,
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Qawmi-Sync-Owner": owner,
+          },
+          body: JSON.stringify(item.payload),
+        });
+        const response = await res.json();
+        if (!res.ok || !response.success) {
+          if (
+            item.actionType === "hifz" &&
+            [400, 403, 404, 409].includes(res.status) &&
+            response.code !== "OWNER_CHANGED"
+          ) {
+            // A changed roster or newer daily entry requires a person, not five
+            // identical retries. Keep it for its owner; allow later writes through.
+            await db.offlineOutbox.update(item.id, {
+              status: "failed",
+              rejected: "HIFZ_REVIEW",
+              leaseUntil: 0,
+              lastError: response.error || response.message,
+            });
+            continue;
+          }
+          if (item.actionType === "exam_marks" && response.code === "EXAM_LOCKED") {
+            // A final freeze refusal isn't a transient network failure. Keep the rejected draft
+            // for its owner; neither replay it after unlock nor block unrelated attendance etc.
+            await db.offlineOutbox.update(item.id, {status: "failed", rejected: "EXAM_LOCKED", leaseUntil: 0, lastError: response.error});
+            continue;
+          }
+          throw new Error(response.error || `HTTP ${res.status}`);
+        }
+        await db.offlineOutbox.delete(item.id);
+      } catch (e) {
+        await db.offlineOutbox.update(item.id, {
+          status: "failed",
+          leaseUntil: 0,
+          retryCount: item.retryCount + 1,
+          lastError: String(e),
+        });
+        break; // Preserve the order of offline corrections.
       }
-    );
-  } catch {
-    // Never block UI if IndexedDB quota or private browsing fails
+    }
+  } finally {
+    draining.delete(owner);
   }
 }
-
+export async function backgroundSync(
+  portalOverride?: PortalSyncType,
+  studentId?: string,
+) {
+  const session = browserSession();
+  if (!session) return null;
+  const portal = resolvePortalTypeFromRole(session.role);
+  if (
+    portal === "admin" ||
+    (portalOverride && portal !== portalOverride) ||
+    !(await checkIsOnline())
+  )
+    return null;
+  const owner = ownerKey(session);
+  await processOfflineOutbox();
+  if (owner !== ownerKey(browserSession())) return null;
+  return initialFullSync(portal, { studentId });
+}

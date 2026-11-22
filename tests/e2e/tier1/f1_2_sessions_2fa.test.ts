@@ -28,22 +28,12 @@ describe("Tier 1 — Feature 1.2: Active Session Management & Step-Up 2FA (Happy
     harness.setIp("103.112.54.22");
     harness.setUserAgent("Mozilla/5.0 (X11; Linux x86_64) Chrome/128.0.0.0");
 
-    const registerFn = (sessionMod.registerActiveSession ||
-      sessionMod.recordUserSession ||
-      sessionMod.upsertUserSession ||
-      sessionMod.createSession) as
-      | ((input: Record<string, unknown>) => Promise<unknown>)
-      | undefined;
-    if (typeof registerFn !== "function") {
-      assert.fail(
-        "[E2E_MISSING_EXPORT] lib/session-manager must export a session registration function"
-      );
-    }
-
-    await registerFn({
+    harness.db.clearTable("user_sessions");  // this test exercises registration itself
+    const register = sessionMod.registerUserSession as (params: Record<string, unknown>) => Promise<unknown>;
+    await register({
       userId: USERS.muhtamimA.id,
       madrasaId: MADRASA_A_ID,
-      sessionToken: harness.auth.getCurrentToken() || "tok-session-1",
+      accessToken: harness.auth.getCurrentToken(),
       ipAddress: "103.112.54.22",
       userAgent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/128.0.0.0",
     });
@@ -62,9 +52,6 @@ describe("Tier 1 — Feature 1.2: Active Session Management & Step-Up 2FA (Happy
   });
 
   it("T1-1.2-02: Remote session termination marks session revoked, writes SESSION_TERMINATED audit log, and fails active check", async () => {
-    const sessionMod = await loadModule<Record<string, unknown>>(
-      "@/lib/session-manager"
-    );
     const deleteSession = await loadRouteHandler("auth/sessions", "DELETE");
 
     harness.auth.asUser(USERS.muhtamimA);
@@ -103,11 +90,11 @@ describe("Tier 1 — Feature 1.2: Active Session Management & Step-Up 2FA (Happy
     );
     assert.ok(audits.length >= 1, "SESSION_TERMINATED audit log must be written");
 
-    const validateFn = (sessionMod.validateActiveSession ||
-      sessionMod.isSessionRevoked) as
-      | ((...args: unknown[]) => Promise<unknown>)
-      | undefined;
-    assert.equal(typeof validateFn, "function");
+    // A revoked current session cannot make its next management request.
+    const current = harness.auth.asUser(USERS.accountantA);
+    assert.equal((await deleteSession(harness.createRequest(`/api/auth/sessions?sessionId=${current.sessionId}`, {method:"DELETE"}))).status,200);
+    const get = await loadRouteHandler("auth/sessions", "GET");
+    assert.equal((await get(harness.createRequest("/api/auth/sessions"))).status,401);
   });
 
   it("T1-1.2-03: RFC 6238 TOTP generates valid Base32 secret + otpauth URI and verifies current and ±1 window codes", async () => {
@@ -273,21 +260,10 @@ describe("Tier 1 — Feature 1.2: Active Session Management & Step-Up 2FA (Happy
     );
   });
 
-  it("T1-1.2-06: Missing user_sessions / step_up_verifications tables (42P01/PGRST205) fall back cleanly", async () => {
-    const getSessions = await loadRouteHandler("auth/sessions", "GET");
-
+  it("T1-1.2-06: missing session registry denies even a provider-authenticated session", async () => {
+    const get = await loadRouteHandler("auth/sessions", "GET");
     harness.auth.asUser(USERS.muhtamimA);
     harness.db.markTableMissing("user_sessions", "PGRST205");
-    harness.db.markTableMissing("user_mfa_settings", "42P01");
-    harness.db.markTableMissing("step_up_verifications", "PGRST205");
-
-    const res = await getSessions(harness.createRequest("/api/auth/sessions"));
-    assert.equal(
-      res.status,
-      200,
-      "GET /api/auth/sessions must gracefully fall back when relational tables are missing"
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-    assert.ok(body !== null && typeof body === "object");
+    assert.equal((await get(harness.createRequest("/api/auth/sessions"))).status,401);
   });
 });

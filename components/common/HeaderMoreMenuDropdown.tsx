@@ -24,6 +24,7 @@ import { usePermissions } from "@/components/permissions/PermissionContext";
 import { useSession } from "@/components/sessions/SessionContext";
 import { useTheme, QawmiTheme } from "./ThemeContext";
 import { useAppMode } from "@/components/mode/ModeContext";
+import { clearOfflineAuthSession } from "@/lib/offline-auth";
 import { logout } from "@/app/actions/auth";
 
 interface HeaderMoreMenuDropdownProps {
@@ -85,7 +86,7 @@ export function HeaderMoreMenuDropdown({
   const handleLogout = async () => {
     try {
       setLoggingOut(true);
-      await logout();
+      try { await clearOfflineAuthSession(); } finally { await logout(); }
     } catch (e) {
       console.error(e);
       setLoggingOut(false);

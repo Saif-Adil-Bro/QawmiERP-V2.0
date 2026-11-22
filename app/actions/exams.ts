@@ -1,4 +1,13 @@
 "use server";
+import {publishExam} from '@/lib/portal/publish';
+import {teacherExamData} from '@/lib/portal/teacher-entry';
+import {rows} from '@/lib/portal/queries';
+import {examCohort} from '@/lib/portal/cohort';
+import {webTeacher,teacherStudents} from '@/lib/portal/identity';
+import {rankSummaries} from '@/lib/exam-grading';
+import {examReport,publicationFlags} from '@/lib/portal/exams';
+import {webIdentity, hasRole, teacherScope} from '@/lib/portal/identity';
+import {studentRoles,teacherRoles,published} from '@/lib/portal/rules';
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
@@ -35,6 +44,7 @@ import {
 import {
   assertExamUnlocked,
   getExamLockState,
+  withExamLocks,
   hasLockPrivilege,
   LOCK_PRIVILEGED_ROLES,
   type ExamLockState,
@@ -115,13 +125,13 @@ function computeExamStatus(
   };
 }
 
-export async function getExams() {
+async function readExamList() {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
-  if (!user) return [];
+  if (!user) return { ok: false, reason: "unavailable" } as const;
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return [];
+  if (!finalMadrasaId) return { ok: false, reason: "unavailable" } as const;
 
   const { data: exams, error } = await supabase
     .from("exams")
@@ -131,7 +141,7 @@ export async function getExams() {
 
   if (error || !exams) {
     console.error("Error fetching exams:", error);
-    return [];
+    return { ok: false, reason: error?.code === "42501" ? "forbidden" : "unavailable" } as const;
   }
 
   const examIds = exams.map(e => e.id);
@@ -142,20 +152,12 @@ export async function getExams() {
           .select("id, exam_id, exam_date")
           .in("exam_id", examIds)
       : Promise.resolve({ data: [] }),
-    getMadrasaMetadata(finalMadrasaId),
+    getMadrasaMetadata(finalMadrasaId, exams.some(e => typeof e.is_locked !== "boolean")),
   ]);
 
-  const publishedExams = madrasaMeta?.published_exams || {};
+  const publishedExams = await publicationFlags(supabase,finalMadrasaId,madrasaMeta);
   const examEndDates = madrasaMeta?.exam_end_dates || {};
-  const fallbackLocksSetting = await getStructuredMadrasaSetting<Record<string, ExamLockState>>(
-    finalMadrasaId,
-    "locks",
-    "exam_locks"
-  );
-  const fallbackLocks: Record<string, ExamLockState> =
-    (fallbackLocksSetting.found && fallbackLocksSetting.value) ||
-    (madrasaMeta as any)?.exam_locks ||
-    {};
+  const lockAwareExams = await withExamLocks(finalMadrasaId, exams, madrasaMeta);
 
   const routinesByExam = new Map<string, any[]>();
   (routines || []).forEach(r => {
@@ -165,15 +167,12 @@ export async function getExams() {
     routinesByExam.get(r.exam_id)!.push(r);
   });
 
-  return exams.map(exam => {
+  const enriched = lockAwareExams.map(exam => {
     const examRoutines = routinesByExam.get(exam.id) || [];
     const effectiveStoredEndDate = exam.end_date || examEndDates[exam.id] || null;
     const computed = computeExamStatus(exam.start_date, examRoutines, exam.status, effectiveStoredEndDate);
     const publishInfo = publishedExams[exam.id];
-    const isPublished = Boolean(publishInfo?.is_published || exam.status === "Published");
-    const lockInfo = fallbackLocks[exam.id];
-    const isLocked = typeof exam.is_locked === "boolean" ? exam.is_locked : Boolean(lockInfo?.is_locked);
-
+    const isPublished = published(publishedExams,exam);
     return {
       ...exam,
       end_date: effectiveStoredEndDate,
@@ -185,17 +184,46 @@ export async function getExams() {
       published_at: publishInfo?.published_at || null,
       published_by: publishInfo?.published_by || null,
       publish_note: publishInfo?.note || null,
-      is_locked: isLocked,
-      locked_by: exam.locked_by || lockInfo?.locked_by || null,
-      locked_by_name: exam.locked_by_name || lockInfo?.locked_by_name || null,
-      locked_at: exam.locked_at || lockInfo?.locked_at || null,
-      lock_reason: exam.lock_reason || lockInfo?.lock_reason || null,
       effective_start_date: computed.effectiveStartDate,
       effective_end_date: computed.effectiveEndDate,
       routine_count: computed.totalRoutineDays,
       last_routine_date: computed.effectiveEndDate,
     };
   });
+  return { ok: true, exams: enriched } as const;
+}
+
+export async function getExams() {
+  const result = await readExamList();
+  return result.ok ? result.exams : [];
+}
+
+/** Same tenant- and RLS-scoped list, but a failed read must not mean zero exams in the freeze console. */
+export async function getExamFreezeList() {
+  try {
+    const result = await readExamList();
+    if (!result.ok) return result;
+    const exams = result.exams.map(({ id, title, year, is_published, is_locked, locked_by_name, locked_at, lock_reason }) => ({
+      id, title, year, is_published, is_locked, locked_by_name, locked_at, lock_reason,
+    }));
+    return { ok: true, exams } as const;
+  } catch (error) {
+    console.error("Error loading the exam freeze list:", error);
+    return { ok: false, reason: "unavailable" } as const;
+  }
+}
+
+export type ExamFreezeList = Awaited<ReturnType<typeof getExamFreezeList>>;
+
+/** Read-only freshness check. No caller-supplied tenant and no raw ERP row in the response. */
+export async function readExamLocked(examId: string): Promise<boolean | null> {
+  const i = await webIdentity();
+  if (!i || !examId || hasRole(i, studentRoles)) return null;
+  try {
+    const teacher = hasRole(i, teacherRoles);
+    // Dashboard uses the same RLS read as getExamById; the teacher page has its own scoped reader.
+    return (await getExamLockState(i.tenant, examId, teacher ? i.db : await createClient())).is_locked;
+  } catch { return null; }
 }
 
 export async function getExamById(id: string) {
@@ -203,9 +231,11 @@ export async function getExamById(id: string) {
   const user = await getAuthUser(supabase);
   const finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
+  if (!finalMadrasaId) return null;
   const { data, error } = await supabase
     .from("exams")
     .select("*")
+    .eq("madrasa_id",finalMadrasaId)
     .eq("id", id)
     .single();
 
@@ -215,20 +245,21 @@ export async function getExamById(id: string) {
   }
 
   const madrasaId = finalMadrasaId || data.madrasa_id;
-  const [{ data: routines }, madrasaMeta, lockState] = await Promise.all([
+  const [{ data: routines }, madrasaMeta] = await Promise.all([
     supabase
       .from("exam_routines")
       .select("id, exam_id, exam_date")
       .eq("exam_id", id),
-    madrasaId ? getMadrasaMetadata(madrasaId) : Promise.resolve({} as MadrasaMetaWithSessions),
-    madrasaId ? getExamLockState(madrasaId, id) : Promise.resolve({ is_locked: false } as ExamLockState),
+    getMadrasaMetadata(madrasaId, typeof data.is_locked !== "boolean"),
   ]);
 
+  const [lockState] = await withExamLocks(madrasaId, [data], madrasaMeta);
   const examEndDates = madrasaMeta?.exam_end_dates || {};
   const effectiveStoredEndDate = data.end_date || examEndDates[id] || null;
   const computed = computeExamStatus(data.start_date, routines, data.status, effectiveStoredEndDate);
-  const publishInfo = madrasaMeta?.published_exams?.[id];
-  const isPublished = Boolean(publishInfo?.is_published || data.status === "Published");
+  const publishedExams=await publicationFlags(supabase,madrasaId,madrasaMeta);
+  const publishInfo = publishedExams[id];
+  const isPublished = published(publishedExams,data);
 
   return {
     ...data,
@@ -303,14 +334,15 @@ export async function toggleExamLock(
     }
 
     const adminClient = await createAdminClient();
-    const { data: examRow } = await adminClient
+    const { data: examRow, error: statusError } = await adminClient
       .from("exams")
-      .select("id, title, year")
+      .select("*")
       .eq("id", examId)
       .eq("madrasa_id", madrasaId)
       .maybeSingle();
 
-    const examLabel = examRow ? `${examRow.title} (${examRow.year})` : examId;
+    if (statusError || !examRow) return { error: "পরীক্ষাটি পাওয়া যায়নি বা পড়া যায়নি।" };
+    const examLabel = `${examRow.title} (${examRow.year})`;
     const now = new Date().toISOString();
     const cleanReason =
       (reason || "").trim() ||
@@ -324,19 +356,14 @@ export async function toggleExamLock(
       lock_reason: shouldLock ? cleanReason : null,
     };
 
-    // 1. Update relational exams table columns if migrated
-    const { error: colErr } = await adminClient
-      .from("exams")
-      .update(lockPayload)
-      .eq("id", examId)
-      .eq("madrasa_id", madrasaId);
-
-    // 2. Always persist fallback in madrasa_settings (or metadata) if exams.is_locked column isn't added yet
-    if (colErr) {
+    if (Object.hasOwn(examRow, "is_locked")) {
+      const fields = Object.fromEntries(Object.entries(lockPayload).filter(([key]) => Object.hasOwn(examRow, key)));
+      const updated = await adminClient.from("exams").update(fields)
+        .eq("id", examId).eq("madrasa_id", madrasaId).select("is_locked").single();
+      if (updated.error || updated.data?.is_locked !== shouldLock) return { error: "পরীক্ষার লক পরিবর্তন করা যায়নি।" };
+    } else {
       const existingSetting = await getStructuredMadrasaSetting<Record<string, ExamLockState>>(
-        madrasaId,
-        "locks",
-        "exam_locks"
+        madrasaId, "locks", "exam_locks", true
       );
       const nextMap: Record<string, ExamLockState> = {
         ...(existingSetting.value || {}),
@@ -350,9 +377,10 @@ export async function toggleExamLock(
         user.id
       );
       if (!savedSetting.ok) {
-        const meta: any = await getMadrasaMetadata(madrasaId);
+        if (existingSetting.value?.[examId]) return { error: "পরীক্ষার লক সংরক্ষণ করা যায়নি।" };
+        const meta: any = await getMadrasaMetadata(madrasaId, true);
         meta.exam_locks = { ...(meta.exam_locks || {}), [examId]: lockPayload };
-        await saveMadrasaMetadata(madrasaId, meta);
+        if (!await saveMadrasaMetadata(madrasaId, meta)) return { error: "পরীক্ষার লক সংরক্ষণ করা যায়নি।" };
       }
     }
 
@@ -380,6 +408,7 @@ export async function toggleExamLock(
     revalidatePath(`/dashboard/exams/${examId}/setup`);
     revalidatePath(`/dashboard/exams/${examId}/results`);
     revalidatePath("/dashboard/settings/data-governance");
+    revalidatePath("/teacher-portal/exams");
 
     return {
       success: true,
@@ -394,136 +423,8 @@ export async function toggleExamLock(
   }
 }
 
-export async function toggleExamPublish(
-  examId: string,
-  isPublished: boolean,
-  note?: string,
-  _approvalBypass: boolean = false
-) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  const __authz = await writeGuard("exams");
-  if (!__authz.allowed) return __authz.fallback;
-
-  try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অনুগ্রহ করে পুনরায় লগইন করুন।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
-    if (!madrasaId) return { error: "মাদরাসার তথ্য খুঁজে পাওয়া যায়নি।" };
-
-    if (!_approvalBypass && isPublished) {
-      const hook = await submitWorkflowHookApproval({
-        madrasaId,
-        actorId: user.id,
-        actorName: user.user_metadata?.full_name || user.email || "অফিসার",
-        actorRole: user.user_metadata?.role || "staff",
-        requestType: "RESULT_PUBLISH",
-        amount: 0,
-        title: `পরীক্ষার ফলাফল প্রকাশ অনুমোদন (${examId})`,
-        description: note || "পরীক্ষার চূড়ান্ত ফলাফল প্রকাশ",
-        entityType: "exam",
-        targetId: examId,
-        payload: { action: "publish_exam_result", examId, isPublished, note },
-      });
-      if (hook.matched) {
-        return {
-          success: true,
-          pendingApproval: true,
-          approvalRequestId: hook.approvalRequestId,
-          message: "ফলাফল প্রকাশের জন্য অনুমোদনের আবেদন পাঠানো হয়েছে।",
-        };
-      }
-    }
-
-    const meta = await getMadrasaMetadata(madrasaId);
-    const prevPublish = meta.published_exams?.[examId] || { is_published: false };
-    if (!meta.published_exams) {
-      meta.published_exams = {};
-    }
-
-    const { data: userData } = await supabase
-      .from("users")
-      .select("full_name, email")
-      .eq("id", user.id)
-      .single();
-
-    const publisherName = userData?.full_name || userData?.email || "কর্তৃপক্ষ";
-
-    const nextPublish = {
-      is_published: isPublished,
-      published_at: new Date().toISOString(),
-      published_by: publisherName,
-      note: note || "",
-    };
-
-    // Save to relational exam_settings table first
-    await saveStructuredExamSetting(madrasaId, examId, "publish_info", nextPublish, user.id);
-
-    meta.published_exams[examId] = nextPublish;
-    const saved = await saveMadrasaMetadata(madrasaId, meta);
-    if (!saved) {
-      return { error: "ফলাফলের অবস্থা সংরক্ষণ করা যায়নি।" };
-    }
-
-    // Update status in exams table as well
-    const adminClient = await createAdminClient();
-    const { data: examRow } = await adminClient
-      .from("exams")
-      .update({
-        status: isPublished ? "Published" : "Completed",
-      })
-      .eq("id", examId)
-      .select("title, year")
-      .maybeSingle();
-
-    await __authz.logAudit({
-      action: isPublished ? "EXAM_RESULT_PUBLISHED" : "EXAM_RESULT_UNPUBLISHED",
-      entityType: "exam",
-      entityId: examId,
-      entityLabel: examRow ? `${examRow.title} (${examRow.year})` : examId,
-      summary: isPublished
-        ? `পরীক্ষার ফলাফল আনুষ্ঠানিকভাবে প্রকাশ করা হয়েছে (${examRow?.title || examId})।`
-        : `পরীক্ষার ফলাফল স্থগিত/অপ্রকাশিত করা হয়েছে (${examRow?.title || examId})।`,
-      oldValue: prevPublish,
-      newValue: nextPublish,
-      severity: isPublished ? "WARNING" : "CRITICAL",
-    });
-
-    revalidatePath("/dashboard/exams");
-    revalidatePath(`/dashboard/exams/${examId}/results`);
-    revalidatePath(`/dashboard/exams/${examId}/merit-list`);
-    revalidatePath(`/dashboard/exams/${examId}/report-cards`);
-    revalidatePath("/portal/exams");
-    revalidatePath("/portal", "layout");
-
-    if (isPublished) {
-      try {
-        const { dispatchWebhookEvent } = await import("@/lib/webhooks/dispatcher");
-        await dispatchWebhookEvent(madrasaId, "exam.result_published", {
-          exam_id: examId,
-          title: examRow?.title || examId,
-          year: examRow?.year || null,
-          published_by: publisherName,
-          published_at: nextPublish.published_at,
-        });
-      } catch {
-        // non-blocking webhook dispatch
-      }
-    }
-
-    return {
-      success: true,
-      is_published: isPublished,
-      message: isPublished
-        ? "পরীক্ষার ফলাফল আনুষ্ঠানিকভাবে সফলভাবে প্রকাশিত হয়েছে! অভিভাবক ও শিক্ষার্থীরা এখন পোর্টালে রেজাল্ট ও মার্কশিট দেখতে পাবেন।"
-        : "পরীক্ষার ফলাফল স্থগিত/অপ্রকাশিত করা হয়েছে। পোর্টাল থেকে ফলাফল লুকানো হয়েছে।",
-    };
-  } catch (err: any) {
-    console.error("toggleExamPublish error:", err);
-    return { error: err.message || "একটি ত্রুটি হয়েছে" };
-  }
+export async function toggleExamPublish(examId:string,isPublished:boolean,note?:string) {
+  return publishExam(examId,isPublished,note);
 }
 
 export async function getExamPublishStatus(examId: string) {
@@ -535,15 +436,8 @@ export async function getExamPublishStatus(examId: string) {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { isPublished: false };
 
-    const meta = await getMadrasaMetadata(madrasaId);
-    const publishInfo = meta?.published_exams?.[examId];
-
-    return {
-      isPublished: Boolean(publishInfo?.is_published),
-      publishedAt: publishInfo?.published_at || null,
-      publishedBy: publishInfo?.published_by || null,
-      note: publishInfo?.note || null,
-    };
+    const exam = await getExamById(examId);
+    return {isPublished:!!exam?.is_published,publishedAt:exam?.published_at || null,publishedBy:exam?.published_by || null,note:exam?.publish_note || null};
   } catch (err) {
     console.error("getExamPublishStatus error:", err);
     return { isPublished: false };
@@ -647,10 +541,9 @@ export async function updateExamDetails(examId: string, data: { title?: string; 
   if (!user) return { error: "Unauthorized" };
 
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (finalMadrasaId) {
-    const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার তথ্য সংশোধন");
-    if (lockCheck.locked) return { error: lockCheck.error };
-  }
+  if (!finalMadrasaId) return { error: "মাদরাসার তথ্য পাওয়া যায়নি।" };
+  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার তথ্য সংশোধন");
+  if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
 
   const { data: oldExam } = await supabase
     .from("exams")
@@ -723,10 +616,9 @@ export async function deleteExam(examId: string) {
   const user = await getAuthUser(supabase);
   const finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-  if (finalMadrasaId) {
-    const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষাটি মুছে ফেলা");
-    if (lockCheck.locked) return { error: lockCheck.error };
-  }
+  if (!finalMadrasaId) return { error: "মাদরাসার তথ্য পাওয়া যায়নি।" };
+  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষাটি মুছে ফেলা");
+  if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
 
   const { data: oldExam } = await supabase
     .from("exams")
@@ -768,142 +660,87 @@ export async function deleteExam(examId: string) {
 }
 
 export async function getStudentsByClass(classId: string) {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return [];
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return [];
-
-  const { data, error } = await supabase
-    .from("students")
-    .select("*")
-    .eq("madrasa_id", finalMadrasaId)
-    .eq("class_id", classId)
-    .order("roll_number", { ascending: true });
-
-  let rawStudents = data || [];
-  if (error || rawStudents.length === 0) {
-    try {
-      const adminClient = await createAdminClient();
-      const { data: adminData } = await adminClient
-        .from("students")
-        .select("*")
-        .eq("madrasa_id", finalMadrasaId)
-        .eq("class_id", classId)
-        .order("roll_number", { ascending: true });
-      if (adminData && adminData.length > 0) {
-        rawStudents = adminData;
-      }
-    } catch (e) {
-      console.warn("Could not query admin client in getStudentsByClass:", e);
-    }
-  }
-
-  try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const hydratedList = rawStudents.map((std: any) => {
-      const hydrated: any = hydrateStudentWithMetadata(std, meta);
-      const profile: any = meta?.student_profiles?.[std.id];
-      const guardianPhone = 
-        profile?.parent_phone || 
-        profile?.guardian_phone || 
-        profile?.emergency_contact || 
-        hydrated?.parent_phone || 
-        hydrated?.guardian_phone || 
-        hydrated?.emergency_contact || 
-        std.parent_phone || 
-        std.guardian_phone || 
-        std.emergency_contact || 
-        hydrated?.phone || 
-        std.phone || 
-        "";
-      const photoUrl = profile?.photo_url || hydrated?.photo_url || std.photo_url || "";
-      return {
-        ...hydrated,
-        parent_phone: guardianPhone,
-        guardian_phone: guardianPhone,
-        phone: guardianPhone,
-        photo_url: photoUrl
-      };
-    });
-    return sortStudentsByRoll(hydratedList);
-  } catch (e) {
-    return sortStudentsByRoll(rawStudents);
-  }
+  const i=await webIdentity(); if (!i || hasRole(i,studentRoles)) return [];
+  const t=await webTeacher(); if (t) return teacherStudents(i,t.scope,[classId]);
+  if (!(await writeGuard('exams')).allowed) return [];
+  const meta=await getMadrasaMetadata(i.tenant,true);
+  const result=await rows(()=>i.db.from('students').select('*, classes(*)').eq('madrasa_id',i.tenant).eq('class_id',classId).order('roll_number'));
+  return sortStudentsByRoll(result.map(s=>hydrateStudentWithMetadata(s,meta)));
 }
 
-export async function getExamResults(examId: string, classId: string, subjectName: string) {
-  const supabase = await createClient();
-  
-  // Get all students of the class
-  const students = await getStudentsByClass(classId);
-  if (!students.length) return [];
-
-  // Get marks for these students
-  const { data: results, error } = await supabase
-    .from("exam_results")
-    .select("*")
-    .eq("exam_id", examId)
-    .eq("subject_name", subjectName)
-    .in("student_id", students.map(s => s.id));
-
-  const marksMap = new Map();
-  results?.forEach(r => {
-    marksMap.set(r.student_id, { marks: r.marks_obtained, total: r.total_marks });
+export async function getExamResults(examId:string,classId:string,subjectName:string) {
+  const i=await webIdentity(); if (!i || hasRole(i,[...teacherRoles,...studentRoles]) || !(await writeGuard('exams')).allowed) return [];
+  const {data:exam}=await i.db.from('exams').select('*').eq('madrasa_id',i.tenant).eq('id',examId).maybeSingle(); if (!exam) return [];
+  const report=await examReport(i.db,i.tenant,exam,await getMadrasaMetadata(i.tenant,true));
+  return report.filter(s=>s.class_id===classId).map(s=>{
+    const m=s.own.find((r:any)=>r.subject_name===subjectName);
+    return {id:s.id,first_name:s.first_name,last_name:s.last_name,roll_number:s.roll_number,marks_obtained:m?.marks_obtained ?? '',total_marks:m?.total_marks ?? null,
+      written_marks:m?.written_marks ?? '',oral_marks:m?.oral_marks ?? '',tutorial_marks:m?.tutorial_marks ?? '',attendance_marks:m?.attendance_marks ?? ''};
   });
-
-  return students.map(s => ({
-    ...s,
-    marks_obtained: marksMap.get(s.id)?.marks || '',
-    total_marks: marksMap.get(s.id)?.total || 100
-  }));
 }
 
-export async function saveExamMarks(examId: string, subjectName: string, marksData: { student_id: string, marks_obtained: number, total_marks: number }[]) {
+export async function saveExamMarks(examId: string, subjectName: string, marksData: { student_id: string, marks_obtained: number, total_marks: number, written_marks?:number|null,oral_marks?:number|null,tutorial_marks?:number|null,attendance_marks?:number|null }[], classId?:string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   const __authz = await writeGuard("exams");
   if (!__authz.allowed) return __authz.fallback;
 
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "Unauthorized" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "Madrasa not found" };
+  const identity = await webIdentity();
+  if (!identity || hasRole(identity, studentRoles)) return { error: "নম্বর এন্ট্রির অনুমতি যাচাই করা যায়নি।" };
+  const finalMadrasaId = identity.tenant;
 
   // 1.3 Granular Exam Marks Freeze Guard
-  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার নম্বর এন্ট্রি বা পরিবর্তন");
-  if (lockCheck.locked) return { error: lockCheck.error };
-
+  if (!Array.isArray(marksData) || !marksData.length || marksData.some(m=>!m || !Number.isFinite(m.marks_obtained) || !Number.isFinite(m.total_marks) || m.total_marks<=0 || m.marks_obtained<0 || m.marks_obtained>m.total_marks)) return {error:'নম্বর বা পূর্ণমান সঠিক নয়।'};
+  const writer = identity.db as Awaited<ReturnType<typeof createAdminClient>>;
+  const {data:ownedExam} = await writer.from('exams').select('*').eq('id',examId).eq('madrasa_id',finalMadrasaId).maybeSingle();
+  if (!ownedExam || !classId || !subjectName?.trim()) return {error:'পরীক্ষা বা জামাত সঠিক নয়।'};
+  if (hasRole(identity, teacherRoles)) {
+    const scope = await teacherScope(identity);
+    const roster = await teacherStudents(identity, scope, [classId]);
+    const entry = await teacherExamData(identity, scope, ownedExam, roster, classId);
+    const def=entry.subjects.find(s=>s.subject_name===subjectName);
+    if (!def || marksData.some(m=>m.total_marks!==Number(def.total_marks) || !entry.students.some(s=>s.id===m.student_id))) return {error:'বরাদ্দকৃত বিষয়, শিক্ষার্থী ও পূর্ণমান ব্যবহার করুন।'};
+  } else {
+    const meta=await getMadrasaMetadata(finalMadrasaId,true);
+    const cohort=await examCohort(writer,finalMadrasaId,ownedExam,meta);
+    const students=await rows(()=>writer.from('students').select('id,class_id').eq('madrasa_id',finalMadrasaId).in('id',marksData.map(m=>m.student_id)));
+    const eligible=new Set(students.filter(s=>cohort(s).class_id===classId).map(s=>s.id));
+    const defs=await rows(()=>writer.from('exam_subjects').select('*').eq('madrasa_id',finalMadrasaId).eq('exam_id',examId).eq('class_id',classId),true);
+    if(marksData.some(m=>!eligible.has(m.student_id) || defs.length && !defs.some(d=>d.subject_name===subjectName && Number(d.total_marks)===m.total_marks))) return {error:'পরীক্ষার জামাত, বিষয় বা পূর্ণমান মিলছে না।'};
+  }
   // Snapshot existing marks before upsert so we can track exact changes in system_audit_logs
   const studentIds = marksData.map((m) => m.student_id);
-  const { data: prevRows } = await supabase
+  const { data: prevRows, error:beforeError } = await writer
     .from("exam_results")
-    .select("student_id, marks_obtained, total_marks")
-    .eq("exam_id", examId)
+    .select("student_id, marks_obtained, total_marks, written_marks, oral_marks, tutorial_marks, attendance_marks")
+    .eq("madrasa_id",finalMadrasaId).eq("exam_id", examId)
     .eq("subject_name", subjectName)
     .in("student_id", studentIds);
 
-  const prevMap = new Map<string, { marks_obtained: number; total_marks: number }>();
-  (prevRows || []).forEach((r: any) => {
-    prevMap.set(r.student_id, {
-      marks_obtained: Number(r.marks_obtained),
-      total_marks: Number(r.total_marks),
-    });
-  });
-
+  if (beforeError) return {error:beforeError.message};
+  const fields=['written_marks','oral_marks','tutorial_marks','attendance_marks'] as const;
+  const previous=new Map((prevRows || []).map(m=>[m.student_id,m]));
   const recordsToUpsert = marksData.map(record => ({
     madrasa_id: finalMadrasaId,
     exam_id: examId,
     student_id: record.student_id,
     subject_name: subjectName,
     marks_obtained: record.marks_obtained,
-    total_marks: record.total_marks
+    total_marks: record.total_marks,
+    ...Object.fromEntries(fields.map(key => {
+      const stored = previous.get(record.student_id)?.[key];
+      return [key, key in record ? record[key] : stored == null ? null : Number(stored)];
+    })),
   }));
 
-  const { error } = await supabase
+  for (const record of recordsToUpsert) {
+    const parts=fields.map(k=>(record as Record<string,unknown>)[k]).filter((v):v is number=>v!=null);
+    if(parts.some(v=>!Number.isFinite(v) || v<0) || parts.length && Math.abs(parts.reduce((n,v)=>n+v,0)-record.marks_obtained)>0.000001) return {error:'বিভাগভিত্তিক নম্বর ও মোট নম্বর মিলছে না। বিভাগভিত্তিক ফর্মে সংশোধন করুন।'};
+  }
+  const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার নম্বর এন্ট্রি বা পরিবর্তন");
+  if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
+
+  const { error } = await writer
     .from("exam_results")
     .upsert(recordsToUpsert, { onConflict: 'exam_id, student_id, subject_name' });
 
@@ -913,26 +750,15 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
   }
 
   // Build compact changed-marks diff for immutable audit trail
-  const changedEntries = marksData
-    .map((m) => {
-      const prev = prevMap.get(m.student_id);
-      if (!prev) {
-        return {
-          student_id: m.student_id,
-          before: null,
-          after: { marks_obtained: m.marks_obtained, total_marks: m.total_marks },
-        };
-      }
-      if (prev.marks_obtained !== m.marks_obtained || prev.total_marks !== m.total_marks) {
-        return {
-          student_id: m.student_id,
-          before: prev,
-          after: { marks_obtained: m.marks_obtained, total_marks: m.total_marks },
-        };
-      }
-      return null;
-    })
-    .filter(Boolean);
+  const keys = ["marks_obtained", "total_marks", ...fields] as const;
+  const values = (row: Record<string, unknown>) => Object.fromEntries(keys.map(k => [k, row[k] == null ? null : Number(row[k])]));
+  const changedEntries = recordsToUpsert.flatMap(record => {
+    const prior = previous.get(record.student_id);
+    const before = prior ? values(prior) : null;
+    const after = values(record);
+    // Changing the split without changing the total is still a marks correction.
+    return !before || keys.some(k => before[k] !== after[k]) ? [{student_id: record.student_id, before, after}] : [];
+  });
 
   if (changedEntries.length > 0) {
     const updatedCount = changedEntries.filter((c: any) => c.before !== null).length;
@@ -956,290 +782,30 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
     });
   }
 
-  revalidatePath(`/dashboard/exams/${examId}/marks`);
+  revalidatePath(`/dashboard/exams/${examId}`, 'layout');
+  revalidatePath('/teacher-portal/exams');
+  revalidatePath('/portal', 'layout');
   return { success: true };
 }
 
 export async function getStudentReportCard(examId: string, classId?: string) {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return [];
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return [];
-  
-  let studentsQuery = supabase
-    .from("students")
-    .select("id, first_name, last_name, roll_number, class_id, classes(name)")
-    .eq("madrasa_id", finalMadrasaId);
-    
-  if (classId) {
-    studentsQuery = studentsQuery.eq("class_id", classId);
+  const i = await webIdentity();
+  if (!i || hasRole(i,studentRoles) || !hasRole(i,[...teacherRoles,"admin","super_admin","muhtamim","exam_manager"]) && !i.perms.summary.effectivePermissions.includes("exam.view")) return [];
+  const {data:exam} = await i.db.from('exams').select('*').eq('madrasa_id',i.tenant).eq('id',examId).maybeSingle();
+  if (!exam) return [];
+  if (hasRole(i,teacherRoles)) return []; // This is the Admin tabulation, not the Teacher subject endpoint.
+  const report=(await examReport(i.db,i.tenant,exam,await getMadrasaMetadata(i.tenant,true))).filter(s=>!classId || s.class_id===classId);
+  const ranks = new Map<string,number>();
+  for (const cohort of new Set(report.map(s=>s.class_id).filter(Boolean))) {
+    for (const [id,rank] of rankSummaries(report.filter(s=>s.class_id===cohort)).ranks) ranks.set(id,rank);
   }
-  
-  const { data: students, error: studentsError } = await studentsQuery.order('roll_number');
-  
-  if (studentsError || !students.length) return [];
-
-  const [{ data: results, error: resultsError }, { data: validSubjects }, settingsBundle] = await Promise.all([
-    supabase
-      .from("exam_results")
-      .select("*")
-      .eq("exam_id", examId)
-      .in("student_id", students.map(s => s.id)),
-    supabase
-      .from("exam_subjects")
-      .select("*")
-      .eq("exam_id", examId),
-    getExamSettingsBundle(finalMadrasaId, examId),
-  ]);
-    
-  if (resultsError) return [];
-
-  // Evaluation rules, grading config, and per-subject compulsory settings (from structured exam_settings with fallback)
-  const gradingConfig = settingsBundle.gradingConfig;
-  const examRules = settingsBundle.evaluationRules || {};
-  const failPolicy = examRules?.fail_policy || "compulsory_subject_fail"; // "compulsory_subject_fail" | "any_subject_fail" | "percentage_only"
-  const compulsoryMeta = settingsBundle.compulsorySubjects || {};
-  const gradeRules = gradingConfig.rules;
-  const minPassPct = getMinPassPercentage(gradeRules);
-  const failRule = getFailRule(gradeRules);
-
-  // If highest marks scope is "exam" and a specific class was requested,
-  // we also fetch all results of this exam to compute the true exam-wide highest marks per subject.
-  let allExamResults = results || [];
-  if (classId && gradingConfig.highestMarksScope === "exam") {
-    try {
-      const { data: examWideResults } = await supabase
-        .from("exam_results")
-        .select("subject_name, marks_obtained, class_id")
-        .eq("exam_id", examId);
-      if (examWideResults && examWideResults.length > 0) {
-        allExamResults = examWideResults;
-      }
-    } catch (e) {
-      console.warn("Could not fetch exam-wide results for highest marks:", e);
-    }
-  }
-
-  // Pre-calculate highest marks per subject
-  // Key: subject_name or `${class_id}:${subject_name}`
-  const highestMarksMap = new Map<string, number>();
-  (allExamResults || []).forEach((r: any) => {
-    if (!r.subject_name || r.marks_obtained === null || r.marks_obtained === undefined) return;
-    const obtained = Number(r.marks_obtained) || 0;
-    
-    // Exam-wide highest
-    const currentExamMax = highestMarksMap.get(`exam:${r.subject_name}`) || 0;
-    if (obtained > currentExamMax) {
-      highestMarksMap.set(`exam:${r.subject_name}`, obtained);
-    }
-
-    // Class-wide highest (using r.class_id or matching student's class_id)
-    const rClassId = r.class_id || students.find(s => s.id === r.student_id)?.class_id;
-    if (rClassId) {
-      const classKey = `class:${rClassId}:${r.subject_name}`;
-      const currentClassMax = highestMarksMap.get(classKey) || 0;
-      if (obtained > currentClassMax) {
-        highestMarksMap.set(classKey, obtained);
-      }
-    }
-  });
-
-  // Group students by class to resolve complete subject lists
-  const classSubjectMap = new Map<string, { subject_name: string; total_marks: number; pass_marks: number; is_compulsory: boolean; exam_type: string }[]>();
-
-  // 1. Populate from exam_subjects setup
-  (validSubjects || []).forEach((vs: any) => {
-    if (!classSubjectMap.has(vs.class_id)) {
-      classSubjectMap.set(vs.class_id, []);
-    }
-    const isComp = compulsoryMeta[`${vs.class_id}:${vs.subject_name}`] !== undefined 
-      ? Boolean(compulsoryMeta[`${vs.class_id}:${vs.subject_name}`])
-      : (vs.is_compulsory !== undefined ? Boolean(vs.is_compulsory) : true); // default compulsory
-
-    classSubjectMap.get(vs.class_id)!.push({
-      subject_name: vs.subject_name,
-      total_marks: Number(vs.total_marks) || 100,
-      pass_marks: Number(vs.pass_marks) || 33,
-      is_compulsory: isComp,
-      exam_type: vs.exam_type || "Written"
-    });
-  });
-
-  // 2. Fallback: if a class has no exam_subjects setup, discover all distinct subjects from entered results
-  students.forEach(student => {
-    if (!classSubjectMap.has(student.class_id) || classSubjectMap.get(student.class_id)!.length === 0) {
-      const studentClassResults = (results || []).filter(r => {
-        const studentRecord = students.find(s => s.id === r.student_id);
-        return studentRecord?.class_id === student.class_id;
-      });
-      const uniqueSubjects = new Map<string, { total_marks: number }>();
-      studentClassResults.forEach(r => {
-        if (r.subject_name) {
-          uniqueSubjects.set(r.subject_name, {
-            total_marks: Number(r.total_marks) || 100
-          });
-        }
-      });
-      const fallbackList: any[] = [];
-      uniqueSubjects.forEach((val, subName) => {
-        const isComp = compulsoryMeta[`${student.class_id}:${subName}`] !== undefined 
-          ? Boolean(compulsoryMeta[`${student.class_id}:${subName}`])
-          : true;
-        fallbackList.push({
-          subject_name: subName,
-          total_marks: val.total_marks,
-          pass_marks: 33,
-          is_compulsory: isComp,
-          exam_type: "Written"
-        });
-      });
-      if (fallbackList.length > 0) {
-        classSubjectMap.set(student.class_id, fallbackList);
-      }
-    }
-  });
-
-  // Group results by student ensuring EVERY class subject is present
-  const studentResults = students.map(student => {
-    const classSubjects = classSubjectMap.get(student.class_id) || [];
-    
-    // Construct complete subject-wise marks
-    const studentMarks = classSubjects.map(subDef => {
-      const existingResult = (results || []).find(r => r.student_id === student.id && r.subject_name === subDef.subject_name);
-      const hasEntered = existingResult !== undefined && existingResult.marks_obtained !== null && existingResult.marks_obtained !== undefined;
-      
-      const marksObtained = hasEntered ? Number(existingResult.marks_obtained) : 0;
-      const totalMarks = Number(existingResult?.total_marks || subDef.total_marks || 100);
-      const passMarks = Number(subDef.pass_marks || 33);
-      // Unentered marks do not count as failed
-      const isFailed = hasEntered ? (marksObtained < passMarks) : false;
-
-      // Subject percentage & grade
-      const subPct = totalMarks > 0 ? (marksObtained / totalMarks) * 100 : 0;
-      const subRule = hasEntered ? resolveGradeRule(subPct, gradeRules, isFailed) : null;
-      const subGrade = subRule ? subRule.label : "-";
-      const subGpa = subRule ? subRule.gpa : 0;
-
-      // Highest marks for this subject
-      const classKey = `class:${student.class_id}:${subDef.subject_name}`;
-      const examKey = `exam:${subDef.subject_name}`;
-      const highestMarks = gradingConfig.highestMarksScope === "exam"
-        ? (highestMarksMap.get(examKey) ?? marksObtained)
-        : (highestMarksMap.get(classKey) ?? marksObtained);
-
-      return {
-        id: existingResult?.id || `fallback_${student.id}_${subDef.subject_name}`,
-        exam_id: examId,
-        student_id: student.id,
-        subject_name: subDef.subject_name,
-        marks_obtained: hasEntered ? marksObtained : 0,
-        total_marks: totalMarks,
-        pass_marks: passMarks,
-        is_compulsory: subDef.is_compulsory,
-        is_failed: isFailed,
-        has_entered_marks: hasEntered,
-        exam_type: subDef.exam_type,
-        highest_marks: highestMarks,
-        grade: subGrade,
-        gpa: subGpa,
-        percentage: subPct
-      };
-    });
-    
-    const enteredMarksCount = studentMarks.filter(m => m.has_entered_marks).length;
-    const totalObtained = studentMarks.reduce((sum, r) => sum + Number(r.marks_obtained || 0), 0);
-    const totalMax = studentMarks.reduce((sum, r) => sum + Number(r.total_marks || 100), 0);
-    const percentage = totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
-    
-    // Compulsory vs Optional Subjects
-    const compulsorySubjects = studentMarks.filter(m => m.is_compulsory !== false);
-    const optionalSubjects = studentMarks.filter(m => m.is_compulsory === false);
-
-    const failedCompulsorySubjects = studentMarks.filter(m => m.is_compulsory !== false && m.is_failed && m.has_entered_marks);
-    const failedAllSubjects = studentMarks.filter(m => m.is_failed && m.has_entered_marks);
-
-    let isOverallFailed = false;
-    let failReason = "";
-
-    if (enteredMarksCount === 0) {
-      isOverallFailed = false;
-      failReason = "";
-    } else {
-      if (failPolicy === "any_subject_fail" && failedAllSubjects.length > 0) {
-        isOverallFailed = true;
-        failReason = `${failedAllSubjects.length}টি বিষয়ে অকৃতকার্য`;
-      } else if (failPolicy === "percentage_only") {
-        isOverallFailed = percentage < minPassPct;
-        failReason = isOverallFailed ? `নম্বর শতকরা ${minPassPct}% এর কম` : "";
-      } else {
-        // Default "compulsory_subject_fail"
-        if (failedCompulsorySubjects.length > 0) {
-          isOverallFailed = true;
-          failReason = `আবশ্যক বিষয়ে অকৃতকার্য (${failedCompulsorySubjects.map(s => s.subject_name).join(", ")})`;
-        } else if (percentage < minPassPct) {
-          isOverallFailed = true;
-          failReason = `নম্বর শতকরা ${minPassPct}% এর কম`;
-        }
-      }
-    }
-
-    let calculatedGrade = "N/A";
-    let calculatedGpa = "N/A";
-
-    if (enteredMarksCount > 0) {
-      if (isOverallFailed) {
-        calculatedGrade = failRule.label;
-        calculatedGpa = "০.০০";
-      } else if (gradingConfig.calculationMode === "average_percentage") {
-        // 'গড় মোড': মোট শতকরা থেকে সরাসরি বিভাগ নির্ধারণ
-        calculatedGrade = resolveGradeRule(percentage, gradeRules, false).label;
-        const matchingRule = resolveGradeRule(percentage, gradeRules, false);
-        calculatedGpa = matchingRule.gpa.toFixed(2);
-      } else {
-        // 'বিষয়ভিত্তিক GPA মোড': প্রতিটি বিষয়ের GPA পয়েন্ট যোগ করে গড় থেকে বিভাগ নির্ধারণ
-        const compulsoryGpaSum = compulsorySubjects.reduce((sum, m) => sum + resolveSubjectGpa(m, gradeRules), 0);
-        const optionalGpaBonus = optionalSubjects.reduce((sum, m) => sum + Math.max(0, resolveSubjectGpa(m, gradeRules) - 2.0), 0);
-        const totalGpaPoints = compulsoryGpaSum + optionalGpaBonus;
-
-        const mainCount = compulsorySubjects.length > 0 ? compulsorySubjects.length : studentMarks.length;
-        const rawGpa = mainCount > 0 ? Math.min(5.0, totalGpaPoints / mainCount) : 0;
-        calculatedGpa = rawGpa.toFixed(2);
-        calculatedGrade = resolveGradeFromGpa(rawGpa, gradeRules, false).label;
-      }
-    }
-
-    return {
-      ...student,
-      class_name: Array.isArray(student.classes) ? student.classes[0]?.name : (student.classes as any)?.name,
-      marks: studentMarks,
-      totalObtained,
-      totalMax,
-      percentage: percentage.toFixed(2),
-      grade: calculatedGrade,
-      gpa: calculatedGpa,
-      grading_mode: gradingConfig.calculationMode,
-      highest_marks_scope: gradingConfig.highestMarksScope,
-      is_failed: isOverallFailed,
-      fail_reason: failReason,
-      failed_compulsory_count: failedCompulsorySubjects.length,
-      failed_total_count: failedAllSubjects.length
-    };
-  });
-
-  return studentResults;
+  return report.map(({own,summary,...s})=>({...s, badgeClass:summary.badgeClass, merit_position:ranks.get(s.id) ?? null}));
 }
 
 export async function getExamGradingConfig(explicitMadrasaId?: string): Promise<ExamGradingConfig> {
   try {
-    let madrasaId = explicitMadrasaId || "";
-    if (!madrasaId) {
-      const supabase = await createClient();
-      const user = await getAuthUser(supabase);
-      madrasaId = user ? await getAuthMadrasaId(supabase, user) : "";
-    }
-    if (!madrasaId) return DEFAULT_GRADING_CONFIG;
+    const madrasaId=await getAuthMadrasaId();
+    if (!madrasaId || explicitMadrasaId && madrasaId!==explicitMadrasaId) return DEFAULT_GRADING_CONFIG;
     return await getStructuredExamGradingConfig(madrasaId);
   } catch (err) {
     console.warn("getExamGradingConfig error:", err);
@@ -1407,7 +973,7 @@ export async function saveExamEvaluationSettings(examId: string, settings: { fai
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
   const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার মূল্যায়ন নীতিমালা পরিবর্তন");
-  if (lockCheck.locked) return { error: lockCheck.error };
+  if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
 
   const prevRule = await getExamEvaluationSettings(examId);
   const nextRule = {
@@ -1467,22 +1033,19 @@ export async function saveExamSubjects(examId: string, classId: string, subjects
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
   const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার বিষয় ও পূর্ণমান পরিবর্তন");
-  if (lockCheck.locked) return { error: lockCheck.error };
+  if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
 
-  // Delete existing records for this class & exam
-  await supabase
-    .from("exam_subjects")
-    .delete()
-    .eq("exam_id", examId)
-    .eq("class_id", classId);
-
+  if (!(await supabase.from('exams').select('id').eq('madrasa_id',finalMadrasaId).eq('id',examId).maybeSingle()).data || !(await supabase.from('classes').select('id').eq('madrasa_id',finalMadrasaId).eq('id',classId).maybeSingle()).data) return {error:'পরীক্ষা বা জামাত পাওয়া যায়নি।'};
+  if (subjectsData.some(s=>!String(s.subject_name || '').trim() || !(Number(s.total_marks)>0) || Number(s.pass_marks??33)<0 || Number(s.pass_marks??33)>Number(s.total_marks))) return {error:'পূর্ণমান ও পাস নম্বর যাচাই করুন।'};
+  const deletion=await supabase.from('exam_subjects').delete().eq('madrasa_id',finalMadrasaId).eq('exam_id',examId).eq('class_id',classId);
+  if (deletion.error) return {error:deletion.error.message};
   const recordsToInsert = subjectsData.map(record => ({
     madrasa_id: finalMadrasaId,
     exam_id: examId,
     class_id: classId,
     subject_name: record.subject_name,
     total_marks: Number(record.total_marks) || 100,
-    pass_marks: Number(record.pass_marks) || 33,
+    pass_marks: Number(record.pass_marks ?? 33),
     exam_type: record.exam_type || "Written"
   }));
 

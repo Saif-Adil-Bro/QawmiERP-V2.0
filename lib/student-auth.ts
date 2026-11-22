@@ -256,47 +256,18 @@ export async function ensureStudentGuardianAuthUser(
   // 1. Check if public.users already has an account with this canonical or hyphenated email
   const { data: existingUserRow } = await adminClient
     .from("users")
-    .select("id, email, full_name, role, madrasa_id")
+    .select("id, email, full_name, role, madrasa_id, student_id")
     .or(`email.eq.${canonicalEmail},email.eq.${altHyphenEmail}`)
     .maybeSingle();
 
   // If existing record found in public.users: sync & update
   if (existingUserRow?.id) {
-    try {
-      await adminClient.auth.admin.updateUserById(existingUserRow.id, {
-        email: canonicalEmail,
-        password: defaultPassword,
-        email_confirm: true,
-        user_metadata: {
-          role: "parent",
-          full_name: guardianFullName,
-          phone: student.parent_phone || "",
-          student_id: student.id,
-          student_id_code: cleanIdNoHyphen,
-          student_name: studentFullName,
-          roll_number: student.roll_number || "",
-          class_name: student.class_name || student.classes?.name || "",
-          madrasa_id: madrasaId,
-        },
-      });
-    } catch (authErr) {
-      // ignore
-    }
-
-    await adminClient
-      .from("users")
-      .update({
-        madrasa_id: madrasaId || null,
-        full_name: guardianFullName,
-        email: canonicalEmail,
-        phone: student.parent_phone || null,
-        role: "parent",
-      })
-      .eq("id", existingUserRow.id);
-
+    if (existingUserRow.madrasa_id!==madrasaId || existingUserRow.student_id && existingUserRow.student_id!==student.id || !['parent','guardian','student'].includes(existingUserRow.role)) throw new Error('লগইন আইডিটি অন্য অ্যাকাউন্টের।');
+    const {error} = await adminClient.from('users').update({student_id:student.id}).eq('id',existingUserRow.id).eq('madrasa_id',madrasaId);
+    if (error) throw error;
     return {
       authUserId: existingUserRow.id,
-      email: canonicalEmail,
+      email: existingUserRow.email,
       canonicalEmail,
       isNew: false,
     };
@@ -325,41 +296,8 @@ export async function ensureStudentGuardianAuthUser(
     });
 
     if (createAuthError) {
-      // If email already registered in Supabase Auth, fetch existing Auth User
-      if (
-        createAuthError.message?.toLowerCase().includes("already registered") ||
-        createAuthError.message?.toLowerCase().includes("exists")
-      ) {
-        const { data: userList } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
-        const existingAuth = userList?.users?.find(
-          (u) =>
-            u.email?.toLowerCase() === canonicalEmail.toLowerCase() ||
-            u.email?.toLowerCase() === altHyphenEmail.toLowerCase()
-        );
-        if (existingAuth) {
-          authUserId = existingAuth.id;
-          try {
-            await adminClient.auth.admin.updateUserById(existingAuth.id, {
-              email: canonicalEmail,
-              password: defaultPassword,
-              email_confirm: true,
-              user_metadata: {
-                role: "parent",
-                full_name: guardianFullName,
-                phone: student.parent_phone || "",
-                student_id: student.id,
-                student_id_code: cleanIdNoHyphen,
-                student_name: studentFullName,
-                roll_number: student.roll_number || "",
-                class_name: student.class_name || student.classes?.name || "",
-                madrasa_id: madrasaId,
-              },
-            });
-          } catch {}
-        }
-      } else {
-        throw new Error(createAuthError.message);
-      }
+      // A colliding auth-only identity requires an explicit administrator link, not a password reset.
+      throw createAuthError;
     } else if (newAuthData?.user) {
       authUserId = newAuthData.user.id;
     }
@@ -372,6 +310,7 @@ export async function ensureStudentGuardianAuthUser(
     const { error: upsertError } = await adminClient.from("users").upsert({
       id: authUserId,
       madrasa_id: madrasaId || null,
+      student_id: student.id,
       full_name: guardianFullName,
       email: canonicalEmail,
       phone: student.parent_phone || null,
@@ -379,7 +318,7 @@ export async function ensureStudentGuardianAuthUser(
     });
 
     if (upsertError) {
-      console.error("DB users table upsert failed:", upsertError);
+      throw upsertError;
     }
 
     return {

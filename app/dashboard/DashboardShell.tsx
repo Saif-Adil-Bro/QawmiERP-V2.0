@@ -24,6 +24,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import DashboardNav from "./DashboardNav";
+import { clearOfflineAuthSession } from "@/lib/offline-auth";
 import { logout } from "@/app/actions/auth";
 import { SessionProvider } from "@/components/sessions/SessionContext";
 import SessionSelector from "@/components/sessions/SessionSelector";
@@ -269,7 +270,7 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
   const handleLogout = async () => {
     try {
       setLoggingOut(true);
-      await logout();
+      try { await clearOfflineAuthSession(); } finally { await logout(); }
     } catch (e) {
       console.error(e);
       setLoggingOut(false);

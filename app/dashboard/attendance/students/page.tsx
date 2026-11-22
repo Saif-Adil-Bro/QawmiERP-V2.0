@@ -4,13 +4,14 @@ import { useState, useEffect, useMemo } from "react";
 import { getStudentsForAttendance, saveAttendance } from "@/app/actions/attendance";
 import { getClasses } from "@/app/actions/students";
 import { checkHolidayForDate } from "@/app/actions/holidays";
+import {toDhakaDateString} from "@/lib/date-utils";
 import { format } from "date-fns";
 import { Check, X, Clock, UserMinus, ArrowLeft, CheckCircle2, XCircle, Users, Search, Save, CalendarDays, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
 export default function AttendancePage() {
-  const [date, setDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+  const [date, setDate] = useState<string>(toDhakaDateString());
   const [classId, setClassId] = useState<string>("All");
   const [classes, setClasses] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
@@ -23,14 +24,14 @@ export default function AttendancePage() {
   useEffect(() => {
     async function checkDateHoliday() {
       try {
-        const info = await checkHolidayForDate(date);
+        const info = await checkHolidayForDate(date,classes.find(c=>c.id===classId));
         setHolidayInfo(info);
       } catch (err) {
         console.error("Holiday check failed:", err);
       }
     }
     checkDateHoliday();
-  }, [date]);
+  }, [date,classId,classes]);
 
   useEffect(() => {
     async function loadClasses() {

@@ -1,4 +1,5 @@
 "use client";
+import {attendanceStats} from '@/lib/portal/rules';
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -20,9 +21,8 @@ import {
   Trophy,
 } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency } from "@/lib/numberToBangla";
-import { seedPortalOfflineCache } from "@/lib/portal-sync";
 import { useOfflinePortalSnapshot } from "@/hooks/useOfflinePortalData";
-import CurrentClassLiveBanner from "@/components/routine/CurrentClassLiveBanner";
+import LiveRoutineCarousel from "@/components/routine/LiveRoutineCarousel";
 import type { HolidayRangeLike } from "@/lib/routine-helper";
 import { toBanglaOrdinal } from "@/lib/exam-grading";
 
@@ -109,121 +109,14 @@ export default function PortalDashboardClient({
     setMounted(true);
   }, []);
 
-  // Seed Dexie IndexedDB silently so dashboard renders dynamically offline
-  useEffect(() => {
-    if (!child?.id) return;
-    seedPortalOfflineCache("student", {
-      students,
-      attendance: attendanceList,
-      fees: feesList,
-      hifzLogs: latestHifz ? [latestHifz] : [],
-      notices,
-      routines,
-      academicCalendar: holidays.map((h, i) => ({
-        ...h,
-        id: String(h.id || `hol_${i}`),
-      })),
-      homework: childAssignments,
-      examSummaries: latestExam
-        ? [
-            {
-              id: `${child.id}_${latestExam.examId}`,
-              student_id: child.id,
-              exam_id: latestExam.examId,
-              exam_title: latestExam.examTitle,
-              exam_year: latestExam.examYear || null,
-              has_marks: latestExam.hasMarks,
-              grade_label: latestExam.gradeLabel,
-              gpa: latestExam.gpa,
-              percentage: latestExam.percentage,
-              total_obtained: latestExam.totalObtained,
-              total_max: latestExam.totalMax,
-              is_passed: latestExam.isPassed,
-              status_label: latestExam.statusLabel,
-              merit_position: latestExam.meritPosition,
-              merit_label: latestExam.meritLabel,
-              total_candidates: latestExam.totalCandidates,
-              updated_at: new Date().toISOString(),
-            },
-          ]
-        : [],
-    });
-  }, [
-    child?.id,
-    students,
-    attendanceList,
-    feesList,
-    latestHifz,
-    notices,
-    routines,
-    holidays,
-    childAssignments,
-    latestExam,
-  ]);
-
-  // Prefer server props when present, gracefully fall back to reactive Dexie records
-  const effectiveAttendance = useMemo(() => {
-    if (attendanceList.length > 0) return attendanceList;
-    if (!offlineSnapshot?.attendance?.length) return [];
-    return offlineSnapshot.attendance
-      .filter((a: any) => !child?.id || a.student_id === child.id)
-      .sort((a: any, b: any) => String(b.date || "").localeCompare(String(a.date || "")));
-  }, [attendanceList, offlineSnapshot?.attendance, child?.id]);
-
-  const effectiveRoutines = useMemo(() => {
-    if (routines.length > 0) return routines;
-    if (!offlineSnapshot?.routines?.length) return [];
-    return offlineSnapshot.routines.filter(
-      (r: any) => !child?.class_id || r.class_id === child.class_id
-    );
-  }, [routines, offlineSnapshot?.routines, child?.class_id]);
-
-  const effectiveHolidays: HolidayRangeLike[] = useMemo(() => {
-    if (holidays.length > 0) return holidays;
-    return (offlineSnapshot?.academicCalendar || []) as HolidayRangeLike[];
-  }, [holidays, offlineSnapshot?.academicCalendar]);
-
-  const effectiveNotices = useMemo(() => {
-    if (notices.length > 0) return notices;
-    return (offlineSnapshot?.notices || []).slice(0, 3);
-  }, [notices, offlineSnapshot?.notices]);
-
-  const effectiveAssignments = useMemo(() => {
-    if (childAssignments.length > 0) return childAssignments;
-    return offlineSnapshot?.homework || [];
-  }, [childAssignments, offlineSnapshot?.homework]);
-
-  const effectiveLatestExam: DashboardLatestExamInfo | null = useMemo(() => {
-    if (latestExam) return latestExam;
-    const cached = (offlineSnapshot?.examSummaries || []).find(
-      (s: any) => !child?.id || s.student_id === child.id
-    ) as any;
-    if (!cached) return null;
-    return {
-      examId: String(cached.exam_id || ""),
-      examTitle: String(cached.exam_title || "সাময়িক পরীক্ষা"),
-      examYear: cached.exam_year || null,
-      hasMarks: Boolean(cached.has_marks ?? cached.total_obtained > 0),
-      gradeLabel: String(cached.grade_label || "প্রকাশের অপেক্ষায়"),
-      gpa: Number(cached.gpa || 0),
-      percentage: Number(cached.percentage || 0),
-      totalObtained: Number(cached.total_obtained || 0),
-      totalMax: Number(cached.total_max || 0),
-      isPassed: Boolean(cached.is_passed),
-      statusLabel: String(cached.status_label || (cached.is_passed ? "উত্তীর্ণ" : "অকৃতকার্য")),
-      meritPosition: cached.merit_position ?? null,
-      meritLabel:
-        cached.merit_label ||
-        (cached.merit_position ? toBanglaOrdinal(cached.merit_position) : "অপ্রযোজ্য"),
-      totalCandidates: Number(cached.total_candidates || 0),
-    };
-  }, [latestExam, offlineSnapshot?.examSummaries, child?.id]);
-
-  const totalDays = effectiveAttendance.length;
-  const presentDays = effectiveAttendance.filter((a: any) => a.status === "Present").length;
-  const absentDays = effectiveAttendance.filter((a: any) => a.status === "Absent").length;
-  const attendanceRate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
-
+  const cache = offlineSnapshot?.activeStudent?.id === child.id ? offlineSnapshot : null;
+  const effectiveAttendance = cache?.attendance ?? attendanceList, effectiveRoutines=cache?.routines ?? routines;
+  const effectiveHolidays = cache?.academicCalendar ?? holidays, effectiveNotices=cache?.notices.slice(0,3) ?? notices;
+  const effectiveAssignments = cache?.homework ?? childAssignments;
+  const stored = cache?.examSummaries[0];
+  const effectiveLatestExam:DashboardLatestExamInfo|null = !cache ? latestExam : stored ? {...stored.summary,...stored.merit,examId:stored.exam_id,examTitle:stored.exam_title,examYear:stored.exam_year,meritLabel:stored.merit_label} : null;
+  if (cache) { latestHifz=cache.hifzLogs[0]; totalPaid=cache.totalPaid; totalDue=cache.totalDue; latestReceiptNo=cache.feePayments[0]?.receipt_no || '—'; }
+  const {total:totalDays,present:presentDays,absent:absentDays,percentage:attendanceRate} = attendanceStats(effectiveAttendance);
   const todayAssignments = effectiveAssignments.filter(
     (a: any) => a.type === "TODAY_LESSON" || a.assigned_date === todayDateStr
   );
@@ -370,14 +263,14 @@ export default function PortalDashboardClient({
         </div>
       </div>
 
-      {/* Live Class Routine Banner */}
-      {effectiveRoutines.length > 0 && (
-        <CurrentClassLiveBanner
-          routines={effectiveRoutines}
-          holidays={effectiveHolidays}
-          isTeacherView={false}
-        />
-      )}
+      {/* Live & Upcoming Class Routine Carousel */}
+      <LiveRoutineCarousel
+        routines={effectiveRoutines}
+        holidays={effectiveHolidays}
+        variant="student"
+        studentClassId={child?.class_id || null}
+        fullRoutineHref={`/portal/routine${studentQuerySuffix}`}
+      />
 
       {/* 4 KPI Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
@@ -394,22 +287,22 @@ export default function PortalDashboardClient({
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">
-              {toBanglaNumber(attendanceRate)}%
+              {attendanceRate === null ? '—' : `${toBanglaNumber(attendanceRate)}%`}
             </span>
             <span
               className={`text-xs font-semibold ${
-                attendanceRate >= 80
+                (attendanceRate ?? 0) >= 80
                   ? "text-emerald-600"
-                  : attendanceRate >= 60
+                  : (attendanceRate ?? 0) >= 60
                   ? "text-amber-600"
                   : "text-rose-600"
               }`}
             >
               {totalDays === 0
                 ? "হালনাগাদ"
-                : attendanceRate >= 80
+                : (attendanceRate ?? 0) >= 80
                 ? "সন্তোষজনক"
-                : attendanceRate >= 60
+                : (attendanceRate ?? 0) >= 60
                 ? "মোটামুটি"
                 : "মনোযোগ প্রয়োজন"}
             </span>
@@ -417,7 +310,7 @@ export default function PortalDashboardClient({
           <div className="w-full bg-slate-100 h-2 rounded-full mt-3 overflow-hidden">
             <div
               className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.min(attendanceRate, 100)}%` }}
+              style={{ width: `${Math.min(attendanceRate ?? 0, 100)}%` }}
             />
           </div>
           <div className="flex justify-between text-[11px] text-slate-500 mt-2 font-medium">
@@ -441,20 +334,20 @@ export default function PortalDashboardClient({
           </div>
           <div className="min-h-[38px] flex flex-col justify-center">
             <span className="text-lg sm:text-xl font-bold text-slate-900 truncate">
-              {latestHifz?.para_number
-                ? `পারা: ${toBanglaNumber(latestHifz.para_number)}`
-                : "দৈনিক পাঠ চলমান"}
+              {(latestHifz?.sabak_para ?? latestHifz?.para_number)
+                ? `পারা: ${toBanglaNumber(latestHifz.sabak_para ?? latestHifz.para_number)}`
+                : "সবক নথিভুক্ত নেই"}
             </span>
             <span className="text-xs text-slate-500 truncate">
               {latestHifz?.surah_name
                 ? `সূরা: ${latestHifz.surah_name}`
-                : "উস্তাদ কর্তৃক হালনাগাদকৃত"}
+                : latestHifz?.log_date || "—"}
             </span>
           </div>
           <div className="flex items-center gap-1 mt-3 text-amber-700 text-xs font-bold bg-amber-50 py-1 px-2.5 rounded-lg border border-amber-200/70 w-fit max-w-full">
             <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500 shrink-0" />
             <span className="truncate">
-              মূল্যায়ন: {latestHifz?.performance || "নিয়মিত অগ্রগতি"}
+              মূল্যায়ন: {latestHifz?.performance_rating || latestHifz?.performance || "—"}
             </span>
           </div>
         </Link>
@@ -816,7 +709,7 @@ export default function PortalDashboardClient({
               </h3>
             </div>
             <Link
-              href="/portal/notices"
+              href={`/portal/notices${studentQuerySuffix}`}
               className="text-xs font-bold text-indigo-700 hover:text-indigo-800 flex items-center gap-0.5 shrink-0"
             >
               <span>সকল নোটিশ</span>

@@ -1,31 +1,13 @@
-import { createClient } from "@/lib/supabase/server";
+import {portalHolidays} from '@/lib/portal/rules';
+import {notices as getNotices} from '@/lib/portal/queries';
+import {webTeacher} from '@/lib/portal/identity';
 import PortalNoticesClient from "@/components/portal/PortalNoticesClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function TeacherPortalNotices() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) return null;
-
-  const { data: userData } = await supabase
-    .from("users")
-    .select("madrasa_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  const madrasaId = userData?.madrasa_id;
-
-  const { data: notices } = madrasaId
-    ? await supabase
-        .from("notices")
-        .select("*")
-        .eq("madrasa_id", madrasaId)
-        .order("created_at", { ascending: false })
-    : { data: [] as any[] };
-
+export default async function NoticesPage() {
+  const t = await webTeacher(); if (!t) return null;
+  const notices = await getNotices(t.i.db,t.i.tenant,'Teachers',t.scope.classes.map(c=>c.id),portalHolidays(t.scope.meta.academic_holidays,t.scope.classes));
   return (
     <PortalNoticesClient
       portalType="teacher"

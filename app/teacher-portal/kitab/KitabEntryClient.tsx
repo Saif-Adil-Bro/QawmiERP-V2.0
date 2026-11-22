@@ -1,8 +1,10 @@
 "use client";
+import {postTeacherEntry} from '@/lib/portal-sync';
+import {usePortalOwner} from '@/hooks/useOfflinePortalData';
 
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { offlineMutate } from "@/lib/syncManager";
+
 import {
   Save,
   CheckCircle2,
@@ -38,6 +40,7 @@ export default function KitabEntryClient({
   madrasaId,
 }: Props) {
   const router = useRouter();
+  const syncOwner = usePortalOwner();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [isChangingClass, startClassTransition] = useTransition();
@@ -49,7 +52,7 @@ export default function KitabEntryClient({
   const [searchQuery, setSearchQuery] = useState("");
 
   // Default subject/kitab for whole class entry or per student
-  const [subjectName, setSubjectName] = useState("মিশকাত শরীফ");
+  const [subjectName, setSubjectName] = useState("");
   const [chapterName, setChapterName] = useState("");
   const [pageNumber, setPageNumber] = useState("");
 
@@ -67,7 +70,7 @@ export default function KitabEntryClient({
       }
 
       initialState[s.id] = {
-        subject_name: existing?.kitab_name || existing?.subject_name || "মিশকাত শরীফ",
+        subject_name: existing?.kitab_name || existing?.subject_name || "",
         chapter_name: existing?.notes || existing?.chapter_name || existing?.bab || "",
         page_number: pageStr,
         teacher_remarks: existing?.performance_rating || existing?.teacher_remarks || existing?.remarks || "",
@@ -91,7 +94,7 @@ export default function KitabEntryClient({
       }
 
       initialState[s.id] = {
-        subject_name: existing?.kitab_name || existing?.subject_name || "মিশকাত শরীফ",
+        subject_name: existing?.kitab_name || existing?.subject_name || "",
         chapter_name: existing?.notes || existing?.chapter_name || existing?.bab || "",
         page_number: pageStr,
         teacher_remarks: existing?.performance_rating || existing?.teacher_remarks || existing?.remarks || "",
@@ -159,7 +162,7 @@ export default function KitabEntryClient({
     try {
       const recordsToSave = students.map((s) => {
         const state = kitabState[s.id] || {};
-        const existing = existingLogs.find((l) => l.student_id === s.id);
+        const existing = existingLogs.find((l) => l.student_id === s.id && l.kitab_name===(state.subject_name || subjectName));
 
         const rawPage = (state.page_number || pageNumber || "").trim();
         const parts = rawPage.includes("-") ? rawPage.split("-") : [rawPage];
@@ -170,26 +173,22 @@ export default function KitabEntryClient({
           student_id: s.id,
           teacher_id: teacherId || null,
           existing_id: existing?.id || null,
-          kitab_name: state.subject_name || subjectName || "মিশকাত শরীফ",
+          kitab_name: state.subject_name || subjectName || "",
           page_from: pageFrom,
           page_to: pageTo,
-          performance_rating: state.teacher_remarks || "Good",
+          performance_rating: state.teacher_remarks || null,
           notes: state.chapter_name || chapterName || null,
         };
-      });
+      }).filter(r=>r.kitab_name.trim());
+      if (!recordsToSave.length) throw new Error("কিতাবের নাম আবশ্যক।");
 
-      const result = await offlineMutate({
-        entity: "kitabLogs",
-        action: "CREATE",
-        endpoint: "/api/teacher/save-kitab",
-        method: "POST",
-        payload: {
+      const result = await postTeacherEntry('kitab',{
           madrasa_id: madrasaId,
           current_class_id: currentClassId,
           current_date: currentDate,
           records: recordsToSave,
-        },
-      });
+        },syncOwner);
+
 
       if (!result.success) {
         throw new Error(result.error || "সংরক্ষণ ব্যর্থ হয়েছে");
@@ -383,7 +382,7 @@ export default function KitabEntryClient({
                             <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
                               <span>রোল: <strong className="text-slate-700">{toBanglaNumber(s.roll_number || "-")}</strong></span>
                               <span>•</span>
-                              <span className="font-mono">আইডি: {resolveStudentIdBn(s, students)}</span>
+                              <span className="font-mono">আইডি: {toBanglaNumber(s.student_id_formatted || s.student_id || "—")}</span>
                               {s.phone && (
                                 <>
                                   <span>•</span>
@@ -463,7 +462,7 @@ export default function KitabEntryClient({
                       <div>
                         <strong className="text-sm text-slate-900 leading-tight block">{s.first_name} {s.last_name}</strong>
                         <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
-                          <span>আইডি: {resolveStudentIdBn(s, students)}</span>
+                          <span>আইডি: {toBanglaNumber(s.student_id_formatted || s.student_id || "—")}</span>
                           {s.phone && (
                             <>
                               <span>•</span>

@@ -1,4 +1,9 @@
 "use server";
+import {activatePlacements,schedulePlacement} from '@/lib/portal/promotion';
+import {hasRole,webIdentity,linkedStudents,webTeacher,teacherStudents} from '@/lib/portal/identity';
+import {studentRoles} from '@/lib/portal/rules';
+import {hydrateStudentWithMetadata} from '@/lib/sessions';
+import {rows} from '@/lib/portal/queries';
 
 import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
@@ -9,11 +14,18 @@ import { getAuthMadrasaId } from "./students";
 import {
   AcademicSession,
   StudentEnrollment,
-  getDefaultSessions,
   deduplicateSessions,
   getMadrasaMetadata,
   saveMadrasaMetadata,
 } from "@/lib/sessions";
+
+async function persistSessionActivation(tenant:string,before:any,meta:any,session:string|null) {
+  if (!session) return saveMadrasaMetadata(tenant,meta);
+  const changes=activatePlacements(meta,session);
+  const {error}=await (await createAdminClient()).rpc('apply_portal_promotion',{p_tenant:tenant,p_before:before,p_after:meta,p_changes:changes});
+  if(!error){revalidatePath('/portal','layout');revalidatePath('/teacher-portal','layout');}
+  return !error;
+}
 
 const COOKIE_NAME = "qawmi_selected_session_id";
 
@@ -53,45 +65,10 @@ export async function setSelectedSessionCookie(sessionId: string) {
  */
 export async function getAcademicSessions(targetMadrasaId?: string): Promise<AcademicSession[]> {
   try {
-    const supabase = await createClient();
-    let madrasaId = targetMadrasaId;
-
-    if (!madrasaId) {
-      const user = await getAuthUser(supabase);
-      if (user) {
-        madrasaId = (await getAuthMadrasaId(supabase, user)) || undefined;
-      }
-    }
-
-    if (!madrasaId) {
-      return getDefaultSessions("default");
-    }
-
+    const madrasaId = await getAuthMadrasaId();
+    if (!madrasaId || (targetMadrasaId && targetMadrasaId!==madrasaId)) return [];
     const meta = await getMadrasaMetadata(madrasaId);
-
-    // If no sessions exist in meta, initialize with defaults and save
-    if (!meta.sessions || !Array.isArray(meta.sessions) || meta.sessions.length === 0) {
-      const defaults = getDefaultSessions(madrasaId);
-      meta.sessions = defaults;
-      try {
-        await saveMadrasaMetadata(madrasaId, meta);
-      } catch {}
-      return defaults;
-    }
-
-    const rawCount = meta.sessions.length;
-    const deduplicated = deduplicateSessions(meta.sessions);
-
-    // If duplicate sessions were detected, automatically repair and persist clean list to database
-    if (deduplicated.length !== rawCount) {
-      meta.sessions = deduplicated;
-      try {
-        await saveMadrasaMetadata(madrasaId, meta);
-      } catch (saveErr) {
-        console.warn("Auto-repaired duplicate sessions save notice:", saveErr);
-      }
-    }
-
+    const deduplicated = deduplicateSessions(meta.sessions || []);
     // Sort: is_current first, then active, then by start_date descending
     return deduplicated.sort((a, b) => {
       if (a.is_current) return -1;
@@ -102,7 +79,7 @@ export async function getAcademicSessions(targetMadrasaId?: string): Promise<Aca
     });
   } catch (err) {
     console.error("Error fetching academic sessions:", err);
-    return getDefaultSessions(targetMadrasaId || "default");
+    return [];
   }
 }
 
@@ -175,7 +152,7 @@ export async function createAcademicSession(prevState: any, formData: FormData) 
     }
 
     const meta = await getMadrasaMetadata(madrasaId);
-    let sessions = meta.sessions || getDefaultSessions(madrasaId);
+    let sessions = meta.sessions || [];
 
     // Prevent duplicate session name
     const existing = sessions.find((s) => s.name.toLowerCase() === name.toLowerCase());
@@ -267,8 +244,9 @@ export async function updateAcademicSession(prevState: any, formData: FormData) 
       return { error: "শেষের তারিখ শুরুর তারিখের আগের হতে পারে না।" };
     }
 
-    const meta = await getMadrasaMetadata(madrasaId);
-    let sessions = meta.sessions || getDefaultSessions(madrasaId);
+    const meta = await getMadrasaMetadata(madrasaId,true);
+    const before=structuredClone(meta);
+    let sessions = meta.sessions || [];
 
     const index = sessions.findIndex((s) => s.id === sessionId);
     if (index === -1) return { error: "শিক্ষাবর্ষটি খুঁজে পাওয়া যায়নি।" };
@@ -297,7 +275,7 @@ export async function updateAcademicSession(prevState: any, formData: FormData) 
     };
 
     meta.sessions = sessions;
-    const saved = await saveMadrasaMetadata(madrasaId, meta);
+    const saved = await persistSessionActivation(madrasaId,before,meta,isCurrent ? sessionId : null);
     if (!saved) return { error: "ডাটাবেসে আপডেট ব্যর্থ হয়েছে।" };
 
     if (isCurrent) {
@@ -335,8 +313,9 @@ export async function setCurrentAcademicSession(sessionId: string) {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
 
-    const meta = await getMadrasaMetadata(madrasaId);
-    let sessions = meta.sessions || getDefaultSessions(madrasaId);
+    const meta = await getMadrasaMetadata(madrasaId,true);
+    const before=structuredClone(meta);
+    let sessions = meta.sessions || [];
 
     const target = sessions.find((s) => s.id === sessionId);
     if (!target) return { error: "শিক্ষাবর্ষটি খুঁজে পাওয়া যায়নি।" };
@@ -349,7 +328,7 @@ export async function setCurrentAcademicSession(sessionId: string) {
     });
 
     meta.sessions = sessions;
-    const saved = await saveMadrasaMetadata(madrasaId, meta);
+    const saved = await persistSessionActivation(madrasaId,before,meta,sessionId);
     if (!saved) return { error: "ডাটাবেসে সংরক্ষণ ব্যর্থ হয়েছে।" };
 
     await setSelectedSessionCookie(sessionId);
@@ -387,7 +366,7 @@ export async function archiveAcademicSession(sessionId: string) {
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
 
     const meta = await getMadrasaMetadata(madrasaId);
-    let sessions = meta.sessions || getDefaultSessions(madrasaId);
+    let sessions = meta.sessions || [];
 
     const target = sessions.find((s) => s.id === sessionId);
     if (!target) return { error: "শিক্ষাবর্ষটি খুঁজে পাওয়া যায়নি।" };
@@ -444,7 +423,7 @@ export async function unarchiveAcademicSession(sessionId: string) {
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
 
     const meta = await getMadrasaMetadata(madrasaId);
-    let sessions = meta.sessions || getDefaultSessions(madrasaId);
+    let sessions = meta.sessions || [];
 
     const target = sessions.find((s) => s.id === sessionId);
     if (!target) return { error: "শিক্ষাবর্ষটি খুঁজে পাওয়া যায়নি।" };
@@ -489,7 +468,7 @@ export async function deleteAcademicSession(sessionId: string) {
     if (!madrasaId) return { error: "মাদরাসা খুঁজে পাওয়া যায়নি।" };
 
     const meta = await getMadrasaMetadata(madrasaId);
-    let sessions = meta.sessions || getDefaultSessions(madrasaId);
+    let sessions = meta.sessions || [];
 
     const target = sessions.find((s) => s.id === sessionId);
     if (!target) return { error: "শিক্ষাবর্ষটি খুঁজে পাওয়া যায়নি।" };
@@ -505,7 +484,7 @@ export async function deleteAcademicSession(sessionId: string) {
     // Check if enrollments exist
     const enrollments = meta.enrollments || [];
     const hasEnrollments = enrollments.some((e) => e.session_id === sessionId);
-    if (hasEnrollments) {
+    if (hasEnrollments || Object.keys(meta.pending_portal_promotions?.[sessionId] || {}).length) {
       return { error: "এই শিক্ষাবর্ষে শিক্ষার্থীদের এনরোলমেন্ট ডাটা রয়েছে। ডাটা হারানোর ঝুঁকি এড়াতে এটি ডিলিট না করে 'Archive' করুন।" };
     }
 
@@ -547,24 +526,16 @@ export async function getStudentEnrollments(
 
   try {
     const supabase = await createClient();
-    let madrasaId = targetMadrasaId;
-
-    if (!madrasaId) {
-      const user = await getAuthUser(supabase);
-      if (!user) return [];
-      madrasaId = (await getAuthMadrasaId(supabase, user)) || undefined;
-    }
-
-    if (!madrasaId) return [];
-
+    const madrasaId=await getAuthMadrasaId();
+    if (!madrasaId || (targetMadrasaId && targetMadrasaId!==madrasaId)) return [];
     // Fetch all students and classes from Supabase
-    const [{ data: students }, { data: classes }, meta] = await Promise.all([
-      supabase.from("students").select("*, classes(*)").eq("madrasa_id", madrasaId).order("created_at", { ascending: false }),
-      supabase.from("classes").select("*").eq("madrasa_id", madrasaId).order("name"),
+    const [students,classes, meta] = await Promise.all([
+      rows(()=>supabase.from("students").select("*, classes(*)").eq("madrasa_id", madrasaId).order("created_at", { ascending: false })),
+      rows(()=>supabase.from("classes").select("*").eq("madrasa_id", madrasaId).order("name")),
       getMadrasaMetadata(madrasaId),
     ]);
 
-    const sessions = meta.sessions || getDefaultSessions(madrasaId);
+    const sessions = meta.sessions || [];
     const currentSession = sessions.find((s) => s.is_current) || sessions[0];
     const targetSessionId = sessionId || currentSession?.id;
 
@@ -585,11 +556,6 @@ export async function getStudentEnrollments(
         created_at: std.created_at || new Date().toISOString(),
       }));
 
-      meta.enrollments = initialEnrollments;
-      const saved = await saveMadrasaMetadata(madrasaId, meta);
-      if (!saved) {
-        console.error("Failed to persist initial enrollments for madrasa:", madrasaId);
-      }
       storedEnrollments = initialEnrollments;
     }
 
@@ -667,151 +633,20 @@ export async function getStudentAcademicHistory(
   history: StudentEnrollment[];
 }> {
   try {
-    const supabase = await createClient();
-    let madrasaId = targetMadrasaId;
-
-    if (!madrasaId) {
-      const user = await getAuthUser(supabase);
-      if (user) {
-        madrasaId = (await getAuthMadrasaId(supabase, user)) || undefined;
-      }
-    }
-
-    let { data: student } = await supabase
-      .from("students")
-      .select("*, classes(*)")
-      .eq("id", studentId)
-      .single();
-
-    if (!student) {
-      try {
-        const { createAdminClient } = await import("@/lib/supabase/server");
-        const adminClient = await createAdminClient();
-        const { data: adminStd } = await adminClient
-          .from("students")
-          .select("*, classes(*)")
-          .eq("id", studentId)
-          .single();
-        student = adminStd || null;
-      } catch {}
-    }
-
-    if (!student) {
-      return { student: null, currentEnrollment: null, history: [] };
-    }
-
-    const currentMadrasaId = madrasaId || student.madrasa_id;
-    const meta = await getMadrasaMetadata(currentMadrasaId);
-
-    // Enrich student profile from extended student_profiles and admission application
-    const profile = meta.student_profiles?.[studentId] || {};
-    const adm = (meta.admissions || []).find((a: any) => a.confirmed_student_id === studentId);
-
-    if (profile.first_name) student.first_name = profile.first_name;
-    if (profile.last_name) student.last_name = profile.last_name;
-    if (profile.roll_number) student.roll_number = profile.roll_number;
-    if (profile.class_id) student.class_id = profile.class_id;
-    if (profile.class_name) {
-      student.class_name = profile.class_name;
-      student.classes = student.classes || { id: profile.class_id, name: profile.class_name };
-    }
-    if (profile.father_name) student.father_name = profile.father_name;
-    if (profile.parent_phone) student.parent_phone = profile.parent_phone;
-    if (profile.address) student.address = profile.address;
-    if (profile.photo_url || adm?.photo_url) {
-      student.photo_url = profile.photo_url || adm?.photo_url || student.photo_url;
-    }
-
-    student.residential_status = profile.residential_status !== undefined
-      ? profile.residential_status
-      : (adm?.residential_status || student.residential_status || "অনাবাসিক");
-    student.is_boarding = profile.is_boarding !== undefined
-      ? Boolean(profile.is_boarding)
-      : (student.residential_status === "আবাসিক");
-    student.boarding_type = profile.boarding_type !== undefined
-      ? profile.boarding_type
-      : (student.is_boarding ? "সাধারণ পেইং" : "অনাবাসিক");
-    student.mother_name = profile.mother_name || adm?.mother_name || student.mother_name || "";
-    student.guardian_name = profile.guardian_name || adm?.guardian_name || student.guardian_name || "";
-    student.guardian_relation = profile.guardian_relation || adm?.guardian_relation || student.guardian_relation || "";
-    student.emergency_contact = profile.emergency_contact || adm?.emergency_contact || student.emergency_contact || "";
-    student.nid_or_birth_cert = profile.nid_or_birth_cert || adm?.birth_certificate_no || student.nid_or_birth_cert || "";
-    student.previous_madrasa = profile.previous_madrasa || student.previous_madrasa || "";
-    student.room_no = profile.room_no || student.room_no || "";
-    student.seat_no = profile.seat_no || student.seat_no || "";
-    student.student_status = profile.student_status || student.student_status || "ACTIVE";
-    student.admission_fee = profile.admission_fee !== undefined ? Number(profile.admission_fee) : 0;
-    student.monthly_fee = profile.monthly_fee !== undefined ? Number(profile.monthly_fee) : (student.monthly_fee || 0);
-    student.khoraki_fee = profile.khoraki_fee !== undefined ? Number(profile.khoraki_fee) : 0;
-    student.accommodation_fee = profile.accommodation_fee !== undefined ? Number(profile.accommodation_fee) : 0;
-    student.transport_fee = profile.transport_fee !== undefined ? Number(profile.transport_fee) : 0;
-    student.other_fee = profile.other_fee !== undefined ? Number(profile.other_fee) : 0;
-    student.fee_discount = profile.fee_discount !== undefined ? Number(profile.fee_discount) : 0;
-    student.fee_discount_reason = profile.fee_discount_reason || "";
-    student.total_monthly_fee = profile.total_monthly_fee !== undefined ? Number(profile.total_monthly_fee) : (
-      Number(student.monthly_fee || 0) +
-      Number(student.khoraki_fee || 0) +
-      Number(student.accommodation_fee || 0) +
-      Number(student.transport_fee || 0) +
-      Number(student.other_fee || 0) -
-      Number(student.fee_discount || 0)
-    );
-    student.father_occupation = profile.father_occupation || "";
-    student.medical_notes = profile.medical_notes || student.medical_notes || "";
-    student.remarks = profile.remarks || student.remarks || "";
-
-    if (!student.blood_group && (profile.blood_group || adm?.blood_group)) {
-      student.blood_group = profile.blood_group || adm?.blood_group;
-    }
-    if (!student.date_of_birth && (profile.date_of_birth || adm?.date_of_birth)) {
-      student.date_of_birth = profile.date_of_birth || adm?.date_of_birth;
-    }
-
-    student.madrasa_prefix = meta.prefix || meta.short_code || "";
-    student.prefix = meta.prefix || meta.short_code || "";
-
-    const sessions = meta.sessions || getDefaultSessions(currentMadrasaId);
-    const currentSession = sessions.find((s) => s.is_current) || sessions[0];
-
-    const sessionMap = new Map(sessions.map((s) => [s.id, s]));
-    let enrollments = (meta.enrollments || []).filter((e) => e.student_id === studentId);
-
-    // If student has no enrollment in metadata, synthesize baseline from student table
-    if (enrollments.length === 0 && currentSession) {
-      const baseline: StudentEnrollment = {
-        id: `enr_${student.id}_${currentSession.id}`,
-        madrasa_id: currentMadrasaId,
-        student_id: student.id,
-        session_id: currentSession.id,
-        class_id: student.class_id || undefined,
-        class_name: profile.class_name || student.classes?.name || student.class_name,
-        roll_number: profile.roll_number || student.roll_number,
-        status: student.student_status || "ACTIVE",
-        enrollment_date: student.created_at || new Date().toISOString(),
-        created_at: student.created_at || new Date().toISOString(),
-      };
-      enrollments = [baseline];
-    }
-
-    // Ensure current enrollment in list reflects updated class/roll from profile
-    if (profile.class_id || profile.roll_number || profile.class_name) {
-      enrollments = enrollments.map((e) => {
-        if (e.session_id === currentSession?.id || e.status === "ACTIVE") {
-          return {
-            ...e,
-            class_id: profile.class_id || e.class_id,
-            class_name: profile.class_name || e.class_name,
-            roll_number: profile.roll_number || e.roll_number,
-          };
-        }
-        return e;
-      });
-    }
-
-    // Hydrate sessions and classes
-    const { data: classes } = await supabase.from("classes").select("*").eq("madrasa_id", currentMadrasaId);
-    const classMap = new Map((classes || []).map((c) => [c.id, c]));
-
+    const i=await webIdentity(); const empty={student:null,currentEnrollment:null,history:[]};
+    if (!i || (targetMadrasaId && targetMadrasaId!==i.tenant)) return empty;
+    const t=await webTeacher();
+    const linked=hasRole(i,studentRoles) ? await linkedStudents(i,studentId) : null;
+    if (linked && !linked.child) return empty;
+    const meta=linked?.meta || t?.scope.meta || await getMadrasaMetadata(i.tenant,true);
+    const student=linked ? linked.child : t ? (await teacherStudents(i,t.scope)).find(s=>s.id===studentId) : hydrateStudentWithMetadata((await i.db.from('students').select('*, classes(*)').eq('madrasa_id',i.tenant).eq('id',studentId).maybeSingle()).data,meta);
+    if (!student) return empty;
+    const sessions=meta.sessions || []; const currentSession=sessions.find(s=>s.is_current);
+    const sessionMap=new Map(sessions.map(s=>[s.id,s]));
+    const sql=await rows(()=>i.db.from('student_enrollments').select('*').eq('madrasa_id',i.tenant).eq('student_id',studentId),true);
+    const enrollments:StudentEnrollment[]=Array.from(new Map([...sql,...(meta.enrollments || []).filter(e=>e.student_id===studentId)].map(e=>[e.session_id,e])).values());
+    const classes=await rows(()=>i.db.from('classes').select('id,name').eq('madrasa_id',i.tenant));
+    const classMap=new Map(classes.map(c=>[c.id,c]));
     const hydratedHistory = enrollments.map((enr) => {
       const sess = sessionMap.get(enr.session_id);
       const cls = enr.class_id ? classMap.get(enr.class_id) : undefined;
@@ -831,9 +666,7 @@ export async function getStudentAcademicHistory(
     });
 
     const currentEnrollment =
-      hydratedHistory.find((h) => h.session_id === currentSession?.id) ||
-      hydratedHistory.find((h) => h.status === "ACTIVE") ||
-      hydratedHistory[0] ||
+      hydratedHistory.find(h=>h.session_id===currentSession?.id && h.status==='ACTIVE') ||
       null;
 
     return {
@@ -900,12 +733,13 @@ export async function executeStudentPromotion(request: PromotionRequest) {
       return { error: "উৎস ও গন্তব্য একই শিক্ষাবর্ষ হতে পারে না।" };
     }
 
-    if (!items || items.length === 0) {
+    if (!Array.isArray(items) || !items.length || new Set(items.map(item=>item.studentId)).size!==items.length) {
       return { error: "প্রমোশনের জন্য কোনো শিক্ষার্থী নির্বাচন করা হয়নি।" };
     }
 
-    const meta = await getMadrasaMetadata(madrasaId);
-    const sessions = meta.sessions || getDefaultSessions(madrasaId);
+    const meta = await getMadrasaMetadata(madrasaId,true);
+    const before=structuredClone(meta);
+    const sessions = meta.sessions || [];
     const toSession = sessions.find((s) => s.id === toSessionId);
     const fromSession = sessions.find((s) => s.id === fromSessionId);
 
@@ -917,6 +751,11 @@ export async function executeStudentPromotion(request: PromotionRequest) {
     const { data: classes } = await supabase.from("classes").select("*").eq("madrasa_id", madrasaId);
     const classMap = new Map((classes || []).map((c) => [c.id, c]));
 
+    if (items.some(x=>!['PROMOTE','REPEAT','GRADUATE','TRANSFER','WITHDRAW'].includes(x.actionStatus)) || !fromSession || !classMap.has(fromClassId) || items.some(x=>x.actionStatus==='PROMOTE' && !classMap.has(x.targetClassId))) return {error:'উৎস বা গন্তব্য জামাত/শিক্ষাবর্ষ সঠিক নয়।'};
+    const owned:any[]=[];
+    for (let j=0;j<items.length;j+=80) owned.push(...await rows(()=>supabase.from('students').select('*').eq('madrasa_id',madrasaId).in('id',items.slice(j,j+80).map(x=>x.studentId))));
+    const oldRows = new Map(owned.map(s=>[s.id,s]));
+    if (items.some(x=>!oldRows.has(x.studentId) || (enrollments.find(e=>e.student_id===x.studentId && e.session_id===fromSessionId)?.class_id ?? oldRows.get(x.studentId)?.class_id)!==fromClassId)) return {error:'শিক্ষার্থী উৎস জামাতের নয়।'};
     let promotedCount = 0;
     let repeatedCount = 0;
     let otherCount = 0;
@@ -937,13 +776,13 @@ export async function executeStudentPromotion(request: PromotionRequest) {
         WITHDRAW: "WITHDRAWN",
       };
 
-      const oldStatus = oldStatusMap[actionStatus] || "PROMOTED";
+      const oldStatus = oldStatusMap[actionStatus];
 
       if (oldIndex !== -1) {
         enrollments[oldIndex] = {
           ...enrollments[oldIndex],
           status: oldStatus,
-          promotion_status: `Promoted to ${toSession.name}`,
+          promotion_status: `${oldStatus}: ${toSession.name}`,
           leaving_date: toDhakaDateStringFrom(now),
           remarks: remarks || enrollments[oldIndex].remarks,
         };
@@ -955,11 +794,12 @@ export async function executeStudentPromotion(request: PromotionRequest) {
           student_id: studentId,
           session_id: fromSessionId,
           class_id: fromClassId,
-          roll_number: targetRoll,
+          roll_number: oldRows.get(studentId)?.roll_number,
+          section:oldRows.get(studentId)?.section || meta.student_profiles?.[studentId]?.section,
           status: oldStatus,
           enrollment_date: fromSession?.start_date || toDhakaDateStringFrom(now),
           leaving_date: toDhakaDateStringFrom(now),
-          promotion_status: `Promoted to ${toSession.name}`,
+          promotion_status: `${oldStatus}: ${toSession.name}`,
           remarks: remarks,
           created_at: now,
         });
@@ -995,38 +835,25 @@ export async function executeStudentPromotion(request: PromotionRequest) {
           enrollments.push(newEnrollmentRecord);
         }
 
-        // 3. If target session is current/active, update student's main row in Supabase table
-        if (toSession.is_current) {
-          await supabase
-            .from("students")
-            .update({
-              class_id: destinationClassId || null,
-              roll_number: targetRoll || null,
-            })
-            .eq("id", studentId);
-        }
-
+        schedulePlacement(meta,toSessionId,{id:studentId,previous_class:oldRows.get(studentId).class_id,previous_roll:oldRows.get(studentId).roll_number,class_id:destinationClassId || null,roll_number:targetRoll || null,class_name:clsObj?.name || null,student_status:'ACTIVE'});
         if (actionStatus === "PROMOTE") promotedCount++;
         else repeatedCount++;
       } else {
+        // Correcting a prior promotion to an exit must remove its destination enrollment.
+        enrollments=enrollments.filter(e=>!(e.student_id===studentId && e.session_id===toSessionId));
         otherCount++;
-        // If graduate or withdraw and target session is current, update status
-        if (toSession.is_current && (actionStatus === "GRADUATE" || actionStatus === "TRANSFER")) {
-          await supabase
-            .from("students")
-            .update({
-              class_id: null,
-            })
-            .eq("id", studentId);
-        }
+        schedulePlacement(meta,toSessionId,{id:studentId,previous_class:oldRows.get(studentId).class_id,previous_roll:oldRows.get(studentId).roll_number,class_id:null,roll_number:null,class_name:null,student_status:actionStatus==='TRANSFER'?'TC':actionStatus==='WITHDRAW'?'DROPOUT':'GRADUATED'});
       }
     }
 
     meta.enrollments = enrollments;
-    const saved = await saveMadrasaMetadata(madrasaId, meta);
-    if (!saved) return { error: "প্রমোশন ডাটা সেভ করতে সমস্যা হয়েছে।" };
+    const changes=toSession.is_current ? activatePlacements(meta,toSessionId) : [];
+    const {error}=await (await createAdminClient()).rpc('apply_portal_promotion',{p_tenant:madrasaId,p_before:before,p_after:meta,p_changes:changes});
+    if (error) return {error:`প্রমোশন সংরক্ষিত হয়নি: ${error.message}`};
 
     revalidatePath("/dashboard/students");
+    revalidatePath("/portal", "layout");
+    revalidatePath("/teacher-portal", "layout");
     revalidatePath("/dashboard/students/promotion");
     revalidatePath("/dashboard/academic/promotion");
     revalidatePath("/dashboard/classes");
@@ -1065,7 +892,7 @@ export async function syncExistingStudentsWithCurrentSession() {
     if (!madrasaId) return { error: "Madrasa not found" };
 
     const meta = await getMadrasaMetadata(madrasaId);
-    const sessions = meta.sessions || getDefaultSessions(madrasaId);
+    const sessions = meta.sessions || [];
     const currentSession = sessions.find((s) => s.is_current) || sessions[0];
 
     const { data: students } = await supabase

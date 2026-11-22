@@ -1,4 +1,5 @@
 "use server";
+import {saveFeeMetadata} from '@/lib/fee-store';
 
 import { toDhakaDateStringFrom, toDhakaDateString, getDhakaYear, toDhakaMonthString } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -6,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { requirePermission } from "@/lib/permissions-server";
 import { parseExpenseFund, isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
-import { getFeeMetadata, saveFeeMetadata, voidFeePayment } from "./fee-management";
+import { getFeeMetadata, voidFeePayment } from "./fee-management";
 import { logAuditEvent } from "@/lib/audit-log";
 import { assertAccountingPeriodUnlocked } from "@/lib/lock-guards";
 import { submitWorkflowHookApproval } from "@/lib/approval-workflow";

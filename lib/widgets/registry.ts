@@ -9,7 +9,8 @@ export const DEFAULT_BUILTIN_WIDGETS: WidgetConfigItem[] = [
     id: "builtin-kpi",
     type: "builtin",
     title: "প্রধান পরিসংখ্যান ও KPI কার্ড",
-    description: "মোট শিক্ষার্থী, শিক্ষক, আজকের হাজিরা এবং আয়-ব্যয়ের সারসংক্ষেপ",
+    description:
+      "মোট শিক্ষার্থী, শিক্ষক, আজকের হাজিরা এবং আয়-ব্যয়ের সারসংক্ষেপ",
     version: "1.0.0",
     author: "QawmiERP Core",
     enabled: true,
@@ -64,7 +65,8 @@ export const DEFAULT_BUILTIN_WIDGETS: WidgetConfigItem[] = [
     id: "builtin-quick-actions",
     type: "builtin",
     title: "দ্রুত অ্যাকশন ও শর্টকাট",
-    description: "নতুন ভর্তি, ফি কালেকশন, হাজিরা ও অনুমোদন কিউ-তে দ্রুত যাওয়ার শর্টকাট",
+    description:
+      "নতুন ভর্তি, ফি কালেকশন, হাজিরা ও অনুমোদন কিউ-তে দ্রুত যাওয়ার শর্টকাট",
     version: "1.0.0",
     author: "QawmiERP Core",
     enabled: true,
@@ -72,14 +74,27 @@ export const DEFAULT_BUILTIN_WIDGETS: WidgetConfigItem[] = [
     size: "half",
   },
   {
-    id: "builtin-hifz-tracker",
+    id: "builtin-sick-students",
     type: "builtin",
-    title: "হিফজুল কুরআন ও সবিনা সারসংক্ষেপ",
-    description: "সবকী বনাম খতমী শিক্ষার্থী, আজকের এন্ট্রি, সাপ্তাহিক বৃহস্পতিবারের সবিনা ও চলমান বিশেষ সবিনা",
+    title: "অসুস্থ শিক্ষার্থী ও স্বাস্থ্য আপডেট",
+    description:
+      "বর্তমানে অসুস্থ ও চিকিৎসাধীন শিক্ষার্থীদের লাইভ তালিকা, গুরুতর সতর্কতা এবং দ্রুত অভিভাবক মেসেজ",
     version: "1.0.0",
     author: "QawmiERP Core",
     enabled: true,
     order: 7,
+    size: "half",
+  },
+  {
+    id: "builtin-hifz-tracker",
+    type: "builtin",
+    title: "হিফজুল কুরআন ও সবিনা সারসংক্ষেপ",
+    description:
+      "সবকী বনাম খতমী শিক্ষার্থী, আজকের এন্ট্রি, সাপ্তাহিক বৃহস্পতিবারের সবিনা ও চলমান বিশেষ সবিনা",
+    version: "1.0.0",
+    author: "QawmiERP Core",
+    enabled: true,
+    order: 8,
     size: "half",
   },
 ];

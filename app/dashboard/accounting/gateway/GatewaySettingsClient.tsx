@@ -97,13 +97,24 @@ export default function GatewaySettingsClient({
     }
   };
 
-  const handleApproveTransaction = async (txnId: string) => {
-    if (!confirm("আপনি কি নিশ্চিত যে এই ট্রানজেকশনটি ভেরিফাই করে মূল মানি রসিদ ইস্যু করবেন এবং বকেয়া সমন্বয় করবেন?")) {
+  const handleApproveTransaction = async (txn: OnlinePaymentTransaction) => {
+    const txnId = txn.transaction_id;
+    const ssl = txn.provider === "SSLCOMMERZ";
+    const validationId = ssl
+      ? prompt(
+          "SSLCommerz মার্চেন্ট পোর্টাল থেকে এই পেমেন্টের val_id দিন। সার্ভার অঙ্ক ও রেফারেন্স মিলিয়ে নেবে।",
+        )?.trim()
+      : undefined;
+    if (ssl && !validationId) return;
+    if (
+      !ssl &&
+      !confirm("আপনি কি নিশ্চিত যে এই ট্রানজেকশনটি ভেরিফাই করে মূল মানি রসিদ ইস্যু করবেন এবং বকেয়া সমন্বয় করবেন?")
+    ) {
       return;
     }
     setProcessingTxnId(txnId);
     try {
-      const res = await verifyOnlineTransactionAsAdmin(txnId);
+      const res = await verifyOnlineTransactionAsAdmin(txnId, validationId);
       if (res.success) {
         setAlert({
           type: "success",
@@ -111,10 +122,8 @@ export default function GatewaySettingsClient({
         });
         setTransactions((prev) =>
           prev.map((t) =>
-            t.transaction_id === txnId
-              ? { ...t, status: "SUCCESS", receipt_no: res.receipt_no }
-              : t
-          )
+            t.transaction_id === txnId ? { ...t, status: "SUCCESS", receipt_no: res.receipt_no } : t,
+          ),
         );
       } else {
         setAlert({
@@ -525,7 +534,7 @@ export default function GatewaySettingsClient({
                 <button
                   type="button"
                   onClick={() =>
-                    setConfig((prev) => ({ ...prev, environment: "SANDBOX", sandbox_test_mode: true }))
+                    setConfig((prev) => ({ ...prev, environment: "SANDBOX", sslcommerz: { ...prev.sslcommerz, is_live: false }, sandbox_test_mode: true }))
                   }
                   className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
                     config.environment === "SANDBOX"
@@ -533,13 +542,13 @@ export default function GatewaySettingsClient({
                       : "bg-white text-slate-600 border border-slate-200"
                   }`}
                 >
-                  Sandbox (সিমুলেশন ও যাচাই)
+                  Sandbox (পরীক্ষামূলক গেটওয়ে)
                 </button>
 
                 <button
                   type="button"
                   onClick={() =>
-                    setConfig((prev) => ({ ...prev, environment: "LIVE", sandbox_test_mode: false }))
+                    setConfig((prev) => ({ ...prev, environment: "LIVE", sslcommerz: { ...prev.sslcommerz, is_live: true }, sandbox_test_mode: false }))
                   }
                   className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
                     config.environment === "LIVE"
@@ -1273,11 +1282,11 @@ export default function GatewaySettingsClient({
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
-                              onClick={() => handleApproveTransaction(t.transaction_id)}
+                              onClick={() => handleApproveTransaction(t)}
                               disabled={processingTxnId === t.transaction_id}
                               className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition disabled:opacity-50"
                             >
-                              {processingTxnId === t.transaction_id ? "..." : "অনুমোদন"}
+                              {processingTxnId === t.transaction_id ? "..." : t.provider === "SSLCOMMERZ" ? "গেটওয়েতে যাচাই" : "অনুমোদন"}
                             </button>
                             <button
                               type="button"

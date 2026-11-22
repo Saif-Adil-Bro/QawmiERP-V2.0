@@ -1,7 +1,7 @@
 "use client";
 
 import { toDhakaDateStringFrom, toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { 
@@ -130,6 +130,14 @@ export default function ExamListClient({
   const [deletingExam, setDeletingExam] = useState<ExamItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+
+  useEffect(() => {
+    setExams(initialExams);
+    // A refreshed freeze also closes an already-open mutation dialog for that exam.
+    const writable = (row: ExamItem | null) => initialExams.some(e => e.id === row?.id && !e.is_locked) ? row : null;
+    setEditingExam(writable);
+    setDeletingExam(writable);
+  }, [initialExams]);
 
   // Years for filter and edit
   const currentYear = getDhakaYear();

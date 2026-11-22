@@ -43,6 +43,9 @@ export default async function NoticesPage() {
                 <option value="Students">শুধু ছাত্রদের জন্য</option>
               </select>
             </div>
+            <label className="block text-sm font-medium">জামাত
+              <select name="class_id" className="w-full p-2 border rounded-md"><option value="">সকল জামাত</option>{classes?.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+            </label>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">বিস্তারিত</label>
               <textarea name="content" required rows={5} className="w-full p-2 border rounded-md" placeholder="নোটিশের বিস্তারিত অংশ..."></textarea>
