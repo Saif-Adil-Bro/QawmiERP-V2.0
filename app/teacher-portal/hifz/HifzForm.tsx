@@ -31,10 +31,12 @@ export default function HifzForm({
   seed,
   currentDate,
   currentClassId,
+  onSave,
 }: {
   seed: HifzSeed;
   currentDate: string;
   currentClassId: string;
+  onSave?: (body: Record<string, any>) => Promise<{ success?: boolean; error?: string }>;
 }) {
   const { owner } = seed;
   const [tab, setTab] = useState(0),
@@ -50,19 +52,20 @@ export default function HifzForm({
     saving = useRef(false);
   const [immediate, setImmediate] = useState<{ body: any; time: number }[]>([]);
   useEffect(() => {
+    if (onSave) return;
     const change = () => setChanged(ownerKey(browserSession()) !== owner);
     window.addEventListener("storage", change);
     return () => window.removeEventListener("storage", change);
-  }, [owner]);
+  }, [owner, onSave]);
   const local = useLiveQuery(async () => {
-    if (ownerKey(browserSession()) !== owner) return null;
+    if (onSave || ownerKey(browserSession()) !== owner) return null;
     const db = getOfflineDb(owner);
     const [snap, pending] = await Promise.all([
       db.portalSnapshots.get("teacher:"),
       db.offlineOutbox.where("actionType").equals("hifz").sortBy("createdAt"),
     ]);
     return { snap, pending };
-  }, [owner]);
+  }, [owner, onSave]);
   const snap =
     local?.snap?.owner === owner && local.snap.syncedAt >= seed.asOf
       ? local.snap
@@ -125,10 +128,18 @@ export default function HifzForm({
     setBusy(true);
     setMessage("");
     try {
-      if (!cls || owner !== ownerKey(browserSession()))
-        throw new Error("অ্যাকাউন্ট যাচাই করে পেজ খুলুন।");
+      if (!cls) throw new Error("জামাত নির্বাচন করুন।");
       const body = { ...input, current_class_id: cls };
       projectDraft(b, body, names);
+      if (onSave) {
+        const res = await onSave(body);
+        if (res?.error) throw new Error(res.error);
+        setImmediate((old) => [...old, { body, time: Date.now() }]);
+        setMessage("এন্ট্রি সফলভাবে সংরক্ষিত হয়েছে।");
+        return true;
+      }
+      if (owner !== ownerKey(browserSession()))
+        throw new Error("অ্যাকাউন্ট যাচাই করে পেজ খুলুন।");
       const r = await postTeacherEntry("hifz", body, owner);
       if (!r.offlineQueued) {
         setImmediate((old) => [...old, { body, time: Date.now() }]);
@@ -148,7 +159,7 @@ export default function HifzForm({
       setBusy(false);
     }
   }
-  if (changed) return <p>অ্যাকাউন্ট পরিবর্তিত হয়েছে। পেজ আবার খুলুন।</p>;
+  if (!onSave && changed) return <p>অ্যাকাউন্ট পরিবর্তিত হয়েছে। পেজ আবার খুলুন।</p>;
   return (
     <section className="hz">
       <link rel="stylesheet" href="/hifz.css" />

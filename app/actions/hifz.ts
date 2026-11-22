@@ -254,3 +254,24 @@ export async function saveStudentHifzEntry(
     return failure(e);
   }
 }
+
+/** Full 4-tab Admin/Staff Hifz Workspace writer (daily, weekly Sabina, special Sabina, 30-Para profile). */
+export async function saveAdminHifzWorkspaceAction(
+  body: Record<string, unknown>,
+): Promise<FormResult> {
+  const guard = await writeGuard("hifz");
+  if (!guard.allowed) return guard.fallback;
+  try {
+    const classId =
+      typeof body.current_class_id === "string" && body.current_class_id
+        ? body.current_class_id
+        : undefined;
+    const c = await webScope(classId);
+    await writeHifz(c, body);
+    refresh();
+    return { success: true };
+  } catch (e) {
+    return failure(e);
+  }
+}
+
