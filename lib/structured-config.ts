@@ -145,6 +145,8 @@ export async function getExamSettingsBundle(
   gradingConfig: ExamGradingConfig;
   evaluationRules: Record<string, any>;
   compulsorySubjects: Record<string, boolean>;
+  subjectSubParts: Record<string, import("@/lib/exam-subparts").ExamSubjectSubPart[]>;
+  resultSubPartMarks: Record<string, Record<string, number>>;
   publishInfo: {
     is_published?: boolean;
     published_at?: string | null;
@@ -155,6 +157,8 @@ export async function getExamSettingsBundle(
   let gradingConfig: ExamGradingConfig | null = null;
   let evaluationRules: Record<string, any> | null = null;
   let compulsorySubjects: Record<string, boolean> | null = null;
+  let subjectSubParts: Record<string, import("@/lib/exam-subparts").ExamSubjectSubPart[]> | null = null;
+  let resultSubPartMarks: Record<string, Record<string, number>> | null = null;
   let publishInfo: any = null;
 
   {
@@ -173,13 +177,15 @@ export async function getExamSettingsBundle(
         } else if (row.scope_key === examId) {
           if (row.setting_key === "evaluation_rules") evaluationRules = row.setting_value;
           if (row.setting_key === "compulsory_subjects") compulsorySubjects = row.setting_value;
+          if (row.setting_key === "subject_sub_parts") subjectSubParts = row.setting_value;
+          if (row.setting_key === "result_sub_part_marks") resultSubPartMarks = row.setting_value;
           if (row.setting_key === "publish_info") publishInfo = row.setting_value;
         }
       }
     }
   }
 
-  // Only read metadata JSON if any setting wasn't found in SQL
+  // Only read metadata JSON if any core setting wasn't found in SQL
   if (!gradingConfig || !evaluationRules || !compulsorySubjects || !publishInfo) {
     const meta = await getMadrasaMetadata(madrasaId,true);
     if (!gradingConfig) {
@@ -202,6 +208,8 @@ export async function getExamSettingsBundle(
     gradingConfig: gradingConfig || DEFAULT_GRADING_CONFIG,
     evaluationRules: evaluationRules || { fail_policy: "compulsory_subject_fail" },
     compulsorySubjects: compulsorySubjects || {},
+    subjectSubParts: subjectSubParts || {},
+    resultSubPartMarks: resultSubPartMarks || {},
     publishInfo,
   };
 }

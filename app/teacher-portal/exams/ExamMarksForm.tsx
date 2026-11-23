@@ -11,6 +11,12 @@ import { resolveGradeRule, getGradeBadgeClass, type GradeRule } from "@/lib/exam
 import FrozenDraftNotice from "./FrozenDraftNotice";
 import { useExamLock } from "@/hooks/useExamLock";
 import { MarkField, parts, type Part, type Mark, type SavedMark } from "./MarkField";
+import {
+  type ExamSubjectSubPart,
+  extractSubPartMarks,
+  sanitizeSubParts,
+  validateAndSumSubPartMarks,
+} from "@/lib/exam-subparts";
 
 type Student = {
   id: string;
@@ -22,7 +28,12 @@ type Student = {
   photo_url?: string;
   phone?: string;
 };
-type Subject = { subject_name: string; total_marks?: number | string; pass_marks?: number | string };
+type Subject = {
+  subject_name: string;
+  total_marks?: number | string;
+  pass_marks?: number | string;
+  sub_parts?: ExamSubjectSubPart[];
+};
 type Props = {
   exams: { id: string; title: string; year?: string }[];
   locked: boolean | null;
@@ -62,6 +73,7 @@ export default function ExamMarksForm({
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "completed">("all");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [drafts, setDrafts] = useState<Record<string, Mark>>({});
+  const activeSubParts = useMemo(() => sanitizeSubParts(subject?.sub_parts), [subject?.sub_parts]);
   const writable = useRef(false);
   useLayoutEffect(() => {
     writable.current = !!currentSubject && !readOnly && !isPending;
@@ -84,15 +96,20 @@ export default function ExamMarksForm({
     for (const s of students) {
       const row = saved.get(s.id);
       const keys = parts.filter((k) => row?.[k] != null);
-      const mark = {
+      const mark: Mark = {
         marks_obtained: String(row?.marks_obtained ?? ""),
         total_marks: String((readOnly ? row?.total_marks : null) ?? subject?.total_marks ?? 100),
-        components: keys.length ? Object.fromEntries(keys.map((k) => [k, String(row![k])])) : undefined,
+        sub_part_marks: activeSubParts.length
+          ? extractSubPartMarks(row, activeSubParts, row?.sub_part_marks as Record<string, number> | null)
+          : undefined,
+        components: !activeSubParts.length && keys.length
+          ? Object.fromEntries(keys.map((k) => [k, String(row![k])]))
+          : undefined,
       };
       result[s.id] = (!readOnly && drafts[s.id]) || mark;
     }
     return result;
-  }, [students, saved, readOnly, subject, drafts]);
+  }, [students, saved, readOnly, subject, drafts, activeSubParts]);
 
   const handleFilterChange = (key: string, value: string) => {
     const params = new URLSearchParams(window.location.search);
@@ -119,12 +136,38 @@ export default function ExamMarksForm({
       return { ...prev, [id]: next };
     });
   };
+
+  const handleSubPartChange = (id: string, partKey: string, value: string) => {
+    if (!writable.current || loading) return;
+    setMessage(null);
+    setDrafts((prev) => {
+      const base = prev[id] ?? marksState[id];
+      const nextSubMarks = { ...(base.sub_part_marks || {}), [partKey]: value };
+      const values = activeSubParts
+        .map((p) => nextSubMarks[p.key])
+        .filter((v) => v !== undefined && v !== null && v !== "");
+      const sum = values.length
+        ? String(Number(values.reduce((n, v) => n + Number(v), 0).toFixed(2)))
+        : "";
+      return {
+        ...prev,
+        [id]: {
+          ...base,
+          sub_part_marks: nextSubMarks,
+          marks_obtained: sum,
+        },
+      };
+    });
+  };
+
   const markField = (id: string) => (
     <MarkField
       mark={marksState[id]}
+      subParts={activeSubParts}
       readOnly={readOnly}
       disabled={loading || isPending}
       change={(k, v) => handleChange(id, k, v)}
+      changeSubPart={(partKey, v) => handleSubPartChange(id, partKey, v)}
     />
   );
 
@@ -211,6 +254,12 @@ export default function ExamMarksForm({
           const mark = drafts[s.id];
           const obtained = Number(mark.marks_obtained),
             total = Number(mark.total_marks);
+          if (activeSubParts.length > 0) {
+            const check = validateAndSumSubPartMarks(activeSubParts, mark.sub_part_marks);
+            if (!check.valid) {
+              throw new Error(`${s.first_name} ${s.last_name || ""}: ${check.error}`);
+            }
+          }
           if (
             mark.marks_obtained === "" ||
             !Number.isFinite(obtained) ||
@@ -223,9 +272,14 @@ export default function ExamMarksForm({
             student_id: s.id,
             marks_obtained: obtained,
             total_marks: total,
-            ...Object.fromEntries(
-              Object.entries(mark.components ?? {}).map(([k, v]) => [k, v === "" ? null : Number(v)]),
-            ),
+            ...(activeSubParts.length > 0
+              ? { sub_part_marks: mark.sub_part_marks || {} }
+              : {
+                  written_marks: null,
+                  oral_marks: null,
+                  tutorial_marks: null,
+                  attendance_marks: null,
+                }),
           };
         });
       if (!records.length) return;

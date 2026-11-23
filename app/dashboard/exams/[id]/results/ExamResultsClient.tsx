@@ -7,6 +7,7 @@ import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
 import PrintLetterpad from "@/app/components/PrintLetterpad";
 import ExamPublishToggle from "@/app/dashboard/exams/ExamPublishToggle";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { formatSubPartBreakdown } from "@/lib/exam-subparts";
 
 export default function ExamResultsClient({ 
   examId, 
@@ -203,14 +204,25 @@ export default function ExamResultsClient({
                         const markObj = student.marks?.find((m: any) => m.subject_name === sub);
                         const markVal = markObj?.has_entered_marks ? markObj.marks_obtained : null;
                         const isSubFailed = markObj?.is_failed;
+                        const subBreakdown = formatSubPartBreakdown(
+                          markObj?.sub_parts,
+                          markObj?.sub_part_marks,
+                          toBanglaNumber
+                        );
                         return (
                           <td 
                             key={sub} 
+                            title={subBreakdown || undefined}
                             className={`px-1.5 py-1.5 print:px-1 print:py-1 text-center font-medium border border-slate-300 print:border-slate-500 ${
                               isSubFailed ? 'text-red-700 bg-red-50/50 font-bold' : ''
                             }`}
                           >
-                            {markVal !== null && markVal !== undefined ? toBanglaNumber(markVal) : '০'}
+                            <div>{markVal !== null && markVal !== undefined ? toBanglaNumber(markVal) : '০'}</div>
+                            {subBreakdown && (
+                              <div className="text-[9px] leading-tight text-slate-500 font-normal mt-0.5">
+                                {subBreakdown}
+                              </div>
+                            )}
                           </td>
                         );
                       })}

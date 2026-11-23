@@ -8,6 +8,12 @@ import {rankSummaries} from '@/lib/exam-grading';
 import {examReport,publicationFlags} from '@/lib/portal/exams';
 import {webIdentity, hasRole, teacherScope} from '@/lib/portal/identity';
 import {studentRoles,teacherRoles,published} from '@/lib/portal/rules';
+import {
+  type ExamSubjectSubPart,
+  sanitizeSubParts,
+  sumSubPartMaxMarks,
+  validateAndSumSubPartMarks,
+} from '@/lib/exam-subparts';
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
@@ -674,12 +680,14 @@ export async function getExamResults(examId:string,classId:string,subjectName:st
   const report=await examReport(i.db,i.tenant,exam,await getMadrasaMetadata(i.tenant,true));
   return report.filter(s=>s.class_id===classId).map(s=>{
     const m=s.own.find((r:any)=>r.subject_name===subjectName);
+    const enrichedMark=s.marks?.find((r:any)=>r.subject_name===subjectName);
     return {id:s.id,first_name:s.first_name,last_name:s.last_name,roll_number:s.roll_number,marks_obtained:m?.marks_obtained ?? '',total_marks:m?.total_marks ?? null,
-      written_marks:m?.written_marks ?? '',oral_marks:m?.oral_marks ?? '',tutorial_marks:m?.tutorial_marks ?? '',attendance_marks:m?.attendance_marks ?? ''};
+      written_marks:m?.written_marks ?? '',oral_marks:m?.oral_marks ?? '',tutorial_marks:m?.tutorial_marks ?? '',attendance_marks:m?.attendance_marks ?? '',
+      sub_part_marks:enrichedMark?.sub_part_marks ?? m?.sub_part_marks ?? {}};
   });
 }
 
-export async function saveExamMarks(examId: string, subjectName: string, marksData: { student_id: string, marks_obtained: number, total_marks: number, written_marks?:number|null,oral_marks?:number|null,tutorial_marks?:number|null,attendance_marks?:number|null }[], classId?:string) {
+export async function saveExamMarks(examId: string, subjectName: string, marksData: { student_id: string, marks_obtained: number, total_marks: number, written_marks?:number|null,oral_marks?:number|null,tutorial_marks?:number|null,attendance_marks?:number|null, sub_part_marks?: Record<string, number | string | null> | null }[], classId?:string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   const __authz = await writeGuard("exams");
@@ -694,19 +702,28 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
   const writer = identity.db as Awaited<ReturnType<typeof createAdminClient>>;
   const {data:ownedExam} = await writer.from('exams').select('*').eq('id',examId).eq('madrasa_id',finalMadrasaId).maybeSingle();
   if (!ownedExam || !classId || !subjectName?.trim()) return {error:'পরীক্ষা বা জামাত সঠিক নয়।'};
+  let configuredSubParts: ExamSubjectSubPart[] = [];
   if (hasRole(identity, teacherRoles)) {
     const scope = await teacherScope(identity);
     const roster = await teacherStudents(identity, scope, [classId]);
     const entry = await teacherExamData(identity, scope, ownedExam, roster, classId);
     const def=entry.subjects.find(s=>s.subject_name===subjectName);
     if (!def || marksData.some(m=>m.total_marks!==Number(def.total_marks) || !entry.students.some(s=>s.id===m.student_id))) return {error:'বরাদ্দকৃত বিষয়, শিক্ষার্থী ও পূর্ণমান ব্যবহার করুন।'};
+    configuredSubParts = sanitizeSubParts((def as any).sub_parts);
   } else {
     const meta=await getMadrasaMetadata(finalMadrasaId,true);
     const cohort=await examCohort(writer,finalMadrasaId,ownedExam,meta);
     const students=await rows(()=>writer.from('students').select('id,class_id').eq('madrasa_id',finalMadrasaId).in('id',marksData.map(m=>m.student_id)));
     const eligible=new Set(students.filter(s=>cohort(s).class_id===classId).map(s=>s.id));
-    const defs=await rows(()=>writer.from('exam_subjects').select('*').eq('madrasa_id',finalMadrasaId).eq('exam_id',examId).eq('class_id',classId),true);
+    const [defs, subPartsSetting] = await Promise.all([
+      rows(()=>writer.from('exam_subjects').select('*').eq('madrasa_id',finalMadrasaId).eq('exam_id',examId).eq('class_id',classId),true),
+      getStructuredExamSetting<Record<string, ExamSubjectSubPart[]>>(finalMadrasaId, examId, "subject_sub_parts"),
+    ]);
     if(marksData.some(m=>!eligible.has(m.student_id) || defs.length && !defs.some(d=>d.subject_name===subjectName && Number(d.total_marks)===m.total_marks))) return {error:'পরীক্ষার জামাত, বিষয় বা পূর্ণমান মিলছে না।'};
+    const matchedDef = defs.find(d => d.subject_name === subjectName);
+    configuredSubParts = sanitizeSubParts(
+      subPartsSetting.value?.[`${classId}:${subjectName}`] ?? (matchedDef as any)?.sub_parts
+    );
   }
   // Snapshot existing marks before upsert so we can track exact changes in system_audit_logs
   const studentIds = marksData.map((m) => m.student_id);
@@ -720,22 +737,50 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
   if (beforeError) return {error:beforeError.message};
   const fields=['written_marks','oral_marks','tutorial_marks','attendance_marks'] as const;
   const previous=new Map((prevRows || []).map(m=>[m.student_id,m]));
-  const recordsToUpsert = marksData.map(record => ({
-    madrasa_id: finalMadrasaId,
-    exam_id: examId,
-    student_id: record.student_id,
-    subject_name: subjectName,
-    marks_obtained: record.marks_obtained,
-    total_marks: record.total_marks,
-    ...Object.fromEntries(fields.map(key => {
-      const stored = previous.get(record.student_id)?.[key];
-      return [key, key in record ? record[key] : stored == null ? null : Number(stored)];
-    })),
-  }));
+  const cleanedSubPartMarksByStudent: Record<string, Record<string, number>> = {};
 
-  for (const record of recordsToUpsert) {
-    const parts=fields.map(k=>(record as Record<string,unknown>)[k]).filter((v):v is number=>v!=null);
-    if(parts.some(v=>!Number.isFinite(v) || v<0) || parts.length && Math.abs(parts.reduce((n,v)=>n+v,0)-record.marks_obtained)>0.000001) return {error:'বিভাগভিত্তিক নম্বর ও মোট নম্বর মিলছে না। বিভাগভিত্তিক ফর্মে সংশোধন করুন।'};
+  const recordsToUpsert = [];
+  for (const record of marksData) {
+    if (configuredSubParts.length > 0) {
+      const check = validateAndSumSubPartMarks(configuredSubParts, record.sub_part_marks);
+      if (!check.valid) return { error: check.error || "উপবিভাগের নম্বর সঠিক নয়।" };
+      if (check.total !== null) {
+        if (Math.abs(check.total - record.marks_obtained) > 0.000001) {
+          return { error: "উপবিভাগগুলোর যোগফল এবং মোট প্রাপ্ত নম্বর মিলছে না।" };
+        }
+        cleanedSubPartMarksByStudent[record.student_id] = check.cleaned;
+        recordsToUpsert.push({
+          madrasa_id: finalMadrasaId,
+          exam_id: examId,
+          student_id: record.student_id,
+          subject_name: subjectName,
+          marks_obtained: record.marks_obtained,
+          total_marks: record.total_marks,
+          ...check.legacyCols,
+        });
+        continue;
+      }
+    }
+
+    recordsToUpsert.push({
+      madrasa_id: finalMadrasaId,
+      exam_id: examId,
+      student_id: record.student_id,
+      subject_name: subjectName,
+      marks_obtained: record.marks_obtained,
+      total_marks: record.total_marks,
+      ...Object.fromEntries(fields.map(key => {
+        const stored = previous.get(record.student_id)?.[key];
+        return [key, key in record ? record[key] : configuredSubParts.length === 0 ? null : stored == null ? null : Number(stored)];
+      })),
+    });
+  }
+
+  if (configuredSubParts.length === 0) {
+    for (const record of recordsToUpsert) {
+      const parts=fields.map(k=>(record as Record<string,unknown>)[k]).filter((v):v is number=>v!=null);
+      if(parts.some(v=>!Number.isFinite(v) || v<0) || parts.length && Math.abs(parts.reduce((n,v)=>n+v,0)-record.marks_obtained)>0.000001) return {error:'বিভাগভিত্তিক নম্বর ও মোট নম্বর মিলছে না। বিভাগভিত্তিক ফর্মে সংশোধন করুন।'};
+    }
   }
   const lockCheck = await assertExamUnlocked(finalMadrasaId, examId, "পরীক্ষার নম্বর এন্ট্রি বা পরিবর্তন");
   if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
@@ -747,6 +792,43 @@ export async function saveExamMarks(examId: string, subjectName: string, marksDa
   if (error) {
     console.error("Error saving marks:", error);
     return { error: error.message };
+  }
+
+  // Persist flexible sub_part_marks in structured exam_settings + best-effort SQL column sync
+  if (Object.keys(cleanedSubPartMarksByStudent).length > 0) {
+    const existingSubMarks = await getStructuredExamSetting<Record<string, Record<string, number>>>(
+      finalMadrasaId,
+      examId,
+      "result_sub_part_marks"
+    );
+    const mergedSubMarks: Record<string, Record<string, number>> = {
+      ...(existingSubMarks.value || {}),
+    };
+    for (const [stuId, map] of Object.entries(cleanedSubPartMarksByStudent)) {
+      mergedSubMarks[`${stuId}:${subjectName}`] = map;
+    }
+    await saveStructuredExamSetting(
+      finalMadrasaId,
+      examId,
+      "result_sub_part_marks",
+      mergedSubMarks,
+      identity.user.id
+    );
+
+    // Best-effort sync to SQL sub_part_marks column if migrated
+    for (const [stuId, map] of Object.entries(cleanedSubPartMarksByStudent)) {
+      try {
+        await writer
+          .from("exam_results")
+          .update({ sub_part_marks: map })
+          .eq("madrasa_id", finalMadrasaId)
+          .eq("exam_id", examId)
+          .eq("student_id", stuId)
+          .eq("subject_name", subjectName);
+      } catch {
+        // Structured setting already saved safely
+      }
+    }
   }
 
   // Build compact changed-marks diff for immutable audit trail
@@ -905,7 +987,7 @@ export async function getExamSubjects(examId: string, classId: string) {
   const user = await getAuthUser(supabase);
   const finalMadrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-  const [{ data, error }, compSetting, madrasaMeta] = await Promise.all([
+  const [{ data, error }, compSetting, subPartsSetting, madrasaMeta] = await Promise.all([
     supabase
       .from("exam_subjects")
       .select("*")
@@ -914,6 +996,9 @@ export async function getExamSubjects(examId: string, classId: string) {
       .order("created_at", { ascending: true }),
     finalMadrasaId
       ? getStructuredExamSetting<Record<string, boolean>>(finalMadrasaId, examId, "compulsory_subjects")
+      : Promise.resolve({ found: false, value: null, source: "fallback" as const }),
+    finalMadrasaId
+      ? getStructuredExamSetting<Record<string, ExamSubjectSubPart[]>>(finalMadrasaId, examId, "subject_sub_parts")
       : Promise.resolve({ found: false, value: null, source: "fallback" as const }),
     finalMadrasaId ? getMadrasaMetadata(finalMadrasaId) : Promise.resolve({} as MadrasaMetaWithSessions)
   ]);
@@ -927,15 +1012,21 @@ export async function getExamSubjects(examId: string, classId: string) {
     (compSetting.found && compSetting.value) ||
     madrasaMeta?.exam_compulsory_subjects?.[examId] ||
     {};
+  const subPartsMeta: Record<string, ExamSubjectSubPart[]> =
+    (subPartsSetting.found && subPartsSetting.value) || {};
 
   return (data || []).map((sub: any) => {
     const isComp = compulsoryMeta[`${classId}:${sub.subject_name}`] !== undefined
       ? Boolean(compulsoryMeta[`${classId}:${sub.subject_name}`])
       : (sub.is_compulsory !== undefined ? Boolean(sub.is_compulsory) : true);
+    const subParts = sanitizeSubParts(
+      subPartsMeta[`${classId}:${sub.subject_name}`] ?? sub.sub_parts
+    );
 
     return {
       ...sub,
-      is_compulsory: isComp
+      is_compulsory: isComp,
+      sub_parts: subParts,
     };
   });
 }
@@ -1036,10 +1127,23 @@ export async function saveExamSubjects(examId: string, classId: string, subjects
   if (lockCheck.locked) return { error: lockCheck.error, code: lockCheck.code };
 
   if (!(await supabase.from('exams').select('id').eq('madrasa_id',finalMadrasaId).eq('id',examId).maybeSingle()).data || !(await supabase.from('classes').select('id').eq('madrasa_id',finalMadrasaId).eq('id',classId).maybeSingle()).data) return {error:'পরীক্ষা বা জামাত পাওয়া যায়নি।'};
-  if (subjectsData.some(s=>!String(s.subject_name || '').trim() || !(Number(s.total_marks)>0) || Number(s.pass_marks??33)<0 || Number(s.pass_marks??33)>Number(s.total_marks))) return {error:'পূর্ণমান ও পাস নম্বর যাচাই করুন।'};
+
+  const normalizedSubjects = subjectsData.map((s) => {
+    const subParts = sanitizeSubParts(s.sub_parts);
+    const totalMarks = subParts.length > 0 ? sumSubPartMaxMarks(subParts) : Number(s.total_marks);
+    return {
+      ...s,
+      subject_name: String(s.subject_name || "").trim(),
+      total_marks: totalMarks,
+      pass_marks: Number(s.pass_marks ?? 33),
+      sub_parts: subParts,
+    };
+  });
+
+  if (normalizedSubjects.some(s=>!s.subject_name || !(Number(s.total_marks)>0) || Number(s.pass_marks)<0 || Number(s.pass_marks)>Number(s.total_marks))) return {error:'পূর্ণমান ও পাস নম্বর যাচাই করুন।'};
   const deletion=await supabase.from('exam_subjects').delete().eq('madrasa_id',finalMadrasaId).eq('exam_id',examId).eq('class_id',classId);
   if (deletion.error) return {error:deletion.error.message};
-  const recordsToInsert = subjectsData.map(record => ({
+  const recordsToInsert = normalizedSubjects.map(record => ({
     madrasa_id: finalMadrasaId,
     exam_id: examId,
     class_id: classId,
@@ -1060,29 +1164,72 @@ export async function saveExamSubjects(examId: string, classId: string, subjects
     }
   }
 
-  // Persist compulsory flags & fail policy to structured exam_settings first, with fallback
-  const existingComp = await getStructuredExamSetting<Record<string, boolean>>(
-    finalMadrasaId,
-    examId,
-    "compulsory_subjects"
-  );
-  const madrasaMeta = await getMadrasaMetadata(finalMadrasaId);
+  // Persist compulsory flags, sub_parts & fail policy to structured exam_settings first, with fallback
+  const [existingComp, existingSubParts, madrasaMeta] = await Promise.all([
+    getStructuredExamSetting<Record<string, boolean>>(
+      finalMadrasaId,
+      examId,
+      "compulsory_subjects"
+    ),
+    getStructuredExamSetting<Record<string, ExamSubjectSubPart[]>>(
+      finalMadrasaId,
+      examId,
+      "subject_sub_parts"
+    ),
+    getMadrasaMetadata(finalMadrasaId),
+  ]);
   const currentExamCompulsory: Record<string, boolean> = {
     ...(madrasaMeta.exam_compulsory_subjects?.[examId] || {}),
     ...(existingComp.value || {}),
   };
+  const currentSubParts: Record<string, ExamSubjectSubPart[]> = {
+    ...(existingSubParts.value || {}),
+  };
+  // Clear old sub_parts entries for this classId before writing current ones
+  for (const key of Object.keys(currentSubParts)) {
+    if (key.startsWith(`${classId}:`)) {
+      delete currentSubParts[key];
+    }
+  }
 
-  subjectsData.forEach(sub => {
+  normalizedSubjects.forEach(sub => {
     currentExamCompulsory[`${classId}:${sub.subject_name}`] = sub.is_compulsory !== false;
+    if (sub.sub_parts.length > 0) {
+      currentSubParts[`${classId}:${sub.subject_name}`] = sub.sub_parts;
+    }
   });
 
-  const compSqlRes = await saveStructuredExamSetting(
-    finalMadrasaId,
-    examId,
-    "compulsory_subjects",
-    currentExamCompulsory,
-    user.id
-  );
+  const [compSqlRes] = await Promise.all([
+    saveStructuredExamSetting(
+      finalMadrasaId,
+      examId,
+      "compulsory_subjects",
+      currentExamCompulsory,
+      user.id
+    ),
+    saveStructuredExamSetting(
+      finalMadrasaId,
+      examId,
+      "subject_sub_parts",
+      currentSubParts,
+      user.id
+    ),
+  ]);
+
+  // Best-effort sync to SQL exam_subjects.sub_parts column if migrated
+  for (const sub of normalizedSubjects) {
+    try {
+      await supabase
+        .from("exam_subjects")
+        .update({ sub_parts: sub.sub_parts })
+        .eq("madrasa_id", finalMadrasaId)
+        .eq("exam_id", examId)
+        .eq("class_id", classId)
+        .eq("subject_name", sub.subject_name);
+    } catch {
+      // Structured setting already persisted safely
+    }
+  }
 
   let ruleSqlOk = true;
   if (failPolicy) {

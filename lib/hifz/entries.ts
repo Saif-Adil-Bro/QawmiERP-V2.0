@@ -36,15 +36,24 @@ const range = z
 export const weeklyInput = z
   .object({
     student_id: id,
-    sabina_date: date.refine(
-      (v) => new Date(v + "T00:00:00Z").getUTCDay() === 4,
-      "বৃহস্পতিবার নির্বাচন করুন",
-    ),
+    sabina_date: date,
+    week_number: integer(1, 5).optional(),
+    month_key: z
+      .string()
+      .regex(/^\d{4}-\d{2}$/, "মাস সঠিক নয়")
+      .optional(),
+    hijri_month_label: z.string().trim().max(80).optional().default(""),
     listener_student_id: id.nullable(),
     status: z.enum(["completed", "assigned"]).default("completed"),
     remarks: text.default(""),
   })
-  .and(range);
+  .and(range)
+  .refine(
+    (v) =>
+      v.week_number !== undefined ||
+      new Date(v.sabina_date + "T00:00:00Z").getUTCDay() === 4,
+    { message: "বৃহস্পতিবার নির্বাচন করুন", path: ["sabina_date"] },
+  );
 export const specialInput = z
   .object({
     id,

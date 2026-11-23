@@ -3,11 +3,17 @@
 import { useState, useEffect, useMemo } from "react";
 import { getExamResults, saveExamMarks, getExamSubjects } from "@/app/actions/exams";
 import { getClassSubjects } from "@/app/actions/class_subjects";
-import { Search, ArrowUpDown, CheckCircle, Clock, ListFilter } from "lucide-react";
+import { Search, ArrowUpDown, CheckCircle, Clock } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { sortStudentsByRoll } from "@/lib/student-utils";
 import { useExamLock } from "@/hooks/useExamLock";
 import ExamLockToggle from "../../ExamLockToggle";
+import {
+  type ExamSubjectSubPart,
+  extractSubPartMarks,
+  sanitizeSubParts,
+  validateAndSumSubPartMarks,
+} from "@/lib/exam-subparts";
 
 interface MarksEntryClientProps {
   examId: string;
@@ -48,6 +54,11 @@ export default function MarksEntryClient({
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "completed">("all");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
+  const activeSubParts: ExamSubjectSubPart[] = useMemo(() => {
+    const matched = examSubjectsDetails.find((s) => s.subject_name === subjectName);
+    return sanitizeSubParts(matched?.sub_parts);
+  }, [examSubjectsDetails, subjectName]);
+
   useEffect(() => {
     let active = true;
     setLoadRequest(0);
@@ -87,8 +98,16 @@ export default function MarksEntryClient({
     setMessage(null);
     getExamResults(examId, classId, subjectName).then(data => {
       if (!active) return;
-      const configured = examSubjectsDetails.find(s => s.subject_name === subjectName)?.total_marks;
-      const rows = data.map((student: any) => ({ ...student, total_marks: student.total_marks ?? configured ?? 100 }));
+      const matchedSubject = examSubjectsDetails.find(s => s.subject_name === subjectName);
+      const configured = matchedSubject?.total_marks;
+      const subParts = sanitizeSubParts(matchedSubject?.sub_parts);
+      const rows = data.map((student: any) => ({
+        ...student,
+        total_marks: student.total_marks ?? configured ?? 100,
+        sub_part_marks: subParts.length
+          ? extractSubPartMarks(student, subParts, student.sub_part_marks)
+          : {},
+      }));
       setSaved(rows);
       setStudents(configured != null ? rows.map(s => ({ ...s, total_marks: configured })) : rows);
     }).catch(() => { if (active) setMessage({type: "error", text: "নম্বর পড়া যায়নি। আবার চেষ্টা করুন।"}); })
@@ -96,21 +115,27 @@ export default function MarksEntryClient({
     return () => { active = false; };
   }, [examId, classId, subjectName, examSubjectsDetails, loadRequest, isLocked]);
 
-  const handleMarksChange = (studentId: string, field: 'marks_obtained' | 'total_marks' | 'written_marks' | 'oral_marks' | 'tutorial_marks' | 'attendance_marks', value: string) => {
+  const handleMarksChange = (studentId: string, field: 'marks_obtained' | 'total_marks', value: string) => {
+    if (isLocked) return;
+    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, [field]: value } : s));
+  };
+
+  const handleSubPartChange = (studentId: string, partKey: string, value: string) => {
     if (isLocked) return;
     setStudents(prev => prev.map(s => {
-      if (s.id === studentId) {
-        const updatedStudent = { ...s, [field]: value };
-        if (field !== 'marks_obtained' && field !== 'total_marks') {
-           const written = Number(updatedStudent.written_marks) || 0;
-           const oral = Number(updatedStudent.oral_marks) || 0;
-           const tutorial = Number(updatedStudent.tutorial_marks) || 0;
-           const attendance = Number(updatedStudent.attendance_marks) || 0;
-           updatedStudent.marks_obtained = (written + oral + tutorial + attendance).toString();
-        }
-        return updatedStudent;
-      }
-      return s;
+      if (s.id !== studentId) return s;
+      const nextSubMarks = { ...(s.sub_part_marks || {}), [partKey]: value };
+      const values = activeSubParts
+        .map(p => nextSubMarks[p.key])
+        .filter(v => v !== undefined && v !== null && v !== "");
+      const sum = values.length
+        ? String(Number(values.reduce((acc, v) => acc + (Number(v) || 0), 0).toFixed(2)))
+        : "";
+      return {
+        ...s,
+        sub_part_marks: nextSubMarks,
+        marks_obtained: sum,
+      };
     }));
   };
 
@@ -124,7 +149,20 @@ export default function MarksEntryClient({
     }
     setSaving(true);
     setMessage(null);
-    
+
+    // Validate sub-part max marks if sub-parts are configured
+    if (activeSubParts.length > 0) {
+      for (const s of students) {
+        if (s.marks_obtained === '' || s.marks_obtained == null) continue;
+        const check = validateAndSumSubPartMarks(activeSubParts, s.sub_part_marks);
+        if (!check.valid) {
+          setMessage({ type: 'error', text: `${s.first_name} ${s.last_name || ''}: ${check.error}` });
+          setSaving(false);
+          return;
+        }
+      }
+    }
+
     // validation
     const invalid = students.some(s => s.marks_obtained !== '' && Number(s.marks_obtained) > Number(s.total_marks));
     if (invalid) {
@@ -139,10 +177,14 @@ export default function MarksEntryClient({
         student_id: s.id,
         marks_obtained: Number(s.marks_obtained),
         total_marks: Number(s.total_marks || 100),
-        written_marks: s.written_marks === '' || s.written_marks == null ? null : Number(s.written_marks),
-        oral_marks: s.oral_marks === '' || s.oral_marks == null ? null : Number(s.oral_marks),
-        tutorial_marks: s.tutorial_marks === '' || s.tutorial_marks == null ? null : Number(s.tutorial_marks),
-        attendance_marks: s.attendance_marks === '' || s.attendance_marks == null ? null : Number(s.attendance_marks)
+        ...(activeSubParts.length > 0
+          ? { sub_part_marks: s.sub_part_marks || {} }
+          : {
+              written_marks: null,
+              oral_marks: null,
+              tutorial_marks: null,
+              attendance_marks: null,
+            }),
       }));
 
     if (marksData.length === 0) {
@@ -152,8 +194,8 @@ export default function MarksEntryClient({
     }
 
     try {
-      const result = await saveExamMarks(examId, subjectName, marksData,classId);
-      
+      const result = await saveExamMarks(examId, subjectName, marksData, classId);
+
       if (result?.error) {
         if ("code" in result) observeFailure(result.code);
         setMessage({ type: 'error', text: result.error });
@@ -370,17 +412,21 @@ export default function MarksEntryClient({
                   <th className="px-4 py-3">রোল</th>
                   <th className="px-4 py-3 min-w-[150px]">নাম</th>
                   <th className="px-4 py-3 w-28">মোট নম্বর</th>
-                  <th className="px-4 py-3 w-28 text-orange-600" title="Written">লিখিত</th>
-                  <th className="px-4 py-3 w-28 text-blue-600" title="Oral">মৌখিক</th>
-                  <th className="px-4 py-3 w-28 text-purple-600" title="Tutorial">টিউটোরিয়াল</th>
-                  <th className="px-4 py-3 w-28 text-green-600" title="Attendance">উপস্থিতি</th>
+                  {activeSubParts.map((part) => (
+                    <th key={part.key} className="px-4 py-3 w-32 text-emerald-700">
+                      {part.name}{" "}
+                      <span className="text-xs font-normal text-slate-500">
+                        ({toBanglaNumber(part.max_marks)})
+                      </span>
+                    </th>
+                  ))}
                   <th className="px-4 py-3 w-32 font-bold">প্রাপ্ত নম্বর</th>
                 </tr>
               </thead>
               <tbody className="divide-y text-slate-600 bg-white">
                 {filteredStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400 text-sm italic">
+                    <td colSpan={4 + activeSubParts.length} className="px-4 py-8 text-center text-slate-400 text-sm italic">
                       কোনো শিক্ষার্থী পাওয়া যায়নি
                     </td>
                   </tr>
@@ -390,76 +436,49 @@ export default function MarksEntryClient({
                       <td className="px-4 py-3 font-mono font-bold text-slate-900">
                         {toBanglaNumber(student.roll_number || '-')}
                       </td>
-                    <td className="px-4 py-3 font-medium text-slate-900">
-                      {student.first_name} {student.last_name}
-                    </td>
-                    <td className="px-4 py-3">
-                      <input 
-                        type="number" 
-                        value={student.total_marks}
-                        onChange={(e) => handleMarksChange(student.id, 'total_marks', e.target.value)}
-                        disabled={loading || isLocked || !!examSubjectsDetails.length}
-                        className="w-full px-2 py-1.5 border rounded focus:outline-none focus:ring-1 focus:ring-slate-900 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                        min="0"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <input 
-                        type="number" 
-                        value={student.written_marks}
-                        onChange={(e) => handleMarksChange(student.id, 'written_marks', e.target.value)}
-                        disabled={loading || isLocked}
-                        className="w-full px-2 py-1.5 border border-orange-200 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 bg-orange-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                        min="0"
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <input 
-                        type="number" 
-                        value={student.oral_marks}
-                        onChange={(e) => handleMarksChange(student.id, 'oral_marks', e.target.value)}
-                        disabled={loading || isLocked}
-                        className="w-full px-2 py-1.5 border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-blue-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                        min="0"
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <input 
-                        type="number" 
-                        value={student.tutorial_marks}
-                        onChange={(e) => handleMarksChange(student.id, 'tutorial_marks', e.target.value)}
-                        disabled={loading || isLocked}
-                        className="w-full px-2 py-1.5 border border-purple-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-purple-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                        min="0"
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <input 
-                        type="number" 
-                        value={student.attendance_marks}
-                        onChange={(e) => handleMarksChange(student.id, 'attendance_marks', e.target.value)}
-                        disabled={loading || isLocked}
-                        className="w-full px-2 py-1.5 border border-green-200 rounded focus:outline-none focus:ring-1 focus:ring-green-500 bg-green-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                        min="0"
-                        placeholder="0"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <input 
-                        type="number" 
-                        value={student.marks_obtained}
-                        onChange={(e) => handleMarksChange(student.id, 'marks_obtained', e.target.value)}
-                        disabled={loading || isLocked || [student.written_marks, student.oral_marks, student.tutorial_marks, student.attendance_marks].some(v => v != null && v !== "")}
-                        className="w-full px-2 py-1.5 border-2 border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-slate-900 font-bold bg-slate-50 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                        min="0"
-                        placeholder="0"
-                      />
-                    </td>
-                  </tr>
-                ))
+                      <td className="px-4 py-3 font-medium text-slate-900">
+                        {student.first_name} {student.last_name}
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="number"
+                          value={student.total_marks}
+                          onChange={(e) => handleMarksChange(student.id, 'total_marks', e.target.value)}
+                          disabled={loading || isLocked || !!examSubjectsDetails.length}
+                          className="w-full px-2 py-1.5 border rounded focus:outline-none focus:ring-1 focus:ring-slate-900 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          min="0"
+                        />
+                      </td>
+                      {activeSubParts.map((part) => (
+                        <td key={part.key} className="px-4 py-3">
+                          <input
+                            type="number"
+                            value={student.sub_part_marks?.[part.key] ?? ""}
+                            onChange={(e) => handleSubPartChange(student.id, part.key, e.target.value)}
+                            disabled={loading || isLocked}
+                            className="w-full px-2 py-1.5 border border-emerald-200 rounded focus:outline-none focus:ring-1 focus:ring-emerald-600 bg-emerald-50/30 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                            min="0"
+                            max={part.max_marks}
+                            step="0.01"
+                            placeholder={`০–${toBanglaNumber(part.max_marks)}`}
+                          />
+                        </td>
+                      ))}
+                      <td className="px-4 py-3">
+                        <input
+                          type="number"
+                          value={student.marks_obtained}
+                          onChange={(e) => handleMarksChange(student.id, 'marks_obtained', e.target.value)}
+                          disabled={loading || isLocked || activeSubParts.length > 0}
+                          className="w-full px-2 py-1.5 border-2 border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-slate-900 font-bold bg-slate-50 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          min="0"
+                          max={student.total_marks}
+                          step="0.01"
+                          placeholder="0"
+                        />
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>

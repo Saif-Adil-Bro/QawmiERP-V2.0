@@ -76,27 +76,104 @@ export function WeeklyForm({
   p,
   peers,
   date,
-  old,
+  allWeekly = [],
+  onDateChange,
   submit,
 }: {
   p: HifzProfile;
   peers: any[];
   date: string;
-  old?: WeeklySabina;
+  allWeekly?: WeeklySabina[];
+  onDateChange?: (nextDate: string) => void;
   submit: Submit;
 }) {
-  const [from, setFrom] = useState(old?.assigned_para_from || 1),
-    [to, setTo] = useState(old?.assigned_para_to || 1),
-    [counts, setCounts] = useState<Record<number, number>>(
-      Object.fromEntries(
-        (old?.para_breakdown || []).map((r) => [r.para, r.mistakes]),
-      ),
+  const initialMonth = date.slice(0, 7);
+  const [monthKey, setMonthKey] = useState(initialMonth);
+  const [weekNumber, setWeekNumber] = useState<number>(() => {
+    const existing = allWeekly.find(
+      (w) => w.student_id === p.student_id && w.sabina_date === date,
+    );
+    if (existing?.week_number) return existing.week_number;
+    return Math.min(5, Math.max(1, Math.ceil(Number(date.slice(8, 10)) / 7)));
+  });
+  const [sabinaDate, setSabinaDate] = useState(date);
+
+  const matchedOld = allWeekly.find(
+    (w) =>
+      w.student_id === p.student_id &&
+      (w.sabina_date === sabinaDate ||
+        ((w.month_key || w.sabina_date.slice(0, 7)) === monthKey &&
+          w.week_number === weekNumber)),
+  );
+
+  const [hijriMonth, setHijriMonth] = useState(matchedOld?.hijri_month_label || "");
+  const [from, setFrom] = useState(matchedOld?.assigned_para_from || 1);
+  const [to, setTo] = useState(matchedOld?.assigned_para_to || 1);
+  const [counts, setCounts] = useState<Record<number, number>>(
+    Object.fromEntries(
+      (matchedOld?.para_breakdown || []).map((r) => [r.para, r.mistakes]),
     ),
-    [partner, setPartner] = useState(
-      old?.listener_student_id || p.default_sabina_partner_id || "",
-    ),
-    [note, setNote] = useState(old?.remarks || ""),
-    [status, setStatus] = useState(old?.status || "completed");
+  );
+  const [partner, setPartner] = useState(
+    matchedOld?.listener_student_id || p.default_sabina_partner_id || "",
+  );
+  const [note, setNote] = useState(matchedOld?.remarks || "");
+  const [status, setStatus] = useState<"assigned" | "completed">(
+    matchedOld?.status || "completed",
+  );
+
+  const syncFromExisting = (nextMonth: string, nextWeek: number, nextDate: string) => {
+    const found = allWeekly.find(
+      (w) =>
+        w.student_id === p.student_id &&
+        (w.sabina_date === nextDate ||
+          ((w.month_key || w.sabina_date.slice(0, 7)) === nextMonth &&
+            w.week_number === nextWeek)),
+    );
+    if (found) {
+      setHijriMonth(found.hijri_month_label || "");
+      setFrom(found.assigned_para_from || 1);
+      setTo(found.assigned_para_to || 1);
+      setCounts(
+        Object.fromEntries(
+          (found.para_breakdown || []).map((r) => [r.para, r.mistakes]),
+        ),
+      );
+      setPartner(found.listener_student_id || p.default_sabina_partner_id || "");
+      setNote(found.remarks || "");
+      setStatus(found.status || "completed");
+    } else {
+      setCounts({});
+      setNote("");
+      setStatus("completed");
+    }
+  };
+
+  const handleSelectWeek = (nextMonth: string, nextWeek: number) => {
+    const [yStr, mStr] = nextMonth.split("-");
+    const year = Number(yStr) || new Date().getFullYear();
+    const month = Math.max(1, Math.min(12, Number(mStr) || 1));
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const thursdays: string[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dt = new Date(Date.UTC(year, month - 1, d));
+      if (dt.getUTCDay() === 4) {
+        thursdays.push(
+          `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+        );
+      }
+    }
+    const nextDate =
+      thursdays[nextWeek - 1] ||
+      `${year}-${String(month).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+
+    setMonthKey(nextMonth);
+    setWeekNumber(nextWeek);
+    setSabinaDate(nextDate);
+    onDateChange?.(nextDate);
+    syncFromExisting(nextMonth, nextWeek, nextDate);
+  };
+
   return (
     <form
       className="hz-card hz-stack"
@@ -105,7 +182,10 @@ export function WeeklyForm({
         void submit({
           kind: "weekly",
           student_id: p.student_id,
-          sabina_date: date,
+          sabina_date: sabinaDate,
+          week_number: weekNumber,
+          month_key: monthKey,
+          hijri_month_label: hijriMonth,
           listener_student_id: partner || null,
           para_from: from,
           para_to: to,
@@ -115,7 +195,79 @@ export function WeeklyForm({
         });
       }}
     >
-      <h2>বৃহস্পতিবারের সবিনা · {bn(date)}</h2>
+      <h2>
+        সাপ্তাহিক সবিনা · {["১ম", "২য়", "৩য়", "৪র্থ", "৫ম"][weekNumber - 1]} সপ্তাহ ({bn(sabinaDate)})
+      </h2>
+
+      {/* Custom Week & Month Selector */}
+      <div className="hz-grid">
+        <label>
+          মাস ও বছর (ইংরেজি)
+          <input
+            type="month"
+            value={monthKey}
+            onChange={(e) => {
+              if (e.target.value) handleSelectWeek(e.target.value, weekNumber);
+            }}
+          />
+        </label>
+        <label>
+          আরবি / হিজরি মাস (ঐচ্ছিক)
+          <input
+            type="text"
+            value={hijriMonth}
+            onChange={(e) => setHijriMonth(e.target.value)}
+            placeholder="যেমন: জুমাদাল উলা ১৪৪৮ হি."
+          />
+        </label>
+        <label>
+          সবিনার তারিখ (কাস্টম তারিখ দেওয়া যাবে)
+          <input
+            type="date"
+            value={sabinaDate}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (!v) return;
+              setSabinaDate(v);
+              setMonthKey(v.slice(0, 7));
+              onDateChange?.(v);
+              syncFromExisting(v.slice(0, 7), weekNumber, v);
+            }}
+          />
+        </label>
+      </div>
+
+      <div>
+        <div style={{ fontSize: "0.82rem", fontWeight: 700, marginBottom: "0.35rem" }}>
+          সপ্তাহ নং নির্বাচন করুন:
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem" }}>
+          {[1, 2, 3, 4, 5].map((wk) => {
+            const active = weekNumber === wk;
+            return (
+              <button
+                key={wk}
+                type="button"
+                aria-pressed={active}
+                onClick={() => handleSelectWeek(monthKey, wk)}
+                style={{
+                  padding: "0.4rem 0.75rem",
+                  borderRadius: "0.6rem",
+                  fontSize: "0.8rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: active ? "1.5px solid #047857" : "1px solid #cbd5e1",
+                  background: active ? "#059669" : "#ffffff",
+                  color: active ? "#ffffff" : "#334155",
+                }}
+              >
+                {["১ম", "২য়", "৩য়", "৪র্থ", "৫ম"][wk - 1]} সপ্তাহ
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="hz-grid">
         <label>
           শ্রোতা / সঙ্গী

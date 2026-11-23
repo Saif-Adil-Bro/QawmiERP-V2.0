@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { formatSubPartBreakdown } from "@/lib/exam-subparts";
 import {
   computeStudentExamSummary,
   toBanglaOrdinal,
@@ -411,30 +412,44 @@ export default function PortalExamsClient({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-sm">
-                      {effectiveSummary.subjects.map((sub) => (
-                        <tr key={sub.id} className="hover:bg-slate-50/60 transition">
-                          <td className="px-4 py-3 font-bold text-slate-800">{sub.subjectName}</td>
-                          <td className="px-4 py-3 text-slate-600 text-xs sm:text-sm">
-                            {toBanglaNumber(sub.totalMarks)}
-                          </td>
-                          <td className="px-4 py-3 font-bold text-slate-900 text-sm">
-                            {sub.hasEntered ? toBanglaNumber(sub.marksObtained) : "—"}
-                          </td>
-                          <td className="px-4 py-3 text-slate-600 text-xs sm:text-sm">
-                            {toBanglaNumber(sub.percentage)}%
-                          </td>
-                          <td className="px-4 py-3 font-semibold text-slate-700 text-xs sm:text-sm">
-                            {toBanglaNumber(sub.gpa.toFixed(2))}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <span
-                              className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold border ${sub.badgeClass}`}
-                            >
-                              {sub.gradeLabel}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {effectiveSummary.subjects.map((sub: any) => {
+                        const subBreakdown = formatSubPartBreakdown(
+                          sub.subParts,
+                          sub.subPartMarks,
+                          toBanglaNumber,
+                        );
+                        return (
+                          <tr key={sub.id} className="hover:bg-slate-50/60 transition">
+                            <td className="px-4 py-3 font-bold text-slate-800">
+                              <div>{sub.subjectName}</div>
+                              {subBreakdown && (
+                                <div className="text-[11px] font-medium text-emerald-700 mt-0.5">
+                                  {subBreakdown}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 text-xs sm:text-sm">
+                              {toBanglaNumber(sub.totalMarks)}
+                            </td>
+                            <td className="px-4 py-3 font-bold text-slate-900 text-sm">
+                              {sub.hasEntered ? toBanglaNumber(sub.marksObtained) : "—"}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 text-xs sm:text-sm">
+                              {toBanglaNumber(sub.percentage)}%
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-slate-700 text-xs sm:text-sm">
+                              {toBanglaNumber(sub.gpa.toFixed(2))}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span
+                                className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold border ${sub.badgeClass}`}
+                              >
+                                {sub.gradeLabel}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

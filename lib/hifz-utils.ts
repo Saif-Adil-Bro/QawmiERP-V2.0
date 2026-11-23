@@ -543,6 +543,9 @@ export type WeeklySabina = {
   madrasa_id: string;
   student_id: string;
   sabina_date: string;
+  week_number?: number;
+  month_key?: string;
+  hijri_month_label?: string;
   listener_student_id: string | null;
   listener_name?: string;
   verified_by_teacher_id: string | null;

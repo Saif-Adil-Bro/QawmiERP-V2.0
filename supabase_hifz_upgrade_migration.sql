@@ -165,5 +165,10 @@ GRANT EXECUTE ON FUNCTION public.hifz_log_activity(uuid,date) TO service_role;
 ALTER TABLE public.hifz_student_profiles
   ADD COLUMN IF NOT EXISTS para_revisions JSONB NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS current_khatam_para_pages JSONB NOT NULL DEFAULT '{}'::jsonb;
+-- Custom Week Selector metadata for Weekly Sabina Khata reports
+ALTER TABLE public.hifz_weekly_sabina
+  ADD COLUMN IF NOT EXISTS week_number INTEGER CHECK (week_number BETWEEN 1 AND 5),
+  ADD COLUMN IF NOT EXISTS month_key TEXT,
+  ADD COLUMN IF NOT EXISTS hijri_month_label TEXT;
 NOTIFY pgrst,'reload schema';
 COMMIT;

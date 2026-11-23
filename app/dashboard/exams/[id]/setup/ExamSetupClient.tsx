@@ -5,7 +5,13 @@ import { useState, useEffect } from "react";
 import { getExamSubjects, saveExamSubjects, updateExamDetails, getExamEvaluationSettings } from "@/app/actions/exams";
 import { useExamLock } from "@/hooks/useExamLock";
 import { getClassSubjects } from "@/app/actions/class_subjects";
-import { Plus, Trash2, Save, Calendar, Sparkles, CheckCircle2, AlertCircle, ShieldCheck, CheckSquare, Square } from "lucide-react";
+import { Plus, Trash2, Save, Calendar, Sparkles, CheckCircle2, AlertCircle, ShieldCheck, Layers, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  type ExamSubjectSubPart,
+  SUBPART_PRESETS,
+  makeSubPartKey,
+  sumSubPartMaxMarks,
+} from "@/lib/exam-subparts";
 
 function getDynamicStatusInfo(startDate: string, endDate: string) {
   if (!startDate) {
@@ -142,28 +148,84 @@ function SetupForm({examId, exam, classes, classId, setClassId, readOnly, observ
     return () => { active = false; };
   }, [classId, examId, readOnly]);
 
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
   const handleAddSubject = () => {
-    setSubjects([...subjects, { subject_name: "", total_marks: 100, pass_marks: 33, is_compulsory: true, exam_type: "Written" }]);
+    setSubjects([...subjects, { subject_name: "", total_marks: 100, pass_marks: 33, is_compulsory: true, exam_type: "Written", sub_parts: [] }]);
   };
 
   const handleRemoveSubject = (index: number) => {
     const newSubjects = [...subjects];
     newSubjects.splice(index, 1);
     setSubjects(newSubjects);
+    if (expandedIdx === index) setExpandedIdx(null);
   };
 
   const handleChange = (index: number, field: string, value: any) => {
     const newSubjects = [...subjects];
-    newSubjects[index][field] = value;
+    newSubjects[index] = { ...newSubjects[index], [field]: value };
     setSubjects(newSubjects);
+  };
+
+  const updateSubjectSubParts = (index: number, nextParts: ExamSubjectSubPart[]) => {
+    const newSubjects = [...subjects];
+    const sub = { ...newSubjects[index], sub_parts: nextParts };
+    if (nextParts.length > 0) {
+      sub.total_marks = sumSubPartMaxMarks(nextParts);
+    }
+    newSubjects[index] = sub;
+    setSubjects(newSubjects);
+  };
+
+  const handleAddSubPart = (index: number, preset?: { key: string; name: string; defaultMarks: number }) => {
+    const current: ExamSubjectSubPart[] = Array.isArray(subjects[index]?.sub_parts)
+      ? [...subjects[index].sub_parts]
+      : [];
+    const used = new Set(current.map((p) => p.key));
+    const name = preset ? preset.name : "";
+    const key = preset && !used.has(preset.key)
+      ? preset.key
+      : makeSubPartKey(name || `part_${current.length + 1}`, current.length, used);
+    const maxMarks = preset ? preset.defaultMarks : 20;
+    updateSubjectSubParts(index, [...current, { key, name, max_marks: maxMarks }]);
+    setExpandedIdx(index);
+  };
+
+  const handleSubPartFieldChange = (
+    subIndex: number,
+    partIndex: number,
+    field: "name" | "max_marks",
+    value: string | number
+  ) => {
+    const current: ExamSubjectSubPart[] = Array.isArray(subjects[subIndex]?.sub_parts)
+      ? [...subjects[subIndex].sub_parts]
+      : [];
+    if (!current[partIndex]) return;
+    current[partIndex] = {
+      ...current[partIndex],
+      [field]: field === "max_marks" ? Number(value) || 0 : String(value),
+    };
+    updateSubjectSubParts(subIndex, current);
+  };
+
+  const handleRemoveSubPart = (subIndex: number, partIndex: number) => {
+    const current: ExamSubjectSubPart[] = Array.isArray(subjects[subIndex]?.sub_parts)
+      ? [...subjects[subIndex].sub_parts]
+      : [];
+    current.splice(partIndex, 1);
+    updateSubjectSubParts(subIndex, current);
   };
 
   const handleSave = async () => {
     if (readOnly) return;
     if (!classId) return alert("দয়া করে ক্লাস নির্বাচন করুন");
-    
+
     for (const sub of subjects) {
       if (!sub.subject_name) return alert("সব বিষয়ের নাম দিতে হবে");
+      const parts: ExamSubjectSubPart[] = Array.isArray(sub.sub_parts) ? sub.sub_parts : [];
+      if (parts.some((p) => !String(p.name || "").trim() || !(Number(p.max_marks) > 0))) {
+        return alert(`"${sub.subject_name}" বিষয়ের সব উপবিভাগের নাম ও সঠিক পূর্ণমান দিন।`);
+      }
     }
     
     setSaving(true);
@@ -365,82 +427,217 @@ function SetupForm({examId, exam, classes, classId, setClassId, readOnly, observ
                     <th className="px-4 py-3 w-28">পাস নম্বর</th>
                     <th className="px-4 py-3 w-36 text-center">আবশ্যক বিষয়?</th>
                     <th className="px-4 py-3 w-40">পরীক্ষার ধরন</th>
+                    <th className="px-4 py-3 w-40 text-center">উপবিভাগ (ঐচ্ছিক)</th>
                     <th className="px-4 py-3 w-16 text-center">মুছুন</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {subjects.map((sub, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/60 transition">
-                      <td className="px-4 py-2.5">
-                        <input
-                          type="text"
-                          value={sub.subject_name}
-                          onChange={(e) => handleChange(idx, 'subject_name', e.target.value)}
-                          placeholder="যেমন: কুরআন (হিফজ)"
-                          className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none font-medium"
-                        />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <input
-                          type="number"
-                          value={sub.total_marks}
-                          onChange={(e) => handleChange(idx, 'total_marks', parseInt(e.target.value) || 0)}
-                          className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none text-center font-bold"
-                        />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <input
-                          type="number"
-                          value={sub.pass_marks}
-                          onChange={(e) => handleChange(idx, 'pass_marks', parseInt(e.target.value) || 0)}
-                          className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none text-center font-bold"
-                        />
-                      </td>
-                      <td className="px-4 py-2.5 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleChange(idx, 'is_compulsory', !sub.is_compulsory)}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer border ${
-                            sub.is_compulsory !== false
-                              ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                              : "bg-slate-100 text-slate-600 border-slate-300"
-                          }`}
-                        >
-                          {sub.is_compulsory !== false ? (
-                            <>
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                              <span>আবশ্যক</span>
-                            </>
-                          ) : (
-                            <span>ঐচ্ছিক</span>
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <select
-                          value={sub.exam_type}
-                          onChange={(e) => handleChange(idx, 'exam_type', e.target.value)}
-                          className="w-full px-3 py-1.5 text-xs font-semibold border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none bg-white"
-                        >
-                          <option value="Written">লিখিত (Written)</option>
-                          <option value="Oral">মৌখিক (Oral)</option>
-                          <option value="Practical">প্রাক্টিক্যাল (Practical)</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-2.5 text-center">
-                        {!readOnly && <button
-                          onClick={() => handleRemoveSubject(idx)}
-                          className="text-red-500 hover:bg-red-50 p-1.5 rounded-md transition cursor-pointer"
-                          title="মুছুন"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>}
-                      </td>
-                    </tr>
-                  ))}
+                  {subjects.map((sub, idx) => {
+                    const subParts: ExamSubjectSubPart[] = Array.isArray(sub.sub_parts)
+                      ? sub.sub_parts
+                      : [];
+                    const isExpanded = expandedIdx === idx;
+                    return (
+                      <>
+                        <tr key={`row-${idx}`} className="hover:bg-slate-50/60 transition">
+                          <td className="px-4 py-2.5">
+                            <input
+                              type="text"
+                              value={sub.subject_name}
+                              onChange={(e) => handleChange(idx, 'subject_name', e.target.value)}
+                              placeholder="যেমন: মাসায়েল / কুরআন"
+                              className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none font-medium"
+                            />
+                            {subParts.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {subParts.map((p) => (
+                                  <span
+                                    key={p.key}
+                                    className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                  >
+                                    {p.name || "উপবিভাগ"} ({p.max_marks})
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <input
+                              type="number"
+                              value={sub.total_marks}
+                              disabled={subParts.length > 0}
+                              onChange={(e) => handleChange(idx, 'total_marks', parseInt(e.target.value) || 0)}
+                              title={subParts.length > 0 ? "উপবিভাগগুলোর পূর্ণমানের যোগফল" : "মোট নম্বর"}
+                              className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none text-center font-bold disabled:bg-slate-100 disabled:text-slate-600"
+                            />
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <input
+                              type="number"
+                              value={sub.pass_marks}
+                              onChange={(e) => handleChange(idx, 'pass_marks', parseInt(e.target.value) || 0)}
+                              className="w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none text-center font-bold"
+                            />
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleChange(idx, 'is_compulsory', !sub.is_compulsory)}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer border ${
+                                sub.is_compulsory !== false
+                                  ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                                  : "bg-slate-100 text-slate-600 border-slate-300"
+                              }`}
+                            >
+                              {sub.is_compulsory !== false ? (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                                  <span>আবশ্যক</span>
+                                </>
+                              ) : (
+                                <span>ঐচ্ছিক</span>
+                              )}
+                            </button>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <select
+                              value={sub.exam_type}
+                              onChange={(e) => handleChange(idx, 'exam_type', e.target.value)}
+                              className="w-full px-3 py-1.5 text-xs font-semibold border rounded-lg focus:ring-2 focus:ring-emerald-600 outline-none bg-white"
+                            >
+                              <option value="Written">লিখিত (Written)</option>
+                              <option value="Oral">মৌখিক (Oral)</option>
+                              <option value="Practical">প্রাক্টিক্যাল (Practical)</option>
+                            </select>
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedIdx(isExpanded ? null : idx)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                                subParts.length > 0
+                                  ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
+                                  : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50"
+                              }`}
+                            >
+                              <Layers className="w-3.5 h-3.5" />
+                              <span>
+                                {subParts.length > 0
+                                  ? `${subParts.length}টি উপবিভাগ`
+                                  : "+ উপবিভাগ"}
+                              </span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            {!readOnly && <button
+                              onClick={() => handleRemoveSubject(idx)}
+                              className="text-red-500 hover:bg-red-50 p-1.5 rounded-md transition cursor-pointer"
+                              title="মুছুন"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr key={`sub-${idx}`} className="bg-emerald-50/40">
+                            <td colSpan={7} className="px-5 py-4 whitespace-normal">
+                              <div className="space-y-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div>
+                                    <div className="text-xs font-bold text-emerald-950">
+                                      "{sub.subject_name || "বিষয়"}" — উপবিভাগ ও নম্বর বণ্টন
+                                    </div>
+                                    <p className="text-[11px] text-slate-600">
+                                      উপবিভাগ যুক্ত করলে নম্বর এন্ট্রিতে কেবল এই ঘরগুলো দেখাবে এবং এদের যোগফলই হবে মোট নম্বর। কোনো উপবিভাগ না রাখলে শুধু একটি মোট নম্বরের ঘর দেখাবে।
+                                    </p>
+                                  </div>
+                                  {!readOnly && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAddSubPart(idx)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition cursor-pointer"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      কাস্টম উপবিভাগ
+                                    </button>
+                                  )}
+                                </div>
+
+                                {!readOnly && (
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[11px] font-semibold text-slate-500">কুইক প্রিসেট:</span>
+                                    {SUBPART_PRESETS.map((preset) => (
+                                      <button
+                                        key={preset.key}
+                                        type="button"
+                                        onClick={() => handleAddSubPart(idx, preset)}
+                                        className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-white border border-emerald-200 text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
+                                      >
+                                        + {preset.name} ({preset.defaultMarks})
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {subParts.length > 0 ? (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                    {subParts.map((part, pIdx) => (
+                                      <div
+                                        key={`${part.key}-${pIdx}`}
+                                        className="flex items-center gap-2 bg-white p-2 rounded-lg border border-emerald-200/80 shadow-2xs"
+                                      >
+                                        <input
+                                          type="text"
+                                          value={part.name}
+                                          onChange={(e) =>
+                                            handleSubPartFieldChange(idx, pIdx, "name", e.target.value)
+                                          }
+                                          placeholder="উপবিভাগের নাম (যেমন: লিখিত)"
+                                          className="flex-1 min-w-0 px-2.5 py-1 text-xs font-semibold border border-slate-300 rounded-md focus:ring-1 focus:ring-emerald-600 outline-none"
+                                        />
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          value={part.max_marks}
+                                          onChange={(e) =>
+                                            handleSubPartFieldChange(idx, pIdx, "max_marks", e.target.value)
+                                          }
+                                          placeholder="পূর্ণমান"
+                                          className="w-20 px-2 py-1 text-xs font-bold text-center border border-slate-300 rounded-md focus:ring-1 focus:ring-emerald-600 outline-none"
+                                        />
+                                        {!readOnly && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveSubPart(idx, pIdx)}
+                                            className="p-1 text-rose-500 hover:bg-rose-50 rounded-md cursor-pointer"
+                                            title="উপবিভাগ মুছুন"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-slate-500 italic bg-white/70 border border-dashed border-slate-300 rounded-lg p-3">
+                                    কোনো উপবিভাগ যুক্ত নেই — নম্বর এন্ট্রির সময় শুধুমাত্র একটি "প্রাপ্ত নম্বর" ঘর দেখাবে।
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
                   {subjects.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500 text-sm">
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-500 text-sm">
                         কোনো বিষয় যোগ করা হয়নি।
                       </td>
                     </tr>

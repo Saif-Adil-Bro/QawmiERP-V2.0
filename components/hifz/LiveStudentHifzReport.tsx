@@ -28,6 +28,7 @@ import {
 import { saveParaRevisionAction } from "@/app/actions/hifz";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { toDhakaDateString } from "@/lib/date-utils";
+import HifzReportPrintModal from "./HifzReportPrintModal";
 
 const PERIOD_KEYS: HifzReportPeriod[] = [
   "this_week",
@@ -63,6 +64,7 @@ export default function LiveStudentHifzReport({
 }: LiveStudentHifzReportProps) {
   const router = useRouter();
   const [period, setPeriod] = useState<HifzReportPeriod>("this_month");
+  const [khataPrintOpen, setKhataPrintOpen] = useState(false);
   const [revisions, setRevisions] = useState<Record<number, ParaRevisionRecord>>(
     initialRevisions,
   );
@@ -224,14 +226,37 @@ export default function LiveStudentHifzReport({
           </span>
           <button
             type="button"
+            onClick={() => setKhataPrintOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-700 text-white hover:bg-emerald-800 transition cursor-pointer"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            খাতা প্রিন্ট (A5 / A4)
+          </button>
+          <button
+            type="button"
             onClick={() => window.print()}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 transition cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5" />
-            A4 প্রিন্ট
+            রিপোর্ট প্রিন্ট
           </button>
         </div>
       </div>
+
+      <HifzReportPrintModal
+        open={khataPrintOpen}
+        onClose={() => setKhataPrintOpen(false)}
+        students={[
+          {
+            id: studentId,
+            first_name: studentName,
+            last_name: "",
+            roll_number: rollNumber,
+          },
+        ]}
+        bundle={bundle}
+        defaultStudentId={studentId}
+      />
 
       {/* KPI Summary Cards */}
       {isKhatmi ? (

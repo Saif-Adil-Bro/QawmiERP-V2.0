@@ -5,6 +5,7 @@ import { getStudentReportCard } from "@/app/actions/exams";
 import { Printer, Type, Award, User, CheckCircle, GraduationCap, Sparkles, LayoutGrid } from "lucide-react";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { formatSubPartBreakdown } from "@/lib/exam-subparts";
 import { sortStudentsByRoll } from "@/lib/student-utils";
 import ExamPublishToggle from "@/app/dashboard/exams/ExamPublishToggle";
 import KidsVisualReportCard from "@/components/exams/KidsVisualReportCard";
@@ -372,7 +373,14 @@ export default function ReportCardsClient({
                                   student.marks.map((m: any, i: number) => (
                                     <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                                       <td className="border border-slate-800 px-2 py-0.5 text-center font-bold text-slate-800">{toBanglaNumber(i + 1)}</td>
-                                      <td className="border border-slate-800 px-2 py-0.5 font-bold text-slate-950">{m.subject_name}</td>
+                                      <td className="border border-slate-800 px-2 py-0.5 font-bold text-slate-950">
+                                        <div>{m.subject_name}</div>
+                                        {formatSubPartBreakdown(m.sub_parts, m.sub_part_marks, toBanglaNumber) && (
+                                          <div className="text-[9px] font-normal text-slate-600 leading-tight">
+                                            {formatSubPartBreakdown(m.sub_parts, m.sub_part_marks, toBanglaNumber)}
+                                          </div>
+                                        )}
+                                      </td>
                                       <td className="border border-slate-800 px-1.5 py-0.5 text-center text-slate-800">{toBanglaNumber(m.total_marks || 100)}</td>
                                       <td className="border border-slate-800 px-1.5 py-0.5 text-center font-semibold text-blue-900 bg-blue-50/30">
                                         {toBanglaNumber(m.highest_marks !== undefined ? m.highest_marks : (m.marks_obtained || 0))}
@@ -559,7 +567,14 @@ export default function ReportCardsClient({
                           student.marks.map((m: any, i: number) => (
                             <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                               <td className="border border-slate-800 px-3 py-1 text-center font-bold text-slate-800">{toBanglaNumber(i + 1)}</td>
-                              <td className="border border-slate-800 px-3 py-1 font-bold text-slate-950">{m.subject_name}</td>
+                              <td className="border border-slate-800 px-3 py-1 font-bold text-slate-950">
+                                <div>{m.subject_name}</div>
+                                {formatSubPartBreakdown(m.sub_parts, m.sub_part_marks, toBanglaNumber) && (
+                                  <div className="text-[10px] font-normal text-slate-600 leading-tight mt-0.5">
+                                    {formatSubPartBreakdown(m.sub_parts, m.sub_part_marks, toBanglaNumber)}
+                                  </div>
+                                )}
+                              </td>
                               <td className="border border-slate-800 px-3 py-1 text-center text-slate-800">{toBanglaNumber(m.total_marks || 100)}</td>
                               <td className="border border-slate-800 px-3 py-1 text-center font-semibold text-blue-900 bg-blue-50/30">
                                 {toBanglaNumber(m.highest_marks !== undefined ? m.highest_marks : (m.marks_obtained || 0))}
@@ -717,10 +732,17 @@ export default function ReportCardsClient({
                         {student.marks && student.marks.length > 0 ? (
                           student.marks.map((m: any, i: number) => (
                             <div key={i} className="flex justify-between text-xs py-1 border-b border-slate-100 last:border-none">
-                              <div className="flex items-center gap-1.5 truncate max-w-[170px]">
-                                <span className="text-slate-700 font-medium truncate" title={m.subject_name}>{m.subject_name}</span>
-                                {m.is_compulsory && (
-                                  <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded">আবশ্যক</span>
+                              <div className="min-w-0 max-w-[180px]">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-slate-700 font-medium truncate" title={m.subject_name}>{m.subject_name}</span>
+                                  {m.is_compulsory && (
+                                    <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded shrink-0">আবশ্যক</span>
+                                  )}
+                                </div>
+                                {formatSubPartBreakdown(m.sub_parts, m.sub_part_marks, toBanglaNumber) && (
+                                  <div className="text-[10px] text-emerald-700 truncate">
+                                    {formatSubPartBreakdown(m.sub_parts, m.sub_part_marks, toBanglaNumber)}
+                                  </div>
                                 )}
                               </div>
                               <div className="flex items-center gap-1.5">
