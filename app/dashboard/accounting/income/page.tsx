@@ -9,17 +9,17 @@ export const dynamic = "force-dynamic";
 
 export default async function IncomeHistoryPage() {
   const [incomeData, madrasaRes] = await Promise.all([
-    getUnifiedIncomeHistory(),
+    getUnifiedIncomeHistory().catch(()=>null),
     getMadrasaProfileWithLogo(),
   ]);
 
   return (
     <PermissionGuard permission="finance.view">
-      <IncomeHistoryClient
+      {!incomeData ? <p role="alert">পূর্ণ আয়ের হিসাব পড়া যায়নি। আবার চেষ্টা করুন।</p> : <IncomeHistoryClient
         initialData={incomeData}
         madrasaInfo={toPublicMadrasaInfoFromRecord(madrasaRes?.madrasa)}
         logoUrl={madrasaRes?.logoUrl || ""}
-      />
+      />}
     </PermissionGuard>
   );
 }

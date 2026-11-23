@@ -1,7 +1,10 @@
 import { NextRequest } from "next/server";
 import { authenticateMobileRequest, mobileError, mobileSuccess } from "@/lib/mobile-api";
 import { toDhakaDateString, toDhakaDateStringFrom } from "@/lib/date-utils";
-import { isVoidDonation, isVoidedExpense } from "@/lib/fund-utils";
+import {canReadSchoolFinance} from "@/lib/action-authorization";
+import {dashboardFinance} from "@/lib/finance/dashboard";
+import {readBooks} from "@/lib/finance/read-books";
+import {getFeeMetadata} from "@/lib/fee-store";
 import { readJsonStore } from "@/lib/madrasa-store";
 
 export const dynamic = "force-dynamic";
@@ -25,13 +28,9 @@ export async function GET(req: NextRequest) {
       { count: todayAbsent },
       { count: todayLeave },
       { count: todayLate },
-      { data: feesData },
-      { data: donationsData },
-      { data: expensesData },
-      { data: bazarData },
+      finance,
       { data: attendance30Data },
       { data: examResultsData },
-      { data: fundsData },
       metaStore,
     ] = await Promise.all([
       auth.adminClient.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
@@ -41,63 +40,16 @@ export async function GET(req: NextRequest) {
       auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Absent"),
       auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Leave"),
       auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Late"),
-      auth.adminClient.from("fees").select("amount, payment_date, created_at").eq("madrasa_id", madrasaId),
-      auth.adminClient.from("donations").select("amount, donation_date, notes, created_at").eq("madrasa_id", madrasaId),
-      auth.adminClient.from("expenses").select("amount, expense_date, description, created_at").eq("madrasa_id", madrasaId),
-      auth.adminClient.from("bazar_expenses").select("amount, expense_date, created_at").eq("madrasa_id", madrasaId),
+      canReadSchoolFinance([auth.ctx.role,...auth.ctx.roles],auth.ctx.permissions) ? readBooks(madrasaId,getFeeMetadata).then(b=>dashboardFinance(b,today)) : null,
       auth.adminClient.from("attendance").select("status").eq("madrasa_id", madrasaId).gte("date", thirtyDaysAgo).lte("date", today),
       auth.adminClient.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", madrasaId),
-      auth.adminClient.from("zakat_funds").select("total_collected").eq("madrasa_id", madrasaId),
       readJsonStore(madrasaId, "meta"),
     ]);
 
     const staffMembers = Array.isArray(metaStore.staff_members) ? metaStore.staff_members : [];
     const effectiveTeachersCount = Math.max(teachersCount || 0, staffMembers.length);
 
-    const feesSum = (feesData || []).reduce((s: number, i: any) => s + Number(i.amount || 0), 0);
-    const validDonations = (donationsData || []).filter((d: any) => !isVoidDonation(d));
-    const donationsSum = validDonations.reduce((s: number, i: any) => s + Number(i.amount || 0), 0);
-    const fundsCollected = (fundsData || []).reduce((s: number, f: any) => s + Number(f.total_collected || 0), 0);
-    const totalIncome = fundsCollected > 0 ? fundsCollected : feesSum + donationsSum;
-
-    const validExpenses = (expensesData || []).filter((e: any) => !isVoidedExpense(e));
-    const expensesSum = validExpenses.reduce((s: number, i: any) => s + Number(i.amount || 0), 0);
-    const bazarSum = (bazarData || []).reduce((s: number, i: any) => s + Number(i.amount || 0), 0);
-    const totalExpense = expensesSum + bazarSum;
-
-    const todayIncome =
-      (feesData || []).reduce((s: number, i: any) => {
-        const dt = i.payment_date || (i.created_at ? toDhakaDateStringFrom(i.created_at) : "");
-        return dt === today ? s + Number(i.amount || 0) : s;
-      }, 0) +
-      validDonations.reduce((s: number, i: any) => {
-        const dt = i.donation_date || (i.created_at ? toDhakaDateStringFrom(i.created_at) : "");
-        return dt === today ? s + Number(i.amount || 0) : s;
-      }, 0);
-
-    const todayExpense =
-      validExpenses.reduce((s: number, i: any) => {
-        const dt = i.expense_date || (i.created_at ? toDhakaDateStringFrom(i.created_at) : "");
-        return dt === today ? s + Number(i.amount || 0) : s;
-      }, 0) +
-      (bazarData || []).reduce((s: number, i: any) => {
-        const dt = i.expense_date || (i.created_at ? toDhakaDateStringFrom(i.created_at) : "");
-        return dt === today ? s + Number(i.amount || 0) : s;
-      }, 0);
-
-    // Monthly series (last 6 months)
-    const monthlyMap: Record<string, { income: number; expense: number }> = {};
-    const addMonth = (dt: string, amt: number, type: "income" | "expense") => {
-      if (!dt || amt <= 0) return;
-      const clean = dt.includes("T") ? toDhakaDateStringFrom(dt) : dt.trim();
-      const m = clean.substring(0, 7);
-      if (!monthlyMap[m]) monthlyMap[m] = { income: 0, expense: 0 };
-      monthlyMap[m][type] += Number(amt);
-    };
-    (feesData || []).forEach((f: any) => addMonth(f.payment_date, f.amount, "income"));
-    validDonations.forEach((d: any) => addMonth(d.donation_date, d.amount, "income"));
-    validExpenses.forEach((e: any) => addMonth(e.expense_date, e.amount, "expense"));
-    (bazarData || []).forEach((b: any) => addMonth(b.expense_date, b.amount, "expense"));
+    const monthlyMap=finance?.monthlyData ?? {};
 
     const monthly_income_expense = Object.keys(monthlyMap)
       .sort()
@@ -139,16 +91,11 @@ export async function GET(req: NextRequest) {
           today_absent: todayAbsent || 0,
           today_leave: todayLeave || 0,
           today_late: todayLate || 0,
-          today_income: todayIncome,
-          today_expense: todayExpense,
-          total_income: totalIncome,
-          total_expense: totalExpense,
-          net_balance: totalIncome - totalExpense,
-          expenses_sum: expensesSum,
-          bazar_sum: bazarSum,
+          ...(finance ? {today_income:finance.todayIncome,today_expense:finance.todayExpense,total_income:finance.totalIncome,total_expense:finance.totalExpense,
+            net_balance:Math.round((finance.totalIncome-finance.totalExpense)*100)/100,expenses_sum:finance.expensesSum,bazar_sum:finance.bazarSum} : {}),
         },
         charts: {
-          monthly_income_expense,
+          ...(finance ? {monthly_income_expense} : {}),
           today_attendance: [
             { name: "উপস্থিত", value: todayPresent || 0 },
             { name: "অনুপস্থিত", value: todayAbsent || 0 },

@@ -313,7 +313,7 @@ export async function runMetadataToTablesMigration(): Promise<{
     if (Array.isArray(meta.accounting_periods)) {
       for (const p of meta.accounting_periods) {
         if (!p?.period_key) continue;
-        const { error } = await adminClient.from("accounting_periods").upsert(
+        const { error, data } = await adminClient.from("accounting_periods").upsert(
           {
             madrasa_id: madrasaId,
             period_key: p.period_key,
@@ -327,9 +327,10 @@ export async function runMetadataToTablesMigration(): Promise<{
             locked_at: p.locked_at || null,
             lock_reason: p.lock_reason || null,
           },
-          { onConflict: "madrasa_id,period_key" }
-        );
-        if (!error) migrated.accountingPeriods += 1;
+          { onConflict: "madrasa_id,period_key", ignoreDuplicates: true }
+        ).select('id');
+        if (error) throw Error("হিসাবকাল রূপান্তর করা যায়নি। মূল রেকর্ড যাচাই করুন।");
+        migrated.accountingPeriods += data?.length || 0;
       }
     }
 

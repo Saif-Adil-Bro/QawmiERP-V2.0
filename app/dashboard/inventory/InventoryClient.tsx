@@ -46,14 +46,17 @@ import {
   deleteMaintenance,
 } from "@/app/actions/inventory";
 
+import { type FundItem, isRestrictedFund } from "@/lib/fund-utils";
+
 interface InventoryClientProps {
+  funds: FundItem[];
   initialItems: AssetItem[];
   initialAllocations: AssetAllocation[];
   initialMaintenance: MaintenanceRecord[];
 }
 
 export default function InventoryClient({
-  initialItems,
+  funds, initialItems,
   initialAllocations,
   initialMaintenance,
 }: InventoryClientProps) {
@@ -110,7 +113,7 @@ export default function InventoryClient({
     cost: 0,
     technician_or_shop: "",
     voucher_no: "",
-    fund_name: "সাধারণ ফান্ড",
+    fund_id: "",
     auto_add_to_expense: true,
   });
 
@@ -382,7 +385,7 @@ export default function InventoryClient({
       cost: 0,
       technician_or_shop: "",
       voucher_no: "",
-      fund_name: "সাধারণ ফান্ড",
+      fund_id: "",
       auto_add_to_expense: true,
     });
     setShowMaintenanceModal(true);
@@ -633,7 +636,7 @@ export default function InventoryClient({
                       cost: 0,
                       technician_or_shop: "",
                       voucher_no: "",
-                      fund_name: "সাধারণ ফান্ড",
+                      fund_id: "",
                       auto_add_to_expense: true,
                     });
                     setShowMaintenanceModal(true);
@@ -1513,18 +1516,17 @@ export default function InventoryClient({
                     ফান্ড নির্বাচন
                   </label>
                   <select
-                    value={maintenanceFormData.fund_name}
+                    value={maintenanceFormData.fund_id}
                     onChange={(e) =>
                       setMaintenanceFormData({
                         ...maintenanceFormData,
-                        fund_name: e.target.value,
+                        fund_id: e.target.value,
                       })
                     }
                     className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-rose-500 bg-white"
                   >
-                    <option value="সাধারণ ফান্ড">সাধারণ ফান্ড</option>
-                    <option value="উন্নয়ন ও মেরামত ফান্ড">উন্নয়ন ও মেরামত ফান্ড</option>
-                    <option value="লিল্লাহ বোর্ডিং ফান্ড">লিল্লাহ বোর্ডিং ফান্ড</option>
+                    <option value="">ফান্ড নির্বাচন করুন</option>
+                    {funds.filter(f=>!isRestrictedFund(f)).map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
                   </select>
                 </div>
               </div>

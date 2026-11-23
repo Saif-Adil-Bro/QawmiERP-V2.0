@@ -1,5 +1,5 @@
 import React from "react";
-import { getDonations, getDonors, getFunds } from "@/app/actions/zakat";
+import { getDonations, getDonors, getFundChoices } from "@/app/actions/zakat";
 import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import ZakatNav from "@/components/zakat/ZakatNav";
 import CollectionClient from "./CollectionClient";
@@ -13,7 +13,7 @@ export default async function ZakatCollectionPage({
   const [donations, donors, funds, madrasaInfo] = await Promise.all([
     getDonations(),
     getDonors(),
-    getFunds(),
+    getFundChoices(true),
     getMadrasaInfo(),
   ]);
 

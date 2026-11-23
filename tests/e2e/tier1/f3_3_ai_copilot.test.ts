@@ -308,8 +308,15 @@ describe("Tier 1 — Feature 3.3: Voice-First Bangla AI Assistant & Action Copil
         },
       },
     ]) {
+      let headers:Record<string,string>={};
+      if(body.actionType==='submit_approval_decision') {
+        const denied=await confirmPost(harness.createRequest('/api/ai/confirm',{method:'POST',body}));
+        assert.equal(denied.status,403);assert.equal((await denied.json()).code,'STEP_UP_REQUIRED');
+        const stepUp=await loadModule<{issueStepUpToken:(args:Record<string,string>)=>{token:string}}>('@/lib/step-up-auth',['issueStepUpToken']);
+        headers={'x-step-up-token':stepUp.issueStepUpToken({madrasaId:MADRASA_A_ID,userId:USERS.muhtamimA.id,actionScope:'approval.decide.large_expense'}).token};
+      }
       const res = await confirmPost(
-        harness.createRequest("/api/ai/confirm", { method: "POST", body })
+        harness.createRequest("/api/ai/confirm", { method: "POST", headers,body })
       );
       assert.equal(
         res.status,

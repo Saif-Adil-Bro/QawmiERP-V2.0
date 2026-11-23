@@ -1,4 +1,5 @@
 "use server";
+import {reconcilePayments} from "@/lib/portal/ledger";
 
 import { toDhakaDateStringFrom, toDhakaMonthString, getDhakaYear } from "@/lib/date-utils";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -6,10 +7,11 @@ import { getAuthMadrasaId, getStudents, getClasses } from "./students";
 import { getMadrasaMetadata } from "@/lib/sessions";
 import { getFeeMetadata } from "./fee-management";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
-import { getFunds } from "./zakat";
-import { isTransactionInFund, parseExpenseFund, isVoidDonation, isVoidedExpense, FundItem } from "@/lib/fund-utils";
+import { fundCatalog, financeRows } from "@/lib/finance/funds";
+import { isRestrictedFund, REVIEW_FUND } from "@/lib/fund-utils";
+import { periodLines } from "@/lib/finance/statement";
 import { getSyllabusDashboardData } from "./syllabus";
-import { getStaffMetadataFull } from "./staff";
+import { getStaffRoster } from "./staff";
 
 export interface MonthlyExecutiveSummaryData {
   monthStr: string; // YYYY-MM
@@ -150,18 +152,18 @@ export async function getMonthlyExecutiveSummary(
     madrasaInfoRaw,
     meta,
     feeMeta,
-    allFundsList,
+    allFundsList,legacyFees,
     studentsListRaw,
     classesListRaw,
     staffDataRaw,
   ] = await Promise.all([
     getMadrasaInfo(madrasaId),
-    getMadrasaMetadata(madrasaId),
+    getMadrasaMetadata(madrasaId,true),
     getFeeMetadata(madrasaId),
-    getFunds(madrasaId),
+    fundCatalog(madrasaId,true),financeRows(adminClient,madrasaId,"fees","*",monthEndDate),
     getStudents().catch(() => []),
     getClasses().catch(() => []),
-    getStaffMetadataFull().catch(() => null),
+    getStaffRoster().catch(() => []),
   ]);
 
   // 2. Fetch database records safely with verified valid date boundaries and STRICT madrasa_id scoping
@@ -188,18 +190,9 @@ export async function getMonthlyExecutiveSummary(
       .eq("madrasa_id", madrasaId)
       .gte("date", monthStartDate)
       .lte("date", monthEndDate),
-    adminClient
-      .from("expenses")
-      .select("id, amount, expense_date, category, description, created_at, madrasa_id")
-      .eq("madrasa_id", madrasaId),
-    adminClient
-      .from("donations")
-      .select("id, amount, donation_type, donation_date, donor_id, receipt_no, notes, created_at, madrasa_id")
-      .eq("madrasa_id", madrasaId),
-    adminClient
-      .from("bazar_expenses")
-      .select("id, amount, items_details, expense_date, created_at, madrasa_id")
-      .eq("madrasa_id", madrasaId),
+    financeRows(adminClient,madrasaId,"expenses","*",monthEndDate).then(data => ({data})),
+    financeRows(adminClient,madrasaId,"donations","*",monthEndDate).then(data => ({data})),
+    financeRows(adminClient,madrasaId,"bazar_expenses","*",monthEndDate).then(data => ({data})),
     adminClient
       .from("hifz_logs")
       .select("student_id, sabak_para, saboki_para, amukhta_para, log_date, madrasa_id")
@@ -239,67 +232,12 @@ export async function getMonthlyExecutiveSummary(
   const activeClasses = classes.length;
 
   // 5. Resolve Faculty & Staff Members
-  const staffMembers = staffDataRaw?.staff_members || [];
+  const staffMembers = staffDataRaw;
   const dbTeachers = dbTeachersRes.data || [];
   const allDbExpenses = expensesRes.data || [];
   const allDbDonations = donationsRes.data || [];
   const allDbBazar = bazarRes.data || [];
 
-  const getNormDate = (rawDate?: string | null, createdAt?: string | null): string => {
-    if (rawDate && typeof rawDate === "string" && rawDate.trim().length >= 10) {
-      return rawDate.trim().slice(0, 10);
-    }
-    if (createdAt) {
-      return toDhakaDateStringFrom(createdAt);
-    }
-    return "";
-  };
-
-  const dbExpenses = allDbExpenses.filter((e: any) => {
-    const d = getNormDate(e.expense_date, e.created_at);
-    return d >= monthStartDate && d <= monthEndDate;
-  });
-  const prevDbExpenses = allDbExpenses.filter((e: any) => {
-    const d = getNormDate(e.expense_date, e.created_at);
-    return Boolean(d && d < monthStartDate);
-  });
-
-  const dbDonations = allDbDonations.filter((d: any) => {
-    const dt = getNormDate(d.donation_date, d.created_at);
-    return dt >= monthStartDate && dt <= monthEndDate;
-  });
-  const prevDbDonations = allDbDonations.filter((d: any) => {
-    const dt = getNormDate(d.donation_date, d.created_at);
-    return Boolean(dt && dt < monthStartDate);
-  });
-
-  const dbBazar = allDbBazar.filter((b: any) => {
-    const d = getNormDate(b.expense_date, b.created_at);
-    return d >= monthStartDate && d <= monthEndDate;
-  });
-  const prevDbBazar = allDbBazar.filter((b: any) => {
-    const d = getNormDate(b.expense_date, b.created_at);
-    return Boolean(d && d < monthStartDate);
-  });
-
-  // P2-Fix: dedup — একই অনুদান DB + metadata দুই জায়গায় থাকলে একবারই গণনা হবে (getFunds-এর সমতুল্য)
-  const allDonationIds = new Set<string>();
-  const allDonationReceipts = new Set<string>();
-  allDbDonations.forEach((d: any) => {
-    if (isVoidDonation(d)) return;
-    if (d.id) allDonationIds.add(String(d.id));
-    if (d.receipt_no) allDonationReceipts.add(String(d.receipt_no));
-    const rMatch = d.notes?.match(/\[(?:চালান|রিসিট|কুরবানির চামড়া বিক্রয়|দানবাক্স কালেকশন):\s*([^\]|,]+)/)?.[1];
-    if (rMatch) allDonationReceipts.add(rMatch.trim());
-  });
-  const isDupDonation = (rec: any) =>
-    Boolean(
-      (rec.receipt_no && allDonationReceipts.has(String(rec.receipt_no))) ||
-        (rec.id && allDonationIds.has(String(rec.id)))
-    );
-
-  // P2-Fix: ফান্ড-মেল না-খাওয়া লেনদেন চুপচাপ প্রথম ফান্ডে (GEN) না-ঢুকিয়ে আলাদা row-এ রাখা হয়
-  const UNMATCHED_FUND = "__unmatched__";
   const teacherIdSet = new Set<string>();
 
   dbTeachers.forEach((t: any) => {
@@ -558,92 +496,8 @@ export async function getMonthlyExecutiveSummary(
     syllabusCompletionRate = 0;
   }
 
-  // 5. 100% Dynamic Financial & Funds Calculations for Selected Month (with Prior Months Carryover)
-  const fundsList: FundItem[] = allFundsList && allFundsList.length > 0 ? allFundsList : [];
-  
-  // Track fund inflows and outflows for the current month AND prior months
-  const monthlyFundInflowMap = new Map<string, number>();
-  const monthlyFundOutflowMap = new Map<string, number>();
-  const priorFundInflowMap = new Map<string, number>();
-  const priorFundOutflowMap = new Map<string, number>();
-
-  fundsList.forEach((f) => {
-    monthlyFundInflowMap.set(f.id, 0);
-    monthlyFundOutflowMap.set(f.id, 0);
-    priorFundInflowMap.set(f.id, 0);
-    priorFundOutflowMap.set(f.id, 0);
-  });
-
-  let feeCollection = 0;
-  let zakatCollection = 0;
-  let generalDonations = 0;
-  let mahfilCollection = 0;
   let totalDueAmount = 0;
   let studentsWithDueCount = 0;
-
-  const isZakatOrLillahCategory = (text: string): boolean => {
-    const lower = text.toLowerCase();
-    return (
-      lower.includes("zakat") ||
-      lower.includes("zkt") ||
-      lower.includes("যাকাত") ||
-      lower.includes("lillah") ||
-      lower.includes("lil") ||
-      lower.includes("লিল্লাহ") ||
-      lower.includes("fitra") ||
-      lower.includes("ftr") ||
-      lower.includes("ফিতরা")
-    );
-  };
-
-  // A. Student Fee Payments (current month + prior months)
-  const allPayments = feeMeta.payments || [];
-  allPayments.forEach((p: any) => {
-    if (p.status === "REVERSED" || p.status === "VOID") return;
-    const pDate = getNormDate(p.payment_date, p.created_at);
-    const isCurrentMonth = pDate.startsWith(currentMonth);
-    const isPriorMonth = Boolean(pDate && pDate < monthStartDate);
-
-    if (!isCurrentMonth && !isPriorMonth) return;
-
-    const targetMap = isCurrentMonth ? monthlyFundInflowMap : priorFundInflowMap;
-    const totalRec = Number(p.total_amount_received || 0);
-    if (isCurrentMonth) {
-      feeCollection += totalRec;
-    }
-
-    if (p.allocations && p.allocations.length > 0) {
-      let sumAlloc = 0;
-      p.allocations.forEach((alloc: any) => {
-        const allocAmt = Number(alloc.allocated_amount || 0);
-        if (allocAmt > 0) {
-          sumAlloc += allocAmt;
-          const targetFund = fundsList.find((f) =>
-            isTransactionInFund(f, alloc.fund_id, alloc.fund_name || alloc.fee_type_name, fundsList)
-          );
-          const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
-          targetMap.set(fundId, (targetMap.get(fundId) || 0) + allocAmt);
-        }
-      });
-      const remainder = totalRec - sumAlloc;
-      if (remainder > 0 && fundsList.length > 0) {
-        targetMap.set(
-          fundsList[0].id,
-          (targetMap.get(fundsList[0].id) || 0) + remainder
-        );
-      }
-    } else {
-      const targetFund = fundsList.find((f) =>
-        isTransactionInFund(f, p.fund_id, p.fund_name, fundsList)
-      ) || fundsList[0];
-      if (targetFund) {
-        targetMap.set(
-          targetFund.id,
-          (targetMap.get(targetFund.id) || 0) + totalRec
-        );
-      }
-    }
-  });
 
   // Calculate real student due amounts for distinct active enrolled students
   const activeStudentIdSet = new Set(
@@ -672,264 +526,22 @@ export async function getMonthlyExecutiveSummary(
     ? Math.min(distinctDueStudents.size, totalStudents) 
     : 0;
 
-  // B. Real Donations & Zakat (current month + prior months)
-  dbDonations.forEach((d: any) => {
-    if (isVoidDonation(d)) return;
-    const amt = Number(d.amount || 0);
-    const parsedFund = parseExpenseFund(d.notes);
-    const fIdCandidate = parsedFund.fundId || (d as any).fund_id;
-    const fNameCandidate = parsedFund.fundName || d.donation_type;
-
-    if (isZakatOrLillahCategory(`${fIdCandidate || ""} ${fNameCandidate || ""}`)) {
-      zakatCollection += amt;
-    } else {
-      generalDonations += amt;
-    }
-
-    const targetFund = fundsList.find((f) =>
-      isTransactionInFund(f, fIdCandidate, fNameCandidate, fundsList)
-    );
-    const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
-    monthlyFundInflowMap.set(fundId, (monthlyFundInflowMap.get(fundId) || 0) + amt);
+  // Build executive KPIs and fund reserves from the same postings as the monthly statement.
+  let feeCollection = 0, mahfilCollection = 0, zakatCollection = 0, generalDonations = 0, boardingBazarExpense = 0;
+  const lines = periodLines({funds:allFundsList,start:monthStartDate,end:monthEndDate,donations:allDbDonations,
+    expenses:allDbExpenses,bazar:allDbBazar,meta,payments:reconcilePayments(feeMeta.payments || [],legacyFees,true),
+    onCurrent(kind,source,fund,amount) {
+      if (kind==='out') { if (source==='bazar') boardingBazarExpense += amount; return; }
+      if (source==='fee') feeCollection += amount;
+      else if (source==='mahfil') mahfilCollection += amount;
+      else if (isRestrictedFund(fund) || ['Lillah','Fitra'].includes(fund.category)) zakatCollection += amount;
+      else if (fund.id!==REVIEW_FUND.id) generalDonations += amount;
+    },
   });
-
-  prevDbDonations.forEach((d: any) => {
-    if (isVoidDonation(d)) return;
-    const amt = Number(d.amount || 0);
-    const parsedFund = parseExpenseFund(d.notes);
-    const fIdCandidate = parsedFund.fundId || (d as any).fund_id;
-    const fNameCandidate = parsedFund.fundName || d.donation_type;
-
-    const targetFund = fundsList.find((f) =>
-      isTransactionInFund(f, fIdCandidate, fNameCandidate, fundsList)
-    );
-    const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
-    priorFundInflowMap.set(fundId, (priorFundInflowMap.get(fundId) || 0) + amt);
-  });
-
-  // Donor subscription payments in metadata
-  (meta.donor_subscription_payments || []).forEach((sp: any) => {
-    const spDate = getNormDate(sp.payment_date || sp.date, sp.created_at);
-    if (isDupDonation(sp)) return;
-    const amt = Number(sp.amount || 0);
-    const targetFund = fundsList.find((f) =>
-      isTransactionInFund(f, sp.fund_id, sp.fund_name, fundsList)
-    );
-    const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
-
-    if (spDate.startsWith(currentMonth)) {
-      if (isZakatOrLillahCategory(`${sp.fund_id || ""} ${sp.fund_name || ""}`)) {
-        zakatCollection += amt;
-      } else {
-        generalDonations += amt;
-      }
-      monthlyFundInflowMap.set(fundId, (monthlyFundInflowMap.get(fundId) || 0) + amt);
-    } else if (spDate && spDate < monthStartDate) {
-      priorFundInflowMap.set(fundId, (priorFundInflowMap.get(fundId) || 0) + amt);
-    }
-  });
-
-  // Online verified donations in metadata
-  (meta.online_donations || []).forEach((od: any) => {
-    const odDate = getNormDate(od.payment_date || od.date, od.created_at);
-    if (
-      (od.receipt_no && allDonationReceipts.has(String(od.receipt_no))) ||
-      (od.id && allDonationIds.has(String(od.id))) ||
-      (od.trx_id && allDonationReceipts.has(String(od.trx_id)))
-    ) {
-      return;
-    }
-    if (od.status === "VERIFIED" || od.status === "COMPLETED" || od.status === "SUCCESS") {
-      const amt = Number(od.amount || 0);
-      const fName = od.fund_category || od.fund_name || od.purpose;
-      const targetFund = fundsList.find((f) =>
-        isTransactionInFund(f, od.fund_id, fName, fundsList)
-      );
-      const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
-      if (odDate.startsWith(currentMonth)) {
-        if (isZakatOrLillahCategory(`${od.fund_id || ""} ${fName || ""}`)) {
-          zakatCollection += amt;
-        } else {
-          generalDonations += amt;
-        }
-        monthlyFundInflowMap.set(fundId, (monthlyFundInflowMap.get(fundId) || 0) + amt);
-      } else if (odDate && odDate < monthStartDate) {
-        priorFundInflowMap.set(fundId, (priorFundInflowMap.get(fundId) || 0) + amt);
-      }
-    }
-  });
-
-  // Donation Box collections in metadata (if not already inserted into donations table)
-  (meta.donation_box_logs || []).forEach((bl: any) => {
-    const blDate = getNormDate(bl.collection_date || bl.date, bl.created_at);
-    if (isDupDonation(bl)) return;
-    const amt = Number(bl.amount || 0);
-    const targetFund = fundsList.find((f) =>
-      isTransactionInFund(f, bl.fund_id, bl.fund_name, fundsList)
-    );
-    const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
-
-    if (blDate.startsWith(currentMonth)) {
-      if (isZakatOrLillahCategory(`${bl.fund_id || ""} ${bl.fund_name || ""}`)) {
-        zakatCollection += amt;
-      } else {
-        generalDonations += amt;
-      }
-      monthlyFundInflowMap.set(fundId, (monthlyFundInflowMap.get(fundId) || 0) + amt);
-    } else if (blDate && blDate < monthStartDate) {
-      priorFundInflowMap.set(fundId, (priorFundInflowMap.get(fundId) || 0) + amt);
-    }
-  });
-
-  // Qurbani leather records in metadata (if not already inserted into donations table)
-  (meta.qurbani_leather_records || []).forEach((ql: any) => {
-    const qlDate = getNormDate(ql.date, ql.created_at);
-    if (isDupDonation(ql)) return;
-    const amt = Number(ql.total_sale_amount || ql.amount || 0);
-    if (amt <= 0) return;
-    const fId = ql.fund_id || "fund-lillah";
-    const fName = ql.fund_name || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
-    const targetFund = fundsList.find((f) =>
-      isTransactionInFund(f, fId, fName, fundsList)
-    );
-    const fundId = targetFund ? targetFund.id : UNMATCHED_FUND;
-
-    if (qlDate.startsWith(currentMonth)) {
-      if (isZakatOrLillahCategory(`${fId} ${fName}`)) {
-        zakatCollection += amt;
-      } else {
-        generalDonations += amt;
-      }
-      monthlyFundInflowMap.set(fundId, (monthlyFundInflowMap.get(fundId) || 0) + amt);
-    } else if (qlDate && qlDate < monthStartDate) {
-      priorFundInflowMap.set(fundId, (priorFundInflowMap.get(fundId) || 0) + amt);
-    }
-  });
-
-  // Mahfil collections in current month & prior months (only if not already settled/tracked in donations)
-  (meta.mahfils || []).forEach((m: any) => {
-    const isSettled = Boolean(m.settlement || (m.settlements && m.settlements.length > 0));
-    if (isSettled) return;
-
-    (m.receipt_books || []).forEach((b: any) => {
-      (b.deposit_history || []).forEach((dep: any) => {
-        const recNo = dep.receipt_no || b.receipt_no || dep.id;
-        if (recNo && allDonationReceipts.has(String(recNo))) return;
-        const amt = Number(dep.amount || 0);
-        const targetFund = fundsList.find((f) => isTransactionInFund(f, undefined, "সাধারণ ফান্ড", fundsList)) || fundsList[0];
-        if (!targetFund) return;
-
-        const depDate = getNormDate(dep.date, dep.created_at);
-        if (depDate && depDate.startsWith(currentMonth)) {
-          mahfilCollection += amt;
-          monthlyFundInflowMap.set(targetFund.id, (monthlyFundInflowMap.get(targetFund.id) || 0) + amt);
-        } else if (depDate && depDate < monthStartDate) {
-          priorFundInflowMap.set(targetFund.id, (priorFundInflowMap.get(targetFund.id) || 0) + amt);
-        }
-      });
-    });
-  });
-
-  const totalIncome = feeCollection + zakatCollection + generalDonations + mahfilCollection;
-
-  // C. Expenses Calculations (current month + prior months)
-  let generalExpenses = 0;
-  let boardingBazarExpense = 0;
-
-  dbExpenses.forEach((e: any) => {
-    if (isVoidedExpense(e)) return;
-    const amt = Number(e.amount || 0);
-    const cat = (e.category || "").toLowerCase();
-    const desc = (e.description || "").toLowerCase();
-    const isBazar = cat.includes("বাজার") || cat.includes("বোর্ডিং") || cat.includes("খাবার") || desc.includes("বাজার") || desc.includes("খাবার");
-    
-    if (isBazar) {
-      boardingBazarExpense += amt;
-    } else {
-      generalExpenses += amt;
-    }
-
-    const parsed = parseExpenseFund(e.description);
-    const targetFund = fundsList.find((f) =>
-      isTransactionInFund(f, parsed.fundId, parsed.fundName || e.category, fundsList)
-    ) || (isBazar ? fundsList.find(f => f.code === "LIL" || f.name.includes("লিল্লাহ")) : fundsList[0]);
-
-    if (targetFund) {
-      monthlyFundOutflowMap.set(
-        targetFund.id,
-        (monthlyFundOutflowMap.get(targetFund.id) || 0) + amt
-      );
-    }
-  });
-
-  prevDbExpenses.forEach((e: any) => {
-    if (isVoidedExpense(e)) return;
-    const amt = Number(e.amount || 0);
-    const cat = (e.category || "").toLowerCase();
-    const desc = (e.description || "").toLowerCase();
-    const isBazar = cat.includes("বাজার") || cat.includes("বোর্ডিং") || cat.includes("খাবার") || desc.includes("বাজার") || desc.includes("খাবার");
-
-    const parsed = parseExpenseFund(e.description);
-    const targetFund = fundsList.find((f) =>
-      isTransactionInFund(f, parsed.fundId, parsed.fundName || e.category, fundsList)
-    ) || (isBazar ? fundsList.find(f => f.code === "LIL" || f.name.includes("লিল্লাহ")) : fundsList[0]);
-
-    if (targetFund) {
-      priorFundOutflowMap.set(
-        targetFund.id,
-        (priorFundOutflowMap.get(targetFund.id) || 0) + amt
-      );
-    }
-  });
-
-  // Database bazar_expenses table (current month + prior months)
-  dbBazar.forEach((b: any) => {
-    const amt = Number(b.amount || 0);
-    boardingBazarExpense += amt;
-    const lillahFund = fundsList.find(f => f.code === "LIL" || f.name.includes("লিল্লাহ")) || fundsList[0];
-    if (lillahFund) {
-      monthlyFundOutflowMap.set(
-        lillahFund.id,
-        (monthlyFundOutflowMap.get(lillahFund.id) || 0) + amt
-      );
-    }
-  });
-
-  prevDbBazar.forEach((b: any) => {
-    const amt = Number(b.amount || 0);
-    const lillahFund = fundsList.find(f => f.code === "LIL" || f.name.includes("লিল্লাহ")) || fundsList[0];
-    if (lillahFund) {
-      priorFundOutflowMap.set(
-        lillahFund.id,
-        (priorFundOutflowMap.get(lillahFund.id) || 0) + amt
-      );
-    }
-  });
-
-  // Boarding bazar logs from metadata (current month + prior months)
-  (meta.boarding_bazar_logs || []).forEach((b: any) => {
-    const amt = Number(b.amount || b.total_cost || 0);
-    const lillahFund = fundsList.find(f => f.code === "LIL" || f.name.includes("লিল্লাহ")) || fundsList[0];
-    if (b.date && b.date.startsWith(currentMonth)) {
-      boardingBazarExpense += amt;
-      if (lillahFund) {
-        monthlyFundOutflowMap.set(
-          lillahFund.id,
-          (monthlyFundOutflowMap.get(lillahFund.id) || 0) + amt
-        );
-      }
-    } else if (b.date && b.date < monthStartDate) {
-      if (lillahFund) {
-        priorFundOutflowMap.set(
-          lillahFund.id,
-          (priorFundOutflowMap.get(lillahFund.id) || 0) + amt
-        );
-      }
-    }
-  });
-
-  const totalExpense = generalExpenses + boardingBazarExpense;
-  const netBalance = totalIncome - totalExpense;
+  const totalIncome = lines.reduce((sum,l)=>sum+l.totalIncome,0);
+  const totalExpense = lines.reduce((sum,l)=>sum+l.totalExpense,0);
+  const generalExpenses = totalExpense-boardingBazarExpense;
+  const netBalance = totalIncome-totalExpense;
 
   // D. Construct Real Dynamic Funds Breakdown
   const CATEGORY_MAP_BN: Record<string, string> = {
@@ -945,63 +557,13 @@ export async function getMonthlyExecutiveSummary(
     emergency: "জরুরি তহবিল",
   };
 
-  const fundsBreakdown = fundsList
-    .filter((fund) => {
-      const isTest = fund.name.toLowerCase().includes("test") || (fund.code && fund.code.toLowerCase().includes("tst"));
-      const pIncome = priorFundInflowMap.get(fund.id) || 0;
-      const pExpense = priorFundOutflowMap.get(fund.id) || 0;
-      const mIncome = monthlyFundInflowMap.get(fund.id) || 0;
-      const mExpense = monthlyFundOutflowMap.get(fund.id) || 0;
-      const reserve = (pIncome - pExpense) + (mIncome - mExpense);
-      if (isTest && pIncome === 0 && pExpense === 0 && mIncome === 0 && mExpense === 0 && reserve === 0) {
-        return false;
-      }
-      return true;
-    })
-    .map((fund) => {
-      const pIncome = priorFundInflowMap.get(fund.id) || 0;
-      const pExpense = priorFundOutflowMap.get(fund.id) || 0;
-      const prevBal = pIncome - pExpense;
-      const mIncome = monthlyFundInflowMap.get(fund.id) || 0;
-      const mExpense = monthlyFundOutflowMap.get(fund.id) || 0;
-      const mBalance = mIncome - mExpense;
-      const cumulativeReserve = prevBal + mBalance;
-      const rawCat = (fund.category || "general").toLowerCase().trim();
-      const bnCat = CATEGORY_MAP_BN[rawCat] || fund.category || "সাধারণ";
-
-      return {
-        fundId: fund.id,
-        fundName: fund.name,
-        code: fund.code,
-        category: bnCat,
-        previousBalance: prevBal,
-        income: mIncome,
-        expense: mExpense,
-        balance: mBalance,
-        totalReserve: cumulativeReserve,
-      };
-    });
-
-  // P2-Fix: ফান্ড-মেল না-খাওয়া লেনদেন আলাদা row হিসেবে দেখানো হয় (চুপচাপ GEN-এ ঢোকে না)
-  const unmatchedPriorIncome = priorFundInflowMap.get(UNMATCHED_FUND) || 0;
-  const unmatchedPriorExpense = priorFundOutflowMap.get(UNMATCHED_FUND) || 0;
-  const unmatchedPrevBal = unmatchedPriorIncome - unmatchedPriorExpense;
-  const unmatchedIncome = monthlyFundInflowMap.get(UNMATCHED_FUND) || 0;
-  const unmatchedExpense = monthlyFundOutflowMap.get(UNMATCHED_FUND) || 0;
-  const unmatchedBal = unmatchedIncome - unmatchedExpense;
-  if (unmatchedPrevBal !== 0 || unmatchedIncome > 0 || unmatchedExpense > 0) {
-    fundsBreakdown.push({
-      fundId: UNMATCHED_FUND,
-      fundName: "অনুপরিচিত ফান্ড",
-      code: "OTH",
-      category: "অনুপরিচিত",
-      previousBalance: unmatchedPrevBal,
-      income: unmatchedIncome,
-      expense: unmatchedExpense,
-      balance: unmatchedBal,
-      totalReserve: unmatchedPrevBal + unmatchedBal,
-    });
-  }
+  const fundsBreakdown = lines.map(line => {
+    const fund = allFundsList.find(f => f.id===line.fundId) || REVIEW_FUND;
+    return {fundId:line.fundId,fundName:line.fundName,code:fund.code,
+      category:CATEGORY_MAP_BN[(fund.category || '').toLowerCase()] || fund.category,
+      previousBalance:line.openingBalance,income:line.totalIncome,expense:line.totalExpense,
+      balance:line.totalIncome-line.totalExpense,totalReserve:line.closingBalance};
+  });
 
   const previousBalance = fundsBreakdown.reduce((sum, f) => sum + f.previousBalance, 0);
   const isDebt = previousBalance < 0;

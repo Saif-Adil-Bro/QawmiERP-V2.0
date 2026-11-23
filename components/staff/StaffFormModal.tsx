@@ -24,6 +24,7 @@ import PendingApprovalBanner from "@/components/permissions/PendingApprovalBanne
 import { useStepUpAction } from "@/components/security/useStepUpAction";
 
 interface StaffFormModalProps {
+  salaryEditable?:boolean;
   staff?: StaffMember | null;
   categories?: StaffCategory[];
   departments?: StaffDepartment[];
@@ -33,6 +34,7 @@ interface StaffFormModalProps {
 }
 
 export default function StaffFormModal({
+  salaryEditable=false,
   staff,
   categories = DEFAULT_STAFF_CATEGORIES,
   departments = DEFAULT_STAFF_DEPARTMENTS,
@@ -97,7 +99,7 @@ export default function StaffFormModal({
   const [previousInstitution, setPreviousInstitution] = useState(staff?.academic?.previous_institution || "");
 
   // Salary Form State
-  const [basicSalary, setBasicSalary] = useState<number | "">(staff?.salary.basic_salary ?? 15000);
+  const [basicSalary, setBasicSalary] = useState<number | "">(staff?.salary.basic_salary ?? "");
   const [allowanceHousing, setAllowanceHousing] = useState<number | "">(staff?.salary.allowances?.housing || "");
   const [allowanceFood, setAllowanceFood] = useState<number | "">(staff?.salary.allowances?.food || "");
   const [allowanceTransport, setAllowanceTransport] = useState<number | "">(staff?.salary.allowances?.transport || "");
@@ -210,7 +212,7 @@ export default function StaffFormModal({
                 previous_institution: previousInstitution,
               },
               responsibilities,
-              salary: {
+              salary: !salaryEditable ? undefined : {
                 basic_salary: Number(basicSalary),
                 allowances: {
                   housing: Number(allowanceHousing),
@@ -296,7 +298,7 @@ export default function StaffFormModal({
                 previous_institution: previousInstitution,
               },
               responsibilities,
-              salary: {
+              salary: !salaryEditable ? undefined : {
                 basic_salary: Number(basicSalary),
                 allowances: {
                   housing: Number(allowanceHousing),
@@ -412,7 +414,7 @@ export default function StaffFormModal({
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab("salary")}
+            disabled={!salaryEditable} onClick={() => setActiveTab("salary")}
             className={`px-3.5 py-1.5 rounded-lg transition whitespace-nowrap cursor-pointer ${
               activeTab === "salary" ? "bg-emerald-700 text-white shadow-xs" : "text-slate-600 hover:bg-slate-200/70"
             }`}
@@ -1227,7 +1229,7 @@ export default function StaffFormModal({
                       >
                         <option value="teacher">শিক্ষক (Teacher Portal)</option>
                         <option value="staff">স্টাফ (Staff Access)</option>
-                        <option value="admin">সহকারী অ্যাডমিন (Admin Access)</option>
+
                       </select>
                     </div>
                   </div>

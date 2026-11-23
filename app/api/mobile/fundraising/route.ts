@@ -1,13 +1,5 @@
-import { createMobileMetadataHandlers } from "@/lib/mobile-api";
-
-export const dynamic = "force-dynamic";
-
-const { GET, POST } = createMobileMetadataHandlers({
-  storeKey: "mahfils",
-  module: "fundraising",
-  idPrefix: "mah",
-  searchFields: ["title", "venue", "status"],
-  requiredFields: ["title"],
-});
-
-export { GET, POST };
+import type {NextRequest} from 'next/server';
+import {mobileMahfil} from '@/lib/finance/mobile-mahfil';
+export const dynamic='force-dynamic';
+const handler=(req:NextRequest)=>mobileMahfil(req);
+export {handler as GET,handler as POST};

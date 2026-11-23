@@ -50,7 +50,7 @@ export default function StructureClient({
   const [activeTab, setActiveTab] = useState<"structures" | "types">("structures");
 
   // Only use actual active funds defined in the system
-  const allFunds = funds && funds.length > 0 ? funds : DEFAULT_FUNDS;
+  const allFunds = (funds || []).filter(f=>f.is_active!==false);
 
   // Helper to get fund display name
   const getFundDisplay = (ft: FeeType) => {
@@ -59,30 +59,7 @@ export default function StructureClient({
       const match = allFunds.find((f) => f.id === ft.fund_id);
       if (match) return match.name;
     }
-    const isLillah =
-      (ft.name || "").includes("বোর্ডিং") ||
-      (ft.name || "").includes("খাবার") ||
-      (ft.name || "").includes("খোরাকি") ||
-      (ft.category === "BOARDING");
-
-    if (isLillah) {
-      const lillahFund = allFunds.find(
-        (f) =>
-          f.id === "fund-lillah" ||
-          f.category === "Lillah" ||
-          f.name.includes("লিল্লাহ") ||
-          f.name.includes("বোর্ডিং")
-      );
-      if (lillahFund) return lillahFund.name;
-    }
-
-    const generalFund = allFunds.find(
-      (f) =>
-        f.id === "fund-general" ||
-        f.category === "General" ||
-        f.name.includes("সাধারণ")
-    );
-    return generalFund?.name || allFunds[0]?.name || "সাধারণ ফান্ড (General Fund)";
+    return 'ফান্ড নির্বাচন প্রয়োজন';
   };
 
   // Structure Modal State
@@ -114,8 +91,8 @@ export default function StructureClient({
     category: "ACADEMIC",
     frequency: "MONTHLY",
     default_amount: 1000,
-    fund_id: allFunds[0]?.id || "fund-general",
-    fund_name: allFunds[0]?.name || "সাধারণ ফান্ড (General Fund)",
+    fund_id: "",
+    fund_name: "",
     is_active: true,
   });
 
@@ -239,8 +216,8 @@ export default function StructureClient({
       category: "ACADEMIC",
       frequency: "MONTHLY",
       default_amount: 500,
-      fund_id: "general_fund",
-      fund_name: "সাধারণ ফান্ড",
+      fund_id: "",
+      fund_name: "",
       is_active: true,
     });
     setIsTypeModalOpen(true);
@@ -258,7 +235,7 @@ export default function StructureClient({
       category: ft.category,
       frequency: ft.frequency,
       default_amount: ft.default_amount,
-      fund_id: ft.fund_id || matchedFund?.id || "general_fund",
+      fund_id: matchedFund?.id || "",
       fund_name: ft.fund_name || assignedFundName,
       is_active: ft.is_active !== false,
     });
@@ -750,18 +727,19 @@ export default function StructureClient({
                   <span>জমা হওয়ার নির্দিষ্ট ফান্ড (Assigned Fund) <span className="text-red-500">*</span></span>
                 </label>
                 <select
-                  value={typeForm.fund_id || "general_fund"}
+                  required value={typeForm.fund_id || ""}
                   onChange={(e) => {
                     const selId = e.target.value;
                     const match = allFunds.find((f) => f.id === selId);
                     setTypeForm({
                       ...typeForm,
                       fund_id: selId,
-                      fund_name: match?.name || "সাধারণ ফান্ড",
+                      fund_name: match?.name || "",
                     });
                   }}
                   className="w-full px-3.5 py-2.5 border-2 border-emerald-300 bg-emerald-50/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 font-bold text-slate-900"
                 >
+                  <option value="">ফান্ড নির্বাচন করুন</option>
                   {allFunds.map((f) => (
                     <option key={f.id} value={f.id}>
                       {f.name}

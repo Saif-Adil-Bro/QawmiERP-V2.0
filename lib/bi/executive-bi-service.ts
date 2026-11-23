@@ -1,3 +1,9 @@
+import { feePortions } from "@/lib/finance/fee-portions";
+import { readBooks } from "@/lib/finance/read-books";
+import { ledgerEntries } from "@/lib/finance/entries";
+import { getFeeMetadata } from "@/lib/fee-store";
+import { rows as pagedRows } from "@/lib/portal/queries";
+import { REVIEW_FUND, isVoidDonation } from "@/lib/fund-utils";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableError } from "@/lib/audit-log";
@@ -101,7 +107,13 @@ export const ALLOWED_BI_DATASETS = [
 export type BiCustomDataset = (typeof ALLOWED_BI_DATASETS)[number];
 
 const ALLOWED_GROUP_BY: Record<BiCustomDataset, readonly string[]> = {
-  fees: ["class_name", "fee_type_name", "billing_period", "status", "session_id"],
+  fees: [
+    "class_name",
+    "fee_type_name",
+    "billing_period",
+    "status",
+    "session_id",
+  ],
   fee_payments: ["payment_method", "status", "class_name", "payment_month"],
   boarding: ["month_key", "expense_date"],
   donations: ["donation_type", "donation_month"],
@@ -171,7 +183,11 @@ function safeRound(value: number, decimals = 2): number {
 }
 
 function safeDiv(numerator: number, denominator: number, decimals = 2): number {
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
+  if (
+    !Number.isFinite(numerator) ||
+    !Number.isFinite(denominator) ||
+    denominator <= 0
+  ) {
     return 0;
   }
   return safeRound(numerator / denominator, decimals);
@@ -187,7 +203,9 @@ function isMissingBiObjectError(error: any): boolean {
     code === "42P01" ||
     code === "PGRST205" ||
     isMissingTableError(error) ||
-    /does not exist|Could not find the function|Could not find the table/i.test(msg)
+    /does not exist|Could not find the function|Could not find the table/i.test(
+      msg,
+    )
   );
 }
 
@@ -206,7 +224,7 @@ function buildEmptySnapshot(
   madrasaId: string,
   months: number,
   sessionId: string | null,
-  source: "rpc" | "mv" | "fallback"
+  source: "rpc" | "mv" | "fallback",
 ): ExecutiveBiSnapshot {
   return {
     madrasaId,
@@ -255,44 +273,45 @@ function assembleSnapshot(params: {
   generatedAt?: string;
 }): ExecutiveBiSnapshot {
   const totalFeePayable = safeRound(
-    params.classFeeDues.reduce((s, r) => s + safeNum(r.total_payable), 0)
+    params.classFeeDues.reduce((s, r) => s + safeNum(r.total_payable), 0),
   );
   const totalFeePaid = safeRound(
-    params.classFeeDues.reduce((s, r) => s + safeNum(r.total_paid), 0)
+    params.classFeeDues.reduce((s, r) => s + safeNum(r.total_paid), 0),
   );
   const totalFeeDue = safeRound(
-    params.classFeeDues.reduce((s, r) => s + safeNum(r.total_due), 0)
+    params.classFeeDues.reduce((s, r) => s + safeNum(r.total_due), 0),
   );
   const overallDueRatioPct = safeDiv(totalFeeDue * 100, totalFeePayable, 2);
 
   const totalBazarExpense = safeRound(
-    params.boarding.reduce((s, r) => s + safeNum(r.total_bazar_expense), 0)
+    params.boarding.reduce((s, r) => s + safeNum(r.total_bazar_expense), 0),
   );
   const totalBoardingFeeIncome = safeRound(
-    params.boarding.reduce((s, r) => s + safeNum(r.boarding_fee_income), 0)
+    params.boarding.reduce((s, r) => s + safeNum(r.boarding_fee_income), 0),
   );
-  const perCapitaRows = params.boarding.filter((r) => r.per_capita_bazar_cost > 0);
+  const perCapitaRows = params.boarding.filter(
+    (r) => r.per_capita_bazar_cost > 0,
+  );
   const avgPerCapitaBazarCost =
     perCapitaRows.length > 0
       ? safeDiv(
           perCapitaRows.reduce((s, r) => s + r.per_capita_bazar_cost, 0),
           perCapitaRows.length,
-          2
+          2,
         )
       : 0;
 
   const totalFundBalance = safeRound(
-    params.funds.reduce((s, r) => s + safeNum(r.current_balance), 0)
+    params.funds.reduce((s, r) => s + safeNum(r.current_balance), 0),
   );
   const totalFundTarget = safeRound(
-    params.funds.reduce((s, r) => s + safeNum(r.target_amount), 0)
+    params.funds.reduce((s, r) => s + safeNum(r.target_amount), 0),
   );
   const totalDonations = safeRound(
-    params.donationsByType.reduce((s, r) => s + safeNum(r.total_amount), 0)
+    params.donationsByType.reduce((s, r) => s + safeNum(r.total_amount), 0),
   );
 
-  const effectiveCollections =
-    params.totalFeeCollections > 0 ? safeRound(params.totalFeeCollections) : totalFeePaid;
+  const effectiveCollections = safeRound(params.totalFeeCollections);
 
   return {
     madrasaId: params.madrasaId,
@@ -381,7 +400,9 @@ function normalizeClassDueRows(rows: any[]): BiClassFeeDueRow[] {
         : safeDiv(due * 100, payable, 2);
     return {
       session_id: r.session_id ? String(r.session_id) : null,
-      class_key: String(r.class_key || r.class_id || r.class_name || "UNASSIGNED"),
+      class_key: String(
+        r.class_key || r.class_id || r.class_name || "UNASSIGNED",
+      ),
       class_name: String(r.class_name || "সাধারণ জামাত"),
       student_count: Math.max(0, Math.trunc(safeNum(r.student_count))),
       total_payable: payable,
@@ -396,7 +417,10 @@ function normalizeExamRows(rows: any[]): BiSessionExamResultRow[] {
   return (rows || []).map((r) => ({
     exam_id: String(r.exam_id || r.id || ""),
     exam_title: String(r.exam_title || r.title || "পরীক্ষা"),
-    exam_year: r.exam_year !== null && r.exam_year !== undefined ? safeNum(r.exam_year) : null,
+    exam_year:
+      r.exam_year !== null && r.exam_year !== undefined
+        ? safeNum(r.exam_year)
+        : null,
     exam_status: r.exam_status ?? r.status ?? null,
     session_id: r.session_id ? String(r.session_id) : null,
     session_name: r.session_name ? String(r.session_name) : null,
@@ -407,189 +431,7 @@ function normalizeExamRows(rows: any[]): BiSessionExamResultRow[] {
   }));
 }
 
-async function fetchDonationsBreakdown(admin: any, madrasaId: string): Promise<BiDonationBreakdownRow[]> {
-  try {
-    const { data, error } = await admin
-      .from("donations")
-      .select("id, amount, donation_type")
-      .eq("madrasa_id", madrasaId);
-    if (error || !Array.isArray(data)) return [];
-    const map = new Map<string, { total_amount: number; count: number }>();
-    for (const row of data) {
-      const key = String(row.donation_type || "General");
-      const prev = map.get(key) || { total_amount: 0, count: 0 };
-      prev.total_amount = safeRound(prev.total_amount + safeNum(row.amount));
-      prev.count += 1;
-      map.set(key, prev);
-    }
-    return Array.from(map.entries()).map(([donation_type, val]) => ({
-      donation_type,
-      total_amount: val.total_amount,
-      count: val.count,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-async function computeJsFallbackSnapshot(
-  admin: any,
-  madrasaId: string,
-  months: number,
-  sessionId: string | null
-): Promise<ExecutiveBiSnapshot> {
-  const [
-    bazarRes,
-    mealsRes,
-    feesRes,
-    paymentsRes,
-    fundsRes,
-    donationsByType,
-    examsRes,
-    resultsRes,
-    sessionsRes,
-  ] = await Promise.all([
-    admin
-      .from("bazar_expenses")
-      .select("id, amount, expense_date, created_at")
-      .eq("madrasa_id", madrasaId),
-    admin
-      .from("meal_entries")
-      .select("id, student_id, entry_date, meal_status, created_at")
-      .eq("madrasa_id", madrasaId),
-    (() => {
-      let q = admin
-        .from("student_fees")
-        .select(
-          "id, session_id, student_id, class_id, class_name, fee_type_name, billing_period, payable_amount, paid_amount, due_amount, created_at"
-        )
-        .eq("madrasa_id", madrasaId);
-      if (sessionId) q = q.eq("session_id", sessionId);
-      return q;
-    })(),
-    (() => {
-      let q = admin
-        .from("fee_payments")
-        .select("id, session_id, total_amount_received, status")
-        .eq("madrasa_id", madrasaId);
-      if (sessionId) q = q.eq("session_id", sessionId);
-      return q;
-    })(),
-    admin
-      .from("zakat_funds")
-      .select("id, name, code, category, target_amount, current_balance, is_active")
-      .eq("madrasa_id", madrasaId),
-    fetchDonationsBreakdown(admin, madrasaId),
-    (() => {
-      let q = admin
-        .from("exams")
-        .select("id, title, year, status, session_id")
-        .eq("madrasa_id", madrasaId);
-      if (sessionId) q = q.eq("session_id", sessionId);
-      return q;
-    })(),
-    admin
-      .from("exam_results")
-      .select("id, exam_id, student_id, marks_obtained, total_marks")
-      .eq("madrasa_id", madrasaId),
-    admin
-      .from("academic_sessions")
-      .select("id, name, code, hijri_year")
-      .eq("madrasa_id", madrasaId),
-  ]);
-
-  // 1. Boarding monthly aggregation (Asia/Dhaka month keys)
-  const bazarRows = Array.isArray(bazarRes.data) ? bazarRes.data : [];
-  const mealRows = Array.isArray(mealsRes.data) ? mealsRes.data : [];
-  const feeRows = Array.isArray(feesRes.data) ? feesRes.data : [];
-
-  const boardingMap = new Map<
-    string,
-    {
-      bazar: number;
-      mealDays: number;
-      boarderIds: Set<string>;
-      boardingFeeIncome: number;
-    }
-  >();
-
-  const ensureMonth = (monthKey: string) => {
-    let entry = boardingMap.get(monthKey);
-    if (!entry) {
-      entry = {
-        bazar: 0,
-        mealDays: 0,
-        boarderIds: new Set<string>(),
-        boardingFeeIncome: 0,
-      };
-      boardingMap.set(monthKey, entry);
-    }
-    return entry;
-  };
-
-  for (const row of bazarRows) {
-    const dayStr = toDhakaDateStringFrom(row.expense_date || row.created_at);
-    const monthKey = dayStr ? dayStr.slice(0, 7) : toDhakaMonthString();
-    if (!monthKey) continue;
-    const entry = ensureMonth(monthKey);
-    entry.bazar = safeRound(entry.bazar + safeNum(row.amount));
-  }
-
-  for (const row of mealRows) {
-    if (String(row.meal_status || "") !== "On") continue;
-    const dayStr = toDhakaDateStringFrom(row.entry_date || row.created_at);
-    const monthKey = dayStr ? dayStr.slice(0, 7) : toDhakaMonthString();
-    if (!monthKey) continue;
-    const entry = ensureMonth(monthKey);
-    entry.mealDays += 1;
-    if (row.student_id) entry.boarderIds.add(String(row.student_id));
-  }
-
-  for (const row of feeRows) {
-    if (!isBoardingFeeType(row.fee_type_name)) continue;
-    const period =
-      typeof row.billing_period === "string" && /^\d{4}-\d{2}/.test(row.billing_period)
-        ? row.billing_period.slice(0, 7)
-        : toDhakaDateStringFrom(row.created_at).slice(0, 7) || toDhakaMonthString();
-    if (!period) continue;
-    const entry = ensureMonth(period);
-    entry.boardingFeeIncome = safeRound(entry.boardingFeeIncome + safeNum(row.paid_amount));
-  }
-
-  const boarding: BiBoardingMonthlyRow[] = Array.from(boardingMap.entries())
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .slice(0, months)
-    .map(([month_key, v]) => {
-      const active_boarders = v.boarderIds.size;
-      return {
-        month_key,
-        total_bazar_expense: v.bazar,
-        active_meal_days: v.mealDays,
-        active_boarders,
-        boarding_fee_income: v.boardingFeeIncome,
-        per_capita_bazar_cost: safeDiv(v.bazar, active_boarders, 2),
-      };
-    });
-
-  // 2. Fund health
-  const rawFunds = Array.isArray(fundsRes.data) ? fundsRes.data : [];
-  const funds: BiFundHealthRow[] = rawFunds
-    .map((zf: any) => {
-      const target = safeRound(safeNum(zf.target_amount));
-      const balance = safeRound(safeNum(zf.current_balance));
-      return {
-        fund_id: String(zf.id),
-        fund_name: String(zf.name || "ফান্ড"),
-        fund_code: zf.code ?? null,
-        category: zf.category ?? null,
-        target_amount: target,
-        current_balance: balance,
-        is_active: zf.is_active !== false,
-        target_attainment_pct: safeDiv(balance * 100, target, 2),
-      };
-    })
-    .sort((a: BiFundHealthRow, b: BiFundHealthRow) => b.current_balance - a.current_balance);
-
+function classDues(feeRows: any[]) {
   // 3. Class-wise fee dues
   const classDueMap = new Map<
     string,
@@ -642,10 +484,227 @@ async function computeJsFallbackSnapshot(
     }))
     .sort((a, b) => b.total_due - a.total_due);
 
+  return classFeeDues;
+}
+async function liveFinance(tenant: string, session: string | null) {
+  const books = await readBooks(tenant, getFeeMetadata),
+    entries = ledgerEntries(books).filter((e) => e.status !== "VOID");
+  const balances = new Map<string, number>(),
+    donations = new Map<string, BiDonationBreakdownRow>();
+  const bazarByMonth = new Map<string, number>();
+  for (const e of entries) {
+    balances.set(
+      e.fund_id,
+      safeRound(
+        (balances.get(e.fund_id) || 0) + (e.income ? e.amount : -e.amount),
+      ),
+    );
+    if (e.income && e.source !== "fee") {
+      const line = donations.get(e.fund_id) || {
+        donation_type: e.fund_name,
+        total_amount: 0,
+        count: 0,
+      };
+      line.total_amount = safeRound(line.total_amount + e.amount);
+      line.count++;
+      donations.set(e.fund_id, line);
+    }
+    if (e.source === "bazar") {
+      const m = e.date.slice(0, 7);
+      bazarByMonth.set(m, safeRound((bazarByMonth.get(m) || 0) + e.amount));
+    }
+  }
+  const billRows = (books.bills || []).filter(
+    (b) => !session || b.session_id === session,
+  );
+  // Dues belong to the billing period; cash belongs to the receipt date. A
+  // December collection towards a November meal bill is December income.
+  const billsById = new Map((books.bills || []).map((b) => [b.id, b]));
+  const boardingTypes = new Set(
+    (books.feeTypes || [])
+      .filter(
+        (t) => t.category === "BOARDING" || ["HOSTEL", "FOOD"].includes(t.code),
+      )
+      .map((t) => t.id),
+  );
+  const boardingPaid = new Map<string, number>();
+  let totalFeeCollections = 0;
+  for (const p of books.payments) {
+    if ((p.status && p.status !== "COMPLETED") || isVoidDonation(p)) continue;
+    for (const part of feePortions(p, books.funds)) {
+      const bill = billsById.get(part.billId);
+      if (session && (bill?.session_id || p.session_id) !== session) continue;
+      totalFeeCollections = safeRound(totalFeeCollections + part.amount);
+      const type = bill?.fee_type_id || part.feeTypeId;
+      if (
+        !part.fund ||
+        !p.payment_date ||
+        !(
+          boardingTypes.has(type) ||
+          isBoardingFeeType(bill?.fee_type_name || part.label)
+        )
+      )
+        continue;
+      const month = toDhakaDateStringFrom(p.payment_date).slice(0, 7);
+      boardingPaid.set(
+        month,
+        safeRound((boardingPaid.get(month) || 0) + part.amount),
+      );
+    }
+  }
+  const allFunds = balances.has(REVIEW_FUND.id)
+    ? [...books.funds, REVIEW_FUND]
+    : books.funds;
+  return {
+    entries,
+    donationsByType: [...donations.values()],
+    totalFeeCollections,
+    bazarByMonth,
+    boardingPaid,
+    billRows,
+    classFeeDues: classDues(billRows),
+    funds: normalizeFundRows(
+      allFunds.map((f) => ({ ...f, current_balance: balances.get(f.id) || 0 })),
+    ),
+  };
+}
+function liveBoarding(
+  boarding: BiBoardingMonthlyRow[],
+  bazar: Map<string, number>,
+  months: number,
+  paid: Map<string, number>,
+) {
+  const map = new Map(
+    boarding
+      .filter((r) => r.active_boarders || r.active_meal_days)
+      .map((r) => [r.month_key, { ...r }]),
+  );
+  for (const month_key of new Set([...bazar.keys(), ...paid.keys()]))
+    if (!map.has(month_key))
+      map.set(month_key, {
+        month_key,
+        active_meal_days: 0,
+        active_boarders: 0,
+        boarding_fee_income: 0,
+        total_bazar_expense: 0,
+        per_capita_bazar_cost: 0,
+      });
+  return [...map.values()]
+    .sort((a, b) => b.month_key.localeCompare(a.month_key))
+    .slice(0, months)
+    .map((r) => ({
+      ...r,
+      boarding_fee_income: paid.get(r.month_key) || 0,
+      total_bazar_expense: bazar.get(r.month_key) || 0,
+      per_capita_bazar_cost: safeDiv(
+        bazar.get(r.month_key) || 0,
+        r.active_boarders,
+        2,
+      ),
+    }));
+}
+
+async function computeJsFallbackSnapshot(
+  admin: any,
+  madrasaId: string,
+  months: number,
+  sessionId: string | null,
+  finance: Awaited<ReturnType<typeof liveFinance>>,
+): Promise<ExecutiveBiSnapshot> {
+  const [mealsRes, examsRes, resultsRes, sessionsRes] = await Promise.all([
+    pagedRows(
+      () =>
+        admin
+          .from("meal_entries")
+          .select("id,student_id,entry_date,meal_status,created_at")
+          .eq("madrasa_id", madrasaId),
+      true,
+    ).then((data) => ({ data })),
+    (() => {
+      let q = admin
+        .from("exams")
+        .select("id, title, year, status, session_id")
+        .eq("madrasa_id", madrasaId);
+      if (sessionId) q = q.eq("session_id", sessionId);
+      return q;
+    })(),
+    admin
+      .from("exam_results")
+      .select("id, exam_id, student_id, marks_obtained, total_marks")
+      .eq("madrasa_id", madrasaId),
+    admin
+      .from("academic_sessions")
+      .select("id, name, code, hijri_year")
+      .eq("madrasa_id", madrasaId),
+  ]);
+
+  // 1. Boarding monthly aggregation (Asia/Dhaka month keys)
+
+  const mealRows = Array.isArray(mealsRes.data) ? mealsRes.data : [];
+
+  const boardingMap = new Map<
+    string,
+    {
+      bazar: number;
+      mealDays: number;
+      boarderIds: Set<string>;
+      boardingFeeIncome: number;
+    }
+  >();
+
+  const ensureMonth = (monthKey: string) => {
+    let entry = boardingMap.get(monthKey);
+    if (!entry) {
+      entry = {
+        bazar: 0,
+        mealDays: 0,
+        boarderIds: new Set<string>(),
+        boardingFeeIncome: 0,
+      };
+      boardingMap.set(monthKey, entry);
+    }
+    return entry;
+  };
+
+  for (const [month, amount] of finance.bazarByMonth)
+    ensureMonth(month).bazar = amount;
+  for (const row of mealRows) {
+    if (String(row.meal_status || "") !== "On") continue;
+    const dayStr = toDhakaDateStringFrom(row.entry_date || row.created_at);
+    const monthKey = dayStr ? dayStr.slice(0, 7) : toDhakaMonthString();
+    if (!monthKey) continue;
+    const entry = ensureMonth(monthKey);
+    entry.mealDays += 1;
+    if (row.student_id) entry.boarderIds.add(String(row.student_id));
+  }
+
+  for (const [month, amount] of finance.boardingPaid)
+    ensureMonth(month).boardingFeeIncome = amount;
+
+  const boarding: BiBoardingMonthlyRow[] = Array.from(boardingMap.entries())
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .slice(0, months)
+    .map(([month_key, v]) => {
+      const active_boarders = v.boarderIds.size;
+      return {
+        month_key,
+        total_bazar_expense: v.bazar,
+        active_meal_days: v.mealDays,
+        active_boarders,
+        boarding_fee_income: v.boardingFeeIncome,
+        per_capita_bazar_cost: safeDiv(v.bazar, active_boarders, 2),
+      };
+    });
+
+  const classFeeDues = finance.classFeeDues;
   // 4. Session / Exam results comparison
   const sessionMap = new Map<string, string>();
   for (const s of Array.isArray(sessionsRes.data) ? sessionsRes.data : []) {
-    if (s.id) sessionMap.set(String(s.id), String(s.name || s.code || s.hijri_year || s.id));
+    if (s.id)
+      sessionMap.set(
+        String(s.id),
+        String(s.name || s.code || s.hijri_year || s.id),
+      );
   }
 
   const examRows = Array.isArray(examsRes.data) ? examsRes.data : [];
@@ -680,25 +739,25 @@ async function computeJsFallbackSnapshot(
       return {
         exam_id: String(ex.id),
         exam_title: String(ex.title || "পরীক্ষা"),
-        exam_year: ex.year !== null && ex.year !== undefined ? safeNum(ex.year) : null,
+        exam_year:
+          ex.year !== null && ex.year !== undefined ? safeNum(ex.year) : null,
         exam_status: ex.status ?? null,
         session_id: ex.session_id ? String(ex.session_id) : null,
-        session_name: ex.session_id ? sessionMap.get(String(ex.session_id)) || null : null,
+        session_name: ex.session_id
+          ? sessionMap.get(String(ex.session_id)) || null
+          : null,
         result_entries: n,
         examined_students: studentSet.size,
         avg_percentage: safeDiv(pctSum, n, 2),
         pass_rate_pct: safeDiv(passCount * 100, n, 2),
       };
     })
-    .sort((a: BiSessionExamResultRow, b: BiSessionExamResultRow) => (b.exam_year || 0) - (a.exam_year || 0));
+    .sort(
+      (a: BiSessionExamResultRow, b: BiSessionExamResultRow) =>
+        (b.exam_year || 0) - (a.exam_year || 0),
+    );
 
-  const paymentRows = Array.isArray(paymentsRes.data) ? paymentsRes.data : [];
-  const totalFeeCollections = safeRound(
-    paymentRows
-      .filter((p: any) => String(p.status || "COMPLETED") === "COMPLETED")
-      .reduce((s: number, p: any) => s + safeNum(p.total_amount_received), 0)
-  );
-
+  const { funds, donationsByType, totalFeeCollections } = finance;
   return assembleSnapshot({
     madrasaId,
     months,
@@ -719,10 +778,15 @@ async function computeJsFallbackSnapshot(
  */
 export async function getExecutiveBiSnapshot(
   madrasaId: string,
-  opts?: { months?: number; sessionId?: string | null }
+  opts?: { months?: number; sessionId?: string | null },
 ): Promise<ExecutiveBiSnapshot> {
-  const months = Math.max(1, Math.min(36, Math.trunc(safeNum(opts?.months ?? 6)) || 6));
-  const sessionId = opts?.sessionId ? String(opts.sessionId).trim() || null : null;
+  const months = Math.max(
+    1,
+    Math.min(36, Math.trunc(safeNum(opts?.months ?? 6)) || 6),
+  );
+  const sessionId = opts?.sessionId
+    ? String(opts.sessionId).trim() || null
+    : null;
 
   if (!madrasaId) {
     return buildEmptySnapshot("", months, sessionId, "fallback");
@@ -730,6 +794,8 @@ export async function getExecutiveBiSnapshot(
 
   const admin = await createAdminClient();
 
+  // Historical BI views contain a registry cache, not posted fund balances.
+  const finance = await liveFinance(madrasaId, sessionId);
   // 1. Primary path: RPC `get_executive_bi_snapshot`
   try {
     const { data, error } = await admin.rpc("get_executive_bi_snapshot", {
@@ -742,13 +808,17 @@ export async function getExecutiveBiSnapshot(
       !error &&
       data &&
       typeof data === "object" &&
-      ("boarding_monthly" in data || "fund_health" in data || "class_fee_dues" in data)
+      ("boarding_monthly" in data ||
+        "fund_health" in data ||
+        "class_fee_dues" in data)
     ) {
       const rpcObj = data as Record<string, any>;
       const boarding = normalizeBoardingRows(rpcObj.boarding_monthly || []);
       const funds = normalizeFundRows(rpcObj.fund_health || []);
       const classFeeDues = normalizeClassDueRows(rpcObj.class_fee_dues || []);
-      const sessionExamComparison = normalizeExamRows(rpcObj.session_exam_results || []);
+      const sessionExamComparison = normalizeExamRows(
+        rpcObj.session_exam_results || [],
+      );
       const hasRpcData =
         boarding.length > 0 ||
         funds.length > 0 ||
@@ -757,19 +827,25 @@ export async function getExecutiveBiSnapshot(
         safeNum(rpcObj.total_fee_collections) > 0;
 
       if (hasRpcData) {
-        const donationsByType = await fetchDonationsBreakdown(admin, madrasaId);
         return assembleSnapshot({
           madrasaId,
           months,
           sessionId,
           source: "rpc",
-          totalFeeCollections: safeNum(rpcObj.total_fee_collections),
-          boarding,
-          funds,
-          donationsByType,
-          classFeeDues,
+          totalFeeCollections: finance.totalFeeCollections,
+          boarding: liveBoarding(
+            boarding,
+            finance.bazarByMonth,
+            months,
+            finance.boardingPaid,
+          ),
+          funds: finance.funds,
+          donationsByType: finance.donationsByType,
+          classFeeDues: finance.classFeeDues,
           sessionExamComparison,
-          generatedAt: rpcObj.generated_at ? String(rpcObj.generated_at) : undefined,
+          generatedAt: rpcObj.generated_at
+            ? String(rpcObj.generated_at)
+            : undefined,
         });
       }
     } else if (error && !isMissingBiObjectError(error)) {
@@ -781,83 +857,40 @@ export async function getExecutiveBiSnapshot(
 
   // 2. Secondary path: Materialized Views `mv_bi_*`
   try {
-    const [bRes, fRes, cRes, eRes, pRes] = await Promise.all([
+    const [bRes, eRes] = await Promise.all([
       admin
         .from("mv_bi_boarding_monthly")
-        .select(
-          "month_key, total_bazar_expense, active_meal_days, active_boarders, boarding_fee_income, per_capita_bazar_cost"
-        )
+        .select("*")
         .eq("madrasa_id", madrasaId)
         .order("month_key", { ascending: false })
         .limit(months),
       admin
-        .from("mv_bi_fund_health")
-        .select(
-          "fund_id, fund_name, fund_code, category, target_amount, current_balance, is_active, target_attainment_pct"
-        )
-        .eq("madrasa_id", madrasaId),
-      (() => {
-        let q = admin
-          .from("mv_bi_class_fee_dues")
-          .select(
-            "session_id, class_key, class_name, student_count, total_payable, total_paid, total_due, due_ratio_pct"
-          )
-          .eq("madrasa_id", madrasaId);
-        if (sessionId) q = q.eq("session_id", sessionId);
-        return q;
-      })(),
-      admin
         .from("mv_bi_session_exam_results")
-        .select(
-          "exam_id, exam_title, exam_year, exam_status, result_entries, examined_students, avg_percentage, pass_rate_pct"
-        )
+        .select("*")
         .eq("madrasa_id", madrasaId),
-      (() => {
-        let q = admin
-          .from("fee_payments")
-          .select("total_amount_received, status")
-          .eq("madrasa_id", madrasaId);
-        if (sessionId) q = q.eq("session_id", sessionId);
-        return q;
-      })(),
     ]);
-
-    const anyMissing =
-      isMissingBiObjectError(bRes.error) ||
-      isMissingBiObjectError(fRes.error) ||
-      isMissingBiObjectError(cRes.error) ||
-      isMissingBiObjectError(eRes.error);
-
-    if (!anyMissing && !bRes.error && !fRes.error && !cRes.error && !eRes.error) {
-      const boarding = normalizeBoardingRows(bRes.data || []);
-      const funds = normalizeFundRows(fRes.data || []);
-      const classFeeDues = normalizeClassDueRows(cRes.data || []);
-      const sessionExamComparison = normalizeExamRows(eRes.data || []);
-      const totalFeeCollections = safeRound(
-        (pRes.data || [])
-          .filter((p: any) => String(p.status || "COMPLETED") === "COMPLETED")
-          .reduce((s: number, p: any) => s + safeNum(p.total_amount_received), 0)
-      );
-
-      const hasMvData =
-        boarding.length > 0 ||
-        funds.length > 0 ||
-        classFeeDues.length > 0 ||
-        sessionExamComparison.length > 0 ||
-        totalFeeCollections > 0;
-
+    if (!bRes.error && !eRes.error) {
+      const boarding = normalizeBoardingRows(bRes.data || []),
+        sessionExamComparison = normalizeExamRows(eRes.data || []).filter(
+          (r) => !sessionId || r.session_id === sessionId,
+        );
+      const hasMvData = boarding.length > 0 || sessionExamComparison.length > 0;
       if (hasMvData) {
-        const donationsByType = await fetchDonationsBreakdown(admin, madrasaId);
         return assembleSnapshot({
           madrasaId,
           months,
           sessionId,
           source: "mv",
-          totalFeeCollections,
-          boarding,
-          funds,
-          donationsByType,
-          classFeeDues,
+          totalFeeCollections: finance.totalFeeCollections,
+          boarding: liveBoarding(
+            boarding,
+            finance.bazarByMonth,
+            months,
+            finance.boardingPaid,
+          ),
+          funds: finance.funds,
+          donationsByType: finance.donationsByType,
+          classFeeDues: finance.classFeeDues,
           sessionExamComparison,
         });
       }
@@ -867,7 +900,13 @@ export async function getExecutiveBiSnapshot(
   }
 
   // 3. Guaranteed JS base-table fallback
-  return computeJsFallbackSnapshot(admin, madrasaId, months, sessionId);
+  return computeJsFallbackSnapshot(
+    admin,
+    madrasaId,
+    months,
+    sessionId,
+    finance,
+  );
 }
 
 /**
@@ -876,7 +915,7 @@ export async function getExecutiveBiSnapshot(
  */
 export async function executeCustomReport(
   madrasaId: string,
-  definition: CustomReportQuery | Record<string, unknown>
+  definition: CustomReportQuery | Record<string, unknown>,
 ): Promise<CustomReportResult> {
   if (!madrasaId) {
     throw new Error("মাদ্রাসা আইডি পাওয়া যায়নি।");
@@ -893,7 +932,9 @@ export async function executeCustomReport(
   const groupBy = query.groupBy || allowedGroups[0];
 
   if (!allowedGroups.includes(groupBy)) {
-    throw new Error(`ডেটাসেট '${dataset}'-এর জন্য '${groupBy}' গ্রুপিং অনুমোদিত নয়।`);
+    throw new Error(
+      `ডেটাসেট '${dataset}'-এর জন্য '${groupBy}' গ্রুপিং অনুমোদিত নয়।`,
+    );
   }
 
   const limit = query.limit ?? 100;
@@ -924,7 +965,7 @@ export async function executeCustomReport(
     amount: number,
     paid = 0,
     due = 0,
-    extra?: Record<string, unknown>
+    extra?: Record<string, unknown>,
   ) => {
     const cleanKey = key || "অনির্ধারিত";
     const cur = groups.get(cleanKey) || {
@@ -942,89 +983,74 @@ export async function executeCustomReport(
   };
 
   if (dataset === "fees") {
-    let q = admin
-      .from("student_fees")
-      .select(
-        "id, session_id, class_name, fee_type_name, billing_period, payable_amount, paid_amount, due_amount, status, due_date, created_at"
-      )
-      .eq("madrasa_id", madrasaId);
-    if (query.sessionId) q = q.eq("session_id", query.sessionId);
-    const { data, error } = await q;
-    if (error && !isMissingTableError(error)) throw new Error(error.message);
-
-    for (const r of data || []) {
-      const refDate = r.due_date || (r.billing_period ? `${r.billing_period}-01` : r.created_at);
+    const book = await getFeeMetadata(madrasaId);
+    for (const r of book.student_fees || []) {
+      if (query.sessionId && r.session_id !== query.sessionId) continue;
+      const refDate =
+        r.due_date ||
+        (r.billing_period ? `${r.billing_period}-01` : r.created_at);
       if (!inDateRange(refDate)) continue;
       const gKey = String((r as any)[groupBy] || "অনির্ধারিত");
       addToGroup(
         gKey,
         safeNum(r.payable_amount),
         safeNum(r.paid_amount),
-        safeNum(r.due_amount)
+        safeNum(r.due_amount),
       );
     }
   } else if (dataset === "fee_payments") {
-    let q = admin
-      .from("fee_payments")
-      .select("id, session_id, class_name, total_amount_received, payment_date, payment_method, status")
-      .eq("madrasa_id", madrasaId);
-    if (query.sessionId) q = q.eq("session_id", query.sessionId);
-    const { data, error } = await q;
-    if (error && !isMissingTableError(error)) throw new Error(error.message);
-
-    for (const r of data || []) {
-      if (!inDateRange(r.payment_date)) continue;
+    const books = await readBooks(madrasaId, getFeeMetadata, true);
+    for (const r of books.payments) {
+      if (
+        r.status !== "COMPLETED" ||
+        isVoidDonation(r) ||
+        (query.sessionId && r.session_id !== query.sessionId) ||
+        !inDateRange(r.payment_date)
+      )
+        continue;
       const gKey =
         groupBy === "payment_month"
           ? toDhakaDateStringFrom(r.payment_date).slice(0, 7) || "অনির্ধারিত"
           : String((r as any)[groupBy] || "অনির্ধারিত");
-      addToGroup(gKey, safeNum(r.total_amount_received), safeNum(r.total_amount_received), 0);
+      addToGroup(
+        gKey,
+        safeNum(r.total_amount_received),
+        safeNum(r.total_amount_received),
+        0,
+      );
     }
   } else if (dataset === "boarding") {
-    const { data, error } = await admin
-      .from("bazar_expenses")
-      .select("id, amount, expense_date, created_at")
-      .eq("madrasa_id", madrasaId);
-    if (error && !isMissingTableError(error)) throw new Error(error.message);
-
-    for (const r of data || []) {
-      const dStr = toDhakaDateStringFrom(r.expense_date || r.created_at);
-      if (!inDateRange(dStr)) continue;
-      const gKey = groupBy === "month_key" ? dStr.slice(0, 7) || "অনির্ধারিত" : dStr || "অনির্ধারিত";
-      addToGroup(gKey, safeNum(r.amount));
-    }
+    for (const e of (await liveFinance(madrasaId, null)).entries)
+      if (e.source === "bazar" && inDateRange(e.date))
+        addToGroup(
+          groupBy === "month_key" ? e.date.slice(0, 7) : e.date,
+          e.amount,
+        );
   } else if (dataset === "donations") {
-    const { data, error } = await admin
-      .from("donations")
-      .select("id, amount, donation_type, donation_date")
-      .eq("madrasa_id", madrasaId);
-    if (error && !isMissingTableError(error)) throw new Error(error.message);
-
-    for (const r of data || []) {
-      if (!inDateRange(r.donation_date)) continue;
-      const gKey =
-        groupBy === "donation_month"
-          ? toDhakaDateStringFrom(r.donation_date).slice(0, 7) || "অনির্ধারিত"
-          : String((r as any)[groupBy] || "অনির্ধারিত");
-      addToGroup(gKey, safeNum(r.amount));
-    }
+    for (const e of (await liveFinance(madrasaId, null)).entries)
+      if (e.income && e.source !== "fee" && inDateRange(e.date)) {
+        addToGroup(
+          groupBy === "donation_month" ? e.date.slice(0, 7) : e.fund_name,
+          e.amount,
+        );
+      }
   } else if (dataset === "funds") {
-    const { data, error } = await admin
-      .from("zakat_funds")
-      .select("id, name, category, target_amount, current_balance, is_active")
-      .eq("madrasa_id", madrasaId);
-    if (error && !isMissingTableError(error)) throw new Error(error.message);
-
-    for (const r of data || []) {
+    for (const r of (await liveFinance(madrasaId, null)).funds) {
       const gKey =
         groupBy === "is_active"
           ? r.is_active !== false
             ? "সক্রিয়"
             : "নিষ্ক্রিয়"
           : String((r as any)[groupBy] || "সাধারণ");
-      addToGroup(gKey, safeNum(r.current_balance), safeNum(r.current_balance), 0, {
-        targetAmount: safeNum(r.target_amount),
-      });
+      addToGroup(
+        gKey,
+        safeNum(r.current_balance),
+        safeNum(r.current_balance),
+        0,
+        {
+          targetAmount: safeNum(r.target_amount),
+        },
+      );
     }
   } else if (dataset === "exams") {
     const [examsRes, resultsRes] = await Promise.all([
@@ -1059,18 +1085,24 @@ export async function executeCustomReport(
             ? String(ex?.year || "অনির্ধারিত")
             : String(r.subject_name || "বিষয়");
       const totalM = safeNum(r.total_marks);
-      const pct = totalM > 0 ? safeRound((safeNum(r.marks_obtained) / totalM) * 100) : 0;
+      const pct =
+        totalM > 0 ? safeRound((safeNum(r.marks_obtained) / totalM) * 100) : 0;
       addToGroup(gKey, pct);
     }
   } else if (dataset === "students") {
     const { data, error } = await admin
       .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, parent_phone, status")
+      .select(
+        "id, first_name, last_name, roll_number, class_name, parent_phone, status",
+      )
       .eq("madrasa_id", madrasaId);
     if (error && !isMissingTableError(error)) throw new Error(error.message);
 
     for (const raw of data || []) {
-      const masked = maskStudentSensitiveFields(raw, Boolean(query.allowUnmasked));
+      const masked = maskStudentSensitiveFields(
+        raw,
+        Boolean(query.allowUnmasked),
+      );
       const gKey = String((masked as any)[groupBy] || "সক্রিয়");
       addToGroup(gKey, 1, 0, 0, {
         samplePhone: (masked as any).parent_phone || null,

@@ -1,7 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMadrasaMetadata, type MadrasaMetaWithSessions } from "@/lib/sessions";
 import { getStructuredMadrasaSetting } from "@/lib/structured-config";
-import { isMissingTableError } from "@/lib/audit-log";
 
 /**
  * কেবল মুহতামিম, অ্যাডমিন অথবা সুপার অ্যাডমিন লক/আনলক করতে পারবেন।
@@ -127,61 +126,19 @@ export async function assertExamUnlocked(
   } as const;
 }
 
-/**
- * Checks whether a given YYYY-MM-DD date falls within any locked accounting period.
- */
-export async function findLockedAccountingPeriodForDate(
-  madrasaId: string,
-  dateStr?: string | null
-): Promise<AccountingPeriodRecord | null> {
-  if (!madrasaId || !dateStr) return null;
-  const cleanDate = String(dateStr).split("T")[0];
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) return null;
+const CALENDAR_UNAVAILABLE = "হিসাবকাল যাচাই করা যায়নি। কোনো পরিবর্তন না করে ক্যালেন্ডারটি যাচাই করুন।";
 
-  try {
-    const adminClient = await createAdminClient();
-    const { data, error } = await adminClient
-      .from("accounting_periods")
-      .select("*")
-      .eq("madrasa_id", madrasaId)
-      .eq("is_locked", true)
-      .lte("start_date", cleanDate)
-      .gte("end_date", cleanDate)
-      .limit(1);
+export async function readAccountingCalendar(tenant: string): Promise<AccountingPeriodRecord[]> {
+  const db = await createAdminClient();
+  const { data, error } = await db.rpc('finance_accounting_calendar', { p_tenant: tenant });
+  if (error || !Array.isArray(data)) throw Error(CALENDAR_UNAVAILABLE);
+  return data;
+}
 
-    if (!error) {
-      return data && data.length > 0 ? (data[0] as AccountingPeriodRecord) : null;
-    }
-
-    if (!isMissingTableError(error)) {
-      console.warn("findLockedAccountingPeriodForDate error:", error.message);
-    }
-  } catch {
-    // fallback below
-  }
-
-  // Fallback to madrasa_settings or madrasas.metadata.accounting_periods
-  try {
-    const settingRes = await getStructuredMadrasaSetting<AccountingPeriodRecord[]>(
-      madrasaId,
-      "locks",
-      "accounting_periods"
-    );
-    let periods: AccountingPeriodRecord[] = [];
-    if (settingRes.found && Array.isArray(settingRes.value)) {
-      periods = settingRes.value;
-    } else {
-      const meta: any = await getMadrasaMetadata(madrasaId);
-      periods = Array.isArray(meta?.accounting_periods) ? meta.accounting_periods : [];
-    }
-
-    const match = periods.find(
-      (p) => p.is_locked && p.start_date <= cleanDate && p.end_date >= cleanDate
-    );
-    return match || null;
-  } catch {
-    return null;
-  }
+export async function findLockedAccountingPeriodForDate(madrasaId: string, dateStr?: string | null) {
+  const date = dateStr?.split('T')[0];
+  if (!madrasaId || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw Error(CALENDAR_UNAVAILABLE);
+  return (await readAccountingCalendar(madrasaId)).find(p => p.is_locked && p.start_date <= date && date <= p.end_date) ?? null;
 }
 
 /**
@@ -191,8 +148,10 @@ export async function assertAccountingPeriodUnlocked(
   madrasaId: string,
   dateStr?: string | null,
   actionLabel = "হিসাব/ভাউচার এন্ট্রি বা পরিবর্তন"
-): Promise<{ locked: false } | { locked: true; error: string; period: AccountingPeriodRecord }> {
-  const lockedPeriod = await findLockedAccountingPeriodForDate(madrasaId, dateStr);
+): Promise<{ locked: false } | { locked: true; error: string; period?: AccountingPeriodRecord }> {
+  let lockedPeriod;
+  try { lockedPeriod = await findLockedAccountingPeriodForDate(madrasaId, dateStr); }
+  catch { return { locked: true, error: CALENDAR_UNAVAILABLE }; }
   if (!lockedPeriod) return { locked: false };
 
   const lockedByInfo = lockedPeriod.locked_by_name

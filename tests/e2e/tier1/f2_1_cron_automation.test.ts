@@ -94,7 +94,7 @@ describe("Tier 1 — Feature 2.1: Scheduled Cron & Automation Engine (Happy Path
       code: "MONTHLY",
       category: "ACADEMIC",
       frequency: "MONTHLY",
-      default_amount: 1500,
+      default_amount: 1500, fund_id:"fund-general", fund_name:"সাধারণ ফান্ড (General Fund)",
       is_active: true,
     });
     harness.db.seed("fee_structures", {
@@ -116,6 +116,13 @@ describe("Tier 1 — Feature 2.1: Scheduled Cron & Automation Engine (Happy Path
       frequency: "MONTHLY",
     });
 
+    // The HTTP job creates unpaid bills via the same protected RPC as the web form.
+    // Database CAS/constraints/rollback are exercised by run-finance-integrity.mjs.
+    harness.db.registerRpc('finance_edit_bills',args=>{
+      assert.equal(args.p_tenant,MADRASA_A_ID);
+      for(const c of args.p_changes as any[]){assert.equal(c.before,null);assert.equal(c.after.paid_amount,0);assert.equal(c.after.fund_id,'fund-general');harness.db.seed('student_fees',c.after);}
+      return null;
+    });
     const firstRes = await monthlyHandler(
       harness.createRequest("/api/cron/monthly-fees", {
         method: "POST",

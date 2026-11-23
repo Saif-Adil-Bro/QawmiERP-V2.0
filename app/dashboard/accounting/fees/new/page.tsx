@@ -1,6 +1,6 @@
 import { getStudents } from "@/app/actions/students";
 import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
-import { getFunds } from "@/app/actions/zakat";
+import { getFundChoices } from "@/app/actions/zakat";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import CollectPaymentClient from "./CollectPaymentClient";
@@ -12,7 +12,7 @@ export default async function NewFeePage(props: {
   const [students, madrasaInfo, funds] = await Promise.all([
     getStudents(),
     getMadrasaInfo(),
-    getFunds(),
+    getFundChoices(),
   ]);
 
   return (

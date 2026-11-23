@@ -446,6 +446,12 @@ export function createTestHarness(): E2eTestHarness {
 
   // Simulated Data API boundary for the route suite. The actual SQL function and
   // provider/login lifecycle run separately on disposable PostgreSQL over HTTP.
+  rpcs.set('finance_billing_session', ({p_tenant,p_wanted,p_allow_default})=>{
+    const term=ensureTable('academic_sessions').filter(s=>s.madrasa_id===p_tenant);
+    const matches=term.filter(s=>(p_wanted && p_wanted!=="default" ? s.id===p_wanted : s.is_active===true) && !s.is_locked && (!s.status || s.status==='ACTIVE'));
+    return matches.length===1 ? matches[0].id : !term.length && p_allow_default ? 'default' : null;
+  });
+  rpcs.set("finance_accounting_calendar", ({p_tenant}) => ensureTable("accounting_periods").filter(p => p.madrasa_id === p_tenant));
   rpcs.set("current_app_session", (_, {authHeader}) => {
     const login = activeTokens.get((authHeader || "").replace(/^Bearer /i, ""));
     if (!login || login.revoked || missingTables.has("user_sessions")) return null;
@@ -602,7 +608,7 @@ export function createTestHarness(): E2eTestHarness {
           out[alias] = match ? projectRow(relTable, match, subSelect).projected : null;
         } else {
           const parentFk1 = `${singularize(table)}_id`;
-          const parentFk2 = table === "approval_workflows" ? "workflow_id" : parentFk1;
+          const parentFk2 = table === "approval_workflows" ? "workflow_id" : table === "fee_structures" ? "structure_id" : table === "fee_payments" ? "payment_id" : parentFk1;
           const children = relRows
             .filter(
               (r) =>

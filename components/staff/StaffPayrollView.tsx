@@ -1,5 +1,6 @@
 "use client";
 
+import {printElementIsolated} from "@/lib/printUtils";
 import { getDhakaYear } from "@/lib/date-utils";
 import React, { useState } from "react";
 import {
@@ -29,6 +30,7 @@ import {
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
 interface StaffPayrollViewProps {
+  salaryEditable:boolean;
   salaryRecords: StaffSalaryPaymentRecord[];
   staffList: StaffMember[];
   madrasaName?: string;
@@ -52,9 +54,10 @@ const MONTH_NAMES_BN: Record<string, string> = {
 };
 
 export default function StaffPayrollView({
+  salaryEditable,
   salaryRecords,
   staffList,
-  madrasaName = "আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা",
+  madrasaName = "মাদরাসা",
   madrasaInfo,
   onRefresh,
 }: StaffPayrollViewProps) {
@@ -139,44 +142,11 @@ export default function StaffPayrollView({
     }
   };
 
-  // Safe Isolated Print Execution
-  const triggerPrintElement = (elementId: string) => {
-    const printableElement = document.getElementById(elementId);
-    if (!printableElement) {
-      window.print();
-      return;
-    }
-
-    const existing = document.getElementById("temp-print-frame");
-    if (existing) existing.remove();
-
-    const clone = printableElement.cloneNode(true) as HTMLElement;
-    clone.id = "temp-print-frame";
-    clone.classList.remove("hidden");
-    clone.classList.add("block");
-    document.body.appendChild(clone);
-    document.body.classList.add("is-printing-now");
-
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove("is-printing-now");
-        const temp = document.getElementById("temp-print-frame");
-        if (temp) temp.remove();
-      }, 500);
-    }, 200);
-  };
-
-  const handlePrintSlip = () => {
-    triggerPrintElement("printable-pay-slip-element");
-  };
-
-  const handlePrintSheet = () => {
-    triggerPrintElement("printable-payroll-sheet-element");
-  };
+  const handlePrintSlip=()=>printElementIsolated('printable-pay-slip-element','বেতন স্লিপ');
+  const handlePrintSheet=()=>printElementIsolated('printable-payroll-sheet-element','পেরোল শিট','landscape');
 
   const currentMadrasaName = madrasaInfo?.name || madrasaName || "মাদরাসা";
-  const currentMadrasaAddress = madrasaInfo?.address || "কাটিয়ারচর, কিশোরগঞ্জ সদর, কিশোরগঞ্জ";
+  const currentMadrasaAddress = madrasaInfo?.address || "";
   const currentMadrasaPhone = madrasaInfo?.phone || "";
 
   return (
@@ -223,7 +193,7 @@ export default function StaffPayrollView({
 
             <button
               onClick={handleGeneratePayroll}
-              disabled={isGenerating}
+              disabled={isGenerating || !salaryEditable}
               className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-xs disabled:opacity-50 cursor-pointer"
             >
               <DollarSign className="w-4 h-4" />
@@ -352,7 +322,7 @@ export default function StaffPayrollView({
 
                           {!isPaid ? (
                             <button
-                              onClick={() => setSelectedRecordToPay(rec)}
+                              disabled={!salaryEditable} onClick={() => setSelectedRecordToPay(rec)}
                               className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-semibold text-[11px] transition cursor-pointer"
                             >
                               পরিশোধ করুন

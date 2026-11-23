@@ -36,41 +36,32 @@ export function reconcilePayments(
     String(v ?? "")
       .trim()
       .toUpperCase();
-  const tracked = new Set(
-    payments.flatMap((p) =>
-      [p.id, p.db_fee_id, p.receipt_no].filter(Boolean).map(key),
-    ),
-  );
-  const merged = payments
-    .filter((p) => includeCancelled || p.status === "COMPLETED")
-    .map((p) => ({ ...p, allocations: receiptAllocations(p) }));
-  for (const f of legacy) {
-    const number =
-      f.receipt_no ||
-      f.receipt_number ||
-      f.notes
-        ?.match(/\[(?:রিসিট|রসিদ|অনলাইন পেমেন্ট|Receipt):\s*([^|\]]+)/i)?.[1]
-        ?.trim();
-    if (
-      ["VOID", "VOIDED", "REVERSED"].includes(f.status) ||
-      tracked.has(key(f.id)) ||
-      (number && tracked.has(key(number)))
-    )
-      continue;
-    const amount = Number(f.amount_paid ?? f.amount ?? 0);
-    merged.push({
-      ...f,
-      db_fee_id: f.id,
-      receipt_no: number || "",
-      status: "COMPLETED",
-      total_amount_received: amount,
-      discount_total: 0,
-      fine_total: 0,
-      advance_amount: 0,
-      allocations: [{ fee_type_name: f.fee_type, allocated_amount: amount }],
-    });
-    if (number) tracked.add(key(number));
+  const stored=payments.map(p=>({...p,allocations:receiptAllocations(p)}));
+  const byId=new Map<string,Set<any>>(), byNumber=new Map<string,Set<any>>(),legacyIds=new Map<string,number>(), legacyNumbers=new Map<string,number>();
+  const numberOf=(f:any)=>f.receipt_no || f.receipt_number || f.notes?.match(/\[(?:রিসিট|রসিদ|অনলাইন পেমেন্ট|Receipt):\s*([^|\]]+)/i)?.[1]?.trim();
+  const add=(m:Map<string,Set<any>>,k:string,row:any)=>{if(k){if(!m.has(k))m.set(k,new Set());m.get(k)!.add(row);}};
+  const mark=(r:any)=>{r.finance_review_reason='ফি রসিদ ও পুরোনো খাতার পরিচয় যাচাই প্রয়োজন';};
+  for (const p of stored){add(byId,key(p.id),p);add(byId,key(p.db_fee_id),p);add(byNumber,key(p.receipt_no),p);}
+  for(const f of legacy){const id=key(f.id),num=key(numberOf(f));legacyIds.set(id,(legacyIds.get(id)||0)+1);if(num)legacyNumbers.set(num,(legacyNumbers.get(num)||0)+1);}
+  for(const p of stored) if(!p.id || (p.db_fee_id && !legacyIds.has(key(p.db_fee_id))) || byId.get(key(p.id))!.size>1 || (byNumber.get(key(p.receipt_no))?.size||0)>1) mark(p);
+  const others:any[]=[];
+  for(const f of legacy){
+    const number=numberOf(f),num=key(number),id=key(f.id);
+    const amount=Number(f.amount_paid??f.amount??0),cancelled=['VOID','VOIDED','REVERSED'].includes(f.status);
+    const candidates=new Set([...(byId.get(id)||[]),...(byNumber.get(num)||[])]);
+    const row={...f,db_fee_id:f.id,receipt_no:number||'',status:cancelled?'VOID':'COMPLETED',total_amount_received:amount,discount_total:0,fine_total:0,advance_amount:0,allocations:[{fee_type_name:f.fee_type,allocated_amount:amount}]};
+    const duplicate=!id || (legacyIds.get(id)||0)>1 || (legacyNumbers.get(num)||0)>1;
+    if(candidates.size===1 && !duplicate){
+      const [p]=candidates;
+      const compatible=(!p.db_fee_id || key(p.db_fee_id)===id) && (!number || !p.receipt_no || num===key(p.receipt_no)) &&
+        (!f.madrasa_id || !p.madrasa_id || f.madrasa_id===p.madrasa_id) && (!f.student_id || !p.student_id || f.student_id===p.student_id) && Number(p.total_amount_received)===amount;
+      // In old books the legacy copy often had no status. Do not revive a cancelled receipt.
+      if(compatible){if(f.status && (p.status==='COMPLETED')===cancelled) mark(p);continue;}
+    }
+    if(duplicate || candidates.size){mark(row);for(const p of candidates)mark(p);}
+    others.push(row);
   }
+  const merged=[...stored,...others].filter(p=>includeCancelled || (p.status==='COMPLETED' && !p.finance_review_reason));
   return merged.sort(
     (a, b) =>
       String(b.payment_date || "").localeCompare(

@@ -31,7 +31,7 @@ import { addDonation, deleteDonation, voidDonationReceipt, unvoidDonationReceipt
 import { 
   DonationItem, 
   DonorItem, 
-  FundItem, 
+  FundItem, REVIEW_FUND, exactFundLabel,
   DonorFrequency,
   getFundCategoryBadge, 
   getDonorTypeBadge, 
@@ -81,7 +81,7 @@ export default function CollectionClient({
   const [quickSavingDonor, setQuickSavingDonor] = useState(false);
 
   // Collection form state
-  const [selectedFundName, setSelectedFundName] = useState(preselectedFundName || "সাধারণ ফান্ড (General Fund)");
+  const [selectedFundId, setSelectedFundId] = useState((funds.find(f => f.is_active!==false && f.id === preselectedFundName) || exactFundLabel(funds.filter(f=>f.is_active!==false),preselectedFundName))?.id || "");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [amount, setAmount] = useState("");
   const [donationDate, setDonationDate] = useState(toDhakaDateString());
@@ -167,7 +167,8 @@ export default function CollectionClient({
 
     const formData = new FormData();
     formData.set("amount", amount);
-    formData.set("donation_type", selectedFundName);
+    formData.set("fund_id", selectedFundId);
+    formData.set("fund_name",funds.find(f => f.id === selectedFundId)?.name || "");
     formData.set("donation_date", donationDate);
     formData.set("payment_method", paymentMethod);
     formData.set("receipt_no", receiptNo);
@@ -226,7 +227,7 @@ export default function CollectionClient({
           donor_id: res.donation.donor_id,
           amount: Number(res.donation.amount),
           donation_type: res.donation.donation_type,
-          fund_name: res.donation.donation_type,
+          fund_id: res.donation.fund_id, fund_name: res.donation.fund_name,
           donation_date: res.donation.donation_date,
           receipt_no: res.donation.receipt_no,
           payment_method: res.donation.payment_method,
@@ -353,9 +354,7 @@ export default function CollectionClient({
       (d.receipt_no && d.receipt_no.toLowerCase().includes(search.toLowerCase())) ||
       (d.notes && d.notes.toLowerCase().includes(search.toLowerCase()));
 
-    const matchesFund = tableFundFilter === "ALL" || 
-      d.donation_type === tableFundFilter || 
-      d.fund_name === tableFundFilter;
+    const matchesFund = tableFundFilter === "ALL" || d.fund_id === tableFundFilter;
 
     return matchesSearch && matchesFund;
   });
@@ -432,13 +431,14 @@ export default function CollectionClient({
               </div>
 
               <select
-                value={selectedFundName}
-                onChange={(e) => setSelectedFundName(e.target.value)}
+                value={selectedFundId}
+                onChange={(e) => setSelectedFundId(e.target.value)}
                 required
                 className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 transition text-sm bg-white font-medium"
               >
-                {funds.map((f) => (
-                  <option key={f.id} value={f.name}>
+                <option value="">ফান্ড নির্বাচন করুন</option>
+                {funds.filter(f=>f.is_active!==false).map((f) => (
+                  <option key={f.id} value={f.id}>
                     {f.name} {f.code ? `[${f.code}]` : ""}
                   </option>
                 ))}
@@ -807,8 +807,8 @@ export default function CollectionClient({
                   className="px-2.5 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 bg-white focus:outline-none cursor-pointer"
                 >
                   <option value="ALL">সকল ফান্ড</option>
-                  {funds.map((f) => (
-                    <option key={f.id} value={f.name}>
+                  {[...funds,REVIEW_FUND].map((f) => (
+                    <option key={f.id} value={f.id}>
                       {f.name}
                     </option>
                   ))}

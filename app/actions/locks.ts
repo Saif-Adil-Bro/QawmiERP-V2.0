@@ -5,13 +5,14 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { requirePermission } from "@/lib/permissions-server";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
-import { saveStructuredMadrasaSetting, getStructuredMadrasaSetting } from "@/lib/structured-config";
+import { canReadSchoolFinance, financeDeniedRoles } from "@/lib/finance/access";
 import {
   LOCK_PRIVILEGED_ROLES,
   hasLockPrivilege,
+  readAccountingCalendar,
   type AccountingPeriodRecord,
 } from "@/lib/lock-guards";
-import { logAuditEvent, isMissingTableError } from "@/lib/audit-log";
+import { logAuditEvent } from "@/lib/audit-log";
 
 async function resolveLockActor() {
   const supabase = await createClient();
@@ -39,6 +40,7 @@ async function resolveLockActor() {
     user,
     madrasaId,
     canManage,
+    canReadCalendar: guard.context && canReadSchoolFinance(guard.context.roles, guard.context.summary.effectivePermissions),
     guardError: guard.error,
     actorName: guard.context?.profile?.fullName || user.email || "প্রশাসন",
     actorEmail: guard.context?.profile?.email || user.email || null,
@@ -57,47 +59,15 @@ export async function getCanManageLocks(): Promise<boolean> {
  */
 export async function getAccountingPeriods(): Promise<{
   periods: AccountingPeriodRecord[];
-  storage: "sql" | "fallback";
+  storage: "sql" | "unavailable";
   canManage: boolean;
 }> {
   const ctx = await resolveLockActor();
-  if ("error" in ctx) return { periods: [], storage: "fallback", canManage: false };
-
-  try {
-    const adminClient = await createAdminClient();
-    const { data, error } = await adminClient
-      .from("accounting_periods")
-      .select("*")
-      .eq("madrasa_id", ctx.madrasaId)
-      .order("start_date", { ascending: false });
-
-    if (!error && Array.isArray(data)) {
-      return {
-        periods: data as AccountingPeriodRecord[],
-        storage: "sql",
-        canManage: ctx.canManage,
-      };
-    }
-
-    if (error && !isMissingTableError(error)) {
-      console.warn("getAccountingPeriods error:", error.message);
-    }
-  } catch {
-    // fallback below
+  if (!("error" in ctx) && ctx.canReadCalendar) {
+    try { return { periods: await readAccountingCalendar(ctx.madrasaId), storage: "sql", canManage: ctx.canManage }; }
+    catch { /* never present a failed calendar read as zero closures */ }
   }
-
-  const settingRes = await getStructuredMadrasaSetting<AccountingPeriodRecord[]>(
-    ctx.madrasaId,
-    "locks",
-    "accounting_periods"
-  );
-  if (settingRes.found && Array.isArray(settingRes.value)) {
-    return { periods: settingRes.value, storage: "fallback", canManage: ctx.canManage };
-  }
-
-  const meta: any = await getMadrasaMetadata(ctx.madrasaId);
-  const list = Array.isArray(meta?.accounting_periods) ? meta.accounting_periods : [];
-  return { periods: list, storage: "fallback", canManage: ctx.canManage };
+  return { periods: [], storage: "unavailable", canManage: false };
 }
 
 /**
@@ -121,7 +91,7 @@ export async function toggleAccountingPeriodLock(input: {
 }> {
   const ctx = await resolveLockActor();
   if ("error" in ctx) return { error: ctx.error };
-  if (!ctx.canManage) {
+  if (!ctx.canManage || !ctx.canReadCalendar) {
     await logAuditEvent({
       madrasaId: ctx.madrasaId,
       actorId: ctx.user.id,
@@ -143,12 +113,18 @@ export async function toggleAccountingPeriodLock(input: {
     };
   }
 
+  if (!input || typeof input.shouldLock !== "boolean" || !input.periodKey?.trim() ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(input.startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(input.endDate) || input.endDate < input.startDate) {
+    return { error: "হিসাবকালের তারিখ ও লক অবস্থা সঠিক নয়।" };
+  }
   if (!input.shouldLock) {
     const stepUpGuard = await requirePermission({
       userId: ctx.user.id,
       madrasaId: ctx.madrasaId,
       roles: LOCK_PRIVILEGED_ROLES,
       riskLevel: "CRITICAL",
+      requireStepUp: true,
+      denyRoles: financeDeniedRoles,
       actionScope: "accounting_period.unlock",
     });
     if (!stepUpGuard.allowed) {
@@ -182,52 +158,13 @@ export async function toggleAccountingPeriodLock(input: {
   };
 
   let savedRecord: AccountingPeriodRecord | null = null;
-  let usedSql = false;
-
   try {
     const adminClient = await createAdminClient();
-    const { data, error } = await adminClient
-      .from("accounting_periods")
-      .upsert(payload, { onConflict: "madrasa_id,period_key" })
-      .select("*")
-      .single();
-
-    if (!error && data) {
-      savedRecord = data as AccountingPeriodRecord;
-      usedSql = true;
-    } else if (error && !isMissingTableError(error)) {
-      return { error: error.message };
-    }
-  } catch (err: any) {
-    console.warn("toggleAccountingPeriodLock SQL error:", err);
-  }
-
-  if (!usedSql) {
-    const existing = await getAccountingPeriods();
-    const list = [...existing.periods];
-    const idx = list.findIndex((p) => p.period_key === input.periodKey);
-    const fallbackRec: AccountingPeriodRecord = {
-      id: idx >= 0 ? list[idx].id : `period_${input.periodKey}`,
-      ...payload,
-      created_at: idx >= 0 ? list[idx].created_at : now,
-    };
-    if (idx >= 0) list[idx] = fallbackRec;
-    else list.unshift(fallbackRec);
-
-    const savedSetting = await saveStructuredMadrasaSetting(
-      ctx.madrasaId,
-      "locks",
-      "accounting_periods",
-      list,
-      ctx.user.id
-    );
-    if (!savedSetting.ok) {
-      const meta: any = await getMadrasaMetadata(ctx.madrasaId);
-      meta.accounting_periods = list;
-      await saveMadrasaMetadata(ctx.madrasaId, meta);
-    }
-    savedRecord = fallbackRec;
-  }
+    const { data, error } = await adminClient.from('accounting_periods')
+      .upsert(payload, { onConflict: 'madrasa_id,period_key' }).select('*').single();
+    if (error || !data) return { error: "হিসাবকালের পরিবর্তন নিশ্চিত হয়নি। ক্যালেন্ডার যাচাই করুন।" };
+    savedRecord = data;
+  } catch { return { error: "হিসাবকালের পরিবর্তন নিশ্চিত হয়নি। ক্যালেন্ডার যাচাই করুন।" }; }
 
   await logAuditEvent({
     madrasaId: ctx.madrasaId,

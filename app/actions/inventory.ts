@@ -1,10 +1,11 @@
 "use server";
+import { postingFund, postingError } from "@/lib/finance/funds";
 
 import { toDhakaDateString, toDhakaDateStringFrom } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { revalidatePath } from "next/cache";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
-import { createClient, getAuthUser } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import {
   AssetItem,
@@ -347,7 +348,7 @@ export async function recordMaintenance(data: {
   cost: number;
   technician_or_shop: string;
   voucher_no?: string;
-  fund_name: string;
+  fund_id: string;
   auto_add_to_expense?: boolean;
 }) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
@@ -368,8 +369,10 @@ export async function recordMaintenance(data: {
     if (!item) return { error: "সম্পদ পাওয়া যায়নি" };
 
     const now = new Date().toISOString();
-    const cost = Number(data.cost) || 0;
+    const cost = Number(data.cost);
 
+    const posting=!!data.auto_add_to_expense && cost>0;
+    const fund = posting || data.fund_id ? await postingFund(madrasaId,data.fund_id,posting?"expense":"deposit","Maintenance") : null;
     const newRecord: MaintenanceRecord = {
       id: `mnt_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       asset_id: item.id,
@@ -381,34 +384,17 @@ export async function recordMaintenance(data: {
       cost,
       technician_or_shop: data.technician_or_shop.trim(),
       voucher_no: data.voucher_no?.trim() || "",
-      fund_name: data.fund_name || "সাধারণ ফান্ড",
+      fund_name: fund?.name || "", fund_id: fund?.id,
       auto_add_to_expense: !!data.auto_add_to_expense,
       created_at: now,
     };
 
-    meta.inventory.maintenance = meta.inventory.maintenance || [];
-    meta.inventory.maintenance.unshift(newRecord);
-
-    // If auto_add_to_expense is checked and cost > 0, create an entry in madrasa expenses!
-    if (data.auto_add_to_expense && cost > 0) {
-      try {
-        const supabase = await createClient();
-        const fundTag = `[FUND: ${data.fund_name.toLowerCase().includes("উন্নয়ন") ? "fund-building" : "fund-general"} | ${data.fund_name}]`;
-        await supabase.from("expenses").insert({
-          madrasa_id: madrasaId,
-          category: "রক্ষণাবেক্ষণ ও মেরামত",
-          amount: cost,
-          expense_date: data.maintenance_date,
-          description: `${fundTag} ${item.name} (${item.asset_code}) মেরামত: ${data.work_done} - দোকান: ${data.technician_or_shop}`,
-        });
-      } catch (expErr) {
-        console.error("Auto expense error:", expErr);
-      }
-    }
-
-    await saveMadrasaMetadata(madrasaId, meta);
+    const db=await createAdminClient();
+    const {data:record,error}=await db.rpc("finance_record_maintenance",{p_tenant:madrasaId,p_record:newRecord});
+    if (error) return {error:postingError(error)};
     revalidatePath("/dashboard/inventory");
-    return { success: true, record: newRecord };
+    revalidatePath("/dashboard/accounting/expenses");
+    return {success:true,record:record as MaintenanceRecord};
   } catch (error: any) {
     return { error: error.message || "রক্ষণাবেক্ষণ খরচ রেকর্ড করতে ব্যর্থ হয়েছে" };
   }
@@ -429,6 +415,7 @@ export async function deleteMaintenance(id: string) {
     const meta = await getMadrasaMetadata(madrasaId);
     if (!meta.inventory?.maintenance) return { error: "রেকর্ড পাওয়া যায়নি" };
 
+    if (meta.inventory.maintenance.some((r:MaintenanceRecord)=>r.id===id && r.auto_add_to_expense && r.cost>0)) return {error:"ব্যয় ভাউচারযুক্ত মেরামত রেকর্ড মোছা যাবে না।"};
     meta.inventory.maintenance = meta.inventory.maintenance.filter((m: MaintenanceRecord) => m.id !== id);
     await saveMadrasaMetadata(madrasaId, meta);
 

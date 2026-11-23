@@ -1,6 +1,10 @@
 "use server";
 
-import { randomBytes } from "node:crypto";
+import { isMaskedValue } from "@/lib/pii-masking";
+import { confirmsMirror,saleAmount } from "@/lib/finance/collection-links";
+import { ledgerEntries,money } from "@/lib/finance/entries";
+import { financeRows,fundCatalog,replaceSources,collectionSnapshot, postCollection, postingFund } from "@/lib/finance/funds";
+import { randomBytes, randomUUID } from "node:crypto";
 import { getDefaultMadrasaId } from "@/lib/madrasa-default";
 import { toDhakaDateStringFrom, toDhakaDateString, toDhakaMonthString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
@@ -23,9 +27,9 @@ import {
   OnlineDonationSettings,
   DEFAULT_ONLINE_DONATION_SETTINGS,
 } from "@/lib/fundraising-types";
-import { isUuid } from "@/lib/student-utils";
-import { DEFAULT_FUNDS, normalizeFundName } from "@/lib/fund-utils";
-import { getFunds, getNextMahfilVoucherNo } from "@/app/actions/zakat";
+import {isPostingUuid as isUuid} from "@/lib/finance/collection-links";
+import { collectionFund, storedFund, REVIEW_FUND, isVoidDonation } from "@/lib/fund-utils";
+import { getFundChoices, getNextMahfilVoucherNo } from "@/app/actions/zakat";
 import {
   createRealGatewaySession,
   bdtPoisha, paymentCallbackOrigin,
@@ -37,67 +41,25 @@ import { DEFAULT_GATEWAY_CONFIG, PaymentGatewayConfig } from "@/lib/payment-gate
 // 1. MAHFIL (বার্ষিক মহাসম্মেলন ও মাহফিল)
 // ============================================================================
 
-export async function resolveMadrasaAndMahfil(mahfilId?: string): Promise<{
+async function resolveMadrasaAndMahfil(mahfilId?: string): Promise<{
   activeMadrasaId: string;
   meta: any;
   mahfils: Mahfil[];
   targetMahfil?: Mahfil;
+  before:Record<string,any>;
 }> {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
-  let finalMadrasaId = await getAuthMadrasaId(supabase, user);
-
-  let activeMadrasaId = finalMadrasaId || "";
-  let meta: any = finalMadrasaId ? await getMadrasaMetadata(finalMadrasaId) : {};
-  let mahfils: Mahfil[] = meta?.mahfils || [];
-  let targetMahfil = mahfilId ? mahfils.find((m: Mahfil) => m.id === mahfilId) : undefined;
-
-  // Search across madrasas if targetMahfil is not in current madrasa or if activeMadrasaId is empty
-  if ((mahfilId && !targetMahfil) || !activeMadrasaId) {
-    try {
-      const adminClient = await createAdminClient();
-      const { data: allMadrasas } = await adminClient
-        .from("madrasas")
-        .select("id, registration_no");
-
-      if (allMadrasas && allMadrasas.length > 0) {
-        if (mahfilId) {
-          for (const mRow of allMadrasas) {
-            if (mRow.registration_no && mRow.registration_no.startsWith("{")) {
-              try {
-                const pMeta = JSON.parse(mRow.registration_no);
-                const found = (pMeta.mahfils || []).find((m: Mahfil) => m.id === mahfilId);
-                if (found) {
-                  targetMahfil = found;
-                  activeMadrasaId = mRow.id;
-                  meta = pMeta;
-                  mahfils = pMeta.mahfils || [];
-                  break;
-                }
-              } catch {}
-            }
-          }
-        }
-
-        if (!activeMadrasaId) {
-          activeMadrasaId = allMadrasas[0].id;
-          meta = await getMadrasaMetadata(activeMadrasaId);
-          mahfils = meta?.mahfils || [];
-          if (mahfilId && !targetMahfil) {
-            targetMahfil = mahfils.find((m: Mahfil) => m.id === mahfilId);
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("Could not search across madrasas:", e);
-    }
-  }
-
-  return { activeMadrasaId, meta, mahfils, targetMahfil };
+  const activeMadrasaId = (user && await getAuthMadrasaId(supabase,user)) || "";
+  const meta = activeMadrasaId ? await getMadrasaMetadata(activeMadrasaId,true) : {};
+  const mahfils: Mahfil[] = meta.mahfils || [];
+  const targetMahfil = mahfils.find(m => m.id === mahfilId);
+  return { activeMadrasaId, meta, mahfils, targetMahfil, before:collectionSnapshot(meta,"mahfils") };
 }
 
 export async function getMahfils(): Promise<Mahfil[]> {
   try {
+    if(!(await writeGuard("financeRead")).allowed) throw Error("অনুমতি নেই।");
     const { activeMadrasaId, meta, mahfils: resolvedMahfils } = await resolveMadrasaAndMahfil();
     if (!activeMadrasaId) return [];
 
@@ -112,24 +74,7 @@ export async function getMahfils(): Promise<Mahfil[]> {
 export async function getMahfilById(id: string): Promise<Mahfil | null> {
   try {
     const mahfils = await getMahfils();
-    const found = mahfils.find((m: Mahfil) => m.id === id);
-    if (found) return found;
-
-    // Fallback search in all madrasas
-    const adminClient = await createAdminClient();
-    const { data: allMadrasas } = await adminClient.from("madrasas").select("id, registration_no");
-    for (const mRow of allMadrasas || []) {
-      if (mRow.registration_no && mRow.registration_no.startsWith("{")) {
-        try {
-          const pMeta = JSON.parse(mRow.registration_no);
-          const f = (pMeta.mahfils || []).find((m: Mahfil) => m.id === id);
-          if (f) return f;
-        } catch {}
-      }
-    }
-
-    // If still not found, return first mahfil if available
-    return mahfils[0] || null;
+    return mahfils.find(m => m.id === id) || null;
   } catch (err) {
     console.error("Error fetching mahfil by id:", err);
     return null;
@@ -150,27 +95,20 @@ export async function saveMahfil(data: Partial<Mahfil>) {
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
     const mahfils: Mahfil[] = meta.mahfils || [];
     const now = new Date().toISOString();
 
+    const before = collectionSnapshot(meta,"mahfils");
     let targetId = data.id;
     if (targetId) {
-      const index = mahfils.findIndex((m: Mahfil) => m.id === targetId);
-      if (index !== -1) {
-        mahfils[index] = {
-          ...mahfils[index],
-          ...data,
-          updated_at: now,
-        };
-      } else {
-        mahfils.unshift({
-          ...(data as Mahfil),
-          id: targetId,
-          madrasa_id: finalMadrasaId,
-          updated_at: now,
-        });
+      const event = mahfils.find(m=>m.id===targetId);
+      if (!event) return {error:"মাহফিল পাওয়া যায়নি।"};
+      // Event header form may submit an old copy of the books. Never replace those books here.
+      for (const key of ['title','year','hijri_year','start_date','end_date','venue','president','host','target_budget','status','notes'] as const) {
+        if (data[key]!==undefined) Object.assign(event,{[key]:data[key]});
       }
+      event.updated_at = now;
     } else {
       targetId = `mahfil_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const newMahfil: Mahfil = {
@@ -185,9 +123,7 @@ export async function saveMahfil(data: Partial<Mahfil>) {
         president: data.president || "",
         host: data.host || "",
         target_budget: Number(data.target_budget || 0),
-        speakers: data.speakers || [],
-        receipt_books: data.receipt_books || [],
-        transactions: data.transactions || [],
+        speakers: [], receipt_books: [], transactions: [],
         status: data.status || "UPCOMING",
         notes: data.notes || "",
         created_at: now,
@@ -197,8 +133,7 @@ export async function saveMahfil(data: Partial<Mahfil>) {
     }
 
     meta.mahfils = mahfils;
-    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
-    if (!ok) return { error: "ডাটা সংরক্ষণে সমস্যা হয়েছে" };
+    await replaceSources(finalMadrasaId,before,meta);
 
     try {
       revalidatePath("/dashboard/fundraising/mahfil");
@@ -226,62 +161,16 @@ export async function deleteMahfil(id: string) {
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    const before = collectionSnapshot(meta,"mahfils");
     const targetMahfil = (meta.mahfils || []).find((m: Mahfil) => m.id === id);
 
-    // Clean up any settlements and accounting vouchers created by this Mahfil
-    if (targetMahfil) {
-      const adminClient = await createAdminClient();
-      const allSettlements = targetMahfil.settlements || (targetMahfil.settlement ? [targetMahfil.settlement] : []);
-      for (const s of allSettlements) {
-        try {
-          if (s.accounting_record_id) {
-            await adminClient.from("donations").delete().eq("id", s.accounting_record_id);
-            await adminClient.from("expenses").delete().eq("id", s.accounting_record_id);
-          }
-          if (s.accounting_voucher_no) {
-            await adminClient.from("donations").delete().eq("receipt_no", s.accounting_voucher_no);
-            await adminClient.from("expenses").delete().eq("voucher_no", s.accounting_voucher_no);
-            await adminClient.from("donations").delete().like("notes", `%${s.accounting_voucher_no}%`);
-            await adminClient.from("expenses").delete().like("description", `%${s.accounting_voucher_no}%`);
-          }
-          // Revert zakat_funds balance
-          const { data: zFunds } = await adminClient.from("zakat_funds").select("id, name, current_balance").eq("madrasa_id", finalMadrasaId);
-          if (zFunds && zFunds.length > 0) {
-            const tFund = zFunds.find((f: any) => f.id === s.fund_id || f.name?.trim().toLowerCase() === s.fund_name?.trim().toLowerCase());
-            if (tFund) {
-              const current = Number(tFund.current_balance) || 0;
-              const revertBal = s.settlement_type === "SURPLUS_DEPOSIT" ? Math.max(0, current - s.amount) : current + s.amount;
-              await adminClient.from("zakat_funds").update({ current_balance: revertBal }).eq("id", tFund.id);
-            }
-          }
-        } catch (sErr) {
-          console.warn("Could not clean up settlement accounting for deleted mahfil:", sErr);
-        }
-      }
-    }
-
+    if (!targetMahfil) return {error:"মাহফিল পাওয়া যায়নি।"};
+    if (targetMahfil.settlement || targetMahfil.settlements?.length || targetMahfil.transactions?.length || targetMahfil.receipt_books?.length) return {error:"খাতাসহ মাহফিল মুছবেন না। মাহফিলটি সমাপ্ত হিসেবে সংরক্ষণ করুন।"};
     meta.mahfils = (meta.mahfils || []).filter((m: Mahfil) => m.id !== id);
 
-    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
+    const ok = await replaceSources(finalMadrasaId,before,meta);
     if (!ok) return { error: "মুছতে সমস্যা হয়েছে" };
-
-    // Clean up across other madrasa rows if present
-    try {
-      const adminClient = await createAdminClient();
-      const { data: allMadrasas } = await adminClient.from("madrasas").select("id, registration_no");
-      for (const mRow of allMadrasas || []) {
-        if (mRow.id !== finalMadrasaId && mRow.registration_no && mRow.registration_no.startsWith("{")) {
-          try {
-            const pMeta = JSON.parse(mRow.registration_no);
-            if (pMeta.mahfils && pMeta.mahfils.some((m: any) => m.id === id)) {
-              pMeta.mahfils = pMeta.mahfils.filter((m: any) => m.id !== id);
-              await saveMadrasaMetadata(mRow.id, pMeta);
-            }
-          } catch {}
-        }
-      }
-    } catch {}
 
     try {
       revalidatePath("/dashboard/fundraising/mahfil");
@@ -312,7 +201,7 @@ export async function saveMahfilSpeaker(mahfilId: string, speaker: Partial<Mahfi
   }
 
   try {
-    const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
+    const { activeMadrasaId, meta, mahfils, targetMahfil, before } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
 
     const speakers = targetMahfil.speakers || [];
@@ -343,7 +232,7 @@ export async function saveMahfilSpeaker(mahfilId: string, speaker: Partial<Mahfi
     targetMahfil.updated_at = new Date().toISOString();
 
     meta.mahfils = mahfils;
-    await saveMadrasaMetadata(activeMadrasaId, meta);
+    await replaceSources(activeMadrasaId,before,meta);
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
@@ -363,14 +252,14 @@ export async function deleteMahfilSpeaker(mahfilId: string, speakerId: string) {
   }
 
   try {
-    const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
+    const { activeMadrasaId, meta, mahfils, targetMahfil, before } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
 
     targetMahfil.speakers = (targetMahfil.speakers || []).filter((s: MahfilSpeaker) => s.id !== speakerId);
     targetMahfil.updated_at = new Date().toISOString();
 
     meta.mahfils = mahfils;
-    await saveMadrasaMetadata(activeMadrasaId, meta);
+    await replaceSources(activeMadrasaId,before,meta);
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
@@ -390,30 +279,8 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
   }
 
   try {
-    const { activeMadrasaId, meta, mahfils, targetMahfil: resolvedMahfil } = await resolveMadrasaAndMahfil(mahfilId);
-    if (!activeMadrasaId) return { error: "মাদ্রাসা আইডি পাওয়া যায়নি" };
-
-    let targetMahfil = resolvedMahfil;
-
-    // If still not found, create a placeholder mahfil in the current madrasa
-    if (!targetMahfil) {
-      targetMahfil = {
-        id: mahfilId,
-        madrasa_id: activeMadrasaId,
-        title: "বার্ষিক ইসলামি মহাসম্মেলন",
-        year: String(getDhakaYear()),
-        start_date: toDhakaDateString(),
-        end_date: toDhakaDateString(),
-        venue: "মাদ্রাসা ময়দান",
-        status: "UPCOMING",
-        speakers: [],
-        receipt_books: [],
-        transactions: [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      mahfils.push(targetMahfil);
-    }
+    const {activeMadrasaId,meta,mahfils,targetMahfil,before} = await resolveMadrasaAndMahfil(mahfilId);
+    if (!targetMahfil) return {error:"মাহফিল পাওয়া যায়নি।"};
 
     const books = targetMahfil.receipt_books || [];
     const pageFrom = Number(book.page_from || 1);
@@ -577,7 +444,7 @@ export async function saveMahfilReceiptBook(mahfilId: string, book: Partial<Mahf
     targetMahfil.updated_at = new Date().toISOString();
 
     meta.mahfils = mahfils;
-    const saveSuccess = await saveMadrasaMetadata(activeMadrasaId, meta);
+    const saveSuccess = await replaceSources(activeMadrasaId,before,meta);
     if (!saveSuccess) {
       return { error: "ডাটাবেজে কুপন বই সংরক্ষণ করা সম্ভব হয়নি। পুনরায় চেষ্টা করুন।" };
     }
@@ -616,7 +483,7 @@ export async function saveMahfilBulkReceiptBooks(
   }
 
   try {
-    const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
+    const { activeMadrasaId, meta, mahfils, targetMahfil, before } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
 
     const totalBooks = Math.max(1, Math.min(500, Number(params.totalBooks || 1)));
@@ -683,7 +550,7 @@ export async function saveMahfilBulkReceiptBooks(
     targetMahfil.updated_at = new Date().toISOString();
 
     meta.mahfils = mahfils;
-    const saveSuccess = await saveMadrasaMetadata(activeMadrasaId, meta);
+    const saveSuccess = await replaceSources(activeMadrasaId,before,meta);
     if (!saveSuccess) {
       return { error: "ডাটাবেজে বাল্ক রসিদ বই সংরক্ষণ করা সম্ভব হয়নি।" };
     }
@@ -708,14 +575,14 @@ export async function deleteMahfilReceiptBook(mahfilId: string, bookId: string) 
   }
 
   try {
-    const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
+    const { activeMadrasaId, meta, mahfils, targetMahfil, before } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
 
     targetMahfil.receipt_books = (targetMahfil.receipt_books || []).filter((b: MahfilReceiptBook) => b.id !== bookId);
     targetMahfil.updated_at = new Date().toISOString();
 
     meta.mahfils = mahfils;
-    await saveMadrasaMetadata(activeMadrasaId, meta);
+    await replaceSources(activeMadrasaId,before,meta);
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
@@ -735,9 +602,11 @@ export async function saveMahfilTransaction(mahfilId: string, txn: Partial<Mahfi
   }
 
   try {
-    const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
+    const { activeMadrasaId, meta, mahfils, targetMahfil, before } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
 
+    if (!(bdtPoisha(txn.amount) ?? 0)) return {error:"লেনদেনের অঙ্ক সঠিক নয়।"};
+    if (txn.id && [...(targetMahfil.settlements || []),targetMahfil.settlement].some(s=>s?.mahfil_txn_id===txn.id)) return {error:"সমন্বিত ভাউচার আলাদাভাবে বদলানো যাবে না।"};
     const txns = targetMahfil.transactions || [];
     if (txn.id) {
       const idx = txns.findIndex((t: MahfilTransaction) => t.id === txn.id);
@@ -769,7 +638,7 @@ export async function saveMahfilTransaction(mahfilId: string, txn: Partial<Mahfi
     targetMahfil.updated_at = new Date().toISOString();
 
     meta.mahfils = mahfils;
-    await saveMadrasaMetadata(activeMadrasaId, meta);
+    await replaceSources(activeMadrasaId,before,meta);
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
@@ -789,7 +658,7 @@ export async function deleteMahfilTransaction(mahfilId: string, txnId: string) {
   }
 
   try {
-    const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
+    const { activeMadrasaId, meta, mahfils, targetMahfil, before } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
 
     const targetTxn = (targetMahfil.transactions || []).find((t: MahfilTransaction) => t.id === txnId);
@@ -797,38 +666,10 @@ export async function deleteMahfilTransaction(mahfilId: string, txnId: string) {
     targetMahfil.transactions = (targetMahfil.transactions || []).filter((t: MahfilTransaction) => t.id !== txnId);
     targetMahfil.updated_at = new Date().toISOString();
 
-    // If deleting a settlement transaction, clean up associated settlement and accounting entries
-    if (targetTxn && (targetTxn.id?.startsWith("txn_settle") || targetTxn.voucher_no?.startsWith("MHF-20") || targetTxn.voucher_no?.startsWith("EXP-MHF"))) {
-      const associatedSettlement = (targetMahfil.settlements || []).find((s: MahfilSettlement) => 
-        s.mahfil_txn_id === txnId || s.accounting_voucher_no === targetTxn.voucher_no
-      ) || (targetMahfil.settlement?.mahfil_txn_id === txnId ? targetMahfil.settlement : undefined);
-
-      if (associatedSettlement) {
-        targetMahfil.settlements = (targetMahfil.settlements || []).filter((s: MahfilSettlement) => s.id !== associatedSettlement.id);
-        if (targetMahfil.settlement?.id === associatedSettlement.id) {
-          targetMahfil.settlement = targetMahfil.settlements.length > 0 ? targetMahfil.settlements[targetMahfil.settlements.length - 1] : undefined;
-        }
-
-        try {
-          const adminClient = await createAdminClient();
-          if (associatedSettlement.accounting_record_id) {
-            await adminClient.from("donations").delete().eq("id", associatedSettlement.accounting_record_id);
-            await adminClient.from("expenses").delete().eq("id", associatedSettlement.accounting_record_id);
-          }
-          if (associatedSettlement.accounting_voucher_no) {
-            await adminClient.from("donations").delete().eq("receipt_no", associatedSettlement.accounting_voucher_no);
-            await adminClient.from("expenses").delete().eq("voucher_no", associatedSettlement.accounting_voucher_no);
-            await adminClient.from("donations").delete().like("notes", `%${associatedSettlement.accounting_voucher_no}%`);
-            await adminClient.from("expenses").delete().like("description", `%${associatedSettlement.accounting_voucher_no}%`);
-          }
-        } catch (dbErr) {
-          console.warn("Could not delete accounting entry for transaction:", dbErr);
-        }
-      }
-    }
+    if (!targetTxn || [...(targetMahfil.settlements || []),targetMahfil.settlement].some(st=>st && (st.mahfil_txn_id===txnId || (st.accounting_voucher_no && [targetTxn.receipt_no,targetTxn.voucher_no].includes(st.accounting_voucher_no))))) return {error:"সমন্বিত লেনদেন আলাদাভাবে মোছা যাবে না।"};
 
     meta.mahfils = mahfils;
-    await saveMadrasaMetadata(activeMadrasaId, meta);
+    await replaceSources(activeMadrasaId,before,meta);
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
@@ -857,31 +698,7 @@ export interface MahfilSettlementPayload {
 }
 
 export async function getAvailableFundsForMahfil() {
-  try {
-    const allFunds = await getFunds();
-    if (allFunds && allFunds.length > 0) {
-      return allFunds.map(f => ({
-        id: f.id,
-        name: f.name,
-        category: f.category || "General",
-        current_balance: Number((f as any).current_balance || 0),
-      }));
-    }
-
-    return DEFAULT_FUNDS.map(f => ({
-      id: f.id,
-      name: f.name,
-      category: f.category,
-      current_balance: 0,
-    }));
-  } catch {
-    return DEFAULT_FUNDS.map(f => ({
-      id: f.id,
-      name: f.name,
-      category: f.category,
-      current_balance: 0,
-    }));
-  }
+  return getFundChoices();
 }
 
 export async function settleMahfilFund(mahfilId: string, payload: MahfilSettlementPayload) {
@@ -893,186 +710,35 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
   }
 
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
     if (!activeMadrasaId || !targetMahfil) return { error: "মাহফিল পাওয়া যায়নি" };
-
-    const adminClient = await createAdminClient();
+    if (!["SURPLUS_DEPOSIT","DEFICIT_COVER"].includes(payload.settlement_type)) return {error:"সমন্বয়ের ধরন সঠিক নয়।"};
+    const surplus = payload.settlement_type === "SURPLUS_DEPOSIT";
+    const fund = await postingFund(activeMadrasaId,payload.fund_id,surplus ? "deposit" : "mahfil_deficit","","",payload.fund_name);
+    const before = collectionSnapshot(meta,"mahfils");
     const settlementId = `settle_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
     const now = new Date().toISOString();
     const dateStr = payload.settlement_date || toDhakaDateStringFrom(now);
     const amount = Number(payload.amount);
 
-    if (!amount || amount <= 0) {
-      return { error: "সঠিক পরিমাণ টাকা উল্লেখ করুন।" };
-    }
-
-    let accountingVoucherNo = "";
-    let accountingRecordId = "";
-    const mahfilTxnId = `txn_settle_${Date.now()}`;
-
-    if (payload.settlement_type === "SURPLUS_DEPOSIT") {
-      // 1. Surplus: Deposit into target Fund -> Create Income / Donation record in Accounting
-      accountingVoucherNo = await getNextMahfilVoucherNo(activeMadrasaId, "SURPLUS");
-      const donationNotes = `[মাহফিল উদ্বৃত্ত তহবিল জমা] মাহফিল: ${targetMahfil.title} (${targetMahfil.year}) থেকে ${payload.fund_name}-এ উদ্বৃত্ত জমা।${payload.payment_method ? ` [Method: ${payload.payment_method}]` : ""} ${payload.notes || ""}`.trim();
-      
-      const { data: donRec, error: donErr } = await adminClient.from("donations").insert({
-        madrasa_id: activeMadrasaId,
-        amount: amount,
-        donation_type: payload.fund_name,
-        donation_date: dateStr,
-        receipt_no: accountingVoucherNo,
-        notes: donationNotes,
-      }).select("id").single();
-
-      if (donErr) {
-        console.error("Error creating donation for mahfil surplus:", donErr);
-      }
-      accountingRecordId = donRec?.id || "";
-
-      // Ensure sync to finalMadrasaId if different
-      if (finalMadrasaId && finalMadrasaId !== activeMadrasaId) {
-        try {
-          await adminClient.from("donations").insert({
-            madrasa_id: finalMadrasaId,
-            amount: amount,
-            donation_type: payload.fund_name,
-            donation_date: dateStr,
-            receipt_no: accountingVoucherNo,
-            notes: donationNotes,
-          });
-        } catch (syncErr) {
-          console.error("Cross-madrasa donation sync note:", syncErr);
-        }
-      }
-
-      // Also update zakat_funds balance if applicable
-      try {
-        const { data: zFunds } = await adminClient
-          .from("zakat_funds")
-          .select("id, name, current_balance")
-          .eq("madrasa_id", activeMadrasaId);
-
-        if (zFunds && zFunds.length > 0) {
-          const targetFund = zFunds.find(
-            (f: any) =>
-              f.id === payload.fund_id ||
-              f.name?.trim().toLowerCase() === payload.fund_name.trim().toLowerCase() ||
-              payload.fund_name.toLowerCase().includes(f.name?.toLowerCase() || "")
-          );
-          if (targetFund) {
-            await adminClient
-              .from("zakat_funds")
-              .update({ current_balance: (Number(targetFund.current_balance) || 0) + amount })
-              .eq("id", targetFund.id);
-          }
-        }
-      } catch (zfErr) {
-        console.error("zakat_funds balance update note:", zfErr);
-      }
-
-      // Also create a Mahfil EXPENSE transaction to balance the Mahfil account
-      const mahfilTxn: MahfilTransaction = {
-        id: mahfilTxnId,
-        mahfil_id: mahfilId,
-        type: "EXPENSE",
-        category: "উদ্বৃত্ত ফান্ডে স্থানান্তর",
-        amount: amount,
-        description: `মাহফিলের উদ্বৃত্ত অর্থ ${payload.fund_name}-এ স্থানান্তর ও জমা (${accountingVoucherNo})`,
-        date: dateStr,
-        payment_method: payload.payment_method || "Cash",
-        receipt_no: accountingVoucherNo,
-      };
-
-      targetMahfil.transactions = [...(targetMahfil.transactions || []), mahfilTxn];
-    } else {
-      // 2. Deficit: Cover from another Fund -> Create Expense Voucher in Madrasa Accounting
-      accountingVoucherNo = await getNextMahfilVoucherNo(activeMadrasaId, "DEFICIT");
-      const cleanDesc = `মাহফিল: ${targetMahfil.title} (${targetMahfil.year}) এর ঘাটতি পূরণ বাবদ ${payload.fund_name} থেকে প্রদান। ${payload.notes || ""}`.trim();
-      const wrappedDesc = `[FUND: ${payload.fund_id} | ${payload.fund_name}]\n${cleanDesc}`;
-
-      const expPayload: any = {
-        madrasa_id: activeMadrasaId,
-        category: "মাহফিল ঘাটতি সমন্বয়",
-        amount: amount,
-        expense_date: dateStr,
-        description: wrappedDesc,
-      };
-
-      let { data: expRec, error: expErr } = await adminClient
-        .from("expenses")
-        .insert({
-          ...expPayload,
-          fund_id: payload.fund_id,
-          fund_name: payload.fund_name,
-          voucher_no: accountingVoucherNo,
-        })
-        .select("id")
-        .single();
-
-      if (expErr) {
-        const { data: retryExp } = await adminClient
-          .from("expenses")
-          .insert(expPayload)
-          .select("id")
-          .single();
-        if (retryExp) expRec = retryExp;
-      }
-
-      accountingRecordId = expRec?.id || "";
-
-      // Deduct from zakat_funds balance if applicable
-      try {
-        const { data: zFunds } = await adminClient
-          .from("zakat_funds")
-          .select("id, name, current_balance")
-          .eq("madrasa_id", activeMadrasaId);
-
-        if (zFunds && zFunds.length > 0) {
-          const targetFund = zFunds.find(
-            (f: any) =>
-              f.id === payload.fund_id ||
-              f.name?.trim().toLowerCase() === payload.fund_name.trim().toLowerCase() ||
-              payload.fund_name.toLowerCase().includes(f.name?.toLowerCase() || "")
-          );
-          if (targetFund) {
-            const newBal = Math.max(0, (Number(targetFund.current_balance) || 0) - amount);
-            await adminClient
-              .from("zakat_funds")
-              .update({ current_balance: newBal })
-              .eq("id", targetFund.id);
-          }
-        }
-      } catch (zfErr) {
-        console.error("zakat_funds balance update note:", zfErr);
-      }
-
-      // Also create a Mahfil INCOME transaction so Mahfil balance becomes 0
-      const mahfilTxn: MahfilTransaction = {
-        id: mahfilTxnId,
-        mahfil_id: mahfilId,
-        type: "INCOME",
-        category: "ফান্ড থেকে ঘাটতি পূরণ",
-        amount: amount,
-        description: `${payload.fund_name} থেকে ঘাটতি সমন্বয় বাবদ প্রাপ্তি (${accountingVoucherNo})`,
-        date: dateStr,
-        payment_method: payload.payment_method || "Cash",
-        receipt_no: accountingVoucherNo,
-      };
-
-      targetMahfil.transactions = [...(targetMahfil.transactions || []), mahfilTxn];
-    }
-
+    const net = (targetMahfil.receipt_books || []).reduce((a,b) => a+Number(b.total_collected || 0),0)
+      + (targetMahfil.transactions || []).reduce((a,t) => a+(t.type === "INCOME" ? 1 : -1)*Number(t.amount || 0),0);
+    if (!(bdtPoisha(amount) ?? 0) || !Number.isFinite(net) || Math.round(amount*100) > Math.round((surplus ? net : -net)*100)) return {error:"মাহফিলের উদ্বৃত্ত বা ঘাটতির অঙ্কের সঙ্গে সমন্বয় মিলছে না।"};
+    const accountingRecordId = randomUUID();
+    const accountingVoucherNo = await getNextMahfilVoucherNo(activeMadrasaId,surplus ? "SURPLUS" : "DEFICIT");
+    const mahfilTxnId = `txn_settle_${accountingRecordId}`;
+    const description = `মাহফিল: ${targetMahfil.title} (${targetMahfil.year}) | ${surplus ? "উদ্বৃত্ত জমা" : "ঘাটতি পূরণ"} | ${fund.name} | ${accountingVoucherNo} [Method: ${payload.payment_method}] ${payload.notes || ""}`;
+    targetMahfil.transactions = [...(targetMahfil.transactions || []),{
+      id:mahfilTxnId,mahfil_id:mahfilId,type:surplus ? "EXPENSE" : "INCOME",category:surplus ? "উদ্বৃত্ত ফান্ডে স্থানান্তর" : "ফান্ড থেকে ঘাটতি পূরণ",
+      amount,date:dateStr,payment_method:payload.payment_method,receipt_no:accountingVoucherNo,description,
+    }];
     const settlementRecord: MahfilSettlement = {
       id: settlementId,
       mahfil_id: mahfilId,
       settlement_type: payload.settlement_type,
       amount: amount,
-      fund_id: payload.fund_id,
-      fund_name: payload.fund_name,
+      fund_id: fund.id,
+      fund_name: fund.name,
       settlement_date: dateStr,
       payment_method: payload.payment_method,
       accounting_voucher_no: accountingVoucherNo,
@@ -1082,19 +748,16 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
       created_at: now,
     };
 
+    const previous = targetMahfil.settlements || [];
+    if (targetMahfil.settlement && !previous.some(s=>s.id===targetMahfil.settlement?.id)) previous.push(targetMahfil.settlement);
+    targetMahfil.settlements = [...previous,settlementRecord];
     targetMahfil.settlement = settlementRecord;
-    targetMahfil.settlements = [...(targetMahfil.settlements || []), settlementRecord];
     targetMahfil.updated_at = now;
 
     meta.mahfils = mahfils;
-    await saveMadrasaMetadata(activeMadrasaId, meta);
-    if (finalMadrasaId && finalMadrasaId !== activeMadrasaId) {
-      try {
-        const fMeta = await getMadrasaMetadata(finalMadrasaId);
-        fMeta.mahfils = mahfils;
-        await saveMadrasaMetadata(finalMadrasaId, fMeta);
-      } catch {}
-    }
+    await postCollection(activeMadrasaId,before,meta,surplus ? "donation" : "mahfil_deficit",{
+      id:accountingRecordId,amount,date:dateStr,receipt_no:accountingVoucherNo,notes:description,fund_id:fund.id,fund_name:fund.name,
+    });
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
@@ -1113,8 +776,8 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
       success: true,
       settlement: settlementRecord,
       message: payload.settlement_type === "SURPLUS_DEPOSIT"
-        ? `আলহামদুলিল্লাহ! ৳${amount} উদ্বৃত্ত অর্থ সফলভাবে "${payload.fund_name}"-এ স্থানান্তর করা হয়েছে এবং জমা ভাউচার #${accountingVoucherNo} যুক্ত হয়েছে।`
-        : `আলহামদুলিল্লাহ! "${payload.fund_name}" থেকে ৳${amount} ঘাটতি সমন্বয় সম্পন্ন হয়েছে এবং খরচ ভাউচার #${accountingVoucherNo} যুক্ত হয়েছে।`,
+        ? `আলহামদুলিল্লাহ! ৳${amount} উদ্বৃত্ত অর্থ সফলভাবে "${fund.name}"-এ স্থানান্তর করা হয়েছে এবং জমা ভাউচার #${accountingVoucherNo} যুক্ত হয়েছে।`
+        : `আলহামদুলিল্লাহ! "${fund.name}" থেকে ৳${amount} ঘাটতি সমন্বয় সম্পন্ন হয়েছে এবং খরচ ভাউচার #${accountingVoucherNo} যুক্ত হয়েছে।`,
     };
   } catch (err: any) {
     console.error("Error settling mahfil fund:", err);
@@ -1137,79 +800,22 @@ export async function deleteMahfilSettlement(mahfilId: string, settlementId: str
     const settlement = (targetMahfil.settlements || []).find((s: MahfilSettlement) => s.id === settlementId) || targetMahfil.settlement;
     if (!settlement) return { error: "সমন্বয় রেকর্ড পাওয়া যায়নি" };
 
-    const adminClient = await createAdminClient();
-
-    // 1. Delete matching donation & expense records from accounting tables across database
-    if (settlement.accounting_record_id) {
-      await adminClient.from("donations").delete().eq("id", settlement.accounting_record_id);
-      await adminClient.from("expenses").delete().eq("id", settlement.accounting_record_id);
-    }
-    if (settlement.accounting_voucher_no) {
-      await adminClient.from("donations").delete().eq("receipt_no", settlement.accounting_voucher_no);
-      await adminClient.from("expenses").delete().eq("voucher_no", settlement.accounting_voucher_no);
-      await adminClient.from("donations").delete().like("notes", `%${settlement.accounting_voucher_no}%`);
-      await adminClient.from("expenses").delete().like("description", `%${settlement.accounting_voucher_no}%`);
-    }
-
-    // 2. Revert zakat_funds balance if applicable
-    try {
-      const { data: zFunds } = await adminClient
-        .from("zakat_funds")
-        .select("id, name, current_balance")
-        .eq("madrasa_id", activeMadrasaId);
-
-      if (zFunds && zFunds.length > 0) {
-        const targetFund = zFunds.find(
-          (f: any) =>
-            f.id === settlement.fund_id ||
-            f.name?.trim().toLowerCase() === settlement.fund_name?.trim().toLowerCase() ||
-            settlement.fund_name?.toLowerCase().includes(f.name?.toLowerCase() || "")
-        );
-        if (targetFund) {
-          const current = Number(targetFund.current_balance) || 0;
-          const revertBal = settlement.settlement_type === "SURPLUS_DEPOSIT"
-            ? Math.max(0, current - settlement.amount)
-            : current + settlement.amount;
-          await adminClient
-            .from("zakat_funds")
-            .update({ current_balance: revertBal })
-            .eq("id", targetFund.id);
-        }
-      }
-    } catch {}
-
-    // 3. Remove internal mahfil transaction
-    targetMahfil.transactions = (targetMahfil.transactions || []).filter((t: MahfilTransaction) => {
-      if (settlement.mahfil_txn_id && t.id === settlement.mahfil_txn_id) return false;
-      if (settlement.accounting_voucher_no && (t.voucher_no === settlement.accounting_voucher_no || t.description?.includes(settlement.accounting_voucher_no))) return false;
-      return true;
-    });
-
-    // 4. Update settlements array
-    targetMahfil.settlements = (targetMahfil.settlements || []).filter((s: MahfilSettlement) => s.id !== settlementId && s.id !== settlement.id && s.accounting_voucher_no !== settlement.accounting_voucher_no);
-    if (targetMahfil.settlement?.id === settlementId || targetMahfil.settlement?.accounting_voucher_no === settlement.accounting_voucher_no) {
-      targetMahfil.settlement = targetMahfil.settlements.length > 0 ? targetMahfil.settlements[targetMahfil.settlements.length - 1] : undefined;
-    }
+    if (!settlement.accounting_record_id || settlement.id !== settlementId) return {error:"সমন্বয়ের মূল ভাউচারটি মেলেনি। ম্যানুয়াল যাচাই প্রয়োজন।"};
+    const before = collectionSnapshot(meta,"mahfils");
+    const txns = targetMahfil.transactions || [];
+    const hits = txns.filter(t=>settlement.mahfil_txn_id ? t.id===settlement.mahfil_txn_id :
+      t.voucher_no===settlement.accounting_voucher_no || t.receipt_no===settlement.accounting_voucher_no);
+    if (!['SURPLUS_DEPOSIT','DEFICIT_COVER'].includes(settlement.settlement_type) || hits.length!==1 || hits[0].type!==(settlement.settlement_type==='SURPLUS_DEPOSIT'?'EXPENSE':'INCOME') || Number(hits[0].amount)!==Number(settlement.amount)) return {error:"মাহফিলের মূল লেনদেন মেলেনি। ম্যানুয়াল যাচাই প্রয়োজন।"};
+    targetMahfil.transactions = txns.filter(t=>t!==hits[0]);
+    targetMahfil.settlements = (targetMahfil.settlements || []).filter(s=>s.id!==settlementId);
+    if (targetMahfil.settlement?.id===settlementId) targetMahfil.settlement = targetMahfil.settlements.at(-1);
     targetMahfil.updated_at = new Date().toISOString();
 
     meta.mahfils = mahfils;
-    await saveMadrasaMetadata(activeMadrasaId, meta);
-
-    // Sync to other madrasa metadata records if this mahfil is shared
-    try {
-      const { data: allM } = await adminClient.from("madrasas").select("id, registration_no");
-      for (const mRow of allM || []) {
-        if (mRow.id !== activeMadrasaId && mRow.registration_no && mRow.registration_no.startsWith("{")) {
-          try {
-            const pMeta = JSON.parse(mRow.registration_no);
-            if (pMeta.mahfils && pMeta.mahfils.some((m: any) => m.id === mahfilId)) {
-              pMeta.mahfils = mahfils;
-              await saveMadrasaMetadata(mRow.id, pMeta);
-            }
-          } catch {}
-        }
-      }
-    } catch {}
+    await postCollection(activeMadrasaId,before,meta,settlement.settlement_type === "SURPLUS_DEPOSIT" ? "void_surplus" : "void_deficit",{
+      id:settlement.accounting_record_id,amount:settlement.amount,receipt_no:settlement.accounting_voucher_no || "",date:settlement.settlement_date,
+      fund_id:settlement.fund_id,fund_name:settlement.fund_name,notes:"মাহফিল সমন্বয় বাতিল",
+    });
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);
@@ -1237,52 +843,34 @@ export async function deleteMahfilSettlement(mahfilId: string, settlementId: str
 
 export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]; payments: DonorSubscriptionPayment[] }> {
   try {
-    const supabase = await createClient();
-    const adminClient = await createAdminClient();
-    const user = await getAuthUser(supabase);
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-    if (!finalMadrasaId) return { donors: [], payments: [] };
-
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const rawDonors: LifeMemberDonor[] = meta.life_member_donors || [];
-    const subscriptionPayments: DonorSubscriptionPayment[] = meta.donor_subscription_payments || [];
-    const mahfils: Mahfil[] = meta.mahfils || [];
+    const guard=await writeGuard('financeRead');
+    if (!guard.allowed || !guard.madrasaId) throw Error('অনুমতি নেই।');
+    const finalMadrasaId=guard.madrasaId;
+    const adminClient=await createAdminClient();
+    const meta=await getMadrasaMetadata(finalMadrasaId,true);
+    const rawDonors: LifeMemberDonor[] = (meta.life_member_donors || []).filter((d:LifeMemberDonor)=>!d.madrasa_id || d.madrasa_id===finalMadrasaId);
 
     // Fetch relational database donors & donations
-    const { data: dbDonors } = await adminClient
-      .from("donors")
-      .select("*")
-      .eq("madrasa_id", finalMadrasaId);
-
-    const { data: dbDonations } = await adminClient
-      .from("donations")
-      .select("*")
-      .eq("madrasa_id", finalMadrasaId);
-
+    const [dbDonors,dbDonations,funds] = await Promise.all([financeRows(adminClient,finalMadrasaId,"donors"),financeRows(adminClient,finalMadrasaId,"donations"),fundCatalog(finalMadrasaId,true)]);
     // Merge Map for Donors
     const donorMap = new Map<string, LifeMemberDonor>();
-    const phoneToDonorId = new Map<string, string>();
 
     // 1. Add raw meta donors
     rawDonors.forEach((d) => {
       donorMap.set(d.id, { ...d });
-      if (d.phone && d.phone.trim()) {
-        phoneToDonorId.set(d.phone.trim().replace(/\D/g, ""), d.id);
-      }
     });
 
     // 2. Merge database donors
     (dbDonors || []).forEach((dbD: any) => {
-      const cleanPhone = (dbD.phone || "").trim().replace(/\D/g, "");
-      const existingId = donorMap.has(dbD.id) ? dbD.id : (cleanPhone ? phoneToDonorId.get(cleanPhone) : null);
+      const existingId = dbD.id;
 
-      let pledgeAmount = 0;
+      let pledgeAmount:number|undefined;
       let memberNoFromNotes = "";
       let notesText = dbD.notes || "";
       if (dbD.notes && dbD.notes.startsWith("{")) {
         try {
           const parsed = JSON.parse(dbD.notes);
-          pledgeAmount = parsed.pledge_amount || 0;
+          pledgeAmount = parsed.pledge_amount;
           memberNoFromNotes = parsed.member_no || "";
           notesText = parsed.notes || "";
         } catch {}
@@ -1298,17 +886,15 @@ export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]
           notes: existing.notes || notesText,
         });
       } else {
-        const memberCount = donorMap.size + 1;
         const mappedMemberType: any = 
           dbD.donor_type === "Monthly" ? "MONTHLY_DONOR" :
           dbD.donor_type === "Annual" ? "ANNUAL_DONOR" :
           dbD.donor_type === "LIFE_MEMBER" ? "LIFE_MEMBER" : "ONETIME";
-        const prefix = mappedMemberType === "LIFE_MEMBER" ? "LM" : mappedMemberType === "MONTHLY_DONOR" ? "MD" : "DN";
 
         const newUnifiedDonor: LifeMemberDonor = {
           id: dbD.id,
           madrasa_id: finalMadrasaId,
-          member_no: memberNoFromNotes || `${prefix}-${String(memberCount).padStart(3, "0")}`,
+          member_no: memberNoFromNotes,
           name: dbD.name,
           father_name: "",
           phone: dbD.phone || "",
@@ -1318,8 +904,8 @@ export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]
           blood_group: "",
           member_type: mappedMemberType,
           membership_type: mappedMemberType,
-          pledge_amount: pledgeAmount || dbD.pledge_amount || 0,
-          preferred_fund: dbD.preferred_fund || "সাধারণ ফান্ড",
+          pledge_amount: pledgeAmount ?? dbD.pledge_amount ?? 0,
+          preferred_fund: dbD.preferred_fund || "",
           collection_day: 10,
           payment_method: "Cash",
           join_date: dbD.created_at ? toDhakaDateStringFrom(dbD.created_at) : toDhakaDateString(),
@@ -1330,75 +916,20 @@ export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]
         };
 
         donorMap.set(dbD.id, newUnifiedDonor);
-        if (cleanPhone) phoneToDonorId.set(cleanPhone, dbD.id);
       }
     });
 
-    // 3. Aggregate all payments (Subscriptions + Direct Zakat/Donations + Mahfil contributions)
-    const allUnifiedPayments: DonorSubscriptionPayment[] = [...subscriptionPayments];
-    const donorDonationSumMap = new Map<string, number>();
-
-    // Add subscription payments sum
-    subscriptionPayments.forEach((p) => {
-      if (p.donor_id) {
-        const cur = donorDonationSumMap.get(p.donor_id) || 0;
-        donorDonationSumMap.set(p.donor_id, cur + (Number(p.amount) || 0));
-      }
-    });
-
-    // Add database donations into payments & totals
-    (dbDonations || []).forEach((dn: any) => {
-      let donorId = dn.donor_id;
-      if (!donorId && dn.donors?.phone) {
-        const cleanPhone = dn.donors.phone.trim().replace(/\D/g, "");
-        if (phoneToDonorId.has(cleanPhone)) {
-          donorId = phoneToDonorId.get(cleanPhone);
-        }
-      }
-
-      const amt = Number(dn.amount) || 0;
-      if (donorId && donorMap.has(donorId)) {
-        const cur = donorDonationSumMap.get(donorId) || 0;
-        donorDonationSumMap.set(donorId, cur + amt);
-
-        // Check if already in subscription payments
-        const alreadyInSubs = subscriptionPayments.some(sp => sp.receipt_no === dn.receipt_no || sp.id === dn.id);
-        if (!alreadyInSubs) {
-          const dObj = donorMap.get(donorId);
-          allUnifiedPayments.push({
-            id: `dn_${dn.id}`,
-            donor_id: donorId,
-            donor_name: dObj?.name || dn.donors?.name || "দানকারী",
-            month: (dn.donation_date || dn.created_at || "").slice(0, 7) || toDhakaMonthString(),
-            amount: amt,
-            payment_date: dn.donation_date || (dn.created_at ? toDhakaDateStringFrom(dn.created_at) : ""),
-            payment_method: dn.payment_method || "Cash",
-            receipt_no: dn.receipt_no || `REC-${dn.id.slice(0, 5)}`,
-            fund_name: dn.donation_type || dn.fund_name || "সাধারণ ফান্ড",
-            notes: dn.notes || "সরাসরি অনুদান",
-            collected_by: "হিসাব বিভাগ",
-            created_at: dn.created_at || dn.donation_date,
-          });
-        }
-      }
-    });
-
-    // Add Mahfil income transactions sum
-    mahfils.forEach((m) => {
-      (m.transactions || []).forEach((txn) => {
-        if (txn.type === "INCOME" && txn.paid_to_or_received_from) {
-          const donorName = txn.paid_to_or_received_from.trim().toLowerCase();
-          // Find matching donor
-          for (const [dId, donor] of Array.from(donorMap.entries())) {
-            if (donor.name.trim().toLowerCase() === donorName) {
-              const cur = donorDonationSumMap.get(dId) || 0;
-              donorDonationSumMap.set(dId, cur + (Number(txn.amount) || 0));
-              break;
-            }
-          }
-        }
-      });
-    });
+    // Names and family phone numbers are not unique donor identities. The source
+    // ID may identify a legacy member even when the mirrored SQL row has no donor FK.
+    const donorDonationSumMap=new Map<string,number>();
+    const allUnifiedPayments:DonorSubscriptionPayment[]=[];
+    for (const e of ledgerEntries({funds,donations:dbDonations,meta,expenses:[],bazar:[],payments:[]})) {
+      if (!e.income || !e.donor_id || !donorMap.has(e.donor_id)) continue;
+      if(e.status!=='VOID') donorDonationSumMap.set(e.donor_id,money((donorDonationSumMap.get(e.donor_id)||0)+e.amount));
+      allUnifiedPayments.push({id:e.id,donor_id:e.donor_id,donor_name:donorMap.get(e.donor_id)!.name,amount:e.amount,
+        month:e.subscription_month || '',payment_date:e.date,status:e.status,category:e.category,
+        receipt_no:e.receipt_number || '',fund_id:e.fund_id,fund_name:e.fund_name,payment_method:e.payment_method || '' });
+    }
 
     const { getCurrentUserMaskingContext, maskDonorSensitiveFields } = await import("@/lib/data-access-guards");
     const maskingCtx = await getCurrentUserMaskingContext("fundraising", "phone");
@@ -1409,7 +940,8 @@ export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]
       return maskDonorSensitiveFields(
         {
           ...d,
-          total_donated: calculatedTotal > 0 ? calculatedTotal : (Number((d as any).total_donated) || 0),
+          notes:maskingCtx.allowUnmasked ? d.notes : undefined,
+          total_donated: calculatedTotal,
         },
         maskingCtx.allowUnmasked
       );
@@ -1421,7 +953,7 @@ export async function getLifeMemberDonors(): Promise<{ donors: LifeMemberDonor[]
     };
   } catch (err) {
     console.error("Error fetching unified donors:", err);
-    return { donors: [], payments: [] };
+    throw new Error("দাতাদের পূর্ণ হিসাব পড়া যায়নি।");
   }
 }
 
@@ -1441,28 +973,26 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    // Do not persist a masked copy of contact/payment identifiers over originals.
+    // The SQL directory can predate the metadata member; don't invent a replacement.
+    if([data.phone,data.email,data.account_or_trx_no].some(isMaskedValue)) return {error:'আড়াল করা যোগাযোগ বা হিসাব নম্বর দিয়ে দাতার তথ্য বদলানো যাবে না।'};
+    const before=collectionSnapshot(meta,'life_member_donors');
     const donors: LifeMemberDonor[] = meta.life_member_donors || [];
     const now = new Date().toISOString();
 
     let targetId = data.id;
     let savedDonorObj: LifeMemberDonor;
 
-    // Check if targetId is legacy non-UUID, and upgrade if needed
-    let oldLegacyId: string | null = null;
-    if (targetId && !isUuid(targetId)) {
-      oldLegacyId = targetId;
-      targetId = crypto.randomUUID();
-    }
-
+    // Keep legacy member IDs stable. Their receipts are not relational UUIDs.
     if (targetId) {
-      const idx = donors.findIndex((d: LifeMemberDonor) => d.id === targetId || (oldLegacyId && d.id === oldLegacyId));
+      const idx = donors.findIndex((d: LifeMemberDonor) => d.id === targetId);
       if (idx !== -1) {
         donors[idx] = {
           ...donors[idx],
           ...data,
-          id: targetId,
-          pledge_amount: Number(data.pledge_amount || data.committed_amount || 0),
+          id: targetId,madrasa_id:finalMadrasaId,total_donated:donors[idx].total_donated,
+          pledge_amount: Number(data.pledge_amount ?? data.committed_amount ?? donors[idx].pledge_amount ?? 0),
           updated_at: now,
         };
         savedDonorObj = donors[idx];
@@ -1478,7 +1008,7 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
           occupation: data.occupation || "",
           blood_group: data.blood_group || "",
           member_type: data.member_type || data.membership_type || "MONTHLY_DONOR",
-          pledge_amount: Number(data.pledge_amount || data.committed_amount || 0),
+          pledge_amount: Number(data.pledge_amount ?? data.committed_amount ?? 0),
           preferred_fund: data.preferred_fund || "সাধারণ ফান্ড",
           collection_day: Number(data.collection_day || 10),
           payment_method: data.payment_method || "Cash",
@@ -1508,7 +1038,7 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
         blood_group: data.blood_group || "",
         member_type: mType,
         membership_type: mType,
-        pledge_amount: Number(data.pledge_amount || data.committed_amount || 500),
+        pledge_amount: Number(data.pledge_amount ?? data.committed_amount ?? 500),
         preferred_fund: data.preferred_fund || "সাধারণ ফান্ড",
         collection_day: Number(data.collection_day || 10),
         payment_method: data.payment_method || "Cash",
@@ -1522,54 +1052,19 @@ export async function saveLifeMemberDonor(data: Partial<LifeMemberDonor>) {
       donors.unshift(savedDonorObj);
     }
 
-    // If ID was upgraded, update any payments referencing the old ID
-    if (oldLegacyId && oldLegacyId !== targetId) {
-      (meta.donor_subscription_payments || []).forEach((p: any) => {
-        if (p.donor_id === oldLegacyId) {
-          p.donor_id = targetId;
-        }
-      });
-    }
-
     // Save to Metadata
     meta.life_member_donors = donors;
-    await saveMadrasaMetadata(finalMadrasaId, meta);
 
-    // Sync to Supabase `donors` table
-    const dbDonorType = 
-      savedDonorObj.member_type === "LIFE_MEMBER" ? "Annual" :
-      savedDonorObj.member_type === "MONTHLY_DONOR" || savedDonorObj.member_type === "MONTHLY" ? "Monthly" :
-      savedDonorObj.member_type === "ANNUAL_DONOR" || savedDonorObj.member_type === "YEARLY" ? "Annual" : "OneTime";
 
-    const metaNotes = JSON.stringify({
-      member_no: savedDonorObj.member_no,
-      member_type: savedDonorObj.member_type,
-      pledge_amount: savedDonorObj.pledge_amount,
-      preferred_fund: savedDonorObj.preferred_fund,
-      notes: savedDonorObj.notes || "",
-    });
-
-    try {
-      if (isUuid(targetId)) {
-        await adminClient.from("donors").upsert({
-          id: targetId,
-          madrasa_id: finalMadrasaId,
-          name: savedDonorObj.name,
-          phone: savedDonorObj.phone || "",
-          address: savedDonorObj.address || "",
-          donor_type: dbDonorType,
-          notes: metaNotes,
-        });
-      }
-    } catch (upsertErr) {
-      console.warn("Could not upsert into donors table:", upsertErr);
-    }
-
+    const {error}=await adminClient.rpc('finance_save_member',{p_tenant:finalMadrasaId,p_id:targetId,p_before:before.life_member_donors ?? [],p_member:savedDonorObj,p_mode:data.id?'edit':'create'});
+    if (error) return {error:error.message};
     revalidatePath("/dashboard/fundraising/donors");
     revalidatePath("/dashboard/zakat/donors");
     revalidatePath("/dashboard/zakat/collection");
     revalidatePath("/dashboard/zakat");
-    return { success: true, id: targetId, donor: savedDonorObj };
+    const {getCurrentUserMaskingContext,maskDonorSensitiveFields}=await import('@/lib/data-access-guards');
+    const {allowUnmasked}=await getCurrentUserMaskingContext('fundraising','phone');
+    return { success: true, id: targetId,donor:maskDonorSensitiveFields({...savedDonorObj,notes:allowUnmasked?savedDonorObj.notes:undefined},allowUnmasked) };
   } catch (err: any) {
     return { error: err.message || "সংরক্ষণে সমস্যা হয়েছে" };
   }
@@ -1590,13 +1085,9 @@ export async function deleteLifeMemberDonor(id: string) {
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    meta.life_member_donors = (meta.life_member_donors || []).filter((d: LifeMemberDonor) => d.id !== id);
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    // Delete from Supabase `donors` table
-    await adminClient.from("donors").delete().eq("id", id).eq("madrasa_id", finalMadrasaId);
-
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    const {error}=await adminClient.rpc('finance_save_member',{p_tenant:finalMadrasaId,p_id:id,p_before:meta.life_member_donors ?? [],p_member:null,p_mode:'delete'});
+    if (error) return {error:error.message};
     revalidatePath("/dashboard/fundraising/donors");
     revalidatePath("/dashboard/zakat/donors");
     revalidatePath("/dashboard/zakat/collection");
@@ -1623,7 +1114,9 @@ export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubsc
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const fund = await postingFund(finalMadrasaId,payment.fund_id,"deposit","","",payment.fund_category,payment.fund_name);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    const before = collectionSnapshot(meta,"donor_subscription_payments");
     const payments: DonorSubscriptionPayment[] = meta.donor_subscription_payments || [];
 
     // Calculate sequential receipt number if not supplied
@@ -1645,7 +1138,9 @@ export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubsc
       receiptNo = `MR-${String(nextSerial).padStart(4, "0")}`;
     }
 
-    const newPayment: DonorSubscriptionPayment = {
+    if (!payment.donor_id || (!(meta.life_member_donors || []).some((d:any)=>d.id===payment.donor_id) && !isUuid(payment.donor_id))) return {error:"দাতা পাওয়া যায়নি।"};
+    if (!(bdtPoisha(payment.amount) ?? 0)) return {error:"চাঁদার অঙ্ক সঠিক নয়।"};
+    const newPayment: DonorSubscriptionPayment = { accounting_record_id:randomUUID(),
       id: `dpay_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       donor_id: payment.donor_id || "",
       donor_name: payment.donor_name || "",
@@ -1654,7 +1149,7 @@ export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubsc
       payment_date: payment.payment_date || toDhakaDateString(),
       payment_method: payment.payment_method || "Cash",
       receipt_no: receiptNo,
-      fund_name: payment.fund_name || "সাধারণ ফান্ড",
+      fund_id: fund.id, fund_name: fund.name,
       notes: payment.notes || "",
       collected_by: payment.collected_by || user.email || "হিসাব বিভাগ",
       created_at: new Date().toISOString(),
@@ -1663,32 +1158,11 @@ export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubsc
     payments.unshift(newPayment);
     meta.donor_subscription_payments = payments;
 
-    // Update the donor's total_donated in meta.life_member_donors
-    const donors: LifeMemberDonor[] = meta.life_member_donors || [];
-    const donorIdx = donors.findIndex((d: LifeMemberDonor) => d.id === payment.donor_id);
-    if (donorIdx !== -1) {
-      const currentDonated = Number((donors[donorIdx] as any).total_donated) || 0;
-      (donors[donorIdx] as any).total_donated = currentDonated + Number(payment.amount || 0);
-      meta.life_member_donors = donors;
-    }
-
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    // Also record into Supabase `donations` table
-    try {
-      const dbDonorId = payment.donor_id && isUuid(payment.donor_id) ? payment.donor_id : null;
-      await adminClient.from("donations").insert({
-        madrasa_id: finalMadrasaId,
-        donor_id: dbDonorId,
-        amount: Number(payment.amount || 0),
-        donation_type: payment.fund_name || "সাধারণ ফান্ড",
-        donation_date: newPayment.payment_date,
-        receipt_no: newPayment.receipt_no,
-        notes: `[মাসিক চাঁদা: ${newPayment.month}] ${newPayment.notes || ""}`.trim(),
-      });
-    } catch (e) {
-      console.warn("Could not insert subscription into donations table:", e);
-    }
+    await postCollection(finalMadrasaId,before,meta,"donation",{
+      id:newPayment.accounting_record_id,member_id:!isUuid(newPayment.donor_id)?newPayment.donor_id:undefined, donor_id: payment.donor_id && isUuid(payment.donor_id) ? payment.donor_id : null,
+      amount:newPayment.amount,fund_id:fund.id,fund_name:fund.name,date:newPayment.payment_date!,receipt_no:receiptNo,
+      notes:`[মাসিক চাঁদা: ${newPayment.month}] ${newPayment.notes || ""}`,
+    });
 
     revalidatePath("/dashboard/fundraising/donors");
     revalidatePath("/dashboard/zakat/donors");
@@ -1710,24 +1184,15 @@ export async function getSafeMadrasaId(): Promise<string | null> {
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
-    const mId = await getAuthMadrasaId(supabase, user);
-    if (mId) return mId;
-  } catch (err) {
-    // Safe ignore if called in Route Handler or outside standard cookie context
-  }
-
-  // P2-Fix: first-madrasa fallback → central default (DEFAULT_MADRASA_ID env → সবচেয়ে পুরোনো)
-  try {
-    return await getDefaultMadrasaId();
-  } catch (err) {
-    console.error("Error finding default madrasa id:", err);
-    return null;
-  }
+    // A signed-in account with no valid tenant must not post into the public default.
+    return user ? (await getAuthMadrasaId(supabase,user)) || null : await getDefaultMadrasaId();
+  } catch { return null; }
 }
 
 export async function getQurbaniLeatherRecords(): Promise<QurbaniLeatherRecord[]> {
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
+    const g=await writeGuard("financeRead");if(!g.allowed)throw Error(g.error);
+    const finalMadrasaId=g.madrasaId;
     if (!finalMadrasaId) return [];
 
     let meta = await getMadrasaMetadata(finalMadrasaId);
@@ -1773,11 +1238,12 @@ export async function getQurbaniLeatherRecords(): Promise<QurbaniLeatherRecord[]
 
 export async function getNextLeatherVoucherNo(madrasaId?: string): Promise<string> {
   try {
-    const finalMadrasaId = madrasaId || (await getSafeMadrasaId());
+    const finalMadrasaId = await getAuthMadrasaId();
+    if (!finalMadrasaId || (madrasaId && madrasaId!==finalMadrasaId)) throw new Error("অনুমতি নেই।");
     let maxSeq = 0;
 
     if (finalMadrasaId) {
-      const meta = await getMadrasaMetadata(finalMadrasaId);
+      const meta = await getMadrasaMetadata(finalMadrasaId,true);
       const records = meta.qurbani_leather_records || meta.leather_batches || [];
       records.forEach((r: any) => {
         const rec = (r.receipt_no || "").trim();
@@ -1790,9 +1256,7 @@ export async function getNextLeatherVoucherNo(madrasaId?: string): Promise<strin
     }
 
     const adminClient = await createAdminClient();
-    const { data: donList } = await adminClient
-      .from("donations")
-      .select("receipt_no");
+    const donList=await financeRows(adminClient,finalMadrasaId,"donations","id,receipt_no");
     (donList || []).forEach((d: any) => {
       const rec = (d.receipt_no || "").trim();
       if (rec.toUpperCase().includes("LTH")) {
@@ -1807,7 +1271,7 @@ export async function getNextLeatherVoucherNo(madrasaId?: string): Promise<strin
     const nextSeq = maxSeq + 1;
     return `LTH-REC-${String(nextSeq).padStart(3, "0")}`;
   } catch {
-    return "LTH-REC-001";
+    throw new Error("চামড়ার রসিদ সিরিজ পড়া যায়নি।");
   }
 }
 
@@ -1820,10 +1284,12 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
   }
 
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
+    const finalMadrasaId = await getAuthMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    let meta = await getMadrasaMetadata(finalMadrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    if (meta.qurbani_leather_records && meta.leather_batches && JSON.stringify(meta.qurbani_leather_records)!==JSON.stringify(meta.leather_batches)) return {error:"চামড়ার দুই খাতা মিলছে না। যাচাই করুন।"};
+    const before = collectionSnapshot(meta,"qurbani_leather_records","leather_batches");
     let records: QurbaniLeatherRecord[] = meta.qurbani_leather_records || meta.leather_batches || [];
     const now = new Date().toISOString();
 
@@ -1837,8 +1303,23 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
     const type = data.type || (data.leather_type as any) || "গরু";
     const leatherType = data.leather_type || (data.type as any) || "COW";
     const recordDate = data.sale_date || data.collection_date || (data as any).date || toDhakaDateStringFrom(now);
-    const targetFund = data.fund_name || data.target_fund || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
+    if (![received,transportCost,totalSale,due].every(n => Number.isFinite(n) && (n===0 || (bdtPoisha(n) ?? 0)>0)) || Math.abs(received+due-totalSale)>0.001) return {error:"চালানের অঙ্ক সঠিক নয়।"};
+    const fund = await postingFund(finalMadrasaId,data.fund_id,transportCost > 0 ? "expense" : "deposit","Transport","",data.fund_name,data.target_fund);
+    const targetFund = fund.name;
+    const previous = records.find(r => r.id === data.id);
+    if (data.id && (!previous || records.filter(r=>r.id===data.id).length!==1)) return {error:"চালান বদলেছে। রিফ্রেশ করুন।"};
+    if (previous && ((previous.fund_id && previous.fund_id !== fund.id) || (data.receipt_no && previous.receipt_no && data.receipt_no !== previous.receipt_no))) return {error:"পোস্ট করা চালানের ফান্ড বা নম্বর বদলানো যাবে না।"};
 
+    if (previous && (isVoidDonation(previous) || ['VOID'].includes((previous as any).income_status) || (previous as any).expense_status==='VOID' || (previous as any).exp_notes?.includes('[VOID:'))) return {error:"বাতিল চালান এই ফর্মে সংশোধন করা যাবে না।"};
+    if ([data.notes,(data as any).exp_notes].some(note=>note?.includes('[VOID:'))) return {error:"বাতিলের জন্য মূল ভাউচার ব্যবহার করুন।"};
+    let voucherId=previous?.accounting_record_id;
+    if (previous && (saleAmount(previous)>0 || voucherId)) {
+      const db=await createAdminClient();
+      const {data:old,error}=await db.from('donations').select('*').eq('madrasa_id',finalMadrasaId).eq(voucherId?'id':'receipt_no',voucherId || previous.receipt_no).maybeSingle();
+      if (error || !old || isVoidDonation(old) || !confirmsMirror(await fundCatalog(finalMadrasaId),old,'qurbani_leather_records',previous)) return {error:"পুরোনো চালানের মূল রসিদ যাচাই করুন।"};
+      voucherId=old.id;
+    }
+    if (received>0) voucherId ||= randomUUID();
     let receiptNo = (data.receipt_no || "").trim();
     if (!receiptNo || receiptNo.includes("undefined") || receiptNo.startsWith("LTH-") && receiptNo.length < 8) {
       receiptNo = await getNextLeatherVoucherNo(finalMadrasaId);
@@ -1853,7 +1334,7 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
         }
         records[idx] = {
           ...records[idx],
-          ...data,
+          area_team:data.area_team ?? records[idx].area_team,notes:data.notes ?? records[idx].notes,
           id: targetId,
           madrasa_id: finalMadrasaId,
           quantity,
@@ -1872,7 +1353,7 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
           collection_date: recordDate,
           sale_date: recordDate,
           date: recordDate,
-          fund_name: targetFund,
+          fund_id: fund.id, fund_name: targetFund,
           target_fund: targetFund,
           receipt_no: receiptNo,
           year: data.year || records[idx].year || "২০২৬",
@@ -1906,7 +1387,7 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
           collection_date: recordDate,
           sale_date: recordDate,
           date: recordDate,
-          fund_name: targetFund,
+          fund_id: fund.id, fund_name: targetFund,
           target_fund: targetFund,
           receipt_no: receiptNo,
           payment_status: due === 0 ? "PAID" : received > 0 ? "PARTIAL" : "DUE",
@@ -1941,7 +1422,7 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
         collection_date: recordDate,
         sale_date: recordDate,
         date: recordDate,
-        fund_name: targetFund,
+        fund_id: fund.id, fund_name: targetFund,
         target_fund: targetFund,
         receipt_no: receiptNo,
         payment_status: due === 0 ? "PAID" : received > 0 ? "PARTIAL" : "DUE",
@@ -1951,45 +1432,16 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
       records.unshift(newRec);
     }
 
+    if (voucherId) records.find(r=>r.id===targetId)!.accounting_record_id=voucherId;
     meta.qurbani_leather_records = records;
     meta.leather_batches = records;
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    // Sync into donations table so it reflects in Madrasa Funds & Financial Ledgers
-    try {
-      const adminClient = await createAdminClient();
-      const depositAmount = received > 0 ? received : (netProfit > 0 ? netProfit : totalSale);
-      const buyer = (data.buyer_name || "").trim() || "স্থানীয় চামড়া ব্যবসায়ী";
-      const formattedNotes = `[কুরবানির চামড়া বিক্রয়] চালান: ${receiptNo}, চামড়া: ${type} (${quantity} পিস), দর: ৳${rate}, মোট বিক্রয়: ৳${totalSale}, লেবার/পরিবহন খরচ: ৳${transportCost}, ক্রেতা: ${buyer}${data.buyer_phone ? ` (${data.buyer_phone})` : ""}${due > 0 ? `, বকেয়া: ৳${due}` : ""}`;
-
-      const { data: existingDon } = await adminClient
-        .from("donations")
-        .select("id")
-        .eq("madrasa_id", finalMadrasaId)
-        .eq("receipt_no", receiptNo)
-        .maybeSingle();
-
-      if (existingDon) {
-        await adminClient.from("donations").update({
-          amount: depositAmount,
-          donation_type: targetFund,
-          donation_date: recordDate,
-          notes: formattedNotes,
-        }).eq("id", existingDon.id);
-      } else {
-        await adminClient.from("donations").insert({
-          madrasa_id: finalMadrasaId,
-          donor_id: null,
-          amount: depositAmount,
-          donation_type: targetFund,
-          donation_date: recordDate,
-          receipt_no: receiptNo,
-          notes: formattedNotes,
-        });
-      }
-    } catch (dErr) {
-      console.warn("Could not insert/update donation entry for leather collection:", dErr);
-    }
+    const depositAmount = received;
+    if (depositAmount > 0) await postCollection(finalMadrasaId,before,meta,"donation",{
+      id:voucherId,amount:depositAmount,date:recordDate,fund_id:fund.id,fund_name:fund.name,receipt_no:receiptNo,
+      notes:`[কুরবানির চামড়া বিক্রয়] চালান: ${receiptNo}, চামড়া: ${type} (${quantity} পিস), দর: ৳${rate}, মোট বিক্রয়: ৳${totalSale}, লেবার/পরিবহন খরচ: ৳${transportCost}, ক্রেতা: ${data.buyer_name || ""}`,
+    },!!previous);
+    else if (previous && saleAmount(previous) > 0) return {error:"জমাকৃত চালান বাতিলের জন্য হিসাব যাচাই করুন।"};
+    else await replaceSources(finalMadrasaId,before,meta);
 
     try {
       revalidatePath("/dashboard/fundraising/collections");
@@ -2017,64 +1469,19 @@ export async function deleteQurbaniLeatherRecord(id: string) {
   }
 
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
+    const finalMadrasaId = await getAuthMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const targetRec = (meta.qurbani_leather_records || meta.leather_batches || []).find((r: any) => r.id === id);
-
-    meta.qurbani_leather_records = (meta.qurbani_leather_records || []).filter((r: QurbaniLeatherRecord) => r.id !== id);
-    meta.leather_batches = (meta.leather_batches || []).filter((r: any) => r.id !== id);
-
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    const adminClient = await createAdminClient();
-
-    // Clean up from all other madrasa metadata records as well so it never resurrects across tenants
-    try {
-      const { data: allMadrasas } = await adminClient.from("madrasas").select("id, registration_no");
-      for (const mRow of allMadrasas || []) {
-        if (mRow.id !== finalMadrasaId && mRow.registration_no && mRow.registration_no.startsWith("{")) {
-          try {
-            const pMeta = JSON.parse(mRow.registration_no);
-            let changed = false;
-            if (pMeta.qurbani_leather_records && pMeta.qurbani_leather_records.some((r: any) => r.id === id)) {
-              pMeta.qurbani_leather_records = pMeta.qurbani_leather_records.filter((r: any) => r.id !== id);
-              changed = true;
-            }
-            if (pMeta.leather_batches && pMeta.leather_batches.some((r: any) => r.id === id)) {
-              pMeta.leather_batches = pMeta.leather_batches.filter((r: any) => r.id !== id);
-              changed = true;
-            }
-            if (changed) {
-              await saveMadrasaMetadata(mRow.id, pMeta);
-            }
-          } catch {}
-        }
-      }
-    } catch {}
-
-    // Delete associated donation entry from DB by receipt_no and notes
-    try {
-      if (targetRec?.receipt_no) {
-        await adminClient
-          .from("donations")
-          .delete()
-          .eq("receipt_no", targetRec.receipt_no);
-        await adminClient
-          .from("donations")
-          .delete()
-          .like("notes", `%${targetRec.receipt_no}%`);
-      }
-      if (id) {
-        await adminClient
-          .from("donations")
-          .delete()
-          .like("notes", `%${id}%`);
-      }
-    } catch (dErr) {
-      console.warn("Could not delete associated donation for leather batch:", dErr);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    const keys = ['qurbani_leather_records','leather_batches'];
+    const records = keys.flatMap(k=>(meta[k] || []).filter((r:any)=>r.id===id));
+    if (!records.length) return {error:"চালান পাওয়া যায়নি।"};
+    if (records.some(r=>Number(r.received_amount ?? r.paid_amount ?? r.total_sale_amount ?? r.total_sale_price)>0 || Number(r.transport_labor_cost ?? r.transport_labour_cost)>0)) {
+      return {error:"পোস্ট করা চালান মোছা যাবে না। মূল ফান্ড খতিয়ান থেকে ভাউচার বাতিল করুন।"};
     }
+    const before = collectionSnapshot(meta,...keys);
+    for (const k of keys) meta[k]=(meta[k] || []).filter((r:any)=>r.id!==id);
+    await replaceSources(finalMadrasaId,before,meta);
 
     try {
       revalidatePath("/dashboard/fundraising/collections");
@@ -2096,16 +1503,19 @@ export async function deleteQurbaniLeatherRecord(id: string) {
 
 export async function getDonationBoxes(): Promise<{ boxes: DonationBox[]; logs: DonationBoxCollectionLog[] }> {
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
+    const g=await writeGuard("financeRead");if(!g.allowed)throw Error(g.error);
+    const finalMadrasaId=g.madrasaId;
     if (!finalMadrasaId) return { boxes: [], logs: [] };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
     let boxes: DonationBox[] = meta.donation_boxes || [];
     let logs: DonationBoxCollectionLog[] = meta.donation_box_logs || [];
 
     return {
       boxes: boxes.map((b: any) => ({
         ...b,
+        collection_logs: logs.filter(l=>l.box_id===b.id),
+        total_collected_lifetime:logs.filter(l=>l.box_id===b.id && !isVoidDonation(l)).reduce((n,l)=>n+Number(l.amount || 0),0),
         responsible_person: b.responsible_person || b.contact_person || "",
         contact_person: b.contact_person || b.responsible_person || "",
         responsible_phone: b.responsible_phone || b.phone || "",
@@ -2125,11 +1535,12 @@ export async function getDonationBoxes(): Promise<{ boxes: DonationBox[]; logs: 
 
 export async function getNextBoxVoucherNo(madrasaId?: string): Promise<string> {
   try {
-    const finalMadrasaId = madrasaId || (await getSafeMadrasaId());
+    const finalMadrasaId = await getAuthMadrasaId();
+    if (!finalMadrasaId || (madrasaId && madrasaId!==finalMadrasaId)) throw new Error("অনুমতি নেই।");
     let maxSeq = 0;
 
     if (finalMadrasaId) {
-      const meta = await getMadrasaMetadata(finalMadrasaId);
+      const meta = await getMadrasaMetadata(finalMadrasaId,true);
       const logs = meta.donation_box_logs || [];
       logs.forEach((l: any) => {
         const rec = (l.receipt_no || "").trim();
@@ -2142,9 +1553,7 @@ export async function getNextBoxVoucherNo(madrasaId?: string): Promise<string> {
     }
 
     const adminClient = await createAdminClient();
-    const { data: donList } = await adminClient
-      .from("donations")
-      .select("receipt_no");
+    const donList=await financeRows(adminClient,finalMadrasaId,"donations","id,receipt_no");
     (donList || []).forEach((d: any) => {
       const rec = (d.receipt_no || "").trim();
       if (rec.toUpperCase().includes("BOX")) {
@@ -2159,7 +1568,7 @@ export async function getNextBoxVoucherNo(madrasaId?: string): Promise<string> {
     const nextSeq = maxSeq + 1;
     return `BOX-REC-${String(nextSeq).padStart(3, "0")}`;
   } catch {
-    return "BOX-REC-001";
+    throw new Error("বাক্সের রসিদ সিরিজ পড়া যায়নি।");
   }
 }
 
@@ -2172,11 +1581,13 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
   }
 
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
+    const finalMadrasaId = await getAuthMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    const before=collectionSnapshot(meta,'donation_boxes');
     const boxes: DonationBox[] = meta.donation_boxes || [];
+    if (data.id && !boxes.some(b=>b.id===data.id)) return {error:'বাক্স পাওয়া যায়নি।'};
     const now = new Date().toISOString();
 
     const contactPerson = (data.contact_person || (data as any).responsible_person || "").trim();
@@ -2203,7 +1614,7 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
       if (idx !== -1) {
         boxes[idx] = {
           ...boxes[idx],
-          ...data,
+          status:data.status || boxes[idx].status,notes:data.notes ?? boxes[idx].notes,
           box_code: boxCode,
           location_name: (data.location_name || boxes[idx].location_name || "").trim(),
           area: (data.area || boxes[idx].area || "").trim(),
@@ -2213,8 +1624,8 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
           responsible_phone: phone,
           install_date: installDate,
           installation_date: installDate,
-          last_opened_date: data.last_opened_date || boxes[idx].last_opened_date || boxes[idx].last_collection_date || "",
-          last_collection_date: data.last_collection_date || boxes[idx].last_collection_date || boxes[idx].last_opened_date || "",
+          last_opened_date: boxes[idx].last_opened_date || boxes[idx].last_collection_date || "",
+          last_collection_date: boxes[idx].last_collection_date || boxes[idx].last_opened_date || "",
         } as any;
       } else {
         const newBox: any = {
@@ -2230,7 +1641,7 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
           install_date: installDate,
           installation_date: installDate,
           status: data.status || "ACTIVE",
-          total_collected_lifetime: Number(data.total_collected_lifetime || 0),
+          total_collected_lifetime: 0,
           notes: data.notes || "",
           created_at: now,
         };
@@ -2251,7 +1662,7 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
         install_date: installDate,
         installation_date: installDate,
         status: data.status || "ACTIVE",
-        total_collected_lifetime: Number(data.total_collected_lifetime || 0),
+        total_collected_lifetime: 0,
         notes: data.notes || "",
         created_at: now,
       };
@@ -2259,7 +1670,7 @@ export async function saveDonationBox(data: Partial<DonationBox>) {
     }
 
     meta.donation_boxes = boxes;
-    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
+    const ok = await replaceSources(finalMadrasaId,before,meta);
     if (!ok) {
       return { error: "মেটাডাটা সংরক্ষণ ব্যর্থ হয়েছে" };
     }
@@ -2282,34 +1693,14 @@ export async function deleteDonationBox(id: string) {
   }
 
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
+    const finalMadrasaId = await getAuthMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const boxToDelete = (meta.donation_boxes || []).find((b: DonationBox) => b.id === id);
-    const boxReceipts = (meta.donation_box_logs || [])
-      .filter((l: DonationBoxCollectionLog) => l.box_id === id)
-      .map((l: DonationBoxCollectionLog) => l.receipt_no)
-      .filter(Boolean);
-
-    meta.donation_boxes = (meta.donation_boxes || []).filter((b: DonationBox) => b.id !== id);
-    meta.donation_box_logs = (meta.donation_box_logs || []).filter((l: DonationBoxCollectionLog) => l.box_id !== id);
-
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    // Clean up donations table
-    try {
-      const adminClient = await createAdminClient();
-      for (const recNo of boxReceipts) {
-        await adminClient
-          .from("donations")
-          .delete()
-          .eq("madrasa_id", finalMadrasaId)
-          .eq("receipt_no", recNo);
-      }
-    } catch (dErr) {
-      console.warn("Could not delete associated donations for box:", dErr);
-    }
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    if ((meta.donation_box_logs || []).some((r:any)=>r.box_id===id)) return {error:"সংগ্রহের ইতিহাসসহ বাক্স মোছা যাবে না। বাক্সটি নিষ্ক্রিয় করুন।"};
+    const before = collectionSnapshot(meta,"donation_boxes","donation_box_logs");
+    meta.donation_boxes = (meta.donation_boxes || []).filter((b:DonationBox)=>b.id!==id);
+    await replaceSources(finalMadrasaId,before,meta);
 
     try {
       revalidatePath("/dashboard/fundraising/collections");
@@ -2335,61 +1726,7 @@ export async function deleteDonationBoxCollectionLog(logId: string) {
     if (!__authz.allowed) return __authz.fallback;
   }
 
-  try {
-    const finalMadrasaId = await getSafeMadrasaId();
-    if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
-
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const boxes: DonationBox[] = meta.donation_boxes || [];
-    const logs: DonationBoxCollectionLog[] = meta.donation_box_logs || [];
-
-    const targetLog = logs.find((l) => l.id === logId);
-    if (!targetLog) return { error: "কালেকশন লগ পাওয়া যায়নি" };
-
-    const updatedLogs = logs.filter((l) => l.id !== logId);
-    const targetBox = boxes.find((b) => b.id === targetLog.box_id);
-
-    if (targetBox) {
-      const remainingForBox = updatedLogs.filter((l) => l.box_id === targetBox.id);
-      targetBox.total_collected_lifetime = remainingForBox.reduce((sum, l) => sum + Number(l.amount || 0), 0);
-      targetBox.total_collected = targetBox.total_collected_lifetime;
-      targetBox.last_collection_date = remainingForBox[0]?.collection_date || remainingForBox[0]?.date || "";
-      targetBox.last_opened_date = targetBox.last_collection_date;
-    }
-
-    meta.donation_boxes = boxes;
-    meta.donation_box_logs = updatedLogs;
-
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    // Delete from donations table
-    try {
-      const adminClient = await createAdminClient();
-      if (targetLog.receipt_no) {
-        await adminClient
-          .from("donations")
-          .delete()
-          .eq("madrasa_id", finalMadrasaId)
-          .eq("receipt_no", targetLog.receipt_no);
-      }
-    } catch (dErr) {
-      console.warn("Could not delete donation entry for box log:", dErr);
-    }
-
-    try {
-      revalidatePath("/dashboard/fundraising/collections");
-      revalidatePath("/dashboard/zakat");
-      revalidatePath("/dashboard/zakat/collection");
-      revalidatePath("/dashboard/zakat/funds");
-      revalidatePath("/dashboard/zakat/reports");
-      revalidatePath("/dashboard/accounting");
-      revalidatePath("/dashboard/finance");
-      revalidatePath("/dashboard/fundraising");
-    } catch {}
-    return { success: true };
-  } catch (err: any) {
-    return { error: err.message || "লগ মুছতে সমস্যা" };
-  }
+  return {error:"সংগ্রহের রসিদ মোছা যাবে না। মূল ফান্ড খতিয়ান থেকে ভাউচার বাতিল করুন।"};
 }
 
 export async function recordDonationBoxCollection(log: Partial<DonationBoxCollectionLog>) {
@@ -2401,10 +1738,11 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
   }
 
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
+    const finalMadrasaId = await getAuthMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    const before = collectionSnapshot(meta,"donation_boxes","donation_box_logs");
     const boxes: DonationBox[] = meta.donation_boxes || [];
     const logs: DonationBoxCollectionLog[] = meta.donation_box_logs || [];
 
@@ -2413,9 +1751,12 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
     const witness = (log.witness_name || (log as any).witnesses || "মুহতামিম ও ক্যাশিয়ার").trim();
 
     const targetBox = boxes.find((b: DonationBox) => b.id === log.box_id);
-    const boxCode = log.box_code || targetBox?.box_code || "BOX";
+    if (!targetBox || targetBox.status!=="ACTIVE" || !(bdtPoisha(amount) ?? 0)) return {error:"সক্রিয় বাক্স ও সঠিক অঙ্ক আবশ্যক।"};
+    if (boxes.filter(b=>b.id===log.box_id).length!==1 || log.notes?.includes('[VOID:')) return {error:'বাক্স বা রসিদ যাচাই করুন।'};
+    const boxCode = targetBox.box_code;
     const locName = log.location_name || targetBox?.location_name || "";
-    const targetFund = log.fund_name || targetBox?.fund_name || "সাধারণ ফান্ড (General Fund)";
+    const fund = await postingFund(finalMadrasaId,log.fund_id,"deposit","","",log.fund_name);
+    const targetFund = fund.name;
 
     // Generate sequential receipt no if not passed or if placeholder
     let receiptNo = (log.receipt_no || "").trim();
@@ -2423,7 +1764,7 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
       receiptNo = await getNextBoxVoucherNo(finalMadrasaId);
     }
 
-    const newLog: DonationBoxCollectionLog = {
+    const newLog: DonationBoxCollectionLog = { accounting_record_id:randomUUID(),
       id: `boxlog_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       box_id: log.box_id || "",
       box_code: boxCode,
@@ -2431,7 +1772,7 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
       collection_date: colDate,
       date: colDate,
       amount,
-      fund_name: targetFund,
+      fund_id: fund.id, fund_name: targetFund,
       collector_name: log.collector_name || "দায়িত্বশীল স্টাফ",
       witness_name: witness,
       witnesses: witness,
@@ -2453,44 +1794,10 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
     meta.donation_boxes = boxes;
     meta.donation_box_logs = logs;
 
-    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
-    if (!ok) {
-      return { error: "কালেকশন লগ সংরক্ষণ ব্যর্থ হয়েছে" };
-    }
-
-    // Sync to donations table with exact database schema columns
-    try {
-      const adminClient = await createAdminClient();
-      const formattedNotes = `[দানবাক্স কালেকশন] বক্স: ${boxCode} (${locName}), দায়িত্বশীল: ${targetBox?.responsible_person || targetBox?.contact_person || ""}, স্বাক্ষী: ${witness}${log.notes ? `, মন্তব্য: ${log.notes}` : ""}`;
-
-      const { data: existingDon } = await adminClient
-        .from("donations")
-        .select("id")
-        .eq("madrasa_id", finalMadrasaId)
-        .eq("receipt_no", receiptNo)
-        .maybeSingle();
-
-      if (existingDon) {
-        await adminClient.from("donations").update({
-          amount: amount,
-          donation_type: targetFund,
-          donation_date: colDate,
-          notes: formattedNotes,
-        }).eq("id", existingDon.id);
-      } else {
-        await adminClient.from("donations").insert({
-          madrasa_id: finalMadrasaId,
-          donor_id: null,
-          amount: amount,
-          donation_type: targetFund,
-          donation_date: colDate,
-          receipt_no: receiptNo,
-          notes: formattedNotes,
-        });
-      }
-    } catch (dErr) {
-      console.warn("Could not insert donation entry for box collection:", dErr);
-    }
+    await postCollection(finalMadrasaId,before,meta,"donation",{
+      id:newLog.accounting_record_id,amount,date:colDate,receipt_no:receiptNo,fund_id:fund.id,fund_name:fund.name,
+      notes:`[দানবাক্স কালেকশন] বক্স: ${boxCode} (${locName}), স্বাক্ষী: ${witness} ${log.notes || ""}`,
+    });
 
     try {
       revalidatePath("/dashboard/fundraising/collections");
@@ -2508,127 +1815,12 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
   }
 }
 
-// Auto-sync function to backfill and guarantee all metadata collections are present in donations table
-export async function syncFundraisingCollectionsToDonations(madrasaId?: string) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("fundraising");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  try {
-    const finalMadrasaId = madrasaId || (await getSafeMadrasaId());
-    if (!finalMadrasaId) return { syncedCount: 0 };
-
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const leatherRecords: QurbaniLeatherRecord[] = meta.qurbani_leather_records || meta.leather_batches || [];
-    const boxLogs: DonationBoxCollectionLog[] = meta.donation_box_logs || [];
-    const boxes: DonationBox[] = meta.donation_boxes || [];
-
-    const adminClient = await createAdminClient();
-    const { data: existingDonations } = await adminClient
-      .from("donations")
-      .select("receipt_no")
-      .eq("madrasa_id", finalMadrasaId);
-
-    const existingReceiptSet = new Set((existingDonations || []).map((d: any) => (d.receipt_no || "").trim()));
-    let syncedCount = 0;
-
-    // 1. Sync leather records
-    for (const lth of leatherRecords) {
-      let recNo = (lth.receipt_no || "").trim();
-      if (!recNo) {
-        recNo = `LTH-REC-${String(leatherRecords.indexOf(lth) + 1).padStart(3, "0")}`;
-        lth.receipt_no = recNo;
-      }
-
-      if (!existingReceiptSet.has(recNo)) {
-        const qty = Number(lth.quantity || 0);
-        const rate = Number(lth.rate_per_piece || lth.rate_per_unit || 0);
-        const gross = Number(lth.total_sale_amount || lth.total_sale_price || qty * rate);
-        const cost = Number(lth.transport_labor_cost || lth.transport_labour_cost || 0);
-        const profit = Number(lth.net_profit || (gross - cost));
-        const received = Number(lth.received_amount || lth.paid_amount || profit);
-        const depositAmt = received > 0 ? received : (profit > 0 ? profit : gross);
-        const targetFund = lth.fund_name || lth.target_fund || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
-        const recordDate = lth.sale_date || lth.collection_date || lth.date || toDhakaDateStringFrom((lth as any).created_at) || toDhakaDateString();
-        const buyer = (lth.buyer_name || "").trim() || "স্থানীয় চামড়া ব্যবসায়ী";
-        const formattedNotes = `[কুরবানির চামড়া বিক্রয়] চালান: ${recNo}, চামড়া: ${lth.type || lth.leather_type || "গরু"} (${qty} পিস), দর: ৳${rate}, মোট বিক্রয়: ৳${gross}, লেবার/পরিবহন খরচ: ৳${cost}, ক্রেতা: ${buyer}${lth.buyer_phone ? ` (${lth.buyer_phone})` : ""}${lth.due_amount ? `, বকেয়া: ৳${lth.due_amount}` : ""}`;
-
-        const { error } = await adminClient.from("donations").insert({
-          madrasa_id: finalMadrasaId,
-          donor_id: null,
-          amount: depositAmt,
-          donation_type: targetFund,
-          donation_date: recordDate,
-          receipt_no: recNo,
-          notes: formattedNotes,
-        });
-
-        if (!error) {
-          existingReceiptSet.add(recNo);
-          syncedCount++;
-        }
-      }
-    }
-
-    // 2. Sync box logs
-    for (const log of boxLogs) {
-      let recNo = (log.receipt_no || "").trim();
-      if (!recNo) {
-        recNo = `BOX-REC-${String(boxLogs.indexOf(log) + 1).padStart(3, "0")}`;
-        log.receipt_no = recNo;
-      }
-
-      if (!existingReceiptSet.has(recNo)) {
-        const targetBox = boxes.find((b) => b.id === log.box_id);
-        const boxCode = log.box_code || targetBox?.box_code || "BOX";
-        const locName = log.location_name || targetBox?.location_name || "";
-        const targetFund = log.fund_name || targetBox?.fund_name || "সাধারণ ফান্ড (General Fund)";
-        const colDate = log.collection_date || log.date || toDhakaDateStringFrom((log as any).created_at) || toDhakaDateString();
-        const witness = (log.witness_name || log.witnesses || "মুহতামিম ও ক্যাশিয়ার").trim();
-        const formattedNotes = `[দানবাক্স কালেকশন] বক্স: ${boxCode} (${locName}), দায়িত্বশীল: ${targetBox?.responsible_person || targetBox?.contact_person || ""}, স্বাক্ষী: ${witness}${log.notes ? `, মন্তব্য: ${log.notes}` : ""}`;
-
-        const { error } = await adminClient.from("donations").insert({
-          madrasa_id: finalMadrasaId,
-          donor_id: null,
-          amount: Number(log.amount || 0),
-          donation_type: targetFund,
-          donation_date: colDate,
-          receipt_no: recNo,
-          notes: formattedNotes,
-        });
-
-        if (!error) {
-          existingReceiptSet.add(recNo);
-          syncedCount++;
-        }
-      }
-    }
-
-    if (syncedCount > 0) {
-      await saveMadrasaMetadata(finalMadrasaId, meta);
-    }
-
-    return { syncedCount };
-  } catch (err) {
-    console.error("Error in syncFundraisingCollectionsToDonations:", err);
-    return { syncedCount: 0 };
-  }
-}
-
-
-// ============================================================================
-// 4. ONLINE DONATIONS & SETTINGS
-// ============================================================================
-
 export async function getOnlineDonationSettings(): Promise<OnlineDonationSettings> {
   try {
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return DEFAULT_ONLINE_DONATION_SETTINGS;
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
     const existing = meta.online_donation_settings;
     const gw = meta.payment_gateway_config;
     const islami = gw?.islami_bank;
@@ -2659,10 +1851,10 @@ export async function saveOnlineDonationSettings(settings: Partial<OnlineDonatio
   }
 
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
+    const finalMadrasaId = await getAuthMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
     const current = meta.online_donation_settings || DEFAULT_ONLINE_DONATION_SETTINGS;
 
     const updated: OnlineDonationSettings = {
@@ -2706,7 +1898,7 @@ function generateNextOnlineDonationReceiptNo(donations: OnlineDonation[], year: 
       if (match) {
         const itemYear = parseInt(match[1], 10);
         const itemSerial = parseInt(match[2], 10);
-        if (itemYear === year && !isNaN(itemSerial) && itemSerial < 100000) {
+        if (itemYear === year && !isNaN(itemSerial) && Number.isSafeInteger(itemSerial)) {
           if (itemSerial > maxSerial) {
             maxSerial = itemSerial;
           }
@@ -2718,33 +1910,28 @@ function generateNextOnlineDonationReceiptNo(donations: OnlineDonation[], year: 
   return `DON-${year}-${String(nextSerial).padStart(4, "0")}`;
 }
 
+// Public tracking returns one redacted receipt, not the institution's donor directory.
+export async function trackDonationReceipt(query:string) {
+  const key=query?.trim().toLowerCase();
+  if (!key || key.length>150) return null;
+  const tenant=await getSafeMadrasaId();
+  if (!tenant) return null;
+  const meta=await getMadrasaMetadata(tenant,true);
+  const matches=(meta.online_donations || []).filter((d:OnlineDonation)=>(!d.madrasa_id || d.madrasa_id===tenant) && [d.receipt_no,d.trx_id].some(v=>v?.toLowerCase()===key));
+  if (matches.length!==1) return null;
+  const d=matches[0];
+  if (!d.receipt_no) return null;
+  return {receipt_no:String(d.receipt_no),fund_category:String(d.fund_category || REVIEW_FUND.name),
+    payment_method:String(d.payment_method || ''),amount:Number(d.amount),status:String(d.status),donor_name:'শুভাকাঙ্ক্ষী'};
+}
 export async function getOnlineDonations(): Promise<OnlineDonation[]> {
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
+    const guard=await writeGuard('fundraising');
+    const finalMadrasaId=guard.allowed && guard.madrasaId;
     if (!finalMadrasaId) return [];
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    let donations: OnlineDonation[] = meta.online_donations || [];
-
-    // Normalize any legacy timestamp-based receipt numbers to clean sequential format
-    let hasMigration = false;
-    donations = donations.map((d: OnlineDonation, idx: number) => {
-      if (d.receipt_no && (/DON-\d{4}-\d{5,}/.test(d.receipt_no) || d.receipt_no.length > 15)) {
-        hasMigration = true;
-        const year = d.created_at ? new Date(d.created_at).getFullYear() : 2026;
-        return {
-          ...d,
-          receipt_no: `DON-${year}-${String(donations.length - idx).padStart(4, "0")}`,
-        };
-      }
-      return d;
-    });
-
-    if (hasMigration) {
-      meta.online_donations = donations;
-      await saveMadrasaMetadata(finalMadrasaId, meta);
-    }
-
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    const donations: OnlineDonation[] = (meta.online_donations || []).filter((d:OnlineDonation)=>!d.madrasa_id || d.madrasa_id===finalMadrasaId);
     return donations.sort((a: OnlineDonation, b: OnlineDonation) => new Date(b.donation_date || b.created_at).getTime() - new Date(a.donation_date || a.created_at).getTime());
   } catch (err) {
     console.error("Error fetching online donations:", err);
@@ -2754,14 +1941,17 @@ export async function getOnlineDonations(): Promise<OnlineDonation[]> {
 
 export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
   try {
-    const finalMadrasaId = donation.madrasa_id || (await getSafeMadrasaId());
+    const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
     const donations: OnlineDonation[] = meta.online_donations || [];
 
-    const isGateway = Boolean(donation.is_gateway);
+    const fund = await postingFund(finalMadrasaId,donation.fund_id,"deposit","","",donation.fund_category);
+    if (!(bdtPoisha(donation.amount) ?? 0)) return {error:"অনুদানের অঙ্ক সঠিক নয়।"};
     const currentYear = getDhakaYear();
+    const trx=(donation.trx_id||'').trim().toUpperCase();
+    if (trx && donations.some(d=>d.trx_id?.trim().toUpperCase()===trx)) return {error:'এই লেনদেনের রেফারেন্স আগে জমা হয়েছে। মূল রসিদ যাচাই করুন।'};
     const receiptNo = generateNextOnlineDonationReceiptNo(donations, currentYear);
 
     const nowIso = new Date().toISOString();
@@ -2773,90 +1963,20 @@ export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
       email: donation.email || "",
       country: donation.country || "বাংলাদেশ",
       address: donation.address || "",
-      fund_category: donation.fund_category || "সাধারণ ফান্ড",
+      fund_id:fund.id, fund_category:fund.name,
       amount: Number(donation.amount || 0),
-      payment_method: donation.payment_method || (isGateway ? "Online Gateway" : "bKash"),
-      trx_id: (donation.trx_id || (isGateway ? `GW-${Date.now().toString().slice(-8)}` : "")).trim().toUpperCase(),
+      payment_method: donation.payment_method || "bKash",
+      trx_id: (donation.trx_id || "").trim().toUpperCase(),
       donation_date: donation.donation_date || toDhakaDateStringFrom(nowIso),
       receipt_no: receiptNo,
-      status: isGateway ? "VERIFIED" : (donation.status || "PENDING"),
-      is_gateway: isGateway,
-      gateway_provider: donation.gateway_provider || (isGateway ? "SSLCOMMERZ" : undefined),
-      message: donation.message || "",
-      is_anonymous: Boolean(donation.is_anonymous),
-      verified_at: isGateway ? nowIso : undefined,
-      verified_by: isGateway ? `অটোমেটেড গেটওয়ে (${donation.payment_method || "Digital Gateway"})` : undefined,
+      status: "PENDING", is_gateway:false,
+      message: donation.message || "", is_anonymous: Boolean(donation.is_anonymous),
       created_at: nowIso,
     };
 
-    donations.unshift(newDonation);
-    meta.online_donations = donations;
-
-    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
-    if (!ok) return { error: "অনুদান সংরক্ষণ ব্যর্থ হয়েছে" };
-
-    // Dual-write & sync verified donation into madrasa accounts & funds
-    if (newDonation.status === "VERIFIED") {
-      try {
-        const adminClient = await createAdminClient();
-        let donorId: string | null = null;
-        if (newDonation.phone) {
-          const { data: existingDonor } = await adminClient
-            .from("donors")
-            .select("id")
-            .eq("madrasa_id", finalMadrasaId)
-            .eq("phone", newDonation.phone)
-            .limit(1)
-            .single();
-          if (existingDonor?.id) donorId = existingDonor.id;
-        }
-
-        if (!donorId && newDonation.donor_name) {
-          const { data: newDonorRec } = await adminClient.from("donors").insert({
-            madrasa_id: finalMadrasaId,
-            name: newDonation.donor_name,
-            phone: newDonation.phone || "",
-            email: newDonation.email || "",
-            address: newDonation.address || "",
-            donor_type: "OneTime",
-            notes: JSON.stringify({ source: "Online Portal", created_at: nowIso }),
-          }).select("id").single();
-          if (newDonorRec?.id) donorId = newDonorRec.id;
-        }
-
-        await adminClient.from("donations").insert({
-          madrasa_id: finalMadrasaId,
-          donor_id: donorId,
-          amount: newDonation.amount,
-          donation_type: newDonation.fund_category,
-          donation_date: newDonation.donation_date,
-          receipt_no: newDonation.receipt_no,
-          notes: `[অনলাইন ডোনেশন | মেথড: ${newDonation.payment_method} | TrxID: ${newDonation.trx_id}] ${newDonation.message || ""}`,
-        });
-
-        // Update zakat_funds balance if fund exists
-        const { data: zFunds } = await adminClient
-          .from("zakat_funds")
-          .select("id, name, current_balance")
-          .eq("madrasa_id", finalMadrasaId);
-
-        if (zFunds && zFunds.length > 0) {
-          const targetFund = zFunds.find(
-            (f: any) =>
-              f.name?.trim().toLowerCase() === newDonation.fund_category.trim().toLowerCase() ||
-              newDonation.fund_category.toLowerCase().includes(f.name?.toLowerCase() || "")
-          );
-          if (targetFund) {
-            await adminClient
-              .from("zakat_funds")
-              .update({ current_balance: (Number(targetFund.current_balance) || 0) + newDonation.amount })
-              .eq("id", targetFund.id);
-          }
-        }
-      } catch (syncErr) {
-        console.error("Online donation accounting sync note:", syncErr);
-      }
-    }
+    const db = await createAdminClient();
+    const {error} = await db.rpc("replace_portal_gateway_key",{p_tenant:finalMadrasaId,p_key:"online_donations",p_before:meta.online_donations ?? null,p_after:[newDonation,...donations]});
+    if (error) return {error:"অনুদান সংরক্ষণ হয়নি। রিফ্রেশ করে আবার চেষ্টা করুন।"};
 
     try {
       revalidatePath("/dashboard/fundraising/online-donations");
@@ -2880,7 +2000,7 @@ export async function initiateOnlineDonationGateway(params: {
   phone: string;
   email?: string;
   amount: number;
-  fund_category: string;
+  fund_id: string;
   payment_channel: "bKash" | "Nagad" | "Rocket" | "Islami Bank" | "Card / Other";
   message?: string;
   is_anonymous?: boolean;
@@ -2892,6 +2012,7 @@ export async function initiateOnlineDonationGateway(params: {
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
     const meta = await getMadrasaMetadata(finalMadrasaId, true);
+    const fund = await postingFund(finalMadrasaId,params.fund_id,"deposit");
     const config: PaymentGatewayConfig = meta.payment_gateway_config || DEFAULT_GATEWAY_CONFIG;
 
     if (!config.is_enabled) {
@@ -2925,7 +2046,7 @@ export async function initiateOnlineDonationGateway(params: {
       donor_name: params.donor_name || "শুভাকাঙ্ক্ষী",
       phone: params.phone || "",
       email: params.email || "",
-      fund_category: params.fund_category || "সাধারণ ফান্ড",
+      fund_id:fund.id, fund_category:fund.name,
       amount: Number(params.amount || 0),
       payment_method: `${params.payment_channel} (Gateway)`,
       trx_id: transactionId,
@@ -2955,7 +2076,7 @@ export async function initiateOnlineDonationGateway(params: {
         cus_name: params.donor_name || "শুভাকাঙ্ক্ষী",
         cus_phone: params.phone || "01700000000",
         cus_email: params.email || "donor@qawmimanager.app",
-        product_name: `Donation: ${params.fund_category}`,
+        product_name: `Donation: ${fund.name}`,
         product_category: "Donation",
         success_url: `${appUrl}/api/payments/sslcommerz/success?type=donation&tenant=${finalMadrasaId}`,
         fail_url: `${appUrl}/api/payments/sslcommerz/fail?type=donation`,
@@ -2993,93 +2114,38 @@ export async function initiateOnlineDonationGateway(params: {
 export async function updateOnlineDonationStatus(
   id: string,
   status: "VERIFIED" | "PENDING" | "REJECTED",
-  verifierName?: string
+  _verifierName?: string
 ) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("fundraising");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
+  const guard=await writeGuard('fundraising');
+  if(!guard.allowed) return guard.fallback;
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
-    if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
-
-    const meta = await getMadrasaMetadata(finalMadrasaId);
+    const finalMadrasaId=guard.madrasaId;
+    if(!finalMadrasaId || !guard.userId) return {error:'প্রতিষ্ঠান বা যাচাইকারীর পরিচয় মেলেনি।'};
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
     const donations: OnlineDonation[] = meta.online_donations || [];
     const target = donations.find((d: OnlineDonation) => d.id === id);
-    if (!target) return { error: "অনুদান রেকর্ড পাওয়া যায়নি" };
+    if (!target || donations.filter(d=>d.id===id).length!==1 || (target.madrasa_id && target.madrasa_id!==finalMadrasaId)) return { error: "অনুদান রেকর্ড পাওয়া যায়নি" };
 
-    const previousStatus = target.status;
+    if (!['PENDING','REJECTED','VERIFIED'].includes(target.status)) return {error:"পোস্ট করা রসিদ খতিয়ান থেকে পরিচালনা করুন।"};
+    if (target.status === "VERIFIED") return {error:"ইতিমধ্যে পোস্ট করা রসিদ। মূল খতিয়ান দেখুন।"};
+    if (target.is_gateway || target.gateway_provider || !["PENDING","VERIFIED","REJECTED"].includes(status)) return {error:"গেটওয়ে পেমেন্ট কেবল যাচাইকৃত callback থেকে পোস্ট হয়।"};
+    const before = collectionSnapshot(meta,"online_donations");
     target.status = status;
-    target.verified_by = verifierName || "অ্যাডমিন";
+    target.verified_by = guard.actorName || guard.actorEmail || guard.userId;
     target.verified_at = new Date().toISOString();
 
     meta.online_donations = donations;
-    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
-    if (!ok) return { error: "স্ট্যাটাস সংরক্ষণ ব্যর্থ" };
-
-    // If newly verified, sync with accounting
-    if (status === "VERIFIED" && previousStatus !== "VERIFIED") {
-      try {
-        const adminClient = await createAdminClient();
-        let donorId: string | null = null;
-        if (target.phone) {
-          const { data: existingDonor } = await adminClient
-            .from("donors")
-            .select("id")
-            .eq("madrasa_id", finalMadrasaId)
-            .eq("phone", target.phone)
-            .limit(1)
-            .single();
-          if (existingDonor?.id) donorId = existingDonor.id;
-        }
-
-        if (!donorId && target.donor_name) {
-          const { data: newDonorRec } = await adminClient.from("donors").insert({
-            madrasa_id: finalMadrasaId,
-            name: target.donor_name,
-            phone: target.phone || "",
-            email: target.email || "",
-            address: target.address || "",
-            donor_type: "OneTime",
-            notes: JSON.stringify({ source: "Online Portal Verified", created_at: target.verified_at }),
-          }).select("id").single();
-          if (newDonorRec?.id) donorId = newDonorRec.id;
-        }
-
-        await adminClient.from("donations").insert({
-          madrasa_id: finalMadrasaId,
-          donor_id: donorId,
-          amount: target.amount,
-          donation_type: target.fund_category,
-          donation_date: target.donation_date,
-          receipt_no: target.receipt_no,
-          notes: `[অনলাইন অনুদান ভেরিফাইড | মেথড: ${target.payment_method} | TrxID: ${target.trx_id}] ${target.message || ""}`,
-        });
-
-        const { data: zFunds } = await adminClient
-          .from("zakat_funds")
-          .select("id, name, current_balance")
-          .eq("madrasa_id", finalMadrasaId);
-
-        if (zFunds && zFunds.length > 0) {
-          const targetFund = zFunds.find(
-            (f: any) =>
-              f.name?.trim().toLowerCase() === target.fund_category.trim().toLowerCase() ||
-              target.fund_category.toLowerCase().includes(f.name?.toLowerCase() || "")
-          );
-          if (targetFund) {
-            await adminClient
-              .from("zakat_funds")
-              .update({ current_balance: (Number(targetFund.current_balance) || 0) + target.amount })
-              .eq("id", targetFund.id);
-          }
-        }
-      } catch (syncErr) {
-        console.error("Online donation status update sync note:", syncErr);
-      }
+    if (status === "VERIFIED") {
+        const fund = await postingFund(finalMadrasaId,target.fund_id,"deposit","","",target.fund_category);
+        // A public name or shared phone is not a directory identity. Keep the donor
+        // on the source receipt; link a directory UUID only when explicitly identified.
+        target.accounting_record_id=randomUUID();
+        await postCollection(finalMadrasaId,before,meta,"donation",{id:target.accounting_record_id,donor_id:null,amount:target.amount,date:target.donation_date,
+          receipt_no:target.receipt_no || "",fund_id:fund.id,fund_name:fund.name,notes:`[অনলাইন অনুদান ভেরিফাইড | TrxID: ${target.trx_id}] ${target.message || ""}`});
+    } else {
+      const db = await createAdminClient();
+      const {error} = await db.rpc("replace_portal_gateway_key",{p_tenant:finalMadrasaId,p_key:"online_donations",p_before:before.online_donations,p_after:donations});
+      if (error) return {error:"স্ট্যাটাস সংরক্ষণ হয়নি। রিফ্রেশ করে আবার চেষ্টা করুন।"};
     }
 
     try {
@@ -3105,13 +2171,16 @@ export async function deleteOnlineDonation(id: string) {
   }
 
   try {
-    const finalMadrasaId = await getSafeMadrasaId();
+    const finalMadrasaId = await getAuthMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    meta.online_donations = (meta.online_donations || []).filter((d: OnlineDonation) => d.id !== id);
-
-    await saveMadrasaMetadata(finalMadrasaId, meta);
+    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    const original = meta.online_donations || [];
+    const target = original.find((r:OnlineDonation)=>r.id===id);
+    if (!target || target.is_gateway || target.gateway_provider || !['REJECTED','PENDING'].includes(target.status)) return {error:"পোস্ট করা বা গেটওয়ে রসিদ মোছা যাবে না।"};
+    const before = collectionSnapshot(meta,"online_donations");
+    meta.online_donations=original.filter((d:OnlineDonation)=>d.id!==id);
+    await replaceSources(finalMadrasaId,before,meta);
     try {
       revalidatePath("/dashboard/fundraising/online-donations");
       revalidatePath("/portal/donate");

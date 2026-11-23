@@ -4,7 +4,9 @@ import {
   listApprovalRequestsForMadrasa,
   listWorkflowsForMadrasa,
 } from "@/lib/approval-workflow";
-import { submitApprovalRequestForActor } from "@/app/actions/approvals";
+import {loadServerPermissions} from '@/lib/permissions-server';
+import {canReadApproval,publicApproval} from '@/lib/finance/approval-terms';
+import { submitApprovalRequestForActor } from "@/lib/approval-execution";
 
 export async function GET(req: NextRequest) {
   const auth = await authorizeApi("approvals");
@@ -27,11 +29,14 @@ export async function GET(req: NextRequest) {
       listWorkflowsForMadrasa(auth.ctx.madrasaId),
     ]);
 
+    const p=await loadServerPermissions(auth.ctx.userId,auth.ctx.madrasaId);
+    if(!p) return NextResponse.json({error:'অনুমতি যাচাই হয়নি।'},{status:403});
+    const visible=requests.filter(r=>canReadApproval(r,p.roles,p.summary.effectivePermissions)).map(publicApproval);
     return NextResponse.json({
       success: true,
-      requests,
-      workflows,
-      data: requests,
+      requests:visible,
+      workflows:workflows.filter(w=>canReadApproval(w,p.roles,p.summary.effectivePermissions)),
+      data: visible,
     });
   } catch (err: any) {
     console.error("GET /api/approvals error:", err);
