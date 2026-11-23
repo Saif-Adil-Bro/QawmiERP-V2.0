@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Printer, X, FileSpreadsheet, Layers, FileText } from "lucide-react";
 import type { HifzBundle } from "@/lib/hifz-utils";
 import { inferWeekNumberFromDate, WEEK_ORDINALS_BN } from "@/lib/hifz-khata";
 import { toDhakaDateString } from "@/lib/date-utils";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-import WeeklyKhataReport from "./WeeklyKhataReport";
+import WeeklyKhataReport, { type KhataInstitutionInfo } from "./WeeklyKhataReport";
 import MonthlyKhataReport from "./MonthlyKhataReport";
+
+const INSTITUTION_CACHE_KEY = "qawmi_khata_institution_v1";
 
 export type KhataPrintMode = "weekly_a5" | "weekly_2up_a4" | "monthly_a4";
 export type KhataPrintScope = "single" | "batch" | "blank";
@@ -20,6 +22,7 @@ interface HifzReportPrintModalProps {
   classes?: any[];
   defaultStudentId?: string;
   initialMode?: KhataPrintMode;
+  institution?: KhataInstitutionInfo | null;
 }
 
 export default function HifzReportPrintModal({
@@ -30,6 +33,7 @@ export default function HifzReportPrintModal({
   classes = [],
   defaultStudentId,
   initialMode = "weekly_a5",
+  institution: initialInstitution,
 }: HifzReportPrintModalProps) {
   const today = toDhakaDateString();
   const [mode, setMode] = useState<KhataPrintMode>(initialMode);
@@ -42,6 +46,45 @@ export default function HifzReportPrintModal({
   const [monthKey, setMonthKey] = useState<string>(today.slice(0, 7));
   const [weekNumber, setWeekNumber] = useState<number>(inferWeekNumberFromDate(today));
   const [hijriMonthLabel, setHijriMonthLabel] = useState<string>("");
+  const [institution, setInstitution] = useState<KhataInstitutionInfo | null>(() => {
+    if (initialInstitution) return initialInstitution;
+    if (typeof window !== "undefined") {
+      try {
+        const cached = window.localStorage.getItem(INSTITUTION_CACHE_KEY);
+        if (cached) return JSON.parse(cached) as KhataInstitutionInfo;
+      } catch {
+        // ignore storage errors
+      }
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (!open || initialInstitution) return;
+    let active = true;
+    fetch("/api/institution-profile", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => {
+        if (!active || !res?.madrasa) return;
+        const info: KhataInstitutionInfo = {
+          name: res.madrasa.name || "",
+          address: res.madrasa.address || "",
+          logoUrl: res.logoUrl || null,
+        };
+        setInstitution(info);
+        try {
+          window.localStorage.setItem(INSTITUTION_CACHE_KEY, JSON.stringify(info));
+        } catch {
+          // ignore storage quota errors
+        }
+      })
+      .catch(() => {
+        // Offline or unavailable: keep cached institution info
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, initialInstitution]);
 
   const profileMap = useMemo(
     () => new Map((bundle.hifz_profiles || []).map((p) => [p.student_id, p])),
@@ -324,6 +367,7 @@ export default function HifzReportPrintModal({
                   monthKey={monthKey}
                   weekNumber={weekNumber}
                   hijriMonthLabel={hijriMonthLabel}
+                  institution={institution}
                   blankTemplate={scope === "blank"}
                 />
               </div>
@@ -349,6 +393,7 @@ export default function HifzReportPrintModal({
                   monthKey={monthKey}
                   weekNumber={weekNumber}
                   hijriMonthLabel={hijriMonthLabel}
+                  institution={institution}
                   blankTemplate={scope === "blank"}
                 />
                 {/* Dashed Cut Line between the two 148mm sheets on A4 (297mm) */}
@@ -369,6 +414,7 @@ export default function HifzReportPrintModal({
                     monthKey={monthKey}
                     weekNumber={weekNumber}
                     hijriMonthLabel={hijriMonthLabel}
+                    institution={institution}
                     blankTemplate={scope === "blank"}
                   />
                 ) : (
@@ -388,6 +434,7 @@ export default function HifzReportPrintModal({
                   weeklySabinas={bundle.hifz_weekly_sabina}
                   monthKey={monthKey}
                   hijriMonthLabel={hijriMonthLabel}
+                  institution={institution}
                   blankTemplate={scope === "blank"}
                 />
               </div>

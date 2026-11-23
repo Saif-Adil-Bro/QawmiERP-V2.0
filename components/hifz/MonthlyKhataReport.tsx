@@ -12,6 +12,8 @@ import {
 } from "@/lib/hifz-khata";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
+import type { KhataInstitutionInfo } from "./WeeklyKhataReport";
+
 export interface MonthlyKhataReportProps {
   student?: {
     id: string;
@@ -25,6 +27,7 @@ export interface MonthlyKhataReportProps {
   weeklySabinas?: WeeklySabina[];
   monthKey: string; // YYYY-MM
   hijriMonthLabel?: string;
+  institution?: KhataInstitutionInfo | null;
   blankTemplate?: boolean;
   className?: string;
 }
@@ -37,11 +40,17 @@ export default function MonthlyKhataReport({
   weeklySabinas = [],
   monthKey,
   hijriMonthLabel = "",
+  institution,
   blankTemplate = false,
   className = "",
 }: MonthlyKhataReportProps) {
+  const [logoFailed, setLogoFailed] = React.useState(false);
   const days = getKhataMonthDays(monthKey);
   const { monthName, yearBn } = getMonthLabelBn(monthKey);
+
+  const madrasaName = institution?.name?.trim() || "";
+  const madrasaAddress = institution?.address?.trim() || "";
+  const showLogo = Boolean(institution?.logoUrl && !logoFailed);
 
   const studentName = blankTemplate
     ? ""
@@ -88,7 +97,7 @@ export default function MonthlyKhataReport({
     fontSize: "7.5pt",
     lineHeight: 1.15,
     textAlign: "center",
-    height: "20.5px",
+    height: "19px",
     verticalAlign: "middle",
     overflow: "hidden",
     whiteSpace: "nowrap",
@@ -97,7 +106,7 @@ export default function MonthlyKhataReport({
 
   const thBase: React.CSSProperties = {
     border: "1px solid #0f172a",
-    padding: "2px",
+    padding: "1.5px 2px",
     fontSize: "7.5pt",
     fontWeight: 700,
     lineHeight: 1.15,
@@ -149,10 +158,69 @@ export default function MonthlyKhataReport({
             overflow: "hidden",
           }}
         >
+          {/* DYNAMIC MADRASAH LETTERHEAD HEADER (~42px) */}
+          <div
+            style={{
+              height: "42px",
+              padding: "3px 10px",
+              borderBottom: "1px solid #0f172a",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "10px",
+              boxSizing: "border-box",
+              backgroundColor: "#ffffff",
+            }}
+          >
+            {showLogo && (
+              <img
+                src={institution!.logoUrl!}
+                alt={madrasaName || "মাদরাসা লোগো"}
+                onError={() => setLogoFailed(true)}
+                style={{
+                  width: "34px",
+                  height: "34px",
+                  objectFit: "contain",
+                  flexShrink: 0,
+                  borderRadius: "4px",
+                }}
+              />
+            )}
+            <div style={{ textAlign: "center", minWidth: 0, overflow: "hidden" }}>
+              <div
+                style={{
+                  fontSize: "14pt",
+                  fontWeight: 800,
+                  lineHeight: 1.25,
+                  color: "#0f172a",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {madrasaName || "হিফজুল কুরআন বিভাগ"}
+              </div>
+              <div
+                style={{
+                  fontSize: "8.5pt",
+                  lineHeight: 1.25,
+                  color: "#334155",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {madrasaAddress
+                  ? `${madrasaAddress} · বিভাগ: হিফজুল কুরআন`
+                  : "বিভাগ: হিফজুল কুরআন"}
+              </div>
+            </div>
+          </div>
+
           {/* TOP METADATA HEADER */}
           <div
             style={{
-              height: "28px",
+              height: "26px",
               display: "flex",
               alignItems: "stretch",
               borderBottom: "1px solid #0f172a",
@@ -282,7 +350,7 @@ export default function MonthlyKhataReport({
                   ? mapLogToKhataRow(null)
                   : mapLogToKhataRow(logByDate.get(slot.date));
                 return (
-                  <tr key={slot.date} style={{ height: "20.5px" }}>
+                  <tr key={slot.date} style={{ height: "19px" }}>
                     <td style={{ ...cellBase, fontWeight: 700, borderLeft: "none" }}>
                       {slot.dayBn}
                     </td>

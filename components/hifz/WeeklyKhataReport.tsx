@@ -16,6 +16,12 @@ import {
 } from "@/lib/hifz-khata";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
+export interface KhataInstitutionInfo {
+  name?: string | null;
+  address?: string | null;
+  logoUrl?: string | null;
+}
+
 export interface WeeklyKhataReportProps {
   student?: {
     id: string;
@@ -29,6 +35,7 @@ export interface WeeklyKhataReportProps {
   monthKey: string; // YYYY-MM
   weekNumber: number; // 1..5
   hijriMonthLabel?: string;
+  institution?: KhataInstitutionInfo | null;
   blankTemplate?: boolean;
   className?: string;
 }
@@ -41,11 +48,17 @@ export default function WeeklyKhataReport({
   monthKey,
   weekNumber,
   hijriMonthLabel,
+  institution,
   blankTemplate = false,
   className = "",
 }: WeeklyKhataReportProps) {
+  const [logoFailed, setLogoFailed] = React.useState(false);
   const { days } = getKhataWeekDays(monthKey, weekNumber);
   const { monthName, yearBn } = getMonthLabelBn(monthKey);
+
+  const madrasaName = institution?.name?.trim() || "";
+  const madrasaAddress = institution?.address?.trim() || "";
+  const showLogo = Boolean(institution?.logoUrl && !logoFailed);
 
   const studentName = blankTemplate
     ? ""
@@ -103,11 +116,11 @@ export default function WeeklyKhataReport({
 
   const cellBase: React.CSSProperties = {
     border: "1px solid #0f172a",
-    padding: "1.5px 3px",
+    padding: "1px 3px",
     fontSize: "8pt",
-    lineHeight: 1.2,
+    lineHeight: 1.15,
     textAlign: "center",
-    height: "23px",
+    height: "19.5px",
     verticalAlign: "middle",
     overflow: "hidden",
     whiteSpace: "nowrap",
@@ -116,7 +129,7 @@ export default function WeeklyKhataReport({
 
   const thBase: React.CSSProperties = {
     border: "1px solid #0f172a",
-    padding: "2px",
+    padding: "1.5px 2px",
     fontSize: "7.5pt",
     fontWeight: 700,
     lineHeight: 1.15,
@@ -166,11 +179,70 @@ export default function WeeklyKhataReport({
             overflow: "hidden",
           }}
         >
-          {/* TOP METADATA HEADER GRID */}
-          {/* Row 1 (height: 24px) */}
+          {/* DYNAMIC MADRASAH LETTERHEAD HEADER (~32px) */}
           <div
             style={{
-              height: "24px",
+              height: "32px",
+              padding: "2px 8px",
+              borderBottom: "1px solid #0f172a",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              boxSizing: "border-box",
+              backgroundColor: "#ffffff",
+            }}
+          >
+            {showLogo && (
+              <img
+                src={institution!.logoUrl!}
+                alt={madrasaName || "মাদরাসা লোগো"}
+                onError={() => setLogoFailed(true)}
+                style={{
+                  width: "26px",
+                  height: "26px",
+                  objectFit: "contain",
+                  flexShrink: 0,
+                  borderRadius: "4px",
+                }}
+              />
+            )}
+            <div style={{ textAlign: "center", minWidth: 0, overflow: "hidden" }}>
+              <div
+                style={{
+                  fontSize: "11.5pt",
+                  fontWeight: 800,
+                  lineHeight: 1.2,
+                  color: "#0f172a",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {madrasaName || "হিফজুল কুরআন বিভাগ"}
+              </div>
+              <div
+                style={{
+                  fontSize: "7.5pt",
+                  lineHeight: 1.2,
+                  color: "#334155",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {madrasaAddress
+                  ? `${madrasaAddress} · বিভাগ: হিফজুল কুরআন`
+                  : "বিভাগ: হিফজুল কুরআন"}
+              </div>
+            </div>
+          </div>
+
+          {/* TOP METADATA HEADER GRID */}
+          {/* Row 1 (height: 22px) */}
+          <div
+            style={{
+              height: "22px",
               display: "flex",
               alignItems: "stretch",
               width: "100%",
@@ -444,7 +516,7 @@ export default function WeeklyKhataReport({
                   ? mapLogToKhataRow(null)
                   : mapLogToKhataRow(logByDate.get(slot.date));
                 return (
-                  <tr key={slot.date} style={{ height: "23px" }}>
+                  <tr key={slot.date} style={{ height: "19.5px" }}>
                     <td style={{ ...cellBase, fontWeight: 700, borderLeft: "none" }}>
                       {slot.dayBn}
                     </td>
@@ -475,13 +547,13 @@ export default function WeeklyKhataReport({
 
           {/* BOTTOM WEEKLY SABINA SUMMARY FOOTER BOX */}
           <div style={{ marginTop: "auto", borderTop: "1px solid #0f172a" }}>
-            {/* Upper Split Strip (height: 22px) */}
+            {/* Upper Split Strip (height: 20px) */}
             <div
               style={{
-                height: "22px",
-                padding: "2px 6px",
+                height: "20px",
+                padding: "1.5px 6px",
                 fontSize: "8pt",
-                lineHeight: 1.2,
+                lineHeight: 1.15,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
@@ -508,12 +580,12 @@ export default function WeeklyKhataReport({
               </div>
             </div>
 
-            {/* Lower 3-Part Summary Strip (height: 22px) */}
+            {/* Lower 3-Part Summary Strip (height: 20px) */}
             <div
               style={{
-                height: "22px",
+                height: "20px",
                 fontSize: "8pt",
-                lineHeight: 1.2,
+                lineHeight: 1.15,
                 display: "grid",
                 gridTemplateColumns: "22% 52% 26%",
                 boxSizing: "border-box",
