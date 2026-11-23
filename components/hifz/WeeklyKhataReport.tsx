@@ -119,7 +119,7 @@ export default function WeeklyKhataReport({
     border: "1px solid #0f172a",
     padding: "4px 4px",
     fontSize: "10pt",
-    fontWeight: 500,
+    fontWeight: 600,
     lineHeight: 1.3,
     textAlign: "center",
     verticalAlign: "middle",
@@ -142,7 +142,7 @@ export default function WeeklyKhataReport({
 
   return (
     <div
-      className={`khata-weekly-sheet bg-white text-slate-950 ${className}`}
+      className={`khata-weekly-sheet font-solaiman bg-white text-slate-950 ${className}`}
       style={{
         width: "210mm",
         height: "148mm",
@@ -151,7 +151,7 @@ export default function WeeklyKhataReport({
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
-        fontFamily: "'Noto Sans Bengali', 'Hind Siliguri', sans-serif",
+        fontFamily: "'SolaimanLipi', 'Hind Siliguri', sans-serif",
         backgroundColor: "#ffffff",
         color: "#0f172a",
       }}
