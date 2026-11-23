@@ -11,7 +11,6 @@ import {
   WEEK_ORDINALS_BN,
 } from "@/lib/hifz-khata";
 import { toBanglaNumber } from "@/lib/numberToBangla";
-
 import type { KhataInstitutionInfo } from "./WeeklyKhataReport";
 
 export interface MonthlyKhataReportProps {
@@ -93,11 +92,11 @@ export default function MonthlyKhataReport({
 
   const cellBase: React.CSSProperties = {
     border: "1px solid #0f172a",
-    padding: "1px 2.5px",
-    fontSize: "7.5pt",
-    lineHeight: 1.15,
+    padding: "2px 3px",
+    fontSize: "8.5pt",
+    fontWeight: 500,
+    lineHeight: 1.2,
     textAlign: "center",
-    height: "19px",
     verticalAlign: "middle",
     overflow: "hidden",
     whiteSpace: "nowrap",
@@ -106,14 +105,26 @@ export default function MonthlyKhataReport({
 
   const thBase: React.CSSProperties = {
     border: "1px solid #0f172a",
-    padding: "1.5px 2px",
-    fontSize: "7.5pt",
+    padding: "4px 3px",
+    fontSize: "8.5pt",
     fontWeight: 700,
-    lineHeight: 1.15,
+    lineHeight: 1.2,
     textAlign: "center",
     verticalAlign: "middle",
     backgroundColor: "#f8fafc",
     color: "#0f172a",
+  };
+
+  const sabinaCell: React.CSSProperties = {
+    border: "1px solid #0f172a",
+    padding: "3.5px 6px",
+    fontSize: "8.5pt",
+    lineHeight: 1.25,
+    textAlign: "center",
+    verticalAlign: "middle",
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
   };
 
   return (
@@ -122,7 +133,7 @@ export default function MonthlyKhataReport({
       style={{
         width: "210mm",
         height: "297mm",
-        padding: "9mm",
+        padding: "8mm",
         boxSizing: "border-box",
         overflow: "hidden",
         display: "flex",
@@ -138,6 +149,7 @@ export default function MonthlyKhataReport({
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           border: "1.5px solid #0f172a",
@@ -150,6 +162,7 @@ export default function MonthlyKhataReport({
         <div
           style={{
             flex: 1,
+            minHeight: 0,
             display: "flex",
             flexDirection: "column",
             border: "0.5px solid #334155",
@@ -158,11 +171,11 @@ export default function MonthlyKhataReport({
             overflow: "hidden",
           }}
         >
-          {/* DYNAMIC MADRASAH LETTERHEAD HEADER (~42px) */}
+          {/* DYNAMIC MADRASAH LETTERHEAD HEADER */}
           <div
             style={{
-              height: "42px",
-              padding: "3px 10px",
+              flexShrink: 0,
+              padding: "4px 10px",
               borderBottom: "1px solid #0f172a",
               display: "flex",
               alignItems: "center",
@@ -178,8 +191,8 @@ export default function MonthlyKhataReport({
                 alt={madrasaName || "মাদরাসা লোগো"}
                 onError={() => setLogoFailed(true)}
                 style={{
-                  width: "34px",
-                  height: "34px",
+                  width: "36px",
+                  height: "36px",
                   objectFit: "contain",
                   flexShrink: 0,
                   borderRadius: "4px",
@@ -189,7 +202,7 @@ export default function MonthlyKhataReport({
             <div style={{ textAlign: "center", minWidth: 0, overflow: "hidden" }}>
               <div
                 style={{
-                  fontSize: "14pt",
+                  fontSize: "15pt",
                   fontWeight: 800,
                   lineHeight: 1.25,
                   color: "#0f172a",
@@ -202,7 +215,7 @@ export default function MonthlyKhataReport({
               </div>
               <div
                 style={{
-                  fontSize: "8.5pt",
+                  fontSize: "9.5pt",
                   lineHeight: 1.25,
                   color: "#334155",
                   whiteSpace: "nowrap",
@@ -220,7 +233,7 @@ export default function MonthlyKhataReport({
           {/* TOP METADATA HEADER */}
           <div
             style={{
-              height: "26px",
+              flexShrink: 0,
               display: "flex",
               alignItems: "stretch",
               borderBottom: "1px solid #0f172a",
@@ -228,9 +241,10 @@ export default function MonthlyKhataReport({
           >
             <div
               style={{
-                width: "38%",
-                padding: "2px 6px",
-                fontSize: "8.5pt",
+                width: "37%",
+                padding: "4px 8px",
+                fontSize: "10pt",
+                lineHeight: 1.35,
                 display: "flex",
                 alignItems: "center",
                 gap: "4px",
@@ -239,19 +253,22 @@ export default function MonthlyKhataReport({
               }}
             >
               <strong>নাম :</strong>
-              <span>{studentName || "........................................"}</span>
+              <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {studentName || "......................................"}
+              </span>
             </div>
 
             <div
               style={{
-                width: "28%",
+                width: "27%",
                 borderLeft: "1px solid #0f172a",
                 borderRight: "1px solid #0f172a",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "12pt",
+                fontSize: "13pt",
                 fontWeight: 800,
+                padding: "4px 6px",
               }}
             >
               মাসিক হিফজ খাতা
@@ -259,133 +276,140 @@ export default function MonthlyKhataReport({
 
             <div
               style={{
-                width: "34%",
-                padding: "1px 5px",
-                fontSize: "7.5pt",
-                lineHeight: 1.2,
+                width: "36%",
+                padding: "3px 8px",
+                fontSize: "8.5pt",
+                lineHeight: 1.3,
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "center",
               }}
             >
-              <div>
+              <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <strong>মাস:</strong> {blankTemplate ? "............" : `${monthName} ${yearBn}`}{" "}
                 {hijriMonthLabel ? `(${hijriMonthLabel})` : ""}
               </div>
-              <div>
+              <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <strong>রোল:</strong>{" "}
                 {blankTemplate || !student?.roll_number
                   ? "......"
                   : toBanglaNumber(student.roll_number)}{" "}
-                · <strong>জামাত:</strong> {classNameLabel || "............"} ·{" "}
-                <strong>স্তর:</strong> {blankTemplate ? "......" : isKhatmi ? "খতমী" : "সবকী"}
+                · <strong>জামাত:</strong> {classNameLabel || ".........."} ·{" "}
+                <strong>স্তর:</strong> {blankTemplate ? "....." : isKhatmi ? "খতমী" : "সবকী"}
               </div>
             </div>
           </div>
 
-          {/* 30/31 UNIFORM DAILY ROWS TABLE */}
-          <table
-            style={{
-              borderCollapse: "collapse",
-              width: "100%",
-              tableLayout: "fixed",
-            }}
-          >
-            <colgroup>
-              <col style={{ width: "12%" }} />
-              <col style={{ width: "6.5%" }} />
-              <col style={{ width: "6.5%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "6%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "7%" }} />
-            </colgroup>
-            <thead>
-              <tr style={{ height: "15px" }}>
-                <th rowSpan={2} style={{ ...thBase, borderTop: "none", borderLeft: "none" }}>
-                  বার
-                </th>
-                <th colSpan={2} style={{ ...thBase, borderTop: "none" }}>
-                  {isKhatmi ? "ধরন" : "সবক"}
-                </th>
-                <th colSpan={4} style={{ ...thBase, borderTop: "none" }}>
-                  {isKhatmi ? "সকালের দাওর" : "সাত সবক"}
-                </th>
-                <th colSpan={4} style={{ ...thBase, borderTop: "none" }}>
-                  {isKhatmi ? "বিকেলের দাওর" : "আমুখতা"}
-                </th>
-                <th rowSpan={2} style={{ ...thBase, borderTop: "none" }}>
-                  দৈনিক তিলাওয়াত
-                </th>
-                <th rowSpan={2} style={{ ...thBase, borderTop: "none" }}>
-                  শিক্ষকের স্বাক্ষর
-                </th>
-                <th rowSpan={2} style={{ ...thBase, borderTop: "none", borderRight: "none" }}>
-                  তারিখ
-                </th>
-              </tr>
-              <tr style={{ height: "15px" }}>
-                <th style={thBase}>পারা</th>
-                <th style={thBase}>পৃষ্ঠা</th>
-                <th style={thBase}>পারা</th>
-                <th style={thBase}>পৃষ্ঠা</th>
-                <th style={thBase}>পরিমাণ</th>
-                <th style={thBase}>ভুল</th>
-                <th style={thBase}>পারা</th>
-                <th style={thBase}>পৃষ্ঠা</th>
-                <th style={thBase}>পরিমাণ</th>
-                <th style={thBase}>ভুল</th>
-              </tr>
-            </thead>
-            <tbody>
-              {days.map((slot) => {
-                const rowData = blankTemplate
-                  ? mapLogToKhataRow(null)
-                  : mapLogToKhataRow(logByDate.get(slot.date));
-                return (
-                  <tr key={slot.date} style={{ height: "19px" }}>
-                    <td style={{ ...cellBase, fontWeight: 700, borderLeft: "none" }}>
-                      {slot.dayBn}
-                    </td>
-                    <td style={cellBase}>{rowData.sabakPara}</td>
-                    <td style={cellBase}>{rowData.sabakPage}</td>
-                    <td style={cellBase}>{rowData.satPara}</td>
-                    <td style={cellBase}>{rowData.satPage}</td>
-                    <td style={cellBase}>{rowData.satAmount}</td>
-                    <td style={cellBase}>{rowData.satMistakes}</td>
-                    <td style={cellBase}>{rowData.amukhtaPara}</td>
-                    <td style={cellBase}>{rowData.amukhtaPage}</td>
-                    <td style={cellBase}>{rowData.amukhtaAmount}</td>
-                    <td style={cellBase}>{rowData.amukhtaMistakes}</td>
-                    <td style={cellBase}></td>
-                    <td style={{ ...cellBase, fontSize: "7pt", color: "#64748b" }}>
-                      {rowData.hasLog ? "✓" : ""}
-                    </td>
-                    <td style={{ ...cellBase, borderRight: "none" }}>
-                      {blankTemplate ? "" : slot.ddmmBn}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          {/* 30/31 UNIFORM DAILY ROWS TABLE (flex-filled — zero empty gap above footer) */}
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <table
+              style={{
+                borderCollapse: "collapse",
+                width: "100%",
+                height: "100%",
+                tableLayout: "fixed",
+              }}
+            >
+              <colgroup>
+                <col style={{ width: "12%" }} />
+                <col style={{ width: "6.5%" }} />
+                <col style={{ width: "6.5%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "7%" }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th rowSpan={2} style={{ ...thBase, borderTop: "none", borderLeft: "none" }}>
+                    বার
+                  </th>
+                  <th colSpan={2} style={{ ...thBase, borderTop: "none" }}>
+                    {isKhatmi ? "ধরন" : "সবক"}
+                  </th>
+                  <th colSpan={4} style={{ ...thBase, borderTop: "none" }}>
+                    {isKhatmi ? "সকালের দাওর" : "সাত সবক"}
+                  </th>
+                  <th colSpan={4} style={{ ...thBase, borderTop: "none" }}>
+                    {isKhatmi ? "বিকেলের দাওর" : "আমুখতা"}
+                  </th>
+                  <th rowSpan={2} style={{ ...thBase, borderTop: "none" }}>
+                    দৈনিক তিলাওয়াত
+                  </th>
+                  <th rowSpan={2} style={{ ...thBase, borderTop: "none" }}>
+                    শিক্ষকের স্বাক্ষর
+                  </th>
+                  <th rowSpan={2} style={{ ...thBase, borderTop: "none", borderRight: "none" }}>
+                    তারিখ
+                  </th>
+                </tr>
+                <tr>
+                  <th style={thBase}>পারা</th>
+                  <th style={thBase}>পৃষ্ঠা</th>
+                  <th style={thBase}>পারা</th>
+                  <th style={thBase}>পৃষ্ঠা</th>
+                  <th style={thBase}>পরিমাণ</th>
+                  <th style={thBase}>ভুল</th>
+                  <th style={thBase}>পারা</th>
+                  <th style={thBase}>পৃষ্ঠা</th>
+                  <th style={thBase}>পরিমাণ</th>
+                  <th style={thBase}>ভুল</th>
+                </tr>
+              </thead>
+              <tbody>
+                {days.map((slot, idx) => {
+                  const rowData = blankTemplate
+                    ? mapLogToKhataRow(null)
+                    : mapLogToKhataRow(logByDate.get(slot.date));
+                  const isLast = idx === days.length - 1;
+                  const rowCell: React.CSSProperties = isLast
+                    ? { ...cellBase, borderBottom: "none" }
+                    : cellBase;
+                  return (
+                    <tr key={slot.date}>
+                      <td style={{ ...rowCell, fontWeight: 700, borderLeft: "none" }}>
+                        {slot.dayBn}
+                      </td>
+                      <td style={rowCell}>{rowData.sabakPara}</td>
+                      <td style={rowCell}>{rowData.sabakPage}</td>
+                      <td style={rowCell}>{rowData.satPara}</td>
+                      <td style={rowCell}>{rowData.satPage}</td>
+                      <td style={rowCell}>{rowData.satAmount}</td>
+                      <td style={rowCell}>{rowData.satMistakes}</td>
+                      <td style={rowCell}>{rowData.amukhtaPara}</td>
+                      <td style={rowCell}>{rowData.amukhtaPage}</td>
+                      <td style={rowCell}>{rowData.amukhtaAmount}</td>
+                      <td style={rowCell}>{rowData.amukhtaMistakes}</td>
+                      <td style={rowCell}></td>
+                      <td style={{ ...rowCell, fontSize: "8pt", color: "#475569" }}>
+                        {rowData.hasLog ? "✓" : ""}
+                      </td>
+                      <td style={{ ...rowCell, borderRight: "none" }}>
+                        {blankTemplate ? "" : slot.ddmmBn}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-          {/* BOTTOM 4/5-WEEK SABINA SUMMARY GRID */}
-          <div style={{ marginTop: "auto", borderTop: "1.5px solid #0f172a" }}>
+          {/* BOTTOM 5-WEEK SABINA SUMMARY GRID & SIGNATURE ZONE */}
+          <div style={{ flexShrink: 0, borderTop: "1.5px solid #0f172a" }}>
             <div
               style={{
                 backgroundColor: "#f1f5f9",
-                fontSize: "8pt",
+                fontSize: "9pt",
                 fontWeight: 800,
                 textAlign: "center",
-                padding: "2px 4px",
+                padding: "3px 6px",
                 borderBottom: "1px solid #0f172a",
               }}
             >
@@ -399,22 +423,22 @@ export default function MonthlyKhataReport({
               }}
             >
               <thead>
-                <tr style={{ height: "18px" }}>
-                  <th style={{ ...thBase, width: "16%", borderLeft: "none" }}>সপ্তাহ</th>
-                  <th style={{ ...thBase, width: "30%" }}>বণ্টনকৃত পারাসমূহ</th>
-                  <th style={{ ...thBase, width: "36%" }}>তিলাওয়াতকৃত পারাসমূহ</th>
-                  <th style={{ ...thBase, width: "18%", borderRight: "none" }}>মোট লোকমা / ভুল</th>
+                <tr>
+                  <th style={{ ...thBase, padding: "3px 4px", width: "16%", borderLeft: "none" }}>সপ্তাহ</th>
+                  <th style={{ ...thBase, padding: "3px 4px", width: "30%" }}>বণ্টনকৃত পারাসমূহ</th>
+                  <th style={{ ...thBase, padding: "3px 4px", width: "36%" }}>তিলাওয়াতকৃত পারাসমূহ</th>
+                  <th style={{ ...thBase, padding: "3px 4px", width: "18%", borderRight: "none" }}>মোট লোকমা / ভুল</th>
                 </tr>
               </thead>
               <tbody>
                 {weeklySummaries.map((w) => (
-                  <tr key={w.wk} style={{ height: "19px" }}>
-                    <td style={{ ...cellBase, height: "19px", fontWeight: 700, borderLeft: "none" }}>
+                  <tr key={w.wk}>
+                    <td style={{ ...sabinaCell, fontWeight: 700, borderLeft: "none" }}>
                       {w.label}
                     </td>
-                    <td style={{ ...cellBase, height: "19px" }}>{w.assigned}</td>
-                    <td style={{ ...cellBase, height: "19px" }}>{w.recited}</td>
-                    <td style={{ ...cellBase, height: "19px", borderRight: "none" }}>
+                    <td style={sabinaCell}>{w.assigned}</td>
+                    <td style={sabinaCell}>{w.recited}</td>
+                    <td style={{ ...sabinaCell, borderRight: "none" }}>
                       {w.mistakes}
                     </td>
                   </tr>
@@ -427,9 +451,9 @@ export default function MonthlyKhataReport({
               style={{
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr 1fr",
-                gap: "12px",
-                padding: "22px 14px 8px 14px",
-                fontSize: "8pt",
+                gap: "16px",
+                padding: "20px 16px 8px 16px",
+                fontSize: "9.5pt",
                 fontWeight: 700,
                 textAlign: "center",
               }}
