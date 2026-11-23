@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { getOnlineDonations, getOnlineDonationSettings } from "@/app/actions/fundraising";
 import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
-import { getFunds } from "@/app/actions/zakat";
+import { getFundChoices } from "@/app/actions/zakat";
 import OnlineDonationsClient from "./OnlineDonationsClient";
 import { Loader2 } from "lucide-react";
 
@@ -14,7 +14,7 @@ export default async function OnlineDonationsPage() {
     getOnlineDonations(),
     getOnlineDonationSettings(),
     getMadrasaInfo(),
-    getFunds(),
+    getFundChoices(),
   ]);
 
   return (

@@ -4,7 +4,7 @@ import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { useState } from "react";
 import { AcademicSession } from "@/lib/sessions";
 import { FeeType, HIJRI_MONTHS, GREGORIAN_MONTHS, FeeCategory, FeeFrequency } from "@/lib/fee-management";
-import { generateMonthlyFees, saveFeeType, deleteFeeType } from "@/app/actions/fee-management";
+import { saveFeeType, deleteFeeType } from "@/app/actions/fee-management";
 import {
   Calendar,
   Sparkles,
@@ -28,9 +28,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {billPeriodKey} from "@/lib/finance/bill-period";
 import { apiUrl } from "@/lib/api-url";
 
 interface GenerateClientProps {
+  funds:{id:string;name:string}[];
   sessions: AcademicSession[];
   classes: any[];
   feeTypes: FeeType[];
@@ -38,7 +40,7 @@ interface GenerateClientProps {
 }
 
 export default function GenerateClient({
-  sessions = [],
+  funds, sessions = [],
   classes = [],
   feeTypes: initialFeeTypes = [],
   initialBatches = [],
@@ -49,7 +51,7 @@ export default function GenerateClient({
 
   const [feeTypesList, setFeeTypesList] = useState<FeeType[]>(initialFeeTypes);
   const [sessionId, setSessionId] = useState<string>(
-    sessions?.find((s) => s.is_current)?.id || sessions?.[0]?.id || ""
+    sessions?.find((s) => s.is_current)?.id || "default"
   );
   const [calendarType, setCalendarType] = useState<"HIJRI" | "GREGORIAN">("GREGORIAN");
   const [monthName, setMonthName] = useState<string>(
@@ -58,6 +60,7 @@ export default function GenerateClient({
   const [year, setYear] = useState<string>(currentYear.toString());
   const [classId, setClassId] = useState<string>("ALL");
 
+  const [manualSelection,setManualSelection] = useState(false);
   // Selected Fee Types
   const [selectedFeeTypeIds, setSelectedFeeTypeIds] = useState<string[]>(
     (initialFeeTypes || [])
@@ -66,13 +69,7 @@ export default function GenerateClient({
   );
 
   // Custom amounts map { [feeTypeId: string]: number }
-  const [customAmounts, setCustomAmounts] = useState<Record<string, number>>(() => {
-    const initial: Record<string, number> = {};
-    initialFeeTypes.forEach((ft) => {
-      initial[ft.id] = ft.default_amount || 0;
-    });
-    return initial;
-  });
+  const [customAmounts, setCustomAmounts] = useState<Record<string, number>>({});
 
   const [forceUpdate, setForceUpdate] = useState(false);
   const [syncStudentProfiles, setSyncStudentProfiles] = useState(true);
@@ -197,8 +194,7 @@ export default function GenerateClient({
   };
 
   const handleAmountReset = (id: string) => {
-    const defaultAmt = feeTypesList.find((f) => f.id === id)?.default_amount ?? 0;
-    handleAmountChange(id, defaultAmt);
+    setCustomAmounts(prev=>{const next={...prev};delete next[id];return next;});
   };
 
   // Calculate total projected per student
@@ -262,32 +258,9 @@ export default function GenerateClient({
 
       if (res?.success) {
         setShowFeeTypeModal(false);
-        // Update local state
-        if (modalMode === "ADD") {
-          const newId = `ft_${Date.now()}`;
-          const newObj: FeeType = {
-            id: newId,
-            name: editingFeeType.name,
-            code: editingFeeType.code || "CUSTOM",
-            category: (editingFeeType.category as FeeCategory) || "OTHER",
-            frequency: (editingFeeType.frequency as FeeFrequency) || "MONTHLY",
-            default_amount: Number(editingFeeType.default_amount) || 0,
-            is_active: true,
-          };
-          setFeeTypesList((prev) => [...prev, newObj]);
-          setSelectedFeeTypeIds((prev) => [...prev, newId]);
-          setCustomAmounts((prev) => ({ ...prev, [newId]: newObj.default_amount }));
-        } else {
-          setFeeTypesList((prev) =>
-            prev.map((f) => (f.id === editingFeeType.id ? ({ ...f, ...editingFeeType } as FeeType) : f))
-          );
-          if (editingFeeType.id) {
-            setCustomAmounts((prev) => ({
-              ...prev,
-              [editingFeeType.id!]: Number(editingFeeType.default_amount) || 0,
-            }));
-          }
-        }
+        const saved=res.feeType;
+        setFeeTypesList(prev=>[...prev.filter(f=>f.id!==saved.id), saved]);
+        if(modalMode==='ADD') setSelectedFeeTypeIds(prev=>[...prev,saved.id]);
         router.refresh();
       } else {
         alert(res?.error || "সংরক্ষণ ব্যর্থ হয়েছে।");
@@ -308,7 +281,7 @@ export default function GenerateClient({
       return;
     }
 
-    if (selectedFeeTypeIds.length === 0) {
+    if (manualSelection && selectedFeeTypeIds.length === 0) {
       alert("অন্তত একটি ফি'র খাত নির্বাচন করুন।");
       return;
     }
@@ -316,49 +289,15 @@ export default function GenerateClient({
     setLoading(true);
     setResult(null);
 
-    const billingPeriod = `${monthName} ${year}`;
+    const billingPeriod = billPeriodKey(`${monthName} ${year}`);
 
     try {
-      let res: any = null;
-      try {
-        const apiRes = await fetch(apiUrl("/api/fees/generate"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId,
-            billingPeriod,
-            monthName,
-            year,
-            classId,
-            feeTypeIds: selectedFeeTypeIds,
-            customAmounts,
-            forceUpdate,
-            syncStudentProfiles,
-            dueDate,
-          }),
-        });
-        if (apiRes.ok) {
-          res = await apiRes.json();
-        }
-      } catch (e) {
-        console.warn("API /api/fees/generate failed, falling back to server action", e);
-      }
-
-      if (!res) {
-        res = await generateMonthlyFees({
-          sessionId,
-          billingPeriod,
-          monthName,
-          year,
-          classId,
-          feeTypeIds: selectedFeeTypeIds,
-          customAmounts,
-          forceUpdate,
-          syncStudentProfiles,
-          dueDate,
-        });
-      }
-
+      const response=await fetch(apiUrl('/api/fees/generate'), {
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,billingPeriod,monthName,year,classId,
+          ...(manualSelection?{feeTypeIds:selectedFeeTypeIds,customAmounts}:{}),forceUpdate,syncStudentProfiles,dueDate})
+      });
+      if(!response.ok) throw Error('ফি তৈরি নিশ্চিত হয়নি। আবার দাখিল না করে তৈরি হওয়া বিল যাচাই করুন।');
+      const res=await response.json();
       setResult(res);
 
       if (res?.success) {
@@ -469,6 +408,7 @@ export default function GenerateClient({
                 required
                 className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900 bg-white font-medium text-xs sm:text-sm"
               >
+                <option value="default">বর্তমান সচল শিক্ষাবর্ষ</option>
                 {sessions.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name} ({s.academic_year}) {s.is_current ? "⭐ বর্তমান" : ""}
@@ -584,7 +524,8 @@ export default function GenerateClient({
           </div>
 
           {/* Fee Items Section with Quick Selectors and Inline Amount Edit */}
-          <div className="space-y-3 pt-2">
+          <label className="flex gap-2 items-center font-semibold"><input type="checkbox" checked={manualSelection} onChange={e=>setManualSelection(e.target.checked)} /> কাঠামোর পরিবর্তে নিজে খাত ও অঙ্ক নির্বাচন করব</label>
+          {manualSelection && <div className="space-y-3 pt-2">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2">
               <div>
                 <label className="font-bold text-slate-900 text-sm block">
@@ -760,7 +701,7 @@ export default function GenerateClient({
                 );
               })}
             </div>
-          </div>
+          </div>}
 
           {/* Realtime Summary & Force Update Option */}
           <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-3">
@@ -770,16 +711,16 @@ export default function GenerateClient({
                   <DollarSign className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-slate-400 text-[11px]">শিক্ষার্থী প্রতি মোট ধার্যকৃত অংক:</div>
+                  <div className="text-slate-400 text-[11px]">প্রোফাইল ও অনুমোদিত ছাড় প্রয়োগের আগে:</div>
                   <div className="text-xl font-black text-emerald-400 font-mono">
-                    ৳{totalPerStudent.toLocaleString("bn-BD")}
+                    {manualSelection ? `৳${totalPerStudent.toLocaleString("bn-BD")}` : "শ্রেণি ও শিক্ষার্থীর কাঠামো অনুযায়ী"}
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-4 text-xs font-medium text-slate-300">
                 <div>
-                  নির্বাচিত খাত: <strong className="text-white">{selectedFeeTypeIds.length}</strong> টি
+                  নির্বাচিত খাত: <strong className="text-white">{manualSelection ? selectedFeeTypeIds.length : "কাঠামো অনুযায়ী"}</strong>
                 </div>
                 <div>
                   টার্গেট: <strong className="text-white">{classId === "ALL" ? "সকল জামাত" : "নির্দিষ্ট জামাত"}</strong>
@@ -836,7 +777,7 @@ export default function GenerateClient({
           <div className="pt-2">
             <button
               type="submit"
-              disabled={loading || selectedFeeTypeIds.length === 0}
+              disabled={loading || (manualSelection && selectedFeeTypeIds.length === 0)}
               className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold shadow-md hover:shadow-lg transition flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 text-sm active:scale-99"
             >
               {loading ? (
@@ -1047,6 +988,12 @@ export default function GenerateClient({
                 />
               </div>
 
+              <label className="block space-y-1 font-bold">জমার ফান্ড
+                <select required value={editingFeeType.fund_id || ''} onChange={e=>{const fund=funds.find(f=>f.id===e.target.value);setEditingFeeType({...editingFeeType,fund_id:fund?.id,fund_name:fund?.name});}} className="block w-full rounded-xl border p-2">
+                  <option value="">সক্রিয় ফান্ড নির্বাচন করুন</option>
+                  {funds.map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              </label>
               {/* Default Amount */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-700">
@@ -1056,7 +1003,7 @@ export default function GenerateClient({
                   type="number"
                   required
                   min="0"
-                  placeholder="যেমন: 500"
+                  step="0.01" placeholder="যেমন: 500"
                   value={editingFeeType.default_amount ?? ""}
                   onChange={(e) => {
                     const val = e.target.value;

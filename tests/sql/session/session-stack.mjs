@@ -7,17 +7,19 @@ import { serve } from "@hono/node-server";
 import {
   App,
   getAuthSchemaSql,
+  getStorageSchemaSql, setExperimental, isExperimentalEnabled,
   SUPABASE_AUTH_HELPERS_SQL,
   generateApiKey,
 } from "@supabase/lite";
 import { createPostgresConnection } from "@supabase/lite/postgres";
 import { withDisposablePostgres } from "../disposable-postgres.mjs";
 
+import { snapshotStorage } from "./snapshot-storage.mjs";
 import { withBrowserBuild } from "./browser-build.mjs";
 
 export async function withSessionStack(
   check,
-  { buildForBrowser = false } = {},
+  { buildForBrowser = false, rpcJsonObjects = false, withStorage = false } = {},
 ) {
   if (
     [".env", ".env.local", ".env.production", ".env.production.local"].some(
@@ -35,8 +37,14 @@ export async function withSessionStack(
         postgresOptions: {
           ssl: { ca: readFileSync(cert) },
           onnotice: () => {},
+          // Supabase Lite 0.11 pre-serializes object/array RPC arguments before
+          // handing them to postgres.js. Preserve PostgREST JSONB object semantics.
+          ...(rpcJsonObjects ? {types:{jsonb:{to:3802,from:[3802],parse:JSON.parse,
+            serialize:value=>typeof value==='string' && /^[{\[]/.test(value.trimStart()) ? value : JSON.stringify(value)}}} : {}),
         },
       });
+      const previouslyEnabled=isExperimentalEnabled('storage');
+      const storage=withStorage?snapshotStorage():undefined;
       let authServer;
       try {
         await db.unsafe(`GRANT USAGE ON SCHEMA public TO service_role,authenticated;
@@ -45,8 +53,10 @@ export async function withSessionStack(
         const anon = (await generateApiKey("publishable")).key;
         const service = (await generateApiKey("secret")).key;
         const mobileKey = randomBytes(32).toString("hex");
+        if(storage){setExperimental('storage',true);await db.unsafe(getStorageSchemaSql());}
         const lite = new App({
           connection,
+          ...(storage?{storage:{enabled:true}}:{}),
           auth: {
             enabled: true,
             jwt_secret: randomBytes(32).toString("hex"),
@@ -56,6 +66,7 @@ export async function withSessionStack(
           },
           options: { server: { admin: false } },
         });
+        if(storage) lite._storageAdapter=storage;
         authServer = serve({
           hostname: "127.0.0.1",
           port: 0,
@@ -96,7 +107,7 @@ export async function withSessionStack(
             ]);
             await check({
               db,
-              lite,
+              lite, storage,
               anon,
               api,
               mobileKey,
@@ -118,6 +129,7 @@ export async function withSessionStack(
         if (authServer)
           await new Promise((resolve) => authServer.close(resolve));
         await connection.close();
+        if(withStorage) setExperimental('storage',previouslyEnabled);
       }
     },
     { authSchema: SUPABASE_AUTH_HELPERS_SQL + "\n" + getAuthSchemaSql() },

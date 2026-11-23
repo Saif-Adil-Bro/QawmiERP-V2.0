@@ -17,7 +17,7 @@ export default function ReceiptClient({ fee, madrasaInfo }: { fee: any, madrasaI
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-slate-800">মানি রিসিট</h1>
-            <p className="text-slate-500 text-sm">রিসিট নং: {fee.receipt_no || fee.id?.substring(0, 8)?.toUpperCase()}</p>
+            <p className="text-slate-500 text-sm">রিসিট নং: {fee.receipt_no || "সংরক্ষিত নেই"}</p>
           </div>
         </div>
       </div>

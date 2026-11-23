@@ -192,7 +192,7 @@ export async function getMadrasaMetadata(madrasaId: string, strict = false): Pro
       return dedicated;
     }
 
-    if (data.registration_no.startsWith("{")) {
+    if (data.registration_no.trimStart().startsWith("{")) {
       try {
         return {...dedicated,...JSON.parse(data.registration_no)};
       } catch {

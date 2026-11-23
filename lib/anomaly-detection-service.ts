@@ -137,7 +137,7 @@ export async function runFinancialAnomalyScan(
       admin
         .from("bazar_expenses")
         .select("id, amount, expense_date, items_details, created_at")
-        .eq("madrasa_id", madrasaId)
+        .eq("madrasa_id", madrasaId).neq("status","VOID")
         .gte("expense_date", cutoffStr),
       admin
         .from("expenses")

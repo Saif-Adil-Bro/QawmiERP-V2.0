@@ -1,19 +1,19 @@
 import HifzSummaryWidget from "@/components/widgets/HifzSummaryWidget";
 import {dashboardHifzSummary} from "@/lib/hifz/widget";
 import type {HifzSummary} from "@/lib/hifz-utils";
-import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
+import { toDhakaDateString } from "@/lib/date-utils";
 import { redirect } from "next/navigation";
 import { webIdentity } from "@/lib/portal/identity";
 import { createClient } from "@/lib/supabase/server";
-import { getStaffMetadataFull } from "@/app/actions/staff";
-import { getMadrasaMetadata } from "@/lib/sessions";
-import { getUnifiedFeePayments } from "@/app/actions/fee-management";
+import { getStaffRoster } from "@/app/actions/staff";
+import { getFeeMetadata } from "@/app/actions/fee-management";
 import ReportingCharts from "./components/ReportingCharts";
 import { getEarlyWarningAlerts } from "@/app/actions/early-warning";
 import EarlyWarningWidget from "@/components/EarlyWarningWidget";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
-import { getFunds } from "@/app/actions/zakat";
-import { isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
+import {readBooks} from "@/lib/finance/read-books";
+import {canReadSchoolFinance} from "@/lib/action-authorization";
+import {dashboardFinance} from "@/lib/finance/dashboard";
 import DashboardViewSwitcher from "./components/DashboardViewSwitcher";
 import PremiumDashboardClient from "./components/PremiumDashboardClient";
 import { getFinancialAnomalies, type FinancialAnomalyRecord } from "@/lib/anomaly-detection-service";
@@ -37,11 +37,13 @@ export default async function DashboardPage() {
     redirect(targetUrl);
   }
 
+  const financeAllowed=canReadSchoolFinance([profile.role,identity.perms.profile.primaryRole,...identity.perms.roles],identity.perms.summary.effectivePermissions);
   let studentsCount = 0;
   let teachersCount = 0;
   let classesCount = 0;
   let todayPresent = 0;
   let todayAbsent = 0;
+  let financeLoaded=false;
   let todayIncome = 0;
   let todayExpense = 0;
   let totalIncome = 0;
@@ -67,7 +69,7 @@ export default async function DashboardPage() {
       total_critical_students: 0,
       checked_at: "",
     }));
-    const anomaliesPromise = profile?.madrasa_id
+    const anomaliesPromise = financeAllowed && profile?.madrasa_id
       ? getFinancialAnomalies(profile.madrasa_id, { limit: 20 }).catch(() => [])
       : Promise.resolve([]);
     const widgetsPromise = profile?.madrasa_id
@@ -92,15 +94,10 @@ export default async function DashboardPage() {
           supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Leave"),
           supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Late"),
 
-          getUnifiedFeePayments(profile.madrasa_id),
-          supabase.from("donations").select("id, amount, donation_date, receipt_no, notes").eq("madrasa_id", profile.madrasa_id),
-          supabase.from("expenses").select("amount, expense_date, description").eq("madrasa_id", profile.madrasa_id),
-          supabase.from("bazar_expenses").select("amount, expense_date").eq("madrasa_id", profile.madrasa_id),
+          financeAllowed ? readBooks(identity.tenant,getFeeMetadata).then(b=>dashboardFinance(b,today)).catch(()=>null) : null,
           supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", toDhakaDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))).lte("date", today),
           supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
-          getStaffMetadataFull(),
-          getMadrasaMetadata(profile.madrasa_id),
-          getFunds(),
+          getStaffRoster().catch(()=>[]),
         ]).then(data => ({ ok: true as const, data }), error => ({ ok: false as const, error })),
       ]);
       dashboardWidgets = widgets;
@@ -118,203 +115,26 @@ export default async function DashboardPage() {
         { count: leaveCount },
         { count: lateCount },
 
-        feePayments,
-        { data: donationsData },
-        { data: expensesData },
-        { data: bazarData },
+        finance,
         { data: attendanceAllData },
         { data: examResultsData },
         staffFullData,
-        madrasaMeta,
-        fundsData,
       ] = stats.data;
       earlyWarningData = alerts;
       anomaliesData = anomalies;
 
       studentsCount = sCount || 0;
-      const staffMembers = staffFullData?.staff_members || [];
+      const staffMembers = staffFullData;
       teachersCount = Math.max(tCount || 0, staffMembers.length);
       classesCount = cCount || 0;
       todayPresent = presentCount || 0;
       todayAbsent = absentCount || 0;
 
 
-      const feesData=feePayments.filter(f=>f.status==='COMPLETED').map(p=>({...p,amount:p.total_amount_received}));
-      const feesSum = (feesData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-      const validDonations = (donationsData || []).filter((d: any) => !isVoidDonation(d));
-      const donationsSum = validDonations.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-      
-      // Calculate definitive Total Income directly from funds source of truth
-      const fundsTotalCollected = (fundsData || []).reduce((sum: number, f: any) => sum + Number(f.total_collected || 0), 0);
-      totalIncome = fundsTotalCollected > 0 ? fundsTotalCollected : (feesSum + donationsSum);
-
-      const validExpenses = (expensesData || []).filter((e: any) => !isVoidedExpense(e));
-      expensesSum = validExpenses.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-      bazarSum = (bazarData || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-      totalExpense = expensesSum + bazarSum;
-
-      // Calculate Strictly Today's Income & Expenses (matching today date string)
-      const todayFeesSum = (feesData || []).reduce((sum: number, item: any) => {
-        const itemDate = item.payment_date || (item.created_at ? toDhakaDateStringFrom(item.created_at) : "");
-        return itemDate === today ? sum + Number(item.amount || 0) : sum;
-      }, 0);
-
-      const todayDonationsSum = validDonations.reduce((sum: number, item: any) => {
-        const itemDate = item.donation_date || (item.created_at ? toDhakaDateStringFrom(item.created_at) : "");
-        return itemDate === today ? sum + Number(item.amount || 0) : sum;
-      }, 0);
-
-      const todayExpensesSum = validExpenses.reduce((sum: number, item: any) => {
-        const itemDate = item.expense_date || (item.created_at ? toDhakaDateStringFrom(item.created_at) : "");
-        return itemDate === today ? sum + Number(item.amount || 0) : sum;
-      }, 0);
-
-      const todayBazarSum = (bazarData || []).reduce((sum: number, item: any) => {
-        const itemDate = item.expense_date || (item.created_at ? toDhakaDateStringFrom(item.created_at) : "");
-        return itemDate === today ? sum + Number(item.amount || 0) : sum;
-      }, 0);
-
-      todayIncome = todayFeesSum + todayDonationsSum;
-      todayExpense = todayExpensesSum + todayBazarSum;
-
-      // Sets to track IDs, receipt numbers, and transaction IDs to strictly avoid double counting
-      const trackedDonationKeys = new Set<string>();
-      validDonations.forEach((d: any) => {
-        if (d.id) trackedDonationKeys.add(d.id);
-        if (d.receipt_no) trackedDonationKeys.add(d.receipt_no);
-        const rMatch = d.notes?.match(/\[(?:চালান|রিসিট|কুরবানির চামড়া বিক্রয়|দানবাক্স কালেকশন):\s*([^\]|,]+)/)?.[1];
-        if (rMatch) trackedDonationKeys.add(rMatch.trim());
-      });
-
-      // Process Monthly Income/Expense
-      const monthlyData: Record<string, { income: number; expense: number }> = {};
-      const addMonthly = (dateStr: string, amount: number, type: 'income' | 'expense') => {
-        if (!dateStr || amount <= 0) return;
-        const cleanDate = dateStr.includes("T") ? toDhakaDateStringFrom(dateStr) : dateStr.trim();
-        const month = cleanDate.substring(0, 7); // YYYY-MM
-        if (!monthlyData[month]) monthlyData[month] = { income: 0, expense: 0 };
-        monthlyData[month][type] += Number(amount);
-      };
-
-      (feesData || []).forEach((f: any) => addMonthly(f.payment_date, f.amount, 'income'));
-      validDonations.forEach((d: any) => addMonthly(d.donation_date, d.amount, 'income'));
-      validExpenses.forEach((e: any) => addMonthly(e.expense_date, e.amount, 'expense'));
-      (bazarData || []).forEach((b: any) => addMonthly(b.expense_date, b.amount, 'expense'));
-
-      // Include all Madrasa Metadata Live Collections ONLY if not already tracked in DB tables
-      const meta = madrasaMeta || {};
-
-      // 2. Mahfil Receipt Books & Direct Transactions (untracked)
-      const mahfils = meta.mahfils || [];
-      mahfils.forEach((m: any) => {
-        // Check if Mahfil is settled or has a surplus deposit in donations table
-        const isSettled = Boolean(m.settlement || (m.settlements && m.settlements.length > 0));
-
-        // If Mahfil is settled, its surplus is already recorded as a donation in the donations DB table.
-        // To prevent double counting settled Mahfil funds, skip internal books/transactions if settled or tracked.
-        if (!isSettled) {
-          (m.receipt_books || []).forEach((bk: any) => {
-            if (Array.isArray(bk.deposit_history) && bk.deposit_history.length > 0) {
-              bk.deposit_history.forEach((dep: any) => {
-                const amt = Number(dep.amount || 0);
-                const recNo = dep.receipt_no || bk.receipt_no || dep.id;
-                if (amt > 0 && !trackedDonationKeys.has(recNo)) {
-                  totalIncome += amt;
-                  addMonthly(dep.date, amt, 'income');
-                }
-              });
-            } else if (Number(bk.total_collected || 0) > 0) {
-              const amt = Number(bk.total_collected || 0);
-              const dt = bk.return_date || bk.issued_date || m.start_date || "";
-              const recNo = bk.receipt_no || bk.id;
-              if (!trackedDonationKeys.has(recNo)) {
-                totalIncome += amt;
-                addMonthly(dt, amt, 'income');
-              }
-            }
-          });
-        }
-
-        (m.transactions || []).forEach((t: any) => {
-          const amt = Number(t.amount || 0);
-          const dt = t.date || m.start_date || "";
-          const tKey = t.id || t.voucher_no;
-          const isInternalSettlement = 
-            (t.id && t.id.startsWith("txn_settle")) ||
-            (t.category && (t.category.includes("উদ্বৃত্ত") || t.category.includes("স্থানান্তর"))) ||
-            (t.description && (t.description.includes("উদ্বৃত্ত") || t.description.includes("স্থানান্তর")));
-
-          // Ignore internal balancing settlement transactions
-          if (isInternalSettlement) return;
-
-          if (amt > 0) {
-            if (t.type === "INCOME" && !isSettled && !trackedDonationKeys.has(tKey)) {
-              totalIncome += amt;
-              addMonthly(dt, amt, 'income');
-            } else if (t.type === "EXPENSE" && !isSettled) {
-              totalExpense += amt;
-              addMonthly(dt, amt, 'expense');
-            }
-          }
-        });
-      });
-
-      // 3. Regular Donor / Life Member Payments (untracked)
-      (meta.donor_subscription_payments || []).forEach((p: any) => {
-        const amt = Number(p.amount || 0);
-        const dt = p.payment_date || p.date || (p.created_at ? toDhakaDateStringFrom(p.created_at) : "");
-        const pKey = p.id || p.receipt_no;
-        if (amt > 0 && !trackedDonationKeys.has(pKey)) {
-          totalIncome += amt;
-          addMonthly(dt, amt, 'income');
-        }
-      });
-
-      // 4. Donation Box Collections (untracked)
-      (meta.donation_box_logs || []).forEach((l: any) => {
-        const amt = Number(l.amount || 0);
-        const dt = l.collection_date || l.date || (l.created_at ? toDhakaDateStringFrom(l.created_at) : "");
-        const lKey = l.receipt_no || l.id;
-        if (amt > 0 && !trackedDonationKeys.has(lKey)) {
-          totalIncome += amt;
-          addMonthly(dt, amt, 'income');
-        }
-      });
-
-      // 5. Online Donations (untracked)
-      (meta.online_donations || []).forEach((d: any) => {
-        if (d.status === "COMPLETED" || d.status === "VERIFIED" || d.status === "SUCCESS") {
-          const amt = Number(d.amount || 0);
-          const dt = d.payment_date || (d.created_at ? toDhakaDateStringFrom(d.created_at) : "");
-          const dKey = d.receipt_no || d.transaction_id || d.id;
-          if (amt > 0 && !trackedDonationKeys.has(dKey)) {
-            totalIncome += amt;
-            addMonthly(dt, amt, 'income');
-          }
-        }
-      });
-
-      // 6. Qurbani Leather Records (untracked)
-      const leatherRecords = meta.qurbani_leather_records || meta.leather_batches || [];
-      leatherRecords.forEach((r: any) => {
-        const inc = Number(r.received_amount || r.total_sale_price || r.total_sale_amount || 0);
-        const exp = Number(r.transport_labour_cost || r.transport_labor_cost || 0);
-        const dt = r.collection_date || r.sale_date || r.date || (r.created_at ? toDhakaDateStringFrom(r.created_at) : "");
-        const rKey = r.receipt_no || r.id;
-        if (!trackedDonationKeys.has(rKey)) {
-          if (inc > 0) {
-            totalIncome += inc;
-            addMonthly(dt, inc, 'income');
-          }
-          if (exp > 0) {
-            totalExpense += exp;
-            addMonthly(dt, exp, 'expense');
-          }
-        }
-      });
-
-      // Ensure Total Income is the definitive sum of all funds collections, or preserved sum
-      totalIncome = fundsTotalCollected > 0 ? fundsTotalCollected : totalIncome;
+      financeLoaded=!!finance;
+      if (!finance && financeAllowed) error={message:'আর্থিক হিসাব অনুপলব্ধ। নিচের আর্থিক সংখ্যাগুলি ব্যবহার করবেন না।'};
+      else if(finance) ({totalIncome,totalExpense,todayIncome,todayExpense,expensesSum,bazarSum}=finance);
+      const monthlyData=finance?.monthlyData || {};
 
       // Process Attendance Rate
       let presentTotal = 0;
@@ -386,7 +206,7 @@ export default async function DashboardPage() {
         bazarSum,
       }}
     >
-      <PremiumDashboardClient
+      <PremiumDashboardClient showFinance={financeAllowed && financeLoaded}
         hifzSummaryNode={hifzSummary ? <HifzSummaryWidget summary={hifzSummary}/> : null}
         sickStudentsNode={health && dashboardWidgets.find(w => w.id === "builtin-sick-students")?.enabled !== false ? <SickStudentsWidget summary={health} tenant={profile.madrasa_id} actor={user.id} /> : null}
         profile={{

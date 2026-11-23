@@ -119,8 +119,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   const [settlementModalOpen, setSettlementModalOpen] = useState(false);
   const [settlementMode, setSettlementMode] = useState<"SURPLUS_DEPOSIT" | "DEFICIT_COVER">("SURPLUS_DEPOSIT");
   const [settlementAmount, setSettlementAmount] = useState<number>(0);
-  const [settlementFundId, setSettlementFundId] = useState<string>("fund-general");
-  const [settlementFundName, setSettlementFundName] = useState<string>("সাধারণ ফান্ড (General Fund)");
+  const [settlementFundId, setSettlementFundId] = useState<string>("");
+  const [settlementFundName, setSettlementFundName] = useState<string>("");
   const [settlementDate, setSettlementDate] = useState<string>(toDhakaDateString());
   const [settlementPaymentMethod, setSettlementPaymentMethod] = useState<"Cash" | "bKash" | "Nagad" | "Bank" | "Other">("Cash");
   const [settlementNotes, setSettlementNotes] = useState<string>("");
@@ -144,10 +144,6 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
 
         if (funds && funds.length > 0) {
           setAvailableFunds(funds);
-          if (!settlementFundId || settlementFundId === "fund-general") {
-            setSettlementFundId(funds[0].id);
-            setSettlementFundName(funds[0].name);
-          }
         }
       } catch (err) {
         console.error("Failed to load funds:", err);
@@ -168,7 +164,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
       donation_date: st.settlement_date,
       receipt_no: st.accounting_voucher_no,
       payment_method: st.payment_method || "Cash",
-      notes: st.notes || `বার্ষিক মাহফিল উদ্বৃত্ত তহবিল (${mahfil.title}) থেকে সাধারণ ফান্ডে হস্তান্তর`,
+      notes: st.notes || `মাহফিল সমন্বয়: ${mahfil.title} | ${st.fund_name}`,
       is_mahfil_settlement: true,
       mahfil_title: mahfil.title,
       donors: {
@@ -955,13 +951,7 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     setSettlementPaymentMethod("Cash");
     setSettlementNotes("");
 
-    if (availableFunds.length > 0) {
-      setSettlementFundId(availableFunds[0].id);
-      setSettlementFundName(availableFunds[0].name);
-    } else {
-      setSettlementFundId("fund-general");
-      setSettlementFundName("সাধারণ ফান্ড (General Fund)");
-    }
+    setSettlementFundId(""); setSettlementFundName("");
     setSettlementModalOpen(true);
   };
 
@@ -996,21 +986,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
     };
 
     try {
-      let res = await settleMahfilFund(mahfil.id, payload);
-      if (res && "error" in res && res.error) {
-        // Try fallback via API route
-        const apiRes = await fetch(apiUrl("/api/fundraising/mahfil/settlement"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mahfil_id: mahfil.id, ...payload }),
-        });
-        const apiData = await apiRes.json();
-        if (!apiRes.ok || apiData.error) {
-          alert(apiData.error || res.error || "তহবিল সমন্বয়ে সমস্যা হয়েছে");
-          return;
-        }
-        res = apiData;
-      }
+      const res = await settleMahfilFund(mahfil.id,payload);
+      if (res?.error) {alert(res.error); return;}
 
       setSettlementModalOpen(false);
       router.refresh();
@@ -1062,20 +1039,11 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
   };
 
   const handleDeleteSettlementItem = async (settlementId: string) => {
-    if (!confirm("আপনি কি নিশ্চিতভাবে এই তহবিল সমন্বয়টি বাতিল করতে চান? এতে মাদরাসা হিসাবের স্বয়ংক্রিয় ভাউচারটিও মুছে যাবে।")) return;
+    if (!confirm("আপনি কি নিশ্চিতভাবে এই তহবিল সমন্বয়টি বাতিল করতে চান? এতে মাদরাসা হিসাবের স্বয়ংক্রিয় ভাউচারটিও বাতিল (VOID) হবে।")) return;
     setLoading(true);
     try {
-      let res = await deleteMahfilSettlement(mahfil.id, settlementId);
-      if (res && "error" in res && res.error) {
-        const apiRes = await fetch(apiUrl(`/api/fundraising/mahfil/settlement?mahfil_id=${mahfil.id}&settlement_id=${settlementId}`), {
-          method: "DELETE",
-        });
-        const apiData = await apiRes.json();
-        if (!apiRes.ok || apiData.error) {
-          alert(apiData.error || res.error || "সমন্বয় বাতিল করতে সমস্যা হয়েছে");
-          return;
-        }
-      }
+      const res = await deleteMahfilSettlement(mahfil.id,settlementId);
+      if (res.error) {alert(res.error); return;}
 
       setMahfil(prev => {
         const remainingSettlements = (prev.settlements || []).filter(s => s.id !== settlementId);
@@ -3733,7 +3701,8 @@ export default function MahfilDetailClient({ mahfil: initialMahfil }: { mahfil: 
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-medium text-slate-900"
                   required
                 >
-                  {availableFunds.map((f) => (
+                  <option value="">ফান্ড নির্বাচন করুন</option>
+                    {availableFunds.map((f) => (
                     <option key={f.id} value={f.id}>
                       {f.name}
                     </option>

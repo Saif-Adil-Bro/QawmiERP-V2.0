@@ -80,17 +80,17 @@ export default function DonationReceipt({
     ? (donation.donors.donor_type === "Monthly" ? "মাসিক দাতা" : donation.donors.donor_type === "Annual" ? "বার্ষিক দাতা" : "এককালীন দাতা")
     : "এককালীন দাতা";
 
-  const receiptNumber = donation.receipt_no || `ZR${donation.id?.substring(0, 6).toUpperCase() || "0001"}`;
+  const receiptNumber = donation.receipt_no || donation.id || "—";
   
-  const dateObj = donation.donation_date ? new Date(donation.donation_date) : new Date();
-  const formattedDate = dateObj.toLocaleDateString("en-GB");
+  const dateObj = donation.donation_date ? new Date(donation.donation_date) : null;
+  const formattedDate = dateObj?.toLocaleDateString("en-GB",{timeZone:"Asia/Dhaka"}) || "—";
   const banglaDate = toBanglaNumber(formattedDate);
 
   const amountVal = typeof donation.amount === "number" ? donation.amount : parseFloat(String(donation.amount || 0));
   const banglaAmount = formatBanglaCurrency(amountVal);
   const inWords = numberToBanglaWords(amountVal);
   const paymentMethodBangla = getPaymentMethodName(donation.payment_method);
-  const fundName = donation.fund_name || donation.donation_type || "সাধারণ ফান্ড";
+  const fundName = donation.fund_name || donation.donation_type || "ফান্ড যাচাই প্রয়োজন";
 
   const madrasaDisplayName = madrasaInfo?.name || "মাদরাসা";
   const madrasaDisplayAddress = madrasaInfo?.address || "";

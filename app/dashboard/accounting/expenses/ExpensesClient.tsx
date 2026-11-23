@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { deleteExpense } from "@/app/actions/accounting";
-import { FundItem, isTransactionInFund } from "@/lib/fund-utils";
+import { FundItem } from "@/lib/fund-utils";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
 import ExpenseVoucher, { ExpenseItem, MadrasaInfo } from "@/components/accounting/ExpenseVoucher";
 import EditExpenseModal from "@/components/accounting/EditExpenseModal";
@@ -42,7 +42,7 @@ export default function ExpensesClient({
   madrasaInfo,
 }: ExpensesClientProps) {
   const [expenses, setExpenses] = useState<ExpenseItem[]>(initialExpenses);
-  const [bazarExpenses] = useState<any[]>(initialBazarExpenses);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFundId, setSelectedFundId] = useState("all");
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -70,14 +70,7 @@ export default function ExpensesClient({
   const filteredExpenses = expenses.filter((exp) => {
     // Fund match
     if (selectedFundId !== "all") {
-      const fundObj = funds.find((f) => f.id === selectedFundId);
-      const directMatch = exp.fund_id === selectedFundId;
-      const canonicalMatch = fundObj
-        ? isTransactionInFund(fundObj, exp.fund_id, exp.fund_name, funds)
-        : false;
-      if (!directMatch && !canonicalMatch) {
-        return false;
-      }
+      if (exp.fund_id !== selectedFundId) return false;
     }
     // Category match
     if (selectedCategory !== "all" && exp.category !== selectedCategory) {
@@ -103,6 +96,7 @@ export default function ExpensesClient({
   }, [filteredExpenses, currentPage, itemsPerPage]);
 
   const totalExpenseSum = filteredExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const bazarExpenses = initialBazarExpenses.filter(b => selectedFundId === "all" || b.fund_id === selectedFundId);
   const totalBazarSum = bazarExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const totalCombinedSum = totalExpenseSum + totalBazarSum;
 
@@ -325,7 +319,7 @@ export default function ExpensesClient({
                             {bzDate}
                           </span>
                           <span className="text-[11px] px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded border border-emerald-100">
-                            {bz.fund_name || "লিল্লাহ বোর্ডিং ফান্ড"}
+                            {bz.fund_name || "ফান্ড যাচাই প্রয়োজন"}
                           </span>
                         </div>
                         {bz.buyer_name && (
@@ -414,7 +408,7 @@ export default function ExpensesClient({
                         </td>
                         <td className="px-5 py-3.5 whitespace-nowrap">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            {expense.fund_name || "সাধারণ ফান্ড"}
+                            {expense.fund_name || "ফান্ড যাচাই প্রয়োজন"}
                           </span>
                         </td>
                         <td className="px-5 py-3.5 whitespace-nowrap">
@@ -533,7 +527,7 @@ export default function ExpensesClient({
                 ভাউচার নং: <strong className="font-mono text-red-800">#{expenseToDelete.voucher_no || expenseToDelete.id.slice(0, 8)}</strong>
               </div>
               <div>
-                খাত ও ফান্ড: <strong>{expenseToDelete.category}</strong> ({expenseToDelete.fund_name || "সাধারণ ফান্ড"})
+                খাত ও ফান্ড: <strong>{expenseToDelete.category}</strong> ({expenseToDelete.fund_name || "ফান্ড যাচাই প্রয়োজন"})
               </div>
               <div>
                 পরিমাণ: <strong className="text-red-700 font-bold text-sm">৳ {Number(expenseToDelete.amount).toLocaleString("bn-BD")}</strong>

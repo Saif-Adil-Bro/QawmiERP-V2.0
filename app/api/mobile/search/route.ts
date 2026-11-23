@@ -1,3 +1,4 @@
+import {canReadSchoolFinance} from '@/lib/finance/access';
 import { NextRequest } from "next/server";
 import { authenticateMobileRequest, mobileError, mobileSuccess } from "@/lib/mobile-api";
 
@@ -42,14 +43,15 @@ export async function GET(req: NextRequest) {
         .eq("madrasa_id", madrasaId)
         .or(`title.ilike.%${q}%,author.ilike.%${q}%`)
         .limit(10),
-      auth.adminClient
+      canReadSchoolFinance([auth.ctx.role,...auth.ctx.roles],auth.ctx.permissions) ? auth.adminClient
         .from("donors")
-        .select("id, name, phone")
+        .select("id, name")
         .eq("madrasa_id", madrasaId)
-        .or(`name.ilike.%${q}%,phone.ilike.%${q}%`)
-        .limit(10),
+        .ilike("name",`%${q}%`)
+        .limit(10) : {data:[]},
     ]);
 
+    if ("error" in donorsRes && donorsRes.error) return mobileError("দাতা তালিকা পড়া যায়নি।",503,"DONORS_UNAVAILABLE");
     return mobileSuccess(
       {
         students: studentsRes.data || [],

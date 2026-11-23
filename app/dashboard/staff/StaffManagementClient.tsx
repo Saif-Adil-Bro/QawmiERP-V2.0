@@ -36,6 +36,7 @@ import {
 
 interface StaffManagementClientProps {
   initialData: {
+    salaryVisible?:boolean;salaryEditable?:boolean;
     staff_members: StaffMember[];
     categories: StaffCategory[];
     departments: StaffDepartment[];
@@ -315,6 +316,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
       </div>
 
       {/* VIEW RENDERING */}
+      {['payroll','reports'].includes(currentTab) && !data.salaryVisible && <p role="status">বেতনসহ প্রতিবেদন দেখার অনুমতি নেই।</p>}
       {currentTab === "dashboard" && (
         <StaffDashboardView
           stats={{
@@ -351,13 +353,13 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
           madrasaInfo={data.madrasa_info}
           onSelectStaff={handleSelectStaff}
           onAddStaff={() => setShowAddModal(true)}
-          onEditStaff={(staff) => setEditingStaff(staff)}
+          onEditStaff={staff => staff.directory_only ? handleSelectStaff(staff.id) : setEditingStaff(staff)}
           onRefresh={refreshData}
         />
       )}
 
       {currentTab === "profile" && selectedStaff && (
-        <StaffProfileView
+        <StaffProfileView salaryEditable={!!data.salaryEditable}
           staff={selectedStaff}
           categories={data.categories}
           departments={data.departments}
@@ -371,8 +373,8 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
         />
       )}
 
-      {currentTab === "payroll" && (
-        <StaffPayrollView
+      {currentTab === "payroll" && data.salaryVisible && (
+        <StaffPayrollView salaryEditable={!!data.salaryEditable}
           salaryRecords={data.salary_records}
           staffList={data.staff_members}
           madrasaInfo={data.madrasa_info}
@@ -389,7 +391,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
         />
       )}
 
-      {currentTab === "reports" && (
+      {currentTab === "reports" && data.salaryVisible && (
         <StaffReportsView
           staffList={data.staff_members}
           categories={data.categories}
@@ -400,7 +402,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
 
       {/* Global Modals */}
       {showAddModal && (
-        <StaffFormModal
+        <StaffFormModal salaryEditable={!!data.salaryEditable}
           categories={data.categories}
           departments={data.departments}
           designations={data.designations}
@@ -429,7 +431,7 @@ export default function StaffManagementClient({ initialData }: StaffManagementCl
       )}
 
       {editingStaff && (
-        <StaffFormModal
+        <StaffFormModal salaryEditable={!!data.salaryEditable}
           staff={editingStaff}
           categories={data.categories}
           departments={data.departments}

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import StepUpVerificationModal from "@/components/security/StepUpVerificationModal";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useRouter } from "next/navigation";
@@ -65,7 +66,7 @@ const QUICK_SUGGESTIONS = [
 ];
 
 interface ActionState {
-  status: "pending" | "loading" | "confirmed" | "cancelled" | "error";
+  status: "pending" | "loading" | "submitted" | "confirmed" | "cancelled" | "error";
   message?: string;
 }
 
@@ -81,6 +82,8 @@ export function ErpAiAssistant() {
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [actionStates, setActionStates] = useState<Record<string, ActionState>>({});
+  // Only the pending confirmation is kept in memory; never persist an OTP or token in chat.
+  const [verification,setVerification]=useState<{id:string;type:string;payload:any;scope:string}|null>(null);
   const [hydrated, setHydrated] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigatedIdsRef = useRef<Set<string>>(new Set());
@@ -337,15 +340,18 @@ export function ErpAiAssistant() {
     await sendMessage({ text: content });
   };
 
-  const handleConfirmAction = async (actionId: string, actionType: string, payload: any) => {
+  const handleConfirmAction = async (actionId: string, actionType: string, payload: any, token?:string) => {
     setActionStates((prev) => ({ ...prev, [actionId]: { status: "loading" } }));
     try {
       const res = await fetch("/api/ai/confirm", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actionType, payload }),
+        headers: { "Content-Type": "application/json",...(token?{"x-step-up-token":token}:{}) },
+        body: JSON.stringify({ actionType, payload:actionType==="collect_fee" ? {...payload,idempotency_key:`ai:${actionId}`} : payload }),
       });
       const data = await res.json();
+      if (!token && res.status===403 && data.code==='STEP_UP_REQUIRED' && data.actionScope) {
+        setVerification({id:actionId,type:actionType,payload,scope:data.actionScope});return;
+      }
       if (!res.ok) {
         setActionStates((prev) => ({
           ...prev,
@@ -355,7 +361,9 @@ export function ErpAiAssistant() {
       }
       setActionStates((prev) => ({
         ...prev,
-        [actionId]: { status: "confirmed", message: data?.message || "সফলভাবে সম্পন্ন হয়েছে!" },
+        [actionId]: data.pendingApproval
+            ? {status:'submitted',message:data.message || 'আবেদন জমা হয়েছে; ভাউচার এখনো পোস্ট হয়নি।'}
+            : { status:data.executionResult?.executed===false?'error':'confirmed', message: data?.message || "সফলভাবে সম্পন্ন হয়েছে!" },
       }));
     } catch {
       setActionStates((prev) => ({
@@ -655,6 +663,7 @@ export function ErpAiAssistant() {
                               </div>
                             )}
 
+                            {state.status === 'submitted' && <div className="text-xs font-semibold text-amber-700">{state.message} · অপেক্ষমাণ</div>}
                             {state.status === "confirmed" && (
                               <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
                                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
@@ -790,6 +799,9 @@ export function ErpAiAssistant() {
           </form>
         </div>
       )}
+      {verification && <StepUpVerificationModal open actionScope={verification.scope} actionLabel="অনুমোদনের সিদ্ধান্ত যাচাই"
+        onClose={()=>{setActionStates(prev=>({...prev,[verification.id]:{status:'pending'}}));setVerification(null);}}
+        onVerified={token=>{const v=verification;setVerification(null);void handleConfirmAction(v.id,v.type,v.payload,token);}}/>}
     </>
   );
 }

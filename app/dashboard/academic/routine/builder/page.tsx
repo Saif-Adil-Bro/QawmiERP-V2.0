@@ -1,6 +1,6 @@
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
-import { getStaffMetadataFull } from "@/app/actions/staff";
+import { getStaffRoster } from "@/app/actions/staff";
 import RoutineBuilderClient from "./RoutineBuilderClient";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +16,7 @@ export default async function RoutineBuilderPage(props: {
     madrasaId = await getAuthMadrasaId(supabase, user);
   }
 
-  const staffData = await getStaffMetadataFull();
-  const staffMembers = staffData?.staff_members || [];
+  const staffMembers = await getStaffRoster();
 
   let classesQuery = supabase.from("classes").select("id, name");
   let subjectsQuery = supabase.from("subjects").select("id, name, code");
@@ -44,8 +43,8 @@ export default async function RoutineBuilderPage(props: {
     if (!existingTeacherIds.has(s.id)) {
       teachers.push({
         id: s.id,
-        first_name: s.personal.first_name || s.personal.full_name_bn || "শিক্ষক",
-        last_name: s.personal.last_name || "",
+        first_name: s.first_name || "শিক্ষক",
+        last_name: s.last_name || "",
       });
     }
   });

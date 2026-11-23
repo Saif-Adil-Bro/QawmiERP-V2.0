@@ -3,8 +3,8 @@
 import { getDhakaYear } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { getAccountingReport } from "@/app/actions/accounting";
-import { getFunds } from "@/app/actions/zakat";
-import { FundItem, DEFAULT_FUNDS } from "@/lib/fund-utils";
+import { getFundChoices } from "@/app/actions/zakat";
+import { FundItem } from "@/lib/fund-utils";
 import { ArrowLeft, FileText, TrendingUp, TrendingDown, Wallet, Landmark } from "lucide-react";
 import Link from "next/link";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
@@ -18,9 +18,10 @@ export default function AccountingReportPage() {
   const [month, setMonth] = useState<string>(currentMonth.toString());
   const [year, setYear] = useState<string>(currentYear.toString());
   const [selectedFundId, setSelectedFundId] = useState<string>("all");
-  const [funds, setFunds] = useState<FundItem[]>(DEFAULT_FUNDS);
+  const [funds, setFunds] = useState<FundItem[]>([]);
   
   const [report, setReport] = useState<{ totalIncome: number; totalExpense: number; netBalance: number; previousBalance?: number; isDebt?: boolean; adjustedClosingBalance?: number; fundStats?: any[] } | null>(null);
+  const [reportError,setReportError] = useState("");
   const [loading, setLoading] = useState(false);
   
   const [madrasaInfo, setMadrasaInfo] = useState<any>(null);
@@ -31,7 +32,7 @@ export default function AccountingReportPage() {
       try {
         const [res, fundsList] = await Promise.all([
           getMadrasaProfileWithLogo(),
-          getFunds(),
+          getFundChoices(true),
         ]);
         if (res) {
           setMadrasaInfo(res.madrasa);
@@ -48,13 +49,13 @@ export default function AccountingReportPage() {
   }, []);
 
   useEffect(() => {
-    async function loadReport() {
-      setLoading(true);
-      const data = await getAccountingReport(month, year, selectedFundId);
-      setReport(data);
-      setLoading(false);
-    }
-    loadReport();
+    let current = true;
+    setLoading(true); setReportError("");
+    getAccountingReport(month,year,selectedFundId)
+      .then(data => { if (current) setReport(data); })
+      .catch(() => { if (current) { setReport(null); setReportError("সম্পূর্ণ হিসাব পড়া যায়নি। আবার চেষ্টা করুন।"); } })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
   }, [month, year, selectedFundId]);
 
   const handlePrint = () => {
@@ -131,7 +132,7 @@ export default function AccountingReportPage() {
           
           <div className="ml-auto w-full md:w-auto">
             <button 
-              onClick={handlePrint}
+              disabled={loading || !!reportError || !report} onClick={handlePrint}
               className="w-full md:w-auto flex items-center justify-center space-x-2 px-4 py-2 border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50 transition font-medium cursor-pointer"
             >
               <FileText className="w-4 h-4" />
@@ -153,6 +154,7 @@ export default function AccountingReportPage() {
             </p>
           </div>
 
+          {reportError && <p role="alert">{reportError}</p>}
           {loading ? (
             <div className="py-12 text-center text-slate-500">রিপোর্ট তৈরি হচ্ছে...</div>
           ) : report ? (

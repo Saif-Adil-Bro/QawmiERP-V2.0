@@ -45,6 +45,11 @@ function asString(value: unknown, fallback = ""): string {
  * যেকোনো মাদ্রাসা-সদৃশ অবজেক্ট (getMadrasaInfo, getMadrasaDetails, action result …)
  * থেকে শুধু whitelisted পাবলিক ফিল্ড তুলে নেয়। `metadata` কখনো কপি হয় না।
  */
+// registration_no may contain a legacy JSON document (including damaged or
+// whitespace-prefixed JSON). Never present an aggregate as a registration ID.
+function registrationLabel(v:unknown){
+  return typeof v==='string' && !/^[\s]*[\[{]/.test(v) ? v : '';
+}
 function pickPublicMadrasaFields(info: Record<string, any>): PublicMadrasaInfo {
   const idYearFormat = info.id_year_format;
   return {
@@ -56,8 +61,8 @@ function pickPublicMadrasaFields(info: Record<string, any>): PublicMadrasaInfo {
     phone: asString(info.phone),
     email: asString(info.email),
     logo_url: asString(info.logo_url),
-    registration_no: asString(info.registration_no),
-    reg_no: asString(info.reg_no),
+    registration_no: registrationLabel(info.registration_no),
+    reg_no: registrationLabel(info.reg_no),
     established_year: asString(info.established_year),
     principal_name: asString(info.principal_name),
     principal_signature_url: asString(info.principal_signature_url),
@@ -201,14 +206,8 @@ export async function getMadrasaInfo(specificMadrasaId?: string): Promise<Madras
           phone: meta.phone || meta.contact_phone || fullMadrasa.phone || fullMadrasa.contact_phone || (fullMadrasa as any).phone || "",
           email: meta.email || meta.contact_email || fullMadrasa.email || fullMadrasa.contact_email || (fullMadrasa as any).email || "",
           logo_url: meta.logo_url || logoUrl || "",
-          registration_no:
-            meta.reg_no ||
-            meta.registration_no ||
-            (typeof fullMadrasa.registration_no === "string" &&
-            !fullMadrasa.registration_no.startsWith("{")
-              ? fullMadrasa.registration_no
-              : ""),
-          reg_no: meta.reg_no || meta.registration_no || "",
+          registration_no:registrationLabel(meta.reg_no) || registrationLabel(meta.registration_no) || registrationLabel(fullMadrasa.registration_no),
+          reg_no:registrationLabel(meta.reg_no) || registrationLabel(meta.registration_no),
           established_year: meta.established_year || "",
           principal_name:
             meta.principal_name ||

@@ -1,5 +1,7 @@
 "use server";
 
+import {canReadApproval,isFinancialRequest,publicApproval} from '@/lib/finance/approval-terms';
+import {financeDeniedRoles} from '@/lib/finance/access';
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
@@ -185,12 +187,15 @@ export async function getMadrasaRolesAndPermissions(): Promise<{
       };
     }
 
+    const view=await requirePermission({userId:authUser.id,madrasaId,permissions:['user.view'],denyRoles:financeDeniedRoles});
+    if(!view.allowed || !view.context) throw Error('ব্যবহারকারী তালিকার অনুমতি নেই।');
+    const {roles,summary}=view.context;
     const store = await getMadrasaSecurityStore(madrasaId);
     const customRoles = store.custom_roles || [];
     const allRoles = [...DEFAULT_SYSTEM_ROLES, ...customRoles];
 
     const relationalRequests = await listApprovalRequestsForMadrasa(madrasaId);
-    const mappedRelational: ApprovalRequest[] = relationalRequests.map(
+    const mappedRelational: ApprovalRequest[] = relationalRequests.filter(r=>canReadApproval(r,roles,summary.effectivePermissions)).map(publicApproval).map(
       (r: ApprovalRequestRecord) => ({
         id: r.id,
         madrasa_id: r.madrasa_id,
@@ -221,8 +226,8 @@ export async function getMadrasaRolesAndPermissions(): Promise<{
       })
     );
 
-    const seenIds = new Set(mappedRelational.map((r) => r.id));
-    const legacyOnly = (store.approval_requests || []).filter((r) => !seenIds.has(r.id));
+    const seenIds = new Set(relationalRequests.map((r) => r.id));
+    const legacyOnly = (store.approval_requests || []).filter((r) => r.madrasa_id===madrasaId && !seenIds.has(r.id) && (canReadApproval(r,roles,summary.effectivePermissions))).map(publicApproval);
 
     return {
       systemRoles: DEFAULT_SYSTEM_ROLES,
@@ -714,6 +719,7 @@ export async function reviewApprovalRequest(
     const request = store.approval_requests?.find((r) => r.id === requestId);
     if (!request) return { error: "আবেদনটি খুঁজে পাওয়া যায়নি।" };
 
+    if(isFinancialRequest(request)) return {error:'পুরোনো আর্থিক আবেদন কার্যকর নয়। মূল ফর্ম থেকে নতুন আবেদন করুন।'};
     if (request.status !== "PENDING") {
       return { error: `এই আবেদনটি ইতিমধ্যে "${request.status}" করা হয়েছে।` };
     }

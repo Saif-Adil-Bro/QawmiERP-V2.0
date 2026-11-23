@@ -4,8 +4,8 @@ import { toDhakaDateString } from "@/lib/date-utils";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createExpense, ExpenseActionState } from "@/app/actions/accounting";
 import PendingApprovalBanner from "@/components/permissions/PendingApprovalBanner";
-import { getFunds } from "@/app/actions/zakat";
-import { FundItem, DEFAULT_FUNDS } from "@/lib/fund-utils";
+import { getFundChoices } from "@/app/actions/zakat";
+import { isRestrictedFund, FundItem } from "@/lib/fund-utils";
 import { Landmark, FileText, CheckCircle2, ArrowRight, List, Plus, Trash2, Layers, AlignLeft, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import ExpenseVoucher, { ExpenseItem, MadrasaInfo } from "@/components/accounting/ExpenseVoucher";
@@ -23,8 +23,8 @@ interface ItemRow {
 export default function AddExpenseForm() {
   const [state, formAction, isPending] = useActionState(createExpense, initialState);
   const formRef = useRef<HTMLFormElement>(null);
-  const [funds, setFunds] = useState<FundItem[]>(DEFAULT_FUNDS);
-  const [selectedFundId, setSelectedFundId] = useState<string>("fund-general");
+  const [funds, setFunds] = useState<FundItem[]>([]);
+  const [selectedFundId, setSelectedFundId] = useState<string>("");
   const [createdVoucher, setCreatedVoucher] = useState<ExpenseItem | null>(null);
   const [madrasaInfo, setMadrasaInfo] = useState<MadrasaInfo | undefined>(undefined);
 
@@ -41,7 +41,7 @@ export default function AddExpenseForm() {
     async function loadInitialData() {
       try {
         const [fundsList, madrasaRes] = await Promise.all([
-          getFunds(),
+          getFundChoices(),
           fetch(apiUrl("/api/madrasa-info")).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
 
@@ -62,7 +62,7 @@ export default function AddExpenseForm() {
     if (state?.success && (state?.expense || (state as any)?.pendingApproval)) {
       if (state.expense) setCreatedVoucher(state.expense);
       formRef.current?.reset();
-      setSelectedFundId("fund-general");
+      setSelectedFundId("");
       setItemRows([{ id: "item-1", name: "", amount: "" }]);
       setSimpleAmount("");
       setSimpleDescription("");
@@ -73,7 +73,7 @@ export default function AddExpenseForm() {
     }
   }, [state]);
 
-  const selectedFund = funds.find(f => f.id === selectedFundId) || funds[0];
+  const selectedFund = funds.find(f => f.id === selectedFundId);
 
   // Calculate sum of itemized rows
   const itemizedTotal = itemRows.reduce((sum, row) => {
@@ -137,7 +137,7 @@ export default function AddExpenseForm() {
 
         {/* Hidden inputs to pass computed data */}
         <input type="hidden" name="fund_id" value={selectedFundId} />
-        <input type="hidden" name="fund_name" value={selectedFund?.name || "সাধারণ ফান্ড"} />
+        <input type="hidden" name="fund_name" value={selectedFund?.name || ""} />
         <input type="hidden" name="amount" value={finalAmount} />
         <input type="hidden" name="description" value={finalDescription} />
 
@@ -154,11 +154,12 @@ export default function AddExpenseForm() {
               </span>
             </label>
             <select
-              id="fund_id_select"
+              id="fund_id_select" required
               value={selectedFundId}
               onChange={(e) => setSelectedFundId(e.target.value)}
               className="w-full px-3.5 py-2.5 border border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-emerald-50/40 font-semibold text-slate-900"
             >
+              <option value="">ফান্ড নির্বাচন করুন</option>
               {funds.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name} {f.code ? `(${f.code})` : ""}
@@ -185,11 +186,11 @@ export default function AddExpenseForm() {
                 className="w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white text-sm"
               >
                 <option value="">নির্বাচন করুন</option>
-                <option value="Salary">শিক্ষক/স্টাফ বেতন (Salary)</option>
+                <option disabled={isRestrictedFund(selectedFund)} value="Salary">শিক্ষক/স্টাফ বেতন (Salary)</option>
                 <option value="Food">খাবার ও মেস (Food/Lillah Boarding)</option>
-                <option value="Utility">বিদ্যুৎ/গ্যাস/পানি বিল (Utility)</option>
-                <option value="Maintenance">রক্ষণাবেক্ষণ ও মেরামত (Maintenance)</option>
-                <option value="Other">অন্যান্য / বিবিধ (Other)</option>
+                <option disabled={isRestrictedFund(selectedFund)} value="Utility">বিদ্যুৎ/গ্যাস/পানি বিল (Utility)</option>
+                <option disabled={isRestrictedFund(selectedFund)} value="Maintenance">রক্ষণাবেক্ষণ ও মেরামত (Maintenance)</option>
+                <option disabled={isRestrictedFund(selectedFund)} value="Other">অন্যান্য / বিবিধ (Other)</option>
               </select>
             </div>
 
@@ -208,21 +209,10 @@ export default function AddExpenseForm() {
             </div>
           </div>
 
-          {/* Shariah Fund Advisory Warning */}
-          {((selectedFundId === "fund-zakat" || selectedFund?.name?.includes("যাকাত")) && 
-            ["Salary", "Utility", "Maintenance", "Other"].includes(selectedCategory)) && (
-            <div className="p-4 bg-amber-50/90 border-2 border-amber-300 rounded-xl text-amber-950 text-xs sm:text-sm flex items-start gap-3 shadow-xs animate-in fade-in duration-200">
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="font-bold text-amber-900 text-sm">
-                  সতর্কতা: শরয়ী বিধান অনুযায়ী যাকাত ফান্ডের অর্থ শুধুমাত্র উপযুক্ত গোরাবা ও এতিম ছাত্রদের খোরাকি এবং আবাসিক কল্যাণে ব্যয় করা যাবে।
-                </p>
-                <p className="text-amber-800 text-xs leading-relaxed">
-                  শিক্ষক বা কর্মচারীদের বেতন, ভবন নির্মাণ, উন্নয়ন কাজ বা বিদ্যুৎ ও গ্যাস বিলের মতো সাধারণ প্রাতিষ্ঠানিক পরিচালনা ব্যয় সাধারণ ফান্ড (General Fund) থেকে নির্বাহ করার বিধান রয়েছে।
-                </p>
-              </div>
-            </div>
-          )}
+          {isRestrictedFund(selectedFund) && <label className="block rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+            যাকাত/গোরাবা: কেবল যোগ্য ছাত্রদের খাবার খাতে ব্যয় করা যাবে। যাচাইকৃত উপকারভোগীর নাম বা দলের পরিচয় লিখুন।
+            <input name="restricted_beneficiary" required maxLength={300} className="mt-2 block min-h-11 w-full rounded border p-2" />
+          </label>}
 
           {/* Mode Switcher: Itemized breakdown vs Simple text */}
           <div className="pt-2 border-t border-slate-100">

@@ -19,7 +19,7 @@ const minimalAuthSchema = `CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid P
 
 export async function withDisposablePostgres(
   check,
-  { authSchema = minimalAuthSchema } = {},
+  { authSchema = minimalAuthSchema, afterColdRestore } = {},
 ) {
   const bin = process.env.QAWMI_PG_BIN;
   if (!bin)
@@ -32,7 +32,8 @@ export async function withDisposablePostgres(
   const password = randomBytes(24).toString("hex");
   const run = (exe, args) =>
     execFileSync(exe, args, { cwd: dir, stdio: "pipe", timeout: 30_000 });
-  let db;
+  let db,
+    active = data;
   try {
     writeFileSync(join(dir, "pw"), password, { mode: 0o600 });
     run(join(bin, "initdb"), [
@@ -68,23 +69,27 @@ export async function withDisposablePostgres(
     await once(probe, "listening");
     const port = probe.address().port;
     await new Promise((resolve) => probe.close(resolve));
-    run(join(bin, "pg_ctl"), [
-      "-D",
-      data,
-      "-l",
-      join(dir, "pg.log"),
-      "-o",
-      `-p ${port} -h 127.0.0.1 -c unix_socket_directories='' -c ssl=on`,
-      "-w",
-      "start",
-    ]);
+    const start = (path) =>
+      run(join(bin, "pg_ctl"), [
+        "-D",
+        path,
+        "-l",
+        join(dir, "pg.log"),
+        "-o",
+        `-p ${port} -h 127.0.0.1 -c unix_socket_directories='' -c ssl=on`,
+        "-w",
+        "start",
+      ]);
+    start(data);
     const dsn = (user) =>
       `postgresql://${user}:${password}@127.0.0.1:${port}/postgres`;
-    db = postgres(dsn("fixture"), {
-      max: 8,
-      ssl: { ca: readFileSync(cert) },
-      onnotice: () => {},
-    });
+    const connect = () =>
+      postgres(dsn("fixture"), {
+        max: 8,
+        ssl: { ca: readFileSync(cert) },
+        onnotice: () => {},
+      });
+    db = connect();
     const schema = await db.reserve();
     try {
       await schema.unsafe(
@@ -102,10 +107,26 @@ export async function withDisposablePostgres(
       schema.release();
     }
     await check({ db, dsn, cert, password });
+    if (afterColdRestore) {
+      // A physical recovery rehearsal using *only* the disposable cluster this
+      // helper created. Never copy a running PGDATA, accept a path or reuse a DSN.
+      await db.end();
+      db = undefined;
+      run(join(bin, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]);
+      const snapshot = join(dir, "cold-backup");
+      run("cp", ["-a", data, snapshot]);
+      active = join(dir, "restored");
+      run("cp", ["-a", snapshot, active]);
+      start(active);
+      db = connect();
+      if ((await db`show data_directory`)[0].data_directory !== active)
+        throw Error("Recovery did not start the restored copy");
+      await afterColdRestore(db);
+    }
   } finally {
     await db?.end({ timeout: 2 });
-    if (existsSync(join(data, "postmaster.pid")))
-      run(join(bin, "pg_ctl"), ["-D", data, "-m", "fast", "-w", "stop"]);
+    if (existsSync(join(active, "postmaster.pid")))
+      run(join(bin, "pg_ctl"), ["-D", active, "-m", "fast", "-w", "stop"]);
     rmSync(dir, { recursive: true, force: true });
   }
 }

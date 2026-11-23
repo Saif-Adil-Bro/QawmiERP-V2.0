@@ -52,7 +52,7 @@ describe("Tier 2 — Feature 3.3: Voice-First Bangla AI Assistant & Action Copil
     harness.db.seed("students", [STUDENTS_A.abdullah]);
     harness.db.seed("student_fees", [
       {
-        id: "sf-ai-1",
+        id: "sf-ai-1",fund_id:"fund-general",fund_name:"General",
         madrasa_id: MADRASA_A_ID,
         session_id: SESSION_A_1447.id,
         student_id: STUDENTS_A.abdullah.id,
@@ -68,6 +68,13 @@ describe("Tier 2 — Feature 3.3: Voice-First Bangla AI Assistant & Action Copil
       },
     ]);
 
+    harness.db.registerRpc('finance_posting_fund',()=>({id:'fund-general',name:'General'}));
+    // The SQL runner verifies writes and rollback. This route test checks the RPC contract.
+    const posted:Record<string,any>[]=[];
+    harness.db.registerRpc('finance_collect_fee',args=>{
+      assert.equal(args.p_tenant,MADRASA_A_ID);assert.equal(args.p_actor,USERS.accountantA.id);
+      const p=args.p as Record<string,any>;assert.equal(p.allocations[0].student_fee_id,'sf-ai-1');posted.push(p);return {...p,receipt_no:p.receipt_no || 'MR-2026-00101'};
+    });
     harness.auth.asUser(USERS.accountantA);
     const res = await confirmPost(
       harness.createRequest("/api/ai/confirm", {
@@ -89,7 +96,7 @@ describe("Tier 2 — Feature 3.3: Voice-First Bangla AI Assistant & Action Copil
       `collect_fee must succeed under strict schema (no 42703 amount_paid error), got ${res.status}`
     );
 
-    const payments = harness.db.getRows("fee_payments");
+    const payments=posted;
     assert.ok(payments.length >= 1);
     assert.equal(payments[0].total_amount_received, 1500);
     assert.equal("amount_paid" in payments[0], false);
@@ -131,6 +138,11 @@ describe("Tier 2 — Feature 3.3: Voice-First Bangla AI Assistant & Action Copil
     harness.db.seed("academic_sessions", SESSION_A_1447);
     harness.db.seed("classes", CLASSES_A.mizan);
     harness.db.seed("students", [STUDENTS_A.abdullah]);
+    harness.db.seed('fee_types',{id:'exam',madrasa_id:MADRASA_A_ID,name:'পরীক্ষার ফি',code:'EXAM',is_active:true,fund_id:'library',fund_name:'Library'});
+    harness.db.registerRpc('finance_posting_fund',()=>({id:'library',name:'Library'}));
+    harness.db.registerRpc('finance_edit_bills',args=>{
+      assert.equal(args.p_tenant,MADRASA_A_ID);for(const c of args.p_changes as any[]){assert.equal(c.before,null);assert.equal(c.after.fee_type_id,'exam');assert.equal(c.after.fund_id,'library');harness.db.seed('student_fees',c.after);}return null;
+    });
     harness.auth.asUser(USERS.accountantA);
 
     const res = await confirmPost(

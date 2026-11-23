@@ -2,6 +2,7 @@
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
+import { exactFundLabel, type FundItem } from "@/lib/fund-utils";
 import { useRouter } from "next/navigation";
 import {
   Boxes,
@@ -36,11 +37,9 @@ import {
   saveCollectionBox,
   deleteCollectionBox,
   recordBoxOpening,
-  deleteDonationBoxCollectionLog
 } from "@/app/actions/fundraising";
 import { numberToBanglaWords } from "@/lib/utils";
 import { printElementIsolated } from "@/lib/printUtils";
-import { apiUrl } from "@/lib/api-url";
 
 function toBanglaNumber(val: number | string | undefined | null): string {
   if (val === undefined || val === null || val === "") return "০";
@@ -59,7 +58,7 @@ export default function CollectionsClient({
 }: {
   initialLeathers: QurbaniLeatherBatch[];
   initialBoxes: CollectionBox[];
-  availableFunds?: any[];
+  availableFunds?: FundItem[];
   madrasaInfo?: any;
 }) {
   const router = useRouter();
@@ -97,19 +96,12 @@ export default function CollectionsClient({
     date: toDhakaDateString(),
     witnesses: "মুহতামিম ও ক্যাশিয়ার",
     receipt_no: "BOX-REC-001",
-    fund_name: "সাধারণ ফান্ড (General Fund)",
+    fund_id: "",
     notes: "",
   });
 
   // Fund choices
-  const fundOptions = (availableFunds && availableFunds.length > 0)
-    ? availableFunds.map((f: any) => f.name || f)
-    : [
-        "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
-        "সাধারণ ফান্ড (General Fund)",
-        "এতিম কল্যাণ ফান্ড (Orphan Welfare Fund)",
-        "ভবন নির্মাণ ফান্ড (Building Construction Fund)",
-      ];
+  const fundOptions = availableFunds || [];
 
   // Print Modals
   const [printLeatherMemo, setPrintLeatherMemo] = useState<QurbaniLeatherBatch | null>(null);
@@ -205,7 +197,7 @@ export default function CollectionsClient({
       buyer_name: "",
       buyer_phone: "",
       receipt_no: nextRec,
-      fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
+      fund_id: "",
       sale_date: toDhakaDateString(),
       notes: "",
     });
@@ -216,7 +208,7 @@ export default function CollectionsClient({
     setEditingLeather({
       ...l,
       receipt_no: l.receipt_no || calculateNextLeatherVoucherNo(leathers),
-      fund_name: l.fund_name || (l as any).target_fund || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
+      fund_id:l.fund_id || exactFundLabel(fundOptions,l.fund_name || l.target_fund)?.id || "",
     });
     setLeatherModalOpen(true);
   };
@@ -238,7 +230,9 @@ export default function CollectionsClient({
       const received = Number(editingLeather.received_amount !== undefined ? editingLeather.received_amount : Math.max(0, totalSale - due));
       const recordDate = editingLeather.sale_date || editingLeather.collection_date || toDhakaDateString();
       const receiptNo = (editingLeather.receipt_no || calculateNextLeatherVoucherNo(leathers)).trim();
-      const fundName = editingLeather.fund_name || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
+      const selected = fundOptions.find(f => f.id === editingLeather.fund_id);
+      if (!selected) throw new Error("ফান্ড নির্বাচন করুন।");
+      const fundName = selected.name;
 
       const payload: Partial<QurbaniLeatherBatch> = {
         ...editingLeather,
@@ -261,25 +255,12 @@ export default function CollectionsClient({
         sale_date: recordDate,
         collection_date: recordDate,
         receipt_no: receiptNo,
-        fund_name: fundName,
+        fund_id:selected.id, fund_name: fundName,
         target_fund: fundName,
       };
 
-      let res = await saveLeatherCollection(payload);
-      if (res && res.error) {
-        const apiRes = await fetch(apiUrl("/api/fundraising/collections/leather"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const apiData = await apiRes.json();
-        if (!apiRes.ok || apiData.error) {
-          alert(apiData.error || res.error || "চামড়ার তথ্য সংরক্ষণে সমস্যা হয়েছে");
-          setLoading(false);
-          return;
-        }
-        res = apiData;
-      }
+      const res = await saveLeatherCollection(payload);
+      if (res?.error) throw new Error(res.error);
 
       const savedId = res?.id || editingLeather.id || `lth_${Date.now()}`;
       const savedItem = {
@@ -311,24 +292,10 @@ export default function CollectionsClient({
     if (!confirm("আপনি কি নিশ্চিতভাবে এই চামড়া চালানের রেকর্ড মুছে ফেলতে চান?")) return;
     try {
       const res = await deleteLeatherCollection(id);
-      if (res && res.error) {
-        await fetch(apiUrl(`/api/fundraising/collections/leather?id=${id}`), {
-          method: "DELETE",
-        });
-      }
-      setLeathers((prev) => prev.filter((l) => l.id !== id));
+      if (res.error) throw new Error(res.error);
+      setLeathers(prev => prev.filter(r => r.id!==id));
       router.refresh();
-    } catch (err) {
-      try {
-        await fetch(apiUrl(`/api/fundraising/collections/leather?id=${id}`), {
-          method: "DELETE",
-        });
-        setLeathers((prev) => prev.filter((l) => l.id !== id));
-        router.refresh();
-        return;
-      } catch {}
-      alert("মুছতে সমস্যা হয়েছে");
-    }
+    } catch (e:any) { alert(e.message || "মুছতে সমস্যা হয়েছে।"); }
   };
 
   // Actions for Box
@@ -377,22 +344,8 @@ export default function CollectionsClient({
         total_collected_lifetime: Number(editingBox.total_collected_lifetime || 0),
       };
 
-      let res: any = await saveCollectionBox(payload);
-
-      if (res && res.error) {
-        const apiRes = await fetch(apiUrl("/api/fundraising/collections/boxes"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ box: payload }),
-        });
-        const apiData = await apiRes.json();
-        if (!apiRes.ok || apiData.error) {
-          alert(apiData.error || res.error || "দানবাক্স সংরক্ষণে সমস্যা হয়েছে");
-          setLoading(false);
-          return;
-        }
-        res = apiData;
-      }
+      const res = await saveCollectionBox(payload);
+      if (res.error) throw new Error(res.error);
 
       const finalId = res?.id || editingBox.id || `box_${Date.now()}`;
       const savedBox: CollectionBox = {
@@ -433,24 +386,10 @@ export default function CollectionsClient({
     if (!confirm("আপনি কি নিশ্চিতভাবে এই দানবাক্স রেকর্ড মুছে ফেলতে চান?")) return;
     try {
       const res = await deleteCollectionBox(id);
-      if (res && res.error) {
-        await fetch(apiUrl(`/api/fundraising/collections/boxes?id=${id}`), {
-          method: "DELETE",
-        });
-      }
-      setBoxes((prev) => prev.filter((b) => b.id !== id));
+      if (res.error) throw new Error(res.error);
+      setBoxes(prev => prev.filter(r => r.id!==id));
       router.refresh();
-    } catch (err) {
-      try {
-        await fetch(apiUrl(`/api/fundraising/collections/boxes?id=${id}`), {
-          method: "DELETE",
-        });
-        setBoxes((prev) => prev.filter((b) => b.id !== id));
-        router.refresh();
-        return;
-      } catch {}
-      alert("মুছতে সমস্যা হয়েছে");
-    }
+    } catch (e:any) { alert(e.message || "মুছতে সমস্যা হয়েছে।"); }
   };
 
   // Open & Record Box Collection
@@ -462,7 +401,7 @@ export default function CollectionsClient({
       date: toDhakaDateString(),
       witnesses: "মুহতামিম ও ক্যাশিয়ার",
       receipt_no: nextVoucher,
-      fund_name: "সাধারণ ফান্ড (General Fund)",
+      fund_id: "",
       notes: "",
     });
     setOpenLogModal(true);
@@ -478,7 +417,9 @@ export default function CollectionsClient({
     setLoading(true);
     try {
       const receiptNumber = (logFormData.receipt_no || calculateNextReceiptNo(boxes)).trim();
-      const fundName = logFormData.fund_name || "সাধারণ ফান্ড (General Fund)";
+      const selected = fundOptions.find(f => f.id === logFormData.fund_id);
+      if (!selected) throw new Error("ফান্ড নির্বাচন করুন।");
+      const fundName = selected.name;
       const logPayload = {
         box_id: selectedBoxForOpen.id,
         box_code: selectedBoxForOpen.box_code,
@@ -489,27 +430,13 @@ export default function CollectionsClient({
         witnesses: logFormData.witnesses || "মুহতামিম ও ক্যাশিয়ার",
         witness_name: logFormData.witnesses || "মুহতামিম ও ক্যাশিয়ার",
         receipt_no: receiptNumber,
-        fund_name: fundName,
+        fund_id:selected.id, fund_name: fundName,
         target_fund: fundName,
         notes: logFormData.notes || "",
       };
 
-      let res = await recordBoxOpening(logPayload);
-
-      if (res && res.error) {
-        const apiRes = await fetch(apiUrl("/api/fundraising/collections/boxes"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "record_collection", log: logPayload }),
-        });
-        const apiData = await apiRes.json();
-        if (!apiRes.ok || apiData.error) {
-          alert(apiData.error || res.error || "কালেকশন এন্ট্রি করতে সমস্যা হয়েছে");
-          setLoading(false);
-          return;
-        }
-        res = apiData;
-      }
+      const res = await recordBoxOpening(logPayload);
+      if (res?.error) throw new Error(res.error);
 
       const newLog: BoxCollectionLog = {
         id: res?.id || `log_${Date.now()}`,
@@ -518,7 +445,7 @@ export default function CollectionsClient({
         date: logFormData.date,
         witnesses: logFormData.witnesses,
         receipt_no: receiptNumber,
-        fund_name: fundName,
+        fund_id:selected.id, fund_name: fundName,
         notes: logFormData.notes,
       };
 
@@ -548,33 +475,6 @@ export default function CollectionsClient({
 
   // State for expanded box logs
   const [expandedBoxId, setExpandedBoxId] = useState<string | null>(null);
-
-  const handleDeleteLog = async (boxId: string, logId: string) => {
-    if (!confirm("আপনি কি নিশ্চিতভাবে এই জমার রেকর্ড ও রসিদ মুছে ফেলতে চান?")) return;
-    try {
-      setLoading(true);
-      await deleteDonationBoxCollectionLog(logId);
-      setBoxes((prev) =>
-        prev.map((b) => {
-          if (b.id !== boxId) return b;
-          const targetLog = (b.collection_logs || []).find((l) => l.id === logId);
-          const deductAmount = targetLog ? Number(targetLog.amount || 0) : 0;
-          const updatedLogs = (b.collection_logs || []).filter((l) => l.id !== logId);
-          return {
-            ...b,
-            total_collected_lifetime: Math.max(0, (b.total_collected_lifetime || 0) - deductAmount),
-            collection_logs: updatedLogs,
-            last_opened_date: updatedLogs.length > 0 ? updatedLogs[0].date : undefined,
-          };
-        })
-      );
-      router.refresh();
-    } catch (err: any) {
-      alert("জমার রেকর্ড মুছতে সমস্যা হয়েছে: " + (err?.message || ""));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
@@ -892,14 +792,7 @@ export default function CollectionsClient({
                               >
                                 <Printer className="w-3.5 h-3.5" />
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteLog(box.id, log.id)}
-                                className="p-1 text-slate-400 hover:text-red-600 rounded"
-                                title="রেকর্ড মুছুন"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <a className="text-xs underline" href="/dashboard/zakat/funds">ফান্ড খতিয়ান</a>
                             </div>
                           </div>
                         ))}
@@ -990,13 +883,14 @@ export default function CollectionsClient({
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">জমা ফান্ড (Target Fund)</label>
                   <select
-                    value={editingLeather?.fund_name || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)"}
-                    onChange={(e) => setEditingLeather(prev => ({ ...prev, fund_name: e.target.value }))}
+                    required value={editingLeather?.fund_id || ""}
+                    onChange={(e) => setEditingLeather(prev => ({ ...prev, fund_id: e.target.value }))}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-medium"
                   >
-                    {fundOptions.map((opt: string) => (
-                      <option key={opt} value={opt}>
-                        {opt}
+                    <option value="">ফান্ড নির্বাচন করুন</option>
+                    {fundOptions.map(opt => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.name} ({opt.code})
                       </option>
                     ))}
                   </select>
@@ -1301,13 +1195,14 @@ export default function CollectionsClient({
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">জমা ফান্ড (Target Fund)</label>
                   <select
-                    value={logFormData.fund_name || "সাধারণ ফান্ড (General Fund)"}
-                    onChange={(e) => setLogFormData(prev => ({ ...prev, fund_name: e.target.value }))}
+                    required value={logFormData.fund_id}
+                    onChange={(e) => setLogFormData(prev => ({ ...prev, fund_id: e.target.value }))}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white font-medium"
                   >
-                    {fundOptions.map((opt: string) => (
-                      <option key={opt} value={opt}>
-                        {opt}
+                    <option value="">ফান্ড নির্বাচন করুন</option>
+                    {fundOptions.map(opt => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.name} ({opt.code})
                       </option>
                     ))}
                   </select>

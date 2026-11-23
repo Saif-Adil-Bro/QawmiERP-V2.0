@@ -3,7 +3,7 @@
 import { toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useTransition, useEffect } from "react";
 import { X, Landmark, Save, Loader2, Plus, Trash2, Layers, AlignLeft, List, AlertTriangle } from "lucide-react";
-import { FundItem } from "@/lib/fund-utils";
+import { isRestrictedFund, FundItem } from "@/lib/fund-utils";
 import { updateExpense } from "@/app/actions/accounting";
 import { ExpenseItem } from "./ExpenseVoucher";
 import { parseExpenseItems } from "@/lib/expense-parser";
@@ -42,7 +42,7 @@ export default function EditExpenseModal({
 
   useEffect(() => {
     if (expense) {
-      setEditFundId(expense.fund_id || "fund-general");
+      setEditFundId(expense.fund_id || "");
       setEditCategory(expense.category || "");
       const parsed = parseExpenseItems(expense.description, expense.amount);
       if (parsed.length > 1 || (parsed.length === 1 && parsed[0].amount !== null && parsed[0].name !== "মাদরাসার প্রাতিষ্ঠানিক প্রয়োজনে ব্যয় নির্বাহ করা হয়েছে।")) {
@@ -137,7 +137,7 @@ export default function EditExpenseModal({
     });
   };
 
-  const initialFundId = expense.fund_id || "fund-general";
+  const initialFundId = expense.fund_id || "";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
@@ -174,19 +174,8 @@ export default function EditExpenseModal({
               <Landmark className="w-3.5 h-3.5 text-emerald-600" />
               <span>কোন ফান্ড থেকে খরচ? (Fund Selection) *</span>
             </label>
-            <select
-              name="fund_id"
-              value={editFundId}
-              onChange={(e) => setEditFundId(e.target.value)}
-              required
-              className="w-full px-3 py-2 border border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 text-sm font-semibold bg-emerald-50/40 text-slate-900"
-            >
-              {funds.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name} {f.code ? `(${f.code})` : ""}
-                </option>
-              ))}
-            </select>
+            <input type="hidden" name="fund_id" value={editFundId} />
+            <p>{expense.fund_name} · পোস্ট করা ভাউচারের ফান্ড অপরিবর্তনীয়।</p>
           </div>
 
           {/* Category & Date Grid */}
@@ -200,11 +189,11 @@ export default function EditExpenseModal({
                 required
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 text-sm bg-white"
               >
-                <option value="Salary">শিক্ষক/স্টাফ বেতন (Salary)</option>
+                <option disabled={isRestrictedFund(funds.find(f => f.id === editFundId))} value="Salary">শিক্ষক/স্টাফ বেতন (Salary)</option>
                 <option value="Food">খাবার ও মেস (Food/Lillah)</option>
-                <option value="Utility">বিদ্যুৎ/গ্যাস/পানি বিল (Utility)</option>
-                <option value="Maintenance">রক্ষণাবেক্ষণ ও মেরামত</option>
-                <option value="Other">অন্যান্য / বিবিধ (Other)</option>
+                <option disabled={isRestrictedFund(funds.find(f => f.id === editFundId))} value="Utility">বিদ্যুৎ/গ্যাস/পানি বিল (Utility)</option>
+                <option disabled={isRestrictedFund(funds.find(f => f.id === editFundId))} value="Maintenance">রক্ষণাবেক্ষণ ও মেরামত</option>
+                <option disabled={isRestrictedFund(funds.find(f => f.id === editFundId))} value="Other">অন্যান্য / বিবিধ (Other)</option>
               </select>
             </div>
 
@@ -220,21 +209,10 @@ export default function EditExpenseModal({
             </div>
           </div>
 
-          {/* Shariah Fund Advisory Warning */}
-          {((editFundId === "fund-zakat" || funds.find(f => f.id === editFundId)?.name?.includes("যাকাত")) &&
-            ["Salary", "Utility", "Maintenance", "Other"].includes(editCategory)) && (
-            <div className="p-3 bg-amber-50/90 border-2 border-amber-300 rounded-xl text-amber-950 text-xs flex items-start gap-2.5 shadow-xs">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div className="space-y-0.5">
-                <p className="font-bold text-amber-900">
-                  সতর্কতা: শরয়ী বিধান অনুযায়ী যাকাত ফান্ডের অর্থ শুধুমাত্র উপযুক্ত গোরাবা ও এতিম ছাত্রদের খোরাকি এবং আবাসিক কল্যাণে ব্যয় করা যাবে।
-                </p>
-                <p className="text-amber-800 text-[11px] leading-relaxed">
-                  শিক্ষক বা কর্মচারীদের বেতন, ভবন নির্মাণ, উন্নয়ন কাজ বা বিদ্যুৎ ও গ্যাস বিলের মতো সাধারণ প্রাতিষ্ঠানিক পরিচালনা ব্যয় সাধারণ ফান্ড থেকে নির্বাহ করার বিধান রয়েছে।
-                </p>
-              </div>
-            </div>
-          )}
+          {isRestrictedFund(funds.find(f => f.id === editFundId)) && <label className="block rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+            যাকাত/গোরাবা: কেবল যোগ্য ছাত্রদের খাবার খাতে ব্যয় করা যাবে। যাচাইকৃত উপকারভোগীর নাম বা দলের পরিচয় লিখুন।
+            <input name="restricted_beneficiary" required maxLength={300} defaultValue={expense.restricted_beneficiary || ""} className="mt-2 block min-h-11 w-full rounded border p-2" />
+          </label>}
 
           {/* Mode Switcher */}
           <div className="pt-2 border-t border-slate-100">

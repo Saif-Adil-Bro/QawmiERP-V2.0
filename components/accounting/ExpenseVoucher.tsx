@@ -14,6 +14,7 @@ export interface ExpenseItem {
   description?: string;
   fund_id?: string;
   fund_name?: string;
+  restricted_beneficiary?: string;
   voucher_no?: string;
   created_at?: string;
 }
@@ -54,11 +55,11 @@ export default function ExpenseVoucher({
   const banglaAmount = formatBanglaCurrency(amountNum);
   const inWords = numberToBanglaWords(amountNum);
 
-  const dateObj = expense.expense_date ? new Date(expense.expense_date) : new Date();
-  const banglaDate = toBanglaNumber(dateObj.toLocaleDateString("en-GB"));
-  const engDate = dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const dateObj = expense.expense_date ? new Date(expense.expense_date) : null;
+  const banglaDate = toBanglaNumber(dateObj?.toLocaleDateString("en-GB",{timeZone:"Asia/Dhaka"}) || "—");
+  const engDate = dateObj?.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric",timeZone:"Asia/Dhaka" }) || "—";
 
-  const voucherNumber = expense.voucher_no || `EXP-${expense.id?.substring(0, 6).toUpperCase() || "001"}`;
+  const voucherNumber = expense.voucher_no || expense.id || "—";
   
   const categoryLabel = 
     expense.category === "Salary" ? "শিক্ষক/স্টাফ বেতন (Salary)" :
@@ -67,7 +68,7 @@ export default function ExpenseVoucher({
     expense.category === "Maintenance" ? "মেরামত ও রক্ষণাবেক্ষণ" :
     expense.category === "Other" ? "বিবিধ / অন্যান্য খরচ" : (expense.category || "সাধারণ খরচ");
 
-  const fundName = expense.fund_name || "সাধারণ ফান্ড (General Fund)";
+  const fundName = expense.fund_name || "ফান্ড যাচাই প্রয়োজন";
 
   // Parse multi-item breakdown from expense description
   const parsedItems: ParsedExpenseItem[] = parseExpenseItems(expense.description, amountNum);

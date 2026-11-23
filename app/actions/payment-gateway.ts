@@ -1,4 +1,5 @@
 "use server";
+import {postingFund} from "@/lib/finance/funds";
 import { webIdentity, hasRole, linkedStudents } from "@/lib/portal/identity";
 import { studentRoles, teacherRoles } from "@/lib/portal/rules";
 import { randomBytes } from "node:crypto";
@@ -178,6 +179,8 @@ export async function initiateOnlinePayment(params: {
       fee_type_name: string;
       billing_period?: string;
       allocated_amount: number;
+      fund_id: string;
+      fund_name: string;
     }[] = [];
 
     if (params.selected_fee_ids && new Set(params.selected_fee_ids).size !== params.selected_fee_ids.length)
@@ -190,7 +193,8 @@ export async function initiateOnlinePayment(params: {
     for (const fee of selected) {
       const cents = Math.min(poisha, Math.round(100 * Number(fee.due_amount)));
       if (cents <= 0) continue;
-      allocations.push({
+      const account=await postingFund(madrasaId,fee.fund_id,'deposit','','',fee.fund_name);
+      allocations.push({fund_id:account.id,fund_name:account.name,
         student_fee_id: fee.id,
         fee_type_id: fee.fee_type_id,
         fee_type_name: fee.fee_type_name,

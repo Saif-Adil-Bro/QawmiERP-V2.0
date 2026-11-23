@@ -52,6 +52,14 @@ export async function runPhaseBBackfill(options: { dryRun?: boolean; targetMadra
       return report;
     }
 
+    // This legacy importer upserts global template IDs and does not import a
+    // tenant's receipts, allocations and mirrors in one transaction. Never run it
+    // against a protected finance book, even if a caller selected all tenants.
+    if (!dryRun && madrasas.some(m=>m.finance_source_revision!=null)) {
+      report.errors.push("Finance integrity is installed: the old backfill is dry-run only. Stage and reconcile a dedicated import instead.");
+      return report;
+    }
+
     for (const madrasa of madrasas) {
       report.madrasasProcessed++;
       const madrasaId = madrasa.id;

@@ -1,6 +1,11 @@
+import {getFeeMetadata} from "@/lib/fee-store";
+import {billPeriodKey} from '@/lib/finance/bill-period';
+import {billingSession} from '@/lib/finance/billing-session';
+import {monthlyCharges} from '@/lib/finance/monthly-charges';
+import {rows} from "@/lib/portal/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableError } from "@/lib/audit-log";
-import { getDhakaYear, toDhakaMonthString } from "@/lib/date-utils";
+import { toDhakaMonthString } from "@/lib/date-utils";
 import { dispatchNotification } from "@/lib/notifications/orchestrator";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { runTrackedCronJob } from "@/lib/automation/cron-auth";
@@ -8,8 +13,8 @@ import { runTrackedCronJob } from "@/lib/automation/cron-auth";
 async function getTargetMadrasaIds(madrasaId?: string | null): Promise<string[]> {
   if (madrasaId) return [madrasaId];
   const admin = await createAdminClient();
-  const { data } = await admin.from("madrasas").select("id");
-  return (data || []).map((m: any) => String(m.id)).filter(Boolean);
+  const data = await rows(()=>admin.from("madrasas").select("id"));
+  return data.map((m: any) => String(m.id)).filter(Boolean);
 }
 
 async function isRuleEnabled(madrasaId: string, ruleKey: string): Promise<boolean> {
@@ -25,11 +30,9 @@ async function isRuleEnabled(madrasaId: string, ruleKey: string): Promise<boolea
     if (!error && data) {
       return data.is_enabled !== false;
     }
-    if (error && !isMissingTableError(error)) {
-      return true;
-    }
-  } catch {
-    // default enabled if table missing
+    if (error && !isMissingTableError(error)) throw error;
+  } catch(e) {
+    if(!isMissingTableError(e)) throw e;
   }
   return true;
 }
@@ -40,7 +43,8 @@ export async function runMonthlyFeeGenerationCron(opts: {
   triggerSource?: "cron" | "manual" | "retry";
 } = {}) {
   const billingPeriod = opts.billingPeriod || toDhakaMonthString();
-  const yearStr = String(getDhakaYear());
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(billingPeriod)) throw Error("Invalid monthly billing period");
+  const yearStr=billingPeriod.slice(0,4);
   const triggerSource = opts.triggerSource || "cron";
   const madrasaIds = await getTargetMadrasaIds(opts.madrasaId);
 
@@ -63,103 +67,32 @@ export async function runMonthlyFeeGenerationCron(opts: {
         }
 
         const admin = await createAdminClient();
-        const [studentsRes, structuresRes, itemsRes, feeTypesRes, existingFeesRes, sessionsRes] =
-          await Promise.all([
-            admin
-              .from("students")
-              .select("id, first_name, last_name, roll_number, class_id, class_name, status")
-              .eq("madrasa_id", madrasaId),
-            admin
-              .from("fee_structures")
-              .select("*")
-              .eq("madrasa_id", madrasaId)
-              .eq("is_active", true),
-            admin
-              .from("fee_structure_items")
-              .select("*")
-              .eq("madrasa_id", madrasaId),
-            admin
-              .from("fee_types")
-              .select("*")
-              .eq("madrasa_id", madrasaId),
-            admin
-              .from("student_fees")
-              .select("student_id, fee_type_id, billing_period")
-              .eq("madrasa_id", madrasaId)
-              .eq("billing_period", billingPeriod),
-            admin
-              .from("academic_sessions")
-              .select("id, is_current")
-              .eq("madrasa_id", madrasaId),
-          ]);
-
-        const students = (studentsRes.data || []).filter(
-          (s: any) => !s.status || String(s.status).toUpperCase() === "ACTIVE"
-        );
-        const structures = structuresRes.data || [];
-        const items = itemsRes.data || [];
-        const feeTypes = feeTypesRes.data || [];
-        const existingSet = new Set(
-          (existingFeesRes.data || []).map(
-            (f: any) => `${f.student_id}::${f.fee_type_id}::${f.billing_period}`
-          )
-        );
-        const activeSession =
-          (sessionsRes.data || []).find((s: any) => s.is_current)?.id ||
-          (sessionsRes.data || [])[0]?.id ||
-          "default";
-
-        const feeTypeMap = new Map<string, any>();
-        for (const ft of feeTypes) feeTypeMap.set(String(ft.id), ft);
-
+        const [roster,book,activeSession]=await Promise.all([
+          rows(()=>admin.from('students').select('*').eq('madrasa_id',madrasaId)),
+          getFeeMetadata(madrasaId),billingSession(admin,madrasaId)
+        ]);
+        const students=roster.filter(s=>!s.status || String(s.status).toUpperCase()==='ACTIVE');
+        const existingSet=new Set((book.student_fees||[]).filter(f=>f.session_id===activeSession).map(f=>`${f.student_id}::${f.fee_type_id}::${billPeriodKey(f.billing_period)}`));
         let processedCount = 0;
         let successCount = 0;
         let failedCount = 0;
         let skippedExisting = 0;
 
         for (const student of students) {
-          // Find matching structure items for student's class, or fallback to monthly fee types
-          const matchingStructures = structures.filter(
-            (st: any) => !st.class_id || String(st.class_id) === String(student.class_id || "")
-          );
-          const matchingStructureIds = new Set(matchingStructures.map((st: any) => String(st.id)));
-          const studentItems = items.filter((it: any) =>
-            matchingStructureIds.has(String(it.fee_structure_id))
-          );
-
-          const targetFees: Array<{ fee_type_id: string; fee_type_name: string; amount: number }> =
-            studentItems.length > 0
-              ? studentItems.map((it: any) => {
-                  const ft = feeTypeMap.get(String(it.fee_type_id));
-                  return {
-                    fee_type_id: String(it.fee_type_id),
-                    fee_type_name: String(it.fee_type_name || ft?.name || "মাসিক বেতন"),
-                    amount: Number(it.amount || ft?.default_amount || 0),
-                  };
-                })
-              : feeTypes
-                  .filter(
-                    (ft: any) =>
-                      ft.is_active !== false &&
-                      (!ft.frequency || String(ft.frequency).toUpperCase() === "MONTHLY")
-                  )
-                  .map((ft: any) => ({
-                    fee_type_id: String(ft.id),
-                    fee_type_name: String(ft.name || "মাসিক বেতন"),
-                    amount: Number(ft.default_amount || 0),
-                  }));
-
-          for (const tf of targetFees) {
-            if (!tf.fee_type_id || tf.amount <= 0) continue;
+          let charges;
+          try {charges=monthlyCharges(book,student,{sessionId:activeSession,auto:true});}
+          catch {failedCount++;continue;}
+          for(const {ft,baseAmount,discountAmount,discountReason,payable} of charges){
             processedCount++;
-            const dedupKey = `${student.id}::${tf.fee_type_id}::${billingPeriod}`;
+            const dedupKey = `${student.id}::${ft.id}::${billingPeriod}`;
             if (existingSet.has(dedupKey)) {
               skippedExisting++;
               continue;
             }
 
             const fullName = `${student.first_name || ""} ${student.last_name || ""}`.trim() || "শিক্ষার্থী";
-            const { error: insErr } = await admin.from("student_fees").insert({
+            const id=crypto.randomUUID();
+            const after={id,fund_id:ft.fund_id,fund_name:ft.fund_name,
               madrasa_id: madrasaId,
               session_id: activeSession,
               student_id: student.id,
@@ -167,19 +100,20 @@ export async function runMonthlyFeeGenerationCron(opts: {
               student_roll: student.roll_number || null,
               class_id: student.class_id || null,
               class_name: student.class_name || null,
-              fee_type_id: tf.fee_type_id,
-              fee_type_name: tf.fee_type_name,
+              fee_type_id: ft.id,
+              fee_type_name: ft.name,
               billing_period: billingPeriod,
               month_name: billingPeriod,
               year: yearStr,
-              base_amount: tf.amount,
-              discount_amount: 0,
+              base_amount:baseAmount,
+              discount_amount:discountAmount,discount_reason:discountReason,
               fine_amount: 0,
-              payable_amount: tf.amount,
+              payable_amount: payable,
               paid_amount: 0,
-              due_amount: tf.amount,
-              status: "UNPAID",
-            });
+              due_amount: payable,
+              status:payable===0?"WAIVED":"UNPAID",
+            };
+            const {error:insErr}=await admin.rpc('finance_edit_bills',{p_tenant:madrasaId,p_changes:[{id,before:null,after}],p_audit:null});
 
             if (insErr) {
               failedCount++;

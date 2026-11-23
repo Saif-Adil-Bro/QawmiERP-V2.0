@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeApi } from "@/lib/api-auth";
 import { loadServerPermissions } from "@/lib/permissions-server";
-import { decideApprovalStepForActor } from "@/app/actions/approvals";
+import { decideApprovalStepForActor } from "@/lib/approval-execution";
 
 export async function POST(
   req: NextRequest,

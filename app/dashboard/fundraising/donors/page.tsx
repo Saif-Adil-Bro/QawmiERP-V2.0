@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { getFundChoices } from "@/app/actions/zakat";
 import { getLifeMemberDonors } from "@/app/actions/fundraising";
 import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import DonorsClient from "./DonorsClient";
@@ -7,9 +8,9 @@ import { Loader2 } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 export default async function DonorsManagementPage() {
-  const [{ donors, payments }, madrasaInfo] = await Promise.all([
+  const [{ donors, payments }, madrasaInfo, funds] = await Promise.all([
     getLifeMemberDonors(),
-    getMadrasaInfo(),
+    getMadrasaInfo(), getFundChoices(),
   ]);
 
   return (
@@ -20,7 +21,7 @@ export default async function DonorsManagementPage() {
         </div>
       }
     >
-      <DonorsClient initialDonors={donors} initialPayments={payments} madrasaInfo={toPublicMadrasaInfo(madrasaInfo)} />
+      <DonorsClient funds={funds} initialDonors={donors} initialPayments={payments} madrasaInfo={toPublicMadrasaInfo(madrasaInfo)} />
     </Suspense>
   );
 }

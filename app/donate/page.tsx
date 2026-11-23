@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 import PublicDonateClient from "@/app/portal/donate/PublicDonateClient";
 import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
-import { getOnlineDonationSettings } from "@/app/actions/fundraising";
-import { getFunds } from "@/app/actions/zakat";
+import { getOnlineDonationSettings,getSafeMadrasaId } from "@/app/actions/fundraising";
+import { fundCatalog } from "@/lib/finance/funds";
 import { Loader2 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export default async function PublicDonatePage() {
   const [madrasaInfo, donationSettings, funds] = await Promise.all([
     getMadrasaInfo(),
     getOnlineDonationSettings(),
-    getFunds(),
+    getSafeMadrasaId().then(async tenant => tenant ? (await fundCatalog(tenant,true)).filter(f => f.is_active !== false).map(({id,name,code,category}) => ({id,name,code,category})) : []),
   ]);
 
   return (

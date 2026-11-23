@@ -60,7 +60,7 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
   const totalCustomFunds = funds.filter(f => !f.is_default).length;
 
   const handleDelete = async (fundId: string) => {
-    if (!confirm("আপনি কি নিশ্চিতভাবে এই ফান্ডটি মুছে ফেলতে চান?")) return;
+    if (!confirm("আপনি কি নিশ্চিতভাবে এই ফান্ডটি আর্কাইভ করতে চান? পুরনো ভাউচার অপরিবর্তিত থাকবে।")) return;
     setDeletingId(fundId);
     try {
       const res = await deleteFund(fundId);
@@ -68,7 +68,7 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
         alert(res.error);
         return;
       }
-      setFunds(funds.filter(f => f.id !== fundId));
+      setFunds(funds.map(f => f.id === fundId ? {...f,is_active:false} : f));
     } catch (err: any) {
       console.error("deleteFund failed:", err);
       alert("একটি অপ্রত্যাশিত সমস্যা হয়েছে। সম্ভবত নতুন আপডেট ডিপ্লয় হয়েছে — অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
@@ -195,7 +195,7 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
 
           return (
             <div
-              key={fund.id}
+              key={fund.id} data-fund-id={fund.id}
               className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all p-5 flex flex-col justify-between relative group"
             >
               <div>
@@ -210,7 +210,7 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
                     </span>
                   </div>
 
-                  {fund.is_default ? (
+                  {fund.is_active === false ? <span>আর্কাইভ</span> : fund.is_default ? (
                     <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
                       <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                       ডিফল্ট
@@ -228,7 +228,7 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
                         onClick={() => handleDelete(fund.id)}
                         disabled={deletingId === fund.id}
                         className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
-                        title="মুছে ফেলুন"
+                        title="আর্কাইভ করুন"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -293,14 +293,14 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
                   <span>খতিয়ান ও স্টেটমেন্ট</span>
                 </button>
 
-                <Link
-                  href={`/dashboard/zakat/collection?fund=${encodeURIComponent(fund.name)}`}
+                {fund.is_active !== false && <Link
+                  href={`/dashboard/zakat/collection?fund=${encodeURIComponent(fund.id)}`}
                   prefetch={false}
                   className="w-full sm:w-1/2 flex items-center justify-center gap-1.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition border border-slate-200 cursor-pointer text-center"
                 >
                   <PlusCircle className="w-3.5 h-3.5 text-emerald-600" />
                   <span>অনুদান সংগ্রহ</span>
-                </Link>
+                </Link>}
               </div>
             </div>
           );
@@ -341,8 +341,8 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
         onClose={() => setIsLedgerOpen(false)}
         onTransactionChanged={async () => {
           try {
-            const { getFunds } = await import("@/app/actions/zakat");
-            const refreshed = await getFunds();
+            const { getFundOverview } = await import("@/app/actions/zakat");
+            const {funds:refreshed} = await getFundOverview();
             if (refreshed && refreshed.length > 0) {
               setFunds(refreshed as EnrichedFund[]);
             }

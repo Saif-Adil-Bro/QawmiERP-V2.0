@@ -163,6 +163,8 @@ export interface StaffAuditLogRecord {
 }
 
 export interface StaffMember {
+  salary_hidden?: boolean;
+  directory_only?:boolean;
   id: string;
   legacy_id?: string;
   madrasa_id: string;
@@ -223,6 +225,7 @@ export interface StaffLeaveRequest {
 }
 
 export interface StaffSalaryPaymentRecord {
+  finance_drafted?:boolean;
   id: string;
   madrasa_id: string;
   staff_id: string;

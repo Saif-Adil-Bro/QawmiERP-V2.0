@@ -1,3 +1,8 @@
+import {canReadApproval,publicApproval} from '@/lib/finance/approval-terms';
+import {canReadSchoolFinance} from "@/lib/action-authorization";
+import {readBooks} from "@/lib/finance/read-books";
+import {getFeeMetadata} from "@/lib/fee-store";
+import {ledgerEntries} from "@/lib/finance/entries";
 import { assertExamUnlocked } from "@/lib/lock-guards";
 import { tool } from "ai";
 import { z } from "zod";
@@ -48,6 +53,7 @@ function hasPerm(
   allowedRoles: Set<string>
 ): boolean {
   if (!ctx || ctx.status !== "ACTIVE") return false;
+  if (allowedRoles===FINANCE_ROLES && perm==='finance.view') return canReadSchoolFinance([ctx.role,...(ctx.roles||[])],ctx.summary?.effectivePermissions||[]);
   if (Array.isArray(ctx.roles) && ctx.roles.some((r) => PORTAL_ROLES.has(r))) {
     return false;
   }
@@ -347,30 +353,9 @@ export function createErpTools(ctx: ServerPermissionContext) {
         };
 
         if (includeFinance && hasPerm(ctx, "finance.view", FINANCE_ROLES)) {
-          const [paymentsRes, expensesRes] = await Promise.all([
-            adminClient
-              .from("fee_payments")
-              .select("total_amount_received, payment_date")
-              .eq("madrasa_id", madrasaId)
-              .gte("payment_date", today)
-              .lte("payment_date", `${today}T23:59:59`),
-            adminClient
-              .from("expenses")
-              .select("amount")
-              .eq("madrasa_id", madrasaId)
-              .eq("expense_date", today),
-          ]);
-
-          const todayFeeCollection = (paymentsRes.data || []).reduce(
-            (sum: number, p: any) =>
-              sum + Number(p.total_amount_received ?? p.amount_paid ?? 0),
-            0
-          );
-          const todayExpense = (expensesRes.data || []).reduce(
-            (sum: number, e: any) => sum + Number(e.amount || 0),
-            0
-          );
-
+          const posted=ledgerEntries(await readBooks(ctx.madrasaId,getFeeMetadata)).filter(e=>e.status!=="VOID" && e.date===today);
+          const todayFeeCollection=posted.filter(e=>e.source==='fee').reduce((s,e)=>s+e.amount,0);
+          const todayExpense=posted.filter(e=>!e.income).reduce((s,e)=>s+e.amount,0);
           summary.todayFinance = {
             todayFeeCollection,
             todayExpense,
@@ -737,10 +722,11 @@ export function createErpTools(ctx: ServerPermissionContext) {
               requestType,
             }
           );
-          const sliced = requests.slice(0, limit ?? 15);
+          const visible=requests.filter(r=>canReadApproval(r,[ctx.role,...ctx.roles],ctx.summary.effectivePermissions));
+          const sliced = visible.slice(0, limit ?? 15).map(publicApproval);
           return {
             count: sliced.length,
-            totalPending: requests.length,
+            totalPending: visible.length,
             requests: sliced,
           };
         } catch (err: any) {
@@ -821,6 +807,8 @@ export function createErpTools(ctx: ServerPermissionContext) {
           .describe("কী কাজ করা হবে তার সংক্ষিপ্ত বাংলা বিবরণ"),
         payload: z.object({
           // create_expense / add_expense
+          fund_id: z.string().optional().describe("ব্যবহারকারীর নির্বাচিত ফান্ডের সঠিক আইডি — অনুমান নয়"),
+          restricted_beneficiary: z.string().max(300).optional(),
           category: z.string().optional(),
           amount: z.number().positive().optional(),
           description: z.string().optional(),
@@ -831,6 +819,7 @@ export function createErpTools(ctx: ServerPermissionContext) {
           paymentMethod: z.string().optional(),
           paymentDate: z.string().optional(),
           feeTypeName: z.string().optional(),
+          feeTypeId: z.string().optional().describe("প্রতিষ্ঠানের সচল ফি খাত"),
           billingPeriod: z.string().optional(),
           // send_absent_guardian_notices / send_due_fee_reminders
           date: z.string().optional(),
@@ -888,10 +877,10 @@ export function createErpTools(ctx: ServerPermissionContext) {
           if (!hasPerm(ctx, "finance.create", FINANCE_ROLES)) {
             return { error: "আপনার রোলে নতুন খরচ এন্ট্রি করার অনুমতি নেই।" };
           }
-          if (!payload.amount || !payload.category) {
+          if (!payload.amount || !payload.category || !payload.fund_id) {
             return {
               error:
-                "খরচ এন্ট্রির জন্য খাত (category) এবং টাকার পরিমাণ (amount) প্রয়োজন।",
+                "খরচ এন্ট্রির জন্য ফান্ডের আইডি (fund_id), খাত (category) এবং টাকার পরিমাণ (amount) প্রয়োজন।",
             };
           }
         } else if (actionType === "collect_fee") {

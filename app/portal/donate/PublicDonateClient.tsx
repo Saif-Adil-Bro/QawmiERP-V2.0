@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import {
   submitOnlineDonation,
-  getOnlineDonations,
+  trackDonationReceipt,
   initiateOnlineDonationGateway,
 } from "@/app/actions/fundraising";
 import { printElementIsolated } from "@/lib/printUtils";
@@ -42,7 +42,7 @@ import {
   DEFAULT_ONLINE_DONATION_SETTINGS,
   OnlineDonation,
 } from "@/lib/fundraising-types";
-import { FundItem, DEFAULT_FUNDS } from "@/lib/fund-utils";
+import { FundItem } from "@/lib/fund-utils";
 import type { PublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import {
   PaymentBrandSymbol,
@@ -77,10 +77,9 @@ export default function PublicDonateClient({
     donationSettings || DEFAULT_ONLINE_DONATION_SETTINGS;
 
   // Active donation funds synchronized from madrasa system funds
-  const activeFunds: FundItem[] = (funds && funds.length > 0 ? funds : DEFAULT_FUNDS)
+  const activeFunds: FundItem[] = funds
     .filter((f) => f.is_active !== false);
 
-  const defaultFundName = activeFunds[0]?.name || "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
 
   // Active donation method tab: 'GATEWAY' (direct online) or 'MANUAL' (send money & TrxID) or 'SEARCH'
   const [activeTab, setActiveTab] = useState<"GATEWAY" | "MANUAL" | "SEARCH">(
@@ -93,7 +92,7 @@ export default function PublicDonateClient({
     phone: "",
     email: "",
     amount: 1000,
-    fund_category: defaultFundName,
+    fund_id: "",
     payment_method: "bKash" as "bKash" | "Nagad" | "Rocket" | "Bank" | "Online Gateway" | "Other",
     trx_id: "",
     message: "",
@@ -107,7 +106,7 @@ export default function PublicDonateClient({
   // Search/Track receipt state
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
-  const [searchResult, setSearchResult] = useState<OnlineDonation | null>(null);
+  const [searchResult, setSearchResult] = useState<Awaited<ReturnType<typeof trackDonationReceipt>>>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
 
   // Gateway Interactive Checkout Modal State
@@ -133,24 +132,12 @@ export default function PublicDonateClient({
     }
   }, []);
 
-  // Update default fund if active funds load
-  useEffect(() => {
-    if (activeFunds.length > 0 && (!formData.fund_category || !activeFunds.some(f => f.name === formData.fund_category))) {
-      setFormData((prev) => ({ ...prev, fund_category: activeFunds[0].name }));
-    }
-  }, [funds]);
-
   const lookupReceipt = async (receiptNo: string) => {
     setSearching(true);
     setSearchError(null);
     setSearchResult(null);
     try {
-      const all = await getOnlineDonations();
-      const match = all.find(
-        (d) =>
-          d.receipt_no?.toLowerCase() === receiptNo.trim().toLowerCase() ||
-          (d.trx_id && d.trx_id.toLowerCase() === receiptNo.trim().toLowerCase())
-      );
+      const match = await trackDonationReceipt(receiptNo);
       if (match) {
         setSearchResult(match);
       } else {
@@ -236,7 +223,7 @@ export default function PublicDonateClient({
         phone: formData.phone || gatewayPayerNumber,
         email: formData.email,
         amount: formData.amount,
-        fund_category: formData.fund_category,
+        fund_id: formData.fund_id,
         payment_channel: channelMapped,
         message: formData.message,
         is_anonymous: formData.is_anonymous,
@@ -598,12 +585,6 @@ export default function PublicDonateClient({
                       <span className="text-slate-500">পেমেন্ট মেথড:</span>
                       <span>{searchResult.payment_method}</span>
                     </div>
-                    {searchResult.trx_id && (
-                      <div className="flex justify-between py-1 border-b border-slate-100">
-                        <span className="text-slate-500">TrxID:</span>
-                        <span className="font-mono font-bold">{searchResult.trx_id}</span>
-                      </div>
-                    )}
                     <div className="flex justify-between py-1 border-b border-slate-100">
                       <span className="text-slate-500">স্ট্যাটাস:</span>
                       <span
@@ -613,7 +594,7 @@ export default function PublicDonateClient({
                             : "text-amber-700"
                         }`}
                       >
-                        {searchResult.status === "VERIFIED" ? "ভেরিফাইড (গৃহীত)" : "যাচাই অপেক্ষমান"}
+                        {searchResult.status === "VERIFIED" ? "ভেরিফাইড (গৃহীত)" : searchResult.status === "VOID" ? "বাতিল" : searchResult.status === "REJECTED" ? "প্রত্যাখ্যাত" : "যাচাই অপেক্ষমান"}
                       </span>
                     </div>
                     <div className="flex justify-between pt-2 font-bold text-emerald-950 text-base">
@@ -722,12 +703,13 @@ export default function PublicDonateClient({
                     অনুদানের খাত (মাদ্রাসার সিস্টেম ফান্ড) *
                   </label>
                   <select
-                    value={formData.fund_category}
-                    onChange={(e) => setFormData({ ...formData, fund_category: e.target.value })}
+                    required value={formData.fund_id}
+                    onChange={(e) => setFormData({ ...formData, fund_id: e.target.value })}
                     className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl bg-white font-medium"
                   >
+                    <option value="">ফান্ড নির্বাচন করুন</option>
                     {activeFunds.map((f) => (
-                      <option key={f.id || f.code || f.name} value={f.name}>
+                      <option key={f.id || f.code || f.name} value={f.id}>
                         {f.name}
                       </option>
                     ))}
@@ -999,12 +981,13 @@ export default function PublicDonateClient({
                     অনুদানের খাত (মাদ্রাসার সিস্টেম ফান্ড) *
                   </label>
                   <select
-                    value={formData.fund_category}
-                    onChange={(e) => setFormData({ ...formData, fund_category: e.target.value })}
+                    required value={formData.fund_id}
+                    onChange={(e) => setFormData({ ...formData, fund_id: e.target.value })}
                     className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl bg-white font-medium"
                   >
+                    <option value="">ফান্ড নির্বাচন করুন</option>
                     {activeFunds.map((f) => (
-                      <option key={f.id || f.code || f.name} value={f.name}>
+                      <option key={f.id || f.code || f.name} value={f.id}>
                         {f.name}
                       </option>
                     ))}
@@ -1143,7 +1126,7 @@ export default function PublicDonateClient({
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">অনুদানের খাত:</span>
-                <span className="font-semibold text-emerald-800">{formData.fund_category}</span>
+                <span className="font-semibold text-emerald-800">{activeFunds.find(f => f.id === formData.fund_id)?.name}</span>
               </div>
               <div className="flex justify-between pt-2 border-t font-bold text-emerald-900 text-base">
                 <span>মোট প্রদেয়:</span>

@@ -1,5 +1,6 @@
 "use client";
 
+import PendingApprovalBanner from '@/components/permissions/PendingApprovalBanner';
 import { toDhakaDateStringFrom, toDhakaDateString } from "@/lib/date-utils";
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
@@ -21,7 +22,7 @@ import {
   changeStaffStatus,
   submitStaffLeaveRequest,
   reviewStaffLeaveRequest,
-  processSalaryPayment,
+  processSalaryPayment, registerTeacherStaffProfile,
   addStaffDocument,
   deleteStaffDocument,
   generateStaffIdCard,
@@ -82,6 +83,7 @@ import ImageUploader from "@/components/ImageUploader";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
 interface StaffProfileViewProps {
+  salaryEditable:boolean;
   staff: StaffMember;
   categories?: StaffCategory[];
   departments?: StaffDepartment[];
@@ -93,6 +95,7 @@ interface StaffProfileViewProps {
 }
 
 export default function StaffProfileView({
+  salaryEditable,
   staff,
   categories = [],
   departments = [],
@@ -161,6 +164,7 @@ export default function StaffProfileView({
   const [promoteSalary, setPromoteSalary] = useState(staff.salary.basic_salary);
   const [promoteDate, setPromoteDate] = useState(toDhakaDateString());
   const [promoteReason, setPromoteReason] = useState("");
+  const [pendingPromotion,setPendingPromotion]=useState<string>();
   const [isPromoting, setIsPromoting] = useState(false);
 
   // Transfer Form State
@@ -205,14 +209,14 @@ export default function StaffProfileView({
     const res = await promoteStaffMember({
       staffId: staff.id,
       newDesignation: promoteDesignation,
-      newSalary: Number(promoteSalary),
+      newSalary: salaryEditable ? Number(promoteSalary) : undefined,
       effectiveDate: promoteDate,
       reason: promoteReason || "নিয়মিত পদোন্নতি",
     });
     setIsPromoting(false);
     if (res.success) {
       setShowPromoteModal(false);
-      onRefresh();
+      if(res.pendingApproval) setPendingPromotion(res.approvalRequestId); else onRefresh();
     } else {
       alert(res.error);
     }
@@ -342,8 +346,10 @@ export default function StaffProfileView({
     }
   };
 
+  if(staff.directory_only) return <section className="p-5 bg-white rounded-xl space-y-3"><h2>{staff.personal.full_name_bn}</h2><p>শিক্ষক তালিকায় আছেন। এখনো কর্মীর প্রোফাইল বা বেতন চুক্তি তৈরি হয়নি।</p><button type="button" onClick={async()=>{const res=await registerTeacherStaffProfile(staff.id);if(res.error)alert(res.error);else onRefresh();}}>কর্মীর প্রোফাইল তৈরি করুন (বেতন ছাড়া)</button></section>;
   return (
-    <div className="space-y-6">
+    <div data-staff-id={staff.id} className="space-y-6">
+      {pendingPromotion && <PendingApprovalBanner approvalRequestId={pendingPromotion} message="পদোন্নতির আবেদন জমা হয়েছে। অনুমোদন না হওয়া পর্যন্ত বেতনের চুক্তি অপরিবর্তিত।"/>}
       {/* Top Header Card */}
       <div className="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-6">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -487,7 +493,7 @@ export default function StaffProfileView({
           সারসংক্ষেপ
         </button>
         <button
-          onClick={() => setActiveTab("employment")}
+          aria-label="কর্মসংস্থান ও পদোন্নতি" onClick={() => setActiveTab("employment")}
           className={`px-3.5 py-2 rounded-xl transition whitespace-nowrap cursor-pointer ${
             activeTab === "employment" ? "bg-emerald-700 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
           }`}
@@ -495,7 +501,7 @@ export default function StaffProfileView({
           কর্মসংস্থান ও পদোন্নতি
         </button>
         <button
-          onClick={() => setActiveTab("salary")}
+          disabled={staff.salary_hidden} onClick={() => setActiveTab("salary")}
           className={`px-3.5 py-2 rounded-xl transition whitespace-nowrap cursor-pointer ${
             activeTab === "salary" ? "bg-emerald-700 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
           }`}
@@ -693,7 +699,7 @@ export default function StaffProfileView({
             </div>
 
             {/* Quick Salary Card */}
-            <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-6 shadow-xs space-y-3">
+            {!staff.salary_hidden && <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-6 shadow-xs space-y-3">
               <div className="flex items-center justify-between text-xs text-slate-400">
                 <span>মাসিক বেতন কাঠামো</span>
                 <DollarSign className="w-4 h-4 text-emerald-400" />
@@ -708,7 +714,7 @@ export default function StaffProfileView({
                 <span>মূল বেতন: ৳{toBanglaNumber(staff.salary.basic_salary.toString())}</span>
                 <span>মাধ্যম: {staff.salary.payment_method || "CASH"}</span>
               </div>
-            </div>
+            </div>}
           </div>
         </div>
       )}
@@ -723,7 +729,7 @@ export default function StaffProfileView({
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setShowPromoteModal(true)}
+                aria-label="পদোন্নতি দিন" onClick={() => setShowPromoteModal(true)}
                 className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-xs cursor-pointer"
               >
                 <TrendingUp className="w-3.5 h-3.5" />
@@ -779,7 +785,7 @@ export default function StaffProfileView({
       )}
 
       {/* TAB 3: SALARY & PAYROLL */}
-      {activeTab === "salary" && (
+      {!staff.salary_hidden && activeTab === "salary" && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-slate-200/80 space-y-1">
@@ -1414,7 +1420,7 @@ export default function StaffProfileView({
 
       {/* MODALS */}
       {showEditModal && (
-        <StaffFormModal
+        <StaffFormModal salaryEditable={salaryEditable}
           staff={staff}
           categories={categories}
           departments={departments}
@@ -1472,16 +1478,16 @@ export default function StaffProfileView({
                 />
               </div>
 
-              <div>
+              {salaryEditable && <div>
                 <label className="font-semibold block mb-1">সংশোধিত মূল বেতন (Basic Salary ৳)</label>
                 <input
                   type="number"
                   min={0}
-                  value={promoteSalary}
+                  step="0.01" value={promoteSalary}
                   onChange={(e) => setPromoteSalary(Number(e.target.value))}
                   className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600"
                 />
-              </div>
+              </div>}
 
               <div>
                 <label className="font-semibold block mb-1">কার্যকরের তারিখ</label>

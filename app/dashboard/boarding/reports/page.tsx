@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import {boardingCharge} from "@/lib/finance/boarding-charges";
 import { getMonthlyBoardingReport, syncBoardingBillsToAccounting } from "@/app/actions/boarding";
 import { getMadrasaDetails } from "@/app/actions/tenant";
 import { format } from "date-fns";
@@ -60,10 +61,7 @@ export default function MonthlyReportsPage() {
   ];
 
   const yearsList = [
-    { value: "2025", label: "২০২৫" },
-    { value: "2026", label: "২০২৬" },
-    { value: "2027", label: "২০২৭" },
-    { value: "2028", label: "২০২৮" },
+    ...Array.from(new Set<string>([year,String(currentDate.getFullYear()),...Array.from({length:4},(_,i)=>String(2025+i)),...(report?.monthsWithData || []).map((m:{year:string})=>m.year)])).sort().map(y=>({value:y,label:Number(y).toLocaleString("bn-BD",{useGrouping:false})})),
   ];
 
   const loadReport = async () => {
@@ -126,20 +124,8 @@ export default function MonthlyReportsPage() {
 
     return report.studentsReport
       .map((std: any) => {
-        const gross = std.meals_count * effectiveMealRate;
-        let discount = 0;
-        if (std.boarding_type === "লিল্লাহ বোর্ডিং (ফ্রি)") {
-          discount = gross;
-        } else if (std.boarding_type === "হাফ-ফ্রি") {
-          discount = gross * 0.5;
-        }
-        const net = Math.max(0, gross - discount);
-
-        return {
-          ...std,
-          calculated_gross: Math.round(gross * 100) / 100,
-          calculated_discount: Math.round(discount * 100) / 100,
-          calculated_bill: Math.round(net * 100) / 100,
+        const charge = customRateEnabled ? boardingCharge(Math.round(std.meals_count*effectiveMealRate*100),std.boarding_type) : std;
+        return {...std,calculated_gross:charge.gross_amount,calculated_discount:charge.discount_amount,calculated_bill:charge.bill_amount,
         };
       })
       .filter((std: any) => {
@@ -175,7 +161,7 @@ export default function MonthlyReportsPage() {
 
         return true;
       });
-  }, [report?.studentsReport, effectiveMealRate, search, selectedClass, categoryFilter]);
+  }, [report?.studentsReport, effectiveMealRate, customRateEnabled, search, selectedClass, categoryFilter]);
 
   // Aggregated sums based on filtered students
   const filteredTotals = useMemo(() => {
@@ -290,13 +276,13 @@ export default function MonthlyReportsPage() {
                 setIsSyncing(false);
               }
             }}
-            disabled={isSyncing || loading || !report}
+            disabled={isSyncing || loading || !report || customRateEnabled}
             title="এই মাসের সকল শিক্ষার্থীর প্রদেয় বোর্ডিং বিল একাউন্টিং লেজার ও স্টুডেন্ট ফিতে যুক্ত করুন"
             className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl hover:bg-emerald-700 font-semibold transition shadow-xs flex items-center justify-center disabled:opacity-50 text-xs cursor-pointer"
             id="btn_sync_boarding_accounting"
           >
             <Receipt className={`w-4 h-4 mr-1.5 ${isSyncing ? "animate-spin" : ""}`} />
-            <span>{isSyncing ? "সিঙ্ক হচ্ছে..." : "একাউন্টিং লেজারে বিল যুক্ত করুন"}</span>
+            <span>{customRateEnabled ? "কাস্টম রেট: শুধু প্রিভিউ" : isSyncing ? "সিঙ্ক হচ্ছে..." : "একাউন্টিং লেজারে বিল যুক্ত করুন"}</span>
           </button>
 
           <button
@@ -312,7 +298,7 @@ export default function MonthlyReportsPage() {
       </div>
 
       {syncFeedback && (
-        <div
+        <div role={syncFeedback.type === "success" ? "status" : "alert"}
           className={`p-4 rounded-2xl text-xs sm:text-sm font-semibold flex items-center justify-between shadow-2xs print:hidden ${
             syncFeedback.type === "success"
               ? "bg-emerald-50 text-emerald-800 border border-emerald-200"

@@ -51,7 +51,7 @@ const BANGLA_MONTHS = [
 interface DataGovernanceClientProps {
   initialTab: "accounting" | "exams" | "migration";
   initialPeriods: AccountingPeriodRecord[];
-  periodsStorage: "sql" | "fallback";
+  periodsStorage: "sql" | "unavailable";
   examList: ExamFreezeList;
   initialSessions: any[];
   initialMigrationStatus: MetadataMigrationStatus;
@@ -113,6 +113,17 @@ function buildAnnualPeriods() {
   }));
 }
 
+// Suggestions are convenient for new closes, not the registry. Include historical
+// and custom windows and always display/submit the bounds actually stored.
+function calendarOptions(defaults:ReturnType<typeof buildRecentMonths>,saved:AccountingPeriodRecord[],annual:boolean){
+  const byKey=new Map(defaults.map(r=>[r.periodKey,r]));
+  for(const r of saved){
+    const isAnnual=r.period_type==='ANNUAL' || (r.period_type==null && r.period_key.startsWith('FY-'));
+    if(isAnnual!==annual){byKey.delete(r.period_key);continue;}
+    byKey.set(r.period_key,{periodKey:r.period_key,label:r.label || r.period_key,startDate:r.start_date,endDate:r.end_date});
+  }
+  return [...byKey.values()].sort((a,b)=>b.startDate.localeCompare(a.startDate));
+}
 export default function DataGovernanceClient({
   initialTab,
   initialPeriods,
@@ -162,8 +173,8 @@ export default function DataGovernanceClient({
     auditLogs: number;
   } | null>(null);
 
-  const recentMonths = useMemo(() => buildRecentMonths(12), []);
-  const annualYears = useMemo(() => buildAnnualPeriods(), []);
+  const recentMonths = useMemo(() => calendarOptions(buildRecentMonths(12),periods,false), [periods]);
+  const annualYears = useMemo(() => calendarOptions(buildAnnualPeriods(),periods,true), [periods]);
 
   const periodMap = useMemo(() => {
     const map = new Map<string, AccountingPeriodRecord>();
@@ -187,7 +198,7 @@ export default function DataGovernanceClient({
       startDate: string;
       endDate: string;
     },
-    periodType: "MONTHLY" | "ANNUAL",
+    periodType: "MONTHLY" | "ANNUAL" | "SESSION",
     shouldLock: boolean
   ) => {
     setLockModal({
@@ -411,7 +422,7 @@ export default function DataGovernanceClient({
                 : "bg-slate-100 text-slate-600"
             }`}
           >
-            {toBanglaNumber(lockedPeriodsCount)}
+            {periodsStorage === "unavailable" ? "—" : toBanglaNumber(lockedPeriodsCount)}
           </span>
         </button>
 
@@ -468,7 +479,8 @@ export default function DataGovernanceClient({
       {/* ==================================================================== */}
       {/* TAB 1: ACCOUNTING PERIOD LOCKS                                       */}
       {/* ==================================================================== */}
-      {activeTab === "accounting" && (
+      {activeTab === "accounting" && periodsStorage === "unavailable" && <p role="alert">হিসাবকাল দেখা যাচ্ছে না। অনুমতি ও ক্যালেন্ডারের তথ্য যাচাই করুন।</p>}
+      {activeTab === "accounting" && periodsStorage === "sql" && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -481,7 +493,7 @@ export default function DataGovernanceClient({
                 </p>
               </div>
               <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 self-start">
-                স্টোরেজ: {periodsStorage === "sql" ? "PostgreSQL Table" : "Metadata Fallback"}
+                SQL ক্যালেন্ডার ও সংরক্ষিত পুরোনো লক
               </span>
             </div>
 
@@ -491,7 +503,7 @@ export default function DataGovernanceClient({
                 const isLocked = Boolean(rec?.is_locked);
                 return (
                   <div
-                    key={item.periodKey}
+                    key={item.periodKey} data-period-key={item.periodKey} data-period-locked={isLocked}
                     className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 transition ${
                       isLocked
                         ? "bg-rose-50/70 border-rose-200"
@@ -563,7 +575,7 @@ export default function DataGovernanceClient({
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
             <div>
               <h2 className="text-base font-bold text-slate-900">
-                মাসিক হিসাব পিরিয়ড লক (Monthly Closing Lock — সর্বশেষ ১২ মাস)
+                মাসিক হিসাব পিরিয়ড লক (সাম্প্রতিক মাস ও সংরক্ষিত হিসাবকাল)
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 মাস শেষে হিসাব মিলিয়ে মাসিক পিরিয়ড লক করে দিলে পিছনের তারিখে (Backdated) কোনো আর্থিক পরিবর্তন করা যাবে না।
@@ -576,7 +588,7 @@ export default function DataGovernanceClient({
                 const isLocked = Boolean(rec?.is_locked);
                 return (
                   <div
-                    key={item.periodKey}
+                    key={item.periodKey} data-period-key={item.periodKey} data-period-locked={isLocked}
                     className={`rounded-xl border p-3.5 flex flex-col justify-between gap-2.5 ${
                       isLocked
                         ? "bg-rose-50/70 border-rose-200"
@@ -612,7 +624,7 @@ export default function DataGovernanceClient({
                     {canManageLocks && (
                       <button
                         type="button"
-                        onClick={() => openPeriodModal(item, "MONTHLY", !isLocked)}
+                        onClick={() => openPeriodModal(item, rec?.period_type || "MONTHLY", !isLocked)}
                         className={`w-full py-1.5 px-2.5 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 border ${
                           isLocked
                             ? "bg-white border-amber-300 text-amber-800 hover:bg-amber-50"
@@ -1049,6 +1061,7 @@ export default function DataGovernanceClient({
               </button>
               <button
                 type="button"
+                aria-label="হিসাবকাল পরিবর্তন নিশ্চিত করুন"
                 onClick={handleConfirmLockModal}
                 disabled={submittingLock}
                 className={`px-5 py-2 text-xs font-semibold rounded-xl text-white transition flex items-center gap-1.5 shadow-sm ${

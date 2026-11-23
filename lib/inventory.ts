@@ -55,6 +55,7 @@ export interface MaintenanceRecord {
   cost: number;
   technician_or_shop: string;
   voucher_no?: string;
+  fund_id?: string;
   fund_name: string;
   auto_add_to_expense?: boolean;
   created_at: string;
