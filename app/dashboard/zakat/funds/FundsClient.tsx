@@ -57,6 +57,15 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
   });
 
   const totalCollectedAll = funds.reduce((sum, f) => sum + (f.total_collected || 0), 0);
+  const totalExpenseAll = funds.reduce((sum, f) => sum + ((f as any).total_expense || 0), 0);
+  const totalNetBalanceAll = funds.reduce(
+    (sum, f) =>
+      sum +
+      (typeof (f as any).current_balance === "number"
+        ? (f as any).current_balance
+        : (f.total_collected || 0) - ((f as any).total_expense || 0)),
+    0,
+  );
   const totalCustomFunds = funds.filter(f => !f.is_default).length;
 
   const handleDelete = async (fundId: string) => {
@@ -116,27 +125,39 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
       </div>
 
       {/* Overview Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4">
           <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
             <TrendingUp className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-500">মোট ফান্ড কালেকশন</p>
-            <h3 className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
+            <p className="text-xs font-medium text-slate-500">মোট ফান্ড সংগ্রহ</p>
+            <h3 className="text-xl sm:text-2xl font-black text-emerald-700 font-mono">
               ৳ {formatBanglaCurrency(totalCollectedAll)}
             </h3>
           </div>
         </div>
 
         <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4">
-          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl">
+            <DollarSign className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-slate-500">মোট ফান্ড ব্যয়</p>
+            <h3 className="text-xl sm:text-2xl font-black text-rose-700 font-mono">
+              ৳ {formatBanglaCurrency(totalExpenseAll)}
+            </h3>
+          </div>
+        </div>
+
+        <div className={`bg-white p-4 sm:p-5 rounded-2xl border shadow-xs flex items-center gap-4 ${totalNetBalanceAll < 0 ? "border-red-300 bg-red-50/40" : "border-slate-200"}`}>
+          <div className={`p-3 rounded-xl ${totalNetBalanceAll < 0 ? "bg-red-100 text-red-700" : "bg-indigo-50 text-indigo-600"}`}>
             <Layers className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-500">সক্রিয় ফান্ডের সংখ্যা</p>
-            <h3 className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
-              {toBanglaNumber(funds.length)} টি
+            <p className="text-xs font-medium text-slate-500">সর্বমোট নিট স্থিতি (ব্যালেন্স)</p>
+            <h3 className={`text-xl sm:text-2xl font-black font-mono ${totalNetBalanceAll < 0 ? "text-red-700" : "text-slate-900"}`}>
+              ৳ {formatBanglaCurrency(totalNetBalanceAll)}
             </h3>
           </div>
         </div>
@@ -146,9 +167,9 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
             <Award className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-500">কাস্টম ম্যানুয়াল ফান্ড</p>
+            <p className="text-xs font-medium text-slate-500">সক্রিয় / কাস্টম ফান্ড</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
-              {toBanglaNumber(totalCustomFunds)} টি
+              {toBanglaNumber(funds.length)} / {toBanglaNumber(totalCustomFunds)} টি
             </h3>
           </div>
         </div>
@@ -192,11 +213,18 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
           const percent = fund.target_amount && fund.target_amount > 0 
             ? Math.min(100, Math.round((fund.total_collected / fund.target_amount) * 100))
             : null;
+          const fundExpense = fund.total_expense || 0;
+          const fundBalance =
+            typeof fund.current_balance === "number"
+              ? fund.current_balance
+              : (fund.total_collected || 0) - fundExpense;
 
           return (
             <div
               key={fund.id} data-fund-id={fund.id}
-              className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all p-5 flex flex-col justify-between relative group"
+              className={`bg-white rounded-2xl border shadow-xs hover:shadow-md transition-all p-5 flex flex-col justify-between relative group ${
+                fundBalance < 0 ? "border-red-300" : "border-slate-200"
+              }`}
             >
               <div>
                 {/* Card Top Row */}
@@ -248,19 +276,35 @@ export default function FundsClient({ initialFunds }: { initialFunds: EnrichedFu
                   )}
                 </div>
 
-                {/* Fund Stats Block */}
-                <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-[11px] font-medium text-slate-400">মোট সংগৃহীত</span>
-                    <p className="text-base font-black text-slate-900 font-mono mt-0.5">
-                      ৳ {formatBanglaCurrency(fund.total_collected)}
-                    </p>
+                {/* Fund Stats Block: Collection - Expense = Net Balance (B21) */}
+                <div className="mt-4 pt-3 border-t border-slate-100 space-y-2.5">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-[11px] font-medium text-slate-400">মোট সংগৃহীত</span>
+                      <p className="text-sm font-black text-emerald-700 font-mono mt-0.5">
+                        ৳ {formatBanglaCurrency(fund.total_collected)}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-medium text-slate-400">মোট ব্যয়</span>
+                      <p className="text-sm font-black text-rose-700 font-mono mt-0.5">
+                        ৳ {formatBanglaCurrency(fundExpense)}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-[11px] font-medium text-slate-400">অবদানকারী দাতা</span>
-                    <p className="text-sm font-bold text-slate-700 font-mono mt-0.5">
-                      {toBanglaNumber(fund.unique_donors_count)} জন ({toBanglaNumber(fund.donations_count)} বার)
-                    </p>
+                  <div className={`flex items-center justify-between px-3 py-2 rounded-xl border ${
+                    fundBalance < 0
+                      ? "bg-red-50 border-red-200 text-red-800"
+                      : "bg-slate-50 border-slate-200 text-slate-900"
+                  }`}>
+                    <span className="text-xs font-bold">নিট স্থিতি (ব্যালেন্স)</span>
+                    <span className={`text-base font-black font-mono ${fundBalance < 0 ? "text-red-700" : "text-slate-900"}`}>
+                      ৳ {formatBanglaCurrency(fundBalance)}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 flex items-center justify-between">
+                    <span>অবদানকারী: {toBanglaNumber(fund.unique_donors_count)} জন</span>
+                    <span>আদায়: {toBanglaNumber(fund.donations_count)} বার</span>
                   </div>
                 </div>
 

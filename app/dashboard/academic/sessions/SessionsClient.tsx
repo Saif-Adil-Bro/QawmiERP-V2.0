@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -48,6 +48,9 @@ export default function SessionsClient({
   const { refreshSessions, changeSelectedSession } = useSession();
 
   const [sessions, setSessions] = useState<AcademicSession[]>(initialSessions);
+  useEffect(() => {
+    setSessions(initialSessions);
+  }, [initialSessions]);
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 

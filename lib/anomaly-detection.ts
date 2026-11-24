@@ -484,3 +484,230 @@ export function detectPaymentVoidSpikes(
 
   return anomalies;
 }
+
+/**
+ * 6. Negative Fund Balance Detector (B20 / B27)
+ */
+export function detectNegativeFundBalances(
+  funds: Array<{
+    id: string;
+    name: string;
+    totalCollected: number;
+    totalExpense: number;
+    currentBalance: number;
+  }>,
+  todayStr: string
+): DetectedAnomaly[] {
+  const anomalies: DetectedAnomaly[] = [];
+  for (const f of funds) {
+    if (Number(f.currentBalance) < -0.01) {
+      anomalies.push({
+        anomalyType: "NEGATIVE_FUND_BALANCE",
+        severity: "CRITICAL",
+        title: `ফান্ডের ঋণাত্মক ব্যালেন্স: ${f.name}`,
+        description: `"${f.name}" ফান্ডের বর্তমান নিট স্থিতি ঋণাত্মক (৳${formatBanglaCurrency(
+          round2(f.currentBalance)
+        )})। মোট সংগ্রহ ৳${formatBanglaCurrency(
+          round2(f.totalCollected)
+        )}, মোট ব্যয় ৳${formatBanglaCurrency(round2(f.totalExpense))}।`,
+        entityType: "funds",
+        entityId: f.id,
+        metricValue: round2(f.currentBalance),
+        baselineValue: 0,
+        baselineMean: 0,
+        baselineStdDev: 0,
+        zScore: null,
+        z_score: null,
+        detectedDate: todayStr,
+        date: todayStr,
+        dedupKey: `negative_fund_balance:${f.id}`,
+        metadata: {
+          fundId: f.id,
+          fundName: f.name,
+          totalCollected: round2(f.totalCollected),
+          totalExpense: round2(f.totalExpense),
+          currentBalance: round2(f.currentBalance),
+        },
+      });
+    }
+  }
+  return anomalies;
+}
+
+/**
+ * 7. Student Fee Agreement vs Billed Monthly Amount Mismatch Detector (B18 / B27)
+ */
+export function detectFeeAgreementMismatches(
+  records: Array<{
+    studentId: string;
+    studentName: string;
+    billingPeriod: string;
+    agreedMonthlyTotal: number;
+    billedMonthlyTotal: number;
+  }>,
+  todayStr: string
+): DetectedAnomaly[] {
+  const anomalies: DetectedAnomaly[] = [];
+  for (const r of records) {
+    const diff = round2(r.billedMonthlyTotal - r.agreedMonthlyTotal);
+    if (Math.abs(diff) > 1) {
+      anomalies.push({
+        anomalyType: "FEE_AGREEMENT_MISMATCH",
+        severity: r.agreedMonthlyTotal === 0 && r.billedMonthlyTotal > 0 ? "CRITICAL" : "WARNING",
+        title: `চুক্তিবদ্ধ ফি বনাম ধার্য ফি অমিল: ${r.studentName} (${r.billingPeriod})`,
+        description: `${r.studentName}-এর প্রোফাইলে মাসিক চুক্তিবদ্ধ ফি ৳${formatBanglaCurrency(
+          round2(r.agreedMonthlyTotal)
+        )}, কিন্তু ${r.billingPeriod} মাসে ধার্য হয়েছে ৳${formatBanglaCurrency(
+          round2(r.billedMonthlyTotal)
+        )} (পার্থক্য ৳${formatBanglaCurrency(Math.abs(diff))})।`,
+        entityType: "student_fees",
+        entityId: `${r.studentId}:${r.billingPeriod}`,
+        metricValue: round2(r.billedMonthlyTotal),
+        baselineValue: round2(r.agreedMonthlyTotal),
+        baselineMean: round2(r.agreedMonthlyTotal),
+        baselineStdDev: 0,
+        zScore: null,
+        z_score: null,
+        detectedDate: todayStr,
+        date: todayStr,
+        dedupKey: `fee_agreement_mismatch:${r.studentId}:${r.billingPeriod}`,
+        metadata: {
+          studentId: r.studentId,
+          studentName: r.studentName,
+          billingPeriod: r.billingPeriod,
+          agreedMonthlyTotal: round2(r.agreedMonthlyTotal),
+          billedMonthlyTotal: round2(r.billedMonthlyTotal),
+          difference: diff,
+        },
+      });
+    }
+  }
+  return anomalies;
+}
+
+/**
+ * 8. Active Students Without Invoices in Latest Billing Period Detector (B16 / B27)
+ */
+export function detectUnbilledActiveStudents(
+  params: {
+    latestPeriod: string;
+    activeStudents: Array<{ id: string; name: string; className?: string }>;
+    billedStudentIds: Set<string>;
+  },
+  todayStr: string
+): DetectedAnomaly[] {
+  if (!params.latestPeriod || params.activeStudents.length === 0) return [];
+  const missing = params.activeStudents.filter(
+    (s) => !params.billedStudentIds.has(s.id)
+  );
+  if (missing.length === 0) return [];
+
+  const classCounts = new Map<string, number>();
+  for (const s of missing) {
+    const cls = s.className || "অনির্ধারিত জামাত";
+    classCounts.set(cls, (classCounts.get(cls) || 0) + 1);
+  }
+  const breakdown = Array.from(classCounts.entries())
+    .map(([cls, count]) => `${cls} (${toBanglaNumber(count)} জন)`)
+    .join(", ");
+
+  return [
+    {
+      anomalyType: "MISSING_STUDENT_INVOICE",
+      severity: missing.length >= 3 ? "CRITICAL" : "WARNING",
+      title: `ইনভয়েসহীন সক্রিয় শিক্ষার্থী (${params.latestPeriod}): ${toBanglaNumber(missing.length)} জন`,
+      description: `${params.latestPeriod} মাসের বিলিংয়ে মোট ${toBanglaNumber(
+        params.activeStudents.length
+      )} জন সক্রিয় শিক্ষার্থীর মধ্যে ${toBanglaNumber(
+        missing.length
+      )} জনের কোনো ফি ইনভয়েস তৈরি হয়নি। জামাতভিত্তিক তালিকা: ${breakdown}।`,
+      entityType: "student_fees",
+      entityId: params.latestPeriod,
+      metricValue: missing.length,
+      baselineValue: params.activeStudents.length,
+      baselineMean: params.activeStudents.length,
+      baselineStdDev: 0,
+      zScore: null,
+      z_score: null,
+      detectedDate: todayStr,
+      date: todayStr,
+      dedupKey: `missing_student_invoice:${params.latestPeriod}:${missing.length}`,
+      metadata: {
+        billingPeriod: params.latestPeriod,
+        totalActiveStudents: params.activeStudents.length,
+        missingCount: missing.length,
+        missingStudents: missing.slice(0, 30).map((s) => ({
+          id: s.id,
+          name: s.name,
+          className: s.className || "",
+        })),
+      },
+    },
+  ];
+}
+
+/**
+ * 9. Student Fee Due vs Generated Formula Integrity Detector (B27)
+ */
+export function detectDueCalculationMismatches(
+  invoices: Array<{
+    id: string;
+    studentName: string;
+    billingPeriod: string;
+    feeTypeName: string;
+    baseAmount: number;
+    discountAmount: number;
+    fineAmount: number;
+    payableAmount: number;
+    paidAmount: number;
+    dueAmount: number;
+  }>,
+  todayStr: string
+): DetectedAnomaly[] {
+  const anomalies: DetectedAnomaly[] = [];
+  for (const inv of invoices) {
+    const expectedPayable = Math.max(
+      0,
+      round2(inv.baseAmount - inv.discountAmount + inv.fineAmount)
+    );
+    const expectedDue = Math.max(0, round2(expectedPayable - inv.paidAmount));
+    const payableDiff = Math.abs(round2(inv.payableAmount - expectedPayable));
+    const dueDiff = Math.abs(round2(inv.dueAmount - expectedDue));
+
+    if (payableDiff > 1 || dueDiff > 1) {
+      anomalies.push({
+        anomalyType: "DUE_CALCULATION_MISMATCH",
+        severity: "CRITICAL",
+        title: `বকেয়া হিসাব অমিল: ${inv.studentName} (${inv.feeTypeName})`,
+        description: `${inv.studentName}-এর ${inv.billingPeriod} মাসের "${inv.feeTypeName}" ইনভয়েসে প্রদেয়/বকেয়া হিসাবে অসঙ্গতি পাওয়া গেছে। প্রদেয় ৳${formatBanglaCurrency(
+          inv.payableAmount
+        )} (প্রত্যাশিত ৳${formatBanglaCurrency(
+          expectedPayable
+        )}), বকেয়া ৳${formatBanglaCurrency(
+          inv.dueAmount
+        )} (প্রত্যাশিত ৳${formatBanglaCurrency(expectedDue)})।`,
+        entityType: "student_fees",
+        entityId: inv.id,
+        metricValue: round2(inv.dueAmount),
+        baselineValue: expectedDue,
+        baselineMean: expectedDue,
+        baselineStdDev: 0,
+        zScore: null,
+        z_score: null,
+        detectedDate: todayStr,
+        date: todayStr,
+        dedupKey: `due_calc_mismatch:${inv.id}`,
+        metadata: {
+          invoiceId: inv.id,
+          studentName: inv.studentName,
+          billingPeriod: inv.billingPeriod,
+          expectedPayable,
+          actualPayable: inv.payableAmount,
+          expectedDue,
+          actualDue: inv.dueAmount,
+        },
+      });
+    }
+  }
+  return anomalies;
+}

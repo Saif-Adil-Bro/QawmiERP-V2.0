@@ -41,6 +41,8 @@ export interface PremiumDashboardClientProps {
     classesCount: number;
     todayPresent: number;
     todayAbsent: number;
+    todayLate?: number;
+    todayLeave?: number;
     todayIncome: number;
     todayExpense: number;
     totalIncome: number;
@@ -125,7 +127,11 @@ export default function PremiumDashboardClient({
     return () => clearInterval(timer);
   }, []);
 
-  const totalMarkedToday = stats.todayPresent + stats.todayAbsent;
+  const totalMarkedToday =
+    stats.todayPresent +
+    stats.todayAbsent +
+    (stats.todayLate || 0) +
+    (stats.todayLeave || 0);
   const attendancePercent =
     totalMarkedToday > 0
       ? Math.round((stats.todayPresent / totalMarkedToday) * 100)

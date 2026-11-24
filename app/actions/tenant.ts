@@ -140,20 +140,20 @@ export async function getMadrasaDetails() {
   if (error || !data) return null;
 
   let meta: Record<string, any> = {};
+  if (data.metadata && typeof data.metadata === "object") {
+    meta = { ...(data.metadata as Record<string, any>) };
+  }
   if (data.registration_no) {
     try {
       if (data.registration_no.startsWith("{")) {
-        meta = JSON.parse(data.registration_no);
+        meta = { ...meta, ...JSON.parse(data.registration_no) };
       } else {
-        meta = { reg_no: data.registration_no };
+        meta = { ...meta, reg_no: data.registration_no };
       }
     } catch {
-      meta = {};
+      // keep existing meta
     }
   }
-
-  const { data: logoData } = adminClient.storage.from('logos').getPublicUrl(`madrasa_logo_${data.id}.png`);
-  const { data: sigData } = adminClient.storage.from('signatures').getPublicUrl(`madrasa_signature_${data.id}.png`);
 
   const prefix = meta.prefix || meta.short_code || generateSuggestedPrefix(data.name || "");
 
@@ -167,26 +167,33 @@ export async function getMadrasaDetails() {
     registration_no: meta.reg_no || (typeof data.registration_no === "string" && !data.registration_no.startsWith("{") ? data.registration_no : ""),
     reg_no: meta.reg_no || "",
     established_year: meta.established_year || "",
-    principal_name: meta.principal_name || "",
-    principal_signature_url: meta.signature_url || sigData?.publicUrl || "",
-    signature_url: meta.signature_url || sigData?.publicUrl || "",
+    principal_name: meta.principal_name || meta.muhtamim_name || meta.mohtamim_name || "",
+    principal_signature_url: meta.signature_url || "",
+    signature_url: meta.signature_url || "",
     eiin_code: meta.eiin_code || "",
     slogan: meta.slogan || "",
     website: meta.website || "",
-    logo_url: meta.logo_url || logoData?.publicUrl || "",
+    logo_url: meta.logo_url || "",
     weekend_days: data.weekend_days || meta.weekend_days || ["Friday"],
     id_year_format: meta.id_year_format || "hijri",
-
+    default_monthly_fee:
+      meta.default_monthly_fee !== undefined && meta.default_monthly_fee !== null
+        ? Number(meta.default_monthly_fee)
+        : 1000,
+    default_khoraki_fee:
+      meta.default_khoraki_fee !== undefined && meta.default_khoraki_fee !== null
+        ? Number(meta.default_khoraki_fee)
+        : 2000,
+    boarding_default_fund_id: meta.boarding_default_fund_id || "fund-general",
+    boarding_default_fund_name:
+      meta.boarding_default_fund_name || "সাধারণ ফান্ড (General Fund)",
   };
 }
 
 export async function getMadrasaProfileWithLogo() {
   const madrasa = await getMadrasaDetails();
   if (!madrasa) return null;
-  const supabase = await createClient();
-  const { data: { publicUrl: logoUrl } } = supabase.storage.from('logos').getPublicUrl(`madrasa_logo_${madrasa.id}.png`);
-  const { data: { publicUrl: signatureUrl } } = supabase.storage.from('signatures').getPublicUrl(`madrasa_signature_${madrasa.id}.png`);
-  
+
   return {
     madrasa: {
       id: madrasa.id,
@@ -197,13 +204,13 @@ export async function getMadrasaProfileWithLogo() {
       registration_no: madrasa.registration_no || madrasa.reg_no,
       established_year: madrasa.established_year,
       principal_name: madrasa.principal_name,
-      principal_signature_url: madrasa.principal_signature_url || signatureUrl,
+      principal_signature_url: madrasa.principal_signature_url || "",
       eiin_code: madrasa.eiin_code,
       slogan: madrasa.slogan,
       website: madrasa.website,
     },
-    logoUrl: madrasa.logo_url || logoUrl,
-    signatureUrl: madrasa.principal_signature_url || signatureUrl,
+    logoUrl: madrasa.logo_url || "",
+    signatureUrl: madrasa.principal_signature_url || "",
   };
 }
 
@@ -530,6 +537,25 @@ export async function updateMadrasaDetails(formData: FormData) {
       };
     }
 
+    const rawDefaultMonthly = formData.get("defaultMonthlyFee");
+    const parsedDefaultMonthly =
+      rawDefaultMonthly !== null && String(rawDefaultMonthly).trim() !== "" && !isNaN(Number(rawDefaultMonthly))
+        ? Math.max(0, Number(rawDefaultMonthly))
+        : existingMeta.default_monthly_fee ?? 1000;
+    const rawDefaultKhoraki = formData.get("defaultKhorakiFee");
+    const parsedDefaultKhoraki =
+      rawDefaultKhoraki !== null && String(rawDefaultKhoraki).trim() !== "" && !isNaN(Number(rawDefaultKhoraki))
+        ? Math.max(0, Number(rawDefaultKhoraki))
+        : existingMeta.default_khoraki_fee ?? 2000;
+    const boardingDefaultFundId =
+      String(formData.get("boardingDefaultFundId") || "").trim() ||
+      existingMeta.boarding_default_fund_id ||
+      "fund-general";
+    const boardingDefaultFundName =
+      String(formData.get("boardingDefaultFundName") || "").trim() ||
+      existingMeta.boarding_default_fund_name ||
+      "সাধারণ ফান্ড (General Fund)";
+
     const metadataPayload = {
       ...existingMeta,
       prefix: cleanPrefix,
@@ -544,6 +570,10 @@ export async function updateMadrasaDetails(formData: FormData) {
       logo_url: finalLogoUrl,
       weekend_days: weekendDays,
       id_year_format: idYearFormat,
+      default_monthly_fee: parsedDefaultMonthly,
+      default_khoraki_fee: parsedDefaultKhoraki,
+      boarding_default_fund_id: boardingDefaultFundId,
+      boarding_default_fund_name: boardingDefaultFundName,
     };
 
     // 4. Update madrasas table
@@ -564,6 +594,28 @@ export async function updateMadrasaDetails(formData: FormData) {
       .update(updatePayload)
       .eq("id", madrasaId)
       .select();
+
+    // Sync default monthly fee & boarding default fund to fee_types (B05 / B19)
+    try {
+      await Promise.all([
+        adminClient
+          .from("fee_types")
+          .update({ default_amount: parsedDefaultMonthly })
+          .eq("madrasa_id", madrasaId)
+          .or("id.eq.ft_monthly,code.eq.MONTHLY"),
+        adminClient
+          .from("fee_types")
+          .update({
+            default_amount: parsedDefaultKhoraki,
+            fund_id: boardingDefaultFundId,
+            fund_name: boardingDefaultFundName,
+          })
+          .eq("madrasa_id", madrasaId)
+          .or("id.eq.ft_hostel,category.eq.BOARDING"),
+      ]);
+    } catch {
+      // non-fatal sync if fee_types rows don't exist yet
+    }
 
     if (updateErr) {
       return { error: "ডেটাবেজে তথ্য সেভ করা সম্ভব হয়নি: " + updateErr.message };

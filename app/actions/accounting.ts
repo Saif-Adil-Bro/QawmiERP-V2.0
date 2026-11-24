@@ -194,6 +194,10 @@ export type ExpenseActionState = {
   pendingApproval?: boolean;
   approvalRequestId?: string;
   message?: string;
+  negativeBalanceWarning?: boolean;
+  currentBalance?: number;
+  projectedBalance?: number;
+  fundName?: string;
   expense?: {
     line_items?:import('@/lib/finance/expense-lines').ExpenseLine[]|null;
     head_name?:string;

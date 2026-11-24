@@ -1,14 +1,17 @@
 import { getMadrasaDetails } from "@/app/actions/tenant";
+import { getFundChoices } from "@/app/actions/zakat";
 import SettingsClient from "./SettingsClient";
-import { createClient } from "@/lib/supabase/server";
 import PermissionGuard from "@/components/permissions/PermissionGuard";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function SettingsPage() {
-  const madrasa = await getMadrasaDetails();
-  
+  const [madrasa, funds] = await Promise.all([
+    getMadrasaDetails(),
+    getFundChoices().catch(() => []),
+  ]);
+
   if (!madrasa) {
     return (
       <div className="p-8 text-center bg-white rounded-xl border border-slate-100 shadow-sm">
@@ -16,17 +19,14 @@ export default async function SettingsPage() {
       </div>
     );
   }
-  
-  const supabase = await createClient();
-  const { data: logoData } = supabase.storage.from('logos').getPublicUrl(`madrasa_logo_${madrasa.id}.png`);
-  const { data: sigData } = supabase.storage.from('signatures').getPublicUrl(`madrasa_signature_${madrasa.id}.png`);
-  
+
   return (
     <PermissionGuard permission="settings.view">
-      <SettingsClient 
-        madrasa={madrasa} 
-        initialLogoUrl={madrasa.logo_url || logoData?.publicUrl || ""} 
-        initialSignatureUrl={madrasa.principal_signature_url || sigData?.publicUrl || ""}
+      <SettingsClient
+        madrasa={madrasa}
+        initialLogoUrl={madrasa.logo_url || ""}
+        initialSignatureUrl={madrasa.principal_signature_url || ""}
+        funds={funds}
       />
     </PermissionGuard>
   );

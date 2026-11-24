@@ -150,9 +150,9 @@ export interface FeeAuditLog {
  */
 export const DEFAULT_FEE_TYPES: FeeType[] = [
   { id: "ft_admission", name: "ভর্তি ফি (Admission Fee)", code: "ADMISSION", category: "ACADEMIC", frequency: "ONETIME", default_amount: 2000, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
-  { id: "ft_monthly", name: "মাসিক বেতন (Monthly Tuition)", code: "MONTHLY", category: "ACADEMIC", frequency: "MONTHLY", default_amount: 1500, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
+  { id: "ft_monthly", name: "মাসিক বেতন (Monthly Tuition)", code: "MONTHLY", category: "ACADEMIC", frequency: "MONTHLY", default_amount: 1000, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
   { id: "ft_exam", name: "পরীক্ষার ফি (Exam Fee)", code: "EXAM", category: "ACADEMIC", frequency: "TERM", default_amount: 300, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
-  { id: "ft_hostel", name: "বোর্ডিং ও খাবার ফি (Hostel/Food)", code: "HOSTEL", category: "BOARDING", frequency: "MONTHLY", default_amount: 2000, fund_id: "fund-lillah", fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)", is_active: true, is_system: true },
+  { id: "ft_hostel", name: "বোর্ডিং ও খাবার ফি (Hostel/Food)", code: "HOSTEL", category: "BOARDING", frequency: "MONTHLY", default_amount: 2000, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
   { id: "ft_books", name: "কিতাব ও পাঠ্যপুস্তক ফি (Books)", code: "BOOKS", category: "ACADEMIC", frequency: "ONETIME", default_amount: 1000, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
   { id: "ft_library", name: "কুতুবখানা / লাইব্রেরি ফি", code: "LIBRARY", category: "ACADEMIC", frequency: "YEARLY", default_amount: 200, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },
   { id: "ft_idcard", name: "আইডি কার্ড ও ব্যাজ ফি", code: "IDCARD", category: "ADMINISTRATIVE", frequency: "ONETIME", default_amount: 150, fund_id: "fund-general", fund_name: "সাধারণ ফান্ড (General Fund)", is_active: true, is_system: true },

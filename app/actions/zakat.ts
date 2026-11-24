@@ -18,6 +18,7 @@ import { financeRows, fundCatalog, postingFund } from "@/lib/finance/funds";
 import { collectionFund, isRestrictedFund, exactFundLabel, storedFund, bazarFund, REVIEW_FUND, type ReviewRow,type DonorFrequency, settlementIndex, unmatchedMahfil, FundItem, DonorItem, DonationItem, FundTransactionRecord, parseExpenseFund, isVoidedExpense, isVoidDonation, getExpenseVoidReason } from "@/lib/fund-utils";
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFeeMetadata, voidFeePayment, unvoidFeePayment } from "./fee-management";
+import { getFeePaymentsForLedger } from "@/lib/fee-store";
 
 // The number is a proposal, not a reservation; the database rejects concurrent collisions.
 export async function getNextDonationReceiptNo(tenant:string,prefix="ZR") {
@@ -604,19 +605,46 @@ export async function getZakatReportStats() {
     const finalMadrasaId = await getAuthMadrasaId(supabase, user);
     if (!finalMadrasaId) return null;
 
-    const [funds, donors, donations] = await Promise.all([
-      getFundChoices(true),
+    const [overviewRes, donors, donations] = await Promise.all([
+      loadFundOverview(finalMadrasaId),
       getDonors(),
       getDonations(),
     ]);
+    const funds = overviewRes.funds || [];
 
-    // Calculate total collection per fund
-    const fundTotals: Record<string, { name: string; total: number; count: number; category: string; color: string }> = {};
-    
-    funds.forEach(f => {
+    // Calculate total collection, expense, and net balance per fund (B21)
+    const fundTotals: Record<
+      string,
+      {
+        name: string;
+        total: number;
+        expense: number;
+        netBalance: number;
+        count: number;
+        category: string;
+        color: string;
+      }
+    > = {};
+
+    let totalExpenseAll = 0;
+    let totalNetBalanceAll = 0;
+
+    funds.forEach((f: any) => {
+      const collected = Number(f.total_collected || 0);
+      const expense = Number(f.total_expense || 0);
+      const net = Number(
+        typeof f.current_balance === "number"
+          ? f.current_balance
+          : collected - expense,
+      );
+      totalExpenseAll = money(totalExpenseAll + expense);
+      totalNetBalanceAll = money(totalNetBalanceAll + net);
       fundTotals[f.id] = {
         name: f.name,
-        total:0, count:0,
+        total: collected,
+        expense,
+        netBalance: net,
+        count: Number(f.donations_count || 0),
         category: f.category,
         color: f.color || "emerald",
       };
@@ -655,15 +683,14 @@ export async function getZakatReportStats() {
       if (!fundTotals[fType]) {
         fundTotals[fType] = {
           name: d.fund_name || REVIEW_FUND.name,
-          total: 0,
-          count: 0,
+          total: amt,
+          expense: 0,
+          netBalance: amt,
+          count: 1,
           category: "Other",
           color: "teal",
         };
       }
-
-      fundTotals[fType].total += amt;
-      fundTotals[fType].count++;
 
       // Group by donor type
       const dtype = d.donor_id ? (donorTypeMap.get(d.donor_id) || "OneTime") : "OneTime";
@@ -700,8 +727,15 @@ export async function getZakatReportStats() {
       allUniqueDonorKeys.size
     );
 
+    const overviewTotalCollected = Object.values(fundTotals).reduce(
+      (sum, f) => money(sum + f.total),
+      0,
+    );
+
     return {
-      grandTotal,
+      grandTotal: overviewTotalCollected || grandTotal,
+      totalExpense: totalExpenseAll,
+      netBalance: totalNetBalanceAll,
       totalDonors: totalUniqueDonors,
       totalCollectionsCount: donations.filter(d => !isVoidDonation(d)).length,
       fundBreakdown: Object.values(fundTotals),

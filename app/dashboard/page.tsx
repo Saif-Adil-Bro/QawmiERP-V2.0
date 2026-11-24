@@ -220,6 +220,8 @@ export default async function DashboardPage() {
           classesCount,
           todayPresent,
           todayAbsent,
+          todayLate: todayAttendanceData.find((d) => d.name === "বিলম্ব")?.value || 0,
+          todayLeave: todayAttendanceData.find((d) => d.name === "ছুটি")?.value || 0,
           todayIncome,
           todayExpense,
           totalIncome,

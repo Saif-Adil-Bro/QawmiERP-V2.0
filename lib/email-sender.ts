@@ -140,10 +140,15 @@ export async function sendTransactionalEmail(input: SendEmailInput): Promise<Sen
 
     if (!response.ok) {
       const detail = parsed?.message ? `: ${parsed.message}` : "";
+      const isDomainNotVerified =
+        response.status === 403 &&
+        String(parsed?.message || "").toLowerCase().includes("domain");
       return {
         ok: false,
         provider: "resend",
-        error: `Email delivery failed (${response.status})${detail}`,
+        error: isDomainNotVerified
+          ? `Email delivery failed (${response.status})${detail} — ইমেইল ডোমেইন ভেরিফাই করা নেই। Resend Dashboard > Domains-এ ডোমেইন ভেরিফাই করুন অথবা RESEND_FROM_EMAIL / SMTP_USER সেট করুন। আপাতত Authenticator App (TOTP) ব্যবহার করুন।`
+          : `Email delivery failed (${response.status})${detail}`,
         response: parsed,
       };
     }

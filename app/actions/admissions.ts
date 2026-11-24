@@ -743,6 +743,23 @@ export async function confirmAdmissionToStudent(params: {
     }
 
     const isBoarding = adm.residential_status === "আবাসিক";
+    const configuredDefaultMonthly =
+      meta.default_monthly_fee !== undefined &&
+      meta.default_monthly_fee !== null &&
+      !isNaN(Number(meta.default_monthly_fee))
+        ? Number(meta.default_monthly_fee)
+        : 1000;
+    const configuredDefaultKhoraki =
+      isBoarding &&
+      meta.default_khoraki_fee !== undefined &&
+      meta.default_khoraki_fee !== null &&
+      !isNaN(Number(meta.default_khoraki_fee))
+        ? Number(meta.default_khoraki_fee)
+        : 0;
+    const initialMonthlyFee = configuredDefaultMonthly;
+    const initialKhorakiFee = configuredDefaultKhoraki;
+    const initialTotalMonthly = initialMonthlyFee + initialKhorakiFee;
+
     meta.student_profiles[newStudent.id] = {
       first_name: firstName,
       last_name: lastName,
@@ -763,6 +780,14 @@ export async function confirmAdmissionToStudent(params: {
       residential_status: adm.residential_status || "আবাসিক",
       is_boarding: isBoarding,
       boarding_type: isBoarding ? "সাধারণ পেইং" : "অনাবাসিক",
+      monthly_fee: initialMonthlyFee,
+      khoraki_fee: initialKhorakiFee,
+      accommodation_fee: 0,
+      transport_fee: 0,
+      admission_fee: 0,
+      other_fee: 0,
+      fee_discount: 0,
+      total_monthly_fee: initialTotalMonthly,
       nid_or_birth_cert: adm.birth_reg_no || "",
       previous_madrasa: adm.previous_institution || "",
       student_status: "ACTIVE",

@@ -158,33 +158,20 @@ export async function getMadrasaInfo(specificMadrasaId?: string): Promise<Madras
         .eq("id", targetMadrasaId)
         .single();
 
-      let logoUrl = "";
-      let sigUrl = "";
-      try {
-        const supabase = await createClient();
-        const { data: logoData } = supabase.storage
-          .from("logos")
-          .getPublicUrl(`madrasa_logo_${targetMadrasaId}.png`);
-        const { data: sigData } = supabase.storage
-          .from("signatures")
-          .getPublicUrl(`madrasa_signature_${targetMadrasaId}.png`);
-        logoUrl = logoData?.publicUrl || "";
-        sigUrl = sigData?.publicUrl || "";
-      } catch {
-        // storage public url fallback
-      }
-
       if (!error && fullMadrasa) {
         let meta: Record<string, any> = {};
+        if ((fullMadrasa as any).metadata && typeof (fullMadrasa as any).metadata === "object") {
+          meta = { ...((fullMadrasa as any).metadata as Record<string, any>) };
+        }
         if (fullMadrasa.registration_no) {
           try {
             if (fullMadrasa.registration_no.startsWith("{")) {
-              meta = JSON.parse(fullMadrasa.registration_no);
+              meta = { ...meta, ...JSON.parse(fullMadrasa.registration_no) };
             } else {
-              meta = { reg_no: fullMadrasa.registration_no };
+              meta = { ...meta, reg_no: fullMadrasa.registration_no };
             }
           } catch {
-            meta = { reg_no: fullMadrasa.registration_no };
+            meta = { ...meta, reg_no: fullMadrasa.registration_no };
           }
         }
 
@@ -205,18 +192,19 @@ export async function getMadrasaInfo(specificMadrasaId?: string): Promise<Madras
           address: meta.address || fullMadrasa.address || "",
           phone: meta.phone || meta.contact_phone || fullMadrasa.phone || fullMadrasa.contact_phone || (fullMadrasa as any).phone || "",
           email: meta.email || meta.contact_email || fullMadrasa.email || fullMadrasa.contact_email || (fullMadrasa as any).email || "",
-          logo_url: meta.logo_url || logoUrl || "",
+          logo_url: meta.logo_url || "",
           registration_no:registrationLabel(meta.reg_no) || registrationLabel(meta.registration_no) || registrationLabel(fullMadrasa.registration_no),
           reg_no:registrationLabel(meta.reg_no) || registrationLabel(meta.registration_no),
           established_year: meta.established_year || "",
           principal_name:
             meta.principal_name ||
+            meta.muhtamim_name ||
             meta.mohtamim_name ||
             (fullMadrasa as any).principal_name ||
             (fullMadrasa as any).mohtamim_name ||
             "",
-          principal_signature_url: meta.signature_url || sigUrl || "",
-          signature_url: meta.signature_url || sigUrl || "",
+          principal_signature_url: meta.signature_url || "",
+          signature_url: meta.signature_url || "",
           eiin_code: meta.eiin_code || "",
           slogan: meta.slogan || "",
           website: meta.website || "",

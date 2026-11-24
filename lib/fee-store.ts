@@ -284,3 +284,88 @@ export async function readStudentFeeCollectionContext(
     idempotent_payment: null,
   };
 }
+
+/**
+ * Lightweight reader for fund ledgers, fund overview, and expense balance checks (B21).
+ * Fetches only `fee_types` and `fee_payments` (with allocations), skipping `student_fees`,
+ * `fee_structures`, and `fee_audit_logs` to avoid slow full-tenant scans.
+ */
+export async function getFeePaymentsForLedger(madrasaId: string): Promise<{
+  fee_types: FeeType[];
+  payments: FeePayment[];
+  student_fees: StudentFee[];
+}> {
+  const adminClient = await createAdminClient();
+  const [ftData, fpData] = await Promise.all([
+    rows(
+      () =>
+        adminClient
+          .from("fee_types")
+          .select("*")
+          .eq("madrasa_id", madrasaId)
+          .order("created_at"),
+      true,
+    ),
+    rows(
+      () =>
+        adminClient
+          .from("fee_payments")
+          .select("*, fee_payment_allocations(*)")
+          .eq("madrasa_id", madrasaId)
+          .order("created_at", { ascending: false }),
+      true,
+    ),
+  ]);
+
+  const feeTypes: FeeType[] =
+    ftData.length > 0
+      ? ftData.map((ft: any) => ({
+          id: ft.id,
+          name: ft.name,
+          code: ft.code || "",
+          category: ft.category,
+          frequency: ft.frequency,
+          default_amount: Number(ft.default_amount),
+          is_active: ft.is_active !== false,
+          is_system: ft.is_system,
+          fund_id: ft.fund_id,
+          fund_name: ft.fund_name,
+        }))
+      : DEFAULT_FEE_TYPES;
+
+  const payments: FeePayment[] = fpData.map((fp: any) => ({
+    id: fp.id,
+    receipt_no: fp.receipt_no,
+    madrasa_id: fp.madrasa_id,
+    student_id: fp.student_id,
+    student_name: fp.student_name,
+    class_name: fp.class_name,
+    roll_number: fp.roll_number,
+    session_id: fp.session_id,
+    payment_date: fp.payment_date,
+    payment_method: fp.payment_method,
+    transaction_ref: fp.transaction_ref,
+    total_amount_received: Number(fp.total_amount_received),
+    discount_total: Number(fp.discount_total),
+    fine_total: Number(fp.fine_total),
+    advance_amount: Number(fp.advance_amount || 0),
+    allocations: receiptAllocations(fp),
+    fund_id: fp.fund_id,
+    fund_name: fp.fund_name,
+    notes: fp.notes,
+    collected_by: fp.collected_by,
+    collector_name: fp.collector_name || fp.collected_by_name || "",
+    collected_by_name: fp.collected_by_name,
+    status: fp.status,
+    reversed_at: fp.reversed_at,
+    reversed_by: fp.reversed_by,
+    reversal_reason: fp.reversal_reason,
+    created_at: fp.created_at,
+  }));
+
+  return {
+    fee_types: feeTypes,
+    payments,
+    student_fees: [],
+  };
+}

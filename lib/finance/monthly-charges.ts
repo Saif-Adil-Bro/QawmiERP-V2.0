@@ -131,19 +131,41 @@ export function monthlyCharges(
       generalDiscountReason = generalDiscount.reason || "নির্ধারিত মাসিক ছাড়";
     }
   } else if (shouldSyncProfiles && studentProfile) {
-    const isFreeStudent =
-      studentProfile.is_free === true ||
-      studentProfile.student_status === "SCHOLARSHIP" ||
+    const boardingLabel = String(studentProfile.boarding_type || "");
+    const hasExplicitZeroAgreement =
       (studentProfile.total_monthly_fee !== undefined &&
+        studentProfile.total_monthly_fee !== null &&
+        studentProfile.total_monthly_fee !== "" &&
         Number(studentProfile.total_monthly_fee) === 0 &&
         Number(studentProfile.monthly_fee || 0) === 0 &&
-        Number(studentProfile.khoraki_fee || 0) === 0);
+        Number(studentProfile.khoraki_fee || 0) === 0) ||
+      (studentProfile.monthly_fee !== undefined &&
+        studentProfile.monthly_fee !== null &&
+        studentProfile.monthly_fee !== "" &&
+        Number(studentProfile.monthly_fee) === 0 &&
+        (studentProfile.khoraki_fee === undefined ||
+          studentProfile.khoraki_fee === null ||
+          studentProfile.khoraki_fee === "" ||
+          Number(studentProfile.khoraki_fee) === 0) &&
+        (studentProfile.transport_fee === undefined ||
+          studentProfile.transport_fee === null ||
+          studentProfile.transport_fee === "" ||
+          Number(studentProfile.transport_fee) === 0));
+
+    const isFreeStudent =
+      studentProfile.is_free === true ||
+      studentProfile.free_student === true ||
+      studentProfile.student_status === "SCHOLARSHIP" ||
+      boardingLabel.includes("লিল্লাহ") ||
+      hasExplicitZeroAgreement;
 
     if (isFreeStudent) {
       isGeneralFullWaiver = true;
       generalDiscountReason =
         studentProfile.fee_discount_reason ||
-        "১০০% সম্পূর্ণ ফ্রি / ইয়ানতপ্রাপ্ত শিক্ষার্থী";
+        (boardingLabel.includes("লিল্লাহ")
+          ? "লিল্লাহ বোর্ডিং / ১০০% ফ্রি শিক্ষার্থী"
+          : "৳০ ফি-চুক্তি / ১০০% মওকুফ শিক্ষার্থী");
     } else if (
       studentProfile.fee_discount &&
       Number(studentProfile.fee_discount) > 0

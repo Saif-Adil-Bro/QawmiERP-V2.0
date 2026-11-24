@@ -243,41 +243,81 @@ export default function ReportsClient({
         </div>
       </div>
 
-      {/* Fund-wise Breakdown Grid */}
+      {/* Fund-wise Balance & Breakdown Grid (B21) */}
       <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
           <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <Layers className="w-5 h-5 text-emerald-600" />
-            <span>ফান্ডভিত্তিক কালেকশন বিবরণী</span>
+            <span>ফান্ডভিত্তিক সংগ্রহ, ব্যয় ও নিট স্থিতি (ব্যালেন্স) বিবরণী</span>
           </h2>
-          <span className="text-xs text-slate-500">
-            {toBanglaNumber(stats?.fundBreakdown?.length || funds.length)} টি ফান্ড
-          </span>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold">
+              মোট সংগ্রহ: ৳ {formatBanglaCurrency(stats?.grandTotal || 0)}
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-800 border border-rose-200 font-bold">
+              মোট ব্যয়: ৳ {formatBanglaCurrency(stats?.totalExpense || 0)}
+            </span>
+            <span
+              className={`px-2.5 py-1 rounded-lg border font-black ${
+                (stats?.netBalance ?? 0) < 0
+                  ? "bg-red-50 text-red-700 border-red-300"
+                  : "bg-slate-900 text-white border-slate-900"
+              }`}
+            >
+              নিট স্থিতি: ৳ {formatBanglaCurrency(stats?.netBalance ?? 0)}
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {(stats?.fundBreakdown || []).map((fb: any, idx: number) => {
             const grand = stats?.grandTotal || 1;
             const percentage = Math.round((fb.total / (grand > 0 ? grand : 1)) * 100);
+            const expense = Number(fb.expense || 0);
+            const netBalance =
+              typeof fb.netBalance === "number" ? fb.netBalance : fb.total - expense;
 
             return (
-              <div key={idx} className="p-4 rounded-xl border border-slate-100 bg-slate-50/60 space-y-2">
+              <div
+                key={idx}
+                className={`p-4 rounded-xl border space-y-2.5 ${
+                  netBalance < 0
+                    ? "border-red-200 bg-red-50/40"
+                    : "border-slate-100 bg-slate-50/60"
+                }`}
+              >
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-sm text-slate-900">{fb.name}</span>
                   <span className="text-xs font-bold text-slate-600 font-mono">{toBanglaNumber(percentage)}%</span>
                 </div>
-                <div className="flex items-baseline justify-between">
-                  <span className="text-base font-black text-emerald-900 font-mono">
-                    ৳ {formatBanglaCurrency(fb.total)}
-                  </span>
-                  <span className="text-[11px] text-slate-500">
-                    {toBanglaNumber(fb.count)} বার আদায়
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-[11px] text-slate-500 block">মোট সংগ্রহ</span>
+                    <span className="font-bold text-emerald-700 font-mono">
+                      ৳ {formatBanglaCurrency(fb.total)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500 block">মোট ব্যয়</span>
+                    <span className="font-bold text-rose-700 font-mono">
+                      ৳ {formatBanglaCurrency(expense)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-baseline justify-between pt-2 border-t border-slate-200/70">
+                  <span className="text-xs font-bold text-slate-600">নিট স্থিতি</span>
+                  <span
+                    className={`text-base font-black font-mono ${
+                      netBalance < 0 ? "text-red-700" : "text-slate-900"
+                    }`}
+                  >
+                    ৳ {formatBanglaCurrency(netBalance)}
                   </span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
                   <div
                     className="bg-emerald-600 h-1.5 rounded-full"
-                    style={{ width: `${percentage}%` }}
+                    style={{ width: `${Math.min(100, Math.max(0, percentage))}%` }}
                   ></div>
                 </div>
               </div>

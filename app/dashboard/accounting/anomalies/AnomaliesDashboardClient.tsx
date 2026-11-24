@@ -33,6 +33,10 @@ const ANOMALY_TYPE_LABELS: Record<string, string> = {
   DUPLICATE_VOUCHER: "ডুপ্লিকেট ভাউচার",
   EXCESSIVE_WAIVER: "অতিরিক্ত ফি মওকুফ",
   PAYMENT_VOID_SPIKE: "পেমেন্ট বাতিল স্পাইক",
+  NEGATIVE_FUND_BALANCE: "ঋণাত্মক ফান্ড ব্যালেন্স",
+  FEE_AGREEMENT_MISMATCH: "চুক্তিবদ্ধ বনাম ধার্য ফি অমিল",
+  MISSING_STUDENT_INVOICE: "ইনভয়েসহীন শিক্ষার্থী",
+  DUE_CALCULATION_MISMATCH: "বকেয়া হিসাব অমিল",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -51,6 +55,15 @@ export default function AnomaliesDashboardClient({
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [severityFilter, setSeverityFilter] = useState<string>("ALL");
   const [isScanning, setIsScanning] = useState(false);
+  const [lastCheckSummaries, setLastCheckSummaries] = useState<
+    Array<{
+      key: string;
+      label: string;
+      scannedCount: number;
+      detectedCount: number;
+      scope: string;
+    }>
+  >([]);
   const [feedback, setFeedback] = useState<{
     type: "success" | "error";
     text: string;
@@ -94,6 +107,7 @@ export default function AnomaliesDashboardClient({
           text: res.error || "অ্যানোমালি স্ক্যান ব্যর্থ হয়েছে।",
         });
       } else {
+        setLastCheckSummaries(res.result.checkSummaries || []);
         const listRes = await getFinancialAnomaliesAction({ limit: 200 });
         if (listRes.ok) {
           setAnomalies(listRes.anomalies);
@@ -197,7 +211,7 @@ export default function AnomaliesDashboardClient({
               আর্থিক ও বোর্ডিং অসঙ্গতি মনিটর (Anomaly Detection)
             </h1>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-              বাজার খরচ স্পাইক (Moving Average & Z-Score), ডুপ্লিকেট ভাউচার, অতিরিক্ত ফি মওকুফ এবং পেমেন্ট রিভার্সাল অডিট
+              স্ক্যান পরিধি (৯টি যাচাই): বাজার ও সাধারণ খরচ স্পাইক, ডুপ্লিকেট ভাউচার, অতিরিক্ত ফি মওকুফ, পেমেন্ট বাতিল স্পাইক, ঋণাত্মক ফান্ড ব্যালেন্স, চুক্তিবদ্ধ বনাম ধার্য ফি অমিল, ইনভয়েসহীন সক্রিয় শিক্ষার্থী এবং বকেয়া হিসাব যাচাই
             </p>
           </div>
         </div>
@@ -212,6 +226,52 @@ export default function AnomaliesDashboardClient({
           <span>{isScanning ? "স্ক্যান চলছে..." : "নতুন স্ক্যান চালান"}</span>
         </button>
       </div>
+
+      {lastCheckSummaries.length > 0 && (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+              সর্বশেষ স্ক্যানের যাচাইকৃত রেকর্ড ও পরিধি
+            </h2>
+            <span className="text-xs text-slate-500">
+              মোট {toBanglaNumber(lastCheckSummaries.length)}টি যাচাই সম্পন্ন
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {lastCheckSummaries.map((cs) => (
+              <div
+                key={cs.key}
+                className={`p-3 rounded-xl border text-xs flex flex-col justify-between gap-1 ${
+                  cs.detectedCount > 0
+                    ? "bg-rose-50/60 border-rose-200 dark:bg-rose-950/30 dark:border-rose-800"
+                    : "bg-slate-50 border-slate-200 dark:bg-slate-800/50 dark:border-slate-700"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-800 dark:text-slate-100">
+                    {cs.label}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full font-bold font-mono text-[11px] ${
+                      cs.detectedCount > 0
+                        ? "bg-rose-600 text-white"
+                        : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200"
+                    }`}
+                  >
+                    {toBanglaNumber(cs.detectedCount)}টি অসঙ্গতি
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                  <span>{cs.scope}</span>
+                  <span className="font-mono font-semibold">
+                    যাচাই: {toBanglaNumber(cs.scannedCount)} রেকর্ড
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {feedback && (
         <div

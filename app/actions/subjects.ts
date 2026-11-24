@@ -7,9 +7,15 @@ import { revalidatePath } from "next/cache";
 export async function getSubjects() {
   try {
     const supabase = await createClient();
+    const user = await getAuthUser(supabase);
+    const { getAuthMadrasaId } = await import("./students");
+    const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
+    if (!madrasaId) return [];
+
     const { data: userData, error: userError } = await supabase
       .from("subjects")
       .select("*")
+      .eq("madrasa_id", madrasaId)
       .order("name");
 
     if (!userError && userData && userData.length > 0) {
@@ -20,6 +26,7 @@ export async function getSubjects() {
     const { data: adminData, error: adminError } = await adminClient
       .from("subjects")
       .select("*")
+      .eq("madrasa_id", madrasaId)
       .order("name");
 
     if (!adminError && adminData && adminData.length > 0) {
@@ -67,6 +74,23 @@ export async function createSubject(prevState: any, formData: FormData) {
 
     if (!name) {
       return { error: "বিষয়ের নাম আবশ্যক।" };
+    }
+
+    // B04 ফিক্স: একই মাদরাসায় ডুপ্লিকেট বিষয়ের নাম প্রতিরোধ
+    const { data: existingSubjects } = await adminClient
+      .from("subjects")
+      .select("id, name")
+      .eq("madrasa_id", madrasaId);
+    const normalizedName = name.toLowerCase().replace(/\s+/g, " ");
+    const duplicate = (existingSubjects || []).find(
+      (s: any) =>
+        String(s.name || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, " ") === normalizedName,
+    );
+    if (duplicate) {
+      return { error: `"${name}" বিষয়টি ইতিমধ্যেই তালিকায় রয়েছে।` };
     }
 
     const { error: userError } = await supabase.from("subjects").insert({

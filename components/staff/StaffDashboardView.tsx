@@ -80,6 +80,9 @@ export default function StaffDashboardView({
               <img
                 src={madrasaInfo.logo_url}
                 alt="Madrasa Logo"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                }}
                 className="w-12 h-12 rounded-full object-cover bg-white shadow-xs border border-emerald-300/40 shrink-0"
               />
             ) : (

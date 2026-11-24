@@ -35,6 +35,10 @@ interface Madrasa {
   website?: string;
   logo_url?: string;
   weekend_days?: string[];
+  default_monthly_fee?: number;
+  default_khoraki_fee?: number;
+  boarding_default_fund_id?: string;
+  boarding_default_fund_name?: string;
   metadata?: any;
 }
 
@@ -42,10 +46,12 @@ export default function SettingsClient({
   madrasa,
   initialLogoUrl,
   initialSignatureUrl,
+  funds = [],
 }: {
   madrasa: Madrasa;
   initialLogoUrl: string;
   initialSignatureUrl?: string;
+  funds?: Array<{ id: string; name: string; code?: string }>;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -69,6 +75,19 @@ export default function SettingsClient({
   const [email, setEmail] = useState(madrasa.contact_email || "");
   const [website, setWebsite] = useState(madrasa.website || "");
 
+  // B05 & B19: Admin-configurable Fee Defaults & Boarding Default Fund
+  const [defaultMonthlyFee, setDefaultMonthlyFee] = useState<string>(
+    String(madrasa.default_monthly_fee ?? madrasa.metadata?.default_monthly_fee ?? 1000),
+  );
+  const [defaultKhorakiFee, setDefaultKhorakiFee] = useState<string>(
+    String(madrasa.default_khoraki_fee ?? madrasa.metadata?.default_khoraki_fee ?? 2000),
+  );
+  const [boardingDefaultFundId, setBoardingDefaultFundId] = useState<string>(
+    madrasa.boarding_default_fund_id ||
+      madrasa.metadata?.boarding_default_fund_id ||
+      "fund-general",
+  );
+
   // Student ID Year Format State
   const initialIdYearFormat =
     madrasa.metadata?.id_year_format ||
@@ -79,7 +98,7 @@ export default function SettingsClient({
   // Weekly Holidays State
   const initialWeekend = Array.isArray(madrasa.weekend_days) && madrasa.weekend_days.length > 0
     ? madrasa.weekend_days
-    : (Array.isArray(madrasa.metadata?.weekend_days) && madrasa.metadata.weekend_days.length > 0
+    : (Array.isArray(madrasa.metadata?.weekend_days) && madrasa.metadata?.weekend_days.length > 0
       ? madrasa.metadata.weekend_days
       : ["Friday"]);
   const [weekendDays, setWeekendDays] = useState<string[]>(initialWeekend);
@@ -359,6 +378,17 @@ export default function SettingsClient({
       formData.append("website", website);
       formData.append("idYearFormat", idYearFormat);
       formData.append("weekendDays", JSON.stringify(weekendDays));
+      formData.append("defaultMonthlyFee", defaultMonthlyFee);
+      formData.append("defaultKhorakiFee", defaultKhorakiFee);
+      formData.append("boardingDefaultFundId", boardingDefaultFundId);
+      const selectedBoardingFund = funds.find((f) => f.id === boardingDefaultFundId);
+      formData.append(
+        "boardingDefaultFundName",
+        selectedBoardingFund?.name ||
+          (boardingDefaultFundId === "fund-lillah"
+            ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)"
+            : "সাধারণ ফান্ড (General Fund)"),
+      );
 
       // Logo handling: prefer lightweight URL to avoid server action body overflow
       if (currentLogoUrl) {

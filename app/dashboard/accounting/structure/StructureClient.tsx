@@ -448,21 +448,41 @@ export default function StructureClient({
                       </div>
                     </div>
 
-                    {/* Summary Totals */}
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between bg-slate-50 p-3 rounded-xl">
-                      <div>
-                        <span className="text-[11px] text-slate-500 block">মাসিক ফি যোগফল:</span>
-                        <span className="text-sm font-bold text-emerald-800 font-mono">
-                          ৳ {formatBanglaCurrency(struct.total_monthly_amount || 0)} / মাস
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[11px] text-slate-500 block">এককালীন ফি:</span>
-                        <span className="text-sm font-bold text-slate-800 font-mono">
-                          ৳ {formatBanglaCurrency(struct.total_onetime_amount || 0)}
-                        </span>
-                      </div>
-                    </div>
+                    {/* Summary Totals (B15: separate One-Time from Periodic/Term/Yearly) */}
+                    {(() => {
+                      const items = struct.items || [];
+                      const monthlySum = items
+                        .filter((i) => i.frequency === "MONTHLY")
+                        .reduce((s, i) => s + Number(i.amount || 0), 0);
+                      const onetimeSum = items
+                        .filter((i) => i.frequency === "ONETIME")
+                        .reduce((s, i) => s + Number(i.amount || 0), 0);
+                      const periodicSum = items
+                        .filter((i) => i.frequency === "TERM" || i.frequency === "YEARLY")
+                        .reduce((s, i) => s + Number(i.amount || 0), 0);
+                      return (
+                        <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl">
+                          <div>
+                            <span className="text-[11px] text-slate-500 block">মাসিক ফি যোগফল:</span>
+                            <span className="text-sm font-bold text-emerald-800 font-mono">
+                              ৳ {formatBanglaCurrency(monthlySum || struct.total_monthly_amount || 0)} / মাস
+                            </span>
+                          </div>
+                          <div className="text-center">
+                            <span className="text-[11px] text-slate-500 block">এককালীন ফি:</span>
+                            <span className="text-sm font-bold text-slate-800 font-mono">
+                              ৳ {formatBanglaCurrency(onetimeSum)}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[11px] text-slate-500 block">মেয়াদী ফি:</span>
+                            <span className="text-sm font-bold text-indigo-800 font-mono">
+                              ৳ {formatBanglaCurrency(periodicSum)}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
