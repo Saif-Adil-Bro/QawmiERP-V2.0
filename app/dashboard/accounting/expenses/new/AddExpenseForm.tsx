@@ -4,6 +4,8 @@ import { toDhakaDateString } from "@/lib/date-utils";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createExpense, ExpenseActionState } from "@/app/actions/accounting";
 import PendingApprovalBanner from "@/components/permissions/PendingApprovalBanner";
+import {getExpenseHeads,getVoucherChoices} from '@/app/actions/treasury';
+import {tenders,type Head,type Choice} from '@/lib/finance/treasury-types';
 import { getFundChoices } from "@/app/actions/zakat";
 import { isRestrictedFund, FundItem } from "@/lib/fund-utils";
 import { Landmark, FileText, CheckCircle2, ArrowRight, List, Plus, Trash2, Layers, AlignLeft, AlertTriangle } from "lucide-react";
@@ -35,8 +37,13 @@ export default function AddExpenseForm() {
   ]);
   const [simpleAmount, setSimpleAmount] = useState<string>("");
   const [simpleDescription, setSimpleDescription] = useState<string>("");
+  const [heads,setHeads]=useState<Head[]>([]);
+  const [people,setPeople]=useState<{students:Choice[];staff:Choice[]}>({students:[],staff:[]});
+  const [catalogError,setCatalogError]=useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>("");
 
+  useEffect(()=>{Promise.all([getExpenseHeads(),getVoucherChoices()]).then(([h,p])=>{setHeads(h.filter(x=>x.active));setPeople(p);}).catch(()=>setCatalogError('ব্যয়ের খাত বা ব্যক্তি তালিকা পড়া যায়নি।'));},[]);
+  const head=heads.find(h=>h.id===selectedCategory);
   useEffect(() => {
     async function loadInitialData() {
       try {
@@ -62,7 +69,7 @@ export default function AddExpenseForm() {
     if (state?.success && (state?.expense || (state as any)?.pendingApproval)) {
       if (state.expense) setCreatedVoucher(state.expense);
       formRef.current?.reset();
-      setSelectedFundId("");
+      setSelectedFundId("");setSelectedCategory("");
       setItemRows([{ id: "item-1", name: "", amount: "" }]);
       setSimpleAmount("");
       setSimpleDescription("");
@@ -139,6 +146,9 @@ export default function AddExpenseForm() {
         <input type="hidden" name="fund_id" value={selectedFundId} />
         <input type="hidden" name="fund_name" value={selectedFund?.name || ""} />
         <input type="hidden" name="amount" value={finalAmount} />
+        {catalogError&&<p role="alert">{catalogError}</p>}
+        {entryMode==='itemized'&&<input type="hidden" name="line_items" value={JSON.stringify(itemRows.filter(r=>r.name.trim()||r.amount.trim()).map(r=>({label:r.name,amount:r.amount})))}/>}
+        <input type="hidden" name="head_id" value={head?.id||''}/><input type="hidden" name="category" value={head?.policy||selectedCategory}/>
         <input type="hidden" name="description" value={finalDescription} />
 
         <div className="grid grid-cols-1 gap-6">
@@ -179,13 +189,13 @@ export default function AddExpenseForm() {
               </label>
               <select
                 id="category"
-                name="category"
                 required
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 className="w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white text-sm"
               >
                 <option value="">নির্বাচন করুন</option>
+                {heads.map(h=><option key={h.id} value={h.id} disabled={isRestrictedFund(selectedFund)&&h.policy!=='Food'}>{h.name}</option>)}
                 <option disabled={isRestrictedFund(selectedFund)} value="Salary">শিক্ষক/স্টাফ বেতন (Salary)</option>
                 <option value="Food">খাবার ও মেস (Food/Lillah Boarding)</option>
                 <option disabled={isRestrictedFund(selectedFund)} value="Utility">বিদ্যুৎ/গ্যাস/পানি বিল (Utility)</option>
@@ -209,6 +219,8 @@ export default function AddExpenseForm() {
             </div>
           </div>
 
+          <div className="grid gap-3 sm:grid-cols-2"><label>পরিশোধ পদ্ধতি *<select name="payment_method" required defaultValue="" className="block w-full rounded-lg border p-2"><option value="">নির্বাচন করুন</option>{Object.entries(tenders).map(([id,name])=><option value={id} key={id}>{name}</option>)}</select></label><Link href="/dashboard/accounting/expense-heads" className="self-end text-emerald-800 underline">প্রতিষ্ঠানের ব্যয়ের খাত পরিচালনা →</Link>
+          {(['students','staff'] as const).map(k=><label key={k}>{k==='staff'?'সংশ্লিষ্ট কর্মী':'সংশ্লিষ্ট শিক্ষার্থী'}<select className="block w-full rounded-lg border p-2" name={k==='staff'?'staff_id':'student_id'}><option value="">প্রযোজ্য নয়</option>{people[k].map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>)}</div>
           {isRestrictedFund(selectedFund) && <label className="block rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
             যাকাত/গোরাবা: কেবল যোগ্য ছাত্রদের খাবার খাতে ব্যয় করা যাবে। যাচাইকৃত উপকারভোগীর নাম বা দলের পরিচয় লিখুন।
             <input name="restricted_beneficiary" required maxLength={300} className="mt-2 block min-h-11 w-full rounded border p-2" />
@@ -264,7 +276,7 @@ export default function AddExpenseForm() {
                       </span>
                       <input
                         type="text"
-                        value={row.name}
+                        maxLength={180} required value={row.name}
                         onChange={(e) => updateItemRow(row.id, "name", e.target.value)}
                         placeholder="পণ্যের নাম / খরচের বিবরণ (যেমন: মেহমানদারী, কেরোসিন তেল...)"
                         className="flex-1 px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
@@ -273,10 +285,10 @@ export default function AddExpenseForm() {
                         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">৳</span>
                         <input
                           type="number"
-                          value={row.amount}
+                          required value={row.amount}
                           onChange={(e) => updateItemRow(row.id, "amount", e.target.value)}
                           placeholder="দাম"
-                          min="0"
+                          min="0.01"
                           step="0.01"
                           className="w-full pl-6 pr-2.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 font-bold text-right"
                         />
@@ -296,7 +308,7 @@ export default function AddExpenseForm() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-200">
                   <button
                     type="button"
-                    onClick={addItemRow}
+                    disabled={itemRows.length>=100} onClick={addItemRow}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold transition cursor-pointer self-start"
                   >
                     <Plus className="w-3.5 h-3.5" />

@@ -26,6 +26,7 @@ import {
 } from "./collection-links";
 
 export interface Books {
+  journals?: import('./journal').Journal[];
   funds: FundItem[];
   donations: any[];
   expenses: any[];
@@ -90,8 +91,14 @@ export function ledgerEntries({
   payments,
 }: Books): Entry[] {
   const entries: Entry[] = [];
-  const settlements = settlementIndex(meta.mahfils),
+  const settlements = settlementIndex(meta.mahfils, funds),
     links = collectionLinks(funds, donations, meta);
+  function mahfilReview(r: any, orphan: boolean, linked: boolean) {
+    // An explicit event cancellation removes its links and voids the central row
+    // together. A legacy VOID marker by itself does not explain a missing link.
+    const cancelled = !linked && r.status === 'VOID' && r.void_reason === 'মাহফিল সমন্বয় বাতিল';
+    return orphan && !cancelled ? 'মাহফিল সমন্বয় ভাউচার মেলেনি' : undefined;
+  }
   function add(
     r: any,
     amount: number,
@@ -103,7 +110,7 @@ export function ledgerEntries({
     voided: boolean,
     fields: Partial<Entry> = {},
   ) {
-    if (!Number.isFinite(amount) || amount === 0) return;
+    if (!Number.isFinite(amount) || (amount === 0 && !(source === "mahfil" && fields.reason))) return;
     const reason =
       fields.reason || (!f ? "ফান্ডের তথ্য অনুপস্থিত বা পরস্পরবিরোধী" : undefined);
     const fund = reason ? REVIEW_FUND : f!;
@@ -124,7 +131,7 @@ export function ledgerEntries({
       payment_method:
         r.payment_method ||
         noteOf(r).match(/\[Method:\s*([^\]]+)/i)?.[1] ||
-        "Cash",
+        "Unknown",
       notes: noteOf(r)
         .replace(/\[(?:VOID|Method):[^\]]*\]\s*/gi, "")
         .trim(),
@@ -139,8 +146,8 @@ export function ledgerEntries({
   for (const row of donations) {
     const voided = isVoidDonation(row),
       orphan = unmatchedMahfil(row, settlements);
-    const event =
-      orphan || settlements.has(row.id) || settlements.has(row.receipt_no);
+    const linked = settlements.has(row.id) || settlements.has(row.receipt_no);
+    const event = orphan || linked;
     const link = links.confirmed.get(row),
       src = link?.source;
     add(
@@ -172,10 +179,7 @@ export function ledgerEntries({
         is_mahfil_settlement: event,
         type: event ? "MAHFIL_SURPLUS" : "INCOME",
         receiptUrl: `/dashboard/zakat/collection/${row.id}/receipt`,
-        reason:
-          !voided && orphan
-            ? "মাহফিল সমন্বয় ভাউচার মেলেনি"
-            : links.reasons.get(row),
+        reason: mahfilReview(row, orphan, linked) || links.reasons.get(row),
       },
     );
   }
@@ -230,10 +234,8 @@ export function ledgerEntries({
     const parsed = parseExpenseFund(row.description),
       voided = isVoidedExpense(row),
       orphan = unmatchedMahfil(row, settlements);
-    const event =
-      orphan ||
-      settlements.has(row.id) ||
-      settlements.has(row.voucher_no || parsed.voucherNo || "");
+    const linked = settlements.has(row.id) || settlements.has(row.voucher_no || parsed.voucherNo || "");
+    const event = orphan || linked;
     add(
       row,
       Number(row.amount),
@@ -249,7 +251,7 @@ export function ledgerEntries({
         is_mahfil_settlement: event,
         voucher_no: row.voucher_no || parsed.voucherNo || row.id,
         notes: parsed.cleanDesc.replace(/\[VOID:[^\]]*\]\s*/gi, "").trim(),
-        reason: !voided && orphan ? "মাহফিল সমন্বয় ভাউচার মেলেনি" : undefined,
+        reason: mahfilReview(row, orphan, linked),
       },
     );
   }

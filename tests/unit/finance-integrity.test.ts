@@ -52,7 +52,8 @@ vi.mock("@/lib/finance/funds", () => ({
     return rows[key];
   },
 }));
-import { getFundOverview, getFundLedgerData } from "@/app/actions/zakat";
+import { getFundOverview, getFundLedgerData, getFunds } from "@/app/actions/zakat";
+import { getExpenses } from "@/app/actions/accounting";
 
 const meta = {
   mahfils: [
@@ -95,6 +96,9 @@ const rows = {
       fund_id: "fund-general",
       donation_type: "Zakat",
     },
+    { id: 'void-orphan', donation_date: '2026-01-08', receipt_no: 'MHF-OLD-VOID', fund_id: goraba.id, amount: 5, status: 'VOID' },
+    { id: 'zero-orphan', donation_date: '2026-01-08', receipt_no: 'MHF-ZERO', fund_id: goraba.id, amount: 0 },
+    { id: 'cancelled', donation_date: '2026-01-08', receipt_no: 'MHF-CANCEL', fund_id: goraba.id, amount: 5, status: 'VOID', void_reason: 'মাহফিল সমন্বয় বাতিল' },
   ],
   expenses: [
     {
@@ -176,7 +180,9 @@ describe("Phase 1 accounting integrity", () => {
     for (let i = 0; i < 2; i++) {
       const view = await getFundOverview();
       expect(view.error).toBeUndefined();
-      expect(view.review.map((r) => r.id).sort()).toEqual(["d2", "d3", "e2"]);
+      expect(view.review.map((r) => r.id).sort()).toEqual(["d2", "d3", "e2", "void-orphan", "zero-orphan"]);
+      expect((await getFunds(tenant)).find(f => f.id === goraba.id)?.current_balance).toBe(112);
+      expect((await getExpenses({ fundId: REVIEW_FUND.id })).map(e => e.id)).toEqual(['e2']);
       expect(view.funds.find((f) => f.id === goraba.id)?.current_balance).toBe(
         112,
       );
@@ -184,6 +190,7 @@ describe("Phase 1 accounting integrity", () => {
       expect(ledger.totalInflow).toBe(120);
       expect(ledger.totalOutflow).toBe(8);
       expect(ledger.transactions.map((t) => t.id).sort()).toEqual([
+        "cancelled",
         "d1",
         "e1",
         "e3",

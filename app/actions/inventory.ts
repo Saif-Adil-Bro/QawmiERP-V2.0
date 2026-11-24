@@ -349,14 +349,13 @@ export async function recordMaintenance(data: {
   technician_or_shop: string;
   voucher_no?: string;
   fund_id: string;
+  payment_method?:string;
   auto_add_to_expense?: boolean;
 }) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("inventory");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("inventory");
+  if (!__authz.allowed) return __authz.fallback;
 
   const madrasaId = await getAuthenticatedMadrasaId();
   if (!madrasaId) return { error: "অননুমোদিত অ্যাক্সেস" };
@@ -390,7 +389,7 @@ export async function recordMaintenance(data: {
     };
 
     const db=await createAdminClient();
-    const {data:record,error}=await db.rpc("finance_record_maintenance",{p_tenant:madrasaId,p_record:newRecord});
+    const {data:record,error}=await db.rpc("finance_record_maintenance",{p_tenant:madrasaId,p_record:newRecord,p_operator:__authz.userId,p_method:data.payment_method||"Unknown"});
     if (error) return {error:postingError(error)};
     revalidatePath("/dashboard/inventory");
     revalidatePath("/dashboard/accounting/expenses");

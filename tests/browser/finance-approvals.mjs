@@ -85,7 +85,8 @@ export async function approvalChecks(
   const expenseUrl = "/api/mobile/expenses",
     ai = "/api/ai/confirm",
     path = (id) => `/api/approvals/${id}/decision`;
-  const req = (await call(expenseUrl, cashier, "POST", expense, 202)).data
+  const lines=[{label:"Parts",amount:100},{label:"Oil",amount:2.25}];
+  const req = (await call(expenseUrl, cashier, "POST", {...expense,payment_method:"Cash",line_items:lines}, 202)).data
     .approvalRequestId;
   assert.ok(req);
   const approved = { decision: "APPROVED" },
@@ -132,6 +133,8 @@ export async function approvalChecks(
   const out = await call(ai, verified, "POST", confirm(req));
   assert.ok(out.executionResult?.executed, JSON.stringify(out.executionResult));
   assert.equal(out.executionResult.result.expense.id, req);
+  const [approvedVoucher]=await db`select e.line_items,e.operator_id,r.requested_by from expenses e join approval_requests r on r.id=e.id where e.id=${req}`;
+  assert.deepEqual(approvedVoucher.line_items,lines);assert.equal(approvedVoucher.operator_id,approvedVoucher.requested_by);
   await call(path(req), verified, "POST", approved, 400);
   assert.equal(await count(), 1);
   const pending = await call(

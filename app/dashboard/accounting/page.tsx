@@ -83,6 +83,7 @@ export default async function AccountingDashboardPage() {
           </div>
         </div>
 
+      <nav aria-label="দৈনিক হিসাব" className="grid gap-2 sm:grid-cols-4">{[['cashbook','আমার ক্যাশবই'],['daybook','সকল ফান্ডের ডেবুক'],['journals','ফান্ড স্থানান্তর ও সমন্বয়'],['expense-heads','ব্যয়ের খাত']].map(([path,label])=><Link className="rounded-xl border bg-white px-4 py-3 font-semibold text-emerald-800 hover:bg-emerald-50" key={path} href={'/dashboard/accounting/'+path}>{label} →</Link>)}</nav>
       {/* KPI Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Collected */}

@@ -399,6 +399,15 @@ describe("mobile and public financial boundaries", () => {
       db.rpc.mock.calls.filter(([n]) => n === "finance_post_collection"),
     ).toHaveLength(1);
   });
+  it("will not re-fund a legacy source-only leather expense by supplying a new ID", async () => {
+    const old = { id: 'legacy', receipt_no: 'LTH-REC-007', target_fund: 'Zakat', received_amount: 0, transport_labour_cost: 4 };
+    meta.leather_batches = [old];
+    const response = await leatherPost(req('POST', { id: old.id, receipt_no: old.receipt_no, ...fields, transport_labour_cost: 4 }));
+    expect(response.status).toBe(400);
+    expect(latest('finance_replace_sources')).toBeUndefined();
+    expect(latest('finance_post_collection')).toBeUndefined();
+    expect(meta.leather_batches).toEqual([old]);
+  });
   it("requires a permitted donor action and preserves an explicit zero pledge", async () => {
     const form = new FormData();
     form.set("name", "A");

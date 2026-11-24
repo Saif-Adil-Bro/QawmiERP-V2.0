@@ -293,7 +293,7 @@ async function executeApprovedPayload(
             payload.paymentData.idempotency_key || `approval:${request.id}`,
         },
         madrasaId,
-        payload.approvedPlan,
+        payload.approvedPlan, request.requested_by || request.requester_id || undefined,
       );
       return { executed: !res?.error, result: res };
     }
@@ -305,12 +305,12 @@ async function executeApprovedPayload(
     ) {
       const fd = new FormData();
       for (const [k, v] of Object.entries(payload.expenseData)) {
-        if (v !== undefined && v !== null) fd.set(k, String(v));
+        if (v !== undefined && v !== null) fd.set(k, k==="line_items" ? JSON.stringify(v) : String(v));
       }
       if (request.request_type !== "LARGE_EXPENSE")
         return { executed: false, error: "আবেদনের ধরন মেলেনি।" };
       const res = await postExpense(fd, {
-        tenant: madrasaId,
+        operator:request.requested_by || request.requester_id || undefined,tenant: madrasaId,
         requestId: request.id,
       });
       return { executed: !res?.error, result: res };

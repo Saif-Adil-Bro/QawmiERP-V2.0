@@ -465,9 +465,10 @@ export default function BackupClient({
       // ⛔ সিলেক্টিভ ব্যাকআপ ফিক্স: আগে আংশিক নির্বাচনেও "সকল ... ১০০%" দাবি করা হতো।
       const isFullSelection = modules.length === MODULE_DEFINITIONS.length;
       setExportSuccessMessage(
-        isFullSelection
-          ? `সফল হয়েছে! মাদ্রাসার সম্পূর্ণ ব্যাকআপ (${modules.length} টি মডিউল) ডাউনলোড সম্পন্ন হয়েছে।`
-          : `সফল হয়েছে! শুধুমাত্র নির্বাচিত ${modules.length} টি মডিউলের ডেটা সহ ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে — বাকি মডিউলের কোনো তথ্য ফাইলে নেই।`
+        (isFullSelection
+          ? `সফল হয়েছে! মাদ্রাসার অ্যাপ ডেটার ব্যাকআপ (${modules.length} টি মডিউল) ডাউনলোড সম্পন্ন হয়েছে।`
+          : `সফল হয়েছে! শুধুমাত্র নির্বাচিত ${modules.length} টি মডিউলের ডেটা সহ ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে — বাকি মডিউলের কোনো তথ্য ফাইলে নেই।`) +
+          (res.backupPayload?.manifest.cold_backup_required_for?.length ? " মেমোর ছবি এই ফাইলে নেই; ছবি পুনরুদ্ধারে private database backup লাগবে।" : "")
       );
     } catch (err: any) {
       alert("ব্যাকআপ ডাউনলোডে ত্রুটি: " + (err.message || String(err)));
@@ -1136,6 +1137,8 @@ export default function BackupClient({
                   >
                     <input
                       type="checkbox"
+                      aria-label={mod.name}
+                      value={mod.key}
                       checked={isChecked}
                       onChange={() => {}} // handled by parent div
                       className="mt-1 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"

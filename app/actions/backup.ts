@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { toDhakaDateString } from "@/lib/date-utils";
 import { includesFinancialBooks, needsFinancialRecovery, safeWipeScope, selectiveRecoveryPlan, type RecoveryOperation, financialRecoveryHold } from "@/lib/finance/recovery";
+import { salaryAccess } from "@/lib/finance/staff-access";
 import { rows as readRows } from "@/lib/portal/queries";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
@@ -39,6 +40,7 @@ export interface BackupManifest {
    */
   is_selective?: boolean;
   included_tables?: string[];
+  cold_backup_required_for?: string[];
   included_metadata_keys?: string[] | "ALL";
 }
 
@@ -201,6 +203,7 @@ const KNOWN_DB_TABLES = [
   "student_fees",
   "fee_payments",
   "fee_payment_allocations",
+  "treasury_fee_tenders","treasury_journals","treasury_days","treasury_movements","treasury_heads","treasury_memo_index",
   "fee_discount_waivers",
   "fee_audit_logs",
   "expenses",
@@ -559,7 +562,7 @@ export async function getBackupOverviewStats(): Promise<{
 
 /**
  * Universal Dynamic Backup Generator
- * Zero-Maintenance Architecture: Automatically captures 100% of tables and metadata.
+ * Export the selected books; private memo bytes require the separate database backup.
  */
 export async function generateBackupExport(options?: {
   modules?: BackupModuleKey[];
@@ -590,6 +593,8 @@ export async function generateBackupExport(options?: {
     if (includesFinancialBooks(selection)) {
       const financial=await writeGuard('financeRead');
       if (!financial.allowed) return {success:false,error:financial.error};
+      if ((selection.isFull || selection.modules.some(m => ["staff", "expenses", "audit_logs"].includes(m))) && !salaryAccess(financial,"read"))
+        return {success:false,error:"বেতন-সংক্রান্ত নথিসহ সম্পূর্ণ কপি নেওয়ার অনুমতি নেই।"};
     }
     const { data: madrasaData, error: headerError } = await admin
       .from("madrasas")
@@ -618,6 +623,17 @@ export async function generateBackupExport(options?: {
 
     // Dynamic Helper to query any table safely
     const fetchTableSafe = async (tableName: string) => {
+      if(tableName==='treasury_memo_index') {
+        const out:any[]=[];for(let after:string|null=null;;){
+          const {data,error}:{data:any;error:unknown}=await admin.rpc('treasury_memo_index',{t:madrasaId,after_id:after});
+          if(error || !Array.isArray(data))throw Error('মেমোর সূচি পড়া যায়নি।');
+          out.push(...data);if(data.length<500)return out;after=data.at(-1).expense_id;
+        }
+      }
+      if(tableName==='treasury_days'||tableName==='treasury_fee_tenders') {
+        const q=()=>admin.from(tableName).select('*').eq('madrasa_id',madrasaId);
+        return tableName==='treasury_days'?readRows(()=>q().order('operator_id'),false,'cash_date'):readRows(q,false,'payment_id');
+      }
       // These children have no tenant column of their own. Scope through the
       // owning receipt/structure, never return another school's allocations.
       if(['fee_payment_allocations','fee_structure_items'].includes(tableName)) {
@@ -719,6 +735,7 @@ export async function generateBackupExport(options?: {
     const checksum = "sha256:"+createHash("sha256").update(rawDataString).digest("hex");
 
     const manifest: BackupManifest = {
+      ...(stats.treasury_memo_index ? {cold_backup_required_for:["treasury_memos.image"]}:{}),
       app_name: "QawmiManager Pro",
       version: "3.0.0",
       format: "qawmi_cloud_backup_v2",

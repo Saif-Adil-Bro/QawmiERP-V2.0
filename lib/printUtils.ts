@@ -63,6 +63,8 @@ export function printElementIsolated(
     const printCopy=targetElem.cloneNode(true) as HTMLElement;
     printCopy.classList.remove('hidden');
     printCopy.hidden=false;
+    // Do not copy interactive panels (including an opened private memo) into the print document.
+    printCopy.querySelectorAll('[class~="print:hidden"]').forEach(node => node.remove());
     const htmlContent = `
       <!DOCTYPE html>
       <html lang="bn">

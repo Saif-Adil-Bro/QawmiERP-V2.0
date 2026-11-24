@@ -155,17 +155,31 @@ BEGIN
   IF fund IS NULL THEN RAISE EXCEPTION 'সক্রিয় ফান্ডের সঠিক আইডি নির্বাচন করুন।'; END IF;
   IF p_use IS NULL OR p_use NOT IN ('deposit','expense','bazar','mahfil_deficit') THEN RAISE EXCEPTION 'অজানা লেনদেন'; END IF;
   IF public.finance_is_restricted(fund) AND p_use<>'deposit' AND NOT
-    (p_use='expense' AND coalesce(p_category,'')='Food' AND length(btrim(coalesce(p_beneficiary,''))) BETWEEN 1 AND 300) THEN
+    (p_use='expense' AND coalesce(p_category,'')='Food' AND length(btrim(coalesce(p_beneficiary,''))) BETWEEN 1 AND 300 AND p_beneficiary ~ '[^[:space:]]') THEN
     RAISE EXCEPTION 'যাকাত/গোরাবা থেকে শুধু যোগ্য উপকারভোগীর নামসহ খাবার খরচ অনুমোদিত। সাধারণ ব্যয় বা ঘাটতি স্থানান্তর নয়।';
   END IF;
   RETURN fund;
 END $$;
 
+-- Reserved legacy metadata only. Return ALL tags so a first matching ID cannot
+-- conceal a conflicting label/second tag. Mirrors fundTags in lib/fund-utils.ts.
+CREATE OR REPLACE FUNCTION public.finance_fund_tags(body jsonb) RETURNS TABLE(id text,label text)
+LANGUAGE sql IMMUTABLE SET search_path='' AS $$
+  WITH fields(note,prefix) AS (VALUES (body->>'description','(?:^|\[|\|)\s*'),(body->>'notes','(?:^|\[|\|)\s*'),(body->>'items_details','\m'))
+  SELECT CASE WHEN upper(tag[1])='FUND' THEN btrim(tag[2],E' \t\r\n') END,
+         CASE WHEN upper(tag[1])='FUND_NAME' THEN btrim(tag[2],E' \t\r\n') END
+    FROM fields, LATERAL regexp_matches(note,prefix||'(FUND(?:_NAME)?):([^]|\r\n]*)','gi') tag
+  UNION ALL SELECT NULL,btrim(tag[1],E' \t\r\n') FROM fields,
+    LATERAL regexp_matches(note,'\[FUND:[^]|]*\|(?!\s*FUND_NAME:)([^]]*)\]','gi') tag
+$$;
+REVOKE ALL ON FUNCTION public.finance_fund_tags(jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.finance_fund_tags(jsonb) TO service_role;
+
 -- Enforce at the row boundary as well as the form: mobile, approvals, service-role and
 -- direct table writes all meet the same policy. No re-funding a posted receipt via PATCH.
 CREATE OR REPLACE FUNCTION public.finance_guard_posting() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE f jsonb; purpose text; body jsonb:=to_jsonb(NEW); prior jsonb; tagged text;
+DECLARE f jsonb; purpose text; body jsonb:=to_jsonb(NEW); prior jsonb; labels text[];
 BEGIN
   PERFORM 1 FROM public.madrasas WHERE id=NEW.madrasa_id FOR SHARE;
   IF EXISTS(SELECT FROM public.finance_closed_periods(NEW.madrasa_id) WHERE
@@ -179,8 +193,14 @@ BEGIN
     END IF;
     -- Allow an unchanged legacy posting to be voided (including its existing void tag convention).
     -- Never silently repair its historical fund/name in a status-only write.
-    IF body->>'status'='VOID' AND (body - ARRAY['status','notes','description','void_reason','voided_at'])
-      IS NOT DISTINCT FROM (prior - ARRAY['status','notes','description','void_reason','voided_at']) THEN RETURN NEW; END IF;
+    IF body->>'status'='VOID' THEN
+      IF prior->>'status'='VOID' OR (body - ARRAY['status','notes','description','void_reason','voided_at'])
+        IS DISTINCT FROM (prior - ARRAY['status','notes','description','void_reason','voided_at']) OR
+        btrim(regexp_replace(coalesce(body->>'notes',body->>'description',''),'\[VOID:[^]]*\]\s*','','gi')) IS DISTINCT FROM
+        btrim(regexp_replace(coalesce(prior->>'notes',prior->>'description',''),'\[VOID:[^]]*\]\s*','','gi')) THEN
+        RAISE EXCEPTION 'বাতিল করার সময় মূল ভাউচারের তথ্য বদলাবেন না।'; END IF;
+      RETURN NEW;
+    END IF;
   END IF;
   IF TG_OP='UPDATE' AND TG_TABLE_NAME='expenses' AND
     (body->'amount',body->'category',body->'expense_date',body->'restricted_beneficiary',body->'voucher_no') IS DISTINCT FROM
@@ -189,19 +209,18 @@ BEGIN
       SELECT FROM public.approval_workflows w WHERE w.madrasa_id=NEW.madrasa_id AND w.is_active AND upper(w.request_type)='LARGE_EXPENSE' AND
         (NEW.amount>=w.min_amount AND (w.max_amount IS NULL OR NEW.amount<=w.max_amount) OR OLD.amount>=w.min_amount AND (w.max_amount IS NULL OR OLD.amount<=w.max_amount)))) THEN
     RAISE EXCEPTION 'অনুমোদনসাপেক্ষ ব্যয়ের শর্ত বদলাবেন না। কারণসহ বাতিল করে নতুন আবেদন দিন।'; END IF;
-  IF TG_OP='UPDATE' AND prior->>'status'='VOID' AND body->>'status'='VOID' THEN RAISE EXCEPTION 'বাতিল ভাউচার সংশোধন করা যাবে না।'; END IF;
   IF NOT(NEW.amount BETWEEN 0.01 AND 9999999999.99) THEN RAISE EXCEPTION 'লেনদেনের অঙ্ক সঠিক নয়।'; END IF;
-  tagged:=substring(coalesce(body->>'description',body->>'items_details',body->>'notes','') FROM '(?i)\mFUND:\s*([^]|]+)');
-  IF tagged IS NOT NULL AND btrim(tagged) IS DISTINCT FROM NEW.fund_id THEN RAISE EXCEPTION 'ভাউচার ট্যাগ ও ফান্ড আইডি মিলছে না।'; END IF;
   purpose:=CASE TG_TABLE_NAME WHEN 'donations' THEN 'deposit' WHEN 'bazar_expenses' THEN 'bazar' ELSE 'expense' END;
   f:=public.finance_posting_fund(NEW.madrasa_id,NEW.fund_id,purpose,body->>'category',body->>'restricted_beneficiary');
+  labels:=array_remove(ARRAY[f->>'name',f->>'id',f->>'code'],NULL);
+  IF EXISTS(SELECT FROM public.finance_fund_tags(body) t WHERE t.id<>NEW.fund_id OR t.label<>ALL(labels)) THEN
+    RAISE EXCEPTION 'ভাউচার ট্যাগ ও নির্বাচিত ফান্ড মিলছে না।'; END IF;
   IF TG_OP='UPDATE' THEN
-    -- Do not launder an old General-default/Zakat-tag conflict by removing the label
-    -- during an unrelated edit. Voiding, above, deliberately preserves the old row.
-    tagged:=substring(coalesce(prior->>'description',prior->>'items_details',prior->>'notes','') FROM '(?i)\mFUND:\s*([^]|]+)');
-    IF (tagged IS NOT NULL AND btrim(tagged) IS DISTINCT FROM OLD.fund_id) OR
-       (OLD.fund_id='fund-general' AND tagged IS NULL AND coalesce(prior->>'fund_name',prior->>'donation_type','')='') OR
-       (NOT public.finance_is_restricted(f) AND public.finance_is_restricted(jsonb_build_object('name',concat_ws(' ',prior->>'fund_name',prior->>'donation_type')))) THEN
+    -- An edit/restore cannot erase contrary evidence. An unchanged legacy row
+    -- can still be explicitly voided above; no history is backfilled on install.
+    IF EXISTS(SELECT FROM public.finance_fund_tags(prior) t WHERE t.id<>OLD.fund_id OR t.label<>ALL(labels)) OR
+       (OLD.fund_id='fund-general' AND coalesce(prior->>'fund_name',prior->>'donation_type','')='' AND NOT EXISTS(SELECT FROM public.finance_fund_tags(prior))) OR
+       nullif(prior->>'fund_name','')<>ALL(labels) OR nullif(prior->>'donation_type','')<>ALL(labels) THEN
       RAISE EXCEPTION 'পুরোনো ফান্ডের তথ্য পরস্পরবিরোধী। সমন্বয় করুন।'; END IF;
   END IF;
   IF NEW.fund_name IS NOT NULL AND NEW.fund_name<>f->>'name' THEN RAISE EXCEPTION 'ফান্ডের নাম ও আইডি মিলছে না।'; END IF;
@@ -316,7 +335,7 @@ BEGIN
   END IF;
   IF nullif(btrim(p_receipt->>'receipt_no'),'') IS NULL THEN RAISE EXCEPTION 'রসিদ নম্বর আবশ্যক।'; END IF;
   INSERT INTO public.donations(madrasa_id,donor_id,member_id,amount,fund_id,fund_name,donation_type,donation_date,receipt_no,notes)
-    VALUES(t,donor,p_receipt->>'member_id',(p_receipt->>'amount')::numeric,p_receipt->>'fund_id',p_receipt->>'fund_name',p_receipt->>'fund_name',(p_receipt->>'donation_date')::date,p_receipt->>'receipt_no',p_receipt->>'notes') RETURNING * INTO r;
+    VALUES(t,donor,p_receipt->>'member_id',(p_receipt->>'amount')::numeric,p_receipt->>'fund_id',p_receipt->>'fund_name',coalesce(p_receipt->>'donation_type',p_receipt->>'fund_name'),(p_receipt->>'donation_date')::date,p_receipt->>'receipt_no',p_receipt->>'notes') RETURNING * INTO r;
   RETURN jsonb_build_object('receipt',to_jsonb(r),'donor',CASE WHEN d.id IS NOT NULL THEN to_jsonb(d) END);
 END $$;
 REVOKE ALL ON FUNCTION public.finance_receive_donation(uuid,jsonb,jsonb) FROM PUBLIC,anon,authenticated;
@@ -341,13 +360,13 @@ BEGIN
       UPDATE public.donations SET amount=(p_row->>'amount')::numeric,donation_date=(p_row->>'date')::date,notes=p_row->>'notes' WHERE id=existing;
     ELSE
       INSERT INTO public.donations(id,madrasa_id,donor_id,member_id,amount,donation_date,receipt_no,notes,fund_id,fund_name,donation_type)
-      VALUES(coalesce((p_row->>'id')::uuid,gen_random_uuid()),p_tenant,(p_row->>'donor_id')::uuid,p_row->>'member_id',(p_row->>'amount')::numeric,(p_row->>'date')::date,receipt,p_row->>'notes',p_row->>'fund_id',p_row->>'fund_name',p_row->>'fund_name');
+      VALUES(coalesce((p_row->>'id')::uuid,gen_random_uuid()),p_tenant,(p_row->>'donor_id')::uuid,p_row->>'member_id',(p_row->>'amount')::numeric,(p_row->>'date')::date,receipt,p_row->>'notes',p_row->>'fund_id',p_row->>'fund_name',coalesce(p_row->>'donation_type',p_row->>'fund_name'));
     END IF;
   ELSIF p_kind='mahfil_deficit' THEN
     delta:=-(p_row->>'amount')::numeric;
     PERFORM public.finance_posting_fund(p_tenant,p_row->>'fund_id','mahfil_deficit',NULL,NULL);
-    INSERT INTO public.expenses(id,madrasa_id,amount,expense_date,category,description,voucher_no,fund_id)
-      VALUES((p_row->>'id')::uuid,p_tenant,(p_row->>'amount')::numeric,(p_row->>'date')::date,'মাহফিল ঘাটতি সমন্বয়',p_row->>'notes',receipt,p_row->>'fund_id');
+    INSERT INTO public.expenses(id,madrasa_id,amount,expense_date,category,description,voucher_no,fund_id,fund_name)
+      VALUES((p_row->>'id')::uuid,p_tenant,(p_row->>'amount')::numeric,(p_row->>'date')::date,'মাহফিল ঘাটতি সমন্বয়',p_row->>'notes',receipt,p_row->>'fund_id',p_row->>'fund_name');
   ELSIF p_kind IN ('void_surplus','void_deficit') AND p_after ? 'mahfils' THEN
     -- This is an explicit operator cancellation, never a read/cleanup. Match the
     -- original row, institution, amount, fund AND voucher before touching either book.
@@ -375,10 +394,26 @@ GRANT EXECUTE ON FUNCTION public.finance_post_collection(uuid,jsonb,jsonb,text,j
 -- rewrites existing unmatched vouchers. Unrelated event header edits remain allowed.
 CREATE OR REPLACE FUNCTION public.finance_settlement_refs(events jsonb)
 RETURNS TABLE(event_id text, ref jsonb, txn jsonb) LANGUAGE sql IMMUTABLE SET search_path='' AS $$
-  SELECT DISTINCT m->>'id',s,t FROM jsonb_array_elements(events) m
-  CROSS JOIN LATERAL jsonb_array_elements(coalesce(nullif(m->'settlements','null'),'[]') ||
-    CASE WHEN jsonb_typeof(m->'settlement')='object' THEN jsonb_build_array(m->'settlement') ELSE '[]'::jsonb END) s
-  LEFT JOIN LATERAL jsonb_array_elements(coalesce(nullif(m->'transactions','null'),'[]')) t ON t->>'id'=s->>'mahfil_txn_id'
+  WITH entries AS (
+    SELECT m->>'id' AS event_id, m->'transactions' AS txns, s FROM jsonb_array_elements(events) m
+    CROSS JOIN LATERAL (
+      SELECT a AS s FROM jsonb_array_elements(nullif(m->'settlements','null')) a
+      UNION ALL SELECT m->'settlement' WHERE jsonb_typeof(m->'settlement')='object' AND NOT EXISTS
+        (SELECT FROM jsonb_array_elements(nullif(m->'settlements','null')) a WHERE a=m->'settlement')
+    ) refs
+  ), owners AS (
+    SELECT *, nullif(s->>'mahfil_txn_id','') IS NOT NULL AND
+      count(*) OVER (PARTITION BY event_id, s->>'mahfil_txn_id')=1 AND
+      count(*) OVER (PARTITION BY s->>'accounting_record_id')=1 AND
+      count(*) OVER (PARTITION BY s->>'accounting_voucher_no')=1 AS unique_link FROM entries
+  )
+  SELECT event_id,s, CASE WHEN unique_link AND count(t)=1 AND bool_and(
+    (nullif(s->>'mahfil_id','') IS NULL OR s->>'mahfil_id'=event_id) AND
+    (nullif(t->>'mahfil_id','') IS NULL OR t->>'mahfil_id'=event_id) AND
+    (nullif(t->>'receipt_no','') IS NULL OR t->>'receipt_no'=s->>'accounting_voucher_no') AND
+    (nullif(t->>'voucher_no','') IS NULL OR t->>'voucher_no'=s->>'accounting_voucher_no')) THEN jsonb_agg(t)->0 END
+  FROM owners LEFT JOIN LATERAL jsonb_array_elements(nullif(txns,'null')) t ON t->>'id'=s->>'mahfil_txn_id'
+  GROUP BY event_id,s,unique_link
 $$;
 CREATE OR REPLACE FUNCTION public.finance_check_settlement_changes() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
@@ -392,10 +427,11 @@ BEGIN
   END LOOP;
   FOR change IN SELECT * FROM public.finance_settlement_refs(new_events) EXCEPT SELECT * FROM public.finance_settlement_refs(old_events) LOOP
     IF change.txn IS NULL OR NOT EXISTS(
-      SELECT FROM (SELECT 'SURPLUS_DEPOSIT' kind,id,receipt_no AS voucher,amount,fund_id,status FROM public.donations WHERE madrasa_id=NEW.id AND id::text=change.ref->>'accounting_record_id'
-      UNION ALL SELECT 'DEFICIT_COVER',id,voucher_no,amount,fund_id,status FROM public.expenses WHERE madrasa_id=NEW.id AND id::text=change.ref->>'accounting_record_id') v
+      SELECT FROM (SELECT 'SURPLUS_DEPOSIT' kind,id,receipt_no AS voucher,amount,fund_id,fund_name,status FROM public.donations WHERE madrasa_id=NEW.id AND id::text=change.ref->>'accounting_record_id'
+      UNION ALL SELECT 'DEFICIT_COVER',id,voucher_no,amount,fund_id,fund_name,status FROM public.expenses WHERE madrasa_id=NEW.id AND id::text=change.ref->>'accounting_record_id') v
       WHERE v.status<>'VOID' AND v.kind=change.ref->>'settlement_type' AND v.amount=(change.ref->>'amount')::numeric
         AND v.fund_id=change.ref->>'fund_id' AND v.voucher=change.ref->>'accounting_voucher_no'
+        AND (nullif(change.ref->>'fund_name','') IS NULL OR v.fund_name=change.ref->>'fund_name')
         AND v.amount=(change.txn->>'amount')::numeric AND change.txn->>'type'=CASE v.kind WHEN 'SURPLUS_DEPOSIT' THEN 'EXPENSE' ELSE 'INCOME' END) THEN
       RAISE EXCEPTION 'মাহফিলের সমন্বয় ও মূল ভাউচার মেলেনি।'; END IF;
   END LOOP;
@@ -1017,7 +1053,7 @@ BEGIN
   IF r->>'status'='PAID' THEN
     SELECT id INTO eid FROM public.expenses WHERE madrasa_id=p_tenant AND id::text=r->>'expense_id'
       AND category='Salary' AND amount=salary AND coalesce(status,'')<>'VOID' AND coalesce(description,'') NOT LIKE '%[VOID:%'
-      AND (payroll_record_id=p_record OR payroll_record_id IS NULL);
+      AND fund_id='fund-general' AND payroll_record_id=p_record;
     IF eid IS NULL THEN RAISE EXCEPTION 'পুরোনো পরিশোধিত বেতনের ভাউচার মেলেনি। পুনরায় পরিশোধ নয়, সমন্বয় করুন।'; END IF;
     RETURN jsonb_build_object('expense_id',eid,'already_paid',true);
   END IF;

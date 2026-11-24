@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
           today_leave: todayLeave || 0,
           today_late: todayLate || 0,
           ...(finance ? {today_income:finance.todayIncome,today_expense:finance.todayExpense,total_income:finance.totalIncome,total_expense:finance.totalExpense,
-            net_balance:Math.round((finance.totalIncome-finance.totalExpense)*100)/100,expenses_sum:finance.expensesSum,bazar_sum:finance.bazarSum} : {}),
+            net_balance:finance.balance,expenses_sum:finance.expensesSum,bazar_sum:finance.bazarSum} : {}),
         },
         charts: {
           ...(finance ? {monthly_income_expense} : {}),

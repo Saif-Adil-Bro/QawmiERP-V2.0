@@ -1,4 +1,5 @@
 "use server";
+import {expenseForView,salaryAccess} from '@/lib/finance/staff-access';
 import {financeDeniedRoles} from '@/lib/finance/access';
 import {writeGuard} from '@/lib/action-authorization';
 import {receiptFunds} from '@/lib/finance/fee-portions';
@@ -18,7 +19,7 @@ import { getAuthMadrasaId } from "./students";
 import { requirePermission } from "@/lib/permissions-server";
 import { periodLines } from "@/lib/finance/statement";
 import { financeRows, fundCatalog, postingFund } from "@/lib/finance/funds";
-import { collectionFund, storedFund, settlementIndex, unmatchedMahfil, REVIEW_FUND, type FundItem, parseExpenseFund, isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
+import { collectionFund, expenseDescriptionForFund, storedFund, settlementIndex, unmatchedMahfil, REVIEW_FUND, type FundItem, parseExpenseFund, isVoidedExpense, isVoidDonation } from "@/lib/fund-utils";
 import { getFeeMetadata, voidFeePayment } from "./fee-management";
 import { logAuditEvent } from "@/lib/audit-log";
 import { assertAccountingPeriodUnlocked } from "@/lib/lock-guards";
@@ -166,18 +167,18 @@ export async function getExpenses(filters?: { month?: string; year?: string; fun
 
   // HI-5: বাতিল (VOID) করা খরচ কখনো তালিকা/রিপোর্টে দেখানো বা গোনা হয় না
   const [catalog,meta] = await Promise.all([fundCatalog(finalMadrasaId,true),getMadrasaMetadata(finalMadrasaId,true)]);
-  const linked = settlementIndex(meta.mahfils);
+  const linked = settlementIndex(meta.mahfils, catalog);
   const list = (data || []).filter((exp: any) => !isVoidedExpense(exp)).map((exp: any) => {
     const parsed = parseExpenseFund(exp.description);
     const fund = unmatchedMahfil(exp,linked) ? REVIEW_FUND : storedFund(catalog,exp) || REVIEW_FUND;
     const voucherNo = exp.voucher_no || parsed.voucherNo || exp.id;
-    return {
+    return expenseForView({
       ...exp,
       description: parsed.cleanDesc,
       fund_id: fund.id,
       fund_name: fund.name,
       voucher_no: voucherNo,
-    };
+    },salaryAccess(permission,"read"));
   });
 
   if (filters?.fundId && filters.fundId !== "all") {
@@ -194,6 +195,8 @@ export type ExpenseActionState = {
   approvalRequestId?: string;
   message?: string;
   expense?: {
+    line_items?:import('@/lib/finance/expense-lines').ExpenseLine[]|null;
+    head_name?:string;
     id: string;
     category: string;
     amount: number;
@@ -269,7 +272,10 @@ export async function updateExpense(formData: FormData) {
     .eq("madrasa_id", finalMadrasaId)
     .single();
 
-  if (!existingExp || storedFund(await fundCatalog(finalMadrasaId),existingExp)?.id !== fund.id) return {error:"মূল ভাউচারের ফান্ড মিলছে না। ম্যানুয়াল যাচাই প্রয়োজন।"};
+  const [catalog, meta] = await Promise.all([fundCatalog(finalMadrasaId), getMadrasaMetadata(finalMadrasaId, true)]);
+  if (!existingExp || storedFund(catalog,existingExp)?.id !== fund.id) return {error:"মূল ভাউচারের ফান্ড মিলছে না। ম্যানুয়াল যাচাই প্রয়োজন।"};
+  const links = settlementIndex(meta.mahfils, catalog);
+  if (links.has(existingExp.id) || unmatchedMahfil(existingExp, links)) return {error:"মাহফিলের মূল সমন্বয় ভাউচার যাচাই করুন।"};
   // 1.3 Granular Accounting Period Lock Guard (check BOTH existing date and new target date)
   if (existingExp?.expense_date) {
     const oldPeriodLock = await assertAccountingPeriodUnlocked(
@@ -294,10 +300,9 @@ export async function updateExpense(formData: FormData) {
     }
   }
 
-  const rawCleanDesc = (description || "")
-    .replace(/\[FUND:[^\]]+\]/gi, "")
-    .replace(/\[VOUCHER:[^\]]+\]/gi, "")
-    .trim();
+  let rawCleanDesc: string;
+  try { rawCleanDesc = expenseDescriptionForFund(description, fund); }
+  catch (err: any) { return {error: err.message}; }
 
   let wrappedDescription = `[FUND: ${fundId} | ${fundName}]`;
   if (voucherNo) {
@@ -426,17 +431,17 @@ export async function getAccountingReport(month: string, year: string, fundId?: 
 
   const gate=await writeGuard('financeRead');if(!gate.allowed || gate.madrasaId!==finalMadrasaId)throw Error('হিসাব দেখার অনুমতি নেই।');
   const db=await createAdminClient();
-  const [catalog,donations,expenses,bazar,meta,feeMeta,legacyFees] = await Promise.all([
+  const [catalog,donations,expenses,bazar,meta,feeMeta,legacyFees,journals] = await Promise.all([
     fundCatalog(finalMadrasaId,true),financeRows(db,finalMadrasaId,"donations","*",endDate),financeRows(db,finalMadrasaId,"expenses","*",endDate),
-    financeRows(db,finalMadrasaId,"bazar_expenses","*",endDate),getMadrasaMetadata(finalMadrasaId,true),getFeeMetadata(finalMadrasaId),financeRows(db,finalMadrasaId,"fees","*",endDate),
+    financeRows(db,finalMadrasaId,"bazar_expenses","*",endDate),getMadrasaMetadata(finalMadrasaId,true),getFeeMetadata(finalMadrasaId),financeRows(db,finalMadrasaId,"fees","*",endDate),financeRows(db,finalMadrasaId,"treasury_journals","*",endDate),
   ]);
-  const fundStats = periodLines({funds:catalog,start:startDate,end:endDate,donations,expenses,bazar,meta,payments:reconcilePayments(feeMeta.payments || [],legacyFees,true)})
+  const fundStats = periodLines({journals,funds:catalog,start:startDate,end:endDate,donations,expenses,bazar,meta,payments:reconcilePayments(feeMeta.payments || [],legacyFees,true)})
     .filter(f => !fundId || fundId === "all" || f.fundId === fundId)
     .map(f => ({fund_id:f.fundId,fund_name:f.fundName,previousBalance:f.openingBalance,income:f.totalIncome,expense:f.totalExpense,
-      balance:f.totalIncome-f.totalExpense,closingBalance:f.closingBalance}));
+      movement:f.movement||0,balance:f.totalIncome-f.totalExpense,closingBalance:f.closingBalance}));
   const totalIncome = fundStats.reduce((a,f) => a+f.income,0), totalExpense = fundStats.reduce((a,f) => a+f.expense,0);
   const previousBalance = fundStats.reduce((a,f) => a+f.previousBalance,0), netBalance = totalIncome-totalExpense;
-  return {totalIncome,totalExpense,netBalance,previousBalance,isDebt:previousBalance<0,adjustedClosingBalance:previousBalance+netBalance,fundStats};
+  return {totalIncome,totalExpense,netBalance,previousBalance,isDebt:previousBalance<0,adjustedClosingBalance:money(fundStats.reduce((sum,f)=>sum+f.closingBalance,0)),fundStats};
 }
 
 export interface UnifiedIncomeTransaction {

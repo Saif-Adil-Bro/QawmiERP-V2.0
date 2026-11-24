@@ -1030,7 +1030,7 @@ export async function processSalaryPayment(payload: {
   try {
     const db = await createAdminClient();
     const {data,error} = await db.rpc("finance_pay_salary", {
-      p_tenant: guard.madrasaId, p_actor: guard.userId, p_record: payload.recordId,
+      p_tenant: guard.madrasaId, p_actor: guard.userId, p_record: payload.recordId,p_register:true,
       p_method: payload.paymentMethod, p_ref: payload.transactionRef || "", p_remarks: payload.remarks || "",
     });
     if (error || !data?.expense_id) return { error: error ? postingError(error) : "বেতন ভাউচার নিশ্চিত হয়নি।" };

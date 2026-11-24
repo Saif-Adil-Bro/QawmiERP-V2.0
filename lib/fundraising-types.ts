@@ -190,6 +190,9 @@ export interface DonorSubscriptionPayment {
 export type LeatherType = "COW" | "GOAT" | "BUFFALO" | "SHEEP" | "গরু" | "ছাগল" | "মহিষ" | "ভেড়া";
 
 export interface QurbaniLeatherRecord {
+  transport_operator_id?:string;
+  transport_method?:string;
+  payment_method?:string;
   accounting_record_id?: string; // relational voucher ID on new postings
   fund_id?: string; // absent only on historical records
   id: string;

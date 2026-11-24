@@ -28,7 +28,7 @@ import {
   DEFAULT_ONLINE_DONATION_SETTINGS,
 } from "@/lib/fundraising-types";
 import {isPostingUuid as isUuid} from "@/lib/finance/collection-links";
-import { collectionFund, storedFund, REVIEW_FUND, isVoidDonation } from "@/lib/fund-utils";
+import { collectionFund, settlementIndex, unmatchedMahfil, storedFund, REVIEW_FUND, isVoidDonation } from "@/lib/fund-utils";
 import { getFundChoices, getNextMahfilVoucherNo } from "@/app/actions/zakat";
 import {
   createRealGatewaySession,
@@ -704,10 +704,8 @@ export async function getAvailableFundsForMahfil() {
 export async function settleMahfilFund(mahfilId: string, payload: MahfilSettlementPayload) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("fundraising");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("fundraising");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const { activeMadrasaId, meta, mahfils, targetMahfil } = await resolveMadrasaAndMahfil(mahfilId);
@@ -756,7 +754,7 @@ export async function settleMahfilFund(mahfilId: string, payload: MahfilSettleme
 
     meta.mahfils = mahfils;
     await postCollection(activeMadrasaId,before,meta,surplus ? "donation" : "mahfil_deficit",{
-      id:accountingRecordId,amount,date:dateStr,receipt_no:accountingVoucherNo,notes:description,fund_id:fund.id,fund_name:fund.name,
+      tender:{operator:__authz.userId,method:payload.payment_method},id:accountingRecordId,amount,date:dateStr,receipt_no:accountingVoucherNo,notes:description,fund_id:fund.id,fund_name:fund.name,
     });
 
     try {
@@ -803,10 +801,11 @@ export async function deleteMahfilSettlement(mahfilId: string, settlementId: str
     if (!settlement.accounting_record_id || settlement.id !== settlementId) return {error:"সমন্বয়ের মূল ভাউচারটি মেলেনি। ম্যানুয়াল যাচাই প্রয়োজন।"};
     const before = collectionSnapshot(meta,"mahfils");
     const txns = targetMahfil.transactions || [];
-    const hits = txns.filter(t=>settlement.mahfil_txn_id ? t.id===settlement.mahfil_txn_id :
-      t.voucher_no===settlement.accounting_voucher_no || t.receipt_no===settlement.accounting_voucher_no);
-    if (!['SURPLUS_DEPOSIT','DEFICIT_COVER'].includes(settlement.settlement_type) || hits.length!==1 || hits[0].type!==(settlement.settlement_type==='SURPLUS_DEPOSIT'?'EXPENSE':'INCOME') || Number(hits[0].amount)!==Number(settlement.amount)) return {error:"মাহফিলের মূল লেনদেন মেলেনি। ম্যানুয়াল যাচাই প্রয়োজন।"};
-    targetMahfil.transactions = txns.filter(t=>t!==hits[0]);
+    const surplus = settlement.settlement_type === 'SURPLUS_DEPOSIT';
+    const links = settlementIndex(mahfils, await fundCatalog(activeMadrasaId));
+    if (!settlement.mahfil_txn_id || unmatchedMahfil({ id: settlement.accounting_record_id, fund_id: settlement.fund_id, amount: settlement.amount,
+      [surplus ? 'receipt_no' : 'voucher_no']: settlement.accounting_voucher_no }, links)) return {error:"মাহফিলের মূল লেনদেন মেলেনি। ম্যানুয়াল যাচাই প্রয়োজন।"};
+    targetMahfil.transactions = txns.filter(t => t.id !== settlement.mahfil_txn_id);
     targetMahfil.settlements = (targetMahfil.settlements || []).filter(s=>s.id!==settlementId);
     if (targetMahfil.settlement?.id===settlementId) targetMahfil.settlement = targetMahfil.settlements.at(-1);
     targetMahfil.updated_at = new Date().toISOString();
@@ -1159,7 +1158,7 @@ export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubsc
     meta.donor_subscription_payments = payments;
 
     await postCollection(finalMadrasaId,before,meta,"donation",{
-      id:newPayment.accounting_record_id,member_id:!isUuid(newPayment.donor_id)?newPayment.donor_id:undefined, donor_id: payment.donor_id && isUuid(payment.donor_id) ? payment.donor_id : null,
+      tender:{operator:user.id,method:payment.payment_method},id:newPayment.accounting_record_id,member_id:!isUuid(newPayment.donor_id)?newPayment.donor_id:undefined, donor_id: payment.donor_id && isUuid(payment.donor_id) ? payment.donor_id : null,
       amount:newPayment.amount,fund_id:fund.id,fund_name:fund.name,date:newPayment.payment_date!,receipt_no:receiptNo,
       notes:`[মাসিক চাঁদা: ${newPayment.month}] ${newPayment.notes || ""}`,
     });
@@ -1278,10 +1277,8 @@ export async function getNextLeatherVoucherNo(madrasaId?: string): Promise<strin
 export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecord>) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("fundraising");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("fundraising");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const finalMadrasaId = await getAuthMadrasaId();
@@ -1308,7 +1305,7 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
     const targetFund = fund.name;
     const previous = records.find(r => r.id === data.id);
     if (data.id && (!previous || records.filter(r=>r.id===data.id).length!==1)) return {error:"চালান বদলেছে। রিফ্রেশ করুন।"};
-    if (previous && ((previous.fund_id && previous.fund_id !== fund.id) || (data.receipt_no && previous.receipt_no && data.receipt_no !== previous.receipt_no))) return {error:"পোস্ট করা চালানের ফান্ড বা নম্বর বদলানো যাবে না।"};
+    if (previous && (collectionFund(await fundCatalog(finalMadrasaId), previous)?.id !== fund.id || (data.receipt_no && previous.receipt_no && data.receipt_no !== previous.receipt_no))) return {error:"পোস্ট করা চালানের ফান্ড বা নম্বর বদলানো যাবে না। মূল চালান যাচাই করুন।"};
 
     if (previous && (isVoidDonation(previous) || ['VOID'].includes((previous as any).income_status) || (previous as any).expense_status==='VOID' || (previous as any).exp_notes?.includes('[VOID:'))) return {error:"বাতিল চালান এই ফর্মে সংশোধন করা যাবে না।"};
     if ([data.notes,(data as any).exp_notes].some(note=>note?.includes('[VOID:'))) return {error:"বাতিলের জন্য মূল ভাউচার ব্যবহার করুন।"};
@@ -1432,16 +1429,21 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
       records.unshift(newRec);
     }
 
-    if (voucherId) records.find(r=>r.id===targetId)!.accounting_record_id=voucherId;
+    const saved=records.find(r=>r.id===targetId)!;
+    saved.payment_method=previous?.payment_method || (!previous || !previous.accounting_record_id ? data.payment_method : undefined);
+    if (transportCost>0 && !Number(previous?.transport_labour_cost??previous?.transport_labor_cost??0) && data.transport_method) {
+      saved.transport_method=data.transport_method;saved.transport_operator_id=__authz.userId;
+    }
+    if (voucherId) saved.accounting_record_id=voucherId;
     meta.qurbani_leather_records = records;
     meta.leather_batches = records;
     const depositAmount = received;
     if (depositAmount > 0) await postCollection(finalMadrasaId,before,meta,"donation",{
-      id:voucherId,amount:depositAmount,date:recordDate,fund_id:fund.id,fund_name:fund.name,receipt_no:receiptNo,
+      tender:{operator:__authz.userId,method:data.payment_method},id:voucherId,amount:depositAmount,date:recordDate,fund_id:fund.id,fund_name:fund.name,receipt_no:receiptNo,
       notes:`[কুরবানির চামড়া বিক্রয়] চালান: ${receiptNo}, চামড়া: ${type} (${quantity} পিস), দর: ৳${rate}, মোট বিক্রয়: ৳${totalSale}, লেবার/পরিবহন খরচ: ৳${transportCost}, ক্রেতা: ${data.buyer_name || ""}`,
     },!!previous);
     else if (previous && saleAmount(previous) > 0) return {error:"জমাকৃত চালান বাতিলের জন্য হিসাব যাচাই করুন।"};
-    else await replaceSources(finalMadrasaId,before,meta);
+    else await replaceSources(finalMadrasaId,before,meta,__authz.userId);
 
     try {
       revalidatePath("/dashboard/fundraising/collections");
@@ -1732,10 +1734,8 @@ export async function deleteDonationBoxCollectionLog(logId: string) {
 export async function recordDonationBoxCollection(log: Partial<DonationBoxCollectionLog>) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("fundraising");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("fundraising");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const finalMadrasaId = await getAuthMadrasaId();
@@ -1795,7 +1795,7 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
     meta.donation_box_logs = logs;
 
     await postCollection(finalMadrasaId,before,meta,"donation",{
-      id:newLog.accounting_record_id,amount,date:colDate,receipt_no:receiptNo,fund_id:fund.id,fund_name:fund.name,
+      tender:{operator:__authz.userId,method:"Cash"},id:newLog.accounting_record_id,amount,date:colDate,receipt_no:receiptNo,fund_id:fund.id,fund_name:fund.name,
       notes:`[দানবাক্স কালেকশন] বক্স: ${boxCode} (${locName}), স্বাক্ষী: ${witness} ${log.notes || ""}`,
     });
 
@@ -2140,7 +2140,7 @@ export async function updateOnlineDonationStatus(
         // A public name or shared phone is not a directory identity. Keep the donor
         // on the source receipt; link a directory UUID only when explicitly identified.
         target.accounting_record_id=randomUUID();
-        await postCollection(finalMadrasaId,before,meta,"donation",{id:target.accounting_record_id,donor_id:null,amount:target.amount,date:target.donation_date,
+        await postCollection(finalMadrasaId,before,meta,"donation",{tender:{operator:guard.userId,method:"Online"},id:target.accounting_record_id,donor_id:null,amount:target.amount,date:target.donation_date,
           receipt_no:target.receipt_no || "",fund_id:fund.id,fund_name:fund.name,notes:`[অনলাইন অনুদান ভেরিফাইড | TrxID: ${target.trx_id}] ${target.message || ""}`});
     } else {
       const db = await createAdminClient();

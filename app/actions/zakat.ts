@@ -7,6 +7,8 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import {isPostingUuid as isUuid} from "@/lib/finance/collection-links";
+import {journalLegs} from '@/lib/finance/journal';
+import {isSalaryVoucher,salaryAccess} from "@/lib/finance/staff-access";
 import {ledgerEntries,money} from "@/lib/finance/entries";
 import {feePortions} from "@/lib/finance/fee-portions";
 import {readBooks} from "@/lib/finance/read-books";
@@ -101,9 +103,11 @@ async function loadFundOverview(expectedTenant?: string): Promise<{funds: FundIt
       if (e.income) {g.income=money(g.income+e.amount);g.count++;g.donors.add(e.donor_id || e.voucher_no || e.id);}
       else g.expense=money(g.expense+e.amount);
     }
+    const movement=new Map<string,number>();
+    for(const leg of journalLegs(books.journals,books.funds)) movement.set(leg.fund_id,money((movement.get(leg.fund_id)||0)+leg.delta));
     const funds=books.funds.map(f=>{
       const g=groups.get(f.id)!;
-      return {...f,total_collected:g.income,total_expense:g.expense,current_balance:money(g.income-g.expense),donations_count:g.count,unique_donors_count:g.donors.size};
+      return {...f,total_collected:g.income,total_expense:g.expense,current_balance:money(g.income-g.expense+(movement.get(f.id)||0)),donations_count:g.count,unique_donors_count:g.donors.size};
     });
     return {funds, review};
   } catch (err) {
@@ -408,27 +412,31 @@ export async function getFundLedgerData(fundIdentifier: string): Promise<{
 }> {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("financeRead");
-    if (!__authz.allowed) throw new Error("অনুমতি নেই।");
-  }
+  const access = await writeGuard("financeRead");
+  if (!access.allowed) throw new Error("অনুমতি নেই।");
 
   try {
     const tenant=await getAuthMadrasaId();
     const books=await readBooks(tenant,getFeeMetadata);
     const targetFund=books.funds.find(f=>f.id===fundIdentifier);
     if (!targetFund) throw new Error('অপরিচিত ফান্ড');
-    const transactions=ledgerEntries(books).filter(e=>e.fund_id===fundIdentifier).sort((a,b)=>b.date.localeCompare(a.date));
+    const hiddenPay = salaryAccess(access, "read") ? new Set() : new Set(books.expenses.filter(isSalaryVoucher).map(e => e.id));
+    // Donor-contact unmasking is independent of payroll authority. Resolve the fund
+    // using the original evidence first, then remove identifying voucher text.
+    const transactions=ledgerEntries(books).filter(e=>e.fund_id===fundIdentifier).map(e=>
+      !e.income && hiddenPay.has(e.id) ? {...e, source_or_recipient:"বেতন ভাউচার", notes:undefined, cancellation_reason:undefined} : e);
     let totalInflow=0,totalOutflow=0;
     for (const e of transactions) if (e.status!=='VOID') {
       if (e.income) totalInflow=money(totalInflow+e.amount);else totalOutflow=money(totalOutflow+e.amount);
     }
-    const currentBalance=money(totalInflow-totalOutflow);
+    const legs=journalLegs(books.journals,books.funds).filter(l=>l.fund_id===fundIdentifier);
+    const history: FundTransactionRecord[]=[...transactions,...legs].sort((a,b)=>b.date.localeCompare(a.date));
+    const currentBalance=money(totalInflow-totalOutflow+legs.reduce((sum,l)=>sum+l.delta,0));
     const {getCurrentUserMaskingContext}=await import('@/lib/data-access-guards');
     const {allowUnmasked}=await getCurrentUserMaskingContext('zakat','phone');
     return {
       fund: targetFund,
-      transactions:allowUnmasked ? transactions : transactions.map(({notes,donor_phone,donor_address,...publicRow})=>publicRow),
+      transactions:allowUnmasked ? history : history.map(row=>{const {notes,donor_phone,donor_address,...safe}=row as FundTransactionRecord & {donor_phone?:string;donor_address?:string};return safe;}),
       totalInflow,
       totalOutflow,
       currentBalance,
@@ -513,7 +521,7 @@ export async function addDonation(prevState: any, formData: FormData) {
     if (is_new_donor && (!new_donor_name || donor_id || !Number.isFinite(new_donor_pledge) || new_donor_pledge<0)) return {error:'নতুন দাতার তথ্য যাচাই করুন।'};
     const newDonor=is_new_donor && auto_save_donor ? {name:new_donor_name,phone:new_donor_phone,address:new_donor_address,donor_type:new_donor_type,pledge_amount:new_donor_pledge,notes:'সংগ্রহের সময় যুক্ত'} : null;
     const donation_date = (formData.get("donation_date") as string) || toDhakaDateString();
-    const payment_method = (formData.get("payment_method") as string) || "Cash";
+    const payment_method = String(formData.get("payment_method") || "Unknown").trim() || "Unknown";
     const receipt_no_input = (formData.get("receipt_no") as string)?.trim();
     const userNotes = (formData.get("notes") as string)?.trim() || "";
 
@@ -542,7 +550,7 @@ export async function addDonation(prevState: any, formData: FormData) {
       memberId=donor_id;
     }
 
-    const {data:posted,error}=await adminClient.rpc('finance_receive_donation',{t:finalMadrasaId,p_donor:newDonor,p_receipt:{donor_id:finalDonorId,member_id:memberId,amount,fund_id:fund.id,fund_name:fund.name,donation_date,receipt_no,notes:formattedNotes}});
+    const {data:posted,error}=await adminClient.rpc('finance_receive_donation',{t:finalMadrasaId,p_operator:user?.id,p_method:payment_method,p_donor:newDonor,p_receipt:{donor_id:finalDonorId,member_id:memberId,amount,fund_id:fund.id,fund_name:fund.name,donation_date,receipt_no,notes:formattedNotes}});
     if (error || !posted?.receipt?.id) return {error:error?.message || 'মূল রসিদ নিশ্চিত হয়নি।'};
     const data=posted.receipt;
     const createdDonorObj:DonorItem|null=posted.donor ? {...posted.donor,pledge_amount:new_donor_pledge,total_donated:amount,donation_count:1,last_donation_date:donation_date} : null;

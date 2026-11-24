@@ -7,6 +7,7 @@ import {
   isVoidDonation,
   isVoidedExpense,
   settlementIndex,
+  unmatchedMahfil,
   storedFund,
 } from "@/lib/fund-utils";
 import { fundCatalog, postingError, postingFund } from "./funds";
@@ -175,13 +176,8 @@ export async function changeVoucherStatus(
   }
   if (row) {
     const voucher = row.receipt_no || row.voucher_no,
-      links = settlementIndex(meta.mahfils);
-    if (
-      links.has(row.id) ||
-      links.has(voucher) ||
-      /^(MHF-|EXP-MHF)/i.test(voucher || "") ||
-      /মাহফিল/.test(row.notes || row.description || "")
-    )
+      links = settlementIndex(meta.mahfils, catalog);
+    if (links.has(row.id) || links.has(voucher) || unmatchedMahfil(row, links))
       throw new Error("মূল মাহফিল সমন্বয় ভাউচার ব্যবহার করুন।");
     if ((income ? isVoidDonation(row) : isVoidedExpense(row)) === voiding)
       throw new Error("ভাউচারের অবস্থা বদলেছে। রিফ্রেশ করুন।");

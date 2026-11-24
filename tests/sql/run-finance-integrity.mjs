@@ -45,6 +45,11 @@ await withDisposablePostgres(async ({ db }) => {
     year: "2026",
     status: id === "paid-legacy" ? "PAID" : "PENDING",
   }));
+  // A historical PAID row may point at an expense of the same amount but lack
+  // the reciprocal payroll link. A retry must not certify or rewrite it.
+  const [unlinked] = await db`insert into expenses(madrasa_id,amount,category,fund_id) values (${a.id},105.25,'Salary','fund-general') returning id`;
+  salaries.push({...salaries.find(r => r.id === 'paid-legacy'), id:'paid-unlinked', month:'06', expense_id:unlinked.id});
+  await db`insert into donations(madrasa_id,amount,receipt_no,donation_type,notes) values (${a.id},3,'LEGACY-TAGS','GEN','[FUND: fund-general | GEN][FUND: fund-zakat | ZKT]')`;
   const metadata = {
     staff_salary_records: salaries,
     staff_members: [{ id: "staff1", audit_logs: [] }],
@@ -76,7 +81,7 @@ await withDisposablePostgres(async ({ db }) => {
     { name: true, blob: false },
   );
   assert.deepEqual(await snapshot(), before);
-  assert.equal((await db`select count(*) from expenses`)[0].count, "2");
+  assert.equal((await db`select count(*) from expenses`)[0].count, "3");
   assert.equal(
     (await db`select count(*) from finance_fund_catalog(${a.id})`)[0].count,
     "9",
@@ -89,12 +94,21 @@ await withDisposablePostgres(async ({ db }) => {
   await reject(() => deposit(b.id, "z-custom"), /ফান্ড/);
   await reject(() => deposit(a.id, "fund-general", 1, "Zakat"), /ফান্ড/);
   await reject(() => deposit(a.id, "fund-zakat", -15), /অঙ্ক/);
+  await reject(() => db`insert into expenses(madrasa_id,fund_id,amount,category,description) values (${a.id},'fund-general',5,'Utility','[FUND: fund-general | Zakat]')`, /ফান্ড/);
+  await reject(() => db`insert into donations(madrasa_id,fund_id,amount,notes) values (${a.id},'fund-general',5,'[FUND: fund-general | GEN][FUND: fund-zakat | ZKT]')`, /ফান্ড/);
+  await reject(() => db`insert into bazar_expenses(madrasa_id,fund_id,amount,items_details) values (${a.id},'fund-general',5,'[VOUCHER: B | FUND: fund-general | FUND_NAME: Goraba assistance]')`, /ফান্ড/);
+  await reject(() => db`update donations set notes='edited', amount=4 where receipt_no='LEGACY-TAGS'`, /ফান্ড/);
+  await reject(() => db`update donations set status='VOID', notes='relabelled' where receipt_no='LEGACY-TAGS'`, /মূল ভাউচার/);
+  await reject(() => db`select finance_receive_donation(${a.id},null,${db.json({fund_id:'fund-general', donation_type:'Zakat', receipt_no:'NO-FALLBACK', amount:2, donation_date:'2026-11-18'})})`, /ফান্ড/);
+  assert.deepEqual((await db`select amount::float,notes from donations where receipt_no='LEGACY-TAGS'`)[0], {amount:3,notes:'[FUND: fund-general | GEN][FUND: fund-zakat | ZKT]'});
   assert.equal((await deposit(a.id, "meta-only"))[0].fund_name, "Library");
   const spend = (id, category, who) =>
     db`insert into expenses(madrasa_id,fund_id,amount,category,restricted_beneficiary) values (${a.id},${id},5,${category},${who}) returning id`;
   for (const id of ["fund-zakat", "z-custom"]) {
     await reject(() => spend(id, "Salary", "person"), /যাকাত/);
     await reject(() => spend(id, "Food", "  "), /যাকাত/);
+    await reject(() => spend(id, "Food", "\t\n"), /যাকাত/);
+    await reject(() => db`select finance_posting_fund(${a.id},${id},'transfer',null,null)`, /অজানা/);
     await reject(
       () =>
         db`insert into bazar_expenses(madrasa_id,fund_id,amount) values(${a.id},${id},5)`,
@@ -165,6 +179,9 @@ await withDisposablePostgres(async ({ db }) => {
     /পেরোল/,
   );
   await reject(() => pay("paid-legacy"), /সমন্বয়/);
+  await reject(() => pay("paid-unlinked"), /সমন্বয়/);
+  assert.deepEqual((await getMeta()).staff_salary_records.find(r=>r.id==='paid-unlinked'), salaries.find(r=>r.id==='paid-unlinked'));
+  assert.equal((await db`select count(*) from expenses where payroll_record_id='paid-unlinked'`)[0].count, '0');
   await reject(() => pay("pending-orphan"), /সমন্বয়/);
   await reject(
     () =>
@@ -190,7 +207,10 @@ await withDisposablePostgres(async ({ db }) => {
       .count,
     "0",
   );
-  assert.equal((await getMeta()).staff_salary_records[1].expense_id, undefined);
+  const afterFailure = await getMeta();
+  assert.equal(afterFailure.staff_salary_records[1].status, 'PENDING');
+  assert.equal(afterFailure.staff_salary_records[1].expense_id, undefined);
+  assert.equal(afterFailure.staff_members[0].audit_logs.length, 1);
   await db.unsafe("drop trigger injected_failure on madrasas");
   assert.equal((await pay("retry")).already_paid, false);
   assert.equal(
@@ -230,7 +250,18 @@ await withDisposablePostgres(async ({ db }) => {
     db`select finance_post_collection(${a.id},${db.json({ mahfils: before })},${db.json({ mahfils: after })},${kind},${db.json(row)},false)`;
   await reject(() => post(null, event, "mahfil_deficit", v), /যাকাত/);
   assert.equal((await getMeta()).mahfils, undefined);
+  const badVoucher = structuredClone(event);
+  badVoucher[0].transactions[0].receipt_no = 'different-voucher';
+  await reject(() => post(null, badVoucher, "donation", v), /মাহফিল/);
+  assert.equal((await db`select count(*) from donations where id=${eid}`)[0].count, "0");
+  assert.equal((await getMeta()).mahfils, undefined);
   await post(null, event, "donation", v);
+  const shared = structuredClone(event);
+  const [{ id: secondId }] = await db`select gen_random_uuid() as id`;
+  shared[0].settlements.push({...event[0].settlements[0], accounting_record_id:secondId, accounting_voucher_no:'MHF-S2'});
+  await reject(() => post(event, shared, 'donation', {...v, id:secondId, receipt_no:'MHF-S2'}), /মাহফিল/);
+  assert.deepEqual((await getMeta()).mahfils, event);
+  assert.equal((await db`select count(*) from donations where id=${secondId}`)[0].count, '0');
   await reject(() => post(null, event, "donation", v), /রিফ্রেশ/);
   assert.equal(
     (await db`select count(*) from donations where receipt_no='MHF-S1'`)[0]
@@ -359,6 +390,8 @@ await withDisposablePostgres(async ({ db }) => {
     }),
   );
   assert.equal(report.status, "HOLD");
+  assert.ok(report.institutions[0].review.stored_fund_label_disagrees > 0);
+  assert.ok(report.institutions[0].review.paid_salary_without_exact_expense >= 2);
   assert.ok(report.institutions[0].inventory.central_vouchers > 0);
   assert.equal(report.institutions[1].inventory.central_vouchers, 0);
   for (const school of report.institutions) {

@@ -87,16 +87,21 @@ function convertUnderThousand(n: number): string {
 
 export function numberToBanglaWords(num: number | string | null | undefined): string {
   if (num === null || num === undefined || num === '') return 'শূন্য টাকা মাত্র';
-  const val = Math.floor(typeof num === 'number' ? num : parseFloat(String(num)));
-  if (isNaN(val) || val === 0) return 'শূন্য টাকা মাত্র';
+  const val = Number(num);
+  const cents = Math.round(Math.abs(val) * 100);
+  if (!Number.isSafeInteger(cents) || cents === 0) return 'শূন্য টাকা মাত্র';
+  const taka = Math.floor(cents / 100), poisha = cents % 100;
+  return (val < 0 ? 'মাইনাস ' : '') + (taka ? integerWords(taka) + ' টাকা' : '') +
+    (poisha ? (taka ? ' ' : '') + units[poisha] + ' পয়সা' : '') + ' মাত্র';
+}
 
-  let remaining = val;
+function integerWords(remaining: number): string {
   let words = '';
 
   // Crore (কোটি) = 10,000,000
   if (remaining >= 10000000) {
     const crore = Math.floor(remaining / 10000000);
-    words += numberToBanglaWords(crore).replace(' টাকা মাত্র', '') + ' কোটি ';
+    words += integerWords(crore) + ' কোটি ';
     remaining %= 10000000;
   }
 
@@ -119,5 +124,5 @@ export function numberToBanglaWords(num: number | string | null | undefined): st
     words += convertUnderThousand(remaining) + ' ';
   }
 
-  return words.trim() + ' টাকা মাত্র';
+  return words.trim();
 }

@@ -14,7 +14,7 @@ export async function readBooks(
 ): Promise<Books> {
   if (!tenant) throw new Error("প্রতিষ্ঠান মেলেনি।");
   const db = await createAdminClient();
-  const [funds, donations, expenses, bazar, meta, fees, legacy] =
+  const [funds, donations, expenses, bazar, meta, fees, legacy, journals] =
     await Promise.all([
       fundCatalog(tenant, true),
       financeRows(
@@ -28,9 +28,11 @@ export async function readBooks(
       getMadrasaMetadata(tenant, true),
       readFees(tenant),
       financeRows(db, tenant, "fees"),
+      incomeOnly ? [] : financeRows(db, tenant, "treasury_journals"),
     ]);
   return {
     funds,
+    journals,
     donations: donations.map((r) => ({
       ...r,
       donors: r.donors?.madrasa_id === tenant ? r.donors : null,

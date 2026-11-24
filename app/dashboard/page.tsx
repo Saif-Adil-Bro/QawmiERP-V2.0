@@ -46,7 +46,7 @@ export default async function DashboardPage() {
   let financeLoaded=false;
   let todayIncome = 0;
   let todayExpense = 0;
-  let totalIncome = 0;
+  let totalIncome = 0, fundBalance = 0;
   let totalExpense = 0;
   let expensesSum = 0;
   let bazarSum = 0;
@@ -133,7 +133,7 @@ export default async function DashboardPage() {
 
       financeLoaded=!!finance;
       if (!finance && financeAllowed) error={message:'আর্থিক হিসাব অনুপলব্ধ। নিচের আর্থিক সংখ্যাগুলি ব্যবহার করবেন না।'};
-      else if(finance) ({totalIncome,totalExpense,todayIncome,todayExpense,expensesSum,bazarSum}=finance);
+      else if(finance) ({totalIncome,totalExpense,todayIncome,todayExpense,expensesSum,bazarSum,balance:fundBalance}=finance);
       const monthlyData=finance?.monthlyData || {};
 
       // Process Attendance Rate
@@ -223,6 +223,7 @@ export default async function DashboardPage() {
           todayIncome,
           todayExpense,
           totalIncome,
+          fundBalance,
           totalExpense,
           expensesSum,
           bazarSum,

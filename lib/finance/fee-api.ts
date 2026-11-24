@@ -74,7 +74,7 @@ export async function collectSingleFee(
     student_roll: pupil.roll_number,
     class_name: pupil.class_name,
     payment_date: input.payment_date || toDhakaDateString(),
-    payment_method: input.payment_method || "Cash",
+    payment_method: input.payment_method || "Unknown",
     total_amount_received: amount,
     fund_id: f.id,
     fund_name: f.name,
@@ -94,7 +94,7 @@ export async function collectSingleFee(
   };
   const { data, error } = await db.rpc("finance_collect_fee", {
     p_tenant: tenant,
-    p_actor: actor,
+    p_actor: actor,p_operator:actor,
     p: payment,
     p_expected: bill
       ? {

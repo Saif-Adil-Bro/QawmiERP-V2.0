@@ -1,4 +1,5 @@
 "use client";
+import {tenders} from "@/lib/finance/treasury-types";
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
@@ -881,6 +882,8 @@ export default function CollectionsClient({
                   />
                 </div>
                 <div>
+                  <label className="block">শ্রমিক / পরিবহন ব্যয়ের পরিশোধ পদ্ধতি<select required={!editingLeather?.id&&Number(editingLeather?.transport_labor_cost)>0} disabled={!!editingLeather?.transport_operator_id} className="block w-full rounded border p-2" value={editingLeather?.transport_method||''} onChange={e=>setEditingLeather(p=>({...p,transport_method:e.target.value}))}><option value="">নির্বাচন করুন</option>{Object.entries(tenders).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
+                  <label className="block">বিক্রয়ের আদায় পদ্ধতি<select required={!editingLeather?.accounting_record_id} disabled={!!editingLeather?.accounting_record_id} className="block w-full rounded border p-2" value={editingLeather?.payment_method||''} onChange={e=>setEditingLeather(p=>({...p,payment_method:e.target.value}))}><option value="">নির্বাচন করুন</option>{Object.entries(tenders).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
                   <label className="block font-bold text-slate-700 mb-1">জমা ফান্ড (Target Fund)</label>
                   <select
                     required value={editingLeather?.fund_id || ""}

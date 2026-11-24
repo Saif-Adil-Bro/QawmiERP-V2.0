@@ -30,6 +30,8 @@ export function validateMobilePosting(use: FundUse): MobileWriteCheck {
             )
           : mobileError("Posting not found", 404, "NOT_FOUND");
       }
+      if ('operator_id' in payload || 'head_name' in payload) throw Error('Operator and head label are server assigned');
+      if(!id && use!=='expense') {payload.operator_id=actor;payload.payment_method=payload.payment_method||'Unknown';}
       if (payload.amount != null && !bdtPoisha(payload.amount))
         throw Error("Invalid posting amount");
       if (!id && use === "expense") {
@@ -44,10 +46,11 @@ export function validateMobilePosting(use: FundUse): MobileWriteCheck {
           "restricted_beneficiary",
           "category",
           "amount",
-          "description",
+          "description", "head_id", "student_id", "staff_id", "payment_method",
           "voucher_no",
         ])
           if (payload[k] != null) form.set(k, String(payload[k]));
+        if(payload.line_items!=null) form.set("line_items",JSON.stringify(payload.line_items));
         form.set(
           "expense_date",
           String(payload.expense_date || toDhakaDateString()),

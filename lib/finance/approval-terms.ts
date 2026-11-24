@@ -2,6 +2,25 @@ import { canReadSchoolFinance } from "./access";
 import { salaryAccess } from "./staff-access";
 import { bdtPoisha } from "@/lib/payment-gateway-engine";
 
+// Arrays of primitives have stable ordering in JSONB. Bind every reviewed item, not just the total.
+export function voucherTerms(x: Record<string, any>) {
+  return [
+    x.head_id ?? null,
+    x.head_name ?? null,
+    x.category,
+    x.student_id ?? null,
+    x.staff_id ?? null,
+    x.payment_method ?? null,
+    x.expense_date,
+    x.restricted_beneficiary ?? "",
+    x.description ?? "",
+    x.voucher_no ?? null,
+    (Array.isArray(x.line_items) ? x.line_items : []).map((l: any) => [
+      l?.label,
+      bdtPoisha(l?.amount),
+    ]),
+  ];
+}
 /** Recheck the amount and beneficiary shown to the approver against the saved payload. */
 export function financeApprovalError(
   tenant: string,
@@ -46,6 +65,12 @@ export function financeApprovalError(
       req.request_type !== "LARGE_EXPENSE" ||
       !x?.fund_id ||
       x.fund_id !== req.target_id ||
+      ((x.head_id ||
+        x.line_items ||
+        x.payment_method ||
+        payload.voucherTerms) &&
+        JSON.stringify(voucherTerms(x)) !==
+          JSON.stringify(payload.voucherTerms)) ||
       bdtPoisha(x.amount) !== amount
     )
       return "অনুমোদিত ব্যয়ের খাত বা অঙ্ক মেলেনি।";

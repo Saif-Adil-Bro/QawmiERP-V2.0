@@ -528,7 +528,7 @@ export async function getMonthlyExecutiveSummary(
 
   // Build executive KPIs and fund reserves from the same postings as the monthly statement.
   let feeCollection = 0, mahfilCollection = 0, zakatCollection = 0, generalDonations = 0, boardingBazarExpense = 0;
-  const lines = periodLines({funds:allFundsList,start:monthStartDate,end:monthEndDate,donations:allDbDonations,
+  const lines = periodLines({journals:await financeRows(adminClient,madrasaId,"treasury_journals","*",monthEndDate),funds:allFundsList,start:monthStartDate,end:monthEndDate,donations:allDbDonations,
     expenses:allDbExpenses,bazar:allDbBazar,meta,payments:reconcilePayments(feeMeta.payments || [],legacyFees,true),
     onCurrent(kind,source,fund,amount) {
       if (kind==='out') { if (source==='bazar') boardingBazarExpense += amount; return; }
@@ -567,7 +567,7 @@ export async function getMonthlyExecutiveSummary(
 
   const previousBalance = fundsBreakdown.reduce((sum, f) => sum + f.previousBalance, 0);
   const isDebt = previousBalance < 0;
-  const adjustedClosingBalance = previousBalance + netBalance;
+  const adjustedClosingBalance = Math.round(100*fundsBreakdown.reduce((sum,f)=>sum+f.totalReserve,0))/100;
 
   // Calculate leaves in target month
   const leavesCount = (meta.leaves || []).filter((l: any) => {

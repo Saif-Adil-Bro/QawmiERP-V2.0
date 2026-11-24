@@ -77,7 +77,7 @@ export async function fundCatalog(
 export async function financeRows(
   db: Awaited<ReturnType<typeof createAdminClient>>,
   tenant: string,
-  table: "expenses" | "donations" | "bazar_expenses" | "fees" | "donors",
+  table: "expenses" | "donations" | "bazar_expenses" | "fees" | "donors" | "treasury_journals" | "treasury_heads" | "students",
   columns = "*",
   through?: string,
   since?: string,
@@ -92,7 +92,7 @@ export async function financeRows(
       .order("id")
       .limit(500);
     const dateColumn =
-      table === "fees"
+      table === "treasury_journals" ? "posting_date" : table === "fees"
         ? "payment_date"
         : table === "donations"
           ? "donation_date"
@@ -123,10 +123,11 @@ export async function replaceSources(
   tenant: string,
   before: Record<string, any>,
   meta: Record<string, any>,
+  operator?:string,
 ) {
   const db = await createAdminClient();
   const { error } = await db.rpc("finance_replace_sources", {
-    p_tenant: tenant,
+    ...(operator ? {p_operator:operator} : {}),p_tenant: tenant,
     p_before: before,
     p_after: Object.fromEntries(
       Object.keys(before).map((k) => [k, meta[k] ?? []]),
@@ -150,6 +151,7 @@ export async function postCollection(
     id?: string;
     donor_id?: string | null;
     member_id?: string;
+    tender?: {operator:string|undefined;method:string|undefined};
   },
   edit = false,
 ) {
@@ -160,8 +162,9 @@ export async function postCollection(
     p_after: Object.fromEntries(
       Object.keys(before).map((k) => [k, meta[k] ?? []]),
     ),
+    ...(row.tender ? {p_operator:row.tender.operator,p_method:row.tender.method || "Unknown"} : {}),
     p_kind: kind,
-    p_row: row,
+    p_row: {...row,tender:undefined},
     p_edit: edit,
   });
   if (error) throw new Error(postingError(error));

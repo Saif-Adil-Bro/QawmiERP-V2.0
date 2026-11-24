@@ -1,3 +1,4 @@
+import { journalLegs } from "./journal";
 import { ledgerEntries, money, type Books } from "./entries";
 
 // Completed central postings; unsettled event books are not deposits into a central fund.
@@ -9,7 +10,7 @@ export function dashboardFinance(books: Books, today: string) {
     bazarSum = 0;
   const monthlyData: Record<string, { income: number; expense: number }> = {};
   for (const e of ledgerEntries(books)) {
-    if (e.status === "VOID") continue;
+    if (e.status === "VOID" || e.date > today) continue;
     if (e.income) {
       totalIncome = money(totalIncome + e.amount);
       if (e.date === today) todayIncome = money(todayIncome + e.amount);
@@ -26,6 +27,13 @@ export function dashboardFinance(books: Books, today: string) {
   }
   return {
     totalIncome,
+    balance: money(
+      totalIncome -
+        totalExpense +
+        journalLegs(books.journals, books.funds)
+          .filter((l) => l.date <= today)
+          .reduce((sum, l) => sum + l.delta, 0),
+    ),
     totalExpense,
     todayIncome,
     todayExpense,

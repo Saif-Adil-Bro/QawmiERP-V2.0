@@ -1,3 +1,4 @@
+import {journalLegs} from '@/lib/finance/journal';
 import { feePortions } from "@/lib/finance/fee-portions";
 import { readBooks } from "@/lib/finance/read-books";
 import { ledgerEntries } from "@/lib/finance/entries";
@@ -7,7 +8,7 @@ import { REVIEW_FUND, isVoidDonation } from "@/lib/fund-utils";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableError } from "@/lib/audit-log";
-import { toDhakaDateStringFrom, toDhakaMonthString } from "@/lib/date-utils";
+import { toDhakaDateString, toDhakaDateStringFrom, toDhakaMonthString } from "@/lib/date-utils";
 import { maskStudentSensitiveFields } from "@/lib/data-access-guards";
 
 export interface BiBoardingMonthlyRow {
@@ -486,12 +487,13 @@ function classDues(feeRows: any[]) {
 
   return classFeeDues;
 }
-async function liveFinance(tenant: string, session: string | null) {
+async function liveFinance(tenant: string, session: string | null, through = toDhakaDateString()) {
   const books = await readBooks(tenant, getFeeMetadata),
-    entries = ledgerEntries(books).filter((e) => e.status !== "VOID");
+    entries = ledgerEntries(books).filter((e) => e.status !== "VOID" && e.date <= through);
   const balances = new Map<string, number>(),
     donations = new Map<string, BiDonationBreakdownRow>();
   const bazarByMonth = new Map<string, number>();
+  for(const l of journalLegs(books.journals,books.funds).filter(l=>l.date<=through)) balances.set(l.fund_id,safeRound((balances.get(l.fund_id)||0)+l.delta));
   for (const e of entries) {
     balances.set(
       e.fund_id,
@@ -530,7 +532,7 @@ async function liveFinance(tenant: string, session: string | null) {
   const boardingPaid = new Map<string, number>();
   let totalFeeCollections = 0;
   for (const p of books.payments) {
-    if ((p.status && p.status !== "COMPLETED") || isVoidDonation(p)) continue;
+    if ((p.status && p.status !== "COMPLETED") || isVoidDonation(p) || toDhakaDateStringFrom(p.payment_date)>through) continue;
     for (const part of feePortions(p, books.funds)) {
       const bill = billsById.get(part.billId);
       if (session && (bill?.session_id || p.session_id) !== session) continue;
@@ -1035,7 +1037,8 @@ export async function executeCustomReport(
         );
       }
   } else if (dataset === "funds") {
-    for (const r of (await liveFinance(madrasaId, null)).funds) {
+    // A fund reserve is a closing balance as of dateTo, not turnover since dateFrom.
+    for (const r of (await liveFinance(madrasaId, null, dateTo || toDhakaDateString())).funds) {
       const gKey =
         groupBy === "is_active"
           ? r.is_active !== false
