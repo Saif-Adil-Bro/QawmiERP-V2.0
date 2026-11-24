@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { 
   ArrowLeft, BookOpen, Layers, PlusCircle, Trash2, 
@@ -40,23 +40,74 @@ export default function ClassSubjectsManager({
   initialAssignedSubjects,
 }: ClassSubjectsManagerProps) {
   const [assigned, setAssigned] = useState<AssignedSubjectItem[]>(initialAssignedSubjects || []);
-  const [allSubjects, setAllSubjects] = useState<SubjectItem[]>(initialAllSubjects || []);
+  const [allSubjects] = useState<SubjectItem[]>(initialAllSubjects || []);
   
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const pendingRef = useRef(false);
 
-  // B25 ফিক্স: সেভ চলাকালীন পেজ রিলোড/নেভিগেশন করলে বরাদ্দ হারানো রোধ
+  const setSaveGuardActive = (active: boolean) => {
+    pendingRef.current = active;
+    if (typeof window !== "undefined") {
+      if (active) {
+        window.onbeforeunload = (e: BeforeUnloadEvent) => {
+          e.preventDefault();
+          e.returnValue = "বিষয় বণ্টন সেভ হচ্ছে। এখনই পেজ রিলোড করবেন না।";
+          return "বিষয় বণ্টন সেভ হচ্ছে। এখনই পেজ রিলোড করবেন না।";
+        };
+      } else {
+        window.onbeforeunload = null;
+      }
+    }
+  };
+
+  // R1 (B25) ফিক্স: মাউন্ট থাকাকালীন সবসময় সক্রিয় গার্ড (pendingRef দিয়ে তাৎক্ষণিক চেক)
   useEffect(() => {
-    if (!isPending && !deletingId) return;
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!pendingRef.current) return;
       e.preventDefault();
       e.returnValue = "বিষয় বণ্টন সেভ হচ্ছে। এখনই পেজ রিলোড করবেন না।";
+      return "বিষয় বণ্টন সেভ হচ্ছে। এখনই পেজ রিলোড করবেন না।";
     };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [isPending, deletingId]);
+    const handleClickCapture = (e: MouseEvent) => {
+      if (!pendingRef.current) return;
+      const target = e.target as HTMLElement | null;
+      const anchor = target?.closest?.("a[href]");
+      if (anchor) {
+        e.preventDefault();
+        e.stopPropagation();
+        setToast({
+          type: "error",
+          message: "বিষয় বণ্টন সেভ হচ্ছে — অনুগ্রহ করে সেভ শেষ হওয়া পর্যন্ত কয়েক সেকেন্ড অপেক্ষা করুন।",
+        });
+      }
+    };
+    const handleKeyDownCapture = (e: KeyboardEvent) => {
+      if (!pendingRef.current) return;
+      const isReloadKey =
+        e.key === "F5" ||
+        ((e.ctrlKey || e.metaKey) && (e.key === "r" || e.key === "R"));
+      if (isReloadKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setToast({
+          type: "error",
+          message: "বিষয় বণ্টন সেভ হচ্ছে — সেভ শেষ না হওয়া পর্যন্ত পেজ রিলোড করা যাবে না।",
+        });
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload, { capture: true });
+    window.addEventListener("click", handleClickCapture, { capture: true });
+    window.addEventListener("keydown", handleKeyDownCapture, { capture: true });
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload, { capture: true });
+      window.removeEventListener("click", handleClickCapture, { capture: true });
+      window.removeEventListener("keydown", handleKeyDownCapture, { capture: true });
+      window.onbeforeunload = null;
+    };
+  }, []);
 
   // Derive unassigned subjects list
   const unassignedSubjects = allSubjects.filter(
@@ -73,6 +124,7 @@ export default function ClassSubjectsManager({
     const subToAssign = allSubjects.find((s) => s.id === selectedSubjectId);
     if (!subToAssign) return;
 
+    setSaveGuardActive(true);
     setIsPending(true);
     setToast(null);
 
@@ -119,6 +171,7 @@ export default function ClassSubjectsManager({
       setAssigned((prev) => prev.filter((item) => item.id !== tempId));
       setToast({ type: "error", message: err.message || "বিষয় বরাদ্দ করতে সমস্যা হয়েছে।" });
     } finally {
+      setSaveGuardActive(false);
       setIsPending(false);
     }
   };
@@ -129,6 +182,7 @@ export default function ClassSubjectsManager({
       return;
     }
 
+    setSaveGuardActive(true);
     setDeletingId(assignedItem.id);
     setToast(null);
 
@@ -152,6 +206,7 @@ export default function ClassSubjectsManager({
       setAssigned(previousAssigned);
       setToast({ type: "error", message: err.message || "মুছে ফেলতে সমস্যা হয়েছে।" });
     } finally {
+      setSaveGuardActive(false);
       setDeletingId(null);
     }
   };
@@ -194,6 +249,20 @@ export default function ClassSubjectsManager({
           <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </div>
+
+      {/* Active Save Progress Banner (R1 / B25) */}
+      {(isPending || deletingId) && (
+        <div
+          role="status"
+          aria-live="assertive"
+          className="p-4 rounded-2xl border border-amber-300 bg-amber-50 text-amber-900 flex items-center gap-3 shadow-xs font-semibold text-xs sm:text-sm"
+        >
+          <RefreshCw className="w-5 h-5 text-amber-600 animate-spin shrink-0" />
+          <span>
+            বিষয় বণ্টন ডেটাবেজে সেভ হচ্ছে... অনুগ্রহ করে এই পেজ রিলোড বা বন্ধ করবেন না।
+          </span>
+        </div>
+      )}
 
       {/* Toast Alert */}
       {toast && (

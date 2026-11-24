@@ -17,6 +17,16 @@ function normalizeSubjectKey(raw?: string | null): string {
   if (s === "gonit" || s === "general math" || s === "সাধারণ গণিত" || s === "গণিত") {
     return "general math";
   }
+  if (
+    s === "practical" ||
+    s === "প্রাক্টিকাল" ||
+    s === "প্র্যাকটিক্যাল" ||
+    s.startsWith("প্রাক্টিকাল (") ||
+    s.startsWith("প্র্যাকটিক্যাল (") ||
+    s.startsWith("practical (")
+  ) {
+    return "practical";
+  }
   return s;
 }
 
@@ -104,24 +114,50 @@ export async function getSubjects() {
       }
     }
 
-    // B04 ফিক্স: ডুপ্লিকেট বিষয় (যেমন Practical দুইবার, English/Basic English, Gonit/General Math) একীভূত করা
-    // তবে বর্তমান মাদরাসার নিজস্ব রেকর্ড থাকলে তাকে অগ্রাধিকার দেওয়া
-    const sorted = [...rawList].sort((a, b) => {
+    // R2 (B04/B26): পুরনো সম্মিলিত "নাহবেমীর ও কাফিয়া"-এর কোড NAH-KAF করে দেওয়া যাতে আলাদা "নাহবেমীর" (NAH)-এর সাথে কোড সংঘর্ষ না হয়
+    const normalizedRaw = rawList.map((item) => {
+      const cleanName = String(item.name || "")
+        .normalize("NFC")
+        .replace(/\u09AF\u09BC/g, "\u09DF")
+        .trim();
+      if (cleanName.includes("নাহবেমীর") && cleanName.includes("কাফিয়া")) {
+        return {
+          ...item,
+          code: item.code === "NAH" || !item.code ? "NAH-KAF" : item.code,
+        };
+      }
+      return item;
+    });
+
+    // B04 ফিক্স: ডুপ্লিকেট বিষয় (যেমন প্রাক্টিকাল / প্রাক্টিকাল (আমলী), English/Basic English, Gonit/General Math) একীভূত করা
+    // তবে বর্তমান মাদরাসার নিজস্ব রেকর্ড এবং আলাদা "নাহবেমীর" (NAH) কোডকে অগ্রাধিকার দেওয়া
+    const sorted = [...normalizedRaw].sort((a, b) => {
       const aOwn = madrasaId && a.madrasa_id === madrasaId ? 0 : 1;
       const bOwn = madrasaId && b.madrasa_id === madrasaId ? 0 : 1;
       if (aOwn !== bOwn) return aOwn - bOwn;
+      const aHasParen = String(a.name || "").includes("(") ? 1 : 0;
+      const bHasParen = String(b.name || "").includes("(") ? 1 : 0;
+      if (aHasParen !== bHasParen) return bHasParen - aHasParen;
       const aHasMeta = (a.code ? 1 : 0) + (a.description ? 1 : 0);
       const bHasMeta = (b.code ? 1 : 0) + (b.description ? 1 : 0);
       return bHasMeta - aHasMeta;
     });
 
     const seenKeys = new Set<string>();
+    const usedCodes = new Set<string>();
     const deduped: any[] = [];
     for (const item of sorted) {
       const key = normalizeSubjectKey(item.name);
       if (!key || seenKeys.has(key)) continue;
       seenKeys.add(key);
-      deduped.push(item);
+
+      let finalCode = item.code ? String(item.code).trim().toUpperCase() : item.code;
+      if (finalCode && usedCodes.has(finalCode)) {
+        finalCode = `${finalCode}-2`;
+      }
+      if (finalCode) usedCodes.add(finalCode);
+
+      deduped.push({ ...item, code: finalCode });
     }
 
     return deduped.sort((a, b) =>
