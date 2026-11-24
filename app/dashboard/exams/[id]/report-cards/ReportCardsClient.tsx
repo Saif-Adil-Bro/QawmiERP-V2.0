@@ -53,11 +53,16 @@ export default function ReportCardsClient({
   const loadResults = async () => {
     if (!classId) return;
     setLoading(true);
-    const data = await getStudentReportCard(examId, classId);
-    // Sort by roll number naturally (১, ২, ৩... ১০, ১১) for consistent printing and listing
-    const rollSorted = sortStudentsByRoll(data);
-    setResults(rollSorted);
-    setLoading(false);
+    try {
+      const data = await getStudentReportCard(examId, classId);
+      // Sort by roll number naturally (১, ২, ৩... ১০, ১১) for consistent printing and listing
+      const rollSorted = sortStudentsByRoll(data);
+      setResults(rollSorted);
+    } catch (err) {
+      console.error("Failed to load report cards:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePrint = () => {

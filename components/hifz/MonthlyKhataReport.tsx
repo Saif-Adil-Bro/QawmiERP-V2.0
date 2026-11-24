@@ -94,7 +94,7 @@ export default function MonthlyKhataReport({
     border: "1px solid #0f172a",
     padding: "2px 3px",
     fontSize: "8.5pt",
-    fontWeight: 500,
+    fontWeight: 600,
     lineHeight: 1.2,
     textAlign: "center",
     verticalAlign: "middle",
@@ -129,7 +129,7 @@ export default function MonthlyKhataReport({
 
   return (
     <div
-      className={`khata-monthly-sheet bg-white text-slate-950 ${className}`}
+      className={`khata-monthly-sheet font-solaiman bg-white text-slate-950 ${className}`}
       style={{
         width: "210mm",
         height: "297mm",
@@ -140,7 +140,7 @@ export default function MonthlyKhataReport({
         flexDirection: "column",
         pageBreakAfter: "always",
         breakAfter: "page",
-        fontFamily: "'Noto Sans Bengali', 'Hind Siliguri', sans-serif",
+        fontFamily: "'SolaimanLipi', 'Hind Siliguri', sans-serif",
         backgroundColor: "#ffffff",
         color: "#0f172a",
       }}

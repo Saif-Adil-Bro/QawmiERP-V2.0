@@ -522,7 +522,8 @@ export async function generateMonthlyFees(params: {
     }
 
     revalidatePath("/dashboard/accounting");
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/generate");
     revalidatePath("/dashboard/accounting/reports");
@@ -1157,7 +1158,8 @@ export async function deleteStudentFee(feeId: string): Promise<{ success?: boole
       return { error: "ডাটাবেজে পরিবর্তন সংরক্ষণ করা যায়নি।" };
     }
 
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/fees");
     revalidatePath("/dashboard/accounting/generate");
@@ -1262,7 +1264,8 @@ export async function deleteGeneratedFeeBatch(params: {
       return { error: "ডাটাবেজে পরিবর্তন সংরক্ষণ করা যায়নি।" };
     }
 
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/fees");
     revalidatePath("/dashboard/accounting/generate");

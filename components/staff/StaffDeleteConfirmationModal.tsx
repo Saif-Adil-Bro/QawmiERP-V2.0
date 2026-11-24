@@ -34,14 +34,13 @@ export default function StaffDeleteConfirmationModal({
       const res = await deleteStaffMember(staff.id);
       if (res.error) {
         setError(res.error);
-        setIsDeleting(false);
       } else {
-        setIsDeleting(false);
         onDeleted();
         onClose();
       }
     } catch (err: any) {
       setError(err.message || "মুছে ফেলতে সমস্যা হয়েছে।");
+    } finally {
       setIsDeleting(false);
     }
   };

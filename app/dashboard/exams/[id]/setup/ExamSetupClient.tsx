@@ -112,19 +112,24 @@ function SetupForm({examId, exam, classes, classId, setClassId, readOnly, observ
     if (readOnly) return;
     setSavingDate(true);
     setDateSuccess(false);
-    const res = await updateExamDetails(examId, {
-      title: exam?.title,
-      year: exam?.year,
-      start_date: startDate || null,
-      end_date: endDate || null
-    });
-    setSavingDate(false);
-    if (res?.error) {
-      if ("code" in res) observeFailure(res.code);
-      alert("Error: " + res.error);
-    } else {
-      setDateSuccess(true);
-      setTimeout(() => setDateSuccess(false), 3000);
+    try {
+      const res = await updateExamDetails(examId, {
+        title: exam?.title,
+        year: exam?.year,
+        start_date: startDate || null,
+        end_date: endDate || null
+      });
+      if (res?.error) {
+        if ("code" in res) observeFailure(res.code);
+        alert("Error: " + res.error);
+      } else {
+        setDateSuccess(true);
+        setTimeout(() => setDateSuccess(false), 3000);
+      }
+    } catch (err: any) {
+      alert("Error: " + (err?.message || "তারিখ সংরক্ষণ করতে সমস্যা হয়েছে।"));
+    } finally {
+      setSavingDate(false);
     }
   };
 

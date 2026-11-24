@@ -105,27 +105,32 @@ export default function PaymentsClient({
     setIsSubmitting(true);
     setFeedback(null);
 
-    const res = await voidFeePayment(selectedPaymentForVoid.id, cancellationReason.trim());
-    setIsSubmitting(false);
+    try {
+      const res = await voidFeePayment(selectedPaymentForVoid.id, cancellationReason.trim());
 
-    if (res.success) {
-      setFeedback({ type: "success", text: res.message || "রসিদ সফলভাবে বাতিল (VOID) ও বকেয়া পুনর্বহাল করা হয়েছে।" });
-      setPayments((prev) =>
-        prev.map((p) =>
-          p.id === selectedPaymentForVoid.id
-            ? {
-                ...p,
-                status: "VOID",
-                cancellation_reason: cancellationReason.trim(),
-                reversal_reason: cancellationReason.trim(),
-                voided_at: new Date().toISOString(),
-              }
-            : p
-        )
-      );
-      setIsVoidModalOpen(false);
-    } else {
-      setFeedback({ type: "error", text: res.error || "রসিদ বাতিল করতে ব্যর্থ হয়েছে।" });
+      if (res.success) {
+        setFeedback({ type: "success", text: res.message || "রসিদ সফলভাবে বাতিল (VOID) ও বকেয়া পুনর্বহাল করা হয়েছে।" });
+        setPayments((prev) =>
+          prev.map((p) =>
+            p.id === selectedPaymentForVoid.id
+              ? {
+                  ...p,
+                  status: "VOID",
+                  cancellation_reason: cancellationReason.trim(),
+                  reversal_reason: cancellationReason.trim(),
+                  voided_at: new Date().toISOString(),
+                }
+              : p
+          )
+        );
+        setIsVoidModalOpen(false);
+      } else {
+        setFeedback({ type: "error", text: res.error || "রসিদ বাতিল করতে ব্যর্থ হয়েছে।" });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", text: err?.message || "রসিদ বাতিল করতে ব্যর্থ হয়েছে।" });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -144,24 +149,29 @@ export default function PaymentsClient({
     setIsSubmitting(true);
     setFeedback(null);
 
-    const res = await unvoidFeePayment(selectedPaymentForUnvoid.id, unvoidReason.trim() || "পুনরায় সক্রিয়");
-    setIsSubmitting(false);
+    try {
+      const res = await unvoidFeePayment(selectedPaymentForUnvoid.id, unvoidReason.trim() || "পুনরায় সক্রিয়");
 
-    if (res.success) {
-      setFeedback({ type: "success", text: res.message || "রসিদটি পুনরায় সক্রিয় করা হয়েছে।" });
-      setPayments((prev) =>
-        prev.map((p) =>
-          p.id === selectedPaymentForUnvoid.id
-            ? {
-                ...p,
-                status: "COMPLETED",
-              }
-            : p
-        )
-      );
-      setIsUnvoidModalOpen(false);
-    } else {
-      setFeedback({ type: "error", text: res.error || "পুনরায় সক্রিয় করতে সমস্যা হয়েছে।" });
+      if (res.success) {
+        setFeedback({ type: "success", text: res.message || "রসিদটি পুনরায় সক্রিয় করা হয়েছে।" });
+        setPayments((prev) =>
+          prev.map((p) =>
+            p.id === selectedPaymentForUnvoid.id
+              ? {
+                  ...p,
+                  status: "COMPLETED",
+                }
+              : p
+          )
+        );
+        setIsUnvoidModalOpen(false);
+      } else {
+        setFeedback({ type: "error", text: res.error || "পুনরায় সক্রিয় করতে সমস্যা হয়েছে।" });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", text: err?.message || "পুনরায় সক্রিয় করতে সমস্যা হয়েছে।" });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -169,15 +179,21 @@ export default function PaymentsClient({
     setIsSyncing(true);
     setFeedback(null);
 
-    const res = await syncFeesWithFunds();
-    setIsSyncing(false);
+    try {
+      const res = await syncFeesWithFunds();
 
-    if (res.success) {
-      setFeedback({ type: "success", text: res.message || "সকল ফি ও ফান্ড সফলভাবে সিঙ্ক হয়েছে!" });
-    } else {
-      setFeedback({ type: "error", text: res.error || "সিঙ্ক করতে ব্যর্থ হয়েছে।" });
+      if (res.success) {
+        setFeedback({ type: "success", text: res.message || "সকল ফি ও ফান্ড সফলভাবে সিঙ্ক হয়েছে!" });
+      } else {
+        setFeedback({ type: "error", text: res.error || "সিঙ্ক করতে ব্যর্থ হয়েছে।" });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", text: err?.message || "সিঙ্ক করতে ব্যর্থ হয়েছে।" });
+    } finally {
+      setIsSyncing(false);
     }
   };
+
 
   return (
     <div className="space-y-6">

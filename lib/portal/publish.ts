@@ -91,7 +91,7 @@ export async function publishExam(
     revalidatePath(`/dashboard/exams/${examId}/merit-list`);
     revalidatePath(`/dashboard/exams/${examId}/report-cards`);
     revalidatePath("/portal/exams");
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal");
 
     if (isPublished) {
       try {

@@ -105,36 +105,42 @@ function PublicAdmissionContent() {
     let isMounted = true;
     setIsLoadingMadrasa(true);
 
-    getMadrasaAdmissionProfile(madrasaParam).then((res) => {
-      if (!isMounted) return;
-      setCurrentMadrasa(res.selectedMadrasa);
-      setAvailableMadrasas(res.availableMadrasas || []);
-      setIsLoadingMadrasa(false);
-
-      // Fetch classes specifically for the resolved madrasa
-      getClasses(res.selectedMadrasa?.id).then((data) => {
+    getMadrasaAdmissionProfile(madrasaParam)
+      .then((res) => {
         if (!isMounted) return;
-        const clsList = curateClassList(data || []);
-        setClasses(clsList);
-        if (clsList.length > 0) {
-          const firstCls = clsList[0];
-          const isHifz = firstCls.name.includes("হিফজ") || firstCls.name.includes("নাজেরা");
-          const isKitab =
-            firstCls.name.includes("মিযান") ||
-            firstCls.name.includes("কিতাব") ||
-            firstCls.name.includes("সানাবিয়া") ||
-            firstCls.name.includes("দাওরা");
-          const cat = isHifz ? "hifz" : isKitab ? "kitab" : "general";
+        setCurrentMadrasa(res.selectedMadrasa);
+        setAvailableMadrasas(res.availableMadrasas || []);
 
-          setFormData((prev) => ({
-            ...prev,
-            target_class_id: firstCls.id,
-            target_class_name: firstCls.name,
-            department_category: cat,
-          }));
-        }
+        // Fetch classes specifically for the resolved madrasa
+        getClasses(res.selectedMadrasa?.id)
+          .then((data) => {
+            if (!isMounted) return;
+            const clsList = curateClassList(data || []);
+            setClasses(clsList);
+            if (clsList.length > 0) {
+              const firstCls = clsList[0];
+              const isHifz = firstCls.name.includes("হিফজ") || firstCls.name.includes("নাজেরা");
+              const isKitab =
+                firstCls.name.includes("মিযান") ||
+                firstCls.name.includes("কিতাব") ||
+                firstCls.name.includes("সানাবিয়া") ||
+                firstCls.name.includes("দাওরা");
+              const cat = isHifz ? "hifz" : isKitab ? "kitab" : "general";
+
+              setFormData((prev) => ({
+                ...prev,
+                target_class_id: firstCls.id,
+                target_class_name: firstCls.name,
+                department_category: cat,
+              }));
+            }
+          })
+          .catch(() => {});
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (isMounted) setIsLoadingMadrasa(false);
       });
-    });
 
     return () => {
       isMounted = false;
@@ -246,17 +252,22 @@ function PublicAdmissionContent() {
       return;
     }
 
-    const res = await submitAdmissionApplication({
-      ...formData,
-      madrasa_id: currentMadrasa?.id,
-      status: "PENDING", // By default stays in pending review
-    });
-    setIsSubmitting(false);
+    try {
+      const res = await submitAdmissionApplication({
+        ...formData,
+        madrasa_id: currentMadrasa?.id,
+        status: "PENDING", // By default stays in pending review
+      });
 
-    if (res.error) {
-      setErrorMessage(res.error);
-    } else {
-      setSubmissionSuccess(res);
+      if (res.error) {
+        setErrorMessage(res.error);
+      } else {
+        setSubmissionSuccess(res);
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || "আবেদন জমা দিতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -264,15 +275,20 @@ function PublicAdmissionContent() {
     e.preventDefault();
     if (!searchQuery.trim()) return;
     setIsSearching(true);
-    const res = await searchAdmissionPublic(searchQuery, currentMadrasa?.id);
-    setSearchResults(res.applications || []);
-    setSearchOtherInfo(
-      res.foundInOtherMadrasa
-        ? { foundInOtherMadrasa: true, otherMadrasaName: res.otherMadrasaName }
-        : null
-    );
-    setHasSearched(true);
-    setIsSearching(false);
+    try {
+      const res = await searchAdmissionPublic(searchQuery, currentMadrasa?.id);
+      setSearchResults(res.applications || []);
+      setSearchOtherInfo(
+        res.foundInOtherMadrasa
+          ? { foundInOtherMadrasa: true, otherMadrasaName: res.otherMadrasaName }
+          : null
+      );
+      setHasSearched(true);
+    } catch (err) {
+      console.error("Admission search failed:", err);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   return (

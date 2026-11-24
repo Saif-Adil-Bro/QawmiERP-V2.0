@@ -425,25 +425,17 @@ async function resolveGuardUncached(
   try {
     const verified = await getWebAppSession();
     if (!verified) return denied(UNAUTHENTICATED_ERROR, "UNAUTHENTICATED");
-    const {user,session} = verified;
+    const { user, session } = verified;
 
-    const adminClient = await createAdminClient();
-    const { data: userRow, error: userErr } = await adminClient
-      .from("users")
-      .select("madrasa_id, full_name, email, role")
-      .eq("id", user.id).eq("madrasa_id", session.madrasa_id)
-      .maybeSingle();
-
-    if (userErr) {
-      console.error(`writeGuard(${module}) — user row পড়া যায়নি:`, userErr);
-    }
-
-    const madrasaId = (userRow as any)?.madrasa_id as string | undefined;
+    const madrasaId = session.madrasa_id as string | undefined;
     if (!madrasaId) return denied(NO_MADRASA_ERROR, "NO_MADRASA");
 
     const policy = MODULE_POLICIES[module] || MODULE_POLICIES.generic;
 
-    if(policy.denyRoles?.includes(String(userRow?.role).toLowerCase()))return denied(policy.errorMessage || "অনুমতি নেই।","FORBIDDEN");
+    const sessionRole = (session as { role?: string }).role;
+    if (sessionRole && policy.denyRoles?.includes(sessionRole.toLowerCase())) {
+      return denied(policy.errorMessage || "অনুমতি নেই।", "FORBIDDEN");
+    }
 
     const result = await requirePermission({
       userId: user.id,
@@ -460,12 +452,11 @@ async function resolveGuardUncached(
 
     const actorName =
       result.context?.profile?.fullName ||
-      (userRow as any)?.full_name ||
       user.email ||
       "সিস্টেম ব্যবহারকারী";
     const actorEmail =
-      result.context?.profile?.email || (userRow as any)?.email || user.email || undefined;
-    const actorRole = result.context?.role || (userRow as any)?.role || undefined;
+      result.context?.profile?.email || user.email || undefined;
+    const actorRole = result.context?.role || undefined;
 
     if (!result.allowed) {
       if (result.stepUpRequired || result.errorCode === "STEP_UP_REQUIRED") {

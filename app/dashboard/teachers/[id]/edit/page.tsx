@@ -50,12 +50,12 @@ export default function EditTeacherPage() {
       const res = await deleteTeacher(id);
       if (res.error) {
         setDeleteError(res.error);
-        setIsDeleting(false);
       } else {
         router.push("/dashboard/staff");
       }
     } catch (err: any) {
       setDeleteError(err.message || "মুছে ফেলতে সমস্যা হয়েছে।");
+    } finally {
       setIsDeleting(false);
     }
   };

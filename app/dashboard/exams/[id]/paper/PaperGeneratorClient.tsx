@@ -397,94 +397,99 @@ export default function PaperGeneratorClient({
 
   const loadPaper = async () => {
     setLoading(true);
-    const paper = await getExamPaper(examId, classId, subjectId);
-    if (paper) {
-      setPaperTitle(paper.title);
-      setTotalMarks(paper.total_marks);
-      setExamName(paper.exam_name || exam.title || "");
-      setExamTime(paper.exam_time || "");
+    try {
+      const paper = await getExamPaper(examId, classId, subjectId);
+      if (paper) {
+        setPaperTitle(paper.title);
+        setTotalMarks(paper.total_marks);
+        setExamName(paper.exam_name || exam.title || "");
+        setExamTime(paper.exam_time || "");
 
-      const qData = paper.questions;
-      if (qData && typeof qData === "object" && !Array.isArray(qData)) {
-        if (qData.is_sectioned) {
-          setIsSectioned(true);
-          setNumberingScheme(qData.numbering_scheme || "continuous");
-          const loadedSections = qData.sections || [];
-          setSections(loadedSections);
-          if (loadedSections.length > 0) {
-            setActiveSectionId(loadedSections[0].id);
+        const qData = paper.questions;
+        if (qData && typeof qData === "object" && !Array.isArray(qData)) {
+          if (qData.is_sectioned) {
+            setIsSectioned(true);
+            setNumberingScheme(qData.numbering_scheme || "continuous");
+            const loadedSections = qData.sections || [];
+            setSections(loadedSections);
+            if (loadedSections.length > 0) {
+              setActiveSectionId(loadedSections[0].id);
+            }
           }
-        }
 
-        // Restore design config if saved previously
-        if (qData.design_config) {
-          const cfg = qData.design_config;
-          if (cfg.columnLayout) setColumnLayout(cfg.columnLayout);
-          if (cfg.columnDivider) setColumnDivider(cfg.columnDivider);
-          if (cfg.calligraphyStyle) setCalligraphyStyle(cfg.calligraphyStyle);
-          if (typeof cfg.showLogo === "boolean") setShowLogo(cfg.showLogo);
-          if (cfg.logoUrl !== undefined) setLogoUrl(cfg.logoUrl);
-          if (cfg.logoPosition) setLogoPosition(cfg.logoPosition);
-          if (cfg.logoSize) setLogoSize(cfg.logoSize);
-          if (cfg.borderStyle) setBorderStyle(cfg.borderStyle);
-          if (cfg.paperSize) setPaperSize(cfg.paperSize);
-          if (cfg.paperOrientation) setPaperOrientation(cfg.paperOrientation);
-          if (typeof cfg.compactSpacing === "boolean") setCompactSpacing(cfg.compactSpacing);
-          if (cfg.selectedFont) setSelectedFont(cfg.selectedFont);
-          if (cfg.customMadrasaName) setCustomMadrasaName(cfg.customMadrasaName);
-        }
+          // Restore design config if saved previously
+          if (qData.design_config) {
+            const cfg = qData.design_config;
+            if (cfg.columnLayout) setColumnLayout(cfg.columnLayout);
+            if (cfg.columnDivider) setColumnDivider(cfg.columnDivider);
+            if (cfg.calligraphyStyle) setCalligraphyStyle(cfg.calligraphyStyle);
+            if (typeof cfg.showLogo === "boolean") setShowLogo(cfg.showLogo);
+            if (cfg.logoUrl !== undefined) setLogoUrl(cfg.logoUrl);
+            if (cfg.logoPosition) setLogoPosition(cfg.logoPosition);
+            if (cfg.logoSize) setLogoSize(cfg.logoSize);
+            if (cfg.borderStyle) setBorderStyle(cfg.borderStyle);
+            if (cfg.paperSize) setPaperSize(cfg.paperSize);
+            if (cfg.paperOrientation) setPaperOrientation(cfg.paperOrientation);
+            if (typeof cfg.compactSpacing === "boolean") setCompactSpacing(cfg.compactSpacing);
+            if (cfg.selectedFont) setSelectedFont(cfg.selectedFont);
+            if (cfg.customMadrasaName) setCustomMadrasaName(cfg.customMadrasaName);
+          }
 
-        if (qData.last_blueprint) {
-          setLastGeneratedBlueprint(qData.last_blueprint);
+          if (qData.last_blueprint) {
+            setLastGeneratedBlueprint(qData.last_blueprint);
+          }
+        } else if (Array.isArray(qData)) {
+          // Legacy array of questions
+          setUnsectionedQuestions(qData);
+          const half = Math.ceil(qData.length / 2);
+          const sec1Questions = qData.slice(0, half);
+          const sec2Questions = qData.slice(half);
+          setSections([
+            {
+              id: "sec-1",
+              name: "ক-বিভাগ: কুরআন ও হাদিস",
+              instruction: "যেকোনো ৫টি প্রশ্নের উত্তর দাও",
+              targetMarks: Math.round(paper.total_marks / 2),
+              questions: sec1Questions
+            },
+            {
+              id: "sec-2",
+              name: "খ-বিভাগ: ফিকহ ও ফতোয়া",
+              instruction: "১ নং প্রশ্নসহ যেকোনো ৪টি লিখ",
+              targetMarks: Math.round(paper.total_marks / 2),
+              questions: sec2Questions
+            }
+          ]);
+          setActiveSectionId("sec-1");
         }
-      } else if (Array.isArray(qData)) {
-        // Legacy array of questions
-        setUnsectionedQuestions(qData);
-        const half = Math.ceil(qData.length / 2);
-        const sec1Questions = qData.slice(0, half);
-        const sec2Questions = qData.slice(half);
+      } else {
+        setPaperTitle(`${exam.title} - প্রশ্নপত্র`);
+        setTotalMarks(100);
+        setExamTime("২ ঘণ্টা ৩০ মিনিট");
         setSections([
           {
             id: "sec-1",
             name: "ক-বিভাগ: কুরআন ও হাদিস",
             instruction: "যেকোনো ৫টি প্রশ্নের উত্তর দাও",
-            targetMarks: Math.round(paper.total_marks / 2),
-            questions: sec1Questions
+            targetMarks: 50,
+            questions: []
           },
           {
             id: "sec-2",
             name: "খ-বিভাগ: ফিকহ ও ফতোয়া",
             instruction: "১ নং প্রশ্নসহ যেকোনো ৪টি লিখ",
-            targetMarks: Math.round(paper.total_marks / 2),
-            questions: sec2Questions
+            targetMarks: 50,
+            questions: []
           }
         ]);
+        setUnsectionedQuestions([]);
         setActiveSectionId("sec-1");
       }
-    } else {
-      setPaperTitle(`${exam.title} - প্রশ্নপত্র`);
-      setTotalMarks(100);
-      setExamTime("২ ঘণ্টা ৩০ মিনিট");
-      setSections([
-        {
-          id: "sec-1",
-          name: "ক-বিভাগ: কুরআন ও হাদিস",
-          instruction: "যেকোনো ৫টি প্রশ্নের উত্তর দাও",
-          targetMarks: 50,
-          questions: []
-        },
-        {
-          id: "sec-2",
-          name: "খ-বিভাগ: ফিকহ ও ফতোয়া",
-          instruction: "১ নং প্রশ্নসহ যেকোনো ৪টি লিখ",
-          targetMarks: 50,
-          questions: []
-        }
-      ]);
-      setUnsectionedQuestions([]);
-      setActiveSectionId("sec-1");
+    } catch (err) {
+      console.error("Failed to load exam paper:", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // Section Management Handlers

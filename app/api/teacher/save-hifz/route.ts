@@ -33,8 +33,14 @@ export async function POST(req: NextRequest) {
       },
       body,
     );
-    for (const path of ["/dashboard", "/portal", "/teacher-portal"])
-      revalidatePath(path, "layout");
+    for (const path of [
+      "/dashboard/hifz",
+      "/teacher-portal/hifz",
+      "/portal/academic",
+      "/portal",
+      "/teacher-portal",
+    ])
+      revalidatePath(path);
     return NextResponse.json({
       success: true,
       count: Array.isArray(data) ? data.length : 1,

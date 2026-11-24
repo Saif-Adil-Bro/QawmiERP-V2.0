@@ -89,71 +89,75 @@ export default function FeedbackClient({
     setIsSubmitting(true);
     setStatusMsg(null);
 
-    const selStudent = students.find((s) => s.id === selectedStudentId);
+    try {
+      const selStudent = students.find((s) => s.id === selectedStudentId);
 
-    const res = await createParentFeedback({
-      action_type: actionType,
-      category,
-      subject,
-      description,
-      student_id: selectedStudentId || undefined,
-      student_name: selStudent ? `${selStudent.first_name || ""} ${selStudent.last_name || ""}`.trim() : undefined,
-      student_roll: selStudent?.roll_number ? String(selStudent.roll_number) : undefined,
-      class_name: selStudent?.class_name || selStudent?.classes?.name,
-      guardian_name: guardianName || "সম্মানিত অভিভাবক",
-      guardian_phone: guardianPhone,
-      urgency,
-      target_person: targetPerson,
-      preferred_date: actionType === "APPOINTMENT" ? preferredDate : undefined,
-      preferred_time: actionType === "APPOINTMENT" ? preferredTime : undefined,
-    });
-
-    setIsSubmitting(false);
-
-    if (res.error) {
-      setStatusMsg({ type: "error", text: res.error });
-    } else {
-      setStatusMsg({ type: "success", text: "আপনার আবেদনটি সফলভাবে মাদরাসা কর্তৃপক্ষের নিকট প্রেরণ করা হয়েছে।" });
-      setIsModalOpen(false);
-
-      // Optimistically add to UI list
-      const newItem: ParentFeedbackItem = {
-        id: res.id || `fb-${Date.now()}`,
-        madrasa_id: "",
+      const res = await createParentFeedback({
         action_type: actionType,
-        type_bangla:
-          actionType === "COMPLAINT"
-            ? "অভিযোগ"
-            : actionType === "SUGGESTION"
-            ? "পরামর্শ"
-            : actionType === "APPOINTMENT"
-            ? "সাক্ষাতকার"
-            : "সাধারণ আবেদন",
         category,
         subject,
         description,
-        student_id: selectedStudentId,
-        student_name: selStudent ? `${selStudent.first_name || ""} ${selStudent.last_name || ""}`.trim() : "শিক্ষার্থী",
-        student_roll: selStudent?.roll_number ? String(selStudent.roll_number) : "",
-        class_name: selStudent?.class_name || selStudent?.classes?.name || "",
-        guardian_name: guardianName,
+        student_id: selectedStudentId || undefined,
+        student_name: selStudent ? `${selStudent.first_name || ""} ${selStudent.last_name || ""}`.trim() : undefined,
+        student_roll: selStudent?.roll_number ? String(selStudent.roll_number) : undefined,
+        class_name: selStudent?.class_name || selStudent?.classes?.name,
+        guardian_name: guardianName || "সম্মানিত অভিভাবক",
         guardian_phone: guardianPhone,
         urgency,
-        urgency_bangla: urgency === "Urgent" ? "অতি জরুরি" : urgency === "Important" ? "জরুরি" : "সাধারণ",
         target_person: targetPerson,
-        preferred_date: preferredDate,
-        preferred_time: preferredTime,
-        status: "PENDING",
-        status_bangla: "অপেক্ষমান",
-        created_at: new Date().toISOString(),
-      };
-      setFeedbacks([newItem, ...feedbacks]);
+        preferred_date: actionType === "APPOINTMENT" ? preferredDate : undefined,
+        preferred_time: actionType === "APPOINTMENT" ? preferredTime : undefined,
+      });
 
-      // Reset form
-      setSubject("");
-      setDescription("");
-      setPreferredDate("");
-      setPreferredTime("");
+      if (res.error) {
+        setStatusMsg({ type: "error", text: res.error });
+      } else {
+        setStatusMsg({ type: "success", text: "আপনার আবেদনটি সফলভাবে মাদরাসা কর্তৃপক্ষের নিকট প্রেরণ করা হয়েছে।" });
+        setIsModalOpen(false);
+
+        // Optimistically add to UI list
+        const newItem: ParentFeedbackItem = {
+          id: res.id || `fb-${Date.now()}`,
+          madrasa_id: "",
+          action_type: actionType,
+          type_bangla:
+            actionType === "COMPLAINT"
+              ? "অভিযোগ"
+              : actionType === "SUGGESTION"
+              ? "পরামর্শ"
+              : actionType === "APPOINTMENT"
+              ? "সাক্ষাতকার"
+              : "সাধারণ আবেদন",
+          category,
+          subject,
+          description,
+          student_id: selectedStudentId,
+          student_name: selStudent ? `${selStudent.first_name || ""} ${selStudent.last_name || ""}`.trim() : "শিক্ষার্থী",
+          student_roll: selStudent?.roll_number ? String(selStudent.roll_number) : "",
+          class_name: selStudent?.class_name || selStudent?.classes?.name || "",
+          guardian_name: guardianName,
+          guardian_phone: guardianPhone,
+          urgency,
+          urgency_bangla: urgency === "Urgent" ? "অতি জরুরি" : urgency === "Important" ? "জরুরি" : "সাধারণ",
+          target_person: targetPerson,
+          preferred_date: preferredDate,
+          preferred_time: preferredTime,
+          status: "PENDING",
+          status_bangla: "অপেক্ষমান",
+          created_at: new Date().toISOString(),
+        };
+        setFeedbacks([newItem, ...feedbacks]);
+
+        // Reset form
+        setSubject("");
+        setDescription("");
+        setPreferredDate("");
+        setPreferredTime("");
+      }
+    } catch (err: any) {
+      setStatusMsg({ type: "error", text: err?.message || "আবেদন প্রেরণ করতে সমস্যা হয়েছে।" });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

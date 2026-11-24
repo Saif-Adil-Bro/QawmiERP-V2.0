@@ -47,11 +47,15 @@ export default function MeritListClient({
 
   const loadResults = async () => {
     setLoading(true);
-    const data = await getStudentReportCard(examId, classId || undefined);
-    
-    const sortedData = data.filter(s=>s.merit_position != null).sort((a,b)=>a.merit_position! - b.merit_position!);
-    setResults(sortedData);
-    setLoading(false);
+    try {
+      const data = await getStudentReportCard(examId, classId || undefined);
+      const sortedData = data.filter(s=>s.merit_position != null).sort((a,b)=>a.merit_position! - b.merit_position!);
+      setResults(sortedData);
+    } catch (err) {
+      console.error("Failed to load merit list:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePrint = () => {

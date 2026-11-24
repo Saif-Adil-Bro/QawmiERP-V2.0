@@ -122,25 +122,30 @@ export default function SessionsClient({
     setFormError("");
     setLoading(true);
 
-    const formData = new FormData();
-    formData.append("name", formName);
-    formData.append("academic_year", formAcademicYear);
-    formData.append("hijri_year", formHijriYear);
-    formData.append("start_date", formStartDate);
-    formData.append("end_date", formEndDate);
-    formData.append("is_current", formIsCurrent ? "true" : "false");
-    formData.append("description", formDescription);
+    try {
+      const formData = new FormData();
+      formData.append("name", formName);
+      formData.append("academic_year", formAcademicYear);
+      formData.append("hijri_year", formHijriYear);
+      formData.append("start_date", formStartDate);
+      formData.append("end_date", formEndDate);
+      formData.append("is_current", formIsCurrent ? "true" : "false");
+      formData.append("description", formDescription);
 
-    const res = await createAcademicSession(null, formData);
-    setLoading(false);
+      const res = await createAcademicSession(null, formData);
 
-    if (res.error) {
-      setFormError(res.error);
-    } else {
-      setCreateModalOpen(false);
-      showFeedback("success", `"${formName}" সফলভাবে তৈরি হয়েছে!`);
-      await refreshSessions();
-      router.refresh();
+      if (res.error) {
+        setFormError(res.error);
+      } else {
+        setCreateModalOpen(false);
+        showFeedback("success", `"${formName}" সফলভাবে তৈরি হয়েছে!`);
+        await refreshSessions();
+        router.refresh();
+      }
+    } catch (err: any) {
+      setFormError(err?.message || "শিক্ষাবর্ষ তৈরি করতে সমস্যা হয়েছে।");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -151,43 +156,53 @@ export default function SessionsClient({
     setFormError("");
     setLoading(true);
 
-    const formData = new FormData();
-    formData.append("id", selectedSession.id);
-    formData.append("name", formName);
-    formData.append("academic_year", formAcademicYear);
-    formData.append("hijri_year", formHijriYear);
-    formData.append("start_date", formStartDate);
-    formData.append("end_date", formEndDate);
-    formData.append("is_current", formIsCurrent ? "true" : "false");
-    formData.append("status", selectedSession.status);
-    formData.append("description", formDescription);
+    try {
+      const formData = new FormData();
+      formData.append("id", selectedSession.id);
+      formData.append("name", formName);
+      formData.append("academic_year", formAcademicYear);
+      formData.append("hijri_year", formHijriYear);
+      formData.append("start_date", formStartDate);
+      formData.append("end_date", formEndDate);
+      formData.append("is_current", formIsCurrent ? "true" : "false");
+      formData.append("status", selectedSession.status);
+      formData.append("description", formDescription);
 
-    const res = await updateAcademicSession(null, formData);
-    setLoading(false);
+      const res = await updateAcademicSession(null, formData);
 
-    if (res.error) {
-      setFormError(res.error);
-    } else {
-      setEditModalOpen(false);
-      showFeedback("success", `"${formName}" সফলভাবে আপডেট হয়েছে!`);
-      await refreshSessions();
-      router.refresh();
+      if (res.error) {
+        setFormError(res.error);
+      } else {
+        setEditModalOpen(false);
+        showFeedback("success", `"${formName}" সফলভাবে আপডেট হয়েছে!`);
+        await refreshSessions();
+        router.refresh();
+      }
+    } catch (err: any) {
+      setFormError(err?.message || "শিক্ষাবর্ষ আপডেট করতে সমস্যা হয়েছে।");
+    } finally {
+      setLoading(false);
     }
   };
 
   // Set Current Session
   const handleSetCurrent = async (session: AcademicSession) => {
     setLoading(true);
-    const res = await setCurrentAcademicSession(session.id);
-    setLoading(false);
+    try {
+      const res = await setCurrentAcademicSession(session.id);
 
-    if (res.error) {
-      showFeedback("error", res.error);
-    } else {
-      showFeedback("success", res.message || `"${session.name}" বর্তমান সেশন হিসেবে সেট করা হয়েছে।`);
-      await changeSelectedSession(session.id);
-      await refreshSessions();
-      router.refresh();
+      if (res.error) {
+        showFeedback("error", res.error);
+      } else {
+        showFeedback("success", res.message || `"${session.name}" বর্তমান সেশন হিসেবে সেট করা হয়েছে।`);
+        await changeSelectedSession(session.id);
+        await refreshSessions();
+        router.refresh();
+      }
+    } catch (err: any) {
+      showFeedback("error", err?.message || "বর্তমান সেশন সেট করতে সমস্যা হয়েছে।");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -195,31 +210,41 @@ export default function SessionsClient({
   const handleArchiveConfirm = async () => {
     if (!selectedSession) return;
     setLoading(true);
-    const res = await archiveAcademicSession(selectedSession.id);
-    setLoading(false);
-    setArchiveModalOpen(false);
+    try {
+      const res = await archiveAcademicSession(selectedSession.id);
+      setArchiveModalOpen(false);
 
-    if (res.error) {
-      showFeedback("error", res.error);
-    } else {
-      showFeedback("success", res.message || `"${selectedSession.name}" আর্কাইভ করা হয়েছে।`);
-      await refreshSessions();
-      router.refresh();
+      if (res.error) {
+        showFeedback("error", res.error);
+      } else {
+        showFeedback("success", res.message || `"${selectedSession.name}" আর্কাইভ করা হয়েছে।`);
+        await refreshSessions();
+        router.refresh();
+      }
+    } catch (err: any) {
+      showFeedback("error", err?.message || "শিক্ষাবর্ষ আর্কাইভ করতে সমস্যা হয়েছে।");
+    } finally {
+      setLoading(false);
     }
   };
 
   // Unarchive Session
   const handleUnarchive = async (session: AcademicSession) => {
     setLoading(true);
-    const res = await unarchiveAcademicSession(session.id);
-    setLoading(false);
+    try {
+      const res = await unarchiveAcademicSession(session.id);
 
-    if (res.error) {
-      showFeedback("error", res.error);
-    } else {
-      showFeedback("success", res.message || `"${session.name}" সক্রিয় করা হয়েছে।`);
-      await refreshSessions();
-      router.refresh();
+      if (res.error) {
+        showFeedback("error", res.error);
+      } else {
+        showFeedback("success", res.message || `"${session.name}" সক্রিয় করা হয়েছে।`);
+        await refreshSessions();
+        router.refresh();
+      }
+    } catch (err: any) {
+      showFeedback("error", err?.message || "শিক্ষাবর্ষ সক্রিয় করতে সমস্যা হয়েছে।");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -227,30 +252,40 @@ export default function SessionsClient({
   const handleDeleteConfirm = async () => {
     if (!selectedSession) return;
     setLoading(true);
-    const res = await deleteAcademicSession(selectedSession.id);
-    setLoading(false);
-    setDeleteModalOpen(false);
+    try {
+      const res = await deleteAcademicSession(selectedSession.id);
+      setDeleteModalOpen(false);
 
-    if (res.error) {
-      showFeedback("error", res.error);
-    } else {
-      showFeedback("success", res.message || "শিক্ষাবর্ষটি মুছে ফেলা হয়েছে।");
-      await refreshSessions();
-      router.refresh();
+      if (res.error) {
+        showFeedback("error", res.error);
+      } else {
+        showFeedback("success", res.message || "শিক্ষাবর্ষটি মুছে ফেলা হয়েছে।");
+        await refreshSessions();
+        router.refresh();
+      }
+    } catch (err: any) {
+      showFeedback("error", err?.message || "শিক্ষাবর্ষ মুছে ফেলতে সমস্যা হয়েছে।");
+    } finally {
+      setLoading(false);
     }
   };
 
   // Sync unlinked students
   const handleSyncStudents = async () => {
     setLoading(true);
-    const res = await syncExistingStudentsWithCurrentSession();
-    setLoading(false);
+    try {
+      const res = await syncExistingStudentsWithCurrentSession();
 
-    if (res.error) {
-      showFeedback("error", res.error);
-    } else {
-      showFeedback("success", res.message || "শিক্ষার্থীদের ডাটা সিঙ্ক সম্পন্ন হয়েছে।");
-      router.refresh();
+      if (res.error) {
+        showFeedback("error", res.error);
+      } else {
+        showFeedback("success", res.message || "শিক্ষার্থীদের ডাটা সিঙ্ক সম্পন্ন হয়েছে।");
+        router.refresh();
+      }
+    } catch (err: any) {
+      showFeedback("error", err?.message || "ডাটা সিঙ্ক করতে সমস্যা হয়েছে।");
+    } finally {
+      setLoading(false);
     }
   };
 

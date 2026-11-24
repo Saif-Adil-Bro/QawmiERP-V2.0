@@ -123,7 +123,10 @@ export default function HifzReportPrintModal({
           @page { size: 210mm 148mm; margin: 0; }
           html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
           body * { visibility: hidden !important; }
-          #khata-print-root, #khata-print-root * { visibility: visible !important; }
+          #khata-print-root, #khata-print-root * {
+            visibility: visible !important;
+            font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
+          }
           #khata-print-root {
             position: fixed !important;
             inset: 0 !important;
@@ -143,7 +146,10 @@ export default function HifzReportPrintModal({
           @page { size: 210mm 297mm; margin: 0; }
           html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
           body * { visibility: hidden !important; }
-          #khata-print-root, #khata-print-root * { visibility: visible !important; }
+          #khata-print-root, #khata-print-root * {
+            visibility: visible !important;
+            font-family: 'SolaimanLipi', 'Hind Siliguri', sans-serif !important;
+          }
           #khata-print-root {
             position: fixed !important;
             inset: 0 !important;

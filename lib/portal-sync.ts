@@ -22,6 +22,30 @@ export interface PortalSyncResult {
 }
 export type SyncProgressCallback = (percent: number, label: string) => void;
 const pulls = new Map<string, Promise<PortalSyncResult>>();
+
+export async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isNetworkOrTimeoutError(e: unknown): boolean {
+  if (e instanceof TypeError) return true;
+  if (e && typeof e === "object" && "name" in e) {
+    const name = String((e as { name?: unknown }).name);
+    if (name === "AbortError" || name === "TimeoutError") return true;
+  }
+  return false;
+}
+
 export function initialFullSync(
   portal: PortalSyncType,
   options?: {
@@ -68,7 +92,7 @@ export function initialFullSync(
         if (process.env.NEXT_PUBLIC_MOBILE_API_KEY)
           headers["x-api-key"] = process.env.NEXT_PUBLIC_MOBILE_API_KEY;
       }
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         apiUrl(
           `${native ? `/api/mobile/portal/${portal}` : "/api/portal/snapshot"}?${params}`,
         ),
@@ -77,6 +101,7 @@ export function initialFullSync(
           credentials: native ? "omit" : "include",
           cache: "no-store",
         },
+        25000,
       );
       if (res.status === 401 || res.status === 403)
         await db.clearPrivatePortalData();
@@ -210,15 +235,19 @@ export async function postTeacherEntry(
       throw new Error("অ্যাকাউন্ট বদলেছে।");
     ensureWritable?.();
     try {
-      const res = await fetch(apiUrl(endpoint), {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Qawmi-Sync-Owner": expectedOwner,
+      const res = await fetchWithTimeout(
+        apiUrl(endpoint),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Qawmi-Sync-Owner": expectedOwner,
+          },
+          body: JSON.stringify(payload),
         },
-        body: JSON.stringify(payload),
-      });
+        12000,
+      );
       const json = await res.json();
       if (!res.ok || !json.success)
         throw new TeacherEntryError(
@@ -229,7 +258,7 @@ export async function postTeacherEntry(
         throw new Error("অ্যাকাউন্ট বদলেছে।");
       return { success: true, offlineQueued: false, error: "" };
     } catch (e) {
-      if (!(e instanceof TypeError)) throw e;
+      if (!isNetworkOrTimeoutError(e)) throw e;
     }
   }
   if (expectedOwner !== ownerKey(browserSession()))
@@ -276,16 +305,19 @@ export async function processOfflineOutbox() {
       if (!claimed) break;
       try {
         if (ownerKey(browserSession()) !== owner) break;
-        const res = await fetch(apiUrl(item.endpoint), {
-          signal: AbortSignal.timeout(45000),
-          method: item.method,
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Qawmi-Sync-Owner": owner,
+        const res = await fetchWithTimeout(
+          apiUrl(item.endpoint),
+          {
+            method: item.method,
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Qawmi-Sync-Owner": owner,
+            },
+            body: JSON.stringify(item.payload),
           },
-          body: JSON.stringify(item.payload),
-        });
+          45000,
+        );
         const response = await res.json();
         if (!res.ok || !response.success) {
           if (

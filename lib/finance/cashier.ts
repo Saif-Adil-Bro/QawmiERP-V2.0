@@ -12,6 +12,7 @@ import { requirePermission } from "@/lib/permissions-server";
 import { submitWorkflowHookApproval } from "@/lib/approval-workflow";
 import { logAuditEvent } from "@/lib/audit-log";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { postingError } from "./funds";
 import { planReceipt, type CashierInput } from "./fee-plan";
 import { toDhakaDateString } from "@/lib/date-utils";
@@ -282,7 +283,7 @@ export async function cashierPayment(
 
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/fees");
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/receipts");
     revalidatePath("/dashboard/accounting/payments");
@@ -290,22 +291,29 @@ export async function cashierPayment(
     revalidatePath("/portal/fees");
 
     // Non-blocking webhook event for payment confirmation (Feature 2.4)
+    const sendWebhook = async () => {
+      try {
+        const { dispatchWebhookEvent } =
+          await import("@/lib/webhooks/dispatcher");
+        await dispatchWebhookEvent(madrasaId, "payment.confirmed", {
+          payment_id: newPayment.id,
+          receipt_no: receiptNo,
+          student_id: paymentData.student_id,
+          student_name: newPayment.student_name,
+          class_name: newPayment.class_name,
+          amount: newPayment.total_amount_received,
+          payment_method: newPayment.payment_method,
+          payment_date: paymentDate,
+          status: newPayment.status,
+        });
+      } catch {
+        // non-blocking webhook dispatch
+      }
+    };
     try {
-      const { dispatchWebhookEvent } =
-        await import("@/lib/webhooks/dispatcher");
-      await dispatchWebhookEvent(madrasaId, "payment.confirmed", {
-        payment_id: newPayment.id,
-        receipt_no: receiptNo,
-        student_id: paymentData.student_id,
-        student_name: newPayment.student_name,
-        class_name: newPayment.class_name,
-        amount: newPayment.total_amount_received,
-        payment_method: newPayment.payment_method,
-        payment_date: paymentDate,
-        status: newPayment.status,
-      });
+      after(sendWebhook);
     } catch {
-      // non-blocking webhook dispatch
+      void sendWebhook();
     }
 
     return {

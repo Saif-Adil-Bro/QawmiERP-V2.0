@@ -186,19 +186,24 @@ export default function InventoryClient({
     if (!formData.name.trim()) return;
     setIsLoading(true);
 
-    const catObj = ASSET_CATEGORIES.find((c) => c.id === formData.category);
-    const res = await createAssetItem({
-      ...formData,
-      category_name: catObj?.name || formData.category,
-    });
-    setIsLoading(false);
+    try {
+      const catObj = ASSET_CATEGORIES.find((c) => c.id === formData.category);
+      const res = await createAssetItem({
+        ...formData,
+        category_name: catObj?.name || formData.category,
+      });
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else if (res.item) {
-      setItems([res.item, ...items]);
-      setShowCreateModal(false);
-      showNotification("success", `নতুন সম্পদ সংরক্ষিত হয়েছে! কোড: ${res.item.asset_code}`);
+      if (res.error) {
+        showNotification("error", res.error);
+      } else if (res.item) {
+        setItems([res.item, ...items]);
+        setShowCreateModal(false);
+        showNotification("success", `নতুন সম্পদ সংরক্ষিত হয়েছে! কোড: ${res.item.asset_code}`);
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "সম্পদ সংরক্ষণ করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -207,49 +212,64 @@ export default function InventoryClient({
     if (!selectedItem) return;
     setIsLoading(true);
 
-    const catObj = ASSET_CATEGORIES.find((c) => c.id === formData.category);
-    const res = await updateAssetItem(selectedItem.id, {
-      ...formData,
-      category_name: catObj?.name || formData.category,
-    });
-    setIsLoading(false);
+    try {
+      const catObj = ASSET_CATEGORIES.find((c) => c.id === formData.category);
+      const res = await updateAssetItem(selectedItem.id, {
+        ...formData,
+        category_name: catObj?.name || formData.category,
+      });
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else if (res.item) {
-      setItems(items.map((i) => (i.id === selectedItem.id ? res.item! : i)));
-      setShowEditModal(false);
-      showNotification("success", "সম্পদের তথ্য সফলভাবে হালনাগাদ করা হয়েছে।");
+      if (res.error) {
+        showNotification("error", res.error);
+      } else if (res.item) {
+        setItems(items.map((i) => (i.id === selectedItem.id ? res.item! : i)));
+        setShowEditModal(false);
+        showNotification("success", "সম্পদের তথ্য সফলভাবে হালনাগাদ করা হয়েছে।");
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "সম্পদের তথ্য হালনাগাদ করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleDeleteItem = async (id: string, name: string) => {
     if (!confirm(`আপনি কি নিশ্চিত যে "${name}" স্থায়ীভাবে মুছে ফেলতে চান?`)) return;
     setIsLoading(true);
-    const res = await deleteAssetItem(id);
-    setIsLoading(false);
+    try {
+      const res = await deleteAssetItem(id);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else {
-      setItems(items.filter((i) => i.id !== id));
-      setAllocations(allocations.filter((a) => a.asset_id !== id));
-      showNotification("success", "সম্পদ সফলভাবে মুছে ফেলা হয়েছে।");
+      if (res.error) {
+        showNotification("error", res.error);
+      } else {
+        setItems(items.filter((i) => i.id !== id));
+        setAllocations(allocations.filter((a) => a.asset_id !== id));
+        showNotification("success", "সম্পদ সফলভাবে মুছে ফেলা হয়েছে।");
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "সম্পদ মুছে ফেলতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleArchiveToggle = async (id: string) => {
     setIsLoading(true);
-    const res = await archiveAssetItem(id);
-    setIsLoading(false);
+    try {
+      const res = await archiveAssetItem(id);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else {
-      setItems(
-        items.map((i) => (i.id === id ? { ...i, is_archived: res.is_archived } : i))
-      );
-      showNotification("success", res.is_archived ? "সম্পদ আর্কাইভে সরানো হয়েছে।" : "সম্পদ সক্রিয় তালিকায় পুনরুদ্ধার করা হয়েছে।");
+      if (res.error) {
+        showNotification("error", res.error);
+      } else {
+        setItems(
+          items.map((i) => (i.id === id ? { ...i, is_archived: res.is_archived } : i))
+        );
+        showNotification("success", res.is_archived ? "সম্পদ আর্কাইভে সরানো হয়েছে।" : "সম্পদ সক্রিয় তালিকায় পুনরুদ্ধার করা হয়েছে।");
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "আর্কাইভ পরিবর্তন করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -258,57 +278,67 @@ export default function InventoryClient({
     if (!allocationFormData.asset_id || !allocationFormData.location_or_room) return;
     setIsLoading(true);
 
-    const res = await allocateAsset(allocationFormData);
-    setIsLoading(false);
+    try {
+      const res = await allocateAsset(allocationFormData);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else if (res.allocation) {
-      setAllocations([res.allocation, ...allocations]);
-      // Update local item stocks
-      setItems(
-        items.map((i) =>
-          i.id === allocationFormData.asset_id
-            ? {
-                ...i,
-                in_stock_qty: Math.max(0, i.in_stock_qty - allocationFormData.quantity),
-                allocated_qty: i.allocated_qty + allocationFormData.quantity,
-              }
-            : i
-        )
-      );
-      setShowAllocateModal(false);
-      showNotification(
-        "success",
-        `বরাদ্দ সম্পন্ন হয়েছে! ${res.allocation.location_or_room}-এ ${toBanglaNumber(res.allocation.quantity)}টি বরাদ্দ প্রদান করা হয়েছে।`
-      );
+      if (res.error) {
+        showNotification("error", res.error);
+      } else if (res.allocation) {
+        setAllocations([res.allocation, ...allocations]);
+        // Update local item stocks
+        setItems(
+          items.map((i) =>
+            i.id === allocationFormData.asset_id
+              ? {
+                  ...i,
+                  in_stock_qty: Math.max(0, i.in_stock_qty - allocationFormData.quantity),
+                  allocated_qty: i.allocated_qty + allocationFormData.quantity,
+                }
+              : i
+          )
+        );
+        setShowAllocateModal(false);
+        showNotification(
+          "success",
+          `বরাদ্দ সম্পন্ন হয়েছে! ${res.allocation.location_or_room}-এ ${toBanglaNumber(res.allocation.quantity)}টি বরাদ্দ প্রদান করা হয়েছে।`
+        );
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "বরাদ্দ প্রদান করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleReturnAllocation = async (allocationId: string, allocQty: number, assetId: string) => {
     if (!confirm(`আপনি কি এই বরাদ্দটি (${toBanglaNumber(allocQty)}টি) ফেরত নিতে চান?`)) return;
     setIsLoading(true);
-    const res = await returnAssetAllocation(allocationId);
-    setIsLoading(false);
+    try {
+      const res = await returnAssetAllocation(allocationId);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else {
-      setAllocations(
-        allocations.map((a) => (a.id === allocationId ? { ...a, status: "RETURNED" } : a))
-      );
-      setItems(
-        items.map((i) =>
-          i.id === assetId
-            ? {
-                ...i,
-                in_stock_qty: i.in_stock_qty + allocQty,
-                allocated_qty: Math.max(0, i.allocated_qty - allocQty),
-              }
-            : i
-        )
-      );
-      showNotification("success", "সম্পদ সফলভাবে স্টকে ফেরত নেওয়া হয়েছে।");
+      if (res.error) {
+        showNotification("error", res.error);
+      } else {
+        setAllocations(
+          allocations.map((a) => (a.id === allocationId ? { ...a, status: "RETURNED" } : a))
+        );
+        setItems(
+          items.map((i) =>
+            i.id === assetId
+              ? {
+                  ...i,
+                  in_stock_qty: i.in_stock_qty + allocQty,
+                  allocated_qty: Math.max(0, i.allocated_qty - allocQty),
+                }
+              : i
+          )
+        );
+        showNotification("success", "সম্পদ সফলভাবে স্টকে ফেরত নেওয়া হয়েছে।");
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "সম্পদ ফেরত নিতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -317,34 +347,44 @@ export default function InventoryClient({
     if (!maintenanceFormData.asset_id || !maintenanceFormData.work_done) return;
     setIsLoading(true);
 
-    const res = await recordMaintenance(maintenanceFormData);
-    setIsLoading(false);
+    try {
+      const res = await recordMaintenance(maintenanceFormData);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else if (res.record) {
-      setMaintenance([res.record, ...maintenance]);
-      setShowMaintenanceModal(false);
-      showNotification(
-        "success",
-        `রক্ষণাবেক্ষণ খরচ (${toBanglaNumber(res.record.cost)} ৳) সফলভাবে সংরক্ষিত হয়েছে${
-          res.record.auto_add_to_expense ? " এবং মাদরাসার খরচ খাতে যুক্ত হয়েছে" : ""
-        }!`
-      );
+      if (res.error) {
+        showNotification("error", res.error);
+      } else if (res.record) {
+        setMaintenance([res.record, ...maintenance]);
+        setShowMaintenanceModal(false);
+        showNotification(
+          "success",
+          `রক্ষণাবেক্ষণ খরচ (${toBanglaNumber(res.record.cost)} ৳) সফলভাবে সংরক্ষিত হয়েছে${
+            res.record.auto_add_to_expense ? " এবং মাদরাসার খরচ খাতে যুক্ত হয়েছে" : ""
+          }!`
+        );
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "রক্ষণাবেক্ষণ রেকর্ড সংরক্ষণ করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleDeleteMaintenance = async (id: string) => {
     if (!confirm("আপনি কি এই মেরামত রেকর্ডটি মুছে ফেলতে চান?")) return;
     setIsLoading(true);
-    const res = await deleteMaintenance(id);
-    setIsLoading(false);
+    try {
+      const res = await deleteMaintenance(id);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else {
-      setMaintenance(maintenance.filter((m) => m.id !== id));
-      showNotification("success", "মেরামত রেকর্ড মুছে ফেলা হয়েছে।");
+      if (res.error) {
+        showNotification("error", res.error);
+      } else {
+        setMaintenance(maintenance.filter((m) => m.id !== id));
+        showNotification("success", "মেরামত রেকর্ড মুছে ফেলা হয়েছে।");
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "মেরামত রেকর্ড মুছে ফেলতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 

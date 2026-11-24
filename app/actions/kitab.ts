@@ -130,8 +130,9 @@ export async function createKitabLog(prevState: any, formData: FormData) {
     }
   }
 
-  revalidatePath("/dashboard", "layout");
   revalidatePath("/dashboard/kitab");
+  revalidatePath("/teacher-portal/kitab");
+  revalidatePath("/portal/academic");
   return { success: true };
 }
 
@@ -228,8 +229,9 @@ export async function updateKitabLog(prevState: any, formData: FormData) {
     }
   }
 
-  revalidatePath("/dashboard", "layout");
   revalidatePath("/dashboard/kitab");
+  revalidatePath("/teacher-portal/kitab");
+  revalidatePath("/portal/academic");
   return { success: true };
 }
 
@@ -262,7 +264,8 @@ export async function deleteKitabLog(logId: string, studentId?: string) {
     }
   }
 
-  revalidatePath("/dashboard", "layout");
   revalidatePath("/dashboard/kitab");
+  revalidatePath("/teacher-portal/kitab");
+  revalidatePath("/portal/academic");
   return { success: true };
 }

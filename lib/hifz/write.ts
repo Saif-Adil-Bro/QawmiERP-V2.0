@@ -98,24 +98,53 @@ async function saveDaily(
     member(c, r.student_id);
     students.add(r.student_id);
   }
-  const profiles = await storedRows(c.db, c.tenant, "profile", [...students]);
-  const written = [];
+  const studentList = [...students];
+  const date = body.current_date;
+
+  // Pre-fetch profiles and existing logs for this date in parallel (1 round-trip instead of N)
+  const [profiles, preloadedOldMap] = await Promise.all([
+    storedRows(c.db, c.tenant, "profile", studentList),
+    (async () => {
+      const map = new Map<string, any>();
+      if (options.editId) return map;
+      for (let pos = 0; pos < studentList.length; pos += 100) {
+        const chunkIds = studentList.slice(pos, pos + 100);
+        const r = await c.db
+          .from("hifz_logs")
+          .select("*")
+          .eq("madrasa_id", c.tenant)
+          .eq("log_date", date)
+          .in("student_id", chunkIds);
+        if (r.error) throw r.error;
+        for (const row of r.data || []) {
+          map.set(row.student_id, row);
+        }
+      }
+      return map;
+    })(),
+  ]);
+
+  const stale = () =>
+    new EntryError(
+      "লগটি পরিবর্তিত হয়েছে। সর্বশেষ এন্ট্রি দেখে আবার সংরক্ষণ করুন।",
+      409,
+    );
+
+  const written: any[] = [];
+  const preparedWrites: Array<{
+    record: any;
+    old: any;
+    revision: string | undefined;
+    row: any;
+  }> = [];
+
   for (const record of records) {
-    const date = body.current_date;
     let old: any;
     if (options.editId) {
       old = await findDaily(c, options.editId);
       if (old.student_id !== record.student_id) throw denied();
     } else {
-      const q = c.db
-        .from("hifz_logs")
-        .select("*")
-        .eq("madrasa_id", c.tenant)
-        .eq("student_id", record.student_id)
-        .eq("log_date", date);
-      const r = await q.maybeSingle();
-      if (r.error) throw r.error;
-      old = r.data;
+      old = preloadedOldMap.get(record.student_id) ?? null;
     }
     if (
       (record.existing_id && record.existing_id !== old?.id) ||
@@ -132,11 +161,6 @@ async function saveDaily(
       written.push(old);
       continue;
     }
-    const stale = () =>
-      new EntryError(
-        "লগটি পরিবর্তিত হয়েছে। সর্বশেষ এন্ট্রি দেখে আবার সংরক্ষণ করুন।",
-        409,
-      );
     if (
       "expected_revision" in record &&
       (record.expected_revision !== (revision ?? null) ||
@@ -169,35 +193,91 @@ async function saveDaily(
       log_date: date,
       teacher_id: c.teacherId || old?.teacher_id || null,
     };
-    const write = (r: any) => {
-      const q = c.db.from("hifz_logs");
-      if (!old) return q.insert(r).select("*").maybeSingle();
-      const update = q
-        .update(r)
-        .eq("id", old.id)
-        .eq("madrasa_id", c.tenant)
-        .eq("student_id", record.student_id);
-      // Never put the plaintext comment in a query string. The version marker
-      // gives us a CAS even on a pre-migration notes-only installation.
-      const scoped = revision
-        ? update.like("notes", `%"entry_revision":"${revision}"%`)
-        : old.notes == null
-          ? update.is("notes", null)
-          : update.not("notes", "like", '%"entry_revision":%');
-      return scoped.select("*").maybeSingle();
-    };
-    let result = await write(row);
-    if (schemaMissing(result.error)) {
-      const legacy = { ...row };
-      for (const k of Object.keys(dailyDefaults)) delete legacy[k];
-      result = await write(legacy);
-    }
-    if (result.error?.code === "23505" || (!result.error && !result.data))
-      throw stale();
-    if (result.error) throw result.error;
-    written.push(result.data);
-    await auditHifz(c, old ? "daily.edit" : "daily.create", result.data.id);
+    preparedWrites.push({ record, old, revision, row });
   }
+
+  const stripLegacyCols = (r: any) => {
+    const legacy = { ...r };
+    for (const k of Object.keys(dailyDefaults)) delete legacy[k];
+    return legacy;
+  };
+
+  const newInserts = preparedWrites.filter((item) => !item.old);
+  const existingUpdates = preparedWrites.filter((item) => !!item.old);
+
+  // Fast bulk INSERT for all brand-new daily logs (1 query instead of N)
+  if (newInserts.length > 1) {
+    const rowsToInsert = newInserts.map((item) => item.row);
+    let bulkRes = await c.db.from("hifz_logs").insert(rowsToInsert).select("*");
+    if (schemaMissing(bulkRes.error)) {
+      bulkRes = await c.db
+        .from("hifz_logs")
+        .insert(rowsToInsert.map(stripLegacyCols))
+        .select("*");
+    }
+    if (bulkRes.error?.code === "23505") throw stale();
+    if (bulkRes.error) throw bulkRes.error;
+    const insertedByStudent = new Map<string, any>(
+      (bulkRes.data || []).map((r: any) => [r.student_id, r]),
+    );
+    for (const item of newInserts) {
+      const data = insertedByStudent.get(item.record.student_id);
+      if (!data) throw stale();
+      written.push(data);
+    }
+  }
+
+  // Execute single insert (if exactly 1) and CAS updates (in parallel batches of 10)
+  const singleWrites =
+    newInserts.length === 1 ? [...newInserts, ...existingUpdates] : existingUpdates;
+
+  for (let i = 0; i < singleWrites.length; i += 10) {
+    const batch = singleWrites.slice(i, i + 10);
+    const batchResults = await Promise.all(
+      batch.map(async ({ record, old, revision, row }) => {
+        const write = (r: any) => {
+          const q = c.db.from("hifz_logs");
+          if (!old) return q.insert(r).select("*").maybeSingle();
+          const update = q
+            .update(r)
+            .eq("id", old.id)
+            .eq("madrasa_id", c.tenant)
+            .eq("student_id", record.student_id);
+          // Never put the plaintext comment in a query string. The version marker
+          // gives us a CAS even on a pre-migration notes-only installation.
+          const scoped = revision
+            ? update.like("notes", `%"entry_revision":"${revision}"%`)
+            : old.notes == null
+              ? update.is("notes", null)
+              : update.not("notes", "like", '%"entry_revision":%');
+          return scoped.select("*").maybeSingle();
+        };
+        let result = await write(row);
+        if (schemaMissing(result.error)) {
+          result = await write(stripLegacyCols(row));
+        }
+        if (result.error?.code === "23505" || (!result.error && !result.data))
+          throw stale();
+        if (result.error) throw result.error;
+        return result.data;
+      }),
+    );
+    written.push(...batchResults);
+  }
+
+  // Single audit write per saveDaily call instead of N serial audit round-trips
+  if (preparedWrites.length === 1) {
+    const only = preparedWrites[0];
+    const savedRow = written[written.length - 1];
+    await auditHifz(
+      c,
+      only.old ? "daily.edit" : "daily.create",
+      savedRow?.id || only.record.student_id,
+    );
+  } else if (preparedWrites.length > 1) {
+    await auditHifz(c, "daily.bulk_save", `${date}:${preparedWrites.length}`);
+  }
+
   return written;
 }
 export async function writeHifz(

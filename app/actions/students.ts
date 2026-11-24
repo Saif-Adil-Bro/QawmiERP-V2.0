@@ -5,7 +5,7 @@ import {rows} from '@/lib/portal/queries';
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
-import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
+import { createClient, createAdminClient, getAuthUser, getWebAppSession } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import {
   getMadrasaMetadata,
@@ -173,8 +173,12 @@ export async function getStudentById(id: string) {
 
 export async function getAuthMadrasaId(supabase?: any, user?: any): Promise<string> {
   try {
-    user = await getAuthUser(await createClient()); // Never accept a client-supplied identity.
-    if (!user) return '';
+    const verified = await getWebAppSession(await createClient());
+    if (!verified?.user) return "";
+    if (verified.session?.madrasa_id) {
+      return verified.session.madrasa_id;
+    }
+    user = verified.user; // Never accept a client-supplied identity.
     const adminClient = await createAdminClient();
 
     // 1. Try getting user's madrasa_id from users table using adminClient

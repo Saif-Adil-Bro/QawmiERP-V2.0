@@ -1,8 +1,8 @@
-import { matchesSyncOwner } from "@/lib/portal/teacher-entry";
+import { matchesSyncOwner, verifyRoster } from "@/lib/portal/teacher-entry";
 import { NextResponse } from "next/server";
 import { saveAttendance } from "@/app/actions/attendance";
 import { webIdentity } from "@/lib/portal/identity";
-import { verifyRoster } from "@/lib/portal/teacher-entry";
+
 export async function POST(req: Request) {
   if (!(await matchesSyncOwner(req)))
     return NextResponse.json(
@@ -26,7 +26,9 @@ export async function POST(req: Request) {
       { error: "শিক্ষার্থী বরাদ্দকৃত জামাতের নয়।" },
       { status: 403 },
     );
-  const result = await saveAttendance(records[0].date, records);
+  const result = await saveAttendance(records[0].date, records, {
+    rosterVerifiedForTenant: i.tenant,
+  });
   return NextResponse.json(
     { ...result, count: result.error ? 0 : records.length },
     { status: result.error ? 400 : 200 },

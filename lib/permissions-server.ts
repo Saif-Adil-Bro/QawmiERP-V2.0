@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { readJsonStore } from "@/lib/madrasa-store";
@@ -70,6 +71,16 @@ export interface RequirePermissionOptions {
   actionScope?: string;
 }
 
+const loadRequestUserRow = cache(async (userId: string) => {
+  const adminClient = await createAdminClient();
+  const { data } = await adminClient
+    .from("users")
+    .select("*")
+    .eq("id", userId)
+    .maybeSingle();
+  return data;
+});
+
 /**
  * Loads the effective permission context for a user on the server.
  * Status SUSPENDED/DISABLED হলে সব পারমিশন খালি হয়ে যায় (calculateEffectivePermissions ইতিমধ্যেই তা করে)।
@@ -81,18 +92,12 @@ export async function loadServerPermissions(
   if (!userId || !madrasaId) return null;
 
   try {
-    const adminClient = await createAdminClient();
-
-    const { data: userRow } = await adminClient
-      .from("users")
-      .select("*")
-      .eq("id", userId)
-      .maybeSingle();
+    const userRow = await loadRequestUserRow(userId);
 
     if (!userRow || userRow.madrasa_id !== madrasaId) return null;
-    const role = userRow.role || 'staff';
+    const role = userRow.role || "staff";
 
-    const store = await readJsonStore(madrasaId, "security",true);
+    const store = await readJsonStore(madrasaId, "security", true);
     const customRoles: RoleDefinition[] = store.custom_roles || [];
     const allRoles = [...DEFAULT_SYSTEM_ROLES, ...customRoles];
 

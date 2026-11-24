@@ -47,8 +47,10 @@ export async function addNotice(formData: FormData) {
   }
 
   revalidatePath("/dashboard/communication/notices");
-  revalidatePath("/portal", "layout");
-  revalidatePath("/teacher-portal", "layout");
+  revalidatePath("/portal/notices");
+  revalidatePath("/portal");
+  revalidatePath("/teacher-portal/notices");
+  revalidatePath("/teacher-portal");
 }
 
 export async function deleteNotice(id: string) {
@@ -67,8 +69,10 @@ export async function deleteNotice(id: string) {
   }
 
   revalidatePath("/dashboard/communication/notices");
-  revalidatePath("/portal", "layout");
-  revalidatePath("/teacher-portal", "layout");
+  revalidatePath("/portal/notices");
+  revalidatePath("/portal");
+  revalidatePath("/teacher-portal/notices");
+  revalidatePath("/teacher-portal");
 }
 
 export async function getServerOutboundIP(): Promise<string> {

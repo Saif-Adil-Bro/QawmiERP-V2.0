@@ -225,59 +225,74 @@ export default function StaffProfileView({
   const handleTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsTransferring(true);
-    const deptObj = departments.find((d) => d.id === transferDeptId);
-    const res = await transferStaffMember({
-      staffId: staff.id,
-      newDepartmentId: transferDeptId,
-      newDepartmentName: deptObj?.name || "বিভাগ",
-      effectiveDate: transferDate,
-      reason: transferReason || "প্রশাসনিক স্থানান্তর",
-    });
-    setIsTransferring(false);
-    if (res.success) {
-      setShowTransferModal(false);
-      onRefresh();
-    } else {
-      alert(res.error);
+    try {
+      const deptObj = departments.find((d) => d.id === transferDeptId);
+      const res = await transferStaffMember({
+        staffId: staff.id,
+        newDepartmentId: transferDeptId,
+        newDepartmentName: deptObj?.name || "বিভাগ",
+        effectiveDate: transferDate,
+        reason: transferReason || "প্রশাসনিক স্থানান্তর",
+      });
+      if (res.success) {
+        setShowTransferModal(false);
+        onRefresh();
+      } else {
+        alert(res.error || "স্থানান্তর সম্পন্ন করা যায়নি।");
+      }
+    } catch (err: any) {
+      alert(err?.message || "স্থানান্তর সম্পন্ন করা যায়নি।");
+    } finally {
+      setIsTransferring(false);
     }
   };
 
   const handleStatusSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsChangingStatus(true);
-    const res = await changeStaffStatus({
-      staffId: staff.id,
-      status: newStatus,
-      effectiveDate: statusDate,
-      reason: statusReason || "প্রশাসনিক সিদ্ধান্ত",
-    });
-    setIsChangingStatus(false);
-    if (res.success) {
-      setShowStatusModal(false);
-      onRefresh();
-    } else {
-      alert(res.error);
+    try {
+      const res = await changeStaffStatus({
+        staffId: staff.id,
+        status: newStatus,
+        effectiveDate: statusDate,
+        reason: statusReason || "প্রশাসনিক সিদ্ধান্ত",
+      });
+      if (res.success) {
+        setShowStatusModal(false);
+        onRefresh();
+      } else {
+        alert(res.error || "স্ট্যাটাস পরিবর্তন করা যায়নি।");
+      }
+    } catch (err: any) {
+      alert(err?.message || "স্ট্যাটাস পরিবর্তন করা যায়নি।");
+    } finally {
+      setIsChangingStatus(false);
     }
   };
 
   const handleLeaveSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmittingLeave(true);
-    const res = await submitStaffLeaveRequest({
-      staffId: staff.id,
-      leaveType,
-      leaveTypeNameBn: LEAVE_TYPE_LABELS[leaveType] || "ছুটি",
-      startDate: leaveStart,
-      endDate: leaveEnd,
-      totalDays: Number(leaveDays),
-      reason: leaveReason || "ব্যক্তিগত ছুটির আবেদন",
-    });
-    setIsSubmittingLeave(false);
-    if (res.success) {
-      setShowLeaveModal(false);
-      onRefresh();
-    } else {
-      alert(res.error);
+    try {
+      const res = await submitStaffLeaveRequest({
+        staffId: staff.id,
+        leaveType,
+        leaveTypeNameBn: LEAVE_TYPE_LABELS[leaveType] || "ছুটি",
+        startDate: leaveStart,
+        endDate: leaveEnd,
+        totalDays: Number(leaveDays),
+        reason: leaveReason || "ব্যক্তিগত ছুটির আবেদন",
+      });
+      if (res.success) {
+        setShowLeaveModal(false);
+        onRefresh();
+      } else {
+        alert(res.error || "ছুটির আবেদন জমা দেওয়া যায়নি।");
+      }
+    } catch (err: any) {
+      alert(err?.message || "ছুটির আবেদন জমা দেওয়া যায়নি।");
+    } finally {
+      setIsSubmittingLeave(false);
     }
   };
 
@@ -285,18 +300,23 @@ export default function StaffProfileView({
     e.preventDefault();
     if (!showPayModal) return;
     setIsProcessingPayment(true);
-    const res = await processSalaryPayment({
-      recordId: showPayModal.id,
-      paymentMethod,
-      transactionRef: paymentTxRef,
-      remarks: paymentRemarks,
-    });
-    setIsProcessingPayment(false);
-    if (res.success) {
-      setShowPayModal(null);
-      onRefresh();
-    } else {
-      alert(res.error);
+    try {
+      const res = await processSalaryPayment({
+        recordId: showPayModal.id,
+        paymentMethod,
+        transactionRef: paymentTxRef,
+        remarks: paymentRemarks,
+      });
+      if (res.success) {
+        setShowPayModal(null);
+        onRefresh();
+      } else {
+        alert(res.error || "বেতন পরিশোধ সম্পন্ন করা যায়নি।");
+      }
+    } catch (err: any) {
+      alert(err?.message || "বেতন পরিশোধ সম্পন্ন করা যায়নি।");
+    } finally {
+      setIsProcessingPayment(false);
     }
   };
 
@@ -307,21 +327,26 @@ export default function StaffProfileView({
       return;
     }
     setIsUploadingDoc(true);
-    const res = await addStaffDocument({
-      staffId: staff.id,
-      title: docTitle,
-      documentType: docType,
-      fileUrl: docUrl,
-      expiryDate: docExpiry || undefined,
-    });
-    setIsUploadingDoc(false);
-    if (res.success) {
-      setShowDocModal(false);
-      setDocTitle("");
-      setDocUrl("");
-      onRefresh();
-    } else {
-      alert(res.error);
+    try {
+      const res = await addStaffDocument({
+        staffId: staff.id,
+        title: docTitle,
+        documentType: docType,
+        fileUrl: docUrl,
+        expiryDate: docExpiry || undefined,
+      });
+      if (res.success) {
+        setShowDocModal(false);
+        setDocTitle("");
+        setDocUrl("");
+        onRefresh();
+      } else {
+        alert(res.error || "ডকুমেন্ট যুক্ত করা যায়নি।");
+      }
+    } catch (err: any) {
+      alert(err?.message || "ডকুমেন্ট যুক্ত করা যায়নি।");
+    } finally {
+      setIsUploadingDoc(false);
     }
   };
 

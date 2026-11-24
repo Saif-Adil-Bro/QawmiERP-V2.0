@@ -74,8 +74,9 @@ export default function BazarExpensesPage() {
       if (fundsList && fundsList.length > 0) setFunds(fundsList);
     } catch (e) {
       console.error("Error loading bazar expenses:", e);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -90,8 +91,9 @@ export default function BazarExpensesPage() {
       setFormVoucherNo(nextVoucher);
     } catch (e) {
       setFormVoucherNo(''); // Server must verify the real series; never invent a printable number.
+    } finally {
+      setGeneratingVoucher(false);
     }
-    setGeneratingVoucher(false);
   };
 
   const handleOpenAddForm = async () => {
@@ -137,43 +139,48 @@ export default function BazarExpensesPage() {
     setSubmitting(true);
     setMessage(null);
 
-    const selectedFundObj = funds.find(f => f.id === formFundId);
+    try {
+      const selectedFundObj = funds.find(f => f.id === formFundId);
 
-    const expensePayload = {
-      id: editingId || undefined,
-      voucher_no: formVoucherNo.trim(),
-      amount: Number(formAmount),
-      expense_date: formDate,
-      buyer_name: formBuyerName.trim(),
-      payment_method: formPaymentMethod,
-      fund_id: formFundId,
-      fund_name: selectedFundObj?.name,
-      items_details: formDetails,
-    };
+      const expensePayload = {
+        id: editingId || undefined,
+        voucher_no: formVoucherNo.trim(),
+        amount: Number(formAmount),
+        expense_date: formDate,
+        buyer_name: formBuyerName.trim(),
+        payment_method: formPaymentMethod,
+        fund_id: formFundId,
+        fund_name: selectedFundObj?.name,
+        items_details: formDetails,
+      };
 
-    const res = await saveBazarExpense(expensePayload);
+      const res = await saveBazarExpense(expensePayload);
 
-    if (res.error) {
-      setMessage({ type: "error", text: res.error });
-    } else {
-      setMessage({
-        type: "success",
-        text: editingId
-          ? `বাজার খরচ (${expensePayload.voucher_no || "ভাউচার"}) সফলভাবে আপডেট হয়েছে!`
-          : `নতুন বাজার খরচ ভাউচার (${expensePayload.voucher_no}) সফলভাবে তৈরি হয়েছে!`,
-      });
-      setIsFormOpen(false);
-      await loadExpenses();
+      if (res.error) {
+        setMessage({ type: "error", text: res.error });
+      } else {
+        setMessage({
+          type: "success",
+          text: editingId
+            ? `বাজার খরচ (${expensePayload.voucher_no || "ভাউচার"}) সফলভাবে আপডেট হয়েছে!`
+            : `নতুন বাজার খরচ ভাউচার (${expensePayload.voucher_no}) সফলভাবে তৈরি হয়েছে!`,
+        });
+        setIsFormOpen(false);
+        await loadExpenses();
 
-      // Open print voucher preview if newly created
-      if (res.expense) {
-        setActiveVoucherExpense(res.expense);
-        setIsVoucherModalOpen(true);
+        // Open print voucher preview if newly created
+        if (res.expense) {
+          setActiveVoucherExpense(res.expense);
+          setIsVoucherModalOpen(true);
+        }
+
+        setTimeout(() => setMessage(null), 4000);
       }
-
-      setTimeout(() => setMessage(null), 4000);
+    } catch (err: any) {
+      setMessage({ type: "error", text: err?.message || "বাজার খরচ সংরক্ষণ করতে সমস্যা হয়েছে।" });
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   const handleDelete = async (id: string, voucherNo?: string) => {

@@ -108,34 +108,38 @@ export default function AdminFeedbackClient({
     if (!respondItem) return;
 
     setIsSubmitting(true);
-    const res = await updateParentFeedbackStatus({
-      id: respondItem.id,
-      status: newStatus,
-      official_response: officialResponse,
-      responded_by: respondedBy,
-      notifyViaSMS: notifyViaSMS,
-    });
+    try {
+      const res = await updateParentFeedbackStatus({
+        id: respondItem.id,
+        status: newStatus,
+        official_response: officialResponse,
+        responded_by: respondedBy,
+        notifyViaSMS: notifyViaSMS,
+      });
 
-    setIsSubmitting(false);
-
-    if (res.error) {
-      setAlertMsg({ type: "error", text: res.error });
-    } else {
-      setAlertMsg({ type: "success", text: "অভিযোগ/পরামর্শের সমাধান সফলভাবে আপডেট করা হয়েছে!" });
-      setFeedbacks((prev) =>
-        prev.map((f) =>
-          f.id === respondItem.id
-            ? {
-                ...f,
-                status: newStatus,
-                official_response: officialResponse,
-                responded_by: respondedBy,
-                responded_at: new Date().toISOString(),
-              }
-            : f
-        )
-      );
-      setRespondItem(null);
+      if (res.error) {
+        setAlertMsg({ type: "error", text: res.error });
+      } else {
+        setAlertMsg({ type: "success", text: "অভিযোগ/পরামর্শের সমাধান সফলভাবে আপডেট করা হয়েছে!" });
+        setFeedbacks((prev) =>
+          prev.map((f) =>
+            f.id === respondItem.id
+              ? {
+                  ...f,
+                  status: newStatus,
+                  official_response: officialResponse,
+                  responded_by: respondedBy,
+                  responded_at: new Date().toISOString(),
+                }
+              : f
+          )
+        );
+        setRespondItem(null);
+      }
+    } catch (err: any) {
+      setAlertMsg({ type: "error", text: err?.message || "সমাধান আপডেট করতে সমস্যা হয়েছে।" });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -147,56 +151,60 @@ export default function AdminFeedbackClient({
     }
 
     setIsSubmitting(true);
-    const selStudent = students.find((s) => s.id === manualStudentId);
+    try {
+      const selStudent = students.find((s) => s.id === manualStudentId);
 
-    const res = await createParentFeedback({
-      action_type: manualType,
-      category: manualCategory,
-      subject: manualSubject,
-      description: manualDescription,
-      student_id: manualStudentId || undefined,
-      student_name: selStudent ? `${selStudent.first_name || ""} ${selStudent.last_name || ""}`.trim() : undefined,
-      student_roll: selStudent?.roll_number ? String(selStudent.roll_number) : undefined,
-      class_name: selStudent?.class_name || selStudent?.classes?.name,
-      guardian_name: manualGuardianName || "অফিস এন্ট্রি",
-      guardian_phone: manualGuardianPhone || selStudent?.parent_phone || "",
-      urgency: manualUrgency,
-    });
-
-    setIsSubmitting(false);
-
-    if (res.error) {
-      setAlertMsg({ type: "error", text: res.error });
-    } else {
-      setAlertMsg({ type: "success", text: "নতুন অভিযোগ/পরামর্শ সফলভাবে যোগ করা হয়েছে!" });
-      setIsCreateModalOpen(false);
-
-      const newItem: ParentFeedbackItem = {
-        id: res.id || `fb-${Date.now()}`,
-        madrasa_id: "",
+      const res = await createParentFeedback({
         action_type: manualType,
-        type_bangla: manualType === "COMPLAINT" ? "অভিযোগ" : manualType === "SUGGESTION" ? "পরামর্শ" : "সাক্ষাতকার",
         category: manualCategory,
         subject: manualSubject,
         description: manualDescription,
-        student_id: manualStudentId,
-        student_name: selStudent ? `${selStudent.first_name} ${selStudent.last_name}` : "শিক্ষার্থী",
-        student_roll: selStudent?.roll_number ? String(selStudent.roll_number) : "",
+        student_id: manualStudentId || undefined,
+        student_name: selStudent ? `${selStudent.first_name || ""} ${selStudent.last_name || ""}`.trim() : undefined,
+        student_roll: selStudent?.roll_number ? String(selStudent.roll_number) : undefined,
+        class_name: selStudent?.class_name || selStudent?.classes?.name,
         guardian_name: manualGuardianName || "অফিস এন্ট্রি",
-        guardian_phone: manualGuardianPhone || "",
+        guardian_phone: manualGuardianPhone || selStudent?.parent_phone || "",
         urgency: manualUrgency,
-        urgency_bangla: manualUrgency === "Urgent" ? "অতি জরুরি" : "সাধারণ",
-        status: "PENDING",
-        status_bangla: "অপেক্ষমান",
-        created_at: new Date().toISOString(),
-      };
-      setFeedbacks([newItem, ...feedbacks]);
+      });
 
-      // Reset
-      setManualSubject("");
-      setManualDescription("");
-      setManualGuardianName("");
-      setManualGuardianPhone("");
+      if (res.error) {
+        setAlertMsg({ type: "error", text: res.error });
+      } else {
+        setAlertMsg({ type: "success", text: "নতুন অভিযোগ/পরামর্শ সফলভাবে যোগ করা হয়েছে!" });
+        setIsCreateModalOpen(false);
+
+        const newItem: ParentFeedbackItem = {
+          id: res.id || `fb-${Date.now()}`,
+          madrasa_id: "",
+          action_type: manualType,
+          type_bangla: manualType === "COMPLAINT" ? "অভিযোগ" : manualType === "SUGGESTION" ? "পরামর্শ" : "সাক্ষাতকার",
+          category: manualCategory,
+          subject: manualSubject,
+          description: manualDescription,
+          student_id: manualStudentId,
+          student_name: selStudent ? `${selStudent.first_name} ${selStudent.last_name}` : "শিক্ষার্থী",
+          student_roll: selStudent?.roll_number ? String(selStudent.roll_number) : "",
+          guardian_name: manualGuardianName || "অফিস এন্ট্রি",
+          guardian_phone: manualGuardianPhone || "",
+          urgency: manualUrgency,
+          urgency_bangla: manualUrgency === "Urgent" ? "অতি জরুরি" : "সাধারণ",
+          status: "PENDING",
+          status_bangla: "অপেক্ষমান",
+          created_at: new Date().toISOString(),
+        };
+        setFeedbacks([newItem, ...feedbacks]);
+
+        // Reset
+        setManualSubject("");
+        setManualDescription("");
+        setManualGuardianName("");
+        setManualGuardianPhone("");
+      }
+    } catch (err: any) {
+      setAlertMsg({ type: "error", text: err?.message || "অভিযোগ/পরামর্শ যোগ করতে সমস্যা হয়েছে।" });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

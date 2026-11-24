@@ -148,8 +148,14 @@ export async function getMonthlyHifzSummary(
   };
 }
 function refresh() {
-  for (const path of ["/dashboard", "/teacher-portal", "/portal"])
-    revalidatePath(path, "layout");
+  for (const path of [
+    "/dashboard/hifz",
+    "/teacher-portal/hifz",
+    "/portal/academic",
+    "/portal",
+    "/teacher-portal",
+  ])
+    revalidatePath(path);
 }
 const failure = (e: unknown) => ({
   error:

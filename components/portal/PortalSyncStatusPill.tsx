@@ -42,7 +42,7 @@ export default function PortalSyncStatusPill({ portalType }: PortalSyncStatusPil
   return (
     <button
       type="button"
-      onClick={() => isOnline && !isSyncing && triggerBackgroundSync()}
+      onClick={() => isOnline && !isSyncing && triggerBackgroundSync({ force: true, refreshOnSuccess: true })}
       disabled={!isOnline || isSyncing}
       title={
         isOnline
