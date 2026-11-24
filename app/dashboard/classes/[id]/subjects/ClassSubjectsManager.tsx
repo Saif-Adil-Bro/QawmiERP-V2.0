@@ -6,9 +6,14 @@ import {
   ArrowLeft, BookOpen, Layers, PlusCircle, Trash2, 
   RefreshCw, AlertCircle, CheckCircle2, BookmarkCheck, ArrowRight, UserCheck
 } from "lucide-react";
-import { assignSubjectToClass, removeSubjectFromClass } from "@/app/actions/class_subjects";
 import { setClassSubjectTeacher } from "@/app/actions/teacher_subjects";
 import type { AvailableTeacher } from "@/app/actions/classes";
+import {
+  acquireSaveGuard,
+  hasActiveSaveGuards,
+  installGlobalSaveGuardListeners,
+} from "@/lib/save-guard";
+import { normalizeSubjectKey } from "@/lib/subject-catalog";
 
 interface SubjectItem {
   id: string;
@@ -29,12 +34,20 @@ interface TeacherSubjectMapItem {
   teacher_id: string;
   class_id: string;
   subject_id: string;
-  teachers?: {
-    id: string;
-    first_name?: string;
-    last_name?: string;
-    designation?: string;
-  } | null;
+  teachers?:
+    | {
+        id?: string;
+        first_name?: string;
+        last_name?: string;
+        designation?: string;
+      }
+    | Array<{
+        id?: string;
+        first_name?: string;
+        last_name?: string;
+        designation?: string;
+      }>
+    | null;
 }
 
 interface ClassSubjectsManagerProps {
@@ -77,29 +90,35 @@ export default function ClassSubjectsManager({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const pendingRef = useRef(false);
+  const submittingRef = useRef(false);
+  const releaseGuardRef = useRef<(() => void) | null>(null);
 
-  const setSaveGuardActive = (active: boolean) => {
-    pendingRef.current = active;
-    if (typeof window !== "undefined") {
-      if (active) {
-        window.onbeforeunload = (e: BeforeUnloadEvent) => {
-          e.preventDefault();
-          e.returnValue = "বিষয় বণ্টন সেভ হচ্ছে। এখনই পেজ রিলোড করবেন না।";
-          return "বিষয় বণ্টন সেভ হচ্ছে। এখনই পেজ রিলোড করবেন না।";
-        };
-      } else {
-        window.onbeforeunload = null;
-      }
+  const armSaveGuard = (label = "class-subjects") => {
+    pendingRef.current = true;
+    if (!releaseGuardRef.current) {
+      releaseGuardRef.current = acquireSaveGuard(label);
     }
   };
 
-  // R1 (B25) ফিক্স: মাউন্ট থাকাকালীন সবসময় সক্রিয় গার্ড (pendingRef দিয়ে তাৎক্ষণিক চেক)
+  const disarmSaveGuard = () => {
+    pendingRef.current = false;
+    submittingRef.current = false;
+    if (releaseGuardRef.current) {
+      const rel = releaseGuardRef.current;
+      releaseGuardRef.current = null;
+      rel();
+    }
+  };
+
+  // S2 (R1 / B25) ফিক্স: শেল + কম্পোনেন্ট উভয় স্তরে সক্রিয় beforeunload গার্ড
   useEffect(() => {
+    installGlobalSaveGuardListeners();
+
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!pendingRef.current) return;
+      if (!pendingRef.current && !hasActiveSaveGuards()) return;
       e.preventDefault();
-      e.returnValue = "বিষয় বণ্টন সেভ হচ্ছে। এখনই পেজ রিলোড করবেন না।";
-      return "বিষয় বণ্টন সেভ হচ্ছে। এখনই পেজ রিলোড করবেন না।";
+      e.returnValue = "";
+      return "";
     };
     const handleClickCapture = (e: MouseEvent) => {
       if (!pendingRef.current) return;
@@ -128,27 +147,36 @@ export default function ClassSubjectsManager({
         });
       }
     };
-    window.addEventListener("beforeunload", handleBeforeUnload, { capture: true });
+    window.addEventListener("beforeunload", handleBeforeUnload);
     window.addEventListener("click", handleClickCapture, { capture: true });
     window.addEventListener("keydown", handleKeyDownCapture, { capture: true });
     return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload, { capture: true });
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("click", handleClickCapture, { capture: true });
       window.removeEventListener("keydown", handleKeyDownCapture, { capture: true });
-      window.onbeforeunload = null;
+      disarmSaveGuard();
     };
   }, []);
 
-  // Derive unassigned subjects list
-  const unassignedSubjects = allSubjects.filter(
-    (sub) => !assigned.some((as) => as.subject_id === sub.id)
+  // Derive unassigned subjects list (matching both UUID and normalized subject key)
+  const assignedKeys = new Set(
+    assigned
+      .map((as) => normalizeSubjectKey(as.subjects?.name))
+      .filter(Boolean),
   );
+  const unassignedSubjects = allSubjects.filter((sub) => {
+    if (assigned.some((as) => as.subject_id === sub.id)) return false;
+    const key = normalizeSubjectKey(sub.name);
+    if (key && assignedKeys.has(key)) return false;
+    return true;
+  });
 
   const handleTeacherChange = async (subjectId: string, teacherId: string, subjectName: string) => {
     const prevTeacherId = subjectTeachers[subjectId] || "";
     setSubjectTeachers((prev) => ({ ...prev, [subjectId]: teacherId }));
     setSavingTeacherForSubject(subjectId);
-    setSaveGuardActive(true);
+    submittingRef.current = true;
+    armSaveGuard("class-subject-teacher");
     setToast(null);
     try {
       const res = await setClassSubjectTeacher(classId, subjectId, teacherId || null);
@@ -171,23 +199,27 @@ export default function ClassSubjectsManager({
       setToast({ type: "error", message: err.message || "বিষয় শিক্ষক নির্ধারণ করতে সমস্যা হয়েছে।" });
     } finally {
       setSavingTeacherForSubject(null);
-      setSaveGuardActive(false);
+      disarmSaveGuard();
     }
   };
 
   const handleAssign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSubjectId) {
+      disarmSaveGuard();
       setToast({ type: "error", message: "অনুগ্রহ করে একটি বিষয়/কিতাব নির্বাচন করুন" });
       return;
     }
 
     const subToAssign = allSubjects.find((s) => s.id === selectedSubjectId);
-    if (!subToAssign) return;
+    if (!subToAssign) {
+      disarmSaveGuard();
+      return;
+    }
 
     const teacherToAssign = selectedTeacherId;
-
-    setSaveGuardActive(true);
+    submittingRef.current = true;
+    armSaveGuard("class-subject-assign");
     setIsPending(true);
     setToast(null);
 
@@ -206,11 +238,25 @@ export default function ClassSubjectsManager({
     setSelectedTeacherId("");
 
     try {
-      const res = await assignSubjectToClass(classId, subToAssign.id);
-      if (res.error) {
+      const response = await fetch(`/api/classes/${encodeURIComponent(classId)}/subjects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        keepalive: true,
+        body: JSON.stringify({
+          subjectId: subToAssign.id,
+          ...(teacherToAssign ? { teacherId: teacherToAssign } : {}),
+        }),
+      });
+      const res = await response.json().catch(() => ({}));
+
+      if (!response.ok || res?.error) {
         // Rollback
         setAssigned((prev) => prev.filter((item) => item.id !== tempId));
-        setToast({ type: "error", message: res.error });
+        setToast({
+          type: "error",
+          message: res?.error || "বিষয় বরাদ্দ করতে সমস্যা হয়েছে।",
+        });
       } else {
         // Update temp item with actual DB id and data
         if (res.item?.id) {
@@ -227,13 +273,10 @@ export default function ClassSubjectsManager({
           );
         }
         if (teacherToAssign) {
-          const tRes = await setClassSubjectTeacher(classId, subToAssign.id, teacherToAssign);
-          if (!tRes?.error) {
-            setSubjectTeachers((prev) => ({
-              ...prev,
-              [subToAssign.id]: tRes?.teacherId || teacherToAssign,
-            }));
-          }
+          setSubjectTeachers((prev) => ({
+            ...prev,
+            [subToAssign.id]: res?.resolvedTeacherId || teacherToAssign,
+          }));
         }
         setToast({
           type: "success",
@@ -244,7 +287,7 @@ export default function ClassSubjectsManager({
       setAssigned((prev) => prev.filter((item) => item.id !== tempId));
       setToast({ type: "error", message: err.message || "বিষয় বরাদ্দ করতে সমস্যা হয়েছে।" });
     } finally {
-      setSaveGuardActive(false);
+      disarmSaveGuard();
       setIsPending(false);
     }
   };
@@ -255,7 +298,8 @@ export default function ClassSubjectsManager({
       return;
     }
 
-    setSaveGuardActive(true);
+    submittingRef.current = true;
+    armSaveGuard("class-subject-remove");
     setDeletingId(assignedItem.id);
     setToast(null);
 
@@ -264,11 +308,25 @@ export default function ClassSubjectsManager({
     setAssigned((prev) => prev.filter((item) => item.id !== assignedItem.id));
 
     try {
-      const res = await removeSubjectFromClass(assignedItem.id, classId, assignedItem.subject_id);
-      if (res.error) {
+      const response = await fetch(`/api/classes/${encodeURIComponent(classId)}/subjects`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        keepalive: true,
+        body: JSON.stringify({
+          classSubjectId: assignedItem.id,
+          subjectId: assignedItem.subject_id,
+        }),
+      });
+      const res = await response.json().catch(() => ({}));
+
+      if (!response.ok || res?.error) {
         // Rollback
         setAssigned(previousAssigned);
-        setToast({ type: "error", message: res.error });
+        setToast({
+          type: "error",
+          message: res?.error || "মুছে ফেলতে সমস্যা হয়েছে।",
+        });
       } else {
         setToast({
           type: "success",
@@ -279,7 +337,7 @@ export default function ClassSubjectsManager({
       setAssigned(previousAssigned);
       setToast({ type: "error", message: err.message || "মুছে ফেলতে সমস্যা হয়েছে।" });
     } finally {
-      setSaveGuardActive(false);
+      disarmSaveGuard();
       setDeletingId(null);
     }
   };
@@ -488,12 +546,12 @@ export default function ClassSubjectsManager({
                 <div className="text-xs text-slate-500 bg-slate-50 p-4 rounded-xl border border-slate-200 text-center space-y-2">
                   <p className="font-bold text-slate-700">সকল বিষয় বরাদ্দকৃত</p>
                   <p>মাদরাসায় বিদ্যমান সকল বিষয় ইতিমধ্যেই এই জামাতে বরাদ্দ করা হয়েছে।</p>
-                  <Link
-                    href="/dashboard/subjects"
+                  <a
+                    href="/dashboard/subjects/new"
                     className="inline-block text-xs font-bold text-indigo-600 hover:underline pt-1"
                   >
                     + নতুন বিষয় যোগ করতে এখানে ক্লিক করুন
-                  </Link>
+                  </a>
                 </div>
               ) : (
                 <>
@@ -537,6 +595,21 @@ export default function ClassSubjectsManager({
                   <button
                     type="submit"
                     disabled={isPending || !selectedSubjectId}
+                    onPointerDown={() => {
+                      if (selectedSubjectId && !isPending) {
+                        armSaveGuard("class-subject-assign");
+                        setTimeout(() => {
+                          if (!submittingRef.current) {
+                            disarmSaveGuard();
+                          }
+                        }, 500);
+                      }
+                    }}
+                    onClick={() => {
+                      if (selectedSubjectId && !isPending) {
+                        armSaveGuard("class-subject-assign");
+                      }
+                    }}
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-all shadow-xs disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                   >
                     {isPending ? (

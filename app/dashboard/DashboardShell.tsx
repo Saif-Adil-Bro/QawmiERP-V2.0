@@ -37,6 +37,7 @@ import { ThemeSwitcher } from "@/components/common/ThemeSwitcher";
 import { ModeProvider, useAppMode, AppMode } from "@/components/mode/ModeContext";
 import { ModeToggleSwitch } from "@/components/mode/ModeToggleSwitch";
 import { HeaderMoreMenuDropdown } from "@/components/common/HeaderMoreMenuDropdown";
+import { installGlobalSaveGuardListeners } from "@/lib/save-guard";
 
 const UniversalCommandPalette = dynamic(
   () => import("@/components/common/UniversalCommandPalette").then((m) => m.UniversalCommandPalette),
@@ -276,6 +277,11 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
       setLoggingOut(false);
     }
   };
+
+  // Global beforeunload save guard listener mounted at layout shell level
+  useEffect(() => {
+    return installGlobalSaveGuardListeners();
+  }, []);
 
   // Global Keyboard listener for Ctrl+K / Cmd+K
   useEffect(() => {

@@ -1,7 +1,9 @@
 import { getSubjects } from "@/app/actions/subjects";
-import Link from "next/link";
-import { Plus, BookOpen, Layers } from "lucide-react";
+import { BookOpen, Layers } from "lucide-react";
 import SubjectActions from "./SubjectActions";
+import NewSubjectButton from "./NewSubjectButton";
+
+export const dynamic = "force-dynamic";
 
 export default async function SubjectsPage() {
   const subjects = await getSubjects();
@@ -26,13 +28,7 @@ export default async function SubjectsPage() {
           <span className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
             মোট বিষয়: {subjects?.length || 0}টি
           </span>
-          <Link
-            href="/dashboard/subjects/new"
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-xs flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>নতুন বিষয় যোগ করুন</span>
-          </Link>
+          <NewSubjectButton />
         </div>
       </div>
 

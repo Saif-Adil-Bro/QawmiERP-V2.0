@@ -4,6 +4,8 @@ import { getClasses, getTeachersForClassAssignment } from "@/app/actions/classes
 import { getClassTeacherSubjects } from "@/app/actions/teacher_subjects";
 import ClassSubjectsManager from "./ClassSubjectsManager";
 
+export const dynamic = "force-dynamic";
+
 export default async function ClassSubjectsPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const classId = params.id;

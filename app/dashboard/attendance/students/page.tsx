@@ -9,6 +9,10 @@ import { format } from "date-fns";
 import { Check, X, Clock, UserMinus, ArrowLeft, CheckCircle2, XCircle, Users, Search, Save, CalendarDays, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import {
+  buildAttendanceSavePayload,
+  computeSavedAttendanceSummary,
+} from "@/lib/student-attendance-view";
 
 export default function AttendancePage() {
   const [date, setDate] = useState<string>(toDhakaDateString());
@@ -53,7 +57,15 @@ export default function AttendancePage() {
       try {
         const data = await getStudentsForAttendance(date, classId);
         if (!cancelled) {
-          setStudents(Array.isArray(data) ? data : []);
+          const normalized = Array.isArray(data)
+            ? data.map((s: any) => ({
+                ...s,
+                savedStatus: s?.savedStatus ?? null,
+                isSaved: Boolean(s?.savedStatus),
+                status: s?.status ?? null,
+              }))
+            : [];
+          setStudents(normalized);
         }
       } catch (err) {
         console.error("getStudentsForAttendance failed:", err);
@@ -69,62 +81,104 @@ export default function AttendancePage() {
   }, [date, classId]);
 
   const handleStatusChange = (studentId: string, status: string) => {
-    setStudents(prev => 
-      prev.map(s => s.id === studentId ? { ...s, status } : s)
+    setStudents((prev) =>
+      prev.map((s) => {
+        if (s.id !== studentId) return s;
+        // Allow toggling off an unsaved selection back to unmarked ("হাজিরা বাকি")
+        if (!s.savedStatus && s.status === status) {
+          return { ...s, status: null };
+        }
+        return { ...s, status };
+      }),
     );
   };
 
   const handleMarkAll = (status: "Present" | "Absent" | "Late" | "Leave") => {
-    setStudents(prev => prev.map(s => ({ ...s, status })));
+    const visibleIds = searchQuery.trim()
+      ? new Set(
+          students
+            .filter((s) => {
+              const q = searchQuery.toLowerCase().trim();
+              const name = `${s.first_name || ""} ${s.last_name || ""}`.toLowerCase();
+              const roll = (s.roll_number || "").toString().toLowerCase();
+              return name.includes(q) || roll.includes(q);
+            })
+            .map((s) => s.id),
+        )
+      : null;
+    setStudents((prev) =>
+      prev.map((s) => (!visibleIds || visibleIds.has(s.id) ? { ...s, status } : s)),
+    );
   };
 
   const filteredStudents = useMemo(() => {
     if (!searchQuery.trim()) return students;
     const q = searchQuery.toLowerCase().trim();
-    return students.filter(s => {
-      const name = `${s.first_name || ''} ${s.last_name || ''}`.toLowerCase();
-      const roll = (s.roll_number || '').toString().toLowerCase();
+    return students.filter((s) => {
+      const name = `${s.first_name || ""} ${s.last_name || ""}`.toLowerCase();
+      const roll = (s.roll_number || "").toString().toLowerCase();
       return name.includes(q) || roll.includes(q);
     });
   }, [students, searchQuery]);
 
-  const stats = useMemo(() => {
-    const total = filteredStudents.length;
-    const present = filteredStudents.filter(s => s.status === 'Present').length;
-    const absent = filteredStudents.filter(s => s.status === 'Absent').length;
-    const late = filteredStudents.filter(s => s.status === 'Late').length;
-    const leave = filteredStudents.filter(s => s.status === 'Leave').length;
-    return { total, present, absent, late, leave };
-  }, [filteredStudents]);
+  // S3 ফিক্স: সারসংক্ষেপ কাউন্টারগুলো শুধুমাত্র ডাটাবেজে সংরক্ষিত রেকর্ড (savedStatus) গুনবে
+  const stats = useMemo(
+    () => computeSavedAttendanceSummary(filteredStudents),
+    [filteredStudents],
+  );
+
+  const markedPayload = useMemo(
+    () => buildAttendanceSavePayload(students),
+    [students],
+  );
 
   const getStudentClassName = (student: any) => {
-    if (!student.classes) return 'N/A';
-    if (Array.isArray(student.classes)) return student.classes[0]?.name || 'N/A';
-    return student.classes.name || 'N/A';
+    if (!student.classes) return "N/A";
+    if (Array.isArray(student.classes)) return student.classes[0]?.name || "N/A";
+    return student.classes.name || "N/A";
   };
 
   const handleSave = async () => {
+    const attendanceData = buildAttendanceSavePayload(students);
+    if (attendanceData.length === 0) {
+      setMessage({
+        type: "error",
+        text: "সংরক্ষণের জন্য অন্তত একজন শিক্ষার্থীর হাজিরা চিহ্নিত করুন।",
+      });
+      return;
+    }
+
     setSaving(true);
     setMessage(null);
     try {
-      const attendanceData = students.map(s => ({
-        student_id: s.id,
-        status: s.status,
-      }));
-      
       const result = await saveAttendance(date, attendanceData);
-      
+
       if (result?.error) {
-        setMessage({ type: 'error', text: result.error });
+        setMessage({ type: "error", text: result.error });
       } else {
-        setMessage({ type: 'success', text: 'হাজিরা সফলভাবে সংরক্ষণ করা হয়েছে!' });
+        const savedMap = new Map(
+          attendanceData.map((r) => [r.student_id, r.status]),
+        );
+        setStudents((prev) =>
+          prev.map((s) =>
+            savedMap.has(s.id)
+              ? {
+                  ...s,
+                  savedStatus: savedMap.get(s.id)!,
+                  status: savedMap.get(s.id)!,
+                  isSaved: true,
+                }
+              : s,
+          ),
+        );
+        setMessage({ type: "success", text: "হাজিরা সফলভাবে সংরক্ষণ করা হয়েছে!" });
         setTimeout(() => setMessage(null), 3500);
       }
     } catch (err) {
       console.error("saveAttendance failed:", err);
       setMessage({
-        type: 'error',
-        text: 'একটি অপ্রত্যাশিত সমস্যা হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।',
+        type: "error",
+        text: "একটি অপ্রত্যাশিত সমস্যা হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।",
       });
     } finally {
       setSaving(false);
@@ -231,8 +285,8 @@ export default function AttendancePage() {
         </div>
       )}
 
-      {/* KPI Stats & Bulk Action Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      {/* KPI Stats (Saved Records Only + Unmarked Count) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
           <div className="text-xs text-slate-500 font-semibold">মোট শিক্ষার্থী</div>
           <div className="text-xl font-bold text-slate-900 mt-1">{stats.total}</div>
@@ -249,9 +303,13 @@ export default function AttendancePage() {
           <div className="text-xs text-amber-600 font-semibold">বিলম্ব (Late)</div>
           <div className="text-xl font-bold text-amber-700 mt-1">{stats.late}</div>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs col-span-2 sm:col-span-1">
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
           <div className="text-xs text-blue-600 font-semibold">ছুটি (Leave)</div>
           <div className="text-xl font-bold text-blue-700 mt-1">{stats.leave}</div>
+        </div>
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+          <div className="text-xs text-slate-600 font-semibold">হাজিরা বাকি</div>
+          <div className="text-xl font-bold text-slate-700 mt-1">{stats.unmarked}</div>
         </div>
       </div>
 
@@ -310,63 +368,119 @@ export default function AttendancePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredStudents.map((student) => (
-                    <tr key={student.id} className="hover:bg-slate-50/70 transition">
-                      <td className="px-6 py-3.5 font-mono font-bold text-slate-900">{student.roll_number || '-'}</td>
-                      <td className="px-6 py-3.5 font-bold text-slate-900">
-                        {student.first_name} {student.last_name}
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">
-                          {getStudentClassName(student)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <div className="inline-flex rounded-xl shadow-xs border border-slate-200 overflow-hidden" role="group">
-                          <button 
-                            type="button" 
-                            onClick={() => handleStatusChange(student.id, 'Present')}
-                            className={`px-3 py-1.5 text-xs font-bold transition cursor-pointer ${student.status === 'Present' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
-                          >
-                            উপস্থিত
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => handleStatusChange(student.id, 'Late')}
-                            className={`px-3 py-1.5 text-xs font-bold border-l border-r border-slate-200 transition cursor-pointer ${student.status === 'Late' ? 'bg-amber-500 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
-                          >
-                            দেরি
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => handleStatusChange(student.id, 'Leave')}
-                            className={`px-3 py-1.5 text-xs font-bold border-r border-slate-200 transition cursor-pointer ${student.status === 'Leave' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
-                          >
-                            ছুটি
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => handleStatusChange(student.id, 'Absent')}
-                            className={`px-3 py-1.5 text-xs font-bold transition cursor-pointer ${student.status === 'Absent' ? 'bg-rose-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
-                          >
-                            অনুপস্থিত
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredStudents.map((student) => {
+                    const isSavedMatch =
+                      Boolean(student.savedStatus) &&
+                      student.status === student.savedStatus;
+                    const isDirty =
+                      Boolean(student.status) &&
+                      student.status !== student.savedStatus;
+
+                    return (
+                      <tr
+                        key={student.id}
+                        className={`hover:bg-slate-50/70 transition ${
+                          !student.savedStatus && !student.status
+                            ? "bg-slate-50/30"
+                            : ""
+                        }`}
+                      >
+                        <td className="px-6 py-3.5 font-mono font-bold text-slate-900">
+                          {student.roll_number || "-"}
+                        </td>
+                        <td className="px-6 py-3.5 font-bold text-slate-900">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>
+                              {student.first_name} {student.last_name}
+                            </span>
+                            {isSavedMatch ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                সংরক্ষিত
+                              </span>
+                            ) : isDirty ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                অসংরক্ষিত
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                হাজিরা বাকি
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-3.5">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">
+                            {getStudentClassName(student)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3.5 text-right">
+                          <div className="inline-flex rounded-xl shadow-xs border border-slate-200 overflow-hidden" role="group">
+                            <button
+                              type="button"
+                              onClick={() => handleStatusChange(student.id, "Present")}
+                              className={`px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                                student.status === "Present"
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-white text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              উপস্থিত
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleStatusChange(student.id, "Late")}
+                              className={`px-3 py-1.5 text-xs font-bold border-l border-r border-slate-200 transition cursor-pointer ${
+                                student.status === "Late"
+                                  ? "bg-amber-500 text-white"
+                                  : "bg-white text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              দেরি
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleStatusChange(student.id, "Leave")}
+                              className={`px-3 py-1.5 text-xs font-bold border-r border-slate-200 transition cursor-pointer ${
+                                student.status === "Leave"
+                                  ? "bg-blue-600 text-white"
+                                  : "bg-white text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              ছুটি
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleStatusChange(student.id, "Absent")}
+                              className={`px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                                student.status === "Absent"
+                                  ? "bg-rose-600 text-white"
+                                  : "bg-white text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              অনুপস্থিত
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-            
+
             <div className="p-5 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="text-xs text-slate-500">
-                মোট <span className="font-bold text-slate-800">{filteredStudents.length}</span> জন শিক্ষার্থীর হাজিরা তালিকা
+                মোট <span className="font-bold text-slate-800">{filteredStudents.length}</span> জন শিক্ষার্থী • সংরক্ষিত:{" "}
+                <span className="font-bold text-emerald-700">
+                  {stats.total - stats.unmarked}
+                </span>{" "}
+                জন • হাজিরা বাকি:{" "}
+                <span className="font-bold text-slate-700">{stats.unmarked}</span> জন
               </div>
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving || students.length === 0}
+                disabled={saving || students.length === 0 || markedPayload.length === 0}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm disabled:opacity-50 transition flex items-center gap-2 shadow-xs cursor-pointer"
               >
                 <Save className="w-4 h-4" />
