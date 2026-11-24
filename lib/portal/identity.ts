@@ -276,7 +276,7 @@ export async function teacherStudents(
       .eq("madrasa_id", i.tenant)
       .order("created_at", { ascending: true }),
   );
-  const { getStudentIdNumber } = await import("@/lib/utils");
+  const { getStudentIdNumber } = await import("@/lib/student-utils");
   const prefix = scope.meta?.id_prefix || "";
   return (
     await rows(() =>

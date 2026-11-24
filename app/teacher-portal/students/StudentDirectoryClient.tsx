@@ -180,7 +180,7 @@ export default function StudentDirectoryClient({
             const cleanPhone = phone.replace(/[^0-9]/g, "");
             const displayStudentId = s.student_id_formatted || s.student_id
               ? toBanglaNumber(s.student_id_formatted || s.student_id)
-              : resolveStudentIdBn(s, idx);
+              : resolveStudentIdBn(s, students);
 
             return (
               <div

@@ -348,7 +348,7 @@ export async function getEarlyWarningAlerts(
         scoreByStudent.set(studentId, {
           ...existing,
           composite_score: Math.max(existing.composite_score || 0, feeScore),
-          fee_overdue_score: Math.max(existing.fee_overdue_score || 0, feeScore),
+          fee_score: Math.max(existing.fee_score || 0, 30),
           risk_level:
             existing.risk_level === "CRITICAL"
               ? "CRITICAL"
@@ -368,14 +368,14 @@ export async function getEarlyWarningAlerts(
           class_name: st.class_name,
           parent_phone: st.parent_phone || null,
           attendance_score: 0,
-          exam_drop_score: 0,
-          fee_overdue_score: feeScore,
-          hifz_stagnation_score: 0,
+          academic_score: 0,
+          fee_score: 30,
           composite_score: feeScore,
           risk_level: feeRiskLevel,
           factors: [feeFactor],
+          recommendations: ["অভিভাবকের সাথে যোগাযোগ করে বকেয়া ফি পরিশোধের তাগিদ দিন।"],
           intervention_status: "PENDING",
-          calculated_at: new Date().toISOString(),
+          last_calculated_at: new Date().toISOString(),
         });
       }
     });

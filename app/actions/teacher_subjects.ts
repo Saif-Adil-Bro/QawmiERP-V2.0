@@ -74,7 +74,13 @@ export async function getClassTeacherSubjects(classId: string) {
     .eq("madrasa_id", madrasaId)
     .eq("class_id", classId);
 
-  return data || [];
+  return (data || []).map((row: any) => ({
+    id: String(row.id),
+    teacher_id: String(row.teacher_id),
+    class_id: String(row.class_id),
+    subject_id: String(row.subject_id),
+    teachers: Array.isArray(row.teachers) ? row.teachers[0] || null : row.teachers || null,
+  }));
 }
 
 export async function assignSubjectToTeacher(teacherId: string, classId: string, subjectId: string) {
