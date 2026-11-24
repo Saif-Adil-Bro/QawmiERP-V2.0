@@ -222,6 +222,14 @@ describe("cashier and approval boundaries", () => {
     mocks.guard.mockResolvedValue({ allowed: false, error: "denied" });
     expect(await createExpense({}, f)).toMatchObject({ error: "denied" });
   });
+  it("rejects contradictory expense tags before creating an approval or posting", async () => {
+    const form = new FormData();
+    for (const [key, value] of Object.entries({ ...fund, amount: '8', category: 'Utility', expense_date: '2026-11-18',
+      description: '[FUND: library | Library][FUND: fund-zakat | ZKT] bill' })) form.set(key, value);
+    expect((await createExpense({}, form)).error).toMatch(/ফান্ড/);
+    expect(mocks.approve).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
   it("does not post on denied discount, locked period or unavailable pupil", async () => {
     mocks.guard
       .mockResolvedValueOnce({ allowed: true })

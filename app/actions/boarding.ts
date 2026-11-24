@@ -289,7 +289,7 @@ export async function saveBazarExpense(expense: {
   }
 
   const buyerName = (expense.buyer_name || "").trim();
-  const paymentMethod = (expense.payment_method || "Cash").trim();
+  const paymentMethod = (expense.payment_method || "Unknown").trim();
   const cleanItems = (expense.items_details || "").trim();
   let fund;
   try { fund = await postingFund(finalMadrasaId,expense.fund_id,"bazar","","",expense.fund_name); }
@@ -300,6 +300,7 @@ export async function saveBazarExpense(expense: {
   const wrappedDetails = `[VOUCHER: ${voucherNo} | BUYER: ${buyerName} | METHOD: ${paymentMethod} | FUND: ${fundId} | FUND_NAME: ${fundName}]\n${cleanItems}`.trim();
 
   const recordWithDirectCols: any = {
+    ...(!expense.id ? {operator_id:user.id} : {}),
     madrasa_id: finalMadrasaId,
     amount: expense.amount,
     expense_date: expense.expense_date,
@@ -623,6 +624,6 @@ export async function addBoardingMealPayment(params:{student_id:string;student_n
   const candidates=(meta.student_fees||[]).filter(b=>b.student_id===params.student_id && b.billing_period===period && types.has(b.fee_type_id));
   if (candidates.length!==1) return {error:'আগে এই মাসের বোর্ডিং বিল সিঙ্ক করুন অথবা ফি আদায় ফর্ম থেকে নির্দিষ্ট বিল নির্বাচন করুন।'};
   const bill=candidates[0];
-  return cashierPayment({student_id:params.student_id,total_amount:params.amount,session_id:bill.session_id,payment_date:date,payment_method:params.payment_method||'Cash',notes:params.notes,idempotency_key:params.idempotency_key,
+  return cashierPayment({student_id:params.student_id,total_amount:params.amount,session_id:bill.session_id,payment_date:date,payment_method:params.payment_method||'Unknown',notes:params.notes,idempotency_key:params.idempotency_key,
     fee_allocations:[{student_fee_id:bill.id,fee_type_id:bill.fee_type_id,fee_type_name:bill.fee_type_name,allocated_amount:params.amount,fund_id:params.fund_id||bill.fund_id,fund_name:params.fund_name||bill.fund_name}]});
 }

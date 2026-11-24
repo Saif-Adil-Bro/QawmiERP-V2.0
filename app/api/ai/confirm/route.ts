@@ -160,7 +160,7 @@ export async function POST(req: Request) {
       }
 
       const form=new FormData();
-      for(const [k,v] of Object.entries({category,amount,expense_date:expenseDate,description,fund_id:payload.fund_id,fund_name:payload.fund_name,restricted_beneficiary:payload.restricted_beneficiary})) if(v!=null) form.set(k,String(v));
+      for(const [k,v] of Object.entries({category,amount,expense_date:expenseDate,description,fund_id:payload.fund_id,fund_name:payload.fund_name,restricted_beneficiary:payload.restricted_beneficiary,payment_method:payload.payment_method||payload.paymentMethod,student_id:payload.student_id,staff_id:payload.staff_id,head_id:payload.head_id,line_items:payload.line_items?JSON.stringify(payload.line_items):undefined})) if(v!=null) form.set(k,String(v));
       const result=await postExpenseForActor(madrasaId,user.id,form);
       if(result.error) return Response.json({error:result.error},{status:400});
       if(result.pendingApproval) return Response.json({success:true,pendingApproval:true,approvalRequestId:result.approvalRequestId,message:result.message},{status:202});
@@ -199,7 +199,7 @@ export async function POST(req: Request) {
         ? String(payload.studentFeeId).trim()
         : null;
       const amount = Number(payload?.amount || 0);
-      const paymentMethod = String(payload?.paymentMethod || "Cash").trim();
+      const paymentMethod = String(payload?.paymentMethod || "Unknown").trim();
       const paymentDate = String(
         payload?.paymentDate || toDhakaDateString()
       ).trim();

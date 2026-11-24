@@ -412,7 +412,7 @@ export default function ExpensesClient({
                           </span>
                         </td>
                         <td className="px-5 py-3.5 whitespace-nowrap">
-                          {getCategoryBadge(expense.category)}
+                          {expense.head_name && <span className="mr-2 font-semibold">{expense.head_name}</span>}{getCategoryBadge(expense.category)}
                         </td>
                         <td className="px-5 py-3.5 max-w-xs truncate" title={expense.description}>
                           <span className="text-slate-800 font-medium">
@@ -437,9 +437,10 @@ export default function ExpensesClient({
                             {/* Edit Expense Button */}
                             <button
                               type="button"
+                              disabled={expense.salary_hidden || !!expense.line_items || !!expense.head_name}
                               onClick={() => setEditingExpense(expense)}
                               className="p-1.5 text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 rounded-lg transition cursor-pointer border border-blue-200"
-                              title="খরচ সম্পাদনা (Edit) করুন"
+                              title={expense.head_name||expense.line_items?"মূল ভাউচার বাতিল করে নতুন ভাউচার দিন":"খরচ সম্পাদনা (Edit) করুন"}
                             >
                               <Edit3 className="w-4 h-4" />
                             </button>

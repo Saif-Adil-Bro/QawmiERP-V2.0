@@ -26,9 +26,12 @@ checks(level,code,n) AS (
   SELECT 'REVIEW','fund_id_unconfirmed',count(*) FROM active a WHERE NOT EXISTS (SELECT FROM funds WHERE f->>'id'=a.fund_id)
     OR (fund_id='fund-general' AND coalesce(fund_name,'')='' AND coalesce(note,'') !~* 'FUND:')
   UNION ALL SELECT 'REVIEW','stored_fund_label_disagrees',count(*) FROM active a JOIN funds ON f->>'id'=a.fund_id
-    WHERE nullif(fund_name,'') IS NOT NULL AND fund_name IS DISTINCT FROM f->>'name'
+    WHERE (nullif(fund_name,'') IS NOT NULL AND fund_name IS DISTINCT FROM f->>'name') OR
+      (kind='donation' AND category<>ALL(array_remove(ARRAY[f->>'id',f->>'name',f->>'code'],NULL))) OR EXISTS (
+        SELECT FROM public.finance_fund_tags(jsonb_build_object(CASE kind WHEN 'bazar' THEN 'items_details' ELSE 'description' END,note)) t
+        WHERE t.id<>a.fund_id OR t.label<>ALL(array_remove(ARRAY[f->>'id',f->>'name',f->>'code'],NULL)))
   UNION ALL SELECT 'REVIEW','restricted_outflow_evidence',count(*) FROM active a JOIN funds ON f->>'id'=a.fund_id WHERE a.kind<>'donation' AND public.finance_is_restricted(f)
-    AND (kind='bazar' OR lower(category) IS DISTINCT FROM 'food' OR nullif(btrim(beneficiary),'') IS NULL)
+    AND (kind='bazar' OR category IS DISTINCT FROM 'Food' OR coalesce(beneficiary,'') !~ '[^[:space:]]')
   UNION ALL SELECT 'REVIEW','duplicate_voucher_groups',count(*) FROM (SELECT (kind='donation'),lower(btrim(num)) FROM vouchers WHERE nullif(btrim(num),'') IS NOT NULL GROUP BY 1,2 HAVING count(*)>1) dups
   UNION ALL SELECT 'REVIEW','mahfil_voucher_without_event',count(*) FROM active a WHERE (coalesce(num,'') ~* 'MHF-' OR coalesce(note,'') ~ 'মাহফিল (সমন্বয়|ঘাটতি|উদ্বৃত্ত)')
     AND NOT EXISTS (SELECT FROM settlements s WHERE s.ref->>'accounting_record_id'=a.id AND s.ref->>'accounting_voucher_no'=a.num)

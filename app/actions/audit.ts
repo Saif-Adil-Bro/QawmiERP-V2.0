@@ -176,14 +176,14 @@ export async function getAnnualAuditStatement(
     (meta as any).audit_settings?.[year] ||
     {};
 
-  const [catalog,donations,expenses,bazar,legacyFees] = await Promise.all([
-    fundCatalog(madrasaId,true),financeRows(adminClient,madrasaId,"donations","*",endDate),financeRows(adminClient,madrasaId,"expenses","*",endDate),financeRows(adminClient,madrasaId,"bazar_expenses","*",endDate),financeRows(adminClient,madrasaId,"fees","*",endDate),
+  const [catalog,donations,expenses,bazar,legacyFees,journals] = await Promise.all([
+    fundCatalog(madrasaId,true),financeRows(adminClient,madrasaId,"donations","*",endDate),financeRows(adminClient,madrasaId,"expenses","*",endDate),financeRows(adminClient,madrasaId,"bazar_expenses","*",endDate),financeRows(adminClient,madrasaId,"fees","*",endDate),financeRows(adminClient,madrasaId,"treasury_journals","*",endDate),
   ]);
-  const fundLines = auditLines(periodLines({funds:catalog,start:startDate,end:endDate,donations,expenses,bazar,meta,payments:reconcilePayments(feeMeta.payments || [],legacyFees,true)}),auditSettings.openingBalances || {});
+  const fundLines = auditLines(periodLines({journals,funds:catalog,start:startDate,end:endDate,donations,expenses,bazar,meta,payments:reconcilePayments(feeMeta.payments || [],legacyFees,true)}),auditSettings.openingBalances || {});
   const [generalFund,lillahFund,zakatFund,buildingFund] = fundLines;
   const totalOpening = fundLines.reduce((a,l)=>a+l.openingBalance,0);
   const totalIn = fundLines.reduce((a,l)=>a+l.totalIncome,0), totalEx = fundLines.reduce((a,l)=>a+l.totalExpense,0);
-  const totalClosing = totalOpening+totalIn-totalEx;
+  const totalClosing = fundLines.reduce((sum,line)=>sum+line.closingBalance,0);
 
   // Bank & Cash reconciliation
   // A computed closing balance is not a cash count or a bank statement.

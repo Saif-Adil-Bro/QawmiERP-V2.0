@@ -4,11 +4,12 @@ import { parseRoutineItem } from "../routine-helper";
 export async function rows(
   query: () => any,
   optionalTable = false,
+  orderKey = "id",
 ): Promise<any[]> {
   const out: any[] = [];
   for (let start = 0; ; start += 500) {
     const { data, error } = await query()
-      .order("id")
+      .order(orderKey)
       .range(start, start + 499);
     if (optionalTable && ["42P01", "PGRST205"].includes(error?.code) && !start)
       return [];

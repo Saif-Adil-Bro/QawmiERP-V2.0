@@ -264,6 +264,7 @@ export default function AuditStatementClient({
               <div className="font-bold">{f.fundName} {f.fundArabicName}</div>
               <div>প্রারম্ভিক স্থিতি: {formatCurrencyBangla(f.openingBalance)}</div>
               <div>প্রাপ্তি: {formatCurrencyBangla(f.totalIncome)}</div><div>ব্যয়: {formatCurrencyBangla(f.totalExpense)}</div>
+              {f.movement ? <div>জার্নাল সমন্বয়: {formatCurrencyBangla(f.movement)}</div>:null}
               <div className="border-t font-bold">সমাপনী স্থিতি: {formatCurrencyBangla(f.closingBalance)}</div>
             </div>)}
           </div>

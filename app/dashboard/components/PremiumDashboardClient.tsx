@@ -44,6 +44,7 @@ export interface PremiumDashboardClientProps {
     todayIncome: number;
     todayExpense: number;
     totalIncome: number;
+    fundBalance: number;
     totalExpense: number;
     expensesSum: number;
     bazarSum: number;
@@ -136,9 +137,10 @@ export default function PremiumDashboardClient({
     financeScope === "today" ? stats.todayIncome : stats.totalIncome;
   const activeExpense =
     financeScope === "today" ? stats.todayExpense : stats.totalExpense;
-  const netBalance = activeIncome - activeExpense;
+  const operatingNet = activeIncome - activeExpense;
+  const netBalance = financeScope === "today" ? operatingNet : stats.fundBalance;
   const savingsRate =
-    activeIncome > 0 ? Math.round((netBalance / activeIncome) * 100) : 0;
+    activeIncome > 0 ? Math.round((operatingNet / activeIncome) * 100) : 0;
 
   const roleKey = (profile.role || "super_admin").toLowerCase();
   const displayRole =
@@ -557,7 +559,7 @@ export default function PremiumDashboardClient({
                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   {financeScope === "today"
                     ? "আজকের নিট উদ্বৃত্ত"
-                    : "নিট ফান্ড স্থিতি (উদ্বৃত্ত)"}
+                    : "জার্নালসহ মোট ফান্ড স্থিতি"}
                 </span>
                 <span
                   className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
@@ -570,7 +572,7 @@ export default function PremiumDashboardClient({
                   {netBalance >= 0 ? "উদ্বৃত্ত" : "ঘাটতি"}
                 </span>
               </div>
-              <p
+              <p data-finance-balance={netBalance}
                 className={`text-2xl sm:text-3xl font-extrabold mt-2 tabular-nums ${
                   netBalance >= 0
                     ? "text-sky-600 dark:text-sky-400"

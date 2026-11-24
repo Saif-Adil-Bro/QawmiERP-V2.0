@@ -420,6 +420,8 @@ export interface TableCrudConfig {
   select?: string;
   detailSelect?: string;
   searchColumns?: string[];
+  readSearchColumns?: (ctx: MobileAuthContext) => string[];
+  sortColumns?: string[];
   filterColumns?: string[];
   defaultSort?: string;
   tenantColumn?: string;
@@ -454,9 +456,12 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
         query = query.eq(tenantCol, auth.ctx.madrasaId);
       }
 
-      if (search && config.searchColumns && config.searchColumns.length > 0) {
-        const orExpr = config.searchColumns
-          .map((col) => `${col}.ilike.%${search}%`)
+      const searchColumns = config.readSearchColumns?.(auth.ctx) ?? config.searchColumns;
+      if (search && searchColumns?.length) {
+        // Keep search text a single PostgREST literal, including commas, quotes and parentheses.
+        const pattern = JSON.stringify(`%${search}%`);
+        const orExpr = searchColumns
+          .map((col) => `${col}.ilike.${pattern}`)
           .join(",");
         query = query.or(orExpr);
       }
@@ -470,7 +475,7 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
         }
       }
 
-      const orderCol = sortBy || config.defaultSort || "created_at";
+      const orderCol = (sortBy && (!config.sortColumns || config.sortColumns.includes(sortBy)) ? sortBy : config.defaultSort) || "created_at";
       query=query.order(orderCol,{ascending});
       if(orderCol!=="id")query=query.order("id",{ascending});
       query=query.range(from,to);

@@ -68,8 +68,9 @@ export interface DonationItem {
 }
 
 export interface FundTransactionRecord {
+  journal_kind?: string;
   id: string;
-  type: "INCOME" | "EXPENSE" | "MAHFIL_SURPLUS" | "MAHFIL_DEFICIT";
+  type: "INCOME" | "EXPENSE" | "MAHFIL_SURPLUS" | "MAHFIL_DEFICIT" | "JOURNAL_IN" | "JOURNAL_OUT";
   fund_id?: string;
   fund_name: string;
   amount: number;
@@ -255,20 +256,43 @@ export interface StoredFundFields {
   fund_id?: string | null; fund_name?: string | null; donation_type?: string | null;
   description?: string | null; notes?: string | null; items_details?: string | null;
 }
-export function storedFund(funds: FundItem[], row: StoredFundFields): FundItem | undefined {
-  const tag = parseExpenseFund(row.description || row.notes);
-  const bazarId = row.items_details?.match(/\bFUND:\s*([^|\]]+)/i)?.[1]?.trim();
-  const ids = [...new Set([row.fund_id, tag.fundId, bazarId].filter(Boolean))];
-  const labels = [row.fund_name, row.donation_type, tag.fundName, row.items_details?.match(/\bFUND_NAME:\s*([^|\]]+)/i)?.[1]?.trim()].filter(Boolean);
-  const chosen = ids.length ? funds.find(f => f.id === ids[0]) : undefined;
-  if (ids.length && (!chosen || ids.length !== 1)) return undefined;
-  const labelled = labels.map(label => chosen && [chosen.name,chosen.code,chosen.id].includes(label!) ? chosen : exactFundLabel(funds, label));
+// These are reserved voucher fields, not keywords in a donor's narrative. A
+// matching first tag must not hide a later conflicting tag or a separate column.
+function fundTags(row: StoredFundFields) {
+  const ids: string[] = [], labels: string[] = [];
+  for (const key of ['description', 'notes', 'items_details'] as const) {
+    const text = row[key];
+    if (!text) continue;
+    // Separate key/value fields (including the old unwrapped bazar format).
+    const pattern = key === 'items_details' ? /\b(FUND(?:_NAME)?):([^|\]\r\n]*)/gi : /(?:^|\[|\|)\s*(FUND(?:_NAME)?):([^|\]\r\n]*)/gi;
+    for (const [, field, value] of text.matchAll(pattern))
+      (field.toUpperCase() === 'FUND' ? ids : labels).push(value.trim());
+    // The expense wrapper instead has an unkeyed display name: [FUND: id | name].
+    for (const [, name] of text.matchAll(/\[FUND:[^|\]]*\|(?!\s*FUND_NAME:)([^\]]*)\]/gi)) labels.push(name.trim());
+  }
+  return { ids, labels };
+}
+
+// Validate the submitted metadata BEFORE stripping it for the canonical wrapper.
+export function expenseDescriptionForFund(description: string | null, fund: FundItem) {
+  const tags = fundTags({ description });
+  if (tags.ids.some(id => id !== fund.id) || tags.labels.some(l => ![fund.id, fund.name, fund.code].includes(l)))
+    throw new Error('ভাউচার ট্যাগ ও নির্বাচিত ফান্ড মিলছে না।');
+  return parseExpenseFund(description).cleanDesc;
+}
+
+export function storedFund(funds: FundItem[], row: StoredFundFields, ...sourceLabels: (string | null | undefined)[]): FundItem | undefined {
+  const tags = fundTags(row);
+  const ids = new Set(tags.ids);
+  if (row.fund_id) ids.add(row.fund_id);
+  const labels = [...tags.labels, ...[row.fund_name, row.donation_type, ...sourceLabels].filter((s): s is string => !!s)];
+  const chosen = ids.size === 1 ? funds.find(f => ids.has(f.id)) : undefined;
+  if (ids.size && !chosen) return undefined;
+  const labelled = labels.map(label => chosen && [chosen.name, chosen.code, chosen.id].includes(label) ? chosen : exactFundLabel(funds, label));
   if (chosen) {
-    // In particular, the old SQL default 'fund-general' is not proof that a
-    // Zakat-labelled donation was General. Keep conflicting rows for review.
-    if (labelled.some(f => !f || f.id !== chosen.id)) return undefined;
-    if (!isRestrictedFund(chosen) && labels.some(name=>isRestrictedFund({id:'',category:'Other',code:'',name:name!}))) return undefined;
-    if (chosen.id === "fund-general" && (labelled.some(f => !f) || (!labels.length && !tag.fundId && !bazarId))) return undefined;
+    if (labelled.some(f => f?.id !== chosen.id)) return undefined;
+    // The old SQL default alone is not evidence of a General posting.
+    if (chosen.id === 'fund-general' && !labels.length && !tags.ids.length) return undefined;
     return chosen;
   }
   return labelled.length && labelled.every(f => f && f.id === labelled[0]?.id) ? labelled[0] : undefined;
@@ -278,35 +302,46 @@ export function isTransactionInFund(fund: FundItem, id?: string | null, name?: s
 }
 
 // Fund fields in metadata-only collection streams predate relational posting.
-export function collectionFund(funds: FundItem[], row: {fund_id?: string; fund_category?: string; fund_name?: string; target_fund?: string; purpose?: string}) {
-  return storedFund(funds,{fund_id:row.fund_id, fund_name:row.fund_name || row.target_fund, donation_type:row.fund_category || row.purpose});
+export function collectionFund(funds: FundItem[], row: StoredFundFields & {fund_category?: string; target_fund?: string; purpose?: string}) {
+  return storedFund(funds, row, row.target_fund, row.fund_category, row.purpose);
 }
 export type ReviewRow = { id: string; kind: "donation" | "expense" | "bazar"; voucher: string; date: string; amount: number; reason: string };
-type SettlementRef = { id?: string; accounting_record_id?: string; accounting_voucher_no?: string;
-  mahfil_txn_id?: string; fund_id?: string; amount?: number; settlement_type?: string };
-export function settlementIndex(events: {settlements?: SettlementRef[]; settlement?: SettlementRef;transactions?:{id?:string;amount?:number;type?:string}[]}[] = []) {
-  const index = new Map<string, (SettlementRef & {eventMatches:boolean})[]>();
+type SettlementRef = { id?: string; mahfil_id?: string; accounting_record_id?: string; accounting_voucher_no?: string;
+  mahfil_txn_id?: string; fund_id?: string; fund_name?: string; amount?: number; settlement_type?: string };
+type EventTxn = {id?: string; mahfil_id?: string; amount?: number; type?: string; receipt_no?: string; voucher_no?: string};
+export function settlementIndex(events: {id?: string; settlements?: SettlementRef[]; settlement?: SettlementRef; transactions?: EventTxn[]}[] = [], funds?: FundItem[]) {
+  const index = new Map<string, (SettlementRef & {eventMatches: boolean})[]>();
   for (const event of events) {
-    // Some old documents have only the singular field, others store a copy of the last entry in both.
-    const entries = [...(event.settlements || [])];
-    if (event.settlement && !entries.some(s => s.accounting_record_id===event.settlement?.accounting_record_id && s.accounting_voucher_no===event.settlement?.accounting_voucher_no && s.mahfil_txn_id===event.settlement?.mahfil_txn_id && s.amount===event.settlement?.amount && s.fund_id===event.settlement?.fund_id && s.settlement_type===event.settlement?.settlement_type)) entries.push(event.settlement);
+    // The singular field may mirror the last settlement. Two entries in the
+    // settlements array, however, are two claims, even if their amounts agree.
+    const entries = [...(event.settlements || [])], last = event.settlement;
+    const keys = ['id','mahfil_id','accounting_record_id','accounting_voucher_no','mahfil_txn_id','amount','fund_id','fund_name','settlement_type'] as const;
+    if (last && !entries.some(s => keys.every(k => s[k] === last[k]))) entries.push(last);
+    const owners = new Map<string, number>(), transactions = new Map<string, EventTxn[]>();
+    for (const s of entries) if (s.mahfil_txn_id) owners.set(s.mahfil_txn_id, (owners.get(s.mahfil_txn_id) || 0) + 1);
+    for (const t of event.transactions || []) if (t.id) transactions.set(t.id, [...(transactions.get(t.id) || []), t]);
     for (const s of entries) {
-      const tx=(event.transactions || []).filter(t=>t.id && t.id===s.mahfil_txn_id);
-      const eventMatches=tx.length===1 && Number(tx[0].amount)===Number(s.amount) && tx[0].type===(s.settlement_type==='SURPLUS_DEPOSIT'?'EXPENSE':s.settlement_type==='DEFICIT_COVER'?'INCOME':'');
-      const ref={...s,eventMatches};
-      for(const key of new Set([s.accounting_record_id,s.accounting_voucher_no,s.mahfil_txn_id]))if(key)index.set(key,[...(index.get(key)||[]),ref]);
+      const id = s.mahfil_txn_id || '', txns = transactions.get(id) || [], t = txns[0];
+      const eventMatches = owners.get(id) === 1 && txns.length === 1 && Number(t.amount) === Number(s.amount) &&
+        t.type === (s.settlement_type === 'SURPLUS_DEPOSIT' ? 'EXPENSE' : s.settlement_type === 'DEFICIT_COVER' ? 'INCOME' : '') &&
+        [s.mahfil_id, t.mahfil_id].every(parent => !parent || parent === event.id) &&
+        [t.voucher_no, t.receipt_no].every(no => !no || no === s.accounting_voucher_no) &&
+        (!funds || !s.fund_name || storedFund(funds, s)?.id === s.fund_id);
+      const ref = {...s, eventMatches};
+      for (const key of new Set([s.accounting_record_id, s.accounting_voucher_no, s.mahfil_txn_id]))
+        if (key) index.set(key, [...(index.get(key) || []), ref]);
     }
   }
   return index;
 }
 export function unmatchedMahfil(row: {id?: string; receipt_no?: string; voucher_no?: string; notes?: string; description?: string; fund_id?: string; amount?: number}, index: ReturnType<typeof settlementIndex>) {
-  const voucher = row.receipt_no || row.voucher_no || parseExpenseFund(row.description).voucherNo || "";
-  const candidates = [...new Set([...(index.get(row.id || '') || []),...(index.get(voucher) || [])])];
-  if (!candidates.length) return /^(MHF-|EXP-MHF)/i.test(voucher) || /মাহফিল/.test(row.notes || row.description || '');
+  const vouchers = new Set([row.receipt_no, row.voucher_no, parseExpenseFund(row.description).voucherNo].filter((v): v is string => !!v));
+  const candidates = new Set([row.id || '', ...vouchers].flatMap(key => index.get(key) || []));
+  if (!candidates.size) return [...vouchers].some(v => /^(MHF-|EXP-MHF)/i.test(v)) || /মাহফিল/.test(`${row.notes || ''} ${row.description || ''}`);
   // A colliding receipt number must not rescue a different ID, amount or fund.
-  if (candidates.length !== 1) return true;
+  if (candidates.size !== 1 || vouchers.size !== 1) return true;
   const [s] = candidates;
-  return !s.eventMatches || !s.accounting_record_id || s.accounting_record_id!==row.id || !voucher || voucher!==s.accounting_voucher_no ||
+  return !s.eventMatches || !s.accounting_record_id || s.accounting_record_id!==row.id || !vouchers.has(s.accounting_voucher_no || '') ||
     !s.fund_id || s.fund_id!==row.fund_id || Number(s.amount)!==Number(row.amount) || (row.receipt_no?'SURPLUS_DEPOSIT':'DEFICIT_COVER')!==s.settlement_type;
 }
 export function bazarFund(funds: FundItem[], row: StoredFundFields) {

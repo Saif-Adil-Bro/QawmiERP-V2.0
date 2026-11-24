@@ -7,20 +7,22 @@ import {
 import { requirePermission } from "@/lib/permissions-server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import type { ExpenseActionState } from "@/app/actions/accounting";
-import { parseExpenseFund, type FundItem } from "@/lib/fund-utils";
+import { expenseDescriptionForFund, type FundItem } from "@/lib/fund-utils";
 import { assertAccountingPeriodUnlocked } from "@/lib/lock-guards";
 import { submitWorkflowHookApproval } from "@/lib/approval-workflow";
 import { logAuditEvent } from "@/lib/audit-log";
 import { revalidatePath } from "next/cache";
 import { bdtPoisha } from "@/lib/payment-gateway-engine";
 import { nextVoucherNumber } from "./voucher-numbers";
+import { voucherTerms } from "./approval-terms";
+import { parseVoucherLines, type ExpenseLine } from "./expense-lines";
 import { postingFund } from "./funds";
 export async function nextExpenseNumber(tenant: string, date: string) {
   return nextVoucherNumber(tenant, date, "expense");
 }
 export async function postExpense(
   formData: FormData,
-  approved?: { tenant: string; requestId: string },
+  approved?: { tenant: string; requestId: string; operator?: string },
 ): Promise<ExpenseActionState> {
   const supabase = await createClient();
   const user = await getAuthUser(supabase);
@@ -37,7 +39,7 @@ export async function postExpenseForActor(
   finalMadrasaId: string,
   actor: string,
   formData: FormData,
-  approved?: { tenant: string; requestId: string },
+  approved?: { tenant: string; requestId: string; operator?: string },
 ): Promise<ExpenseActionState> {
   if (approved && approved.tenant !== finalMadrasaId)
     return { error: "প্রতিষ্ঠান মেলেনি।" };
@@ -58,6 +60,44 @@ export async function postExpenseForActor(
   const beneficiary = String(
     formData.get("restricted_beneficiary") || "",
   ).trim();
+  let line_items: ExpenseLine[] | null;
+  try {
+    line_items = parseVoucherLines(formData.get("line_items"), amount);
+  } catch (e) {
+    return {
+      error:
+        e instanceof SyntaxError
+          ? "ভাউচারের আইটেম তালিকা সঠিক নয়।"
+          : (e as Error).message,
+    };
+  }
+  let head_name: string | null = null;
+  const details = {
+    line_items,
+    head_id: String(formData.get("head_id") || "").trim() || null,
+    student_id: String(formData.get("student_id") || "").trim() || null,
+    staff_id: String(formData.get("staff_id") || "").trim() || null,
+    payment_method:
+      String(formData.get("payment_method") || "Unknown").trim() || "Unknown",
+  };
+  if (details.head_id) {
+    const { data, error } = await (
+      await createAdminClient()
+    )
+      .from("treasury_heads")
+      .select("name,policy,active")
+      .eq("madrasa_id", finalMadrasaId)
+      .eq("id", details.head_id)
+      .maybeSingle();
+    if (
+      error ||
+      !data?.active ||
+      data.policy !== category ||
+      (approved && data.name !== formData.get("head_name"))
+    )
+      return { error: "ব্যয়ের খাত নিষ্ক্রিয়, বদলেছে বা এই প্রতিষ্ঠানের নয়।" };
+    head_name = data.name;
+  }
   let fund: FundItem;
   try {
     fund = await postingFund(
@@ -91,8 +131,25 @@ export async function postExpenseForActor(
   );
   if (periodLock.locked) return { error: periodLock.error };
 
-  const cleanDesc = parseExpenseFund(description).cleanDesc;
+  let cleanDesc: string;
+  try {
+    cleanDesc = expenseDescriptionForFund(description, fund);
+  } catch (err: any) {
+    return { error: err.message };
+  }
   if (!approved) {
+    const expenseData = {
+      ...details,
+      head_name,
+      category,
+      amount: parsedAmount,
+      expense_date: expenseDate,
+      description: cleanDesc,
+      restricted_beneficiary: beneficiary,
+      fund_id: fundId,
+      fund_name: fundName,
+      voucher_no: formData.get("voucher_no") || undefined,
+    };
     const hook = await submitWorkflowHookApproval({
       madrasaId: finalMadrasaId,
       actorId: actor,
@@ -107,16 +164,8 @@ export async function postExpenseForActor(
       targetName: fundName,
       payload: {
         action: "create_expense",
-        expenseData: {
-          category,
-          amount: parsedAmount,
-          expense_date: expenseDate,
-          description: cleanDesc,
-          restricted_beneficiary: beneficiary,
-          fund_id: fundId,
-          fund_name: fundName,
-          voucher_no: formData.get("voucher_no") || undefined,
-        },
+        expenseData,
+        voucherTerms: voucherTerms(expenseData),
       },
     });
     if (hook.matched) {
@@ -145,6 +194,9 @@ export async function postExpenseForActor(
   const record: any = {
     ...(approved ? { id: approved.requestId } : {}),
     madrasa_id: finalMadrasaId,
+    ...details,
+    head_name,
+    operator_id: approved?.operator || actor,
     category: category,
     amount: parsedAmount,
     expense_date: expenseDate,
@@ -200,6 +252,8 @@ export async function postExpenseForActor(
   return {
     success: true,
     expense: {
+      line_items,
+      head_name: inserted.data.head_name,
       id: createdId,
       category,
       amount: parsedAmount,

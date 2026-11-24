@@ -4,11 +4,16 @@ import React, { useState } from "react";
 import { Printer, Type, CheckCircle2, X, Download, Landmark, FileText, ArrowLeft } from "lucide-react";
 import { toBanglaNumber, formatBanglaCurrency, numberToBanglaWords } from "@/lib/numberToBangla";
 import { parseExpenseItems, ParsedExpenseItem } from "@/lib/expense-parser";
+import {MemoControl} from './treasury/MemoControl';
+import type {ExpenseLine} from '@/lib/finance/expense-lines';
 import { printElementIsolated } from "@/lib/printUtils";
 
 export interface ExpenseItem {
+  salary_hidden?: boolean;
   id: string;
   category: string;
+  line_items?:ExpenseLine[]|null;
+  head_name?:string;
   amount: number | string;
   expense_date: string;
   description?: string;
@@ -71,7 +76,7 @@ export default function ExpenseVoucher({
   const fundName = expense.fund_name || "ফান্ড যাচাই প্রয়োজন";
 
   // Parse multi-item breakdown from expense description
-  const parsedItems: ParsedExpenseItem[] = parseExpenseItems(expense.description, amountNum);
+  const parsedItems: ParsedExpenseItem[] = expense.line_items?.length ? expense.line_items.map((l,i)=>({id:i+1,serialBn:toBanglaNumber(String(i+1).padStart(2,'0')),name:l.label,amount:l.amount,amountFormatted:formatBanglaCurrency(l.amount)})) : parseExpenseItems(expense.description, amountNum);
 
   const handlePrint = () => {
     printElementIsolated("expense-voucher-sheet", "মাদরাসা ডেবিট ভাউচার");
@@ -79,6 +84,7 @@ export default function ExpenseVoucher({
 
   return (
     <div className={`flex flex-col items-center w-full max-w-4xl mx-auto ${banglaFont}`}>
+      {showControls&&!expense.salary_hidden&&<MemoControl id={expense.id}/>}
       {/* Top Action Control Toolbar */}
       {showControls && (
         <div className="w-full bg-slate-900 text-white p-3.5 sm:p-4 rounded-2xl mb-4 flex flex-wrap items-center justify-between gap-3 shadow-lg print:hidden">
@@ -125,6 +131,7 @@ export default function ExpenseVoucher({
             {/* Print button */}
             <button
               type="button"
+              aria-controls="expense-voucher-sheet"
               onClick={handlePrint}
               className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
             >
@@ -228,7 +235,7 @@ export default function ExpenseVoucher({
             <div className="flex items-center sm:justify-end">
               <span className="w-24 text-slate-500 font-medium sm:text-right sm:mr-2">খরচের খাত:</span>
               <span className="font-bold text-slate-800 bg-slate-200/70 px-2 py-0.5 rounded">
-                {categoryLabel}
+                {expense.head_name||categoryLabel}
               </span>
             </div>
           </div>

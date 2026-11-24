@@ -1,4 +1,5 @@
 "use client";
+import {tenders} from "@/lib/finance/treasury-types";
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { useState } from "react";
@@ -114,7 +115,7 @@ export default function InventoryClient({
     technician_or_shop: "",
     voucher_no: "",
     fund_id: "",
-    auto_add_to_expense: true,
+    payment_method:"",auto_add_to_expense: true,
   });
 
   const showNotification = (type: "success" | "error", text: string) => {
@@ -386,7 +387,7 @@ export default function InventoryClient({
       technician_or_shop: "",
       voucher_no: "",
       fund_id: "",
-      auto_add_to_expense: true,
+      payment_method:"",auto_add_to_expense: true,
     });
     setShowMaintenanceModal(true);
   };
@@ -637,7 +638,7 @@ export default function InventoryClient({
                       technician_or_shop: "",
                       voucher_no: "",
                       fund_id: "",
-                      auto_add_to_expense: true,
+                      payment_method:"",auto_add_to_expense: true,
                     });
                     setShowMaintenanceModal(true);
                   }
@@ -1532,6 +1533,7 @@ export default function InventoryClient({
               </div>
 
               <div className="pt-2">
+                <label>পরিশোধ পদ্ধতি<select required={maintenanceFormData.auto_add_to_expense&&maintenanceFormData.cost>0} className="block rounded border p-2" value={maintenanceFormData.payment_method} onChange={e=>setMaintenanceFormData({...maintenanceFormData,payment_method:e.target.value})}><option value="">নির্বাচন করুন</option>{Object.entries(tenders).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
                 <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
                   <input
                     type="checkbox"

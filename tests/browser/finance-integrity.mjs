@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
+import {cashbookUI} from './finance-cashbooks.mjs';
 import { approvalChecks } from "./finance-approvals.mjs";
 import { fixtureProxy } from "./fixture-proxy.mjs";
 import { withSessionStack } from "../sql/session/session-stack.mjs";
@@ -30,6 +31,7 @@ await withSessionStack(
       await conn.unsafe(
         await readFile("supabase_finance_integrity_migration.sql", "utf8"),
       );
+      await conn.unsafe(await readFile("supabase_finance_cashbooks_migration.sql","utf8"));
     } finally {
       conn.release();
     }
@@ -471,6 +473,7 @@ await withSessionStack(
         "operator correction",
       ])
         assert.ok(feeSheet.includes(term), term);
+      await cashbookUI({page,base,db,tenant:t,pupil,auth,call,actor:data.user.id});
       // A failed ledger read is not a printable zero ledger.
       await fundsPage();
       await page.waitForSelector(grid);

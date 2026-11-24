@@ -1,13 +1,20 @@
 # Phase 1: হিসাব চালুর আগে যাচাই
 
-**অবস্থা: স্থানীয় পরীক্ষা; production চালুর অনুমতি নয়।** এই পরিবর্তনে পুরোনো রসিদ পুনরায় পোস্ট, রিসিট নম্বর পরিবর্তন বা গণহারে ফান্ড বদলানোর দরকার নেই। এতে নতুন ফান্ড স্থানান্তর, ক্যাশ হস্তান্তর বা দিনশেষে ক্যাশ গোনার ব্যবস্থা যোগ করা হয়নি। নিচের কাজ DBA ও হিসাব বিভাগ অনুমোদিত **staging clone**-এ করবেন।
+**অবস্থা: স্থানীয় পরীক্ষা; production চালুর অনুমতি নয়।** এই পরিবর্তনে পুরোনো রসিদ পুনরায় পোস্ট, রিসিট নম্বর পরিবর্তন বা গণহারে ফান্ড বদলানোর দরকার নেই। এটি Phase 1-এর ফলাফল। ফান্ড স্থানান্তর, ক্যাশ হস্তান্তর ও দিনশেষে ক্যাশ গোনার জন্য পরবর্তী [Phase 2 নির্দেশিকা](./finance-cashbooks.bn.md) দেখুন। নিচের কাজ DBA ও হিসাব বিভাগ অনুমোদিত **staging clone**-এ করবেন।
 
 | যাচাই | এই শাখায় ফল |
 |---|---|
 | TypeScript (`npm run lint`), Next production build | সফল |
-| Unit / E2E | ২১১/২১১ ও ১৪৯/১৪৯ সফল |
-| Disposable PostgreSQL / HTTP ও Chromium | ৭টি SQL ও ১২টি API/UI যাচাই-গুচ্ছ সফল; আলাদা cold restore ও দুই প্রতিষ্ঠানের isolation অন্তর্ভুক্ত |
+| Unit / E2E | ২১৪/২১৪ ও ১৪৯/১৪৯ সফল |
+| Disposable PostgreSQL 17.11 | ৭টি SQL যাচাই-গুচ্ছ সফল; পরিশোধের দুই ধাপেই ব্যর্থতা, একইসঙ্গে দুইবার পরিশোধ, migration পুনঃপ্রয়োগ ও আলাদা cold restore অন্তর্ভুক্ত |
+| HTTP ও Chromium | আগের পূর্ণ Phase 1 পরীক্ষায় ১২টি API/UI যাচাই-গুচ্ছ সফল; এই সংশোধনে ওই browser fixture পুনরায় চালানো হয়নি |
 | Hosted staging, PSP statement, Android/প্রিন্টার, হিসাব বিভাগের স্বাক্ষর | যাচাই বাকি — **HOLD** |
+
+**এই সংশোধনের হিসাব মিলাবেন যেভাবে:**
+
+- `/dashboard/zakat/funds`-এর **ম্যানুয়াল সমন্বয় প্রয়োজন** তালিকায় অমিল মাহফিল ভাউচার দেখুন। একই event transaction দুই settlement-এ থাকলে, বা লেনদেনের রসিদ নম্বর মূল ভাউচারের সঙ্গে না মিললে, তা নিশ্চিত স্থিতি নয়। ফান্ড, ব্যয় তালিকা বা খতিয়ান বারবার খুললেও মূল রেকর্ড বদলাবে না।
+- রসিদের `fund_id`, নাম এবং পুরোনো `[FUND: …]` / বাজারের `FUND_NAME` ট্যাগ একসঙ্গে মিলতে হবে। দ্বিতীয় ট্যাগ বা পুরোনো চামড়ার খাতার `target_fund` প্রথমটির সঙ্গে না মিললে General ধরে সংশোধন করবেন না। মূল দলিল মিলিয়ে দেখুন; `VOID` করেও ফান্ডের প্রমাণ মুছবেন না।
+- `PAID` বেতনের `expense_id` এবং General/Salary ভাউচারের `payroll_record_id` দুই দিকেই মিলতে হবে। কেবল একই অঙ্কের পুরোনো ভাউচার পাওয়া গেলে পুনরায় বেতন দেওয়া বা স্বয়ংক্রিয় লিঙ্ক করা নয়।
 
 ## ১. আগে কপি, তারপর migration
 
@@ -26,7 +33,7 @@ npm run --silent preflight:fees -- "$TENANT_A" "$TENANT_B"      # portal migrati
 npm run --silent preflight:finance -- "$TENANT_A" "$TENANT_B"   # finance migration-এর পর
 ```
 
-দুই প্রতিষ্ঠান একই `REPEATABLE READ, READ ONLY` snapshot-এ দেখা হয়; output-এ A/B ও counts থাকে। আলাদা report role-কে দুই SQL ফাইলের উৎস সম্পূর্ণ পড়ার অধিকার এবং `finance_metadata`, `finance_fund_catalog`, `finance_is_restricted`, `finance_settlement_refs` **পঠন helper** চালানোর অধিকার লাগবে। RLS দিয়ে কিছু রেকর্ড লুকানো থাকলে ফল অসম্পূর্ণ। Browser role-কে grant বা report role-কে posting RPC দেবেন না।
+দুই প্রতিষ্ঠান একই `REPEATABLE READ, READ ONLY` snapshot-এ দেখা হয়; output-এ A/B ও counts থাকে। আলাদা report role-কে দুই SQL ফাইলের উৎস সম্পূর্ণ পড়ার অধিকার এবং `finance_metadata`, `finance_fund_catalog`, `finance_fund_tags`, `finance_is_restricted`, `finance_settlement_refs` **পঠন helper** চালানোর অধিকার লাগবে। RLS দিয়ে কিছু রেকর্ড লুকানো থাকলে ফল অসম্পূর্ণ। Browser role-কে grant বা report role-কে posting RPC দেবেন না।
 
 | ফল | সিদ্ধান্ত |
 |---|---|

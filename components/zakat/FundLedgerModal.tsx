@@ -340,7 +340,7 @@ export default function FundLedgerModal({
                 <h3 className={`text-lg sm:text-xl font-black font-mono ${currentBalance >= 0 ? "text-indigo-950" : "text-rose-700"}`}>
                   ৳ {formatBanglaCurrency(currentBalance)}
                 </h3>
-                <span className="text-[10px] text-indigo-700">জমা ও খরচের জের</span>
+                <span className="text-[10px] text-indigo-700">জমা, খরচ ও জার্নাল সমন্বয়ের জের</span>
               </div>
             </div>
 
@@ -423,7 +423,7 @@ export default function FundLedgerModal({
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                     {filteredTxns.map((txn) => {
-                      const isInflow = txn.type === "INCOME" || txn.type === "MAHFIL_SURPLUS";
+                      const isInflow = txn.type === "JOURNAL_IN" || txn.type === "INCOME" || txn.type === "MAHFIL_SURPLUS";
                       const isMahfil = txn.is_mahfil_settlement || txn.type === "MAHFIL_SURPLUS" || txn.type === "MAHFIL_DEFICIT";
                       const isVoid = txn.status === "VOID";
 
@@ -473,7 +473,7 @@ export default function FundLedgerModal({
 
                           {/* Category / Nature Badge */}
                           <td className="py-3 px-4">
-                            {isVoid ? (
+                            {txn.journal_kind ? <span>{txn.category}</span> : isVoid ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
                                 <span>বাতিলকৃত ({isInflow ? "রসিদ" : "ভাউচার"})</span>
                               </span>
@@ -508,7 +508,7 @@ export default function FundLedgerModal({
 
                           {/* Action / Receipt / Void / Unvoid */}
                           <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
+                            <div hidden={!!txn.journal_kind} className={txn.journal_kind ? "hidden" : "flex items-center justify-end gap-1.5"}>
                               {isInflow ? (
                                 <button
                                   type="button"
@@ -657,7 +657,7 @@ export default function FundLedgerModal({
                 <th className="p-2 border-r border-slate-300">ভাউচার নং</th>
                 <th className="p-2 border-r border-slate-300">উৎস / খাত বিবরণ</th>
                 <th className="p-2 border-r border-slate-300 text-right">জমা ৳</th>
-                <th className="p-2 text-right">খরচ ৳</th>
+                <th className="p-2 text-right">খরচ ৳</th><th className="p-2 text-right">জার্নাল ৳</th>
               </tr>
             </thead>
             <tbody>
@@ -683,7 +683,7 @@ export default function FundLedgerModal({
                     </td>
                     <td className={`p-2 text-right font-mono ${isVoid ? "line-through text-slate-400" : "text-rose-800"}`}>
                       {t.type === "EXPENSE" || t.type === "MAHFIL_DEFICIT" ? formatBanglaCurrency(t.amount) : "-"}
-                    </td>
+                    </td><td className="p-2 text-right">{t.journal_kind?formatBanglaCurrency(t.type==="JOURNAL_IN"?t.amount:-t.amount):"—"}</td>
                   </tr>
                 );
               })}

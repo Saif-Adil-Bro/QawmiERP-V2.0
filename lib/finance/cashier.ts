@@ -19,6 +19,7 @@ export async function cashierPayment(
   paymentData: CashierInput,
   approvedTenant?: string,
   approvedPlan?: ReturnType<typeof planReceipt>,
+  approvedOperator?: string,
 ) {
   try {
     const supabase = await createClient();
@@ -226,6 +227,7 @@ export async function cashierPayment(
       {
         p_tenant: madrasaId,
         p_actor: user.id,
+        p_operator: approvedTenant ? approvedOperator || user.id : user.id,
         p: candidate,
         p_expected: approvedTenant ? approvedPlan!.expected : expected,
       },

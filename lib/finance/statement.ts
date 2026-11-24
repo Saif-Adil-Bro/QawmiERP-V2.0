@@ -1,3 +1,4 @@
+import { journalLegs, type Journal } from "./journal";
 import { ledgerEntries, money } from "./entries";
 import { toDhakaDateStringFrom } from "@/lib/date-utils";
 import { REVIEW_FUND, type FundItem } from "@/lib/fund-utils";
@@ -10,6 +11,7 @@ export type FundLine = {
   totalIncome: number;
   totalExpense: number;
   closingBalance: number;
+  movement?: number;
   incomesByCategory: { category: string; amount: number }[];
   expensesByCategory: { category: string; amount: number }[];
 };
@@ -46,6 +48,7 @@ export function periodLines({
   meta,
   payments,
   onCurrent,
+  journals,
 }: {
   funds: FundItem[];
   start: string;
@@ -55,6 +58,7 @@ export function periodLines({
   bazar: any[];
   meta: Record<string, any>;
   payments: any[];
+  journals?: Journal[];
   onCurrent?: (
     kind: "in" | "out",
     source: "donation" | "fee" | "mahfil" | "bazar" | "expense",
@@ -115,6 +119,19 @@ export function periodLines({
       source,
     );
   }
+  for (const leg of journalLegs(journals, funds)) {
+    if (leg.date > end) continue;
+    const line =
+      lines.get(leg.fund_id) || emptyLine(leg.fund_id, leg.fund_name);
+    lines.set(leg.fund_id, line);
+    if (
+      leg.date < start ||
+      (leg.date === start && leg.journal_kind === "OPENING")
+    ) {
+      line.openingBalance = money(line.openingBalance + leg.delta);
+    } else line.movement = money((line.movement || 0) + leg.delta);
+    line.closingBalance = money(line.closingBalance + leg.delta);
+  }
   // Event custody stays in the Mahfil book until an identified settlement posts.
   return [...lines.values()];
 }
@@ -155,13 +172,18 @@ export function auditLines(
       const child = lines.find((f) => f.fundId === id);
       if (!child) continue;
       l.openingBalance += child.openingBalance;
+      l.movement = money((l.movement || 0) + (child.movement || 0));
       l.totalIncome += child.totalIncome;
       l.totalExpense += child.totalExpense;
       for (const key of ["incomesByCategory", "expensesByCategory"] as const)
         for (const c of child[key]) addCategory(l[key], c.category, c.amount);
     }
+    // An explicit Shura opening is the entire brought-forward amount for that heading,
+    // not an additional deposit on top of a dated opening already in the journal.
     l.openingBalance = Number(openings[key] ?? l.openingBalance);
-    l.closingBalance = l.openingBalance + l.totalIncome - l.totalExpense;
+    l.closingBalance = money(
+      l.openingBalance + l.totalIncome - l.totalExpense + (l.movement || 0),
+    );
     return l;
   });
   return [...combined, ...lines.filter((l) => !used.has(l.fundId))];

@@ -322,6 +322,15 @@ describe("Same records across accounting surfaces", () => {
     });
     expect(() => expensePeriod({ month: "2x" })).toThrow();
   });
+  it('carries journal balances through fund, executive, monthly and annual reports without creating a donation',async()=>{
+    data.treasury_journals=[{id:'opened',kind:'OPENING',posting_date:'2026-02-01',to_fund:fund.id,amount:20},{id:'move',kind:'TRANSFER',posting_date:date,from_fund:fund.id,to_fund:'fund-general',amount:8},{id:'adjust',kind:'ADJUST_OUT',posting_date:date,from_fund:fund.id,amount:1.25}];
+    const monthly=await getAccountingReport('02','2026');expect(monthly).toMatchObject({previousBalance:24,totalIncome:63,totalExpense:5,adjustedClosingBalance:80.75});
+    const ledger=await getFundLedgerData(fund.id);expect(ledger).toMatchObject({totalInflow:33,totalOutflow:5,currentBalance:38.75});
+    expect(ledger.transactions.filter(r=>r.journal_kind)).toHaveLength(3);
+    expect((await getMonthlyExecutiveSummary('2026-02')).metrics).toMatchObject({totalIncome:63,totalExpense:5,adjustedClosingBalance:80.75});
+    expect((await getAnnualAuditStatement('2026','2026-02-01','2026-02-28'))?.grandTotal).toMatchObject({openingBalance:24,totalIncome:63,totalExpense:5,closingBalance:80.75});
+    expect((await getUnifiedIncomeHistory()).totalIncome).toBe(67);expect((await getFundOverview()).funds.find(f=>f.id===fund.id)?.current_balance).toBe(38.75);
+  });
   it("quarantines missing/duplicate IDs and conflicting leather aliases rather than making a printable match", async () => {
     data.meta.donor_subscription_payments.push(
       f("", 1),

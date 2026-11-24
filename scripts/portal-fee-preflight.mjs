@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import postgres from "postgres";
 
 const usage =
-  "Usage: npm run --silent preflight:fees (or preflight:finance after migration) -- <staging-tenant-A-uuid> <staging-tenant-B-uuid>\nSet QAWMI_STAGING_DATABASE_URL via your secret manager. No default database.";
+  "Usage: npm run --silent preflight:fees (or preflight:finance / preflight:cashbooks after their migrations) -- <staging-tenant-A-uuid> <staging-tenant-B-uuid>\nSet QAWMI_STAGING_DATABASE_URL via your secret manager. No default database.";
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 class PreflightError extends Error {}
 
@@ -23,7 +23,7 @@ function validateTenants(tenants) {
 export async function readFeePreflight(
   query,
   tenants,
-  { finance = false } = {},
+  { finance = false, cashbooks = false } = {},
 ) {
   validateTenants(tenants);
   await query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
@@ -35,20 +35,23 @@ export async function readFeePreflight(
     new URL("./sql/portal-fee-preflight.sql", import.meta.url),
     "utf8",
   );
-  const extra = finance
-    ? await readFile(
-        new URL("./sql/finance-integrity-review.sql", import.meta.url),
-        "utf8",
-      )
-    : null;
+  const reports = [];
+  if (finance || cashbooks) reports.push("finance-integrity-review.sql");
+  if (cashbooks) reports.push("finance-cashbooks-review.sql");
+  const extra = await Promise.all(
+    reports.map((name) =>
+      readFile(new URL(`./sql/${name}`, import.meta.url), "utf8"),
+    ),
+  );
   const institutions = [];
   for (const [i, tenant] of tenants.entries()) {
     const label = i === 0 ? "A" : "B";
     let rows;
     try {
       rows = await query(select, [tenant]);
-      if (extra && rows.length === 1) {
-        const [report] = await query(extra, [tenant]);
+      for (const check of extra) {
+        if (rows.length !== 1) break;
+        const [report] = await query(check, [tenant]);
         for (const key of ["inventory", "blockers", "review"])
           rows[0][key] = { ...rows[0][key], ...report[key] };
       }
@@ -75,7 +78,8 @@ export async function readFeePreflight(
 
 async function main(tenants) {
   const finance = tenants[0] === "--finance";
-  if (finance) tenants = tenants.slice(1);
+  const cashbooks = tenants[0] === "--cashbooks";
+  if (finance || cashbooks) tenants = tenants.slice(1);
   if (tenants.length === 1 && tenants[0] === "--help")
     return console.log(usage);
   validateTenants(tenants);
@@ -109,6 +113,7 @@ async function main(tenants) {
     const report = await db.begin((tx) =>
       readFeePreflight((text, args = []) => tx.unsafe(text, args), tenants, {
         finance,
+        cashbooks,
       }),
     );
     console.log(JSON.stringify(report, null, 2));
