@@ -103,11 +103,18 @@ export default function CollectPaymentClient({
     if (fee.fund_id && allFunds.some((f: any) => f.id === fee.fund_id)) {
       return fee.fund_id;
     }
-    const name = fee.fee_type_name || fee.name || "";
+    const name = String(fee.fee_type_name || fee.name || "");
+    const lowerName = name.toLowerCase();
     const isLillah =
       name.includes("বোর্ডিং") ||
       name.includes("খাবার") ||
       name.includes("খোরাকি") ||
+      name.includes("লিল্লাহ") ||
+      lowerName.includes("hostel") ||
+      lowerName.includes("boarding") ||
+      lowerName.includes("food") ||
+      lowerName.includes("meal") ||
+      lowerName.includes("lillah") ||
       fee.category === "BOARDING";
 
     if (isLillah) {
@@ -322,6 +329,43 @@ export default function CollectPaymentClient({
     setAllocationFunds((prev) => ({ ...prev, [feeId]: fundId }));
   };
 
+  // Quick-apply a single fund to all unpaid fee items in Section 2
+  const handleApplyFundToAll = (fundId: string) => {
+    if (!fundId) return;
+    const next: Record<string, string> = {};
+    unpaidFeesList.forEach((f: any) => {
+      next[f.id] = fundId;
+    });
+    setAllocationFunds(next);
+    setSelectedGlobalFund(fundId);
+  };
+
+  // Compute read-only fund allocation summary from Section 2
+  const allocatedFundBreakdown = (() => {
+    if (unpaidFeesList.length === 0) return [];
+    const byFund = new Map<string, { fundId: string; fundName: string; amount: number }>();
+    unpaidFeesList.forEach((f: any) => {
+      const itemDiscount = itemDiscounts[f.id] || 0;
+      const netPayable = Math.max(0, (Number(f.due_amount) || 0) - itemDiscount);
+      const allocAmt = allocations[f.id] !== undefined ? Number(allocations[f.id]) || 0 : netPayable;
+      const fId = allocationFunds[f.id] || resolveInitialFundId(f);
+      const fObj = allFunds.find((af) => af.id === fId);
+      const fName = fObj?.name || "সাধারণ ফান্ড (General Fund)";
+      const prev = byFund.get(fId);
+      byFund.set(fId, {
+        fundId: fId,
+        fundName: fName,
+        amount: (prev?.amount || 0) + allocAmt,
+      });
+    });
+    return Array.from(byFund.values()).sort((a, b) => b.amount - a.amount);
+  })();
+
+  const effectiveGlobalFundId =
+    unpaidFeesList.length > 0 && allocatedFundBreakdown.length > 0
+      ? allocatedFundBreakdown[0].fundId
+      : selectedGlobalFund;
+
   // Submit payment
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -361,7 +405,7 @@ export default function CollectPaymentClient({
       });
     }
 
-    const globalFundObj = allFunds.find((af) => af.id === selectedGlobalFund);
+    const globalFundObj = allFunds.find((af) => af.id === effectiveGlobalFundId);
 
     try {
       setPendingApproval(null);
@@ -380,7 +424,7 @@ export default function CollectPaymentClient({
             fine_reason: fineReason,
             fee_allocations: feeAllocationsList,
             notes: notes,
-            fund_id: selectedGlobalFund,
+            fund_id: effectiveGlobalFundId,
             fund_name: globalFundObj?.name || "সাধারণ ফান্ড",
             // HI-2: ডুপ্লিকেট পেমেন্ট ঠেকানোর idempotency key
             idempotency_key: idempotencyKeyRef.current,
@@ -594,10 +638,32 @@ export default function CollectPaymentClient({
                   <Layers className="w-5 h-5 text-emerald-600" />
                   <h3 className="font-bold text-slate-900 text-base">২. বকেয়া ফি'র খাত ও ফান্ড বণ্টন (Fund Allocations)</h3>
                 </div>
-                <span className="text-xs text-slate-500">প্রয়োজনে যেকোনো ফি'র ফান্ড পরিবর্তন করুন</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {unpaidFeesList.length > 1 && (
+                    <select
+                      aria-label="সব খাতে একই ফান্ড প্রয়োগ করুন"
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          handleApplyFundToAll(e.target.value);
+                          e.target.value = "";
+                        }
+                      }}
+                      className="px-2.5 py-1 text-xs border border-slate-300 rounded-lg bg-slate-50 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                    >
+                      <option value="">সব খাতে একই ফান্ড প্রয়োগ করুন...</option>
+                      {allFunds.map((af) => (
+                        <option key={af.id} value={af.id}>
+                          {af.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <span className="text-xs text-slate-500">প্রয়োজনে যেকোনো ফি'র ফান্ড পরিবর্তন করুন</span>
+                </div>
               </div>
 
-              <div className="border border-slate-200 rounded-2xl overflow-hidden text-xs sm:text-sm">
+              <div className="border border-slate-200 rounded-2xl overflow-x-auto text-xs sm:text-sm">
                 <table className="w-full text-left">
                   <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
                     <tr>
@@ -702,24 +768,44 @@ export default function CollectPaymentClient({
                 />
               </div>
 
-              {/* Fund Selection for General or Direct collection */}
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-800 block flex items-center gap-1">
-                  <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>জমা হওয়ার প্রধান ফান্ড</span>
-                </label>
-                <select
-                  value={selectedGlobalFund}
-                  onChange={(e) => setSelectedGlobalFund(e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-emerald-300 bg-emerald-50/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 font-bold text-slate-900"
-                >
-                  {allFunds.map((af) => (
-                    <option key={af.id} value={af.id}>
-                      {af.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* Fund Summary (auto-allocated from Section 2) or Direct Fund Selector (when no unpaid dues) */}
+              {unpaidFeesList.length > 0 ? (
+                <div className="space-y-1.5">
+                  <label className="font-bold text-slate-800 block flex items-center gap-1">
+                    <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>বণ্টিত ফান্ড সারসংক্ষেপ</span>
+                  </label>
+                  <div className="w-full px-3.5 py-2 border border-emerald-200 bg-emerald-50/50 rounded-xl min-h-[44px] flex flex-wrap items-center gap-1.5">
+                    {allocatedFundBreakdown.map((item) => (
+                      <span
+                        key={item.fundId}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-emerald-200 text-xs font-bold text-emerald-900"
+                      >
+                        <span>{item.fundName}:</span>
+                        <span className="font-mono">৳{formatBanglaCurrency(item.amount)}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="font-bold text-slate-800 block flex items-center gap-1">
+                    <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>জমা হওয়ার ফান্ড</span>
+                  </label>
+                  <select
+                    value={selectedGlobalFund}
+                    onChange={(e) => setSelectedGlobalFund(e.target.value)}
+                    className="w-full px-3.5 py-2.5 border border-emerald-300 bg-emerald-50/40 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-600 font-bold text-slate-900"
+                  >
+                    {allFunds.map((af) => (
+                      <option key={af.id} value={af.id}>
+                        {af.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Payment Date */}
               <div className="space-y-1.5">

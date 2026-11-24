@@ -1127,12 +1127,17 @@ export async function collectFeePayment(paymentData: {
         }
       }
       const name = feeTypeName || "";
+      const lowerName = name.toLowerCase();
       const isFood =
         name.includes("বোর্ডিং") ||
         name.includes("খাবার") ||
         name.includes("খোরাকি") ||
-        name.includes("hostel") ||
-        name.includes("lillah");
+        name.includes("লিল্লাহ") ||
+        lowerName.includes("hostel") ||
+        lowerName.includes("boarding") ||
+        lowerName.includes("food") ||
+        lowerName.includes("meal") ||
+        lowerName.includes("lillah");
       return {
         fund_id: isFood ? "fund-lillah" : "fund-general",
         fund_name: isFood ? "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)" : "সাধারণ ফান্ড (General Fund)",
