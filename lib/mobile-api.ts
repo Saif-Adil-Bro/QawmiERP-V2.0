@@ -7,7 +7,7 @@ import { timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertActiveAccount, type ServerPermissionContext } from "@/lib/permissions-server";
-import { MODULE_POLICIES, type ModuleKey } from "@/lib/action-authorization";
+import { canReadSchoolFinance, MODULE_POLICIES, type ModuleKey } from "@/lib/action-authorization";
 import { readJsonStore, writeJsonStore } from "@/lib/madrasa-store";
 
 export interface MobileMeta {
@@ -314,6 +314,12 @@ export async function authenticateMobileRequest(
       };
     const permissions = permCtx?.summary?.effectivePermissions || [];
 
+    // Generic finance tables are school-wide. Guardians and teachers use the linked-portal
+    // routes; an unrelated staff role cannot read the school's receipts or donor directory.
+    if (options.module && ['finance','zakat','fundraising'].includes(options.module)) {
+      if (isPortalUser || !canReadSchoolFinance([String(userRow?.role),primaryRole,...roles],permissions))
+        return {ok:false,response:mobileError('হিসাব দেখার অনুমতি নেই।',403,'PERMISSION_DENIED')};
+    }
     // If write operation is requested, enforce portal block & module policy
     if (options.requireWrite) {
       if (isPortalUser && !options.allowPortalRoles) {
@@ -390,7 +396,7 @@ export function parsePagination(req: NextRequest) {
     Math.max(1, parseInt(searchParams.get("limit") || "20", 10) || 20)
   );
   const search = (searchParams.get("search") || searchParams.get("q") || "").trim();
-  const sortBy = (searchParams.get("sortBy") || "created_at").trim();
+  const sortBy = (searchParams.get("sortBy") || "").trim();
   const sortOrder =
     (searchParams.get("sortOrder") || "desc").toLowerCase() === "asc"
       ? true
@@ -402,16 +408,20 @@ export function parsePagination(req: NextRequest) {
 }
 
 export type MobileWriteCheck = (input: {
-  db: Awaited<ReturnType<typeof createAdminClient>>; tenant: string; id?: string; payload: Record<string, unknown>;
+  db: Awaited<ReturnType<typeof createAdminClient>>; tenant: string; actor:string; id?: string; operation?: "delete"; payload: Record<string, unknown>;
 }) => Promise<NextResponse | undefined>;
 
 export interface TableCrudConfig {
+  beforeRead?: (input:{req:NextRequest; db:Awaited<ReturnType<typeof createAdminClient>>;tenant:string;id?:string;config:TableCrudConfig})=>Promise<NextResponse|undefined>;
   beforeWrite?: MobileWriteCheck;
+  presentRow?: (row:any,ctx:MobileAuthContext)=>any;
   table: string;
   module: ModuleKey;
   select?: string;
   detailSelect?: string;
   searchColumns?: string[];
+  readSearchColumns?: (ctx: MobileAuthContext) => string[];
+  sortColumns?: string[];
   filterColumns?: string[];
   defaultSort?: string;
   tenantColumn?: string;
@@ -434,6 +444,7 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
     if (!auth.ok) return auth.response;
 
     try {
+      const alternate=await config.beforeRead?.({req,db:auth.adminClient,tenant:auth.ctx.madrasaId,config});if(alternate) return alternate;
       const { page, limit, search, sortBy, ascending, from, to, searchParams } =
         parsePagination(req);
 
@@ -445,9 +456,12 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
         query = query.eq(tenantCol, auth.ctx.madrasaId);
       }
 
-      if (search && config.searchColumns && config.searchColumns.length > 0) {
-        const orExpr = config.searchColumns
-          .map((col) => `${col}.ilike.%${search}%`)
+      const searchColumns = config.readSearchColumns?.(auth.ctx) ?? config.searchColumns;
+      if (search && searchColumns?.length) {
+        // Keep search text a single PostgREST literal, including commas, quotes and parentheses.
+        const pattern = JSON.stringify(`%${search}%`);
+        const orExpr = searchColumns
+          .map((col) => `${col}.ilike.${pattern}`)
           .join(",");
         query = query.or(orExpr);
       }
@@ -461,8 +475,10 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
         }
       }
 
-      const orderCol = sortBy || config.defaultSort || "created_at";
-      query = query.order(orderCol, { ascending }).range(from, to);
+      const orderCol = (sortBy && (!config.sortColumns || config.sortColumns.includes(sortBy)) ? sortBy : config.defaultSort) || "created_at";
+      query=query.order(orderCol,{ascending});
+      if(orderCol!=="id")query=query.order("id",{ascending});
+      query=query.range(from,to);
 
       const { data, count, error } = await query;
       if (error) {
@@ -471,7 +487,7 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
 
       const total = count ?? (data?.length || 0);
       return mobileSuccess(
-        data || [],
+        config.presentRow?(data||[]).map((r:any)=>config.presentRow!(r,auth.ctx)):data||[],
         "Success",
         {
           page,
@@ -522,7 +538,7 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
         insertPayload[tenantCol] = auth.ctx.madrasaId;
       }
 
-      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, payload: insertPayload});
+      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, actor:auth.ctx.userId, payload: insertPayload});
       if (blocked) return blocked;
       const { data, error } = await auth.adminClient
         .from(config.table)
@@ -534,7 +550,7 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
         return mobileError(error.message, 400, "DB_INSERT_ERROR");
       }
 
-      return mobileSuccess(data, "Created successfully", undefined, 201, req);
+      return mobileSuccess(config.presentRow?config.presentRow(data,auth.ctx):data, "Created successfully", undefined, 201, req);
     } catch (err: any) {
       return mobileError(err?.message || "Server error", 500, "INTERNAL_ERROR");
     }
@@ -562,6 +578,7 @@ export function createMobileTableItemHandlers(config: TableCrudConfig) {
 
     try {
       const { id } = await context.params;
+      const alternate=await config.beforeRead?.({req,db:auth.adminClient,tenant:auth.ctx.madrasaId,config,id});if(alternate) return alternate;
       let query = auth.adminClient
         .from(config.table)
         .select(config.detailSelect || config.select || "*")
@@ -575,7 +592,7 @@ export function createMobileTableItemHandlers(config: TableCrudConfig) {
       if (error) return mobileError(error.message, 400, "DB_QUERY_ERROR");
       if (!data) return mobileError("রেকর্ড খুঁজে পাওয়া যায়নি।", 404, "NOT_FOUND");
 
-      return mobileSuccess(data, "Success", undefined, 200, req);
+      return mobileSuccess(config.presentRow?config.presentRow(data,auth.ctx):data, "Success", undefined, 200, req);
     } catch (err: any) {
       return mobileError(err?.message || "Server error", 500, "INTERNAL_ERROR");
     }
@@ -602,7 +619,7 @@ export function createMobileTableItemHandlers(config: TableCrudConfig) {
       delete updatePayload.id;
       if (tenantCol) delete updatePayload[tenantCol];
 
-      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, id, payload: updatePayload});
+      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, actor:auth.ctx.userId, id, payload: updatePayload});
       if (blocked) return blocked;
       let query = auth.adminClient
         .from(config.table)
@@ -620,7 +637,7 @@ export function createMobileTableItemHandlers(config: TableCrudConfig) {
       if (error) return mobileError(error.message, 400, "DB_UPDATE_ERROR");
       if (!data) return mobileError("রেকর্ড খুঁজে পাওয়া যায়নি।", 404, "NOT_FOUND");
 
-      return mobileSuccess(data, "Updated successfully", undefined, 200, req);
+      return mobileSuccess(config.presentRow?config.presentRow(data,auth.ctx):data, "Updated successfully", undefined, 200, req);
     } catch (err: any) {
       return mobileError(err?.message || "Server error", 500, "INTERNAL_ERROR");
     }
@@ -638,9 +655,10 @@ export function createMobileTableItemHandlers(config: TableCrudConfig) {
 
     try {
       const { id } = await context.params;
-      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, id, payload: {}});
+      const reason=config.beforeWrite ? (await req.json().catch(()=>({})))?.reason : undefined;
+      const blocked = await config.beforeWrite?.({db: auth.adminClient, tenant: auth.ctx.madrasaId, actor:auth.ctx.userId, id, operation:"delete", payload: {reason}});
       if (blocked) return blocked;
-      let query = auth.adminClient.from(config.table).delete().eq("id", id);
+      let query = auth.adminClient.from(config.table).delete().eq("id",id);
 
       if (tenantCol) {
         query = query.eq(tenantCol, auth.ctx.madrasaId);

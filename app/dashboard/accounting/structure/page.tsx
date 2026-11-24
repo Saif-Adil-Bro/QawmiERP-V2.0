@@ -1,7 +1,7 @@
 import { getFeeStructures, getFeeTypes } from "@/app/actions/fee-management";
 import { getAcademicSessions } from "@/app/actions/sessions";
 import { getClasses } from "@/app/actions/students";
-import { getFunds } from "@/app/actions/zakat";
+import { getFundChoices } from "@/app/actions/zakat";
 import StructureClient from "./StructureClient";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -12,7 +12,7 @@ export default async function FeeStructurePage() {
     getFeeTypes(),
     getAcademicSessions(),
     getClasses(),
-    getFunds(),
+    getFundChoices(),
   ]);
 
   return (

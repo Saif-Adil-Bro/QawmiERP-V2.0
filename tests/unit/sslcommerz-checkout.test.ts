@@ -14,7 +14,9 @@ const h = vi.hoisted(() => ({
   linked: vi.fn(),
   client: vi.fn(),
   profile: vi.fn(),
+  fund: vi.fn(),
 }));
+vi.mock("@/lib/finance/funds", () => ({postingFund:h.fund}));
 vi.mock("@/lib/payment-gateway-config", () => ({ getFullPaymentGatewayConfig: h.config }));
 vi.mock("@/lib/portal/identity", () => ({
   webIdentity: h.identity,
@@ -44,7 +46,8 @@ function setup() {
   const builder = { select: () => builder, eq: () => builder, single: async () => ({ data: student }) };
   h.client.mockResolvedValue({ from: () => builder, rpc });
   rpc.mockResolvedValue({ error: null });
-  h.profile.mockResolvedValue({ fees: [{ id: "posted-bill", due_amount: 85.25 }] });
+  h.profile.mockResolvedValue({ fees: [{ id: "posted-bill", due_amount: 85.25, fund_id:"lib", fund_name:"Library" }] });
+  h.fund.mockResolvedValue({id:"lib",name:"Library"});
   h.config.mockResolvedValue(config);
 }
 beforeEach(() => {
@@ -69,7 +72,7 @@ it("reserves a bound intent before checkout and sends tenant-qualified callbacks
       amount: 75.25,
       convenience_fee: 2,
       total_payable: 77.25,
-      allocations: [{ student_fee_id: "posted-bill", allocated_amount: 75.25 }],
+      allocations: [{ student_fee_id: "posted-bill", allocated_amount: 75.25, fund_id:"lib", fund_name:"Library" }],
     });
     expect(p_txn.sslcommerz_scope).toBe(sslCommerzAccount(config)?.scope);
     expect(JSON.stringify(p_txn)).not.toMatch(/fixture-merchant|fixture-only/);
@@ -98,6 +101,11 @@ it("does not open checkout or write pending data on bad amounts, missing callbac
   expect((await initiateOnlinePayment(params)).error).toBeTruthy();
   expect(rpc).not.toHaveBeenCalled();
   expect(http).not.toHaveBeenCalled();
+});
+it("does not reserve or contact the provider for a bill with an unavailable fund", async () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://stage.example.test");
+  vi.stubGlobal("fetch",vi.fn());h.fund.mockRejectedValueOnce(new Error('Archived fund'));
+  expect((await initiateOnlinePayment(params)).error).toBeTruthy();expect(rpc).not.toHaveBeenCalled();expect(fetch).not.toHaveBeenCalled();
 });
 it("will not send a shopper to the PSP if the intent could not be reserved", async () => {
   const http = vi.fn();

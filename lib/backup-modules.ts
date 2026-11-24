@@ -182,11 +182,11 @@ const BACKUP_MODULE_SPECS: Record<string, BackupModuleSpec> = {
     ],
   },
   finance_transactions: {
-    tables: ["fees", "fee_payments", "fee_payment_allocations"],
+    tables: ["fees", "fee_payments", "fee_payment_allocations", "treasury_fee_tenders", "treasury_journals", "treasury_days", "treasury_movements"],
     metadataKeys: ["payments", "fee_payments", "fee_payment_allocations"],
   },
   expenses: {
-    tables: ["expenses", "bazar_expenses"],
+    tables: ["expenses", "bazar_expenses", "treasury_heads", "treasury_memo_index"],
     metadataKeys: ["bazar_expenses"],
   },
   zakat_donations: {

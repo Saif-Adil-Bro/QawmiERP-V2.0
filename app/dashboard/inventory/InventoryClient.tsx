@@ -1,4 +1,5 @@
 "use client";
+import {tenders} from "@/lib/finance/treasury-types";
 
 import { toDhakaDateString } from "@/lib/date-utils";
 import { useState } from "react";
@@ -46,14 +47,17 @@ import {
   deleteMaintenance,
 } from "@/app/actions/inventory";
 
+import { type FundItem, isRestrictedFund } from "@/lib/fund-utils";
+
 interface InventoryClientProps {
+  funds: FundItem[];
   initialItems: AssetItem[];
   initialAllocations: AssetAllocation[];
   initialMaintenance: MaintenanceRecord[];
 }
 
 export default function InventoryClient({
-  initialItems,
+  funds, initialItems,
   initialAllocations,
   initialMaintenance,
 }: InventoryClientProps) {
@@ -110,8 +114,8 @@ export default function InventoryClient({
     cost: 0,
     technician_or_shop: "",
     voucher_no: "",
-    fund_name: "সাধারণ ফান্ড",
-    auto_add_to_expense: true,
+    fund_id: "",
+    payment_method:"",auto_add_to_expense: true,
   });
 
   const showNotification = (type: "success" | "error", text: string) => {
@@ -422,8 +426,8 @@ export default function InventoryClient({
       cost: 0,
       technician_or_shop: "",
       voucher_no: "",
-      fund_name: "সাধারণ ফান্ড",
-      auto_add_to_expense: true,
+      fund_id: "",
+      payment_method:"",auto_add_to_expense: true,
     });
     setShowMaintenanceModal(true);
   };
@@ -673,8 +677,8 @@ export default function InventoryClient({
                       cost: 0,
                       technician_or_shop: "",
                       voucher_no: "",
-                      fund_name: "সাধারণ ফান্ড",
-                      auto_add_to_expense: true,
+                      fund_id: "",
+                      payment_method:"",auto_add_to_expense: true,
                     });
                     setShowMaintenanceModal(true);
                   }
@@ -1553,23 +1557,23 @@ export default function InventoryClient({
                     ফান্ড নির্বাচন
                   </label>
                   <select
-                    value={maintenanceFormData.fund_name}
+                    value={maintenanceFormData.fund_id}
                     onChange={(e) =>
                       setMaintenanceFormData({
                         ...maintenanceFormData,
-                        fund_name: e.target.value,
+                        fund_id: e.target.value,
                       })
                     }
                     className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-rose-500 bg-white"
                   >
-                    <option value="সাধারণ ফান্ড">সাধারণ ফান্ড</option>
-                    <option value="উন্নয়ন ও মেরামত ফান্ড">উন্নয়ন ও মেরামত ফান্ড</option>
-                    <option value="লিল্লাহ বোর্ডিং ফান্ড">লিল্লাহ বোর্ডিং ফান্ড</option>
+                    <option value="">ফান্ড নির্বাচন করুন</option>
+                    {funds.filter(f=>!isRestrictedFund(f)).map(f=><option key={f.id} value={f.id}>{f.name}</option>)}
                   </select>
                 </div>
               </div>
 
               <div className="pt-2">
+                <label>পরিশোধ পদ্ধতি<select required={maintenanceFormData.auto_add_to_expense&&maintenanceFormData.cost>0} className="block rounded border p-2" value={maintenanceFormData.payment_method} onChange={e=>setMaintenanceFormData({...maintenanceFormData,payment_method:e.target.value})}><option value="">নির্বাচন করুন</option>{Object.entries(tenders).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
                 <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
                   <input
                     type="checkbox"

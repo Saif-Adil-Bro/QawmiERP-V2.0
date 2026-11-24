@@ -410,7 +410,7 @@ export default function StaffListView({
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-slate-400">বেতন:</span>
                         <span className="font-bold text-emerald-700">
-                          ৳{toBanglaNumber(staff.salary.net_salary.toString())}
+                          {staff.directory_only ? "চুক্তি নেই" : staff.salary_hidden ? "সীমাবদ্ধ" : `৳${toBanglaNumber(staff.salary.net_salary.toString())}`}
                         </span>
                       </div>
                     </div>
@@ -555,7 +555,7 @@ export default function StaffListView({
                         <td className="py-3 px-4">{toBanglaNumber(staff.employment.joining_date)}</td>
 
                         <td className="py-3 px-4 font-bold text-emerald-700">
-                          ৳{toBanglaNumber(staff.salary.net_salary.toString())}
+                          {staff.directory_only ? "চুক্তি নেই" : staff.salary_hidden ? "সীমাবদ্ধ" : `৳${toBanglaNumber(staff.salary.net_salary.toString())}`}
                         </td>
 
                         <td className="py-3 px-4">

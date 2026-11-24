@@ -344,6 +344,7 @@ export const INITIAL_NAV_GROUPS: SerializedNavGroup[] = [
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "accountant"],
         keywords: ["finance", "fee", "collection", "হিসাব", "ফি"],
       },
+      ...[['cashbook','আমার ক্যাশবই'],['daybook','সকল ফান্ডের ডেবুক'],['journals','ফান্ড জার্নাল'],['expense-heads','ব্যয়ের খাত']].map(([path,name])=>({id:'finance_'+path,name,href:'/dashboard/accounting/'+path,iconName:'Wallet',permission:'finance.view',roles:['super_admin','admin','muhtamim','naib_muhtamim','accountant']})),
       {
         id: "finance_due",
         name: "বকেয়া ফি ও তাগাদা",

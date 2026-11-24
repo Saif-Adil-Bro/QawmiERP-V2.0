@@ -1,6 +1,6 @@
 import React, { Suspense } from "react";
 import { getLifeMemberDonors } from "@/app/actions/fundraising";
-import { getFunds } from "@/app/actions/zakat";
+import { getFundChoices } from "@/app/actions/zakat";
 import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import ZakatNav from "@/components/zakat/ZakatNav";
 import DonorsClient from "@/app/dashboard/fundraising/donors/DonorsClient";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function DonorsPage() {
   const [{ donors, payments }, funds, madrasaInfo] = await Promise.all([
     getLifeMemberDonors(),
-    getFunds(),
+    getFundChoices(),
     getMadrasaInfo(),
   ]);
 
@@ -25,7 +25,7 @@ export default async function DonorsPage() {
           </div>
         }
       >
-        <DonorsClient initialDonors={donors} initialPayments={payments} madrasaInfo={toPublicMadrasaInfo(madrasaInfo)} />
+        <DonorsClient funds={funds} initialDonors={donors} initialPayments={payments} madrasaInfo={toPublicMadrasaInfo(madrasaInfo)} />
       </Suspense>
     </div>
   );

@@ -1,14 +1,18 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { toDhakaDateString } from "@/lib/date-utils";
+import { includesFinancialBooks, needsFinancialRecovery, safeWipeScope, selectiveRecoveryPlan, type RecoveryOperation, financialRecoveryHold } from "@/lib/finance/recovery";
+import { salaryAccess } from "@/lib/finance/staff-access";
+import { rows as readRows } from "@/lib/portal/queries";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
-import { getMadrasaMetadata, saveMadrasaMetadata, deduplicateSessions } from "@/lib/sessions";
+import { getMadrasaMetadata } from "@/lib/sessions";
 import { revalidatePath } from "next/cache";
 import type { BackupModuleKey } from "@/lib/backup-modules";
 import {
-  resolveBackupSelection,
+  ALL_BACKUP_MODULE_KEYS,resolveBackupSelection,
   isMetadataKeySelected,
   isTableSelected,
 } from "@/lib/backup-modules";
@@ -36,6 +40,7 @@ export interface BackupManifest {
    */
   is_selective?: boolean;
   included_tables?: string[];
+  cold_backup_required_for?: string[];
   included_metadata_keys?: string[] | "ALL";
 }
 
@@ -112,7 +117,7 @@ export interface BackupPayload {
 
 export interface BackupAuditEntry {
   id: string;
-  type: "BACKUP_EXPORT" | "RESTORE_MERGE" | "RESTORE_REPLACE" | "AUTO_SNAPSHOT";
+  type: "BACKUP_EXPORT" | "RESTORE_MERGE" | "RESTORE_REPLACE" | "AUTO_SNAPSHOT" | "SCOPED_WIPE";
   timestamp: string;
   actor_name: string;
   actor_email: string;
@@ -198,6 +203,7 @@ const KNOWN_DB_TABLES = [
   "student_fees",
   "fee_payments",
   "fee_payment_allocations",
+  "treasury_fee_tenders","treasury_journals","treasury_days","treasury_movements","treasury_heads","treasury_memo_index",
   "fee_discount_waivers",
   "fee_audit_logs",
   "expenses",
@@ -247,8 +253,10 @@ async function uploadBackupSnapshotFile(
     } catch {
       // Bucket আগে থেকেই আছে — স্বাভাবিক
     }
+    const bucket=await admin.storage.getBucket('backups');
+    if(bucket.error || bucket.data?.public!==false) return {ok:false,error:'Private backup storage unavailable'};
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const storagePath = `snapshots/${madrasaId}/snap_${stamp}_${Date.now() % 100000}.json`;
+    const storagePath = `snapshots/${madrasaId}/snap_${stamp}_${crypto.randomUUID()}.json`;
     const { error } = await admin.storage
       .from("backups")
       .upload(storagePath, new Blob([json], { type: "application/json" }), {
@@ -256,6 +264,8 @@ async function uploadBackupSnapshotFile(
         upsert: false,
       });
     if (error) return { ok: false, error: error.message };
+    const saved=await admin.storage.from('backups').download(storagePath);
+    if(saved.error || !saved.data || await saved.data.text()!==json) return {ok:false,error:'Snapshot read-back failed'};
     return { ok: true, storagePath };
   } catch (err: any) {
     return { ok: false, error: err?.message || "storage error" };
@@ -292,6 +302,10 @@ export async function getBackupOverviewStats(): Promise<{
   error?: string;
 }> {
   try {
+    const backupAccess = await writeGuard("backup");
+    if (!backupAccess.allowed) return { success:false, error:backupAccess.error };
+    const access = await writeGuard("financeRead");
+    if (!access.allowed) return { success:false, error:access.error };
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
     const madrasaId = await getAuthMadrasaId(supabase, user);
@@ -548,7 +562,7 @@ export async function getBackupOverviewStats(): Promise<{
 
 /**
  * Universal Dynamic Backup Generator
- * Zero-Maintenance Architecture: Automatically captures 100% of tables and metadata.
+ * Export the selected books; private memo bytes require the separate database backup.
  */
 export async function generateBackupExport(options?: {
   modules?: BackupModuleKey[];
@@ -575,13 +589,21 @@ export async function generateBackupExport(options?: {
     const admin = await createAdminClient();
 
     // 1. Get Madrasa Info & Complete Dynamic Metadata
-    const { data: madrasaData } = await admin
+    const selection = resolveBackupSelection(options?.modules);
+    if (includesFinancialBooks(selection)) {
+      const financial=await writeGuard('financeRead');
+      if (!financial.allowed) return {success:false,error:financial.error};
+      if ((selection.isFull || selection.modules.some(m => ["staff", "expenses", "audit_logs"].includes(m))) && !salaryAccess(financial,"read"))
+        return {success:false,error:"বেতন-সংক্রান্ত নথিসহ সম্পূর্ণ কপি নেওয়ার অনুমতি নেই।"};
+    }
+    const { data: madrasaData, error: headerError } = await admin
       .from("madrasas")
-      .select("*")
+      .select("id,name,contact_email,phone,address,logo_url")
       .eq("id", madrasaId)
       .single();
 
-    const fullMeta = await getMadrasaMetadata(madrasaId);
+    if (headerError || !madrasaData) throw Error("প্রতিষ্ঠানের পরিচয় পড়া যায়নি।");
+    const fullMeta = await getMadrasaMetadata(madrasaId, true);
 
     const payloadData: BackupPayload["data"] = {};
     const stats: Record<string, number> = {};
@@ -592,7 +614,7 @@ export async function generateBackupExport(options?: {
     // মেটাডেটা থেকে তোলা হতো। ফলে "শুধু শিক্ষার্থী" টিক দিলেও ফাইলে ফি/খরচ/যাকাত/
     // বেতন — সব চলে যেত, আর manifest মিথ্যা দাবি করত যে কিছু নির্দিষ্ট মডিউল আছে।
     // এখন নির্বাচনকে বাস্তব টেবিল/metadata-কী-তে রূপান্তর করে তারপরই কুয়েরি চালানো হয়।
-    const selection = resolveBackupSelection(options?.modules);
+
 
     const tablesToFetch =
       selection.tables === "ALL"
@@ -601,16 +623,31 @@ export async function generateBackupExport(options?: {
 
     // Dynamic Helper to query any table safely
     const fetchTableSafe = async (tableName: string) => {
-      try {
-        const { data, error } = await admin
-          .from(tableName)
-          .select("*")
-          .eq("madrasa_id", madrasaId);
-        if (error || !data) return [];
-        return data;
-      } catch {
-        return [];
+      if(tableName==='treasury_memo_index') {
+        const out:any[]=[];for(let after:string|null=null;;){
+          const {data,error}:{data:any;error:unknown}=await admin.rpc('treasury_memo_index',{t:madrasaId,after_id:after});
+          if(error || !Array.isArray(data))throw Error('মেমোর সূচি পড়া যায়নি।');
+          out.push(...data);if(data.length<500)return out;after=data.at(-1).expense_id;
+        }
       }
+      if(tableName==='treasury_days'||tableName==='treasury_fee_tenders') {
+        const q=()=>admin.from(tableName).select('*').eq('madrasa_id',madrasaId);
+        return tableName==='treasury_days'?readRows(()=>q().order('operator_id'),false,'cash_date'):readRows(q,false,'payment_id');
+      }
+      // These children have no tenant column of their own. Scope through the
+      // owning receipt/structure, never return another school's allocations.
+      if(['fee_payment_allocations','fee_structure_items'].includes(tableName)) {
+        const out:any[]=[];
+        for(let after:string|null=null;;){
+          const {data,error}: {data:unknown;error:unknown}=await admin.rpc('finance_backup_children',{t:madrasaId,k:tableName,after_id:after});
+          if(error || !Array.isArray(data)) throw Error('ব্যাকআপের আর্থিক রেকর্ড পড়া যায়নি।');
+          out.push(...data);if(data.length<500) return out;after=data[data.length-1].id;
+        }
+      }
+      // Some installations keep these optional modules only in metadata. Only
+      // a known absent *optional table* is empty, never a denied or partial read.
+      const optional=['kitab_logs','exam_routines','exam_papers','question_bank','book_issues','funds','sms_templates','sms_logs','alumni','leaves','gateways'];
+      return readRows(()=>admin.from(tableName).select('*').eq('madrasa_id',madrasaId),optional.includes(tableName));
     };
 
     // Auto-probe only the tables that belong to the selected modules
@@ -662,7 +699,7 @@ export async function generateBackupExport(options?: {
     for (const [key, val] of Object.entries(filteredMeta)) {
       if (val !== undefined && val !== null) {
         // Expose top level key if not already populated by table
-        if (!payloadData[key]) {
+        if (!KNOWN_DB_TABLES.includes(key) && !payloadData[key]) {
           payloadData[key] = val;
         }
         const itemCount = countCollectionItems(val);
@@ -695,9 +732,10 @@ export async function generateBackupExport(options?: {
 
     // Stringify data to compute checksum
     const rawDataString = JSON.stringify(payloadData);
-    const checksum = generateSimpleChecksum(rawDataString);
+    const checksum = "sha256:"+createHash("sha256").update(rawDataString).digest("hex");
 
     const manifest: BackupManifest = {
+      ...(stats.treasury_memo_index ? {cold_backup_required_for:["treasury_memos.image"]}:{}),
       app_name: "QawmiManager Pro",
       version: "3.0.0",
       format: "qawmi_cloud_backup_v2",
@@ -743,34 +781,12 @@ export async function generateBackupExport(options?: {
       status: "SUCCESS",
       file_size_kb: sizeKb,
       note: selection.isFull
-        ? `সম্পূর্ণ ব্যাকআপ তৈরি হয়েছে (সর্বমোট ${totalCount} টি রেকর্ড এবং সব মেটাডেটা)`
+        ? `অ্যাপ এক্সপোর্ট তৈরি হয়েছে (${totalCount} টি রেকর্ড); এটি ডাটাবেজ স্ন্যাপশট নয়।`
         : `নির্বাচিত ${selectedModules.length} টি মডিউলের ব্যাকআপ তৈরি হয়েছে (সর্বমোট ${totalCount} টি রেকর্ড) — শুধুমাত্র নির্বাচিত ডেটাই অন্তর্ভুক্ত`,
     };
 
-    const updatedHistory = [newLog, ...(fullMeta.backup_history || [])].slice(0, 50);
-    await saveMadrasaMetadata(madrasaId, {
-      ...fullMeta,
-      backup_history: updatedHistory,
-      last_backup_date: isoDate,
-    });
-
-    try {
-      const { recordActivityLog } = await import("@/app/actions/activity-logs");
-      await recordActivityLog({
-        action_type: "BACKUP",
-        module: "BACKUP",
-        title: selection.isFull
-          ? "ডাটাবেজ সম্পূর্ণ ব্যাকআপ এক্সপোর্ট"
-          : "ডাটাবেজ সিলেক্টিভ ব্যাকআপ এক্সপোর্ট",
-        description: selection.isFull
-          ? `সর্বমোট ${totalCount}টি রেকর্ড এবং সমস্ত ডায়নামিক মেটাডেটার পূর্ণাঙ্গ ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে (${sizeKb} KB)।`
-          : `নির্বাচিত ${selectedModules.length} টি মডিউলের সর্বমোট ${totalCount}টি রেকর্ডের ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে (${sizeKb} KB) — বাকি কোনো মডিউলের ডেটা ফাইলে নেই।`,
-        severity: "SUCCESS",
-        link: "/dashboard/settings/backup",
-      });
-    } catch (actErr) {
-      console.warn("Activity log backup export error:", actErr);
-    }
+    const audit=await admin.rpc('finance_backup_note',{t:madrasaId,actor:user?.id,note:newLog});
+    if(audit.error) throw Error('ব্যাকআপের অডিট সংরক্ষণ নিশ্চিত হয়নি।');
 
     return {
       success: true,
@@ -956,10 +972,30 @@ export async function analyzeBackupFile(fileContent: string): Promise<{
   }
 }
 
-/**
- * Universal Zero-Maintenance Data Restore Engine
- * 100% Dynamic: Automatically restores all DB tables + deep-merges 100% of metadata keys.
- */
+// Scope checks precede this helper. Never write financial books via import.
+async function applySelectiveRecovery(madrasaId:string, user:{id:string;email?:string}, modules:string[], operation:RecoveryOperation, data:BackupPayload['data']) {
+  const fail=(error:string,message:string)=>({success:false as const,error,message});
+  const snapshot=await generateBackupExport({modules,format:'minified'});
+  if(!snapshot.success || !snapshot.backupJson || !snapshot.backupPayload || snapshot.backupPayload.manifest.madrasa_id!==madrasaId)
+    return fail('SNAPSHOT_INCOMPLETE','বর্তমান ডেটার সম্পূর্ণ কপি পড়া যায়নি। কোনো রেকর্ড পরিবর্তন করা হয়নি।');
+  const plan=selectiveRecoveryPlan(resolveBackupSelection(modules),operation,snapshot.backupPayload.data,data);
+  const upload=await uploadBackupSnapshotFile(madrasaId,snapshot.backupJson);
+  if(!upload.ok || !upload.storagePath) return fail('SNAPSHOT_UNAVAILABLE','স্ন্যাপশট সংরক্ষণ ও যাচাই নিশ্চিত হয়নি। কোনো রেকর্ড পরিবর্তন করা হয়নি।');
+  const note:BackupAuditEntry={id:crypto.randomUUID(),type:'AUTO_SNAPSHOT',timestamp:new Date().toISOString(),
+    actor_email:user.email || '',actor_name:user.email || 'প্রশাসক',modules,total_records:snapshot.backupPayload.manifest.total_records,status:'SUCCESS',
+    storage_path:upload.storagePath,checksum:snapshot.backupPayload.manifest.checksum};
+  const admin=await createAdminClient();
+  const saved=await admin.rpc('finance_backup_note',{t:madrasaId,actor:user.id,note});
+  if(saved.error) return fail('SNAPSHOT_UNRECORDED','স্ন্যাপশটের রেফারেন্স সংরক্ষণ হয়নি। কোনো রেকর্ড পরিবর্তন করা হয়নি।');
+  const audit:BackupAuditEntry={...note,id:crypto.randomUUID(),total_records:plan.total,type:operation==='wipe'?'SCOPED_WIPE':operation==='replace'?'RESTORE_REPLACE':'RESTORE_MERGE'};
+  const {error}=await admin.rpc('finance_apply_recovery',{t:madrasaId,actor:user.id,plan:{...plan,snapshot_id:note.id,audit}});
+  // On an interrupted HTTP response the caller may not know whether PostgreSQL
+  // committed. Direct the operator to the exact snapshot/audit, not a blind retry.
+  if(error) return fail('RECOVERY_NOT_CONFIRMED',`পরিবর্তন নিশ্চিত হয়নি। আবার চেষ্টা করার আগে হিস্ট্রিতে স্ন্যাপশট ${note.id} ও ফলাফল ${audit.id} যাচাই করুন।`);
+  revalidatePath('/dashboard','layout');
+  return {success:true as const,message:`নির্বাচিত মডিউলের কাজ সম্পন্ন হয়েছে (${plan.total} রেকর্ড)।`,stats:plan.stats,total:plan.total,backupJson:snapshot.backupJson};
+}
+
 export async function executeDataRestore({
   backupPayload,
   restoreMode,
@@ -988,8 +1024,6 @@ export async function executeDataRestore({
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
     const madrasaId = await getAuthMadrasaId(supabase, user);
-    const admin = await createAdminClient();
-
     if (!backupPayload || !backupPayload.data) {
       return { success: false, message: "অবৈধ ব্যাকআপ ডেটা লোড হয়েছে।", error: "Missing data payload" };
     }
@@ -998,7 +1032,8 @@ export async function executeDataRestore({
     // লেখা যাবে না। (legacy format ফাইল-এর checksum "legacy_format" হলে skip)
     const declaredChecksum = (backupPayload as any)?.manifest?.checksum;
     if (declaredChecksum && declaredChecksum !== "legacy_format") {
-      const recomputed = generateSimpleChecksum(JSON.stringify(backupPayload.data));
+      const raw=JSON.stringify(backupPayload.data);
+      const recomputed = String(declaredChecksum).startsWith("sha256:") ? "sha256:"+createHash("sha256").update(raw).digest("hex") : generateSimpleChecksum(raw);
       if (declaredChecksum !== recomputed) {
         return {
           success: false,
@@ -1009,8 +1044,11 @@ export async function executeDataRestore({
       }
     }
 
+    if(!user) return {success:false,message:"অনুমতি নেই।"};
     const dataObj = backupPayload.data;
-    const currentMeta = await getMadrasaMetadata(madrasaId);
+    if (!madrasaId || backupPayload.manifest?.madrasa_id!==madrasaId) {
+      return {success:false,message:"অন্য প্রতিষ্ঠানের ব্যাকআপ এখানে রিস্টোর করা যাবে না।",error:"TENANT_MISMATCH"};
+    }
 
     // ⛔ সিলেক্টিভ রিস্টোর ফিক্স: আগে `selectedModules` শুধু অডিট-লগে লেখা হতো —
     // ফাইলে যা ছিল সবই রিস্টোর হয়ে যেত। ফলে "শুধু শিক্ষার্থী" রিস্টোর করতে চাইলেও
@@ -1029,298 +1067,16 @@ export async function executeDataRestore({
       declaredManifest.modules.length > 0
         ? (declaredManifest.modules as BackupModuleKey[])
         : null;
-    const effectiveModules = manifestScope ?? selectedModules;
+    const effectiveModules = manifestScope && selectedModules?.length ? selectedModules.filter(m=>manifestScope.includes(m)) : manifestScope ?? selectedModules;
+    if(effectiveModules && (!effectiveModules.length || effectiveModules.some(m=>!ALL_BACKUP_MODULE_KEYS.includes(m) && !['all_metadata','ALL'].includes(m)))) return {success:false,message:'ব্যাকআপের মডিউল মেলেনি।'};
     const selection = resolveBackupSelection(effectiveModules);
+    if (needsFinancialRecovery(selection)) return financialRecoveryHold;
+    if(!createAutoSnapshot || !['merge','replace'].includes(restoreMode)) return {success:false,message:'রিস্টোরের আগে যাচাইকৃত স্ন্যাপশট আবশ্যক।',error:'SNAPSHOT_REQUIRED'};
+    if (restoreMode==='replace' && Array.from(selection.tables).length) return {success:false,message:'সম্পর্কযুক্ত টেবিলের সিলেক্টিভ রিস্টোর কেবল Merge মোডে করা যাবে।',error:'PARTIAL_REPLACE_BLOCKED'};
 
-    // ⛔ সিলেক্টিভ রিস্টোরের নিরাপত্তা: Clean Replace মোডে ডিলিট করা টেবিলের FK CASCADE
-    // একই সারিতে থাকা *অন্য* মডিউলের ডেটাও মুছে ফেলতে পারে (যেমন students.delete →
-    // fee_payments, student_fees, attendance সব CASCADE-এ মুছে যায়)। তাই আংশিক
-    // নির্বাচনে Replace মোড বন্ধ করা হয় — আংশিক রিস্টোরের জন্য Merge নিরাপদ।
-    if (restoreMode === "replace" && !selection.isFull) {
-      const cascadeRiskTables = ["students", "classes", "subjects", "exams"];
-      const touchesCascadeRisk = cascadeRiskTables.some((t) => isTableSelected(t, selection));
-      if (touchesCascadeRisk) {
-        return {
-          success: false,
-          message:
-            "আংশিক ব্যাকআপে Clean Replace মোড নিরাপদ নয় — শিক্ষার্থী/ক্লাস/বিষয়/পরীক্ষার ডেটা মুছলে তার সাথে যুক্ত ফি, হাজিরা ও অন্যান্য রেকর্ডও CASCADE-এ মুছে যেতে পারে। " +
-            "অনুগ্রহ করে Merge মোড বেছে নিন, অথবা সম্পূর্ণ ব্যাকআপ দিয়ে Replace করুন।",
-          error: "PARTIAL_REPLACE_BLOCKED",
-        };
-      }
-    }
-
-    // 1. Create a REAL Auto Pre-Restore Snapshot if enabled
-    // ⛔ P2-Fix: আগে এখানে শুধু audit row লেখা হতো (কোনো ডেটা সংরক্ষিত হতো না) —
-    // রিস্টোর-এ ডেটা ভেঙে গেলে ফেরা যায় না। এখন আসল snapshot-টি private `backups`
-    // bucket-এ checksum-সহ সংরক্ষিত হয় এবং audit entry-তে storage_path + checksum
-    // নথিভুক্ত হয়।
-    if (createAutoSnapshot) {
-      try {
-        const snapExport = await generateBackupExport({
-          modules: (effectiveModules as BackupModuleKey[]) || undefined,
-          format: "minified",
-        });
-        const snapUpload =
-          snapExport.success && snapExport.backupJson
-            ? await uploadBackupSnapshotFile(madrasaId, snapExport.backupJson)
-            : { ok: false, error: snapExport.error || "snapshot export failed" };
-
-        const snapManifest = snapExport.backupPayload?.manifest;
-        const actorName = user?.user_metadata?.full_name || "সিস্টেম রিস্টোরার";
-        const actorEmail = user?.email || "system@qawmi.edu";
-
-        const preSnapshotLog: BackupAuditEntry = snapUpload.ok
-          ? {
-              id: "snap_" + Date.now(),
-              type: "AUTO_SNAPSHOT",
-              timestamp: new Date().toISOString(),
-              actor_name: actorName,
-              actor_email: actorEmail,
-              modules: (effectiveModules as string[]) || ["ALL"],
-              total_records: snapManifest?.total_records || 0,
-              status: "SUCCESS",
-              storage_path: snapUpload.storagePath,
-              checksum: snapManifest?.checksum,
-              file_size_kb: Math.round(new Blob([snapExport.backupJson!]).size / 1024),
-              note: `রিস্টোরের পূর্বে আসল সেফটি স্ন্যাপশট সংরক্ষিত হয়েছে (${restoreMode === "merge" ? "Merge" : "Replace"} মোড — ${snapUpload.storagePath})`,
-            }
-          : {
-              id: "snap_" + Date.now(),
-              type: "AUTO_SNAPSHOT",
-              timestamp: new Date().toISOString(),
-              actor_name: actorName,
-              actor_email: actorEmail,
-              modules: (effectiveModules as string[]) || ["ALL"],
-              total_records: 0,
-              status: "WARNING",
-              note: `⚠️ রিস্টোরের পূর্বে সেফটি স্ন্যাপশট সংরক্ষণ ব্যর্থ (${snapUpload.error}) — সতর্কতার সাথে রিস্টোর চলবে`,
-            };
-        // generateBackupExport নিজের BACKUP_EXPORT entry-ও লেখে — তাই history
-        // merge-এর জন্য metadata-টি আবার পড়া হয় (দুটো entry-ই থাকবে)
-        const metaNow = await getMadrasaMetadata(madrasaId);
-        const preHistory = [preSnapshotLog, ...(metaNow.backup_history || [])].slice(0, 50);
-        await saveMadrasaMetadata(madrasaId, { ...metaNow, backup_history: preHistory });
-      } catch (snapErr) {
-        console.warn("Pre-snapshot warning:", snapErr);
-      }
-    }
-
-    const restoredStats: Record<string, number> = {};
-    let totalRestored = 0;
-
-    // Helper to safely upsert or replace database table rows for this madrasa
-    const restoreTable = async (
-      tableName: string,
-      rows: any[],
-      options?: { cleanBefore?: boolean; conflictCol?: string }
-    ) => {
-      if (!Array.isArray(rows) || rows.length === 0) return 0;
-
-      // Assign current madrasa_id to ensure strict tenant isolation
-      const sanitizedRows = rows.map((r) => {
-        const copy = { ...r, madrasa_id: madrasaId };
-        return copy;
-      });
-
-      // If replace mode and cleanBefore is requested
-      if (restoreMode === "replace" && options?.cleanBefore) {
-        try {
-          await admin.from(tableName).delete().eq("madrasa_id", madrasaId);
-        } catch (delErr) {
-          console.warn(`Clean delete warning on ${tableName}:`, delErr);
-        }
-      }
-
-      // Batch insert / upsert in chunks of 100 to avoid payload size limit
-      const chunkSize = 100;
-      let insertedCount = 0;
-
-      for (let i = 0; i < sanitizedRows.length; i += chunkSize) {
-        const chunk = sanitizedRows.slice(i, i + chunkSize);
-        try {
-          const { error } = await admin
-            .from(tableName)
-            .upsert(chunk, { onConflict: options?.conflictCol || "id", ignoreDuplicates: false });
-          if (!error) {
-            insertedCount += chunk.length;
-          } else {
-            console.warn(`Upsert chunk fallback on ${tableName}:`, error.message);
-            // Fallback: individual row upsert
-            for (const singleRow of chunk) {
-              try {
-                const { error: sErr } = await admin.from(tableName).upsert(singleRow);
-                if (!sErr) insertedCount++;
-              } catch {
-                // Ignore individual row error
-              }
-            }
-          }
-        } catch (batchErr) {
-          console.warn(`Batch restore exception on ${tableName}:`, batchErr);
-        }
-      }
-
-      return insertedCount;
-    };
-
-    // 2. Dynamic DB Tables Restoration — কেবল নির্বাচিত মডিউলের টেবিল
-    for (const table of KNOWN_DB_TABLES) {
-      if (!isTableSelected(table, selection)) continue;
-      if (dataObj[table] && Array.isArray(dataObj[table]) && dataObj[table].length > 0) {
-        const count = await restoreTable(table, dataObj[table], {
-          cleanBefore: restoreMode === "replace" && ["classes", "subjects", "students", "exams"].includes(table),
-        });
-        if (count > 0) {
-          restoredStats[table] = count;
-          totalRestored += count;
-        }
-      }
-    }
-
-    // 3. Dynamic Universal Metadata Restoration (Zero-Loss Guarantee)
-    // Extract metadata from both dataObj.metadata AND all root keys in dataObj
-    const incomingMetadata = {
-      ...(typeof dataObj.metadata === "object" ? dataObj.metadata : {}),
-    };
-
-    // Any key in dataObj that is not a DB table and not special 'madrasa'/'metadata' is also merged into metadata
-    for (const [key, val] of Object.entries(dataObj)) {
-      if (!KNOWN_DB_TABLES.includes(key) && key !== "madrasa" && key !== "metadata" && val !== undefined) {
-        incomingMetadata[key] = val;
-      }
-    }
-
-    // Deep merge / replace incoming metadata into currentMeta
-    for (const [key, val] of Object.entries(incomingMetadata)) {
-      // নির্বাচিত মডিউলের বাইরের metadata key রিস্টোর করা হয় না
-      if (!isMetadataKeySelected(key, selection)) continue;
-      if (key === "backup_history") continue; // keep local restore audit history intact
-
-      // Special Deduplicated handling for academic sessions
-      if (key === "sessions" || key === "academic_sessions") {
-        const incomingSess = Array.isArray(val) ? val : [];
-        if (restoreMode === "replace") {
-          currentMeta.sessions = deduplicateSessions(incomingSess);
-        } else {
-          const combined = [...(Array.isArray(currentMeta.sessions) ? currentMeta.sessions : []), ...incomingSess];
-          currentMeta.sessions = deduplicateSessions(combined);
-        }
-        const count = (currentMeta.sessions || []).length;
-        restoredStats.sessions = count;
-        totalRestored += count;
-        continue;
-      }
-
-      if (restoreMode === "replace") {
-        currentMeta[key] = val;
-        const count = countCollectionItems(val);
-        restoredStats[key] = count;
-        totalRestored += count;
-      } else {
-        // Merge Mode
-        if (Array.isArray(val)) {
-          const currentArr: any[] = Array.isArray(currentMeta[key]) ? currentMeta[key] : [];
-          const existingIds = new Set(
-            currentArr.map((item: any) => (item && typeof item === "object" && item.id ? item.id : JSON.stringify(item)))
-          );
-
-          const newItems = val.filter((item: any) => {
-            const idKey = item && typeof item === "object" && item.id ? item.id : JSON.stringify(item);
-            return !existingIds.has(idKey);
-          });
-
-          currentMeta[key] = [...currentArr, ...newItems];
-          const addedCount = newItems.length;
-          restoredStats[key] = addedCount;
-          totalRestored += addedCount;
-        } else if (val && typeof val === "object") {
-          currentMeta[key] = {
-            ...(currentMeta[key] || {}),
-            ...val,
-          };
-          const count = Object.keys(val).length;
-          restoredStats[key] = count;
-          totalRestored += count;
-        } else {
-          currentMeta[key] = val;
-          restoredStats[key] = 1;
-          totalRestored += 1;
-        }
-      }
-    }
-
-    // Madrasa basic info update if present — কেবল settings মডিউল (বা সম্পূর্ণ রিস্টোর) হলে
-    if (selection.includeMadrasaProfile && dataObj.madrasa && typeof dataObj.madrasa === "object") {
-      try {
-        await admin
-          .from("madrasas")
-          .update({
-            name: dataObj.madrasa.name || undefined,
-            address: dataObj.madrasa.address || undefined,
-            contact_phone: dataObj.madrasa.contact_phone || undefined,
-            contact_email: dataObj.madrasa.contact_email || undefined,
-          })
-          .eq("id", madrasaId);
-      } catch {
-        // Ignore madrasa table update error
-      }
-    }
-
-    // Save final metadata with restore audit log
-    const restoreAuditLog: BackupAuditEntry = {
-      id: "rst_" + Date.now(),
-      type: restoreMode === "merge" ? "RESTORE_MERGE" : "RESTORE_REPLACE",
-      timestamp: new Date().toISOString(),
-      actor_name: user?.user_metadata?.full_name || "সুপার এডমিন",
-      actor_email: user?.email || "admin@qawmi.edu",
-      modules: selection.modules.length > 0 ? selection.modules : ["ALL_MODULES_AND_METADATA"],
-      total_records: totalRestored,
-      status: "SUCCESS",
-      note: selection.isFull
-        ? `সম্পূর্ণ ব্যাকআপ থেকে সর্বমোট ${totalRestored}টি রেকর্ড ও মেটাডেটা সফলভাবে রিস্টোর হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড)।`
-        : `নির্বাচিত ${selection.modules.length} টি মডিউলের সর্বমোট ${totalRestored}টি রেকর্ড রিস্টোর হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড) — বাকি মডিউলের ডেটা অপরিবর্তিত আছে।`,
-    };
-
-    const finalHistory = [restoreAuditLog, ...(currentMeta.backup_history || [])].slice(0, 50);
-    currentMeta.backup_history = finalHistory;
-    await saveMadrasaMetadata(madrasaId, currentMeta);
-
-    try {
-      const { recordActivityLog } = await import("@/app/actions/activity-logs");
-      await recordActivityLog({
-        action_type: "RESTORE",
-        module: "BACKUP",
-        title: selection.isFull
-          ? "ডাটাবেজ সম্পূর্ণ রিস্টোর সম্পন্ন"
-          : "ডাটাবেজ সিলেক্টিভ রিস্টোর সম্পন্ন",
-        description: selection.isFull
-          ? `সর্বমোট ${totalRestored}টি রেকর্ড ও ডায়নামিক ফিচার সফলভাবে ডাটাবেজে রিস্টোর ও সিঙ্ক করা হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড)।`
-          : `নির্বাচিত ${selection.modules.length} টি মডিউলের সর্বমোট ${totalRestored}টি রেকর্ড রিস্টোর হয়েছে (${restoreMode === "merge" ? "Merge" : "Clean Replace"} মোড)।`,
-        severity: "SUCCESS",
-        link: "/dashboard/settings/backup",
-      });
-    } catch (e) {
-      console.warn("Activity log restore error:", e);
-    }
-
-    // Revalidate all affected routes
-    revalidatePath("/dashboard");
-    revalidatePath("/dashboard/students");
-    revalidatePath("/dashboard/classes");
-    revalidatePath("/dashboard/exams");
-    revalidatePath("/dashboard/accounting");
-    revalidatePath("/dashboard/fundraising");
-    revalidatePath("/dashboard/settings");
-
-    return {
-      success: true,
-      message: selection.isFull
-        ? `আলহামদুলিল্লাহ! সর্বমোট ${totalRestored} টি রেকর্ড ও সব মেটাডেটা সফলভাবে রিস্টোর করা হয়েছে।`
-        : `আলহামদুলিল্লাহ! নির্বাচিত ${selection.modules.length} টি মডিউলের সর্বমোট ${totalRestored} টি রেকর্ড রিস্টোর করা হয়েছে — বাকি মডিউলের ডেটা অপরিবর্তিত আছে।`,
-      restoredStats,
-      totalRestored,
-    };
+    const result=await applySelectiveRecovery(madrasaId,user,selection.modules,restoreMode,dataObj);
+    if(!result.success) return result;
+    return {success:true,message:result.message,restoredStats:result.stats,totalRestored:result.total};
   } catch (err: any) {
     console.error("Exception in executeDataRestore:", err);
     return {
@@ -1366,8 +1122,6 @@ export async function executeMadrasaDataWipe(options: WipeMadrasaOptions): Promi
     }
 
     const madrasaId = await getAuthMadrasaId(supabase, user);
-    const admin = await createAdminClient();
-
     // 1. Strict Passphrase Verification
     const phrase = (options.confirmationPhrase || "").trim().toUpperCase();
     const validPhrases = ["DELETE ALL DATA", "মুছে ফেলুন", "DELETE", "WIPE", "RESET", "রিসেট"];
@@ -1380,308 +1134,11 @@ export async function executeMadrasaDataWipe(options: WipeMadrasaOptions): Promi
       };
     }
 
-    // 2. Automatically generate a pre-wipe safety backup payload first
-    let preWipeBackupJson = "";
-    let preWipeChecksum = "";
-    let preWipeTotalRecords = 0;
-    try {
-      const backupRes = await generateBackupExport({ format: "formatted" });
-      if (backupRes.success && backupRes.backupJson) {
-        preWipeBackupJson = backupRes.backupJson;
-        preWipeChecksum = backupRes.backupPayload?.manifest?.checksum || "";
-        preWipeTotalRecords = backupRes.backupPayload?.manifest?.total_records || 0;
-      }
-    } catch (bErr) {
-      console.warn("Auto pre-wipe backup capture warning:", bErr);
-    }
+    if (!safeWipeScope(options.scope, options.selectedModules)) return financialRecoveryHold;
 
-    // 2b. ⛔ P2-Fix: pre-wipe snapshot-টি private `backups` bucket-এ সংরক্ষণ (checksum-সহ) —
-    // আগে শুধু client-কে return হতো, server-এ কিছুই সেভ হতো না; page বন্ধ করলে
-    // safety-net হারিয়ে যেত
-    let preWipeStoragePath = "";
-    if (preWipeBackupJson) {
-      const wipeSnapUp = await uploadBackupSnapshotFile(madrasaId, preWipeBackupJson);
-      if (wipeSnapUp.ok) {
-        preWipeStoragePath = wipeSnapUp.storagePath || "";
-      } else {
-        console.warn("Pre-wipe snapshot storage upload failed:", wipeSnapUp.error);
-      }
-    }
-
-    const currentMeta = await getMadrasaMetadata(madrasaId);
-    const wipedStats: Record<string, number> = {};
-    let totalWiped = 0;
-
-    // Helper to delete from database table
-    const deleteFromTable = async (tableName: string) => {
-      try {
-        const { count, error } = await admin
-          .from(tableName)
-          .delete({ count: "exact" })
-          .eq("madrasa_id", madrasaId);
-        if (!error && count) {
-          wipedStats[tableName] = count;
-          totalWiped += count;
-          return count;
-        }
-      } catch (delErr) {
-        console.warn(`Table wipe error on ${tableName}:`, delErr);
-      }
-      return 0;
-    };
-
-    const scope = options.scope || "all";
-    const wipeAcademics = scope === "all" || scope === "academics" || (scope === "custom" && options.selectedModules?.includes("academic"));
-    const wipeStudents = scope === "all" || scope === "academics" || (scope === "custom" && options.selectedModules?.includes("students"));
-    const wipeFinance = scope === "all" || scope === "finance" || (scope === "custom" && options.selectedModules?.includes("finance"));
-    const wipeHifzKitab = scope === "all" || scope === "academics" || (scope === "custom" && options.selectedModules?.includes("hifz_kitab"));
-    const wipeExams = scope === "all" || scope === "academics" || (scope === "custom" && options.selectedModules?.includes("exams"));
-    const wipeAttendance = scope === "all" || scope === "academics" || (scope === "custom" && options.selectedModules?.includes("attendance"));
-    const wipeDonations = scope === "all" || scope === "finance" || (scope === "custom" && options.selectedModules?.includes("zakat_donations"));
-    const wipeOther = scope === "all" || (scope === "custom" && options.selectedModules?.includes("inventory"));
-
-    // 3. Delete from Supabase Database Tables in safe dependency order (Leaf -> Parent)
-    if (wipeExams) {
-      await deleteFromTable("exam_results");
-      await deleteFromTable("exam_papers");
-      await deleteFromTable("question_bank");
-      await deleteFromTable("exam_routines");
-      await deleteFromTable("exam_subjects");
-      await deleteFromTable("exams");
-    }
-
-    if (wipeHifzKitab) {
-      await deleteFromTable("hifz_logs");
-      await deleteFromTable("kitab_logs");
-    }
-
-    if (wipeAttendance) {
-      await deleteFromTable("attendance");
-      await deleteFromTable("teacher_attendance");
-      await deleteFromTable("leaves");
-    }
-
-    if (wipeFinance) {
-      await deleteFromTable("bazar_expenses");
-      await deleteFromTable("expenses");
-      await deleteFromTable("fees");
-      await deleteFromTable("fee_payment_allocations");
-      await deleteFromTable("fee_payments");
-      await deleteFromTable("fee_discount_waivers");
-      await deleteFromTable("fee_audit_logs");
-      await deleteFromTable("student_fees");
-      await deleteFromTable("fee_structure_items");
-      await deleteFromTable("fee_structures");
-      await deleteFromTable("fee_types");
-    }
-
-    if (wipeDonations) {
-      await deleteFromTable("donations");
-      await deleteFromTable("donors");
-      await deleteFromTable("zakat_funds");
-      await deleteFromTable("funds");
-    }
-
-    if (wipeStudents) {
-      await deleteFromTable("student_enrollments");
-      await deleteFromTable("meal_entries");
-      await deleteFromTable("book_issues");
-      await deleteFromTable("students");
-      await deleteFromTable("alumni");
-    }
-
-    if (wipeAcademics) {
-      await deleteFromTable("routines");
-      await deleteFromTable("teacher_subjects");
-      await deleteFromTable("class_subjects");
-      await deleteFromTable("subjects");
-      await deleteFromTable("classes");
-    }
-
-    if (wipeOther) {
-      await deleteFromTable("books");
-      await deleteFromTable("inventory_items");
-      await deleteFromTable("notices");
-      await deleteFromTable("sms_logs");
-      await deleteFromTable("sms_templates");
-      await deleteFromTable("gateways");
-    }
-
-    if (scope === "all" && !options.preserveTeachersAndStaff) {
-      await deleteFromTable("teachers");
-    }
-
-    // 4. Clean Metadata Keys
-    const metaKeysToWipe = new Set<string>();
-
-    if (wipeStudents) {
-      [
-        "admissions",
-        "student_profiles",
-        "student_enrollments",
-        "id_cards",
-        "id_card_templates",
-        "certificates",
-        "certificate_templates",
-        "student_leaves",
-        "alumni",
-      ].forEach((k) => metaKeysToWipe.add(k));
-    }
-
-    if (wipeAcademics) {
-      [
-        "syllabus",
-        "routines",
-        "exam_routines",
-        "academic_holidays",
-      ].forEach((k) => metaKeysToWipe.add(k));
-    }
-
-    if (wipeExams) {
-      [
-        "question_bank",
-        "exam_papers",
-        "published_exams",
-      ].forEach((k) => metaKeysToWipe.add(k));
-    }
-
-    if (wipeAttendance) {
-      [
-        "student_leaves",
-        "teacher_leaves",
-        "teacher_attendance",
-      ].forEach((k) => metaKeysToWipe.add(k));
-    }
-
-    if (wipeHifzKitab) {
-      [
-        "kitab_logs",
-      ].forEach((k) => metaKeysToWipe.add(k));
-    }
-
-    if (wipeFinance) {
-      [
-        "student_fees",
-        "payments",
-        "fee_structures",
-        "fee_types",
-        "discounts",
-        "receipt_counter",
-        "bazar_expenses",
-        "fee_alert_settings",
-      ].forEach((k) => metaKeysToWipe.add(k));
-    }
-
-    if (wipeDonations) {
-      [
-        "donors",
-        "donations",
-        "funds",
-        "zakat_funds",
-        "mahfils",
-        "life_members",
-        "subscription_payments",
-        "qurbani_leathers",
-        "donation_boxes",
-        "box_collections",
-        "online_donations",
-        "online_settings",
-      ].forEach((k) => metaKeysToWipe.add(k));
-    }
-
-    if (wipeOther) {
-      [
-        "meal_entries",
-        "book_issues",
-        "inventory",
-        "parent_feedbacks",
-        "parent_appointments",
-        "absence_alert_settings",
-        "sms_templates",
-        "sms_logs",
-        "gateways",
-      ].forEach((k) => metaKeysToWipe.add(k));
-    }
-
-    // Apply metadata deletion
-    metaKeysToWipe.forEach((key) => {
-      if (currentMeta[key] !== undefined) {
-        const count = countCollectionItems(currentMeta[key]);
-        if (count > 0) {
-          wipedStats[`meta_${key}`] = count;
-          totalWiped += count;
-        }
-        delete currentMeta[key];
-      }
-    });
-
-    // If full wipe requested and preserveSessions is false
-    if (scope === "all" && !options.preserveSessions) {
-      // Keep only default active session if present
-      if (Array.isArray(currentMeta.sessions) && currentMeta.sessions.length > 0) {
-        const activeSess = currentMeta.sessions.find((s: any) => s.is_current || s.is_active) || currentMeta.sessions[0];
-        currentMeta.sessions = [activeSess];
-      }
-    }
-
-    // 5. Append Safety Audit Log into History
-    const wipeAuditLog: BackupAuditEntry = {
-      id: "wipe_" + Date.now(),
-      type: "AUTO_SNAPSHOT",
-      timestamp: new Date().toISOString(),
-      actor_name: user?.user_metadata?.full_name || "সুপার এডমিন",
-      actor_email: user?.email || "admin@qawmi.edu",
-      modules: [scope.toUpperCase()],
-      total_records: totalWiped,
-      status: preWipeStoragePath ? "SUCCESS" : "WARNING",
-      storage_path: preWipeStoragePath || undefined,
-      checksum: preWipeChecksum || undefined,
-      note: `মাদরাসা ডাটা ফ্যাক্টরি রিসেট / ক্লিনিং সম্পন্ন হয়েছে (স্কোপ: ${scope}, মোট মোছা রেকর্ড: ${totalWiped}টি)। Pre-wipe snapshot (${preWipeTotalRecords} রেকর্ড): ${preWipeStoragePath || "⚠️ সংরক্ষণ ব্যর্থ"}`,
-    };
-
-    const updatedHistory = [wipeAuditLog, ...(currentMeta.backup_history || [])].slice(0, 50);
-    currentMeta.backup_history = updatedHistory;
-
-    // Save cleaned metadata
-    await saveMadrasaMetadata(madrasaId, currentMeta);
-
-    // Record system Activity Log
-    try {
-      const { recordActivityLog } = await import("@/app/actions/activity-logs");
-      await recordActivityLog({
-        action_type: "DELETE",
-        module: "BACKUP",
-        title: "মাদরাসার ডাটাবেজ ফ্যাক্টরি রিসেট সম্পন্ন",
-        description: `এডমিনের নির্দেশে প্রতিষ্ঠানের ${scope === "all" ? "সম্পূর্ণ" : scope} ডাটাবেজ সফলভাবে রিসেট করা হয়েছে (মোট ${totalWiped}টি রেকর্ড অপসারিত)।`,
-        severity: "WARNING",
-        link: "/dashboard/settings/backup",
-      });
-    } catch (actErr) {
-      console.warn("Wipe activity log warning:", actErr);
-    }
-
-    // Revalidate paths
-    revalidatePath("/dashboard");
-    revalidatePath("/dashboard/students");
-    revalidatePath("/dashboard/admissions");
-    revalidatePath("/dashboard/classes");
-    revalidatePath("/dashboard/hifz");
-    revalidatePath("/dashboard/kitab");
-    revalidatePath("/dashboard/attendance");
-    revalidatePath("/dashboard/exams");
-    revalidatePath("/dashboard/accounting");
-    revalidatePath("/dashboard/zakat");
-    revalidatePath("/dashboard/fundraising");
-    revalidatePath("/dashboard/settings");
-    revalidatePath("/dashboard/settings/backup");
-
-    return {
-      success: true,
-      message: `মাদরাসার ${scope === "all" ? "সম্পূর্ণ" : scope} ডাটা সফলভাবে মুছে ফেলা হয়েছে (সর্বমোট ${totalWiped} টি রেকর্ড ডিলিট হয়েছে)।`,
-      wipedStats,
-      totalWiped,
-      preWipeBackupJson,
-    };
+    const result=await applySelectiveRecovery(madrasaId,user,options.selectedModules!,'wipe',{});
+    if(!result.success) return result;
+    return {success:true,message:result.message,wipedStats:result.stats,totalWiped:result.total,preWipeBackupJson:result.backupJson};
   } catch (err: any) {
     console.error("Exception in executeMadrasaDataWipe:", err);
     return {

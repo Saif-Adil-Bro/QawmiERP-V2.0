@@ -1,3 +1,9 @@
+import {decideApprovalStepForActor} from "@/lib/approval-execution";
+import {canReadSchoolFinance} from "@/lib/finance/access";
+import {billingSession} from '@/lib/finance/billing-session';
+import {saveUnpaidBill} from "@/lib/finance/invoice";
+import {postExpenseForActor} from "@/lib/finance/expense";
+import {collectSingleFee} from "@/lib/finance/fee-api";
 import { saveExamMarks } from "@/app/actions/exams";
 import { revalidatePath } from "next/cache";
 import { getAuthUser, createAdminClient } from "@/lib/supabase/server";
@@ -9,14 +15,6 @@ import { generateNextUniqueStudentId } from "@/lib/student-utils";
 import { dispatchNotification } from "@/lib/notifications/orchestrator";
 import { recalculateStudentRiskScores } from "@/lib/early-warning-service";
 import { runFinancialAnomalyScan } from "@/lib/anomaly-detection-service";
-import {
-  getApprovalRequestByIdForMadrasa,
-  canActorDecideStep,
-  evaluateStepProgression,
-  recordStepDecisionAndUpdateRequest,
-  isSlaBreached,
-} from "@/lib/approval-workflow";
-
 const PORTAL_ROLES = new Set(["student", "parent", "guardian"]);
 const FINANCE_ROLES = new Set([
   "super_admin",
@@ -73,6 +71,8 @@ export async function POST(req: Request) {
     const body = await req.json();
     const actionType = String(body?.actionType || body?.action || "").trim();
     const payload = body?.payload || {};
+    if (['create_expense','add_expense','collect_fee','create_student_fee','send_due_fee_reminders','trigger_anomaly_scan'].includes(actionType) &&
+        !canReadSchoolFinance([permCtx.role,...permCtx.roles,permCtx.profile.primaryRole],permCtx.summary.effectivePermissions)) return Response.json({error:'হিসাবের অনুমতি নেই।'},{status:403});
     const adminClient = await createAdminClient();
 
     const recordAiAudit = async (params: {
@@ -123,15 +123,17 @@ export async function POST(req: Request) {
       }
 
       // BUG-AI-2: Check academic_sessions lock / ARCHIVED status before inserting expense
-      const { data: sessions } = await adminClient
+      const { data: sessions,error:sessionError } = await adminClient
         .from("academic_sessions")
-        .select("id, is_locked, status, start_date, end_date, is_current")
+        .select("*")
         .eq("madrasa_id", madrasaId);
 
+      if(sessionError) return Response.json({error:"শিক্ষাবর্ষ যাচাই করা যায়নি।"},{status:503});
       const sessionList = sessions || [];
       let targetSession: any = null;
       if (payload?.sessionId) {
         targetSession = sessionList.find((s: any) => s.id === payload.sessionId);
+        if(!targetSession) return Response.json({error:"শিক্ষাবর্ষ মেলেনি।"},{status:400});
       } else {
         targetSession =
           sessionList.find(
@@ -157,25 +159,12 @@ export async function POST(req: Request) {
         );
       }
 
-      const { data, error } = await adminClient
-        .from("expenses")
-        .insert({
-          madrasa_id: madrasaId,
-          ...(targetSession?.id || payload?.sessionId
-            ? { session_id: targetSession?.id || payload?.sessionId }
-            : {}),
-          category,
-          amount,
-          expense_date: expenseDate,
-          description: `${description} (এআই সহায়কের মাধ্যমে এন্ট্রি)`,
-        })
-        .select("id")
-        .single();
-
-      if (error) {
-        return Response.json({ error: error.message }, { status: 500 });
-      }
-
+      const form=new FormData();
+      for(const [k,v] of Object.entries({category,amount,expense_date:expenseDate,description,fund_id:payload.fund_id,fund_name:payload.fund_name,restricted_beneficiary:payload.restricted_beneficiary,payment_method:payload.payment_method||payload.paymentMethod,student_id:payload.student_id,staff_id:payload.staff_id,head_id:payload.head_id,line_items:payload.line_items?JSON.stringify(payload.line_items):undefined})) if(v!=null) form.set(k,String(v));
+      const result=await postExpenseForActor(madrasaId,user.id,form);
+      if(result.error) return Response.json({error:result.error},{status:400});
+      if(result.pendingApproval) return Response.json({success:true,pendingApproval:true,approvalRequestId:result.approvalRequestId,message:result.message},{status:202});
+      const data=result.expense;
       await recordAiAudit({
         entityType: "expense",
         entityId: data?.id,
@@ -210,7 +199,7 @@ export async function POST(req: Request) {
         ? String(payload.studentFeeId).trim()
         : null;
       const amount = Number(payload?.amount || 0);
-      const paymentMethod = String(payload?.paymentMethod || "Cash").trim();
+      const paymentMethod = String(payload?.paymentMethod || "Unknown").trim();
       const paymentDate = String(
         payload?.paymentDate || toDhakaDateString()
       ).trim();
@@ -222,57 +211,10 @@ export async function POST(req: Request) {
         );
       }
 
-      const receiptNo =
-        String(payload?.receiptNo || "").trim() ||
-        `AI-${Date.now().toString().slice(-6)}`;
-
-      // BUG-AI-1: Always use total_amount_received (never amount_paid)
-      const { data: paymentRow, error: payErr } = await adminClient
-        .from("fee_payments")
-        .insert({
-          madrasa_id: madrasaId,
-          student_id: studentId,
-          receipt_no: receiptNo,
-          total_amount_received: amount,
-          payment_method: paymentMethod,
-          payment_date: paymentDate,
-          collector_name:
-            permCtx.profile.fullName || user.email || "AI Copilot",
-          status: "COMPLETED",
-        })
-        .select("id")
-        .single();
-
-      if (payErr) {
-        return Response.json({ error: payErr.message }, { status: 500 });
-      }
-
-      if (studentFeeId) {
-        const { data: feeRow } = await adminClient
-          .from("student_fees")
-          .select("id, payable_amount, paid_amount, due_amount")
-          .eq("id", studentFeeId)
-          .eq("madrasa_id", madrasaId)
-          .maybeSingle();
-
-        if (feeRow) {
-          const payable = Number((feeRow as any).payable_amount || 0);
-          const newPaid = Number((feeRow as any).paid_amount || 0) + amount;
-          const newDue = Math.max(0, payable - newPaid);
-          const newStatus = newDue <= 0 ? "PAID" : "PARTIAL";
-
-          await adminClient
-            .from("student_fees")
-            .update({
-              paid_amount: newPaid,
-              due_amount: newDue,
-              status: newStatus,
-            })
-            .eq("id", studentFeeId)
-            .eq("madrasa_id", madrasaId);
-        }
-      }
-
+      let paymentRow;
+      try {paymentRow=await collectSingleFee(adminClient,madrasaId,user.id,{student_id:studentId,student_fee_id:studentFeeId,amount,payment_method:paymentMethod,payment_date:paymentDate,idempotency_key:payload.idempotency_key,receipt_no:payload.receiptNo,fund_id:payload.fund_id});}
+      catch (err:any) {return Response.json({error:err.message},{status:400});}
+      const receiptNo=paymentRow.receipt_no;
       await recordAiAudit({
         entityType: "fee_payment",
         entityId: paymentRow?.id,
@@ -319,48 +261,12 @@ export async function POST(req: Request) {
         );
       }
 
-      let sessionIdToUse = payload?.sessionId
-        ? String(payload.sessionId).trim()
-        : "";
-      if (!sessionIdToUse) {
-        const { data: activeSess } = await adminClient
-          .from("academic_sessions")
-          .select("id")
-          .eq("madrasa_id", madrasaId)
-          .eq("is_current", true)
-          .maybeSingle();
-        sessionIdToUse = (activeSess as any)?.id || "";
-        if (!sessionIdToUse) {
-          const { data: anySess } = await adminClient
-            .from("academic_sessions")
-            .select("id")
-            .eq("madrasa_id", madrasaId)
-            .limit(1)
-            .maybeSingle();
-          sessionIdToUse = (anySess as any)?.id || "";
-        }
-      }
-
-      // BUG-AI-3: Real student_fees columns (never title or total_amount)
-      const { data: feeRow, error: feeErr } = await adminClient
-        .from("student_fees")
-        .insert({
-          madrasa_id: madrasaId,
-          ...(sessionIdToUse ? { session_id: sessionIdToUse } : {}),
-          student_id: studentId,
-          fee_type_name: feeTypeName,
-          billing_period: billingPeriod,
-          payable_amount: amount,
-          paid_amount: 0,
-          due_amount: amount,
-          status: "UNPAID",
-        })
-        .select("id")
-        .single();
-
-      if (feeErr) {
-        return Response.json({ error: feeErr.message }, { status: 500 });
-      }
+      let feeRow;
+      try {
+        const sessionId=await billingSession(adminClient,madrasaId,payload.sessionId);
+        feeRow=await saveUnpaidBill(adminClient,madrasaId,{student_id:studentId,fee_type_id:payload.feeTypeId,fee_type_name:feeTypeName,
+          session_id:sessionId,billing_period:billingPeriod,base_amount:amount,fund_id:payload.fund_id});
+      } catch(e:any) { return Response.json({error:e.message},{status:400}); }
 
       await recordAiAudit({
         entityType: "student_fee",
@@ -656,128 +562,15 @@ export async function POST(req: Request) {
         );
       }
 
-      const loaded = await getApprovalRequestByIdForMadrasa(
-        madrasaId,
-        requestId
-      );
-      if (loaded.crossTenantDenied) {
-        return Response.json(
-          { error: "ভিন্ন মাদ্রাসার অনুমোদন আবেদনে অ্যাক্সেস অনুমোদিত নয়।" },
-          { status: 403 }
-        );
-      }
-      if (!loaded.request) {
-        return Response.json(
-          { error: "অনুমোদনের আবেদনটি খুঁজে পাওয়া যায়নি।" },
-          { status: 404 }
-        );
-      }
-
-      const approvalReq = loaded.request;
-      if (
-        approvalReq.status !== "PENDING" &&
-        approvalReq.status !== "IN_REVIEW"
-      ) {
-        return Response.json(
-          { error: `এই আবেদনটি ইতিমধ্যে "${approvalReq.status}" অবস্থায় রয়েছে।` },
-          { status: 400 }
-        );
-      }
-
-      const currentStepOrder = Number(approvalReq.current_step_order ?? 1);
-      const currentStep =
-        loaded.steps.find((s) => Number(s.step_order) === currentStepOrder) ||
-        null;
-
-      const authCheck = canActorDecideStep(
-        {
-          userId: user.id,
-          id: user.id,
-          role: permCtx.role,
-          roles: permCtx.roles,
-          permissions: permCtx.summary.effectivePermissions,
-        },
-        approvalReq,
-        currentStep,
-        loaded.workflow
-      );
-
-      if (!authCheck.allowed) {
-        return Response.json(
-          {
-            error:
-              authCheck.reason ||
-              "এই ধাপে সিদ্ধান্ত নেওয়ার অনুমতি আপনার নেই।",
-          },
-          { status: 403 }
-        );
-      }
-
-      const now = new Date();
-      const slaBreached = isSlaBreached(approvalReq.sla_due_at, now);
-      const progression = evaluateStepProgression(
-        approvalReq,
-        loaded.steps,
-        loaded.decisions,
-        {
-          decision,
-          actorId: user.id,
-          notes,
-        }
-      );
-
-      const actorDisplayName =
-        permCtx.profile.fullName || user.email || "অনুমোদনকারী";
-
-      const decisionRecord = {
-        id: crypto.randomUUID(),
-        madrasa_id: madrasaId,
-        request_id: requestId,
-        step_id: currentStep?.id || null,
-        step_order: currentStepOrder,
-        step_name: currentStep?.step_name || `ধাপ ${currentStepOrder}`,
-        decided_by: user.id,
-        decided_by_name: actorDisplayName,
-        decided_by_role: permCtx.role,
-        decision,
-        notes: notes || null,
-        sla_breached: slaBreached,
-        decided_at: now.toISOString(),
-        created_at: now.toISOString(),
-      };
-
-      const result = await recordStepDecisionAndUpdateRequest({
-        madrasaId,
-        requestId,
-        decisionRecord,
-        requestPatch: {
-          current_step_order: progression.nextStepOrder,
-          status: progression.nextStatus,
-          ...(progression.isFinal
-            ? {
-                final_decision_by: user.id,
-                final_decision_by_name: actorDisplayName,
-                final_decision_at: now.toISOString(),
-                final_notes: notes || null,
-              }
-            : {}),
-        },
-      });
-
-      await recordAiAudit({
-        entityType: "approval_request",
-        entityId: requestId,
-        summary: `এআই কো-পাইলটের মাধ্যমে অনুমোদন সিদ্ধান্ত: ${decision}`,
-        newValue: { requestId, decision, notes, status: progression.nextStatus },
-      });
-
-      safeRevalidate("/dashboard/approvals");
-
-      return Response.json({
-        success: true,
-        result,
-        message: `অনুমোদনের সিদ্ধান্ত (${decision === "APPROVED" ? "অনুমোদিত" : "প্রত্যাখ্যাত"}) সফলভাবে সংরক্ষিত হয়েছে।`,
-      });
+      // Confirmation is not approval. Use the same decision, step-up and execution
+      // service as the approvals page instead of merely setting APPROVED here.
+      const result=await decideApprovalStepForActor({madrasaId,userId:user.id,
+        actorName:permCtx.profile.fullName || 'অনুমোদনকারী',actorRole:permCtx.role,roles:permCtx.roles,
+        permissions:permCtx.summary.effectivePermissions,requestId,decision,notes,stepUpToken:req.headers.get('x-step-up-token')});
+      if(result.error) return Response.json({error:result.error,stepUpRequired:result.stepUpRequired,code:result.errorCode,actionScope:result.actionScope},{status:result.statusCode || 400});
+      await recordAiAudit({entityType:'approval_request',entityId:requestId,summary:`অনুমোদনের সিদ্ধান্ত: ${decision}`,
+        newValue:{requestId,decision,status:result.status,executed:result.executionResult?.executed}});
+      return Response.json(result);
     }
 
     if (actionType === "create_notice") {

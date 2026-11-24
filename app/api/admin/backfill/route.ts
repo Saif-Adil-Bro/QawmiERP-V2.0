@@ -22,10 +22,10 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({
-      success: true,
+      success: result.errors.length===0,
       timestamp: new Date().toISOString(),
       report: result,
-    });
+    },{status:result.errors.length?409:200});
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error?.message || "Migration failed" },
@@ -46,10 +46,10 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({
-      success: true,
+      success: result.errors.length===0,
       timestamp: new Date().toISOString(),
       report: result,
-    });
+    },{status:result.errors.length?409:200});
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: error?.message || "Migration failed" },

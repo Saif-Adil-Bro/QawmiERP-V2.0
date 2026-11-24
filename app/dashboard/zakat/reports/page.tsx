@@ -1,5 +1,5 @@
 import React from "react";
-import { getZakatReportStats, getFunds, getDonors, getDonations } from "@/app/actions/zakat";
+import { getZakatReportStats, getFundChoices, getDonors, getDonations } from "@/app/actions/zakat";
 import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import ZakatNav from "@/components/zakat/ZakatNav";
 import ReportsClient from "./ReportsClient";
@@ -7,7 +7,7 @@ import ReportsClient from "./ReportsClient";
 export default async function ZakatReportsPage() {
   const [stats, funds, donors, donations, madrasaInfo] = await Promise.all([
     getZakatReportStats(),
-    getFunds(),
+    getFundChoices(true),
     getDonors(),
     getDonations(),
     getMadrasaInfo(),

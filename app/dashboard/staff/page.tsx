@@ -1,6 +1,8 @@
 import React from "react";
 import { getStaffMetadataFull } from "@/app/actions/staff";
 import StaffManagementClient from "./StaffManagementClient";
+import {writeGuard} from "@/lib/action-authorization";
+import AccessDeniedMessage from "@/components/permissions/AccessDeniedMessage";
 import PermissionGuard from "@/components/permissions/PermissionGuard";
 
 export const metadata = {
@@ -9,10 +11,11 @@ export const metadata = {
 };
 
 export default async function StaffPage() {
+  if(!(await writeGuard('staffRead')).allowed) return <AccessDeniedMessage requiredPermission="staff.view"/>;
   const staffData = await getStaffMetadataFull();
 
   return (
-    <PermissionGuard anyPermissions={["staff.view", "teacher.view"]}>
+    <PermissionGuard anyPermissions={["staff.view", "teacher.view","staff.salary.view","staff.salary.manage"]}>
       <div className="min-h-screen bg-slate-50/50 pb-16">
         <StaffManagementClient initialData={staffData} />
       </div>

@@ -33,6 +33,7 @@ interface FeeData {
   students?: StudentInfo;
   payment_method?: string;
   allocations?: AllocationItem[];
+  fund_totals?: {id:string;name:string;amount:number}[];
   discount_total?: number;
   fine_total?: number;
   status?: string;
@@ -105,11 +106,11 @@ export default function DualMoneyReceipt({
   const className = effectiveStudent?.class_name || 'N/A';
   const rollNumber = effectiveStudent?.roll_number ? toBanglaNumber(effectiveStudent.roll_number) : 'N/A';
   
-  const receiptNumber = fee.receipt_no || (fee.id ? `RN${fee.id.substring(0, 6).toUpperCase()}` : 'RN0001');
+  const receiptNumber = fee.receipt_no || 'নম্বর সংরক্ষিত নেই';
   const formattedReceiptNo = receiptNumber;
 
-  const dateObj = fee.payment_date ? new Date(fee.payment_date) : new Date();
-  const formattedDate = dateObj.toLocaleDateString('en-GB'); // DD/MM/YYYY
+  const dateObj = new Date(fee.payment_date);
+  const formattedDate = Number.isFinite(dateObj.getTime()) ? dateObj.toLocaleDateString('en-GB',{timeZone:'Asia/Dhaka'}) : '—'; // DD/MM/YYYY
   const banglaDate = toBanglaNumber(formattedDate);
 
   const getFeeTypeName = (type?: string) => {
@@ -331,6 +332,9 @@ export default function DualMoneyReceipt({
                   </tr>
                 )}
 
+                {!!fee.fund_totals?.length && <tr><td className="px-3 py-1 font-semibold" colSpan={4}>
+                  জমার ফান্ড: {fee.fund_totals.map(f=>`${f.name} · ৳ ${formatBanglaCurrency(f.amount)}`).join(' / ')}
+                </td></tr>}
                 {(monthYearText || fee.notes || fee.payment_method) && (
                   <tr className="border-b border-slate-200">
                     <td className="bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 border-r border-slate-200 text-xs">

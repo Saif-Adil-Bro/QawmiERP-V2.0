@@ -44,6 +44,7 @@ export interface PremiumDashboardClientProps {
     todayIncome: number;
     todayExpense: number;
     totalIncome: number;
+    fundBalance: number;
     totalExpense: number;
     expensesSum: number;
     bazarSum: number;
@@ -52,6 +53,7 @@ export interface PremiumDashboardClientProps {
   errorMessage?: string | null;
   hifzSummaryNode?: React.ReactNode;
   sickStudentsNode?: React.ReactNode;
+  showFinance?:boolean;
   earlyWarningNode: React.ReactNode;
   anomalyBannerNode?: React.ReactNode;
   chartsNode: React.ReactNode;
@@ -70,7 +72,7 @@ export default function PremiumDashboardClient({
   stats,
   widgets,
   errorMessage,
-  hifzSummaryNode,
+  hifzSummaryNode,showFinance=true,
   sickStudentsNode,
   earlyWarningNode,
   anomalyBannerNode,
@@ -135,9 +137,10 @@ export default function PremiumDashboardClient({
     financeScope === "today" ? stats.todayIncome : stats.totalIncome;
   const activeExpense =
     financeScope === "today" ? stats.todayExpense : stats.totalExpense;
-  const netBalance = activeIncome - activeExpense;
+  const operatingNet = activeIncome - activeExpense;
+  const netBalance = financeScope === "today" ? operatingNet : stats.fundBalance;
   const savingsRate =
-    activeIncome > 0 ? Math.round((netBalance / activeIncome) * 100) : 0;
+    activeIncome > 0 ? Math.round((operatingNet / activeIncome) * 100) : 0;
 
   const roleKey = (profile.role || "super_admin").toLowerCase();
   const displayRole =
@@ -292,7 +295,7 @@ export default function PremiumDashboardClient({
           </h2>
 
           {/* Interactive Finance Scope Toggle */}
-          <div className="inline-flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 text-xs">
+          {showFinance && <div className="inline-flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700 text-xs">
             <button
               type="button"
               onClick={() => setFinanceScope("total")}
@@ -315,7 +318,7 @@ export default function PremiumDashboardClient({
             >
               আজকের লেনদেন
             </button>
-          </div>
+          </div>}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -465,7 +468,7 @@ export default function PremiumDashboardClient({
         </div>
 
         {/* 4. Financial Highlight Strip (3 Columns) */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {showFinance && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Income */}
           <motion.div
             initial={{ opacity: 0, y: 12 }}
@@ -556,7 +559,7 @@ export default function PremiumDashboardClient({
                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   {financeScope === "today"
                     ? "আজকের নিট উদ্বৃত্ত"
-                    : "নিট ফান্ড স্থিতি (উদ্বৃত্ত)"}
+                    : "জার্নালসহ মোট ফান্ড স্থিতি"}
                 </span>
                 <span
                   className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
@@ -569,7 +572,7 @@ export default function PremiumDashboardClient({
                   {netBalance >= 0 ? "উদ্বৃত্ত" : "ঘাটতি"}
                 </span>
               </div>
-              <p
+              <p data-finance-balance={netBalance}
                 className={`text-2xl sm:text-3xl font-extrabold mt-2 tabular-nums ${
                   netBalance >= 0
                     ? "text-sky-600 dark:text-sky-400"
@@ -590,7 +593,7 @@ export default function PremiumDashboardClient({
               </div>
             </Link>
           </motion.div>
-        </div>
+        </div>}
         </section>
               </div>
             );

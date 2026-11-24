@@ -1,6 +1,16 @@
 "use server";
+import { boardingCharge, boardingGross } from '@/lib/finance/boarding-charges';
+import {billPeriodKey} from '@/lib/finance/bill-period';
+import {billingSession} from '@/lib/finance/billing-session';
+import {rows} from '@/lib/portal/queries';
+import {nextVoucherNumber} from "@/lib/finance/voucher-numbers";
+import {bdtPoisha} from "@/lib/payment-gateway-engine";
+import {changeVoucherStatus} from "@/lib/finance/voucher-status";
+import {financeRows} from "@/lib/finance/funds";
+import {bazarFund,isVoidedExpense,REVIEW_FUND} from "@/lib/fund-utils";
+import { fundCatalog, postingFund } from "@/lib/finance/funds";
 
-import { toDhakaDateStringFrom, getDhakaYear, toDhakaMonthString } from "@/lib/date-utils";
+import { toDhakaDateString,toDhakaDateStringFrom, getDhakaYear, toDhakaMonthString } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -200,13 +210,7 @@ function parseExpenseMetadata(rawDetails: string | null | undefined, fallbackId:
   }
 
   // Fallback auto-generated voucher number if none found
-  if (!voucherNo) {
-    const d = expenseDate ? new Date(expenseDate) : undefined; // P2-Fix: now-পথ ঢাকা-ভিত্তিক
-    const yy = d ? String(d.getFullYear()).slice(-2) : String(getDhakaYear()).slice(-2);
-    const mm = d ? String(d.getMonth() + 1).padStart(2, "0") : toDhakaMonthString().slice(5, 7);
-    const suffix = fallbackId ? fallbackId.replace(/-/g, "").substring(0, 4).toUpperCase() : String(index + 1).padStart(3, "0");
-    voucherNo = `BV-${yy}${mm}${suffix}`;
-  }
+  if (!voucherNo) voucherNo = fallbackId || '—';
 
   return {
     cleanDetails,
@@ -219,33 +223,8 @@ function parseExpenseMetadata(rawDetails: string | null | undefined, fallbackId:
 }
 
 export async function getNextBazarVoucherNo(): Promise<string> {
-  try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return `BV-${toDhakaMonthString().slice(2, 7)}001`;
-
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-    if (!finalMadrasaId) return `BV-${toDhakaMonthString().slice(2, 7)}001`;
-
-    const nowMonth = toDhakaMonthString(); // P2-Fix: চলতি মাস ঢাকা টাইমজোনে
-    const yy = nowMonth.slice(2, 4);
-    const mm = nowMonth.slice(5, 7);
-    const currentPrefix = `BV-${yy}${mm}`;
-
-    // Get count of expenses in current month
-    const startOfMonth = `${nowMonth}-01`;
-    const { count } = await supabase
-      .from("bazar_expenses")
-      .select("id", { count: "exact", head: true })
-      .eq("madrasa_id", finalMadrasaId)
-      .gte("expense_date", startOfMonth);
-
-    const nextSeq = String((count || 0) + 1).padStart(3, "0");
-    return `${currentPrefix}${nextSeq}`;
-  } catch (e) {
-    const nowMonth = toDhakaMonthString(); // P2-Fix: চলতি মাস ঢাকা টাইমজোনে
-    return `BV-${nowMonth.slice(2, 7)}001`;
-  }
+  const tenant=await getAuthMadrasaId();
+  return nextVoucherNumber(tenant,toDhakaDateString(),'bazar');
 }
 
 export async function getBazarExpenses(startDate?: string, endDate?: string): Promise<BazarExpenseItem[]> {
@@ -256,26 +235,10 @@ export async function getBazarExpenses(startDate?: string, endDate?: string): Pr
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return [];
 
-  let query = supabase
-    .from("bazar_expenses")
-    .select("*")
-    .eq("madrasa_id", finalMadrasaId)
-    .order("expense_date", { ascending: false });
-
-  if (startDate) {
-    query = query.gte("expense_date", startDate);
-  }
-  if (endDate) {
-    query = query.lte("expense_date", endDate);
-  }
-
-  const { data, error } = await query;
-  if (error) {
-    console.error("Error fetching bazar expenses:", error);
-    return [];
-  }
-
-  return (data || []).map((row: any, index: number) => {
+  const access=await writeGuard('financeRead');if(!access.allowed)throw Error('বোর্ডিং খাতা দেখার অনুমতি নেই।');
+  const [data,funds]=await Promise.all([financeRows(await createAdminClient(),finalMadrasaId,'bazar_expenses','*',endDate,startDate),fundCatalog(finalMadrasaId,true)]);
+  return data.filter(row=>!isVoidedExpense(row)).sort((a,b)=>b.expense_date.localeCompare(a.expense_date)).map((row,index)=>{
+    const fund = bazarFund(funds,row) || REVIEW_FUND;
     const meta = parseExpenseMetadata(row.items_details, row.id, row.expense_date, index);
     return {
       id: row.id,
@@ -286,8 +249,8 @@ export async function getBazarExpenses(startDate?: string, endDate?: string): Pr
       voucher_no: row.voucher_no || meta.voucherNo,
       buyer_name: row.buyer_name || meta.buyerName,
       payment_method: row.payment_method || meta.paymentMethod,
-      fund_id: row.fund_id || meta.fundId,
-      fund_name: row.fund_name || meta.fundName,
+      fund_id: fund.id,
+      fund_name: fund.name,
       created_at: row.created_at,
     };
   });
@@ -307,7 +270,7 @@ export async function saveBazarExpense(expense: {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
-    const __authz = await writeGuard("boarding");
+    const __authz = await writeGuard("finance");
     if (!__authz.allowed) return __authz.fallback;
   }
 
@@ -318,26 +281,26 @@ export async function saveBazarExpense(expense: {
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
+  if(!bdtPoisha(expense.amount)) return {error:"বাজারের অঙ্ক পয়সা পর্যন্ত দিন।"};
   // Determine or generate voucher number
   let voucherNo = (expense.voucher_no || "").trim();
   if (!voucherNo) {
-    const d = expense.expense_date ? new Date(expense.expense_date) : undefined; // P2-Fix: now-পথ ঢাকা-ভিত্তিক
-    const yy = d ? String(d.getFullYear()).slice(-2) : String(getDhakaYear()).slice(-2);
-    const mm = d ? String(d.getMonth() + 1).padStart(2, "0") : toDhakaMonthString().slice(5, 7);
-    const rand = Math.floor(100 + Math.random() * 900);
-    voucherNo = `BV-${yy}${mm}${rand}`;
+    voucherNo=await nextVoucherNumber(finalMadrasaId,expense.expense_date,'bazar');
   }
 
   const buyerName = (expense.buyer_name || "").trim();
-  const paymentMethod = (expense.payment_method || "Cash").trim();
+  const paymentMethod = (expense.payment_method || "Unknown").trim();
   const cleanItems = (expense.items_details || "").trim();
-  const fundId = (expense.fund_id || "fund-lillah").trim();
-  const fundName = (expense.fund_name || "লিল্লাহ বোর্ডিং ফান্ড").trim();
+  let fund;
+  try { fund = await postingFund(finalMadrasaId,expense.fund_id,"bazar","","",expense.fund_name); }
+  catch (err: any) { return {error:err.message}; }
+  const fundId = fund.id, fundName = fund.name;
 
   // Construct metadata wrapper for items_details (ensures 100% data persistence without schema changes)
   const wrappedDetails = `[VOUCHER: ${voucherNo} | BUYER: ${buyerName} | METHOD: ${paymentMethod} | FUND: ${fundId} | FUND_NAME: ${fundName}]\n${cleanItems}`.trim();
 
   const recordWithDirectCols: any = {
+    ...(!expense.id ? {operator_id:user.id} : {}),
     madrasa_id: finalMadrasaId,
     amount: expense.amount,
     expense_date: expense.expense_date,
@@ -349,68 +312,10 @@ export async function saveBazarExpense(expense: {
     fund_name: fundName,
   };
 
-  const fallbackRecord: any = {
-    madrasa_id: finalMadrasaId,
-    amount: expense.amount,
-    expense_date: expense.expense_date,
-    items_details: wrappedDetails,
-  };
-
-  let savedRow: any = null;
-
-  if (expense.id) {
-    // Try updating with direct columns
-    const { data: updatedData, error: updateError } = await supabase
-      .from("bazar_expenses")
-      .update(recordWithDirectCols)
-      .eq("id", expense.id)
-      .eq("madrasa_id", finalMadrasaId)
-      .select()
-      .single();
-
-    if (updateError) {
-      // Retry with plain schema
-      const { data: retryData, error: retryError } = await supabase
-        .from("bazar_expenses")
-        .update(fallbackRecord)
-        .eq("id", expense.id)
-        .eq("madrasa_id", finalMadrasaId)
-        .select()
-        .single();
-
-      if (retryError) {
-        console.error("Error updating bazar expense:", retryError);
-        return { error: retryError.message };
-      }
-      savedRow = retryData;
-    } else {
-      savedRow = updatedData;
-    }
-  } else {
-    // Try inserting with direct columns
-    const { data: insertedData, error: insertError } = await supabase
-      .from("bazar_expenses")
-      .insert([recordWithDirectCols])
-      .select()
-      .single();
-
-    if (insertError) {
-      // Retry with plain schema
-      const { data: retryData, error: retryError } = await supabase
-        .from("bazar_expenses")
-        .insert([fallbackRecord])
-        .select()
-        .single();
-
-      if (retryError) {
-        console.error("Error inserting bazar expense:", retryError);
-        return { error: retryError.message };
-      }
-      savedRow = retryData;
-    } else {
-      savedRow = insertedData;
-    }
-  }
+  const table = (await createAdminClient()).from("bazar_expenses");
+  const write = expense.id ? table.update(recordWithDirectCols).eq("id",expense.id).eq("madrasa_id",finalMadrasaId) : table.insert(recordWithDirectCols);
+  const {data:savedRow,error} = await write.select().single();
+  if (error) return {error:error.message};
 
   revalidatePath("/dashboard/boarding/bazar");
   revalidatePath("/dashboard/boarding");
@@ -433,11 +338,11 @@ export async function saveBazarExpense(expense: {
   };
 }
 
-export async function deleteBazarExpense(id: string) {
+export async function deleteBazarExpense(id: string,reason:string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
-    const __authz = await writeGuard("boarding");
+    const __authz = await writeGuard("finance");
     if (!__authz.allowed) return __authz.fallback;
   }
 
@@ -448,25 +353,17 @@ export async function deleteBazarExpense(id: string) {
   const finalMadrasaId = await getAuthMadrasaId(supabase, user);
   if (!finalMadrasaId) return { error: "Madrasa not found" };
 
-  const { error } = await supabase
-    .from("bazar_expenses")
-    .delete()
-    .eq("id", id)
-    .eq("madrasa_id", finalMadrasaId);
-
-  if (error) {
-    console.error("Error deleting bazar expense:", error);
-    return { error: error.message };
-  }
-
+  try {
+    if (!await changeVoucherStatus(finalMadrasaId,user.id,`bazar_${id}`,false,reason,true)) return {error:"ভাউচার পাওয়া যায়নি।"};
+  } catch(e:any) {return {error:e.message};}
   revalidatePath("/dashboard/boarding/bazar");
   revalidatePath("/dashboard/boarding");
   return { success: true };
 }
 
 export async function getBoardingMadrasaInfo() {
-  const { getMadrasaInfo } = await import("@/lib/getMadrasaInfo");
-  return await getMadrasaInfo();
+  const { getMadrasaInfo,toPublicMadrasaInfo } = await import("@/lib/getMadrasaInfo");
+  return toPublicMadrasaInfo(await getMadrasaInfo());
 }
 
 // ==========================================
@@ -474,18 +371,10 @@ export async function getBoardingMadrasaInfo() {
 // ==========================================
 
 export async function getMonthlyBoardingReport(year: string, month: string) {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return null;
-
-  const adminClient = await createAdminClient();
-  const clientToUse = user ? supabase : adminClient;
-
-  // Format month and build date range boundaries
-  // E.g., year = "2026", month = "08" (August)
-  const numYear = parseInt(year, 10) || getDhakaYear();
-  const numMonth = parseInt(month, 10) || (new Date().getMonth() + 1);
+  const access=await writeGuard("financeRead");if(!access.allowed || !access.madrasaId)throw Error("বোর্ডিং রিপোর্ট দেখার অনুমতি নেই।");
+  const finalMadrasaId=access.madrasaId, adminClient=await createAdminClient();
+  if(!/^\d{4}$/.test(year) || !/^(?:0?[1-9]|1[0-2])$/.test(month)) throw Error('বিলের বছর ও মাস যাচাই করুন।');
+  const numYear=Number(year),numMonth=Number(month);
   const formattedMonth = String(numMonth).padStart(2, "0");
   const startDate = `${numYear}-${formattedMonth}-01`;
 
@@ -497,73 +386,16 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
   }
   const nextMonthStr = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
 
-  // 1. Fetch Bazar expenses in this month (with adminClient fallback)
-  let { data: bazarData, error: bazarError } = await clientToUse
-    .from("bazar_expenses")
-    .select("amount, expense_date")
-    .eq("madrasa_id", finalMadrasaId)
-    .gte("expense_date", startDate)
-    .lt("expense_date", nextMonthStr);
+  const endDate=`${numYear}-${formattedMonth}-${new Date(Date.UTC(numYear,numMonth,0)).getUTCDate()}`;
+  const bazarData=await financeRows(adminClient,finalMadrasaId,'bazar_expenses','*',endDate,startDate);
+  const costPoisha=bazarData.filter(b=>!isVoidedExpense(b)).reduce((sum,b)=>sum+Math.round(Number(b.amount)*100),0), totalBazarCost=costPoisha/100;
 
-  if (bazarError) {
-    console.warn("Retrying bazar query with adminClient:", bazarError.message);
-    const res = await adminClient
-      .from("bazar_expenses")
-      .select("amount, expense_date")
-      .eq("madrasa_id", finalMadrasaId)
-      .gte("expense_date", startDate)
-      .lt("expense_date", nextMonthStr);
-    bazarData = res.data;
-  }
-
-  const totalBazarCost = (bazarData || []).reduce((acc: number, curr: any) => acc + Number(curr.amount || 0), 0);
-
-  // 2. Fetch all students with class joins (with adminClient fallback)
-  let { data: students, error: studentsError } = await clientToUse
-    .from("students")
-    .select("id, first_name, last_name, roll_number, class_name, classes(id, name)")
-    .eq("madrasa_id", finalMadrasaId)
-    .order("roll_number");
-
-  if (studentsError || !students) {
-    console.warn("Retrying students query with adminClient:", studentsError?.message);
-    const res = await adminClient
-      .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, classes(id, name)")
-      .eq("madrasa_id", finalMadrasaId)
-      .order("roll_number");
-    students = res.data || [];
-  }
-
-  // 3. Fetch all active ("On") meal entries in this month
-  let { data: mealsData, error: mealsError } = await clientToUse
-    .from("meal_entries")
-    .select("student_id, meal_status, entry_date")
-    .eq("madrasa_id", finalMadrasaId)
-    .eq("meal_status", "On")
-    .gte("entry_date", startDate)
-    .lt("entry_date", nextMonthStr);
-
-  if (mealsError) {
-    console.warn("Retrying meals query with adminClient:", mealsError.message);
-    const res = await adminClient
-      .from("meal_entries")
-      .select("student_id, meal_status, entry_date")
-      .eq("madrasa_id", finalMadrasaId)
-      .eq("meal_status", "On")
-      .gte("entry_date", startDate)
-      .lt("entry_date", nextMonthStr);
-    mealsData = res.data;
-  }
-
-  // 4. Fetch metadata for extended student residential and boarding profiles
-  let meta: any = {};
-  try {
-    const { getMadrasaMetadata } = await import("@/lib/sessions");
-    meta = await getMadrasaMetadata(finalMadrasaId);
-  } catch (mErr) {
-    console.warn("Could not load metadata in getMonthlyBoardingReport:", mErr);
-  }
+  const {getMadrasaMetadata}=await import('@/lib/sessions');
+  const [students,mealsData,meta]=await Promise.all([
+    rows(()=>adminClient.from('students').select('id,first_name,last_name,roll_number,class_name,classes(id,name)').eq('madrasa_id',finalMadrasaId)),
+    rows(()=>adminClient.from('meal_entries').select('id,student_id,entry_date,meal_status').eq('madrasa_id',finalMadrasaId).eq('meal_status','On').gte('entry_date',startDate).lt('entry_date',nextMonthStr)),
+    getMadrasaMetadata(finalMadrasaId,true),
+  ]);
 
   // 5. Calculate total active meals across all students
   const totalMealsCount = mealsData?.length || 0;
@@ -579,39 +411,15 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
   });
 
   // 8. Enumerate months with recorded activity in DB
-  let monthsWithData: { year: string; month: string; label: string }[] = [];
-  try {
-    const { data: allMeals } = await adminClient
-      .from("meal_entries")
-      .select("entry_date")
-      .eq("madrasa_id", finalMadrasaId)
-      .order("entry_date", { ascending: false });
-
-    const monthSet = new Set<string>();
-    (allMeals || []).forEach((m: any) => {
-      if (m.entry_date) {
-        monthSet.add(m.entry_date.substring(0, 7)); // YYYY-MM
-      }
-    });
-
-    const { data: allBazar } = await adminClient
-      .from("bazar_expenses")
-      .select("expense_date")
-      .eq("madrasa_id", finalMadrasaId);
-
-    (allBazar || []).forEach((b: any) => {
-      if (b.expense_date) {
-        monthSet.add(b.expense_date.substring(0, 7));
-      }
-    });
-
+  const {data:monthKeys,error:monthError}=await adminClient.rpc('finance_boarding_months',{t:finalMadrasaId});
+  if(monthError || !Array.isArray(monthKeys)) throw Error('বোর্ডিং খাতার মাসগুলো পড়া যায়নি।');
     const bengaliMonths: Record<string, string> = {
       "01": "জানুয়ারি", "02": "ফেব্রুয়ারি", "03": "মার্চ", "04": "এপ্রিল",
       "05": "মে", "06": "জুন", "07": "জুলাই", "08": "আগস্ট",
       "09": "সেপ্টেম্বর", "10": "অক্টোবর", "11": "নভেম্বর", "12": "ডিসেম্বর"
     };
 
-    monthsWithData = Array.from(monthSet).sort().reverse().map((ym) => {
+  const monthsWithData = (monthKeys as string[]).map((ym) => {
       const [y, m] = ym.split("-");
       return {
         year: y,
@@ -619,18 +427,16 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
         label: `${bengaliMonths[m] || m} ${y}`,
       };
     });
-  } catch (mListErr) {
-    console.warn("Could not load monthsWithData:", mListErr);
-  }
-
-  // 9. Map students to their meals, profiles and dynamic bills
+  const enrolled=new Set(students.map(s=>s.id));
+  if([...studentMealsMap.keys()].some(id=>!enrolled.has(id))) throw Error('মিল হাজিরার ছাত্র এই প্রতিষ্ঠানের তালিকায় নেই।');
+  const gross=boardingGross(costPoisha,studentMealsMap);
   let totalPayingBill = 0;
   let totalLillahSponsored = 0;
   let activeBoardingStudentsCount = 0;
 
   const studentsReport = (students || []).map((student: any) => {
     const studentMealsCount = studentMealsMap.get(student.id) || 0;
-    const grossCost = studentMealsCount * mealRate;
+
 
     const profile = meta?.student_profiles?.[student.id] || {};
     const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === student.id);
@@ -648,19 +454,9 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
       activeBoardingStudentsCount++;
     }
 
-    let discount = 0;
-    if (boardingType === "লিল্লাহ বোর্ডিং (ফ্রি)") {
-      discount = grossCost; // 100% Free / Sponsored
-      totalLillahSponsored += grossCost;
-    } else if (boardingType === "হাফ-ফ্রি") {
-      discount = grossCost * 0.5; // 50% discount
-      totalLillahSponsored += discount;
-      totalPayingBill += (grossCost - discount);
-    } else if (isBoarding || grossCost > 0) {
-      totalPayingBill += grossCost;
-    }
-
-    const netPayable = Math.max(0, grossCost - discount);
+    const charge=boardingCharge(gross.get(student.id) ?? 0,boardingType);
+    totalPayingBill+=Math.round(charge.bill_amount*100);
+    totalLillahSponsored+=Math.round(charge.discount_amount*100);
     const className = Array.isArray(student.classes)
       ? (student.classes[0] as any)?.name
       : (student.classes as any)?.name || student.class_name || "—";
@@ -677,9 +473,7 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
       boarding_type: boardingType,
       room_no: profile.room_no || "",
       meals_count: studentMealsCount,
-      gross_amount: Math.round(grossCost * 100) / 100,
-      discount_amount: Math.round(discount * 100) / 100,
-      bill_amount: Math.round(netPayable * 100) / 100, // round to 2 decimal places
+      ...charge,
     };
   });
 
@@ -692,8 +486,8 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
     totalBazarCost,
     totalMealsCount,
     mealRate: Math.round(mealRate * 100) / 100, // round to 2 decimal places
-    totalPayingBill: Math.round(totalPayingBill * 100) / 100,
-    totalLillahSponsored: Math.round(totalLillahSponsored * 100) / 100,
+    totalPayingBill: totalPayingBill / 100,
+    totalLillahSponsored: totalLillahSponsored / 100,
     activeBoardingStudentsCount,
     monthsWithData,
     studentsReport,
@@ -707,7 +501,7 @@ export async function syncBoardingBillsToAccounting(year: string, month: string,
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
-    const __authz = await writeGuard("boarding");
+    const __authz = await writeGuard("finance");
     if (!__authz.allowed) return __authz.fallback;
   }
 
@@ -719,26 +513,21 @@ export async function syncBoardingBillsToAccounting(year: string, month: string,
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
 
+    sessionId=await billingSession(await createAdminClient(),madrasaId,sessionId==='default'?undefined:sessionId);
     const report = await getMonthlyBoardingReport(year, month);
     if (!report || !report.studentsReport || report.studentsReport.length === 0) {
       return { error: "এই মাসের জন্য কোনো বোর্ডিং রিপোর্ট পাওয়া যায়নি।" };
     }
 
-    const { getFeeMetadata, saveFeeMetadata } = await import("@/lib/fee-store");
+    const { getFeeMetadata, saveBillChanges } = await import("@/lib/fee-store");
     const meta = await getFeeMetadata(madrasaId);
 
     const feeTypes = meta.fee_types || [];
-    let khorakiFeeType = feeTypes.find(
-      (f) =>
-        f.category === "BOARDING" ||
-        f.code === "HOSTEL" ||
-        f.code === "FOOD" ||
-        (f.name || "").includes("খোরাকি") ||
-        (f.name || "").includes("বোর্ডিং")
-    );
-
-    const khorakiFeeTypeId = khorakiFeeType?.id || "ft_khoraki_default";
-    const khorakiFeeTypeName = khorakiFeeType?.name || "খোরাকি ও খাবার ফি";
+    const khorakiTypes=feeTypes.filter(f=>f.is_active!==false && (f.category==='BOARDING' || ['HOSTEL','FOOD'].includes(f.code) || /খোরাকি|বোর্ডিং/.test(f.name)));
+    if(khorakiTypes.length!==1) return {error:'সুনির্দিষ্ট একটি সক্রিয় বোর্ডিং ফি খাত নির্ধারণ করুন।'};
+    const [khorakiFeeType]=khorakiTypes;
+    const {id:khorakiFeeTypeId,name:khorakiFeeTypeName}=khorakiFeeType;
+    const billFund=await postingFund(madrasaId,khorakiFeeType.fund_id,'deposit','','',khorakiFeeType.fund_name);
 
     const monthPadded = month.padStart(2, "0");
     const billingPeriod = `${year}-${monthPadded}`;
@@ -754,55 +543,25 @@ export async function syncBoardingBillsToAccounting(year: string, month: string,
     let syncedCount = 0;
     const now = new Date().toISOString();
 
-    const boardingStudentsWithBill = report.studentsReport.filter((s: any) => s.bill_amount > 0);
-
-    if (boardingStudentsWithBill.length === 0) {
-      return { success: true, count: 0, message: "এই মাসে দেউলিয়া বা প্রদেয় বোর্ডিং বিল বিশিষ্ট কোনো ছাত্র পাওয়া যায়নি।" };
-    }
-
-    for (const student of boardingStudentsWithBill) {
-      const billAmt = Number(student.bill_amount) || 0;
-      if (billAmt <= 0) continue;
-
-      const existingIdx = currentFees.findIndex(
-        (f) =>
-          f.student_id === student.id &&
-          f.billing_period === billingPeriod &&
-          (f.fee_type_id === khorakiFeeTypeId || (f.fee_type_name || "").includes("খোরাকি") || (f.fee_type_name || "").includes("বোর্ডিং"))
-      );
-
-      if (existingIdx >= 0) {
-        const old = currentFees[existingIdx];
-        const paid = Number(old.paid_amount || 0);
-        const discount = Number(old.discount_amount || 0);
-        const fine = Number(old.fine_amount || 0);
-        const payable = Math.max(0, billAmt + fine - discount);
-        const due = Math.max(0, payable - paid);
-
-        let newStatus: any = "PARTIAL";
-        if (payable === 0 && discount > 0) {
-          newStatus = "WAIVED";
-        } else if (due === 0 && paid > 0) {
-          newStatus = "PAID";
-        } else if (paid === 0) {
-          newStatus = "UNPAID";
-        } else {
-          newStatus = "PARTIAL";
-        }
-
-        currentFees[existingIdx] = {
-          ...old,
-          base_amount: billAmt,
-          discount_amount: discount,
-          fine_amount: fine,
-          payable_amount: payable,
-          due_amount: due,
-          status: newStatus,
-          updated_at: now,
-        };
+    if (report.totalBazarCost>0 && !report.totalMealsCount) return {error:'বাজার খরচ আছে, মিল হাজিরা নেই। বিল বদলানো হয়নি।'};
+    const concession='বোর্ডিং প্রোফাইল অনুযায়ী ছাড়';
+    for (const student of report.studentsReport) {
+      const matches=currentFees.filter(f=>f.student_id===student.id && billPeriodKey(f.billing_period)===billingPeriod && f.session_id===sessionId && f.fee_type_id===khorakiFeeTypeId);
+      const [old]=matches;
+      if(!old && !student.gross_amount) continue;
+      if(old && (!old.id.startsWith('fee_bdr_') || matches.length!==1 || (old.discount_amount>0 && old.discount_reason!==concession))) {
+        return {error:'এই মাসে পৃথক বিল বা ছাড় রয়েছে। বোর্ডিং দিয়ে তা প্রতিস্থাপন না করে মূল বিল যাচাই করুন।'};
+      }
+      const amounts={base_amount:student.gross_amount,discount_amount:student.discount_amount,discount_reason:student.discount_amount?concession:'',
+        payable_amount:(Math.round(student.bill_amount*100)+Math.round(Number(old?.fine_amount||0)*100))/100};
+      if (old) {
+        if(Number(old.base_amount)===amounts.base_amount && Number(old.discount_amount)===amounts.discount_amount && Number(old.payable_amount)===amounts.payable_amount) continue;
+        // The RPC also refuses allocations (even subsequently voided receipts).
+        if(Number(old.paid_amount)>0) return {error:'আদায়যুক্ত বিল বদলানো যাবে না।'};
+        currentFees[currentFees.indexOf(old)]={...old,...amounts,due_amount:amounts.payable_amount,status:amounts.payable_amount===0?'WAIVED':'UNPAID',updated_at:now};
       } else {
         const newFee: any = {
-          id: `fee_bdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          id: `fee_bdr_${crypto.randomUUID()}`,
           madrasa_id: madrasaId,
           session_id: sessionId,
           student_id: student.id,
@@ -812,19 +571,17 @@ export async function syncBoardingBillsToAccounting(year: string, month: string,
           class_name: student.class_name || "সাধারণ",
           fee_type_id: khorakiFeeTypeId,
           fee_type_name: khorakiFeeTypeName,
-          fund_id: "fund-lillah",
-          fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
+          fund_id:billFund.id,
+          fund_name:billFund.name,
           billing_period: billingPeriod,
           month_name: monthName,
           year: year,
           due_date: dueDate,
-          base_amount: billAmt,
-          discount_amount: 0,
+          ...amounts,
           fine_amount: 0,
-          payable_amount: billAmt,
           paid_amount: 0,
-          due_amount: billAmt,
-          status: "UNPAID",
+          due_amount: amounts.payable_amount,
+          status: amounts.payable_amount===0?"WAIVED":"UNPAID",
           created_at: now,
           updated_at: now,
         };
@@ -834,7 +591,7 @@ export async function syncBoardingBillsToAccounting(year: string, month: string,
       syncedCount++;
     }
 
-    const saved = await saveFeeMetadata(madrasaId, { student_fees: currentFees });
+    const saved = await saveBillChanges(madrasaId,meta.student_fees || [],currentFees);
     if (!saved) {
       return { error: "একাউন্টিং লেজারে বোর্ডিং বিল যুক্ত করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
     }
@@ -854,257 +611,19 @@ export async function syncBoardingBillsToAccounting(year: string, month: string,
   }
 }
 
-/**
- * Add / collect boarding meal payment with automatic invoice creation in student_fees
- */
-export async function addBoardingMealPayment(params: {
-  student_id: string;
-  student_name?: string;
-  amount: number;
-  payment_date: string;
-  month_name?: string;
-  billing_period?: string;
-  notes?: string;
-  payment_method?: string;
-}) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("boarding");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
-
-    const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-    if (!finalMadrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
-
-    const { amount, payment_date, student_id } = params;
-    if (!student_id || !amount || amount <= 0) {
-      return { error: "ছাত্রের আইডি এবং বৈধ টাকার পরিমাণ আবশ্যক।" };
-    }
-
-    const adminClient = await createAdminClient();
-
-    // Guard 4A: 15-Second Anti-Duplication Guard for Boarding Payment
-    const fifteenSecsAgo = new Date(Date.now() - 15000).toISOString();
-    try {
-      const { data: recentBdrPayment } = await adminClient
-        .from("fee_payments")
-        .select("*")
-        .eq("madrasa_id", finalMadrasaId)
-        .eq("student_id", student_id)
-        .gte("created_at", fifteenSecsAgo)
-        .order("created_at", { ascending: false });
-
-      if (recentBdrPayment && recentBdrPayment.length > 0) {
-        const match = recentBdrPayment.find(
-          (p: any) => Math.abs(Number(p.total_amount_received) - Number(amount)) < 0.01
-        );
-        if (match) {
-          return {
-            success: true,
-            receipt_no: match.receipt_no,
-            message: `পেমেন্টটি ইতিমধ্যে সফলভাবে রেকর্ড হয়েছে (ডুপ্লিকেট সাবমিশন প্রতিরোধ করা হয়েছে)।`,
-          };
-        }
-      }
-    } catch (recentErr) {
-      console.warn("Error checking recent boarding duplicate payments:", recentErr);
-    }
-
-    const { getFeeMetadata, saveFeeMetadata } = await import("@/lib/fee-store");
-    const meta = await getFeeMetadata(finalMadrasaId);
-
-    const now = new Date().toISOString();
-    const pDate = payment_date || toDhakaDateStringFrom(now);
-    const period = params.billing_period || pDate.substring(0, 7);
-    const monthLabel = params.month_name || period;
-
-    // Find or create Khoraki / Boarding Fee Type
-    const feeTypes = meta.fee_types || [];
-    let khorakiType = feeTypes.find(
-      (f: any) =>
-        f.category === "BOARDING" ||
-        f.code === "HOSTEL" ||
-        f.code === "FOOD" ||
-        (f.name || "").includes("খোরাকি") ||
-        (f.name || "").includes("বোর্ডিং")
-    );
-    const feeTypeId = khorakiType?.id || "ft_khoraki_default";
-    const feeTypeName = khorakiType?.name || "খোরাকি ও খাবার ফি";
-
-    // 1. Ensure student_fee invoice exists in student_fees
-    const studentFees = [...(meta.student_fees || [])];
-    let existingFeeIdx = studentFees.findIndex(
-      (f: any) =>
-        f.student_id === student_id &&
-        (f.billing_period === period || (f.month_name && f.month_name.includes(monthLabel))) &&
-        (f.fee_type_id === feeTypeId || (f.fee_type_name || "").includes("খোরাকি") || (f.fee_type_name || "").includes("বোর্ডিং"))
-    );
-
-    let feeId = "";
-    if (existingFeeIdx >= 0) {
-      const fee = studentFees[existingFeeIdx];
-      feeId = fee.id;
-      const discount = Number(fee.discount_amount || 0);
-      const fine = Number(fee.fine_amount || 0);
-      let base = Number(fee.base_amount || 0);
-      if (base <= 0) base = amount;
-      const payable = Math.max(0, base + fine - discount);
-      const newPaid = Number(fee.paid_amount || 0) + amount;
-      const newDue = Math.max(0, payable - newPaid);
-
-      let newStatus: any = "PARTIAL";
-      if (payable === 0 && discount > 0) {
-        newStatus = "WAIVED";
-      } else if (newDue === 0 && newPaid > 0) {
-        newStatus = "PAID";
-      } else if (newPaid === 0) {
-        newStatus = "UNPAID";
-      } else {
-        newStatus = "PARTIAL";
-      }
-
-      studentFees[existingFeeIdx] = {
-        ...fee,
-        base_amount: base,
-        discount_amount: discount,
-        fine_amount: fine,
-        payable_amount: payable,
-        paid_amount: newPaid,
-        due_amount: newDue,
-        status: newStatus,
-        updated_at: now,
-      };
-
-      try {
-        await adminClient.from("student_fees").update({
-          base_amount: base,
-          discount_amount: discount,
-          fine_amount: fine,
-          payable_amount: payable,
-          paid_amount: newPaid,
-          due_amount: newDue,
-          status: newStatus,
-          updated_at: now,
-        }).eq("id", feeId).eq("madrasa_id", finalMadrasaId);
-      } catch (sfErr) {
-        console.warn("Direct update student_fees error:", sfErr);
-      }
-    } else {
-      feeId = `fee_bdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      const newFee: any = {
-        id: feeId,
-        madrasa_id: finalMadrasaId,
-        student_id,
-        student_name: params.student_name || "ছাত্র",
-        fee_type_id: feeTypeId,
-        fee_type_name: feeTypeName,
-        fund_id: "fund-lillah",
-        fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
-        billing_period: period,
-        month_name: monthLabel,
-        due_date: pDate,
-        base_amount: amount,
-        discount_amount: 0,
-        fine_amount: 0,
-        payable_amount: amount,
-        paid_amount: amount,
-        due_amount: 0,
-        status: "PAID",
-        created_at: now,
-        updated_at: now,
-      };
-      studentFees.push(newFee);
-      try {
-        await adminClient.from("student_fees").upsert(newFee, { onConflict: "id" });
-      } catch (sfUpsertErr) {
-        console.warn("Direct upsert student_fees error:", sfUpsertErr);
-      }
-    }
-
-    // 2. Create fee_payments entry in relational database table & feeMetadata
-    const { generateNextReceiptNumber } = await import("@/lib/fee-store");
-    const receiptNo = await generateNextReceiptNumber(adminClient, finalMadrasaId, getDhakaYear());
-    const newPayment: any = {
-      id: `pay_bdr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      madrasa_id: finalMadrasaId,
-      receipt_no: receiptNo,
-      student_id,
-      student_name: params.student_name || "ছাত্র",
-      payment_date: pDate,
-      total_amount_received: amount,
-      payment_method: params.payment_method || "Cash",
-      fund_id: "fund-lillah",
-      fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
-      notes: params.notes || `বোর্ডিং খাবার ফি আদায় (${monthLabel})`,
-      status: "PAID",
-      created_at: now,
-      allocations: [
-        {
-          student_fee_id: feeId,
-          fee_type_id: feeTypeId,
-          fee_type_name: feeTypeName,
-          fund_id: "fund-lillah",
-          fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
-          allocated_amount: amount,
-        },
-      ],
-    };
-
-    // Try inserting into fee_payments relational table and allocations
-    try {
-      await adminClient.from("fee_payments").insert({
-        id: newPayment.id,
-        madrasa_id: finalMadrasaId,
-        receipt_no: receiptNo,
-        student_id,
-        payment_date: pDate,
-        total_amount_received: amount,
-        payment_method: params.payment_method || "Cash",
-        fund_id: "fund-lillah",
-        fund_name: "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)",
-        notes: params.notes || `বোর্ডিং খাবার ফি আদায় (${monthLabel})`,
-        created_at: now,
-      });
-
-      await adminClient.from("fee_payment_allocations").insert({
-        payment_id: newPayment.id,
-        student_fee_id: feeId,
-        fee_type_id: feeTypeId,
-        fee_type_name: feeTypeName,
-        billing_period: period,
-        allocated_amount: amount,
-        discount_applied: 0,
-        fine_applied: 0,
-      });
-    } catch (dbErr) {
-      console.warn("Relational fee_payments insert fallback to metadata:", dbErr);
-    }
-
-    const currentPayments = [...(meta.payments || [])];
-    currentPayments.unshift(newPayment);
-
-    await saveFeeMetadata(finalMadrasaId, {
-      student_fees: studentFees,
-      payments: currentPayments,
-    });
-
-    revalidatePath("/dashboard/boarding");
-    revalidatePath("/dashboard/accounting");
-    revalidatePath("/dashboard/accounting/reports");
-
-    return {
-      success: true,
-      receipt_no: receiptNo,
-      message: `আলহামদুলিল্লাহ! ৳${amount} বোর্ডিং মিল ফি জমা এবং ইনভয়েস সফলভাবে তৈরি করা হয়েছে।`,
-    };
-  } catch (err: any) {
-    console.error("Error in addBoardingMealPayment:", err);
-    return { error: err?.message || "মিল পেমেন্ট সংরক্ষণ করতে সমস্যা হয়েছে।" };
-  }
+/** Compatibility entry point. Bill generation belongs to billing, never to a side effect
+ * of a cash receipt. One exact billing period and configured fund, or ask for an invoice. */
+export async function addBoardingMealPayment(params:{student_id:string;student_name?:string;amount:number;payment_date:string;month_name?:string;billing_period?:string;notes?:string;payment_method?:string;idempotency_key?:string;fund_id?:string;fund_name?:string}) {
+  const guard=await writeGuard('finance');if (!guard.allowed) return guard.fallback;
+  if (!guard.madrasaId) return {error:'প্রতিষ্ঠান মেলেনি।'};
+  const {getFeeMetadata}=await import('@/lib/fee-store');
+  const {cashierPayment}=await import('@/lib/finance/cashier');
+  const date=params.payment_date || toDhakaDateString(), period=params.billing_period || date.slice(0,7);
+  const meta=await getFeeMetadata(guard.madrasaId);
+  const types=new Set((meta.fee_types||[]).filter(t=>t.category==='BOARDING' || ['FOOD','HOSTEL'].includes(t.code)).map(t=>t.id));
+  const candidates=(meta.student_fees||[]).filter(b=>b.student_id===params.student_id && b.billing_period===period && types.has(b.fee_type_id));
+  if (candidates.length!==1) return {error:'আগে এই মাসের বোর্ডিং বিল সিঙ্ক করুন অথবা ফি আদায় ফর্ম থেকে নির্দিষ্ট বিল নির্বাচন করুন।'};
+  const bill=candidates[0];
+  return cashierPayment({student_id:params.student_id,total_amount:params.amount,session_id:bill.session_id,payment_date:date,payment_method:params.payment_method||'Unknown',notes:params.notes,idempotency_key:params.idempotency_key,
+    fee_allocations:[{student_fee_id:bill.id,fee_type_id:bill.fee_type_id,fee_type_name:bill.fee_type_name,allocated_amount:params.amount,fund_id:params.fund_id||bill.fund_id,fund_name:params.fund_name||bill.fund_name}]});
 }

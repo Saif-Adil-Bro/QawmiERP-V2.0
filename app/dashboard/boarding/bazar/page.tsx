@@ -10,8 +10,8 @@ import {
   getBoardingMadrasaInfo,
   BazarExpenseItem,
 } from "@/app/actions/boarding";
-import { getFunds } from "@/app/actions/zakat";
-import { FundItem, DEFAULT_FUNDS } from "@/lib/fund-utils";
+import { getFundChoices } from "@/app/actions/zakat";
+import { isRestrictedFund, FundItem } from "@/lib/fund-utils";
 import { format } from "date-fns";
 import {
   ArrowLeft,
@@ -38,7 +38,7 @@ import { MadrasaInfoType } from "@/components/boarding/BazarVoucherPrint";
 
 export default function BazarExpensesPage() {
   const [expenses, setExpenses] = useState<BazarExpenseItem[]>([]);
-  const [funds, setFunds] = useState<FundItem[]>(DEFAULT_FUNDS);
+  const [funds, setFunds] = useState<FundItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -54,7 +54,7 @@ export default function BazarExpensesPage() {
   const [formAmount, setFormAmount] = useState("");
   const [formBuyerName, setFormBuyerName] = useState("");
   const [formPaymentMethod, setFormPaymentMethod] = useState("Cash");
-  const [formFundId, setFormFundId] = useState("fund-lillah");
+  const [formFundId, setFormFundId] = useState("");
   const [formDetails, setFormDetails] = useState("");
 
   // Voucher Print Modal state
@@ -67,7 +67,7 @@ export default function BazarExpensesPage() {
       const [data, info, fundsList] = await Promise.all([
         getBazarExpenses(),
         getBoardingMadrasaInfo(),
-        getFunds(),
+        getFundChoices(),
       ]);
       setExpenses(data);
       if (info) setMadrasaInfo(info);
@@ -90,11 +90,7 @@ export default function BazarExpensesPage() {
       const nextVoucher = await getNextBazarVoucherNo();
       setFormVoucherNo(nextVoucher);
     } catch (e) {
-      const nowMonth = toDhakaMonthString(); // P2-Fix: ঢাকা টাইমজোনের চলমান মাস (BV fallback)
-      const yy = nowMonth.slice(2, 4);
-      const mm = nowMonth.slice(5, 7);
-      const rand = Math.floor(100 + Math.random() * 900);
-      setFormVoucherNo(`BV-${yy}${mm}${rand}`);
+      setFormVoucherNo(''); // Server must verify the real series; never invent a printable number.
     } finally {
       setGeneratingVoucher(false);
     }
@@ -106,7 +102,7 @@ export default function BazarExpensesPage() {
     setFormAmount("");
     setFormBuyerName("");
     setFormPaymentMethod("Cash");
-    setFormFundId("fund-lillah");
+    setFormFundId("");
     setFormDetails("");
     setIsFormOpen(true);
     setMessage(null);
@@ -122,7 +118,7 @@ export default function BazarExpensesPage() {
     setFormAmount(exp.amount.toString());
     setFormBuyerName(exp.buyer_name || "");
     setFormPaymentMethod(exp.payment_method || "Cash");
-    setFormFundId(exp.fund_id || "fund-lillah");
+    setFormFundId(exp.fund_id || "");
     setFormDetails(exp.items_details || "");
     setIsFormOpen(true);
     setMessage(null);
@@ -144,7 +140,7 @@ export default function BazarExpensesPage() {
     setMessage(null);
 
     try {
-      const selectedFundObj = funds.find(f => f.id === formFundId) || funds[0];
+      const selectedFundObj = funds.find(f => f.id === formFundId);
 
       const expensePayload = {
         id: editingId || undefined,
@@ -154,7 +150,7 @@ export default function BazarExpensesPage() {
         buyer_name: formBuyerName.trim(),
         payment_method: formPaymentMethod,
         fund_id: formFundId,
-        fund_name: selectedFundObj?.name || "লিল্লাহ বোর্ডিং ফান্ড",
+        fund_name: selectedFundObj?.name,
         items_details: formDetails,
       };
 
@@ -188,13 +184,14 @@ export default function BazarExpensesPage() {
   };
 
   const handleDelete = async (id: string, voucherNo?: string) => {
-    if (!confirm(`আপনি কি নিশ্চিতভাবে ভাউচার (${voucherNo || "এই এন্ট্রি"}) মুছে ফেলতে চান?`)) return;
+    const reason=prompt(`ভাউচার ${voucherNo || id} বাতিলের কারণ লিখুন। মূল খতিয়ানে বাতিল ভাউচার সংরক্ষিত থাকবে।`);
+    if (!reason?.trim()) return;
 
-    const res = await deleteBazarExpense(id);
+    const res = await deleteBazarExpense(id,reason);
     if (res.error) {
       setMessage({ type: "error", text: res.error });
     } else {
-      setMessage({ type: "success", text: "বাজার খরচ ভাউচার সফলভাবে মুছে ফেলা হয়েছে।" });
+      setMessage({ type: "success", text: "বাজার ভাউচার বাতিল হয়েছে।" });
       loadExpenses();
       setTimeout(() => setMessage(null), 3000);
     }
@@ -556,13 +553,14 @@ export default function BazarExpensesPage() {
                     </span>
                   </label>
                   <select
-                    id="bazar_fund_id"
+                    id="bazar_fund_id" required
                     value={formFundId}
                     onChange={(e) => setFormFundId(e.target.value)}
                     className="w-full border border-emerald-300 rounded-xl px-3 py-2 bg-emerald-50/40 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
                   >
+                    <option value="">ফান্ড নির্বাচন করুন</option>
                     {funds.map((f) => (
-                      <option key={f.id} value={f.id}>
+                      <option key={f.id} value={f.id} disabled={isRestrictedFund(f)}>
                         {f.name} {f.code ? `(${f.code})` : ""}
                       </option>
                     ))}

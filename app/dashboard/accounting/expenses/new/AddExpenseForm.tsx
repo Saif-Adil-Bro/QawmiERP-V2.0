@@ -4,8 +4,10 @@ import { toDhakaDateString } from "@/lib/date-utils";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { createExpense, ExpenseActionState } from "@/app/actions/accounting";
 import PendingApprovalBanner from "@/components/permissions/PendingApprovalBanner";
-import { getFunds } from "@/app/actions/zakat";
-import { FundItem, DEFAULT_FUNDS } from "@/lib/fund-utils";
+import {getExpenseHeads,getVoucherChoices} from '@/app/actions/treasury';
+import {tenders,type Head,type Choice} from '@/lib/finance/treasury-types';
+import { getFundChoices } from "@/app/actions/zakat";
+import { isRestrictedFund, FundItem } from "@/lib/fund-utils";
 import { Landmark, FileText, CheckCircle2, ArrowRight, List, Plus, Trash2, Layers, AlignLeft, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import ExpenseVoucher, { ExpenseItem, MadrasaInfo } from "@/components/accounting/ExpenseVoucher";
@@ -23,8 +25,8 @@ interface ItemRow {
 export default function AddExpenseForm() {
   const [state, formAction, isPending] = useActionState(createExpense, initialState);
   const formRef = useRef<HTMLFormElement>(null);
-  const [funds, setFunds] = useState<FundItem[]>(DEFAULT_FUNDS);
-  const [selectedFundId, setSelectedFundId] = useState<string>("fund-general");
+  const [funds, setFunds] = useState<FundItem[]>([]);
+  const [selectedFundId, setSelectedFundId] = useState<string>("");
   const [createdVoucher, setCreatedVoucher] = useState<ExpenseItem | null>(null);
   const [madrasaInfo, setMadrasaInfo] = useState<MadrasaInfo | undefined>(undefined);
 
@@ -35,13 +37,18 @@ export default function AddExpenseForm() {
   ]);
   const [simpleAmount, setSimpleAmount] = useState<string>("");
   const [simpleDescription, setSimpleDescription] = useState<string>("");
+  const [heads,setHeads]=useState<Head[]>([]);
+  const [people,setPeople]=useState<{students:Choice[];staff:Choice[]}>({students:[],staff:[]});
+  const [catalogError,setCatalogError]=useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>("");
 
+  useEffect(()=>{Promise.all([getExpenseHeads(),getVoucherChoices()]).then(([h,p])=>{setHeads(h.filter(x=>x.active));setPeople(p);}).catch(()=>setCatalogError('ব্যয়ের খাত বা ব্যক্তি তালিকা পড়া যায়নি।'));},[]);
+  const head=heads.find(h=>h.id===selectedCategory);
   useEffect(() => {
     async function loadInitialData() {
       try {
         const [fundsList, madrasaRes] = await Promise.all([
-          getFunds(),
+          getFundChoices(),
           fetch(apiUrl("/api/madrasa-info")).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
 
@@ -62,7 +69,7 @@ export default function AddExpenseForm() {
     if (state?.success && (state?.expense || (state as any)?.pendingApproval)) {
       if (state.expense) setCreatedVoucher(state.expense);
       formRef.current?.reset();
-      setSelectedFundId("fund-general");
+      setSelectedFundId("");setSelectedCategory("");
       setItemRows([{ id: "item-1", name: "", amount: "" }]);
       setSimpleAmount("");
       setSimpleDescription("");
@@ -73,7 +80,7 @@ export default function AddExpenseForm() {
     }
   }, [state]);
 
-  const selectedFund = funds.find(f => f.id === selectedFundId) || funds[0];
+  const selectedFund = funds.find(f => f.id === selectedFundId);
 
   // Calculate sum of itemized rows
   const itemizedTotal = itemRows.reduce((sum, row) => {
@@ -137,8 +144,11 @@ export default function AddExpenseForm() {
 
         {/* Hidden inputs to pass computed data */}
         <input type="hidden" name="fund_id" value={selectedFundId} />
-        <input type="hidden" name="fund_name" value={selectedFund?.name || "সাধারণ ফান্ড"} />
+        <input type="hidden" name="fund_name" value={selectedFund?.name || ""} />
         <input type="hidden" name="amount" value={finalAmount} />
+        {catalogError&&<p role="alert">{catalogError}</p>}
+        {entryMode==='itemized'&&<input type="hidden" name="line_items" value={JSON.stringify(itemRows.filter(r=>r.name.trim()||r.amount.trim()).map(r=>({label:r.name,amount:r.amount})))}/>}
+        <input type="hidden" name="head_id" value={head?.id||''}/><input type="hidden" name="category" value={head?.policy||selectedCategory}/>
         <input type="hidden" name="description" value={finalDescription} />
 
         <div className="grid grid-cols-1 gap-6">
@@ -154,11 +164,12 @@ export default function AddExpenseForm() {
               </span>
             </label>
             <select
-              id="fund_id_select"
+              id="fund_id_select" required
               value={selectedFundId}
               onChange={(e) => setSelectedFundId(e.target.value)}
               className="w-full px-3.5 py-2.5 border border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-emerald-50/40 font-semibold text-slate-900"
             >
+              <option value="">ফান্ড নির্বাচন করুন</option>
               {funds.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name} {f.code ? `(${f.code})` : ""}
@@ -178,18 +189,18 @@ export default function AddExpenseForm() {
               </label>
               <select
                 id="category"
-                name="category"
                 required
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 className="w-full px-3 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-white text-sm"
               >
                 <option value="">নির্বাচন করুন</option>
-                <option value="Salary">শিক্ষক/স্টাফ বেতন (Salary)</option>
+                {heads.map(h=><option key={h.id} value={h.id} disabled={isRestrictedFund(selectedFund)&&h.policy!=='Food'}>{h.name}</option>)}
+                <option disabled={isRestrictedFund(selectedFund)} value="Salary">শিক্ষক/স্টাফ বেতন (Salary)</option>
                 <option value="Food">খাবার ও মেস (Food/Lillah Boarding)</option>
-                <option value="Utility">বিদ্যুৎ/গ্যাস/পানি বিল (Utility)</option>
-                <option value="Maintenance">রক্ষণাবেক্ষণ ও মেরামত (Maintenance)</option>
-                <option value="Other">অন্যান্য / বিবিধ (Other)</option>
+                <option disabled={isRestrictedFund(selectedFund)} value="Utility">বিদ্যুৎ/গ্যাস/পানি বিল (Utility)</option>
+                <option disabled={isRestrictedFund(selectedFund)} value="Maintenance">রক্ষণাবেক্ষণ ও মেরামত (Maintenance)</option>
+                <option disabled={isRestrictedFund(selectedFund)} value="Other">অন্যান্য / বিবিধ (Other)</option>
               </select>
             </div>
 
@@ -208,21 +219,12 @@ export default function AddExpenseForm() {
             </div>
           </div>
 
-          {/* Shariah Fund Advisory Warning */}
-          {((selectedFundId === "fund-zakat" || selectedFund?.name?.includes("যাকাত")) && 
-            ["Salary", "Utility", "Maintenance", "Other"].includes(selectedCategory)) && (
-            <div className="p-4 bg-amber-50/90 border-2 border-amber-300 rounded-xl text-amber-950 text-xs sm:text-sm flex items-start gap-3 shadow-xs animate-in fade-in duration-200">
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="font-bold text-amber-900 text-sm">
-                  সতর্কতা: শরয়ী বিধান অনুযায়ী যাকাত ফান্ডের অর্থ শুধুমাত্র উপযুক্ত গোরাবা ও এতিম ছাত্রদের খোরাকি এবং আবাসিক কল্যাণে ব্যয় করা যাবে।
-                </p>
-                <p className="text-amber-800 text-xs leading-relaxed">
-                  শিক্ষক বা কর্মচারীদের বেতন, ভবন নির্মাণ, উন্নয়ন কাজ বা বিদ্যুৎ ও গ্যাস বিলের মতো সাধারণ প্রাতিষ্ঠানিক পরিচালনা ব্যয় সাধারণ ফান্ড (General Fund) থেকে নির্বাহ করার বিধান রয়েছে।
-                </p>
-              </div>
-            </div>
-          )}
+          <div className="grid gap-3 sm:grid-cols-2"><label>পরিশোধ পদ্ধতি *<select name="payment_method" required defaultValue="" className="block w-full rounded-lg border p-2"><option value="">নির্বাচন করুন</option>{Object.entries(tenders).map(([id,name])=><option value={id} key={id}>{name}</option>)}</select></label><Link href="/dashboard/accounting/expense-heads" className="self-end text-emerald-800 underline">প্রতিষ্ঠানের ব্যয়ের খাত পরিচালনা →</Link>
+          {(['students','staff'] as const).map(k=><label key={k}>{k==='staff'?'সংশ্লিষ্ট কর্মী':'সংশ্লিষ্ট শিক্ষার্থী'}<select className="block w-full rounded-lg border p-2" name={k==='staff'?'staff_id':'student_id'}><option value="">প্রযোজ্য নয়</option>{people[k].map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>)}</div>
+          {isRestrictedFund(selectedFund) && <label className="block rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+            যাকাত/গোরাবা: কেবল যোগ্য ছাত্রদের খাবার খাতে ব্যয় করা যাবে। যাচাইকৃত উপকারভোগীর নাম বা দলের পরিচয় লিখুন।
+            <input name="restricted_beneficiary" required maxLength={300} className="mt-2 block min-h-11 w-full rounded border p-2" />
+          </label>}
 
           {/* Mode Switcher: Itemized breakdown vs Simple text */}
           <div className="pt-2 border-t border-slate-100">
@@ -274,7 +276,7 @@ export default function AddExpenseForm() {
                       </span>
                       <input
                         type="text"
-                        value={row.name}
+                        maxLength={180} required value={row.name}
                         onChange={(e) => updateItemRow(row.id, "name", e.target.value)}
                         placeholder="পণ্যের নাম / খরচের বিবরণ (যেমন: মেহমানদারী, কেরোসিন তেল...)"
                         className="flex-1 px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
@@ -283,10 +285,10 @@ export default function AddExpenseForm() {
                         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-bold">৳</span>
                         <input
                           type="number"
-                          value={row.amount}
+                          required value={row.amount}
                           onChange={(e) => updateItemRow(row.id, "amount", e.target.value)}
                           placeholder="দাম"
-                          min="0"
+                          min="0.01"
                           step="0.01"
                           className="w-full pl-6 pr-2.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 font-bold text-right"
                         />
@@ -306,7 +308,7 @@ export default function AddExpenseForm() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-200">
                   <button
                     type="button"
-                    onClick={addItemRow}
+                    disabled={itemRows.length>=100} onClick={addItemRow}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold transition cursor-pointer self-start"
                   >
                     <Plus className="w-3.5 h-3.5" />

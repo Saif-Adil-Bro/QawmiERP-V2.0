@@ -1,11 +1,17 @@
 "use server";
+import {requirePermission} from "@/lib/permissions-server";
+import {listWorkflowsForMadrasa,matchApprovalWorkflow} from "@/lib/approval-workflow";
+import {salaryApprovalAmount,salaryTerms} from "@/lib/finance/salary-terms";
+import {salaryAccess,staffForView} from "@/lib/finance/staff-access";
+import {rows} from "@/lib/portal/queries";
+import { postingError } from "@/lib/finance/funds";
 
 import { toDhakaDateStringFrom, toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
-import { submitWorkflowHookApproval } from "@/lib/approval-workflow";
+import { editStaff, promoteStaff, type StaffEdit, type StaffPromotion } from '@/lib/finance/staff-edit';
 import {
   listStructuredStaffLeaves,
   upsertStructuredStaffLeave,
@@ -53,110 +59,21 @@ interface MadrasaStaffMetadata {
  * Helper to sync teachers from `teachers` SQL table into staff members
  * so existing teachers are never lost and automatically appear in Staff module.
  */
-async function syncAndGetStaffMembers(
-  supabase: any,
-  madrasaId: string,
-  meta: MadrasaStaffMetadata
-): Promise<{ members: StaffMember[]; isModified: boolean }> {
-  let existingStaff: StaffMember[] = meta.staff_members || [];
-  let isModified = false;
-
-  // Fetch all teachers from SQL table
-  const { data: teachers, error: teachersError } = await supabase
-    .from("teachers")
-    .select("*")
-    .eq("madrasa_id", madrasaId)
-    .order("created_at", { ascending: true });
-
-  if (teachersError || !teachers) {
-    return { members: existingStaff, isModified: false };
-  }
-
-  const staffByTeacherId = new Map<string, StaffMember>();
-  const staffByStaffCode = new Set<string>();
-
-  existingStaff.forEach((s) => {
-    // Ensure ID is a valid UUID and normalize legacy stf_ IDs
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.id);
-    if (!isUuid) {
-      const oldId = s.id;
-      const newUuid = crypto.randomUUID();
-      s.legacy_id = oldId;
-      s.id = newUuid;
-      isModified = true;
-    }
-
-    // Normalize category_id if missing or using old underscore format
-    if (!s.employment?.category_id || s.employment.category_id === "cat_teaching") {
-      if (!s.employment) (s as any).employment = {};
-      s.employment.category_id = "cat-teaching";
-      s.employment.category_name = s.employment.category_name || "শিক্ষক মণ্ডলী (Teaching Staff)";
-      isModified = true;
-    } else if (s.employment.category_id === "cat_admin") {
-      s.employment.category_id = "cat-admin";
-      isModified = true;
-    } else if (s.employment.category_id === "cat_support") {
-      s.employment.category_id = "cat-support";
-      isModified = true;
-    } else if (s.employment.category_id === "cat_management") {
-      s.employment.category_id = "cat-management";
-      isModified = true;
-    }
-    staffByTeacherId.set(s.id, s);
-    if (s.legacy_id) staffByTeacherId.set(s.legacy_id, s);
-  });
-
-  const prefix = meta.staff_id_prefix || "STF";
-  const currentYear = getDhakaYear();
-
-  // Deduplicate and ensure clean unique serials for all existing staff
-  const assignedCodes = new Set<string>();
-  let maxFoundSerial = 0;
-
-  existingStaff.forEach((s) => {
-    if (s.staff_id_code) {
-      const match = s.staff_id_code.match(/(\d{4})$/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (!isNaN(num) && num > maxFoundSerial) {
-          maxFoundSerial = num;
-        }
-      }
-    }
-  });
-
-  existingStaff.forEach((s, idx) => {
-    if (!s.staff_id_code || assignedCodes.has(s.staff_id_code)) {
-      let nextSerial = idx + 1;
-      let nextCode = formatStaffIdCode(prefix, currentYear, nextSerial);
-      while (assignedCodes.has(nextCode)) {
-        nextSerial++;
-        nextCode = formatStaffIdCode(prefix, currentYear, nextSerial);
-      }
-      s.staff_id_code = nextCode;
-      if (s.employment) s.employment.staff_id_code = nextCode;
-      if (s.id_card) s.id_card.card_number = `QM-${nextCode}`;
-      if (nextSerial > maxFoundSerial) maxFoundSerial = nextSerial;
-      isModified = true;
-    }
-    assignedCodes.add(s.staff_id_code);
-  });
-
-  let serialCounter = Math.max(meta.staff_id_serial_counter || 0, maxFoundSerial, existingStaff.length);
-
+async function directoryMembers(madrasaId:string,meta:MadrasaStaffMetadata):Promise<StaffMember[]> {
+  // Looking at a teacher directory is not onboarding or a salary agreement.
+  // Never renumber an old staff ID (it can own payroll), seed a positive salary
+  // from a teacher row, or insert a new teacher while serving a read.
+  const existingStaff = (meta.staff_members || []).filter(m=>!m.madrasa_id || m.madrasa_id===madrasaId);
+  const staffByTeacherId=new Set(existingStaff.flatMap(m=>[m.id,m.legacy_id].filter(Boolean)));
+  const admin=await createAdminClient();
+  const teachers=await rows(()=>admin.from('teachers').select('id,first_name,last_name,phone,email,designation,created_at').eq('madrasa_id',madrasaId));
+  const currentYear=getDhakaYear();
   for (let i = 0; i < teachers.length; i++) {
     const t = teachers[i];
     if (!staffByTeacherId.has(t.id)) {
-      serialCounter++;
-      let code = formatStaffIdCode(prefix, currentYear, serialCounter);
-      while (assignedCodes.has(code)) {
-        serialCounter++;
-        code = formatStaffIdCode(prefix, currentYear, serialCounter);
-      }
-      assignedCodes.add(code);
-
+      const code=''; // assigned only by explicit registration, under lock
       const newStaff: StaffMember = {
-        id: t.id,
+        id: t.id, directory_only:true,
         madrasa_id: madrasaId,
         staff_id_code: code,
         personal: {
@@ -182,10 +99,10 @@ async function syncAndGetStaffMembers(
           status: "ACTIVE",
         },
         salary: {
-          basic_salary: 15000,
+          basic_salary: 0,
           allowances: { housing: 0, food: 0, transport: 0, medical: 0, other: 0 },
           deductions: { advance: 0, loan: 0, absence: 0, other: 0 },
-          net_salary: 15000,
+          net_salary: 0,
           payment_method: "CASH",
         },
         leave_balance: {
@@ -220,36 +137,32 @@ async function syncAndGetStaffMembers(
       };
 
       existingStaff.push(newStaff);
-      isModified = true;
     }
   }
+  return existingStaff;
+}
 
-  // Bi-directional sync: Sync any staff members from metadata into teachers SQL table if missing
-  const teacherDbIds = new Set(teachers.map((t: any) => t.id));
+/** For selectors, ID cards and counts: never send contracts, payroll or HR documents. */
+export async function getStaffRoster(){
+  const access=await writeGuard('staffRead');
+  if(!access.allowed || !access.madrasaId) return [];
+  const members=await directoryMembers(access.madrasaId,await getMadrasaMetadata(access.madrasaId,true));
+  const {getCurrentUserMaskingContext,maskStaffSensitiveFields}=await import('@/lib/data-access-guards');
+  const {allowUnmasked}=await getCurrentUserMaskingContext('staff','phone');
+  return members.map(m=>({id:m.id,first_name:m.personal.first_name || m.personal.full_name_bn || '',last_name:m.personal.last_name || '',designation:m.employment.designation,phone:maskStaffSensitiveFields({contact:m.contact},allowUnmasked).contact.phone}));
+}
+
+export async function registerTeacherStaffProfile(id:string) {
+  const access=await writeGuard('staff');
+  if(!access.allowed || !access.madrasaId || !access.userId) return {error:'অনুমতি নেই।'};
   try {
-    const adminClient = await createAdminClient();
-    for (const s of existingStaff) {
-      if (!teacherDbIds.has(s.id)) {
-        await adminClient.from("teachers").insert({
-          id: s.id,
-          madrasa_id: madrasaId,
-          first_name: s.personal?.first_name || s.personal?.full_name_bn?.split(" ")[0] || "শিক্ষক",
-          last_name: s.personal?.last_name || "",
-          phone: s.contact?.phone || null,
-          email: s.contact?.email || null,
-          designation: s.employment?.designation || "সহকারী শিক্ষক",
-        });
-      }
-    }
-  } catch (syncErr) {
-    console.error("Bi-directional teacher sync warning:", syncErr);
-  }
-
-  if (isModified) {
-    meta.staff_id_serial_counter = serialCounter;
-  }
-
-  return { members: existingStaff, isModified };
+    const meta=await getMadrasaMetadata(access.madrasaId,true);
+    const record=(await directoryMembers(access.madrasaId,meta)).find(m=>m.id===id && m.directory_only);
+    if(!record) return {error:'শিক্ষকের রেকর্ড যাচাই করুন।'};
+    const {error}=await (await createAdminClient()).rpc('finance_register_teacher',{t:access.madrasaId,actor:access.userId,profile:record});
+    if(error) return {error:error.message};
+    revalidatePath('/dashboard/staff');return {success:true};
+  } catch {return {error:'প্রোফাইল তৈরি নিশ্চিত হয়নি।'};}
 }
 
 /**
@@ -259,7 +172,7 @@ export async function getStaffDashboardData() {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
-    const __authz = await writeGuard("staff");
+    const __authz = await writeGuard("staffRead");
     if (!__authz.allowed) return __authz.fallback;
   }
 
@@ -279,13 +192,8 @@ export async function getStaffDashboardData() {
       };
     }
 
-    const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
-    const { members, isModified } = await syncAndGetStaffMembers(supabase, madrasaId, meta);
-
-    if (isModified) {
-      meta.staff_members = members;
-      await saveMadrasaMetadata(madrasaId, meta);
-    }
+    const meta = (await getMadrasaMetadata(madrasaId,true)) as MadrasaStaffMetadata;
+    const members=await directoryMembers(madrasaId,meta);
 
     const categories: StaffCategory[] = meta.staff_categories || DEFAULT_STAFF_CATEGORIES;
     const departments: StaffDepartment[] = meta.staff_departments || DEFAULT_STAFF_DEPARTMENTS;
@@ -341,7 +249,7 @@ export async function getStaffDashboardData() {
     });
 
     // Recent activity log
-    const recentActivity = (meta.staff_audit_logs || []).slice(-10).reverse();
+    const recentActivity = salaryAccess(await writeGuard("staffRead"),"read") ? (meta.staff_audit_logs || []).slice(-10).reverse() : [];
     const madrasaInfo = toPublicMadrasaInfo(await getMadrasaInfo());
 
     return {
@@ -382,7 +290,7 @@ export async function getStaffList(filters?: {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
-    const __authz = await writeGuard("staff");
+    const __authz = await writeGuard("staffRead");
     if (!__authz.allowed) return __authz.fallback;
   }
 
@@ -392,13 +300,8 @@ export async function getStaffList(filters?: {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return [];
 
-    const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
-    const { members, isModified } = await syncAndGetStaffMembers(supabase, madrasaId, meta);
-
-    if (isModified) {
-      meta.staff_members = members;
-      await saveMadrasaMetadata(madrasaId, meta);
-    }
+    const meta = (await getMadrasaMetadata(madrasaId,true)) as MadrasaStaffMetadata;
+    const members=await directoryMembers(madrasaId,meta);
 
     let filtered = [...members];
 
@@ -430,7 +333,8 @@ export async function getStaffList(filters?: {
 
     const { getCurrentUserMaskingContext, maskStaffSensitiveFields } = await import("@/lib/data-access-guards");
     const maskingCtx = await getCurrentUserMaskingContext("staff", "phone");
-    return filtered.map((m) => maskStaffSensitiveFields(m, maskingCtx.allowUnmasked));
+    const salaryVisible=salaryAccess(await writeGuard("staffRead"),"read");
+    return filtered.map(m=>maskStaffSensitiveFields(staffForView(m,salaryVisible),maskingCtx.allowUnmasked));
   } catch (err) {
     console.error("Error in getStaffList:", err);
     return [];
@@ -441,22 +345,22 @@ export async function getStaffList(filters?: {
  * Fetch a single staff member by ID with all relations
  */
 export async function getStaffMember(id: string): Promise<StaffMember | null> {
-  if (!(await writeGuard('staff')).allowed) return null;
+  if (!(await writeGuard('staffRead')).allowed) return null;
   try {
     const supabase = await createClient();
     const user = await getAuthUser(supabase);
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return null;
 
-    const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
-    const { members } = await syncAndGetStaffMembers(supabase, madrasaId, meta);
+    const meta = (await getMadrasaMetadata(madrasaId,true)) as MadrasaStaffMetadata;
+    const members=await directoryMembers(madrasaId,meta);
 
     const found = members.find((m) => m.id === id);
     if (!found) return null;
 
     const { getCurrentUserMaskingContext, maskStaffSensitiveFields } = await import("@/lib/data-access-guards");
     const maskingCtx = await getCurrentUserMaskingContext("staff", "phone");
-    return maskStaffSensitiveFields(found, maskingCtx.allowUnmasked);
+    return maskStaffSensitiveFields(staffForView(found,salaryAccess(await writeGuard("staffRead"),"read")),maskingCtx.allowUnmasked);
   } catch (err) {
     console.error("Error fetching staff member:", err);
     return null;
@@ -472,7 +376,7 @@ export async function createStaffMember(payload: {
   employment: Omit<StaffMember["employment"], "staff_id_code">;
   academic?: StaffMember["academic"];
   responsibilities?: string[];
-  salary: StaffMember["salary"];
+  salary?: StaffMember["salary"];
   account?: {
     create_login: boolean;
     email?: string;
@@ -499,9 +403,13 @@ export async function createStaffMember(payload: {
       return { error: "কর্মীর প্রথম নাম আবশ্যক।" };
     }
 
-    const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
+    const meta = (await getMadrasaMetadata(madrasaId,true)) as MadrasaStaffMetadata;
     let existingStaff: StaffMember[] = meta.staff_members || [];
 
+    const startingSalary=salaryTerms({basic_salary:0,net_salary:0,allowances:{},deductions:{}},payload.salary || {});
+    if(payload.salary && !salaryAccess(await writeGuard('staff'),'write')) return {error:'বেতন নির্ধারণের অনুমতি নেই।'};
+    const amount=salaryApprovalAmount(startingSalary);
+    if(amount>0 && matchApprovalWorkflow(await listWorkflowsForMadrasa(madrasaId,true),'SALARY_CHANGE',amount)) return {error:'প্রথমে বেতন ছাড়া কর্মী নিবন্ধন করুন। তারপর বেতন চুক্তি অনুমোদনের জন্য পাঠান।'};
     // Increment serial and generate unique Staff ID without collisions
     const currentYear = getDhakaYear();
     const prefix = meta.staff_id_prefix || "STF";
@@ -520,6 +428,10 @@ export async function createStaffMember(payload: {
 
     // Create auth account if requested
     if (payload.account?.create_login && payload.account.email && payload.account.password) {
+      // An HR writer must not gain a financial administrator through onboarding.
+      if(payload.account.role && !['teacher','staff'].includes(payload.account.role)) return {error:'প্রশাসনিক রোল ইউজার ব্যবস্থাপনা থেকে নির্ধারণ করুন।'};
+      const provision=await requirePermission({userId:user.id,madrasaId,permissions:['user.create'],roles:['admin','super_admin','muhtamim'],requireStepUp:true,actionScope:'staff.create_login'});
+      if(!provision.allowed) return {error:provision.error,stepUpRequired:provision.stepUpRequired,actionScope:provision.actionScope};
       const adminClient = await createAdminClient();
       const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
         email: payload.account.email,
@@ -535,19 +447,20 @@ export async function createStaffMember(payload: {
       authRole = payload.account.role || (payload.employment.category_id === "cat-teaching" ? "teacher" : "staff");
 
       // Insert into users profile table
-      await adminClient.from("users").insert({
+      const {error:profileError}=await adminClient.from("users").insert({
         id: authUserId,
         madrasa_id: madrasaId,
         full_name: `${payload.personal.first_name} ${payload.personal.last_name || ""}`.trim(),
         email: payload.account.email,
         role: authRole,
       });
+      if(profileError) return {error:"লগইন প্রোফাইল সংরক্ষিত হয়নি। পুনরায় নিবন্ধনের আগে ইউজার ব্যবস্থাপনায় যাচাই করুন।"};
     }
 
     // If category is Teaching, also insert in `teachers` table for academic module compatibility
     if (isTeachingStaff(payload.employment?.category_id)) {
       const adminClient = await createAdminClient();
-      await adminClient.from("teachers").insert({
+      const {error:teacherError}=await adminClient.from("teachers").insert({
         id: newStaffId,
         madrasa_id: madrasaId,
         first_name: payload.personal.first_name,
@@ -556,6 +469,7 @@ export async function createStaffMember(payload: {
         email: payload.contact.email || null,
         designation: payload.employment.designation || "সহকারী শিক্ষক",
       });
+      if(teacherError) return {error:'শিক্ষকের রেকর্ড তৈরি নিশ্চিত হয়নি। লগইন ও শিক্ষক তালিকা যাচাই করুন।'};
     }
 
     const categories = meta.staff_categories || DEFAULT_STAFF_CATEGORIES;
@@ -582,13 +496,7 @@ export async function createStaffMember(payload: {
       },
       academic: payload.academic,
       responsibilities: payload.responsibilities || [],
-      salary: {
-        ...payload.salary,
-        net_salary:
-          Number(payload.salary.basic_salary || 0) +
-          Object.values(payload.salary.allowances || {}).reduce((s, a) => s + Number(a || 0), 0) -
-          Object.values(payload.salary.deductions || {}).reduce((s, d) => s + Number(d || 0), 0),
-      },
+      salary:startingSalary,
       documents: [],
       employment_history: [
         {
@@ -596,7 +504,7 @@ export async function createStaffMember(payload: {
           type: "JOINED",
           new_designation: payload.employment.designation,
           new_department: deptObj?.name || "বিভাগ",
-          new_salary: payload.salary.basic_salary,
+          new_salary: startingSalary.basic_salary,
           effective_date: payload.employment.joining_date,
           reason: "মাদ্রাসায় নতুন কর্মী হিসেবে নিয়োগ",
           changed_by: user.email || "অ্যাডমিন",
@@ -646,7 +554,7 @@ export async function createStaffMember(payload: {
       created_at: nowStr,
     });
 
-    await saveMadrasaMetadata(madrasaId, meta);
+    if(!await saveMadrasaMetadata(madrasaId,meta)) return {error:"কর্মীর প্রোফাইল সংরক্ষণ নিশ্চিত হয়নি। লগইন বা শিক্ষক রেকর্ড যাচাই করুন।"};
 
     revalidatePath("/dashboard/teachers");
     revalidatePath("/dashboard/staff");
@@ -657,278 +565,8 @@ export async function createStaffMember(payload: {
   }
 }
 
-/**
- * Update an existing staff member
- */
-export async function updateStaffMember(
-  id: string,
-  payload: Partial<Omit<StaffMember, "id" | "madrasa_id" | "staff_id_code">>
-) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("staff");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অনুমতি নেই।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
-    if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
-
-    const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
-    let existingStaff: StaffMember[] = meta.staff_members || [];
-
-    const index = existingStaff.findIndex((s) => s.id === id);
-    if (index === -1) {
-      return { error: "কর্মী পাওয়া যায়নি।" };
-    }
-
-    const current = existingStaff[index];
-    const nowStr = new Date().toISOString();
-
-    if (!(payload as any)._approvalBypass && payload.salary) {
-      const targetSalary = Number(payload.salary.basic_salary ?? current.salary?.basic_salary ?? 0);
-      const hook = await submitWorkflowHookApproval({
-        madrasaId,
-        actorId: user.id,
-        actorName: user.user_metadata?.full_name || user.email || "অফিসার",
-        actorRole: user.user_metadata?.role || "staff",
-        requestType: "SALARY_CHANGE",
-        amount: targetSalary,
-        title: `স্টাফ বেতন পরিবর্তন: ${current.personal?.full_name_bn || current.personal?.full_name_en || id}`,
-        description: `মূল বেতন ${current.salary?.basic_salary || 0} → ${targetSalary}`,
-        entityType: "staff",
-        targetId: id,
-        targetName: current.personal?.full_name_bn || current.personal?.full_name_en,
-        payload: { action: "update_staff_salary", staffId: id, staffPayload: payload },
-      });
-      if (hook.matched) {
-        return {
-          success: true,
-          pendingApproval: true,
-          approvalRequestId: hook.approvalRequestId,
-          message: "বেতন পরিবর্তনের জন্য অনুমোদনের আবেদন পাঠানো হয়েছে।",
-        };
-      }
-    }
-
-    // Recalculate net salary if salary is updated
-    let updatedSalary = current.salary;
-    if (payload.salary) {
-      const basic = payload.salary.basic_salary ?? current.salary.basic_salary ?? 0;
-      const allowances = payload.salary.allowances ?? current.salary.allowances ?? {};
-      const deductions = payload.salary.deductions ?? current.salary.deductions ?? {};
-      const totAllow = Object.values(allowances).reduce((s, a) => s + Number(a || 0), 0);
-      const totDeduct = Object.values(deductions).reduce((s, d) => s + Number(d || 0), 0);
-      updatedSalary = {
-        ...current.salary,
-        ...payload.salary,
-        basic_salary: basic,
-        net_salary: basic + totAllow - totDeduct,
-      };
-    }
-
-    const isTeachUpdated = isTeachingStaff(payload.employment?.category_id || current.employment?.category_id);
-    const categories = meta.staff_categories || DEFAULT_STAFF_CATEGORIES;
-    const catObj = categories.find(
-      (c) =>
-        c.id === (payload.employment?.category_id || current.employment?.category_id) ||
-        (isTeachUpdated && isTeachingStaff(c.id))
-    );
-
-    const updatedStaff: StaffMember = {
-      ...current,
-      personal: { ...current.personal, ...(payload.personal || {}) },
-      contact: { ...current.contact, ...(payload.contact || {}) },
-      employment: {
-        ...current.employment,
-        ...(payload.employment || {}),
-        category_name: catObj?.name || (isTeachUpdated ? "শিক্ষক মণ্ডলী (Teaching Staff)" : current.employment?.category_name || "সাধারণ কর্মী"),
-      },
-      academic: { ...(current.academic || {}), ...(payload.academic || {}) },
-      responsibilities: payload.responsibilities || current.responsibilities,
-      salary: updatedSalary,
-      updated_at: nowStr,
-    };
-
-    // Keep `teachers` SQL table synced if applicable
-    if (isTeachingStaff(updatedStaff.employment?.category_id)) {
-      const adminClient = await createAdminClient();
-      await adminClient
-        .from("teachers")
-        .update({
-          first_name: updatedStaff.personal.first_name,
-          last_name: updatedStaff.personal.last_name || "",
-          phone: updatedStaff.contact.phone || null,
-          email: updatedStaff.contact.email || null,
-          designation: updatedStaff.employment.designation,
-        })
-        .eq("id", id);
-    }
-
-    // Add audit log
-    if (!updatedStaff.audit_logs) updatedStaff.audit_logs = [];
-    updatedStaff.audit_logs.push({
-      id: `audit_${Date.now()}`,
-      action: "প্রোফাইল আপডেট",
-      details: "কর্মীর তথ্য হালনাগাদ করা হয়েছে।",
-      user_email: user.email || "অ্যাডমিন",
-      created_at: nowStr,
-    });
-
-    existingStaff[index] = updatedStaff;
-    meta.staff_members = existingStaff;
-
-    await saveMadrasaMetadata(madrasaId, meta);
-
-    revalidatePath("/dashboard/teachers");
-    revalidatePath(`/dashboard/teachers/${id}`);
-    return { success: true };
-  } catch (err: any) {
-    console.error("Error updating staff:", err);
-    return { error: err.message || "হালনাগাদে ত্রুটি হয়েছে।" };
-  }
-}
-
-/**
- * Promote Staff (Change Designation, Department, Salary with History)
- */
-export async function promoteStaffMember(payload: {
-  staffId: string;
-  newDesignation: string;
-  newDepartmentId?: string;
-  newDepartmentName?: string;
-  newSalary?: number;
-  effectiveDate: string;
-  reason: string;
-  remarks?: string;
-}) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("staff");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অনুমতি নেই।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
-    if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
-
-    const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
-    let existingStaff: StaffMember[] = meta.staff_members || [];
-
-    const index = existingStaff.findIndex((s) => s.id === payload.staffId);
-    if (index === -1) return { error: "কর্মী পাওয়া যায়নি।" };
-
-    const current = existingStaff[index];
-    const prevDesignation = current.employment.designation;
-    const prevDept = current.employment.department_name;
-    const prevSalary = current.salary.basic_salary;
-    const nowStr = new Date().toISOString();
-
-    if (!(payload as any)._approvalBypass && payload.newSalary && payload.newSalary !== prevSalary) {
-      const hook = await submitWorkflowHookApproval({
-        madrasaId,
-        actorId: user.id,
-        actorName: user.user_metadata?.full_name || user.email || "অফিসার",
-        actorRole: user.user_metadata?.role || "staff",
-        requestType: "SALARY_CHANGE",
-        amount: Number(payload.newSalary),
-        title: `পদোন্নতি ও বেতন পরিবর্তন: ${current.personal?.full_name_bn || current.personal?.full_name_en || payload.staffId}`,
-        description: payload.reason || `বেতন ${prevSalary} → ${payload.newSalary}`,
-        entityType: "staff",
-        targetId: payload.staffId,
-        targetName: current.personal?.full_name_bn || current.personal?.full_name_en,
-        payload: { action: "promote_staff", promotePayload: payload },
-      });
-      if (hook.matched) {
-        return {
-          success: true,
-          pendingApproval: true,
-          approvalRequestId: hook.approvalRequestId,
-          message: "পদোন্নতি ও বেতন পরিবর্তনের জন্য অনুমোদনের আবেদন পাঠানো হয়েছে।",
-        };
-      }
-    }
-
-    const historyRecord: StaffEmploymentHistoryRecord = {
-      id: `hist_${Date.now()}`,
-      type: "PROMOTION",
-      previous_designation: prevDesignation,
-      new_designation: payload.newDesignation,
-      previous_department: prevDept,
-      new_department: payload.newDepartmentName || prevDept,
-      previous_salary: prevSalary,
-      new_salary: payload.newSalary || prevSalary,
-      effective_date: payload.effectiveDate,
-      reason: payload.reason,
-      remarks: payload.remarks,
-      changed_by: user.email || "অ্যাডমিন",
-      created_at: nowStr,
-    };
-
-    if (!current.employment_history) current.employment_history = [];
-    current.employment_history.unshift(historyRecord);
-
-    current.employment.designation = payload.newDesignation;
-    if (payload.newDepartmentId) {
-      current.employment.department_id = payload.newDepartmentId;
-      current.employment.department_name = payload.newDepartmentName;
-    }
-    if (payload.newSalary) {
-      current.salary.basic_salary = payload.newSalary;
-      const totAllow = Object.values(current.salary.allowances || {}).reduce((s, a) => s + Number(a || 0), 0);
-      const totDeduct = Object.values(current.salary.deductions || {}).reduce((s, d) => s + Number(d || 0), 0);
-      current.salary.net_salary = payload.newSalary + totAllow - totDeduct;
-    }
-
-    if (!current.audit_logs) current.audit_logs = [];
-    current.audit_logs.push({
-      id: `audit_${Date.now()}`,
-      action: "পদোন্নতি প্রদান",
-      details: `${prevDesignation} থেকে ${payload.newDesignation} হিসেবে পদোন্নতি`,
-      user_email: user.email || "অ্যাডমিন",
-      created_at: nowStr,
-    });
-
-    // Update teachers SQL table if teaching
-    if (current.employment.category_id === "cat-teaching") {
-      const adminClient = await createAdminClient();
-      await adminClient.from("teachers").update({ designation: payload.newDesignation }).eq("id", current.id);
-    }
-
-    current.updated_at = nowStr;
-    existingStaff[index] = current;
-    meta.staff_members = existingStaff;
-
-    // Log in global audit
-    if (!meta.staff_audit_logs) meta.staff_audit_logs = [];
-    meta.staff_audit_logs.push({
-      id: `log_${Date.now()}`,
-      action: "পদোন্নতি",
-      details: `${current.personal.first_name}: ${payload.newDesignation}`,
-      user_email: user.email || "অ্যাডমিন",
-      created_at: nowStr,
-    });
-
-    await saveMadrasaMetadata(madrasaId, meta);
-
-    revalidatePath("/dashboard/teachers");
-    revalidatePath(`/dashboard/teachers/${payload.staffId}`);
-    return { success: true };
-  } catch (err: any) {
-    console.error("Error promoting staff:", err);
-    return { error: err.message || "পদোন্নতি প্রক্রিয়াকরণে ত্রুটি হয়েছে।" };
-  }
-}
+export async function updateStaffMember(id:string,payload:StaffEdit) {return editStaff(id,payload);}
+export async function promoteStaffMember(payload:StaffPromotion) {return promoteStaff(payload);}
 
 /**
  * Transfer Staff (Change Department with History)
@@ -1308,7 +946,7 @@ export async function generateMonthlyPayroll(month: string, year: string) {
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
   {
     const __authz = await writeGuard("staff");
-    if (!__authz.allowed) return __authz.fallback;
+    if (!salaryAccess(__authz,"write")) return {error:"বেতন ব্যবস্থাপনার অনুমতি নেই।"};
   }
 
   try {
@@ -1319,25 +957,28 @@ export async function generateMonthlyPayroll(month: string, year: string) {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
 
-    const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
-    const { members } = await syncAndGetStaffMembers(supabase, madrasaId, meta);
+    if (!/^(0?[1-9]|1[0-2])$/.test(month) || !/^\d{4}$/.test(year)) return {error:"মাস ও বছর সঠিক নয়।"};
+    month=month.padStart(2,"0");
+    const meta = (await getMadrasaMetadata(madrasaId,true)) as MadrasaStaffMetadata;
+    const members = (meta.staff_members || []).filter(m=>!m.directory_only && (!m.madrasa_id || m.madrasa_id===madrasaId));
 
     const activeStaff = members.filter((m) => ["ACTIVE", "ON_LEAVE"].includes(m.employment.status));
-    let salaryRecords = meta.staff_salary_records || [];
+    const salaryRecords = meta.staff_salary_records || [], additions:StaffSalaryPaymentRecord[]=[];
 
     let generatedCount = 0;
     const nowStr = new Date().toISOString();
 
     for (const staff of activeStaff) {
       const exists = salaryRecords.some(
-        (r) => r.staff_id === staff.id && r.month === month && r.year === year
+        (r) => (r.staff_id === staff.id || (staff.legacy_id && r.staff_id===staff.legacy_id)) && Number(r.month) === Number(month) && String(r.year) === year
       );
 
       if (!exists) {
-        const basic = staff.salary.basic_salary || 0;
-        const totAllow = Object.values(staff.salary.allowances || {}).reduce((s, a) => s + Number(a || 0), 0);
-        const totDeduct = Object.values(staff.salary.deductions || {}).reduce((s, d) => s + Number(d || 0), 0);
-
+        const contract=salaryTerms(staff.salary,{});
+        if(contract.net_salary===0) continue;
+        if(Number(staff.salary.net_salary)!==contract.net_salary) return {error:'পুরোনো বেতনের যোগফল মেলেনি। চুক্তি যাচাই করুন।'};
+        const sum=(v:object)=>Object.values(v).reduce<number>((a,b)=>a+Math.round(Number(b)*100),0)/100;
+        const basic=contract.basic_salary,totAllow=sum(contract.allowances),totDeduct=sum(contract.deductions);
         const newRecord: StaffSalaryPaymentRecord = {
           id: `sal_${staff.id}_${year}_${month}`,
           madrasa_id: madrasaId,
@@ -1351,18 +992,20 @@ export async function generateMonthlyPayroll(month: string, year: string) {
           basic_salary: basic,
           allowances: totAllow,
           deductions: totDeduct,
-          net_salary: basic + totAllow - totDeduct,
+          net_salary: contract.net_salary,
           status: "PENDING",
           created_at: nowStr,
         };
 
-        salaryRecords.unshift(newRecord);
+        additions.push(newRecord);
         generatedCount++;
       }
     }
 
-    meta.staff_salary_records = salaryRecords;
-    await saveMadrasaMetadata(madrasaId, meta);
+    if(additions.length){
+      const {error}=await (await createAdminClient()).rpc('finance_draft_payroll',{t:madrasaId,actor:user.id,staff_before:meta.staff_members || [],payroll_before:salaryRecords,additions});
+      if(error) return {error:'পেরোল সংরক্ষণ হয়নি। বর্তমান চুক্তি ও মাসের পেরোল যাচাই করুন।'};
+    }
 
     revalidatePath("/dashboard/teachers");
     return { success: true, count: generatedCount };
@@ -1380,88 +1023,21 @@ export async function processSalaryPayment(payload: {
   transactionRef?: string;
   remarks?: string;
 }) {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("staff");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
+  const guard = await writeGuard("staff");
+  if (!guard.allowed) return guard.fallback;
+  if(!salaryAccess(guard,"write")) return {error:"বেতন পরিশোধের অনুমতি নেই।"};
+  if (!guard.madrasaId || !guard.userId) return { error: "প্রতিষ্ঠান বা ব্যবহারকারী পাওয়া যায়নি।" };
   try {
-    const supabase = await createClient();
-    const user = await getAuthUser(supabase);
-    if (!user) return { error: "অনুমতি নেই।" };
-
-    const madrasaId = await getAuthMadrasaId(supabase, user);
-    if (!madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি।" };
-
-    const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
-    let records = meta.staff_salary_records || [];
-
-    const index = records.findIndex((r) => r.id === payload.recordId);
-    if (index === -1) return { error: "বেতন রেকর্ড পাওয়া যায়নি।" };
-
-    const record = records[index];
-    const nowStr = new Date().toISOString();
-    const paymentDateStr = toDhakaDateStringFrom(nowStr);
-
-    // Insert into madrasa `expenses` table to integrate with Accounting/Finance
-    const adminClient = await createAdminClient();
-    const expenseDesc = `স্টাফ বেতন: ${record.staff_name} (${record.staff_id_code}) - ${record.month}/${record.year} [FUND: fund-general | সাধারণ ফান্ড]`;
-
-    let expenseId = undefined;
-    const { data: expData, error: expError } = await adminClient
-      .from("expenses")
-      .insert({
-        madrasa_id: madrasaId,
-        amount: record.net_salary,
-        category: "Salary",
-        description: expenseDesc,
-        expense_date: paymentDateStr,
-      })
-      .select("id")
-      .single();
-
-    if (!expError && expData) {
-      expenseId = expData.id;
-    }
-
-    record.status = "PAID";
-    record.payment_date = paymentDateStr;
-    record.payment_method = payload.paymentMethod;
-    record.transaction_ref = payload.transactionRef || "";
-    record.remarks = payload.remarks || "";
-    record.processed_by = user.email || "হিসাব বিভাগ";
-    record.expense_id = expenseId;
-
-    records[index] = record;
-    meta.staff_salary_records = records;
-
-    // Log to staff audit
-    const staffList = meta.staff_members || [];
-    const sIdx = staffList.findIndex((s) => s.id === record.staff_id);
-    if (sIdx !== -1) {
-      const staff = staffList[sIdx];
-      if (!staff.audit_logs) staff.audit_logs = [];
-      staff.audit_logs.push({
-        id: `audit_${Date.now()}`,
-        action: "বেতন পরিশোধ",
-        details: `${record.month}/${record.year} মাসের বেতন ৳${record.net_salary.toLocaleString("bn-BD")} প্রদান করা হয়েছে।`,
-        user_email: user.email || "অ্যাডমিন",
-        created_at: nowStr,
-      });
-      staffList[sIdx] = staff;
-      meta.staff_members = staffList;
-    }
-
-    await saveMadrasaMetadata(madrasaId, meta);
-
-    revalidatePath("/dashboard/teachers");
-    revalidatePath(`/dashboard/teachers/${record.staff_id}`);
-    revalidatePath("/dashboard/accounting");
-    return { success: true };
+    const db = await createAdminClient();
+    const {data,error} = await db.rpc("finance_pay_salary", {
+      p_tenant: guard.madrasaId, p_actor: guard.userId, p_record: payload.recordId,p_register:true,
+      p_method: payload.paymentMethod, p_ref: payload.transactionRef || "", p_remarks: payload.remarks || "",
+    });
+    if (error || !data?.expense_id) return { error: error ? postingError(error) : "বেতন ভাউচার নিশ্চিত হয়নি।" };
+    for (const path of ["/dashboard/staff", "/dashboard/teachers", "/dashboard/accounting", "/dashboard/accounting/expenses", "/dashboard/accounting/reports"]) revalidatePath(path);
+    return { success: true, expenseId: data.expense_id, alreadyPaid: data.already_paid };
   } catch (err: any) {
-    return { error: err.message || "বেতন পরিশোধ সম্পন্ন করা যায়নি।" };
+    return { error: err.message || "বেতন পরিশোধ নিশ্চিত হয়নি।" };
   }
 }
 
@@ -1734,60 +1310,26 @@ export async function updateStaffSettings(payload: {
  * Fetch all staff metadata for the current user's madrasa
  */
 export async function getStaffMetadataFull() {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("staff");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const madrasaInfo = toPublicMadrasaInfo(await getMadrasaInfo());
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) {
-    return {
-      staff_members: [],
-      categories: DEFAULT_STAFF_CATEGORIES,
-      departments: DEFAULT_STAFF_DEPARTMENTS,
-      designations: DEFAULT_STAFF_DESIGNATIONS,
-      leave_requests: [],
-      salary_records: [],
-      madrasa_info: madrasaInfo,
-    };
-  }
-
-  const madrasaId = await getAuthMadrasaId(supabase, user);
-  if (!madrasaId) {
-    return {
-      staff_members: [],
-      categories: DEFAULT_STAFF_CATEGORIES,
-      departments: DEFAULT_STAFF_DEPARTMENTS,
-      designations: DEFAULT_STAFF_DESIGNATIONS,
-      leave_requests: [],
-      salary_records: [],
-      madrasa_info: madrasaInfo,
-    };
-  }
-
-  const meta = (await getMadrasaMetadata(madrasaId)) as MadrasaStaffMetadata;
-  const syncResult = await syncAndGetStaffMembers(supabase, madrasaId, meta);
-  if (syncResult.isModified) {
-    meta.staff_members = syncResult.members;
-    await saveMadrasaMetadata(madrasaId, meta);
-  }
-
+  const access=await writeGuard('staffRead');
+  if(!access.allowed || !access.madrasaId) throw Error('কর্মীর প্রোফাইল দেখার অনুমতি নেই।');
+  const madrasaId=access.madrasaId, madrasaInfo=toPublicMadrasaInfo(await getMadrasaInfo(madrasaId));
+  const meta = (await getMadrasaMetadata(madrasaId,true)) as MadrasaStaffMetadata;
+  const members=await directoryMembers(madrasaId,meta);
+  const salaryVisible=salaryAccess(access,"read"),salaryEditable=salaryAccess(access,"write");
+  const {getCurrentUserMaskingContext,maskStaffSensitiveFields}=await import('@/lib/data-access-guards');
+  const {allowUnmasked}=await getCurrentUserMaskingContext('staff','phone');
   const leaveRequestsRes = await listStructuredStaffLeaves(
     madrasaId,
     meta.staff_leave_requests || []
   );
 
   return {
-    staff_members: syncResult.members || [],
+    salaryVisible,salaryEditable,staff_members:members.map(m=>maskStaffSensitiveFields(staffForView(m,salaryVisible),allowUnmasked)),
     categories: meta.staff_categories && meta.staff_categories.length > 0 ? meta.staff_categories : DEFAULT_STAFF_CATEGORIES,
     departments: meta.staff_departments && meta.staff_departments.length > 0 ? meta.staff_departments : DEFAULT_STAFF_DEPARTMENTS,
     designations: meta.staff_designations && meta.staff_designations.length > 0 ? meta.staff_designations : DEFAULT_STAFF_DESIGNATIONS,
     leave_requests: leaveRequestsRes.leaves,
-    salary_records: meta.staff_salary_records || [],
+    salary_records: salaryVisible ? (meta.staff_salary_records || []).filter(r=>!r.madrasa_id || r.madrasa_id===madrasaId).map(r=>allowUnmasked ? r : {...r,transaction_ref:undefined,remarks:undefined}) : [],
     madrasa_info: madrasaInfo,
   };
 }
@@ -1995,6 +1537,7 @@ export async function deleteStaffMember(staffId: string) {
     const staffMembers = meta.staff_members || [];
 
     const targetStaff = staffMembers.find((s) => s.id === staffId || (s as any).legacy_id === staffId);
+    if (!targetStaff || (meta.staff_salary_records || []).some(r=>[targetStaff.id,(targetStaff as any).legacy_id].includes(r.staff_id) && (r.status==='PAID' || r.expense_id || r.finance_drafted))) return {error:"পেরোলসহ কর্মী মুছবেন না। আর্কাইভ করুন।"};
     const targetEmail = targetStaff?.contact?.email?.trim();
 
     // 2. Remove from staff_members array in metadata
@@ -2009,7 +1552,6 @@ export async function deleteStaffMember(staffId: string) {
     }
 
     // Also delete associated leave requests from structured SQL table
-    await deleteStructuredStaffLeavesForStaff(madrasaId, staffId);
 
     // Add Audit Log
     const auditLogs = meta.staff_audit_logs || [];
@@ -2022,14 +1564,15 @@ export async function deleteStaffMember(staffId: string) {
     });
     meta.staff_audit_logs = auditLogs.slice(0, 50);
 
-    await saveMadrasaMetadata(madrasaId, meta);
+    if (!await saveMadrasaMetadata(madrasaId,meta)) return {error:"রেকর্ড বদলেছে। রিফ্রেশ করুন।"};
+    await deleteStructuredStaffLeavesForStaff(madrasaId, staffId);
 
     // 3. Delete from SQL `teachers` table
     try {
       await adminClient
         .from("teachers")
         .delete()
-        .eq("id", staffId);
+        .eq("id", staffId).eq("madrasa_id",madrasaId);
 
       if (targetEmail) {
         await adminClient

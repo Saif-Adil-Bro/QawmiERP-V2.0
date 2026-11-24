@@ -69,19 +69,7 @@ export default function IncomeHistoryClient({
       }
 
       // Fund filter
-      if (selectedFundId !== "ALL") {
-        const selectedFund = initialData.funds.find((f) => f.id === selectedFundId);
-        if (selectedFund) {
-          const matchById = t.fund_id === selectedFund.id;
-          const matchByName = t.fund_name?.toLowerCase().trim() === selectedFund.name?.toLowerCase().trim();
-          const matchByCanonical = isTransactionInFund(selectedFund, t.fund_id, t.fund_name, initialData.funds);
-          if (!matchById && !matchByName && !matchByCanonical) {
-            return false;
-          }
-        } else if (t.fund_id !== selectedFundId) {
-          return false;
-        }
-      }
+      if (selectedFundId !== "ALL" && t.fund_id !== selectedFundId) return false;
 
       // Source type filter
       if (selectedSourceType !== "ALL" && t.source_type !== selectedSourceType) {

@@ -14,7 +14,7 @@ import {
   Clock,
   PieChart
 } from "lucide-react";
-import { FundItem, DonorItem, DonationItem, getFundCategoryBadge, getDonorTypeBadge, isTransactionInFund } from "@/lib/fund-utils";
+import { FundItem, DonorItem, DonationItem, getFundCategoryBadge, getDonorTypeBadge } from "@/lib/fund-utils";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
 import { printElementIsolated } from "@/lib/printUtils";
 import { getActiveMadrasaHeaderInfo } from "@/app/actions/zakat";
@@ -67,16 +67,8 @@ export default function ReportsClient({
 
   const madrasaInfo = liveMadrasaInfo || initialMadrasaInfo;
 
-  const selectedFundObj = funds.find(
-    (f) => f.name === selectedFund || f.id === selectedFund || f.code === selectedFund
-  );
-
   const filteredDonations = donations.filter(d => {
-    const matchesFund =
-      selectedFund === "ALL" ||
-      (selectedFundObj
-        ? isTransactionInFund(selectedFundObj, (d as any).fund_id, d.fund_name || d.donation_type, funds)
-        : d.donation_type === selectedFund || d.fund_name === selectedFund);
+    const matchesFund = selectedFund === "ALL" || d.fund_id === selectedFund;
     const matchesType = selectedDonorType === "ALL" || (d.donors?.donor_type || "OneTime") === selectedDonorType;
     const matchesStart = !startDate || d.donation_date >= startDate;
     const matchesEnd = !endDate || d.donation_date <= endDate;
@@ -311,7 +303,7 @@ export default function ReportsClient({
             >
               <option value="ALL">সকল ফান্ড</option>
               {funds.map(f => (
-                <option key={f.id} value={f.name}>{f.name}</option>
+                <option key={f.id} value={f.id}>{f.name}</option>
               ))}
             </select>
           </div>

@@ -5,7 +5,6 @@ import { FeePayment, FeeAuditLog } from "@/lib/fee-management";
 import {
   voidFeePayment,
   unvoidFeePayment,
-  resetAllFeeData,
   syncFeesWithFunds,
 } from "@/app/actions/fee-management";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
@@ -52,14 +51,7 @@ export default function PaymentsClient({
   const [selectedPaymentForUnvoid, setSelectedPaymentForUnvoid] = useState<FeePayment | null>(null);
   const [unvoidReason, setUnvoidReason] = useState("");
 
-  // Reset Hub Modal
-  const [isResetHubOpen, setIsResetHubOpen] = useState(false);
-  const [resetOptions, setResetOptions] = useState({
-    deletePayments: true,
-    resetInvoices: false,
-    resetReceiptCounter: false,
-  });
-  const [confirmText, setConfirmText] = useState("");
+
 
   // Action Loading & Feedback
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -202,37 +194,6 @@ export default function PaymentsClient({
     }
   };
 
-  const handleExecuteReset = async () => {
-    if (confirmText.trim().toLowerCase() !== "delete" && confirmText.trim().toLowerCase() !== "রিসেট") {
-      alert("নিশ্চিত করার জন্য বক্সে 'DELETE' বা 'রিসেট' লিখুন।");
-      return;
-    }
-
-    setIsSubmitting(true);
-    setFeedback(null);
-
-    try {
-      const res = await resetAllFeeData(resetOptions);
-
-      if (res.success) {
-        setFeedback({
-          type: "success",
-          text: res.message || "ফি ডাটা সফলভাবে রিসেট ও ক্লিনআপ করা হয়েছে।",
-        });
-        if (resetOptions.deletePayments) {
-          setPayments([]);
-        }
-        setIsResetHubOpen(false);
-        setConfirmText("");
-      } else {
-        setFeedback({ type: "error", text: res.error || "রিসেট করতে ব্যর্থ হয়েছে।" });
-      }
-    } catch (err: any) {
-      setFeedback({ type: "error", text: err?.message || "রিসেট করতে ব্যর্থ হয়েছে।" });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -288,22 +249,10 @@ export default function PaymentsClient({
             title="ফান্ড ব্যালেন্স ও ড্যাশবোর্ড রিক্যালকুলেট ও সিঙ্ক করুন"
           >
             <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
-            <span>{isSyncing ? "সিঙ্ক হচ্ছে..." : "ফান্ডে সিঙ্ক করুন"}</span>
+            <span>{isSyncing ? "সিঙ্ক হচ্ছে..." : "বণ্টন যাচাই করুন"}</span>
           </button>
 
-          {/* Reset Hub Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setConfirmText("");
-              setIsResetHubOpen(true);
-            }}
-            className="px-3.5 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/40 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition cursor-pointer"
-            title="কালেকশন রেকর্ড রিসেট বা ডাটা পরিষ্কার হাব"
-          >
-            <Trash2 className="w-4 h-4 text-red-300" />
-            <span>ডাটা রিসেট ও ডিলিট</span>
-          </button>
+
         </div>
       </div>
 
@@ -772,131 +721,6 @@ export default function PaymentsClient({
         </div>
       )}
 
-      {/* Reset Hub Modal */}
-      {isResetHubOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-5 shadow-2xl border border-red-100">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2 text-red-600">
-                <AlertTriangle className="w-6 h-6" />
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900">ফি ডাটা রিসেট ও ডিলিট হাব</h3>
-                  <p className="text-xs text-slate-500">পূর্ববর্তী অব্যাবহৃত কালেকশন রেকর্ড বা ডাটা পরিষ্কার করুন</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsResetHubOpen(false)}
-                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <p className="text-xs text-slate-600 font-medium">
-                আপনি কী কী ডাটা মুছে ফেলতে চান তা নির্বাচন করুন:
-              </p>
-
-              {/* Option 1 */}
-              <label className="flex items-start gap-3 p-3.5 rounded-2xl border border-slate-200 hover:border-slate-300 bg-slate-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={resetOptions.deletePayments}
-                  onChange={(e) =>
-                    setResetOptions((prev) => ({ ...prev, deletePayments: e.target.checked }))
-                  }
-                  className="mt-1 w-4 h-4 text-red-600 rounded border-slate-300 focus:ring-red-500 cursor-pointer"
-                />
-                <div className="space-y-0.5 text-xs">
-                  <span className="font-bold text-slate-900 block">
-                    সকল পূর্বের পেমেন্ট ও কালেকশন রেকর্ড মুছে ফেলুন (Delete All Payments)
-                  </span>
-                  <span className="text-slate-500 block">
-                    পেছনের জমা হওয়া সমস্ত পেমেন্ট রিসিট (যেমন: ৳২২,১০০ কালেকশন) সম্পূর্ণ মুছে যাবে এবং ফান্ড শূন্য হবে।
-                  </span>
-                </div>
-              </label>
-
-              {/* Option 2 */}
-              <label className="flex items-start gap-3 p-3.5 rounded-2xl border border-slate-200 hover:border-slate-300 bg-slate-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={resetOptions.resetInvoices}
-                  onChange={(e) =>
-                    setResetOptions((prev) => ({ ...prev, resetInvoices: e.target.checked }))
-                  }
-                  className="mt-1 w-4 h-4 text-red-600 rounded border-slate-300 focus:ring-red-500 cursor-pointer"
-                />
-                <div className="space-y-0.5 text-xs">
-                  <span className="font-bold text-slate-900 block">
-                    সকল তৈরি করা ফি বিল/ইনভয়েস মুছে ফেলুন (Delete All Generated Invoices)
-                  </span>
-                  <span className="text-slate-500 block">
-                    শিক্ষার্থীদের নামে জেনারেট করা সকল মাসিক বিল সম্পূর্ণ ডিলিট হয়ে যাবে।
-                  </span>
-                </div>
-              </label>
-
-              {/* Option 3 */}
-              <label className="flex items-start gap-3 p-3.5 rounded-2xl border border-slate-200 hover:border-slate-300 bg-slate-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={resetOptions.resetReceiptCounter}
-                  onChange={(e) =>
-                    setResetOptions((prev) => ({ ...prev, resetReceiptCounter: e.target.checked }))
-                  }
-                  className="mt-1 w-4 h-4 text-red-600 rounded border-slate-300 focus:ring-red-500 cursor-pointer"
-                />
-                <div className="space-y-0.5 text-xs">
-                  <span className="font-bold text-slate-900 block">
-                    রিসিট সিরিয়াল নম্বর রিসেট করুন (Reset Receipt Counter)
-                  </span>
-                  <span className="text-slate-500 block">
-                    পরবর্তী রিসিট নম্বর শুরু হবে MR-100 থেকে।
-                  </span>
-                </div>
-              </label>
-            </div>
-
-            {/* Warning & Confirmation input */}
-            <div className="bg-red-50 p-4 rounded-2xl border border-red-200 text-xs space-y-2">
-              <p className="text-red-900 font-bold">
-                ⚠️ এই অ্যাকশনটি অপরিবর্তনযোগ্য (Irreversible)!
-              </p>
-              <p className="text-red-700">
-                নিশ্চিত করার জন্য নিচের ঘরে <span className="font-mono font-bold bg-red-100 px-1.5 py-0.5 rounded text-red-900">DELETE</span> অথবা <span className="font-mono font-bold bg-red-100 px-1.5 py-0.5 rounded text-red-900">রিসেট</span> টাইপ করুন:
-              </p>
-              <input
-                type="text"
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                placeholder="DELETE লিখুন..."
-                className="w-full px-3 py-2 border border-red-300 rounded-xl bg-white font-mono text-xs focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setIsResetHubOpen(false)}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-bold text-xs sm:text-sm cursor-pointer"
-              >
-                ফিরে যান
-              </button>
-              <button
-                type="button"
-                onClick={handleExecuteReset}
-                disabled={isSubmitting || (!resetOptions.deletePayments && !resetOptions.resetInvoices && !resetOptions.resetReceiptCounter)}
-                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs sm:text-sm shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>{isSubmitting ? "রিসেট হচ্ছে..." : "নিশ্চিত রিসেট করুন"}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -8,7 +8,8 @@ import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId, getStudents, getClasses } from "@/app/actions/students";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
-import { getStaffMetadataFull } from "@/app/actions/staff";
+import {listStructuredStaffLeaves} from "@/lib/structured-config";
+import { getStaffRoster } from "@/app/actions/staff";
 import {
   getParentFeedbacks,
   updateParentFeedbackStatus,
@@ -141,9 +142,8 @@ export async function getAllLeaveData() {
     let teacherLeaves: TeacherLeaveApplication[] = (meta.teacher_leave_applications || []);
 
     // Also fetch staff metadata to merge any leave_requests if not yet present
-    const staffMeta = await getStaffMetadataFull();
+    const {leaves:rawStaffLeaves}=await listStructuredStaffLeaves(madrasaId,meta.staff_leave_requests || []);
     const existingTeacherLeaveIds = new Set(teacherLeaves.map((t) => t.id));
-    const rawStaffLeaves = ((staffMeta as any)?.staff_leave_requests || (staffMeta as any)?.leave_requests || []);
     rawStaffLeaves.forEach((slr: any) => {
       if (!existingTeacherLeaveIds.has(slr.id)) {
         teacherLeaves.push({
@@ -252,28 +252,7 @@ export async function getAllLeaveData() {
     studentLeaves.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     teacherLeaves.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-    // Prepare teacher roster
-    let teachersData: any[] = [];
-    if (staffMeta?.staff_members && staffMeta.staff_members.length > 0) {
-      teachersData = staffMeta.staff_members.map((sm: any) => ({
-        id: sm.id,
-        first_name: sm.personal?.first_name || sm.first_name || "",
-        last_name: sm.personal?.last_name || sm.last_name || "",
-        designation: sm.designation_name || sm.designation || "শিক্ষক / স্টাফ",
-        phone: sm.personal?.contact_number || sm.phone || "",
-      }));
-    }
-
-    if (teachersData.length === 0) {
-      const adminClient = await createAdminClient();
-      const { data: rawTeachers } = await adminClient
-        .from("teachers")
-        .select("id, first_name, last_name, designation, phone").eq("madrasa_id",madrasaId)
-        .order("first_name");
-      if (rawTeachers && rawTeachers.length > 0) {
-        teachersData = rawTeachers;
-      }
-    }
+    const teachersData=await getStaffRoster();
 
     return {
       studentLeaves,

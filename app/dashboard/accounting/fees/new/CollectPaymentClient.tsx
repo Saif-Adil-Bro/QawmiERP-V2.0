@@ -2,6 +2,7 @@
 
 import { toDhakaDateString, getDhakaYear } from "@/lib/date-utils";
 import { useState, useEffect, useRef } from "react";
+import {receiptFunds} from '@/lib/finance/fee-portions';
 import { collectFeePayment, getStudentFeeProfile } from "@/app/actions/fee-management";
 import { formatBanglaCurrency, toBanglaNumber } from "@/lib/numberToBangla";
 import {
@@ -49,7 +50,7 @@ export default function CollectPaymentClient({
   const todayStr = toDhakaDateString();
 
   // Only use actual active funds defined in the system
-  const allFunds = funds && funds.length > 0 ? funds : DEFAULT_FUNDS;
+  const allFunds = funds || [];
 
   const [studentId, setStudentId] = useState<string>(preselectedStudentId || "");
   const [studentProfile, setStudentProfile] = useState<any>(null);
@@ -65,7 +66,7 @@ export default function CollectPaymentClient({
   const [fineAmount, setFineAmount] = useState<number | "">("");
   const [fineReason, setFineReason] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
-  const [selectedGlobalFund, setSelectedGlobalFund] = useState<string>(allFunds[0]?.id || "fund-general");
+  const [selectedGlobalFund, setSelectedGlobalFund] = useState<string>("");
 
   // Allocations & Fund Overrides
   const [allocations, setAllocations] = useState<{
@@ -149,6 +150,7 @@ export default function CollectPaymentClient({
       return;
     }
 
+    setStudentProfile(null);setAllocations({});setItemDiscounts({});setTotalAmount("");setDiscountAmount("");
     let isMounted = true;
 
     async function fetchProfile() {
@@ -158,6 +160,7 @@ export default function CollectPaymentClient({
         let profile = null;
         try {
           const res = await fetch(apiUrl(`/api/fees/student-profile?studentId=${encodeURIComponent(studentId)}`));
+          if (!res.ok) throw Error("Cannot load bill");
           if (res.ok) {
             const data = await res.json();
             profile = data.profile;
@@ -169,6 +172,7 @@ export default function CollectPaymentClient({
 
         if (!isMounted) return;
 
+        if (!profile)throw Error("Cannot load bill");
         setStudentProfile(profile);
 
         if (profile && profile.fees) {
@@ -369,7 +373,7 @@ export default function CollectPaymentClient({
   // Submit payment
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!studentId) {
+    if (!studentId || !studentProfile || loadingProfile) {
       setError("অনুগ্রহ করে শিক্ষার্থী নির্বাচন করুন।");
       return;
     }
@@ -399,12 +403,26 @@ export default function CollectPaymentClient({
             allocated_amount: allocated,
             discount_applied: discount,
             fund_id: assignedFundId,
-            fund_name: fundObj?.name || "সাধারণ ফান্ড",
+            fund_name: fundObj?.name || "",
           });
         }
       });
     }
 
+    if (feeAllocationsList.some((a) => !a.fund_id || !a.fund_name) || (!feeAllocationsList.length && !effectiveGlobalFundId)) {
+      setError("ফি আদায়ের ফান্ড নির্বাচন করুন।");
+      setIsPending(false);
+      return;
+    }
+    const advanceAmount = Math.max(
+      0,
+      Math.round((finalCash - feeAllocationsList.reduce((sum, a) => sum + a.allocated_amount, 0) - Number(fineAmount)) * 100) / 100
+    );
+    if (advanceAmount > 0 && !effectiveGlobalFundId) {
+      setError("অগ্রিম জমার ফান্ড নির্বাচন করুন।");
+      setIsPending(false);
+      return;
+    }
     const globalFundObj = allFunds.find((af) => af.id === effectiveGlobalFundId);
 
     try {
@@ -420,12 +438,13 @@ export default function CollectPaymentClient({
             total_amount: finalCash,
             discount_amount: effectiveTotalDiscount,
             discount_reason: discountReason,
+            advance_amount: advanceAmount,
             fine_amount: Number(fineAmount),
             fine_reason: fineReason,
             fee_allocations: feeAllocationsList,
             notes: notes,
             fund_id: effectiveGlobalFundId,
-            fund_name: globalFundObj?.name || "সাধারণ ফান্ড",
+            fund_name: globalFundObj?.name || "",
             // HI-2: ডুপ্লিকেট পেমেন্ট ঠেকানোর idempotency key
             idempotency_key: idempotencyKeyRef.current,
           }),
@@ -531,6 +550,8 @@ export default function CollectPaymentClient({
               notes: successReceipt.notes,
               payment_method: successReceipt.payment_method,
               allocations: successReceipt.allocations,
+              discount_total:successReceipt.discount_total,
+              fund_totals:receiptFunds(successReceipt,allFunds),
               students: {
                 first_name: selectedStudent?.first_name || successReceipt.student_name,
                 last_name: selectedStudent?.last_name || "",
@@ -684,7 +705,7 @@ export default function CollectPaymentClient({
                         const netPayable = Math.max(0, fee.due_amount - itemDiscount);
 
                         return (
-                          <tr key={fee.id} className="hover:bg-slate-50/50">
+                          <tr key={fee.id} data-bill-id={fee.id} className="hover:bg-slate-50/50">
                             <td className="py-2.5 px-4">
                               <div className="font-bold text-slate-900">{fee.fee_type_name}</div>
                               <div className="text-[11px] text-slate-500">{fee.billing_period}</div>
@@ -695,7 +716,8 @@ export default function CollectPaymentClient({
                                 onChange={(e) => handleAllocationFundChange(fee.id, e.target.value)}
                                 className="px-2.5 py-1 text-xs border border-emerald-300 rounded-lg bg-emerald-50/60 font-semibold text-emerald-950 focus:outline-none focus:ring-1 focus:ring-emerald-600"
                               >
-                                {allFunds.map((af) => (
+                                <option value="">ফান্ড নির্বাচন করুন</option>
+                  {allFunds.map((af) => (
                                   <option key={af.id} value={af.id}>
                                     {af.name}
                                   </option>
@@ -709,9 +731,9 @@ export default function CollectPaymentClient({
                               <div className="flex items-center justify-end gap-1">
                                 <span className="text-amber-600 text-xs font-bold">(-)</span>
                                 <input
-                                  type="number"
+                                  type="number" step="0.01"
                                   min="0"
-                                  max={fee.due_amount}
+                                  aria-label="বিলে ছাড়" max={fee.due_amount}
                                   value={itemDiscounts[fee.id] ? itemDiscounts[fee.id] : ""}
                                   onChange={(e) => handleItemDiscountChange(fee.id, e.target.value === "" ? "" : Number(e.target.value))}
                                   placeholder="০"
@@ -724,7 +746,7 @@ export default function CollectPaymentClient({
                             </td>
                             <td className="py-2.5 px-4 text-right">
                               <input
-                                type="number"
+                                type="number" step="0.01"
                                 min="0"
                                 max={netPayable}
                                 value={allocations[fee.id] !== undefined ? allocations[fee.id] : netPayable}
@@ -755,10 +777,9 @@ export default function CollectPaymentClient({
                   মোট আদায়কৃত নগদ টাকা (৳) <span className="text-red-500">*</span>
                 </label>
                 <input
-                  type="number"
+                  type="number" step="0.01"
                   min="0"
-                  step="1"
-                  value={totalAmount ?? ""}
+                  aria-label="আদায়কৃত নগদ" value={totalAmount ?? ""}
                   onChange={(e) => {
                     const v = e.target.value;
                     handleTotalAmountChange(v === "" ? "" : Number(v));
@@ -867,10 +888,10 @@ export default function CollectPaymentClient({
                   )}
                 </div>
                 <input
-                  type="number"
+                  type="number" step="0.01"
                   min="0"
                   max={totalGrossDue}
-                  value={discountAmount ?? ""}
+                  aria-label="মোট মওকুফ" value={discountAmount ?? ""}
                   onChange={(e) => {
                     const v = e.target.value;
                     handleTotalDiscountChange(v === "" ? "" : Number(v));
@@ -973,7 +994,7 @@ export default function CollectPaymentClient({
             <div className="pt-2 border-t border-slate-100">
               <button
                 type="submit"
-                disabled={isPending || !studentId}
+                disabled={isPending || loadingProfile || !studentId || !studentProfile}
                 className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 text-sm sm:text-base active:scale-99"
               >
                 {isPending ? (

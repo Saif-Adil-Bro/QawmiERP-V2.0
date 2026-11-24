@@ -127,7 +127,10 @@ export async function registerMadrasa(formData: FormData) {
 export async function getMadrasaDetails() {
   const i=await webIdentity(); if (!i) return null;
   const adminClient=i.db, madrasaId=i.tenant;
-  if(!hasRole(i,['admin','super_admin','muhtamim']) || hasRole(i,[...studentRoles,...teacherRoles])) return toPublicMadrasaInfo(await getMadrasaInfo(madrasaId));
+  if(!hasRole(i,['admin','super_admin','muhtamim']) || hasRole(i,[...studentRoles,...teacherRoles])) {
+    const header=toPublicMadrasaInfo(await getMadrasaInfo(madrasaId));
+    return {...header,contact_phone:header.phone,contact_email:header.email};
+  }
   const { data, error } = await adminClient
     .from("madrasas")
     .select("*")
@@ -145,7 +148,7 @@ export async function getMadrasaDetails() {
         meta = { reg_no: data.registration_no };
       }
     } catch {
-      meta = { reg_no: data.registration_no };
+      meta = {};
     }
   }
 
@@ -154,8 +157,11 @@ export async function getMadrasaDetails() {
 
   const prefix = meta.prefix || meta.short_code || generateSuggestedPrefix(data.name || "");
 
+  // Even a settings administrator only needs display fields here. The whole
+  // metadata/security documents may contain ledger entries or gateway secrets.
   return {
-    ...data,
+    id:data.id, name:data.name, address:data.address, contact_email:data.contact_email,
+    phone:data.phone || data.contact_phone, contact_phone:data.phone || data.contact_phone,
     prefix,
     short_code: prefix,
     registration_no: meta.reg_no || (typeof data.registration_no === "string" && !data.registration_no.startsWith("{") ? data.registration_no : ""),
@@ -170,7 +176,7 @@ export async function getMadrasaDetails() {
     logo_url: meta.logo_url || logoData?.publicUrl || "",
     weekend_days: data.weekend_days || meta.weekend_days || ["Friday"],
     id_year_format: meta.id_year_format || "hijri",
-    metadata: meta,
+
   };
 }
 

@@ -534,3 +534,10 @@ BEGIN
   );
 END;
 $$;
+
+-- These views aggregate multiple schools and do not have per-user RLS. The
+-- authorized BI server is the only client, irrespective of migration order.
+REVOKE ALL ON public.mv_bi_boarding_monthly,public.mv_bi_fund_health,public.mv_bi_class_fee_dues,public.mv_bi_session_exam_results FROM PUBLIC,anon,authenticated;
+GRANT SELECT ON public.mv_bi_boarding_monthly,public.mv_bi_fund_health,public.mv_bi_class_fee_dues,public.mv_bi_session_exam_results TO service_role;
+REVOKE ALL ON FUNCTION public.refresh_bi_materialized_views(),public.get_executive_bi_snapshot(uuid,integer,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.refresh_bi_materialized_views(),public.get_executive_bi_snapshot(uuid,integer,text) TO service_role;

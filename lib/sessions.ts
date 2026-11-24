@@ -214,7 +214,7 @@ export async function getMadrasaMetadataUncached(
       return dedicated;
     }
 
-    if (data.registration_no.startsWith("{")) {
+    if (data.registration_no.trimStart().startsWith("{")) {
       try {
         return { ...dedicated, ...JSON.parse(data.registration_no) };
       } catch {

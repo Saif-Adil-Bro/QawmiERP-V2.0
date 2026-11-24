@@ -19,7 +19,7 @@ export function printElementIsolated(
 
   const targetElem = document.getElementById(elementId);
   if (!targetElem) {
-    window.print();
+    window.alert("নির্বাচিত নথির প্রিন্ট প্রস্তুত হয়নি।");
     return;
   }
 
@@ -43,7 +43,7 @@ export function printElementIsolated(
 
     const doc = iframe.contentWindow?.document;
     if (!doc) {
-      window.print();
+      window.alert("নির্বাচিত নথির প্রিন্ট প্রস্তুত হয়নি।");
       return;
     }
 
@@ -59,13 +59,19 @@ export function printElementIsolated(
 
     const watermarkMarkup = watermark ? buildPrintWatermarkHtml(watermark) : "";
 
+    // Some reports keep their printable template hidden until selected.
+    const printCopy=targetElem.cloneNode(true) as HTMLElement;
+    printCopy.classList.remove('hidden');
+    printCopy.hidden=false;
+    // Do not copy interactive panels (including an opened private memo) into the print document.
+    printCopy.querySelectorAll('[class~="print:hidden"]').forEach(node => node.remove());
     const htmlContent = `
       <!DOCTYPE html>
       <html lang="bn">
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>${pageTitle}</title>
+        <title>${pageTitle.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title>
         ${styleTags}
         <style>
           @font-face {
@@ -200,7 +206,7 @@ export function printElementIsolated(
       </head>
       <body>
         <div class="isolated-print-wrapper">
-          ${targetElem.outerHTML}
+          ${printCopy.outerHTML}
         </div>
         ${watermarkMarkup}
       </body>
@@ -217,13 +223,13 @@ export function printElementIsolated(
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
       } catch (err) {
-        console.warn("Iframe print fallback to window.print:", err);
-        window.print();
+        console.warn("Isolated print failed:", err);
+        window.alert("নির্বাচিত নথির প্রিন্ট প্রস্তুত হয়নি।");
       }
     }, 300);
   } catch (err) {
     console.error("Print isolated error:", err);
-    window.print();
+    window.alert("নির্বাচিত নথির প্রিন্ট প্রস্তুত হয়নি।");
   }
 }
 

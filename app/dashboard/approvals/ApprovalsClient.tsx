@@ -150,7 +150,7 @@ export default function ApprovalsClient({
       if (res?.error) {
         showToast("error", res.error);
       } else {
-        showToast("success", res?.message || "সিদ্ধান্ত সংরক্ষিত হয়েছে।");
+        showToast(res?.executionResult?.executed===false?"error":"success", res?.message || "সিদ্ধান্ত সংরক্ষিত হয়েছে।");
         refreshData();
       }
     });
@@ -161,6 +161,7 @@ export default function ApprovalsClient({
       const res = await cancelApprovalRequest(requestId);
       if (res?.error) showToast("error", res.error);
       else {
+        setRequests(prev=>prev.map(r=>r.id===requestId?{...r,status:"CANCELLED"}:r));
         showToast("success", res.message || "বাতিল করা হয়েছে।");
         refreshData();
       }
@@ -211,13 +212,14 @@ export default function ApprovalsClient({
       if (!currentUserId) return false;
       return r.requested_by === currentUserId || r.requester_id === currentUserId;
     }
-    return r.status === statusFilter;
+    return r.status === statusFilter || (statusFilter==="PENDING" && r.status==="IN_REVIEW");
   });
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
       {toast && (
         <div
+          role={toast.type === "error" ? "alert" : "status"}
           className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium ${
             toast.type === "success"
               ? "bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100"
@@ -312,7 +314,7 @@ export default function ApprovalsClient({
             <div className="space-y-3">
               {filteredRequests.map((req) => (
                 <div
-                  key={req.id}
+                  key={req.id} data-approval-id={req.id}
                   className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 space-y-4"
                 >
                   <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
@@ -398,7 +400,10 @@ export default function ApprovalsClient({
                     </div>
                   )}
 
-                  {req.status === "PENDING" && (
+                  {req.status==='APPROVED' && ['create_expense','collect_fee_payment','update_staff_salary','promote_staff'].includes(req.payload?.action) && <p className="text-sm font-semibold" role="status">
+                    {req.executed_at && req.execution_result?.executed?'মূল খাতায় পোস্ট হয়েছে।':'অনুমোদিত, কিন্তু পোস্ট নিশ্চিত নয়। মূল রসিদ বা ভাউচার যাচাই করুন।'}
+                  </p>}
+                  {['PENDING','IN_REVIEW'].includes(req.status) && (
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                       <input
                         type="text"
@@ -431,7 +436,7 @@ export default function ApprovalsClient({
                         <button
                           type="button"
                           disabled={isPending}
-                          onClick={() => handleCancel(req.id)}
+                          aria-label="আবেদন বাতিল" onClick={() => handleCancel(req.id)}
                           className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer disabled:opacity-50"
                         >
                           বাতিল

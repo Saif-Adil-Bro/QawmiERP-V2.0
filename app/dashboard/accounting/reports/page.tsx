@@ -3,8 +3,8 @@
 import { getDhakaYear } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { getAccountingReport } from "@/app/actions/accounting";
-import { getFunds } from "@/app/actions/zakat";
-import { FundItem, DEFAULT_FUNDS } from "@/lib/fund-utils";
+import { getFundChoices } from "@/app/actions/zakat";
+import { FundItem } from "@/lib/fund-utils";
 import { ArrowLeft, FileText, TrendingUp, TrendingDown, Wallet, Landmark } from "lucide-react";
 import Link from "next/link";
 import { getMadrasaProfileWithLogo } from "@/app/actions/tenant";
@@ -18,9 +18,10 @@ export default function AccountingReportPage() {
   const [month, setMonth] = useState<string>(currentMonth.toString());
   const [year, setYear] = useState<string>(currentYear.toString());
   const [selectedFundId, setSelectedFundId] = useState<string>("all");
-  const [funds, setFunds] = useState<FundItem[]>(DEFAULT_FUNDS);
+  const [funds, setFunds] = useState<FundItem[]>([]);
   
   const [report, setReport] = useState<{ totalIncome: number; totalExpense: number; netBalance: number; previousBalance?: number; isDebt?: boolean; adjustedClosingBalance?: number; fundStats?: any[] } | null>(null);
+  const [reportError,setReportError] = useState("");
   const [loading, setLoading] = useState(false);
   
   const [madrasaInfo, setMadrasaInfo] = useState<any>(null);
@@ -31,7 +32,7 @@ export default function AccountingReportPage() {
       try {
         const [res, fundsList] = await Promise.all([
           getMadrasaProfileWithLogo(),
-          getFunds(),
+          getFundChoices(true),
         ]);
         if (res) {
           setMadrasaInfo(res.madrasa);
@@ -48,18 +49,13 @@ export default function AccountingReportPage() {
   }, []);
 
   useEffect(() => {
-    async function loadReport() {
-      setLoading(true);
-      try {
-        const data = await getAccountingReport(month, year, selectedFundId);
-        setReport(data);
-      } catch (err) {
-        console.error("Failed to load accounting report:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadReport();
+    let current = true;
+    setLoading(true); setReportError("");
+    getAccountingReport(month,year,selectedFundId)
+      .then(data => { if (current) setReport(data); })
+      .catch(() => { if (current) { setReport(null); setReportError("সম্পূর্ণ হিসাব পড়া যায়নি। আবার চেষ্টা করুন।"); } })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
   }, [month, year, selectedFundId]);
 
   const handlePrint = () => {
@@ -136,7 +132,7 @@ export default function AccountingReportPage() {
           
           <div className="ml-auto w-full md:w-auto">
             <button 
-              onClick={handlePrint}
+              disabled={loading || !!reportError || !report} onClick={handlePrint}
               className="w-full md:w-auto flex items-center justify-center space-x-2 px-4 py-2 border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50 transition font-medium cursor-pointer"
             >
               <FileText className="w-4 h-4" />
@@ -158,6 +154,7 @@ export default function AccountingReportPage() {
             </p>
           </div>
 
+          {reportError && <p role="alert">{reportError}</p>}
           {loading ? (
             <div className="py-12 text-center text-slate-500">রিপোর্ট তৈরি হচ্ছে...</div>
           ) : report ? (
@@ -254,7 +251,7 @@ export default function AccountingReportPage() {
                         <th className="py-2.5 px-4 text-right">চলতি জমা (৳)</th>
                         <th className="py-2.5 px-4 text-right">চলতি খরচ (৳)</th>
                         <th className="py-2.5 px-4 text-right">চলতি স্থিতি (৳)</th>
-                        <th className="py-2.5 px-4 text-right">সমাপনী স্থিতি (৳)</th>
+                        <th className="py-2.5 px-4 text-right">জার্নাল নিট (৳)</th><th className="py-2.5 px-4 text-right">সমাপনী স্থিতি (৳)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 print:divide-black">
@@ -278,6 +275,7 @@ export default function AccountingReportPage() {
                             <td className={`py-2.5 px-4 text-right font-mono font-bold ${f.balance >= 0 ? "text-slate-800" : "text-red-600"} print:text-black`}>
                               {f.balance < 0 ? "-" : ""}৳ {Math.abs(f.balance).toLocaleString('bn-BD')}
                             </td>
+                            <td className="p-2 text-right">৳ {(f.movement||0).toLocaleString("bn-BD")}</td>
                             <td className={`py-2.5 px-4 text-right font-mono font-bold ${closeBal >= 0 ? "text-blue-900" : "text-amber-700"} bg-slate-50/60 print:text-black`}>
                               {closeBal < 0 ? "-" : ""}৳ {Math.abs(closeBal).toLocaleString('bn-BD')}
                             </td>
@@ -300,6 +298,7 @@ export default function AccountingReportPage() {
                         <td className={`py-2.5 px-4 text-right font-mono font-black ${report.netBalance >= 0 ? "text-slate-900" : "text-red-700"} print:text-black`}>
                           {report.netBalance < 0 ? "-" : ""}৳ {Math.abs(report.netBalance).toLocaleString('bn-BD')}
                         </td>
+                        <td className="p-2 text-right">৳ {report.fundStats.reduce((s,f)=>s+(f.movement||0),0).toLocaleString("bn-BD")}</td>
                         <td className={`py-2.5 px-4 text-right font-mono font-black ${(report.adjustedClosingBalance ?? report.netBalance) >= 0 ? "text-blue-950" : "text-amber-800"} bg-slate-200/70 print:text-black`}>
                           {(report.adjustedClosingBalance ?? report.netBalance) < 0 ? "-" : ""}৳ {Math.abs(report.adjustedClosingBalance ?? report.netBalance).toLocaleString('bn-BD')}
                         </td>
@@ -317,7 +316,7 @@ export default function AccountingReportPage() {
                       {month}/{year} মাসে <strong>{funds.find((f) => f.id === selectedFundId)?.name || "ফান্ডে"}</strong> মোট আদায় হয়েছে <strong>৳{report.totalIncome.toLocaleString('bn-BD')}</strong> এবং ব্যয় হয়েছে <strong>৳{report.totalExpense.toLocaleString('bn-BD')}</strong>। 
                       চলতি মাসের নিট স্থিতি <strong className={report.netBalance >= 0 ? 'text-emerald-600 print:text-black' : 'text-red-600 print:text-black'}>
                         {report.netBalance < 0 ? '-' : ''}৳{Math.abs(report.netBalance).toLocaleString('bn-BD')}
-                      </strong> এবং পূর্বের জের (<strong>{(report.previousBalance ?? 0) < 0 ? '-' : ''}৳{Math.abs(report.previousBalance ?? 0).toLocaleString('bn-BD')}</strong>) সমন্বয় শেষে সমাপনী স্থিতি দাঁড়াচ্ছে <strong className={(report.adjustedClosingBalance ?? report.netBalance) >= 0 ? 'text-blue-700 print:text-black' : 'text-amber-700 print:text-black'}>
+                      </strong> এবং পূর্বের জের (<strong>{(report.previousBalance ?? 0) < 0 ? '-' : ''}৳{Math.abs(report.previousBalance ?? 0).toLocaleString('bn-BD')}</strong>) ও জার্নাল সমন্বয় শেষে সমাপনী স্থিতি দাঁড়াচ্ছে <strong className={(report.adjustedClosingBalance ?? report.netBalance) >= 0 ? 'text-blue-700 print:text-black' : 'text-amber-700 print:text-black'}>
                         {(report.adjustedClosingBalance ?? report.netBalance) < 0 ? '-' : ''}৳{Math.abs(report.adjustedClosingBalance ?? report.netBalance).toLocaleString('bn-BD')}
                       </strong>।
                     </>
@@ -326,7 +325,7 @@ export default function AccountingReportPage() {
                       {month}/{year} মাসে মাদরাসার মোট আয় হয়েছে <strong>৳{report.totalIncome.toLocaleString('bn-BD')}</strong> এবং মোট ব্যয় হয়েছে <strong>৳{report.totalExpense.toLocaleString('bn-BD')}</strong>। 
                       চলতি মাসের নিট স্থিতি <strong className={report.netBalance >= 0 ? 'text-emerald-600 print:text-black' : 'text-red-600 print:text-black'}>
                         {report.netBalance < 0 ? '-' : ''}৳{Math.abs(report.netBalance).toLocaleString('bn-BD')}
-                      </strong> এবং পূর্ববর্তী মাসের জের (<strong>{(report.previousBalance ?? 0) < 0 ? '-' : ''}৳{Math.abs(report.previousBalance ?? 0).toLocaleString('bn-BD')}</strong>) সমন্বয় শেষে সমাপনী স্থিতি দাঁড়াচ্ছে <strong className={(report.adjustedClosingBalance ?? report.netBalance) >= 0 ? 'text-blue-700 print:text-black' : 'text-amber-700 print:text-black'}>
+                      </strong> এবং পূর্ববর্তী মাসের জের (<strong>{(report.previousBalance ?? 0) < 0 ? '-' : ''}৳{Math.abs(report.previousBalance ?? 0).toLocaleString('bn-BD')}</strong>) ও জার্নাল সমন্বয় শেষে সমাপনী স্থিতি দাঁড়াচ্ছে <strong className={(report.adjustedClosingBalance ?? report.netBalance) >= 0 ? 'text-blue-700 print:text-black' : 'text-amber-700 print:text-black'}>
                         {(report.adjustedClosingBalance ?? report.netBalance) < 0 ? '-' : ''}৳{Math.abs(report.adjustedClosingBalance ?? report.netBalance).toLocaleString('bn-BD')}
                       </strong>।
                     </>

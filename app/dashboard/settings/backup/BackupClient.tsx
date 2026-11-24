@@ -365,7 +365,7 @@ export default function BackupClient({
   const [selectedRestoreModules, setSelectedRestoreModules] = useState<BackupModuleKey[]>(
     MODULE_DEFINITIONS.map((m) => m.key)
   );
-  const [createAutoSnapshot, setCreateAutoSnapshot] = useState(true);
+
   // ⛔ সিলেক্টিভ রিস্টোর: আংশিক নির্বাচনে যদি শিক্ষার্থী/ক্লাস/বিষয়/পরীক্ষার মতো
   // parent টেবিল থাকে, তাহলে Clean Replace নিষিদ্ধ — কারণ delete() করলে FK CASCADE-এ
   // ফি, হাজিরা, রেজাল্ট ইত্যাদি নির্ভরশীল ডেটা মুছে যাবে (সার্ভারের গার্ডের সাথে মিলিত)।
@@ -386,12 +386,11 @@ export default function BackupClient({
   } | null>(null);
 
   // Factory Reset / Data Wipe States
-  const [wipeScope, setWipeScope] = useState<"all" | "academics" | "finance">("all");
+  const wipeChoices={attendance:'হাজিরা',exams:'পরীক্ষা',hifz_kitab:'হিফজ ও কিতাব লগ'};
+  const [wipeModule,setWipeModule]=useState<keyof typeof wipeChoices | ''>('');
   const [wipeConfirmationPhrase, setWipeConfirmationPhrase] = useState("");
   const [wipeConfirmedCheckbox, setWipeConfirmedCheckbox] = useState(false);
   const [autoDownloadPreWipe, setAutoDownloadPreWipe] = useState(true);
-  const [preserveTeachers, setPreserveTeachers] = useState(true);
-  const [preserveSessions, setPreserveSessions] = useState(true);
   const [isWiping, setIsWiping] = useState(false);
   const [wipeResult, setWipeResult] = useState<{
     success: boolean;
@@ -466,9 +465,10 @@ export default function BackupClient({
       // ⛔ সিলেক্টিভ ব্যাকআপ ফিক্স: আগে আংশিক নির্বাচনেও "সকল ... ১০০%" দাবি করা হতো।
       const isFullSelection = modules.length === MODULE_DEFINITIONS.length;
       setExportSuccessMessage(
-        isFullSelection
-          ? `সফল হয়েছে! মাদ্রাসার সম্পূর্ণ ব্যাকআপ (${modules.length} টি মডিউল) ডাউনলোড সম্পন্ন হয়েছে।`
-          : `সফল হয়েছে! শুধুমাত্র নির্বাচিত ${modules.length} টি মডিউলের ডেটা সহ ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে — বাকি মডিউলের কোনো তথ্য ফাইলে নেই।`
+        (isFullSelection
+          ? `সফল হয়েছে! মাদ্রাসার অ্যাপ ডেটার ব্যাকআপ (${modules.length} টি মডিউল) ডাউনলোড সম্পন্ন হয়েছে।`
+          : `সফল হয়েছে! শুধুমাত্র নির্বাচিত ${modules.length} টি মডিউলের ডেটা সহ ব্যাকআপ ডাউনলোড সম্পন্ন হয়েছে — বাকি মডিউলের কোনো তথ্য ফাইলে নেই।`) +
+          (res.backupPayload?.manifest.cold_backup_required_for?.length ? " মেমোর ছবি এই ফাইলে নেই; ছবি পুনরুদ্ধারে private database backup লাগবে।" : "")
       );
     } catch (err: any) {
       alert("ব্যাকআপ ডাউনলোডে ত্রুটি: " + (err.message || String(err)));
@@ -716,7 +716,7 @@ export default function BackupClient({
           backupPayload: analyzedData.parsedPayload,
           restoreMode: restoreMode,
           selectedModules: selectedRestoreModules,
-          createAutoSnapshot: createAutoSnapshot,
+          createAutoSnapshot: true,
         }),
       });
 
@@ -764,13 +764,8 @@ export default function BackupClient({
       return;
     }
 
-    const scopeLabel =
-      wipeScope === "all"
-        ? "মাদরাসার সম্পূর্ণ ডাটাবেজ (সকল শিক্ষার্থী, ক্লাস, পরীক্ষা, ফি, হিসাব ও অনুদান)"
-        : wipeScope === "academics"
-        ? "সকল শিক্ষার্থী, ভর্তি, ক্লাস, রুটিন, হিফজ ও পরীক্ষার ডাটা"
-        : "সকল ফি, পেমেন্ট, খরচ, যাকাত ও অনুদানের আর্থিক ডাটা";
-
+    if(!wipeModule) return;
+    const scopeLabel=wipeChoices[wipeModule];
     const isDoubleConfirmed = window.confirm(
       `⚠️ চূড়ান্ত সতর্কবার্তা!\n\nআপনি "${scopeLabel}" স্থায়ীভাবে মুছে ফেলতে যাচ্ছেন।\n\nআপনি কি নিশ্চিতভাবে এই ডাটা রিসেট করতে চান?`
     );
@@ -782,10 +777,9 @@ export default function BackupClient({
       setWipeResult(null);
 
       const res = await executeMadrasaDataWipe({
-        scope: wipeScope,
+        scope: "custom",
+        selectedModules:[wipeModule],
         confirmationPhrase: wipeConfirmationPhrase,
-        preserveTeachersAndStaff: preserveTeachers,
-        preserveSessions: preserveSessions,
       });
 
       setWipeResult(res);
@@ -839,11 +833,11 @@ export default function BackupClient({
               </h1>
               <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-xs px-3 py-1 rounded-full font-bold border border-emerald-200">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>ইউনিভার্সাল জিরো-লস আর্কিটেকচার</span>
+                <span>মডিউলভিত্তিক এক্সপোর্ট</span>
               </span>
             </div>
             <p className="text-slate-600 text-sm max-w-3xl leading-relaxed">
-              যাকাত, ডোনেশন, শিক্ষার্থী, ফি লেজার, হিফজ অগ্রগতি, পরীক্ষা, আইডি কার্ড, মেস ও সেটিংসসহ মাদরাসার ২৬+ মডিউলের ১০০% ডাটা চিরতরে সুরক্ষিত ও স্বয়ংক্রিয় ব্যাকআপের আওতায়।
+              এই JSON এক্সপোর্ট ডাটাবেজ স্ন্যাপশট নয়। আর্থিক খাতা, ছাত্র, শ্রেণি ও শিক্ষাবর্ষের Restore/Wipe এখানে বন্ধ। এগুলোর জন্য বিচ্ছিন্ন ডাটাবেজ কপিতে হিসাব মিলিয়ে অনুমোদিত পুনরুদ্ধার প্রয়োজন।
             </p>
           </div>
 
@@ -1143,6 +1137,8 @@ export default function BackupClient({
                   >
                     <input
                       type="checkbox"
+                      aria-label={mod.name}
+                      value={mod.key}
                       checked={isChecked}
                       onChange={() => {}} // handled by parent div
                       className="mt-1 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
@@ -1502,8 +1498,7 @@ export default function BackupClient({
                 <label className="flex items-center gap-2.5 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={createAutoSnapshot}
-                    onChange={(e) => setCreateAutoSnapshot(e.target.checked)}
+                    checked disabled
                     className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
                   />
                   <span>
@@ -1647,7 +1642,7 @@ export default function BackupClient({
                             ? "এক্সপোর্ট ব্যাকআপ"
                             : entry.type === "AUTO_SNAPSHOT"
                             ? "সেফটি স্ন্যাপশট"
-                            : "ডাটা রিস্টোর"}
+                            : entry.type === "SCOPED_WIPE" ? "নির্বাচিত রেকর্ড মোছা" : "ডাটা রিস্টোর"}
                         </span>
                       </td>
                       <td className="p-3.5 whitespace-nowrap">
@@ -1674,6 +1669,7 @@ export default function BackupClient({
                       </td>
                       <td className="p-3.5 text-slate-600 max-w-xs truncate">
                         {entry.note || "সাধারণ সিস্টেম অপারেশন"}
+                        {entry.storage_path && <small className="block break-all">{entry.id} · {entry.storage_path}</small>}
                       </td>
                     </tr>
                   ))}
@@ -1699,13 +1695,13 @@ export default function BackupClient({
                 </div>
                 <div>
                   <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                    <span>মাদরাসার ডাটাবেজ মোছা ও ফ্যাক্টরি রিসেট</span>
+                    <span>নির্বাচিত মডিউলের রেকর্ড মোছা</span>
                     <span className="bg-rose-100 text-rose-800 text-xs px-2.5 py-0.5 rounded-full font-bold border border-rose-200">
                       অ্যাডমিন ডেন্জার জোন
                     </span>
                   </h2>
                   <p className="text-slate-600 text-xs sm:text-sm mt-1">
-                    নতুন শিক্ষাবর্ষের সূচনায় ডাটাবেজ নতুনায়নের জন্য অথবা প্রাথমিক রেকর্ড সম্পূর্ণ পরিষ্কার করতে এই অপশনটি ব্যবহার করুন।
+                    হিসাব, শিক্ষার্থী, মূল প্রোফাইল ও শিক্ষাবর্ষ মোছা এখানে বন্ধ।
                   </p>
                 </div>
               </div>
@@ -1713,14 +1709,14 @@ export default function BackupClient({
               <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3 text-rose-900 text-xs sm:text-sm leading-relaxed">
                 <AlertOctagon className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                 <div>
-                  <strong>সতর্কতা:</strong> এটি একটি অপরিবর্তনযোগ্য (Irreversible) প্রক্রিয়া। ডাটা মুছে ফেলার পর আর পূর্বাবস্থায় ফিরিয়ে আনা যাবে না, যদি না আপনার কাছে পূর্বে ডাউনলোড করা কোনো ব্যাকআপ ফাইল থাকে। তবে সুরক্ষার জন্য <strong>ডাটা মোছার সাথে সাথে সিস্টেম স্বয়ংক্রিয়ভাবে সম্পূর্ণ ব্যাকআপ ডাউনলোড করে দিবে।</strong>
+                  <strong>সতর্কতা:</strong> এটি একটি অপরিবর্তনযোগ্য (Irreversible) প্রক্রিয়া। ডাটা মুছে ফেলার পর আর পূর্বাবস্থায় ফিরিয়ে আনা যাবে না, যদি না আপনার কাছে পূর্বে ডাউনলোড করা কোনো ব্যাকআপ ফাইল থাকে। <strong>শুধু নির্বাচিত অংশের কপি private storage-এ সংরক্ষণ ও যাচাই হওয়ার পরই মোছা যাবে।</strong>
                 </div>
               </div>
             </div>
 
             {/* Post-Wipe Result Card */}
             {wipeResult && (
-              <div
+              <div role={wipeResult.success?"status":"alert"}
                 className={`p-5 rounded-2xl border transition animate-fadeIn ${
                   wipeResult.success
                     ? "bg-emerald-50 border-emerald-300 text-emerald-900"
@@ -1735,7 +1731,7 @@ export default function BackupClient({
                   )}
                   <div className="space-y-2 flex-1">
                     <h4 className="font-bold text-base">
-                      {wipeResult.success ? "ডাটাবেজ সফলভাবে রিসেট হয়েছে" : "ডাটা মুছতে ব্যর্থ হয়েছে"}
+                      {wipeResult.success ? "নির্বাচিত রেকর্ড মোছা হয়েছে" : "ডাটা মুছতে ব্যর্থ হয়েছে"}
                     </h4>
                     <p className="text-xs leading-relaxed">{wipeResult.message}</p>
                     {wipeResult.error && (
@@ -1776,83 +1772,11 @@ export default function BackupClient({
               </div>
             )}
 
-            {/* Scope Selection */}
-            <div className="space-y-3 pt-2">
-              <label className="block text-xs sm:text-sm font-bold text-slate-800">
-                ১. আপনি কোন ডাটা মুছে ফেলতে চান তা নির্বাচন করুন:
-              </label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                <button
-                  type="button"
-                  onClick={() => setWipeScope("all")}
-                  className={`p-4 rounded-2xl border text-left transition relative cursor-pointer ${
-                    wipeScope === "all"
-                      ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
-                      : "border-slate-200 hover:border-slate-300 bg-white"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                      <Trash2 className="w-4 h-4 text-rose-600" />
-                      <span>সম্পূর্ণ মাদরাসা রিসেট</span>
-                    </span>
-                    {wipeScope === "all" && (
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse" />
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                    ছাত্র, ভর্তি, ক্লাস, রুটিন, হিফজ, হাজিরা, পরীক্ষা, ফি, পেমেন্ট, খরচ, অনুদানসহ মাদরাসার সমস্ত অপারেশনাল ডাটা মুছে নতুন ফ্রেশ শুরু।
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setWipeScope("academics")}
-                  className={`p-4 rounded-2xl border text-left transition relative cursor-pointer ${
-                    wipeScope === "academics"
-                      ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
-                      : "border-slate-200 hover:border-slate-300 bg-white"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                      <GraduationCap className="w-4 h-4 text-blue-600" />
-                      <span>শুধুমাত্র শিক্ষা ও শিক্ষার্থী ডাটা</span>
-                    </span>
-                    {wipeScope === "academics" && (
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse" />
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                    ছাত্র, ভর্তি, জামাত, বিষয়, রুটিন, হিফজ ও পরীক্ষার সমস্ত ফলাফল মুছবে। হিসাব, ফি ও ডোনেশন ডাটা অপরিবর্তিত থাকবে।
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setWipeScope("finance")}
-                  className={`p-4 rounded-2xl border text-left transition relative cursor-pointer ${
-                    wipeScope === "finance"
-                      ? "border-rose-600 bg-rose-50/70 ring-2 ring-rose-500/20"
-                      : "border-slate-200 hover:border-slate-300 bg-white"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                      <Wallet className="w-4 h-4 text-emerald-600" />
-                      <span>শুধুমাত্র আর্থিক ও হিসাব ডাটা</span>
-                    </span>
-                    {wipeScope === "finance" && (
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse" />
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                    ছাত্র ফি, রসিদ, দৈনিক ক্যাশবুক, খরচ, বাজার ভাউচার, যাকাত ও অনুদান খাতা মুছবে। ছাত্র ও ক্লাসের ডাটা অপরিবর্তিত থাকবে।
-                  </p>
-                </button>
-              </div>
-            </div>
-
+            <label className="block text-sm font-bold text-slate-800">মোছার জন্য একটি মডিউল নির্বাচন করুন
+              <select aria-label="মোছার মডিউল" value={wipeModule} onChange={e=>{setWipeModule(e.target.value as typeof wipeModule);setWipeConfirmedCheckbox(false);setWipeConfirmationPhrase('');setWipeResult(null)}} className="block mt-2 p-2 border rounded-lg">
+                <option value="">নির্বাচন করুন</option>{Object.entries(wipeChoices).map(([k,v])=><option value={k} key={k}>{v}</option>)}
+              </select>
+            </label>
             {/* Safety Options */}
             <div className="space-y-3 pt-2">
               <label className="block text-xs sm:text-sm font-bold text-slate-800">
@@ -1872,31 +1796,7 @@ export default function BackupClient({
                   </div>
                 </label>
 
-                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={preserveTeachers}
-                    onChange={(e) => setPreserveTeachers(e.target.checked)}
-                    className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                  />
-                  <div className="text-xs">
-                    <span className="font-bold text-slate-800 block">উস্তাদ ও স্টাফ অ্যাকাউন্ট অক্ষুণ্ণ রাখুন</span>
-                    <span className="text-slate-500">লগইন আইডি মুছে যাবে না</span>
-                  </div>
-                </label>
 
-                <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={preserveSessions}
-                    onChange={(e) => setPreserveSessions(e.target.checked)}
-                    className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                  />
-                  <div className="text-xs">
-                    <span className="font-bold text-slate-800 block">বর্তমান শিক্ষাবর্ষ অক্ষুণ্ণ রাখুন</span>
-                    <span className="text-slate-500">অ্যাক্টিভ সেশন বহাল থাকবে</span>
-                  </div>
-                </label>
               </div>
             </div>
 
@@ -1908,7 +1808,7 @@ export default function BackupClient({
 
               <label className="flex items-start gap-3 p-3.5 bg-rose-50/80 rounded-xl border border-rose-200 cursor-pointer">
                 <input
-                  type="checkbox"
+                  type="checkbox" aria-label="নির্বাচিত মডিউল মোছার সম্মতি"
                   checked={wipeConfirmedCheckbox}
                   onChange={(e) => setWipeConfirmedCheckbox(e.target.checked)}
                   className="mt-1 rounded text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
@@ -1935,9 +1835,9 @@ export default function BackupClient({
               <div className="pt-3 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
-                  onClick={handleExecuteWipe}
+                  aria-label="নির্বাচিত রেকর্ড মুছুন" onClick={handleExecuteWipe}
                   disabled={
-                    isWiping ||
+                    !wipeModule || isWiping ||
                     !wipeConfirmedCheckbox ||
                     !(
                       ["DELETE ALL DATA", "মুছে ফেলুন", "DELETE", "WIPE", "RESET", "রিসেট"].some(
@@ -1958,11 +1858,7 @@ export default function BackupClient({
                     <>
                       <Trash2 className="w-4 h-4" />
                       <span>
-                        {wipeScope === "all"
-                          ? "সম্পূর্ণ মাদরাসার ডাটা মুছে ফেলুন (Factory Reset)"
-                          : wipeScope === "academics"
-                          ? "শিক্ষা ও শিক্ষার্থী ডাটা মুছে ফেলুন"
-                          : "আর্থিক ও হিসাব ডাটা মুছে ফেলুন"}
+                        নির্বাচিত মডিউলের ডাটা মুছে ফেলুন
                       </span>
                     </>
                   )}

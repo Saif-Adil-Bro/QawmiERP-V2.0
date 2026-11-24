@@ -1,3 +1,5 @@
+import {financeReadPermissions,financeDeniedRoles,financeRoles as FINANCE_ROLE_NAMES,financeWritePermissions as FINANCE_PERMS} from './finance/access';
+export {canReadSchoolFinance} from './finance/access';
 import { HEALTH_ROLES } from "@/lib/student-health/model";
 import { cache } from "react";
 import { createAdminClient, getWebAppSession } from "@/lib/supabase/server";
@@ -30,6 +32,7 @@ export { logAuditEvent };
  */
 
 export type ModuleKey =
+  | "financeRead"
   | "finance"
   | "zakat"
   | "fundraising"
@@ -48,6 +51,7 @@ export type ModuleKey =
   | "inventory"
   | "communication"
   | "boarding"
+  | "staffRead"
   | "staff"
   | "sessions"
   | "admissions"
@@ -78,23 +82,6 @@ type ModulePolicy = {
 /** পোর্টাল ব্যবহারকারীরা ড্যাশবোর্ডের write action সরাসরি চালাতে পারবেন না। */
 const PORTAL_ROLES = ["student", "parent", "guardian", "guardian_student"];
 
-const FINANCE_PERMS = [
-  "finance.create",
-  "finance.edit",
-  "finance.approve",
-  "fee.create",
-  "fee.edit",
-  "fee.approve",
-];
-
-const FINANCE_ROLE_NAMES = [
-  "super_admin",
-  "admin",
-  "muhtamim",
-  "naib_muhtamim",
-  "accountant",
-];
-
 const ACADEMIC_ROLES = [
   "super_admin",
   "admin",
@@ -111,18 +98,22 @@ const ACADEMIC_ROLES = [
 
 export const MODULE_POLICIES: Record<ModuleKey, ModulePolicy> = {
   // ── টাকার লেনদেন: কঠোর নীতি ───────────────────────────────────────────────
+  financeRead:{permissions:financeReadPermissions,roles:FINANCE_ROLE_NAMES,denyRoles:financeDeniedRoles,errorMessage:"হিসাব দেখার অনুমতি নেই।"},
   finance: {
     permissions: FINANCE_PERMS,
+    denyRoles: financeDeniedRoles,
     roles: FINANCE_ROLE_NAMES,
     errorMessage: "আর্থিক লেনদেন করার অনুমতি আপনার নেই।",
   },
   zakat: {
     permissions: FINANCE_PERMS,
+    denyRoles: financeDeniedRoles,
     roles: FINANCE_ROLE_NAMES,
     errorMessage: "যাকাত/অনুদান সংক্রান্ত কাজের অনুমতি আপনার নেই।",
   },
   fundraising: {
     permissions: FINANCE_PERMS,
+    denyRoles: financeDeniedRoles,
     roles: FINANCE_ROLE_NAMES,
     errorMessage: "ফান্ডরেইজিং/ফান্ড পরিচালনার অনুমতি আপনার নেই।",
   },
@@ -229,6 +220,10 @@ export const MODULE_POLICIES: Record<ModuleKey, ModulePolicy> = {
     roles: ["super_admin", "admin", "muhtamim", "naib_muhtamim", "office_staff", "accountant"],
     denyRoles: PORTAL_ROLES,
   },
+  staffRead: {
+    permissions:["staff.view","staff.edit","staff.create","staff.salary.view","staff.salary.manage","hr.manage"],
+    roles:["super_admin","admin","muhtamim","naib_muhtamim","hr_manager","office_staff"],denyRoles:financeDeniedRoles,
+  },
   staff: {
     permissions: ["staff.create", "staff.edit", "staff.archive", "staff.salary.manage", "hr.manage"],
     roles: ["super_admin", "admin", "muhtamim", "naib_muhtamim", "hr_manager", "office_staff"],
@@ -322,9 +317,9 @@ export const MODULE_POLICIES: Record<ModuleKey, ModulePolicy> = {
     errorMessage: "আর্থিক ও বোর্ডিং অসঙ্গতি দেখার অনুমতি আপনার নেই।",
   },
   bi: {
-    permissions: ["dashboard.analytics", "finance.view", "audit.view"],
+    permissions: financeReadPermissions,
     roles: ["super_admin", "admin", "muhtamim", "naib_muhtamim", "accountant"],
-    denyRoles: PORTAL_ROLES,
+    denyRoles: financeDeniedRoles,
     errorMessage: "এক্সিকিউটিভ BI ড্যাশবোর্ড দেখার অনুমতি আপনার নেই।",
   },
 
@@ -355,6 +350,7 @@ export type ActionGuardAllowed = {
   actorEmail?: string;
   actorRole?: string;
   roles?: string[];
+  permissions?: string[];
   /** বাউন্ড অডিট লগার — `writeGuard` থেকেই সরাসরি অপরিবর্তনীয় `system_audit_logs`-এ লগ করার জন্য */
   logAudit: (payload: BoundAuditPayload) => Promise<{
     success: boolean;
@@ -436,6 +432,8 @@ async function resolveGuardUncached(
 
     const policy = MODULE_POLICIES[module] || MODULE_POLICIES.generic;
 
+    if(policy.denyRoles?.includes(String(userRow?.role).toLowerCase()))return denied(policy.errorMessage || "অনুমতি নেই।","FORBIDDEN");
+
     const result = await requirePermission({
       userId: user.id,
       madrasaId,
@@ -513,6 +511,7 @@ async function resolveGuardUncached(
       actorEmail,
       actorRole,
       roles: result.context?.roles || (actorRole ? [actorRole] : []),
+      permissions:result.context?.summary.effectivePermissions || [],
       logAudit: boundLogAudit,
     };
   } catch (err) {

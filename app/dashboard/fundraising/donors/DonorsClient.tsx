@@ -1,7 +1,7 @@
 "use client";
 
 import { toDhakaDateString, toDhakaMonthString, getDhakaYear } from "@/lib/date-utils";
-import { useState } from "react";
+import { useEffect,useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Users,
@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   X
 } from "lucide-react";
+import { exactFundLabel, type FundItem } from "@/lib/fund-utils";
 import { Donor, DonorPayment } from "@/lib/fundraising-types";
 import { saveDonor, deleteDonor, recordDonorPayment } from "@/app/actions/fundraising";
 import { numberToBanglaWords } from "@/lib/utils";
@@ -90,11 +91,11 @@ function getNextReceiptSerial(currentPayments: DonorPayment[]): string {
 
 export default function DonorsClient({
   initialDonors,
-  initialPayments,
+  initialPayments, funds,
   madrasaInfo,
 }: {
   initialDonors: Donor[];
-  initialPayments: DonorPayment[];
+  initialPayments: DonorPayment[]; funds: FundItem[];
   madrasaInfo?: any;
 }) {
   const router = useRouter();
@@ -123,23 +124,25 @@ export default function DonorsClient({
     selectedMonthNum: selectedMonth.split("-")[1] || String(new Date().getMonth() + 1).padStart(2, "0"),
     payment_method: "Cash",
     trx_id: "",
-    fund_category: "সাধারণ ফান্ড",
+    fund_id:"",
     receipt_no: "MR-0001",
     collector_name: "",
     notes: "",
     confirmDuplicate: false,
   });
 
-  // Calculate dynamic total donated per donor from payments records
+  useEffect(()=>setDonors(initialDonors),[initialDonors]);
+  useEffect(()=>setPayments(initialPayments),[initialPayments]);
+  const [historyId,setHistoryId]=useState<string|null>(null);
+  const historyDonor=donors.find(d=>d.id===historyId);
+  // Totals and the selected history use the same reconciled receipt rows.
   const getDonorTotalDonated = (donor: Donor) => {
-    const donorPayments = payments.filter((p) => p.donor_id === donor.id);
-    const sum = donorPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
-    return sum > 0 ? sum : (donor.total_donated || 0);
+    return payments.filter(p=>p.donor_id===donor.id && p.status!=='VOID').reduce((n,p)=>n+Math.round(p.amount*100),0)/100;
   };
 
   // Find next unpaid month for a donor to prevent accidental duplicates
   const getSuggestedMonthForDonor = (donorId: string, preferredMonth: string) => {
-    const donorPayments = payments.filter((p) => p.donor_id === donorId);
+    const donorPayments = payments.filter((p) => p.donor_id === donorId && p.status!=="VOID");
     const paidMonths = new Set(donorPayments.map((p) => p.month));
     if (!paidMonths.has(preferredMonth)) {
       return preferredMonth;
@@ -176,8 +179,8 @@ export default function DonorsClient({
   const filteredDonors = donors.filter((d) => {
     const matchesSearch =
       d.name.toLowerCase().includes(search.toLowerCase()) ||
-      d.member_no.toLowerCase().includes(search.toLowerCase()) ||
-      d.phone.includes(search) ||
+      (d.member_no || "").toLowerCase().includes(search.toLowerCase()) ||
+      (d.phone || "").includes(search) ||
       (d.address && d.address.toLowerCase().includes(search.toLowerCase()));
     const matchesType = typeFilter === "ALL" || (d.membership_type || d.member_type) === typeFilter;
     const matchesStatus = statusFilter === "ALL" || d.status === statusFilter;
@@ -187,10 +190,10 @@ export default function DonorsClient({
   // Calculate stats
   const lifeMembers = donors.filter((d) => (d.membership_type || d.member_type) === "LIFE_MEMBER");
   const monthlyDonors = donors.filter((d) => (d.membership_type || d.member_type) === "MONTHLY" || (d.membership_type || d.member_type) === "MONTHLY_DONOR");
-  const totalMonthlyCommitment = donors.reduce((acc, d) => acc + (d.committed_amount || d.pledge_amount || 0), 0);
+  const totalMonthlyCommitment = donors.reduce((acc, d) => acc + (d.committed_amount ?? d.pledge_amount ?? 0), 0);
 
   // Month-wise payments
-  const currentMonthPayments = payments.filter((p) => p.month === selectedMonth);
+  const currentMonthPayments = payments.filter((p) => p.status!=="VOID" && p.month === selectedMonth);
   const currentMonthCollected = currentMonthPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
   const paidDonorIds = new Set(currentMonthPayments.map((p) => p.donor_id));
 
@@ -281,13 +284,13 @@ export default function DonorsClient({
     const nextReceiptNo = getNextReceiptSerial(payments);
 
     setPaymentFormData({
-      amount: donor.committed_amount || donor.pledge_amount || 1000,
+      amount: donor.committed_amount ?? donor.pledge_amount ?? 0,
       month: suggestedMonth,
       selectedYear: sYear || String(getDhakaYear()),
       selectedMonthNum: sMonth || String(new Date().getMonth() + 1).padStart(2, "0"),
       payment_method: "Cash",
       trx_id: "",
-      fund_category: donor.preferred_fund || "সাধারণ ফান্ড",
+      fund_id: exactFundLabel(funds,donor.preferred_fund)?.id || "",
       receipt_no: nextReceiptNo,
       collector_name: "",
       notes: "",
@@ -302,7 +305,7 @@ export default function DonorsClient({
 
     // Check if selected month already has a payment for this donor
     const existingPaid = payments.find(
-      (p) => p.donor_id === selectedDonorForPayment.id && p.month === paymentFormData.month
+      (p) => p.status!=="VOID" && p.donor_id === selectedDonorForPayment.id && p.month === paymentFormData.month
     );
     if (existingPaid && !paymentFormData.confirmDuplicate) {
       alert(
@@ -320,7 +323,7 @@ export default function DonorsClient({
         date: toDhakaDateString(),
         payment_method: paymentFormData.payment_method as any,
         trx_id: paymentFormData.trx_id,
-        fund_category: paymentFormData.fund_category,
+        fund_id: paymentFormData.fund_id,
         receipt_no: paymentFormData.receipt_no,
         collector_name: paymentFormData.collector_name,
         notes: paymentFormData.notes,
@@ -335,34 +338,9 @@ export default function DonorsClient({
       setPaymentModalOpen(false);
       router.refresh();
 
-      const newPayment: DonorPayment = {
-        id: res.id || `pay_${Date.now()}`,
-        donor_id: selectedDonorForPayment.id,
-        donor_name: selectedDonorForPayment.name,
-        amount: Number(paymentFormData.amount),
-        month: paymentFormData.month,
-        date: toDhakaDateString(),
-        payment_date: toDhakaDateString(),
-        payment_method: paymentFormData.payment_method as any,
-        trx_id: paymentFormData.trx_id,
-        fund_name: paymentFormData.fund_category,
-        fund_category: paymentFormData.fund_category,
-        receipt_no: paymentFormData.receipt_no,
-        collector_name: paymentFormData.collector_name,
-        collected_by: paymentFormData.collector_name,
-        notes: paymentFormData.notes,
-        created_at: new Date().toISOString(),
-      };
-
-      setPayments((prev) => [newPayment, ...prev]);
-      setDonors((prev) =>
-        prev.map((d) =>
-          d.id === selectedDonorForPayment.id
-            ? { ...d, total_donated: getDonorTotalDonated(d) + Number(paymentFormData.amount) }
-            : d
-        )
-      );
-
+      // Only show/print the server-confirmed amount, date, ID and number.
+      if(!res.success || !res.payment?.id){alert('চাঁদা জমা নিশ্চিত হয়নি। হিসাব যাচাই করুন।');return;}
+      const newPayment=res.payment;
       // Trigger Instant Printable Receipt
       setReceiptToPrint({ donor: selectedDonorForPayment, payment: newPayment });
     } catch (err) {
@@ -373,7 +351,7 @@ export default function DonorsClient({
   };
 
   const handleCopySms = (donor: Donor) => {
-    const amount = donor.committed_amount || donor.pledge_amount || 0;
+    const amount = donor.committed_amount ?? donor.pledge_amount ?? 0;
     const text = `আসসালামু আলাইকুম মুহতারাম ${donor.name} ছাহেব, মারকাযের মাসিক প্রতিশ্রুত অনুদান (৳${amount}) চলতি মাসের জন্য বকেয়া রয়েছে। দ্বীনি খেদমতের অংশ হিসেবে পাঠানোর অনুরোধ রইল। জাযাকাল্লাহু খাইরান।`;
     navigator.clipboard.writeText(text);
     setCopiedId(donor.id);
@@ -607,7 +585,7 @@ export default function DonorsClient({
                             </span>
                           </td>
                           <td className="py-3 px-4 font-bold text-slate-900">
-                            ৳ {toBanglaNumber(donor.committed_amount || donor.pledge_amount || 0)}
+                            ৳ {toBanglaNumber(donor.committed_amount ?? donor.pledge_amount ?? 0)}
                           </td>
                           <td className="py-3 px-4 font-bold text-emerald-700">
                             ৳ {toBanglaNumber(getDonorTotalDonated(donor))}
@@ -615,6 +593,7 @@ export default function DonorsClient({
                           <td className="py-3 px-4 text-slate-600">{donor.preferred_fund}</td>
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button type="button" data-history-for={donor.id} onClick={()=>setHistoryId(donor.id)} className="px-2 py-1 text-emerald-800 font-bold">খতিয়ান</button>
                               <button
                                 onClick={() => handleOpenPaymentModal(donor)}
                                 className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded text-[11px] transition-colors flex items-center gap-1"
@@ -658,6 +637,13 @@ export default function DonorsClient({
       )}
 
       {/* ========================================================================= */}
+      {historyDonor && <dialog open aria-label="দাতার খতিয়ান" className="fixed inset-0 z-50 m-auto w-[min(95vw,48rem)] rounded-xl border p-4 shadow-lg">
+        <header className="flex justify-between gap-3"><h3 className="font-bold">{historyDonor.name} · দাতার খতিয়ান</h3><button type="button" onClick={()=>setHistoryId(null)}>বন্ধ করুন</button></header>
+        <p className="my-3">মোট জমা (বাতিল বাদে): ৳ {toBanglaNumber(getDonorTotalDonated(historyDonor))}</p>
+        <div className="max-h-[60vh] overflow-auto"><table className="w-full text-left text-sm"><thead><tr>{['তারিখ','রসিদ / রেকর্ড','খাত ও ফান্ড','অঙ্ক','অবস্থা'].map(h=><th key={h} scope="col" className="p-2">{h}</th>)}</tr></thead><tbody>
+          {payments.filter(p=>p.donor_id===historyDonor.id).map(p=><tr key={`${p.id}:${p.fund_id}`} className="border-t"><td className="p-2">{p.payment_date}</td><td>{p.receipt_no || `রেকর্ড: ${p.id}`}</td><td>{p.category} · {p.fund_name}{p.month && ` (${formatMonthBangla(p.month)})`}</td><td>৳ {toBanglaNumber(p.amount)}</td><td>{p.status==='VOID'?'বাতিল (VOID)':'জমা'}</td></tr>)}
+        </tbody></table>{!payments.some(p=>p.donor_id===historyDonor.id) && <p>এই দাতার আইডিতে কোনো জমা নেই।</p>}</div>
+      </dialog>}
       {/* TAB 2: MONTHLY COLLECTION TRACKING & REMINDERS */}
       {/* ========================================================================= */}
       {activeTab === "collections" && (
@@ -773,7 +759,7 @@ export default function DonorsClient({
 
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="font-bold text-emerald-800 text-sm">৳ {toBanglaNumber(p.amount)}</span>
-                        {donor && (
+                        {donor && p.receipt_no && (
                           <button
                             onClick={() => setReceiptToPrint({ donor, payment: p })}
                             className="p-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg"
@@ -1084,7 +1070,7 @@ export default function DonorsClient({
                       {BENGALI_MONTHS.map((bm) => {
                         const checkMonth = `${paymentFormData.selectedYear}-${bm.value}`;
                         const isMonthPaid = payments.some(
-                          (p) => p.donor_id === selectedDonorForPayment.id && p.month === checkMonth
+                          (p) => p.status!=="VOID" && p.donor_id === selectedDonorForPayment.id && p.month === checkMonth
                         );
                         return (
                           <option key={bm.value} value={bm.value}>
@@ -1099,7 +1085,7 @@ export default function DonorsClient({
                 {/* Warning if already paid for the selected month */}
                 {(() => {
                   const existingPaid = payments.find(
-                    (p) => p.donor_id === selectedDonorForPayment.id && p.month === paymentFormData.month
+                    (p) => p.status!=="VOID" && p.donor_id === selectedDonorForPayment.id && p.month === paymentFormData.month
                   );
                   if (!existingPaid) return null;
 
@@ -1187,12 +1173,9 @@ export default function DonorsClient({
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">ফান্ড / খাত</label>
-                  <input
-                    type="text"
-                    value={paymentFormData.fund_category}
-                    onChange={(e) => setPaymentFormData(prev => ({ ...prev, fund_category: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg"
-                  />
+                  <select required value={paymentFormData.fund_id} onChange={e => setPaymentFormData(prev => ({...prev,fund_id:e.target.value}))} className="w-full px-3 py-2 border rounded-lg">
+                    <option value="">ফান্ড নির্বাচন করুন</option>{funds.map(f => <option key={f.id} value={f.id}>{f.name} ({f.code})</option>)}
+                  </select>
                 </div>
               </div>
 
@@ -1264,7 +1247,7 @@ export default function DonorsClient({
                       রসিদ নং: {receiptToPrint.payment.receipt_no}
                     </p>
                     <p className="text-[10px] text-slate-500">
-                      তারিখ: {toBanglaNumber(receiptToPrint.payment.payment_date || receiptToPrint.payment.date || toDhakaDateString())}
+                      তারিখ: {toBanglaNumber(receiptToPrint.payment.payment_date || receiptToPrint.payment.date || "—")}
                     </p>
                   </div>
                 </div>
@@ -1300,7 +1283,7 @@ export default function DonorsClient({
                   </div>
                   <div>
                     <span className="text-slate-500">ফান্ড / খাত: </span>
-                    <span className="font-semibold">{receiptToPrint.payment.fund_name || receiptToPrint.payment.fund_category || "সাধারণ তহবিল"}</span>
+                    <span className="font-semibold">{receiptToPrint.payment.fund_name || receiptToPrint.payment.fund_category || "ফান্ড যাচাই প্রয়োজন"}</span>
                   </div>
                   <div>
                     <span className="text-slate-500">পেমেন্ট মাধ্যম: </span>
@@ -1356,7 +1339,7 @@ export default function DonorsClient({
                       রসিদ নং: {receiptToPrint.payment.receipt_no}
                     </p>
                     <p className="text-[10px] text-slate-600">
-                      তারিখ: {toBanglaNumber(receiptToPrint.payment.payment_date || receiptToPrint.payment.date || toDhakaDateString())}
+                      তারিখ: {toBanglaNumber(receiptToPrint.payment.payment_date || receiptToPrint.payment.date || "—")}
                     </p>
                   </div>
                 </div>
@@ -1392,7 +1375,7 @@ export default function DonorsClient({
                   </div>
                   <div>
                     <span className="text-slate-500">ফান্ড / খাত: </span>
-                    <span className="font-semibold">{receiptToPrint.payment.fund_name || receiptToPrint.payment.fund_category || "সাধারণ তহবিল"}</span>
+                    <span className="font-semibold">{receiptToPrint.payment.fund_name || receiptToPrint.payment.fund_category || "ফান্ড যাচাই প্রয়োজন"}</span>
                   </div>
                   <div>
                     <span className="text-slate-500">পেমেন্ট মাধ্যম: </span>
@@ -1502,7 +1485,7 @@ export default function DonorsClient({
                            mType === "MONTHLY" || mType === "MONTHLY_DONOR" ? "মাসিক" :
                            mType === "YEARLY" ? "বার্ষিক" : "শুভাকাঙ্ক্ষী"}
                         </td>
-                        <td className="py-2 px-2 border font-bold">৳ {toBanglaNumber(d.committed_amount || d.pledge_amount || 0)}</td>
+                        <td className="py-2 px-2 border font-bold">৳ {toBanglaNumber(d.committed_amount ?? d.pledge_amount ?? 0)}</td>
                         <td className="py-2 px-2 border font-bold text-emerald-800">৳ {toBanglaNumber(getDonorTotalDonated(d))}</td>
                         <td className="py-2 px-2 border text-[10px]">{d.preferred_fund}</td>
                       </tr>

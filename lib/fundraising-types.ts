@@ -162,6 +162,10 @@ export interface LifeMemberDonor {
 }
 
 export interface DonorSubscriptionPayment {
+  status?: 'COMPLETED'|'VOID';
+  category?:string;
+  accounting_record_id?: string; // relational voucher ID on new postings
+  fund_id?: string; // absent only on historical records
   id: string;
   donor_id: string;
   donor_name?: string;
@@ -186,6 +190,11 @@ export interface DonorSubscriptionPayment {
 export type LeatherType = "COW" | "GOAT" | "BUFFALO" | "SHEEP" | "গরু" | "ছাগল" | "মহিষ" | "ভেড়া";
 
 export interface QurbaniLeatherRecord {
+  transport_operator_id?:string;
+  transport_method?:string;
+  payment_method?:string;
+  accounting_record_id?: string; // relational voucher ID on new postings
+  fund_id?: string; // absent only on historical records
   id: string;
   madrasa_id: string;
   year: string;
@@ -241,6 +250,8 @@ export interface DonationBox {
 }
 
 export interface DonationBoxCollectionLog {
+  accounting_record_id?: string; // relational voucher ID on new postings
+  fund_id?: string; // absent only on historical records
   id: string;
   box_id: string;
   box_code?: string;
@@ -296,6 +307,8 @@ export const DEFAULT_ONLINE_DONATION_SETTINGS: OnlineDonationSettings = {
 };
 
 export interface OnlineDonation {
+  accounting_record_id?: string; // relational voucher ID on new postings
+  fund_id?: string; // absent only on historical records
   id: string;
   madrasa_id: string;
   donor_name: string;

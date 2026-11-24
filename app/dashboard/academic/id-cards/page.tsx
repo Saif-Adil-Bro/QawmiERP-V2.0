@@ -3,7 +3,7 @@ import IdCardClient from "./IdCardClient";
 import { getMadrasaInfo, toPublicMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getIdCardsData } from "@/app/actions/id-card-management";
 import { getStudents, getAuthMadrasaId } from "@/app/actions/students";
-import { getStaffMetadataFull } from "@/app/actions/staff";
+import { getStaffRoster } from "@/app/actions/staff";
 
 export const metadata = {
   title: "আইডি কার্ড ও ডিজিটাল আইডি সিস্টেম | QawmiERP",
@@ -46,24 +46,7 @@ export default async function IdCardsPage(props: {
     const { data } = await q;
     users = data || [];
   } else if (userType === "Teacher") {
-    const staffData = await getStaffMetadataFull();
-    const staffMembers = staffData?.staff_members || [];
-    let q = supabase.from("teachers").select("*");
-    if (madrasaId) q = q.eq("madrasa_id", madrasaId);
-    const { data } = await q;
-    users = data || [];
-    const existingIds = new Set(users.map((u) => u.id));
-    staffMembers.forEach((s) => {
-      if (!existingIds.has(s.id)) {
-        users.push({
-          id: s.id,
-          first_name: s.personal.first_name || s.personal.full_name_bn || "শিক্ষক",
-          last_name: s.personal.last_name || "",
-          designation: s.employment.designation || "সহকারী শিক্ষক",
-          phone: s.contact?.phone || "",
-        });
-      }
-    });
+    users=await getStaffRoster();
   } else if (userType === "Student") {
     let q = supabase.from("students").select("*, classes(name)").limit(20);
     if (madrasaId) q = q.eq("madrasa_id", madrasaId);

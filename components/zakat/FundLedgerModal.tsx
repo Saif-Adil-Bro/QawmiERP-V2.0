@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect,useRef } from "react";
 import {
   X,
   Printer,
@@ -50,6 +50,9 @@ export default function FundLedgerModal({
   onTransactionChanged,
   madrasaInfo: initialMadrasaInfo,
 }: FundLedgerModalProps) {
+  const request=useRef(0);
+  const [loadedId,setLoadedId]=useState<string|null>(null);
+  const [loadError,setLoadError] = useState("");
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<FundTransactionRecord[]>([]);
   const [totalInflow, setTotalInflow] = useState(0);
@@ -104,21 +107,28 @@ export default function FundLedgerModal({
     if (isOpen && fund) {
       loadLedger();
     }
+    return () => { request.current++; };
   }, [isOpen, fund]);
 
   const loadLedger = async () => {
     if (!fund) return;
-    setLoading(true);
+    const seq=++request.current;
+    setLoading(true);setLoadedId(null); setLoadError("");
     try {
-      const res = await getFundLedgerData(fund.id || fund.name);
+      const res = await getFundLedgerData(fund.id);
+      if (seq!==request.current) return;
+      if (!res.fund || res.fund.id !== fund.id) throw new Error("Incomplete ledger");
+      setLoadedId(fund.id);
       setTransactions(res.transactions || []);
       setTotalInflow(res.totalInflow || 0);
       setTotalOutflow(res.totalOutflow || 0);
       setCurrentBalance(res.currentBalance || 0);
     } catch (err) {
-      console.error("Error loading fund ledger:", err);
+      if (seq!==request.current) return;
+      setTransactions([]);
+      setLoadError("খতিয়ান পড়া যায়নি। এই স্ক্রিনের স্থিতি ব্যবহার করবেন না; রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
-      setLoading(false);
+      if (seq===request.current) setLoading(false);
     }
   };
 
@@ -197,38 +207,18 @@ export default function FundLedgerModal({
     try {
       if (txn.type === "INCOME" || txn.type === "MAHFIL_SURPLUS") {
         const don = await getDonationById(txn.id);
-        if (don) {
-          setActiveReceiptDonation(don);
-        } else {
-          // Construct fallback
-          setActiveReceiptDonation({
-            id: txn.id,
-            amount: txn.amount,
-            donation_type: txn.fund_name,
-            fund_name: txn.fund_name,
-            donation_date: txn.date,
-            receipt_no: txn.voucher_no,
-            payment_method: txn.payment_method || "Cash",
-            notes: txn.notes,
-            status: txn.status || "COMPLETED",
-            cancellation_reason: txn.cancellation_reason,
-            is_mahfil_settlement: txn.is_mahfil_settlement,
-            donors: {
-              name: txn.source_or_recipient,
-              phone: "-",
-              address: txn.is_mahfil_settlement ? "মাহফিল আয়োজক কমিটি" : "-",
-            },
-          });
-        }
+        if (!don) {setToastMessage('মূল রসিদ পাওয়া যায়নি। খতিয়ান রিফ্রেশ করুন।');return;}
+        setActiveReceiptDonation(don);
       }
     } catch (err) {
-      console.error("Error opening receipt:", err);
+      setToastMessage('রসিদ পড়া যায়নি। আবার চেষ্টা করুন।');
     } finally {
       setLoadingReceipt(false);
     }
   };
 
   const handlePrintStatement = () => {
+    if (!loadedId || loadedId!==fund?.id || loading || loadError) return;
     printElementIsolated("fund-statement-print-area", `${fund?.name || "ফান্ড"} - খতিয়ান ও হিসাব বিবরণী`);
   };
 
@@ -281,6 +271,7 @@ export default function FundLedgerModal({
 
           <div className="flex items-center gap-2">
             <button
+              disabled={loading || !!loadError || loadedId!==fund.id}
               onClick={handlePrintStatement}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
               title="স্টেটমেন্ট প্রিন্ট করুন"
@@ -306,6 +297,9 @@ export default function FundLedgerModal({
             </div>
           )}
 
+          {loadError && <p role="alert" className="bg-red-50 p-3">{loadError}</p>}
+          <a href="/dashboard/zakat/funds#reconciliation" className="block text-xs underline">অমিল ভাউচার এই স্থিতিতে ধরা হয়নি। ফান্ড তালিকায় ম্যানুয়াল সমন্বয় দেখুন।</a>
+          {!loadError && !loading && <>
           {/* 4 Overview Stat Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {/* Total Inflow */}
@@ -346,7 +340,7 @@ export default function FundLedgerModal({
                 <h3 className={`text-lg sm:text-xl font-black font-mono ${currentBalance >= 0 ? "text-indigo-950" : "text-rose-700"}`}>
                   ৳ {formatBanglaCurrency(currentBalance)}
                 </h3>
-                <span className="text-[10px] text-indigo-700">জমা ও খরচের জের</span>
+                <span className="text-[10px] text-indigo-700">জমা, খরচ ও জার্নাল সমন্বয়ের জের</span>
               </div>
             </div>
 
@@ -368,6 +362,7 @@ export default function FundLedgerModal({
             </div>
           </div>
 
+          </>}
           {/* Filters and Search Bar */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
             <div className="relative w-full sm:w-72">
@@ -408,7 +403,7 @@ export default function FundLedgerModal({
           </div>
 
           {/* Transactions Table */}
-          {loading ? (
+          {loadError ? null : loading ? (
             <div className="py-16 text-center text-slate-500">
               <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
               <p className="text-xs font-bold">ফান্ড স্টেটমেন্ট লোড হচ্ছে...</p>
@@ -428,7 +423,7 @@ export default function FundLedgerModal({
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                     {filteredTxns.map((txn) => {
-                      const isInflow = txn.type === "INCOME" || txn.type === "MAHFIL_SURPLUS";
+                      const isInflow = txn.type === "JOURNAL_IN" || txn.type === "INCOME" || txn.type === "MAHFIL_SURPLUS";
                       const isMahfil = txn.is_mahfil_settlement || txn.type === "MAHFIL_SURPLUS" || txn.type === "MAHFIL_DEFICIT";
                       const isVoid = txn.status === "VOID";
 
@@ -478,7 +473,7 @@ export default function FundLedgerModal({
 
                           {/* Category / Nature Badge */}
                           <td className="py-3 px-4">
-                            {isVoid ? (
+                            {txn.journal_kind ? <span>{txn.category}</span> : isVoid ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
                                 <span>বাতিলকৃত ({isInflow ? "রসিদ" : "ভাউচার"})</span>
                               </span>
@@ -513,7 +508,7 @@ export default function FundLedgerModal({
 
                           {/* Action / Receipt / Void / Unvoid */}
                           <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
+                            <div hidden={!!txn.journal_kind} className={txn.journal_kind ? "hidden" : "flex items-center justify-end gap-1.5"}>
                               {isInflow ? (
                                 <button
                                   type="button"
@@ -584,7 +579,7 @@ export default function FundLedgerModal({
         </div>
 
         {/* Hidden Printable Area for Official Fund Statement */}
-        <div id="fund-statement-print-area" className="hidden print:block p-8 bg-white text-slate-900">
+        {!loading && !loadError && loadedId===fund.id && <div id="fund-statement-print-area" className="hidden print:block p-8 bg-white text-slate-900">
           <div className="border-b-2 border-slate-900 pb-4 mb-6 text-center">
             <p className="text-center text-xs font-serif text-slate-600 mb-2">
               بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ • حَامِدًا وَّمُصَلِّيًا
@@ -662,7 +657,7 @@ export default function FundLedgerModal({
                 <th className="p-2 border-r border-slate-300">ভাউচার নং</th>
                 <th className="p-2 border-r border-slate-300">উৎস / খাত বিবরণ</th>
                 <th className="p-2 border-r border-slate-300 text-right">জমা ৳</th>
-                <th className="p-2 text-right">খরচ ৳</th>
+                <th className="p-2 text-right">খরচ ৳</th><th className="p-2 text-right">জার্নাল ৳</th>
               </tr>
             </thead>
             <tbody>
@@ -688,7 +683,7 @@ export default function FundLedgerModal({
                     </td>
                     <td className={`p-2 text-right font-mono ${isVoid ? "line-through text-slate-400" : "text-rose-800"}`}>
                       {t.type === "EXPENSE" || t.type === "MAHFIL_DEFICIT" ? formatBanglaCurrency(t.amount) : "-"}
-                    </td>
+                    </td><td className="p-2 text-right">{t.journal_kind?formatBanglaCurrency(t.type==="JOURNAL_IN"?t.amount:-t.amount):"—"}</td>
                   </tr>
                 );
               })}
@@ -700,7 +695,7 @@ export default function FundLedgerModal({
             <div className="text-center w-36 border-t border-slate-400 pt-1">অডিটর</div>
             <div className="text-center w-36 border-t border-slate-400 pt-1">মুহতামিম / সভাপতি</div>
           </div>
-        </div>
+        </div>}
       </div>
 
       {/* Void Transaction Modal */}

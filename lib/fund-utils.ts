@@ -68,8 +68,9 @@ export interface DonationItem {
 }
 
 export interface FundTransactionRecord {
+  journal_kind?: string;
   id: string;
-  type: "INCOME" | "EXPENSE" | "MAHFIL_SURPLUS" | "MAHFIL_DEFICIT";
+  type: "INCOME" | "EXPENSE" | "MAHFIL_SURPLUS" | "MAHFIL_DEFICIT" | "JOURNAL_IN" | "JOURNAL_OUT";
   fund_id?: string;
   fund_name: string;
   amount: number;
@@ -228,285 +229,126 @@ export function parseExpenseFund(rawDesc: string | null | undefined): { cleanDes
 
 // Canonical normalize fund names/codes/types into matching active fund names
 export function normalizeFundName(input?: string | null, customFunds?: FundItem[]): string {
-  if (!input || typeof input !== "string") return "সাধারণ ফান্ড (General Fund)";
-  const trimmed = input.trim();
-  if (!trimmed) return "সাধারণ ফান্ড (General Fund)";
-
-  // If a list of known funds is passed, check exact or code match first
-  if (customFunds && customFunds.length > 0) {
-    const found = customFunds.find(
-      (f) =>
-        f.name === trimmed ||
-        f.code?.toLowerCase() === trimmed.toLowerCase() ||
-        f.id === trimmed ||
-        f.name.toLowerCase() === trimmed.toLowerCase() ||
-        (trimmed.length > 3 && f.name.toLowerCase().includes(trimmed.toLowerCase())) ||
-        (f.name.length > 3 && trimmed.toLowerCase().includes(f.name.toLowerCase()))
-    );
-    if (found) return found.name;
-  }
-
-  const lower = trimmed.toLowerCase();
-
-  // 1. Zakat Fund
-  if (
-    lower === "zakat" ||
-    lower === "zkt" ||
-    lower === "fund-zakat" ||
-    trimmed.includes("যাকাত") ||
-    lower.includes("zakat")
-  ) {
-    return "যাকাত ফান্ড (Zakat Fund)";
-  }
-
-  // 2. Lillah Boarding Fund
-  if (
-    lower === "lillah" ||
-    lower === "lil" ||
-    lower === "fund-lillah" ||
-    trimmed.includes("লিল্লাহ") ||
-    trimmed.includes("খোরাকি") ||
-    trimmed.includes("বোর্ডিং") ||
-    trimmed.includes("খাবার") ||
-    trimmed.includes("খাদ্য") ||
-    lower.includes("hostel") ||
-    lower.includes("boarding") ||
-    lower.includes("lillah")
-  ) {
-    return "লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)";
-  }
-
-  // 3. Fitra & Sadaqah Fund (Fitra, specific Sadaqah)
-  if (
-    lower === "fitra" ||
-    lower === "ftr" ||
-    lower === "sadaqah" ||
-    lower === "sadqah" ||
-    lower === "fund-fitra" ||
-    trimmed.includes("ফিতরা") ||
-    trimmed.includes("সদকাতুল ফিতর") ||
-    trimmed.includes("সদকা") ||
-    lower.includes("fitra") ||
-    lower.includes("sadaqah")
-  ) {
-    return "ফিতরা ও সদকা ফান্ড (Fitra & Sadaqah)";
-  }
-
-  // 4. Mosque & Development Fund
-  if (
-    lower === "development" ||
-    lower === "dev" ||
-    lower === "building" ||
-    lower === "fund-dev" ||
-    trimmed.includes("মসজিদ ও উন্নয়ন") ||
-    trimmed.includes("উন্নয়ন ও নির্মাণ") ||
-    trimmed.includes("উন্নয়ন ফান্ড") ||
-    trimmed.includes("মসজিদ ফান্ড") ||
-    trimmed.includes("নির্মাণ") ||
-    trimmed.includes("মসজিদ") ||
-    lower.includes("dev") ||
-    lower.includes("building") ||
-    lower.includes("construction")
-  ) {
-    return "মসজিদ ও উন্নয়ন ফান্ড (Development Fund)";
-  }
-
-  // 5. Orphan Welfare Fund
-  if (
-    lower === "orphan" ||
-    lower === "orp" ||
-    lower === "education" ||
-    lower === "fund-orphan" ||
-    trimmed.includes("এতিম কল্যাণ") ||
-    trimmed.includes("এতিমখানা") ||
-    trimmed.includes("এতিম") ||
-    lower.includes("orphan")
-  ) {
-    return "এতিম কল্যাণ ফান্ড (Orphan Welfare Fund)";
-  }
-
-  // 6. General Fund (Tuition, General Donation, Grant, Subscriptions, One-time, Unspecified donations)
-  if (
-    lower === "general" ||
-    lower === "gen" ||
-    lower === "fund-general" ||
-    lower === "onetime" ||
-    lower === "monthly" ||
-    lower === "annual" ||
-    lower === "donation" ||
-    lower === "donations" ||
-    trimmed.includes("সাধারণ") ||
-    trimmed.includes("দান") ||
-    trimmed.includes("অনুদান") ||
-    trimmed.includes("চাঁদা") ||
-    trimmed.includes("বেতন") ||
-    trimmed.includes("ভর্তি") ||
-    trimmed.includes("টিউশন") ||
-    trimmed.includes("ফি") ||
-    trimmed.includes("এককালীন") ||
-    trimmed.includes("সদস্য") ||
-    lower.includes("tuition") ||
-    lower.includes("general") ||
-    lower.includes("donation") ||
-    lower.includes("fee")
-  ) {
-    return "সাধারণ ফান্ড (General Fund)";
-  }
-
-  // Default fallback to General Fund for any donation record
-  return "সাধারণ ফান্ড (General Fund)";
+  return exactFundLabel(customFunds || DEFAULT_FUNDS,input)?.name || REVIEW_FUND.name;
 }
 
-// Robust helper to check if a donation or transaction belongs to a given fund
-export function isTransactionInFund(
-  fund: FundItem,
-  itemFundId?: string | null,
-  itemFundName?: string | null,
-  allFunds?: FundItem[]
-): boolean {
-  if (!fund) return false;
-  const fId = (fund.id || "").toLowerCase().trim();
-  const fName = (fund.name || "").toLowerCase().trim();
-  const fCode = (fund.code || "").toLowerCase().trim();
-  const fCategory = (fund.category || "").toLowerCase().trim();
-
-  const candidateId = (itemFundId || "").toLowerCase().trim();
-  const candidateName = (itemFundName || "").toLowerCase().trim();
-
-  // ONLY truly general funds are marked as General Fund (never Zakat, Lillah, etc. even if is_default is true)
-  const isGeneralFund =
-    fId === "fund-general" ||
-    fId === "gen" ||
-    fCategory === "general" ||
-    (fName.includes("সাধারণ") &&
-      !fName.includes("যাকাত") &&
-      !fName.includes("লিল্লাহ") &&
-      !fName.includes("ফিতরা") &&
-      !fName.includes("উন্নয়ন") &&
-      !fName.includes("মসজিদ") &&
-      !fName.includes("এতিম"));
-
-  // If candidate has no fund specified at all, it belongs strictly to General Fund
-  if (!candidateId && !candidateName) {
-    return isGeneralFund;
+// Exact IDs are the posting identity. Labels below are ONLY for reading old rows and
+// picking a unique catalog entry in name-based legacy forms; never guess from free text.
+const legacyLabels: Record<string, string[]> = {
+  "fund-general": ["General", "সাধারণ", "সাধারণ ফান্ড", "সাধারণ তহবিল"],
+  "fund-zakat": ["Zakat", "যাকাত", "যাকাত ফান্ড", "জাকাত ফান্ড"],
+  "fund-lillah": ["Lillah", "লিল্লাহ", "লিল্লাহ ফান্ড", "লিল্লাহ বোর্ডিং ফান্ড", "লিল্লাহ বোর্ডিং ফান্ড (Lillah Boarding Fund)"],
+  "fund-dev": ["Development", "fund-building", "উন্নয়ন ফান্ড", "মসজিদ ও নির্মাণ ফান্ড", "উন্নয়ন ও মেরামত ফান্ড", "মসজিদ ও উন্নয়ন ফান্ড"],
+  "fund-fitra": ["Fitra", "ফিতরা", "ফিতরা ও সদকা ফান্ড"],
+  "fund-orphan": ["Orphan", "এতিম কল্যাণ ফান্ড"],
+};
+export function exactFundLabel(funds: FundItem[], label?: string | null) {
+  const key = label?.trim().toLowerCase();
+  if (!key) return undefined;
+  const matches = funds.filter(f => [f.name, f.code, f.id, ...(legacyLabels[f.id] || [])].some(s => s?.toLowerCase() === key));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+export function isRestrictedFund(f?: Pick<FundItem, "id" | "category" | "name" | "code">) {
+  return !!f && /\bzkt\b|zakat|zakah|g[hou]+r[ao]ba|যাকাত|জাকাত|যাকাহ|গোরাবা|গুরাবা|গরাবা|গোরবা|গুরবা/i.test([f.id,f.name,f.code,f.category].join(" "));
+}
+export const REVIEW_FUND = {id: "__review__", name: "ফান্ড যাচাই প্রয়োজন", code: "—", category: "Other", is_active: false} satisfies FundItem;
+export interface StoredFundFields {
+  fund_id?: string | null; fund_name?: string | null; donation_type?: string | null;
+  description?: string | null; notes?: string | null; items_details?: string | null;
+}
+// These are reserved voucher fields, not keywords in a donor's narrative. A
+// matching first tag must not hide a later conflicting tag or a separate column.
+function fundTags(row: StoredFundFields) {
+  const ids: string[] = [], labels: string[] = [];
+  for (const key of ['description', 'notes', 'items_details'] as const) {
+    const text = row[key];
+    if (!text) continue;
+    // Separate key/value fields (including the old unwrapped bazar format).
+    const pattern = key === 'items_details' ? /\b(FUND(?:_NAME)?):([^|\]\r\n]*)/gi : /(?:^|\[|\|)\s*(FUND(?:_NAME)?):([^|\]\r\n]*)/gi;
+    for (const [, field, value] of text.matchAll(pattern))
+      (field.toUpperCase() === 'FUND' ? ids : labels).push(value.trim());
+    // The expense wrapper instead has an unkeyed display name: [FUND: id | name].
+    for (const [, name] of text.matchAll(/\[FUND:[^|\]]*\|(?!\s*FUND_NAME:)([^\]]*)\]/gi)) labels.push(name.trim());
   }
-
-  // Exact ID match
-  if (fId && candidateId && fId === candidateId) return true;
-
-  // Exact Name or Code match
-  if (fName && candidateName && fName === candidateName) return true;
-  if (fCode && candidateName && fCode === candidateName) return true;
-  if (fCode && candidateId && fCode === candidateId) return true;
-
-  // Specific Fund Keywords Identification
-  const isCandidateZakat =
-    candidateId.includes("zakat") ||
-    candidateId === "zkt" ||
-    candidateName.includes("যাকাত") ||
-    candidateName.includes("zakat");
-
-  const isCandidateLillah =
-    candidateId.includes("lillah") ||
-    candidateId === "lil" ||
-    candidateName.includes("লিল্লাহ") ||
-    candidateName.includes("খোরাকি") ||
-    candidateName.includes("বোর্ডিং") ||
-    candidateName.includes("খাবার") ||
-    candidateName.includes("lillah") ||
-    candidateName.includes("hostel");
-
-  const isCandidateFitra =
-    candidateId.includes("fitra") ||
-    candidateId === "ftr" ||
-    candidateName.includes("ফিতরা") ||
-    candidateName.includes("সদকা") ||
-    candidateName.includes("fitra") ||
-    candidateName.includes("sadaqah");
-
-  const isCandidateDev =
-    candidateId.includes("dev") ||
-    candidateName.includes("উন্নয়ন") ||
-    candidateName.includes("মসজিদ") ||
-    candidateName.includes("নির্মাণ") ||
-    candidateName.includes("development") ||
-    candidateName.includes("building");
-
-  const isCandidateOrphan =
-    candidateId.includes("orphan") ||
-    candidateId === "orp" ||
-    candidateName.includes("এতিম") ||
-    candidateName.includes("orphan");
-
-  const isFundZakat =
-    fId.includes("zakat") ||
-    fCode === "zkt" ||
-    fCategory === "zakat" ||
-    fName.includes("যাকাত");
-
-  const isFundLillah =
-    fId.includes("lillah") ||
-    fCode === "lil" ||
-    fCategory === "lillah" ||
-    fName.includes("লিল্লাহ") ||
-    fName.includes("বোর্ডিং");
-
-  const isFundFitra =
-    fId.includes("fitra") ||
-    fCode === "ftr" ||
-    fCategory === "fitra" ||
-    fName.includes("ফিতরা");
-
-  const isFundDev =
-    fId.includes("dev") ||
-    fCategory === "development" ||
-    fName.includes("উন্নয়ন") ||
-    fName.includes("মসজিদ");
-
-  const isFundOrphan =
-    fId.includes("orphan") ||
-    fCode === "orp" ||
-    fCategory === "education" ||
-    fName.includes("এতিম");
-
-  // Check specific targeted fund matches
-  if (isFundZakat) return isCandidateZakat;
-  if (isFundLillah) return isCandidateLillah;
-  if (isFundFitra) return isCandidateFitra;
-  if (isFundDev) return isCandidateDev;
-  if (isFundOrphan) return isCandidateOrphan;
-
-  // If this fund is General Fund
-  if (isGeneralFund) {
-    // If candidate belongs to any other specific fund (Zakat, Lillah, Fitra, Dev, Orphan),
-    // it MUST NOT be included in General Fund!
-    if (isCandidateZakat || isCandidateLillah || isCandidateFitra || isCandidateDev || isCandidateOrphan) {
-      return false;
-    }
-    return true;
-  }
-
-  // Custom funds (user created)
-  const fundsList = allFunds || DEFAULT_FUNDS;
-  const canonA = normalizeFundName(fund.name, fundsList).toLowerCase().trim();
-  const canonB = normalizeFundName(candidateName || candidateId, fundsList).toLowerCase().trim();
-
-  if (canonA && canonB && canonA === canonB) return true;
-
-  if (fName && candidateName) {
-    const cleanFName = fName.replace(/\(.*?\)/g, "").replace(/ফান্ড/g, "").trim();
-    const cleanCName = candidateName.replace(/\(.*?\)/g, "").replace(/ফান্ড/g, "").trim();
-    if (cleanFName.length >= 3 && cleanCName.length >= 3) {
-      if (cleanFName.includes(cleanCName) || cleanCName.includes(cleanFName)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  return { ids, labels };
 }
 
+// Validate the submitted metadata BEFORE stripping it for the canonical wrapper.
+export function expenseDescriptionForFund(description: string | null, fund: FundItem) {
+  const tags = fundTags({ description });
+  if (tags.ids.some(id => id !== fund.id) || tags.labels.some(l => ![fund.id, fund.name, fund.code].includes(l)))
+    throw new Error('ভাউচার ট্যাগ ও নির্বাচিত ফান্ড মিলছে না।');
+  return parseExpenseFund(description).cleanDesc;
+}
 
+export function storedFund(funds: FundItem[], row: StoredFundFields, ...sourceLabels: (string | null | undefined)[]): FundItem | undefined {
+  const tags = fundTags(row);
+  const ids = new Set(tags.ids);
+  if (row.fund_id) ids.add(row.fund_id);
+  const labels = [...tags.labels, ...[row.fund_name, row.donation_type, ...sourceLabels].filter((s): s is string => !!s)];
+  const chosen = ids.size === 1 ? funds.find(f => ids.has(f.id)) : undefined;
+  if (ids.size && !chosen) return undefined;
+  const labelled = labels.map(label => chosen && [chosen.name, chosen.code, chosen.id].includes(label) ? chosen : exactFundLabel(funds, label));
+  if (chosen) {
+    if (labelled.some(f => f?.id !== chosen.id)) return undefined;
+    // The old SQL default alone is not evidence of a General posting.
+    if (chosen.id === 'fund-general' && !labels.length && !tags.ids.length) return undefined;
+    return chosen;
+  }
+  return labelled.length && labelled.every(f => f && f.id === labelled[0]?.id) ? labelled[0] : undefined;
+}
+export function isTransactionInFund(fund: FundItem, id?: string | null, name?: string | null, funds = DEFAULT_FUNDS): boolean {
+  return (id ? funds.find(f => f.id === id) : exactFundLabel(funds, name))?.id === fund?.id;
+}
+
+// Fund fields in metadata-only collection streams predate relational posting.
+export function collectionFund(funds: FundItem[], row: StoredFundFields & {fund_category?: string; target_fund?: string; purpose?: string}) {
+  return storedFund(funds, row, row.target_fund, row.fund_category, row.purpose);
+}
+export type ReviewRow = { id: string; kind: "donation" | "expense" | "bazar"; voucher: string; date: string; amount: number; reason: string };
+type SettlementRef = { id?: string; mahfil_id?: string; accounting_record_id?: string; accounting_voucher_no?: string;
+  mahfil_txn_id?: string; fund_id?: string; fund_name?: string; amount?: number; settlement_type?: string };
+type EventTxn = {id?: string; mahfil_id?: string; amount?: number; type?: string; receipt_no?: string; voucher_no?: string};
+export function settlementIndex(events: {id?: string; settlements?: SettlementRef[]; settlement?: SettlementRef; transactions?: EventTxn[]}[] = [], funds?: FundItem[]) {
+  const index = new Map<string, (SettlementRef & {eventMatches: boolean})[]>();
+  for (const event of events) {
+    // The singular field may mirror the last settlement. Two entries in the
+    // settlements array, however, are two claims, even if their amounts agree.
+    const entries = [...(event.settlements || [])], last = event.settlement;
+    const keys = ['id','mahfil_id','accounting_record_id','accounting_voucher_no','mahfil_txn_id','amount','fund_id','fund_name','settlement_type'] as const;
+    if (last && !entries.some(s => keys.every(k => s[k] === last[k]))) entries.push(last);
+    const owners = new Map<string, number>(), transactions = new Map<string, EventTxn[]>();
+    for (const s of entries) if (s.mahfil_txn_id) owners.set(s.mahfil_txn_id, (owners.get(s.mahfil_txn_id) || 0) + 1);
+    for (const t of event.transactions || []) if (t.id) transactions.set(t.id, [...(transactions.get(t.id) || []), t]);
+    for (const s of entries) {
+      const id = s.mahfil_txn_id || '', txns = transactions.get(id) || [], t = txns[0];
+      const eventMatches = owners.get(id) === 1 && txns.length === 1 && Number(t.amount) === Number(s.amount) &&
+        t.type === (s.settlement_type === 'SURPLUS_DEPOSIT' ? 'EXPENSE' : s.settlement_type === 'DEFICIT_COVER' ? 'INCOME' : '') &&
+        [s.mahfil_id, t.mahfil_id].every(parent => !parent || parent === event.id) &&
+        [t.voucher_no, t.receipt_no].every(no => !no || no === s.accounting_voucher_no) &&
+        (!funds || !s.fund_name || storedFund(funds, s)?.id === s.fund_id);
+      const ref = {...s, eventMatches};
+      for (const key of new Set([s.accounting_record_id, s.accounting_voucher_no, s.mahfil_txn_id]))
+        if (key) index.set(key, [...(index.get(key) || []), ref]);
+    }
+  }
+  return index;
+}
+export function unmatchedMahfil(row: {id?: string; receipt_no?: string; voucher_no?: string; notes?: string; description?: string; fund_id?: string; amount?: number}, index: ReturnType<typeof settlementIndex>) {
+  const vouchers = new Set([row.receipt_no, row.voucher_no, parseExpenseFund(row.description).voucherNo].filter((v): v is string => !!v));
+  const candidates = new Set([row.id || '', ...vouchers].flatMap(key => index.get(key) || []));
+  if (!candidates.size) return [...vouchers].some(v => /^(MHF-|EXP-MHF)/i.test(v)) || /মাহফিল/.test(`${row.notes || ''} ${row.description || ''}`);
+  // A colliding receipt number must not rescue a different ID, amount or fund.
+  if (candidates.size !== 1 || vouchers.size !== 1) return true;
+  const [s] = candidates;
+  return !s.eventMatches || !s.accounting_record_id || s.accounting_record_id!==row.id || !vouchers.has(s.accounting_voucher_no || '') ||
+    !s.fund_id || s.fund_id!==row.fund_id || Number(s.amount)!==Number(row.amount) || (row.receipt_no?'SURPLUS_DEPOSIT':'DEFICIT_COVER')!==s.settlement_type;
+}
+export function bazarFund(funds: FundItem[], row: StoredFundFields) {
+  // Before bazar introduced fund selection its own untagged records were Lillah.
+  return !row.fund_id && !row.fund_name && !/\bFUND(?:_NAME)?:/i.test(row.items_details || "")
+    ? funds.find(f => f.id === "fund-lillah") : storedFund(funds, row);
+}
 
 /**
  * খরচের রেকর্ড VOID (বাতিল) কি না তা নির্ধারণ করে।
@@ -519,8 +361,7 @@ export function isTransactionInFund(
 export function isVoidedExpense(exp: any): boolean {
   if (!exp) return false;
   if (String(exp.status || "").toUpperCase() === "VOID") return true;
-  const desc = typeof exp.description === "string" ? exp.description : "";
-  return desc.includes("[VOID:");
+  return /\[VOID:/i.test(exp.description || exp.items_details || "");
 }
 
 /** খরচের description থেকে void-এর কারণ বের করে (রিপোর্টে দেখানোর জন্য)। */

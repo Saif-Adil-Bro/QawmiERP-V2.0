@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableError } from "@/lib/audit-log";
 import { mergeJsonStore, readJsonStore } from "@/lib/madrasa-store";
+import {hasFinanceAction,financeWorkflowTerms} from './finance/approval-terms';
 import type { ApprovalRequestType, ApprovalStatus } from "@/lib/permissions";
 
 export type ApprovalWorkflowRequestType = ApprovalRequestType | string;
@@ -424,16 +425,16 @@ interface FallbackApprovalStore {
 async function readFallbackStore(madrasaId: string): Promise<FallbackApprovalStore> {
   const store = await readJsonStore(madrasaId, "security");
   return {
-    workflows: Array.isArray(store.approval_workflows_v2) ? store.approval_workflows_v2 : [],
-    requests: Array.isArray(store.approval_requests_v2) ? store.approval_requests_v2 : [],
+    workflows: Array.isArray(store.approval_workflows_v2) ? store.approval_workflows_v2.filter((r:ApprovalWorkflowWithSteps)=>r.madrasa_id===madrasaId) : [],
+    requests: Array.isArray(store.approval_requests_v2) ? store.approval_requests_v2.filter((r:ApprovalRequestRecord)=>r.madrasa_id===madrasaId) : [],
     decisions: Array.isArray(store.approval_step_decisions_v2)
-      ? store.approval_step_decisions_v2
+      ? store.approval_step_decisions_v2.filter((d:ApprovalStepDecisionRecord)=>d.madrasa_id===madrasaId)
       : [],
   };
 }
 
 export async function listWorkflowsForMadrasa(
-  madrasaId: string
+  madrasaId: string, requireRelational = false
 ): Promise<ApprovalWorkflowWithSteps[]> {
   try {
     const admin = await createAdminClient();
@@ -444,7 +445,7 @@ export async function listWorkflowsForMadrasa(
       .order("priority", { ascending: false });
 
     if (wfError) {
-      if (isMissingTableError(wfError)) {
+      if (!requireRelational && isMissingTableError(wfError)) {
         const fb = await readFallbackStore(madrasaId);
         return fb.workflows.map(normalizeWorkflow);
       }
@@ -460,7 +461,7 @@ export async function listWorkflowsForMadrasa(
       .eq("madrasa_id", madrasaId)
       .order("step_order", { ascending: true });
 
-    if (stepError && !isMissingTableError(stepError)) {
+    if (stepError) {
       throw stepError;
     }
 
@@ -479,7 +480,7 @@ export async function listWorkflowsForMadrasa(
       })
     );
   } catch (err) {
-    console.warn("listWorkflowsForMadrasa fallback:", err);
+    if (requireRelational || !isMissingTableError(err)) throw err;
     const fb = await readFallbackStore(madrasaId);
     return fb.workflows.map(normalizeWorkflow);
   }
@@ -552,143 +553,15 @@ export async function upsertWorkflowForMadrasa(
     steps: normalizedSteps,
   };
 
-  try {
-    const admin = await createAdminClient();
-    const { error: wfErr } = await admin.from("approval_workflows").upsert(
-      {
-        id: workflowId,
-        madrasa_id: madrasaId,
-        name: fullWorkflow.name,
-        name_bn: fullWorkflow.name_bn,
-        request_type: fullWorkflow.request_type,
-        description: fullWorkflow.description,
-        min_amount: fullWorkflow.min_amount,
-        max_amount: fullWorkflow.max_amount,
-        is_active: fullWorkflow.is_active,
-        priority: fullWorkflow.priority,
-        require_two_person: fullWorkflow.require_two_person,
-        created_by: userId,
-        updated_at: now,
-      },
-      { onConflict: "id" }
-    );
-
-    if (wfErr) {
-      if (isMissingTableError(wfErr)) {
-        await mergeJsonStore(madrasaId, "security", (store) => {
-          const existing: ApprovalWorkflowWithSteps[] = Array.isArray(store.approval_workflows_v2)
-            ? store.approval_workflows_v2
-            : [];
-          const filtered = existing.filter((w) => w.id !== workflowId);
-          return {
-            ...store,
-            approval_workflows_v2: [fullWorkflow, ...filtered],
-          };
-        });
-        return fullWorkflow;
-      }
-      throw wfErr;
-    }
-
-    // Replace steps cleanly
-    await admin
-      .from("approval_workflow_steps")
-      .delete()
-      .eq("workflow_id", workflowId)
-      .eq("madrasa_id", madrasaId);
-
-    if (normalizedSteps.length > 0) {
-      const stepRowsWithStepUp = normalizedSteps.map((s) => ({
-        id: s.id,
-        madrasa_id: madrasaId,
-        workflow_id: workflowId,
-        step_order: s.step_order,
-        step_name: s.step_name,
-        approver_role: s.approver_role,
-        required_permission: s.required_permission,
-        approver_user_id: s.approver_user_id,
-        sla_hours: s.sla_hours,
-        allow_delegation: s.allow_delegation,
-        require_step_up: Boolean(s.require_step_up ?? s.is_critical ?? false),
-      }));
-
-      let { error: stepErr } = await admin
-        .from("approval_workflow_steps")
-        .insert(stepRowsWithStepUp);
-
-      if (
-        stepErr &&
-        (String((stepErr as any).code || "") === "42703" ||
-          String((stepErr as any).code || "") === "PGRST204" ||
-          /require_step_up/i.test(String((stepErr as any).message || "")))
-      ) {
-        const retry = await admin.from("approval_workflow_steps").insert(
-          stepRowsWithStepUp.map(({ require_step_up: _omitted, ...rest }) => rest)
-        );
-        stepErr = retry.error;
-      }
-
-      if (stepErr && !isMissingTableError(stepErr)) {
-        throw stepErr;
-      }
-    }
-
-    return fullWorkflow;
-  } catch (err) {
-    if (isMissingTableError(err)) {
-      await mergeJsonStore(madrasaId, "security", (store) => {
-        const existing: ApprovalWorkflowWithSteps[] = Array.isArray(store.approval_workflows_v2)
-          ? store.approval_workflows_v2
-          : [];
-        const filtered = existing.filter((w) => w.id !== workflowId);
-        return {
-          ...store,
-          approval_workflows_v2: [fullWorkflow, ...filtered],
-        };
-      });
-      return fullWorkflow;
-    }
-    throw err;
-  }
+  const admin=await createAdminClient();
+  const {error}=await admin.rpc('finance_write_workflow',{t:madrasaId,actor:userId,rid:workflowId,op:input.id?'edit':'create',w:fullWorkflow});
+  if(error) throw Error('ওয়ার্কফ্লো সংরক্ষিত হয়নি। ব্যবহৃত নীতির পরিবর্তে নতুন নীতি তৈরি করুন।');
+  return fullWorkflow;
 }
 
-export async function deleteWorkflowForMadrasa(
-  madrasaId: string,
-  workflowId: string
-): Promise<boolean> {
-  try {
-    const admin = await createAdminClient();
-    const { error } = await admin
-      .from("approval_workflows")
-      .delete()
-      .eq("id", workflowId)
-      .eq("madrasa_id", madrasaId);
-
-    if (error) {
-      if (isMissingTableError(error)) {
-        await mergeJsonStore(madrasaId, "security", (store) => ({
-          ...store,
-          approval_workflows_v2: (store.approval_workflows_v2 || []).filter(
-            (w: ApprovalWorkflowWithSteps) => w.id !== workflowId
-          ),
-        }));
-        return true;
-      }
-      throw error;
-    }
-    return true;
-  } catch (err) {
-    if (isMissingTableError(err)) {
-      await mergeJsonStore(madrasaId, "security", (store) => ({
-        ...store,
-        approval_workflows_v2: (store.approval_workflows_v2 || []).filter(
-          (w: ApprovalWorkflowWithSteps) => w.id !== workflowId
-        ),
-      }));
-      return true;
-    }
-    throw err;
-  }
+export async function deleteWorkflowForMadrasa(madrasaId:string,actor:string,workflowId:string) {
+  const {error}=await (await createAdminClient()).rpc('finance_write_workflow',{t:madrasaId,actor,rid:workflowId,op:'archive',w:null});
+  if(error) throw Error('ওয়ার্কফ্লো আর্কাইভ নিশ্চিত হয়নি।');
 }
 
 export async function insertApprovalRequestRecord(
@@ -724,7 +597,7 @@ export async function insertApprovalRequestRecord(
       .single();
 
     if (error) {
-      if (isMissingTableError(error)) {
+      if (!hasFinanceAction(record.payload) && isMissingTableError(error)) {
         await mergeJsonStore(madrasaId, "security", (store) => {
           const existing: ApprovalRequestRecord[] = Array.isArray(store.approval_requests_v2)
             ? store.approval_requests_v2
@@ -744,7 +617,7 @@ export async function insertApprovalRequestRecord(
       ...(data as Record<string, any>),
     };
   } catch (err) {
-    if (isMissingTableError(err)) {
+    if (!hasFinanceAction(record.payload) && isMissingTableError(err)) {
       await mergeJsonStore(madrasaId, "security", (store) => {
         const existing: ApprovalRequestRecord[] = Array.isArray(store.approval_requests_v2)
           ? store.approval_requests_v2
@@ -980,13 +853,14 @@ export async function recordStepDecisionAndUpdateRequest(params: {
           ...store,
           approval_step_decisions_v2: [...decs, decisionRecord],
           approval_requests_v2: reqs.map((r) =>
-            r.id === requestId ? { ...r, ...requestPatch } : r
+            r.madrasa_id===madrasaId && r.id === requestId ? { ...r, ...requestPatch } : r
           ),
         };
       });
       return;
     }
 
+    if(decErr) throw decErr;
     const { error: reqErr } = await admin
       .from("approval_requests")
       .update({
@@ -1014,7 +888,7 @@ export async function recordStepDecisionAndUpdateRequest(params: {
           ...store,
           approval_step_decisions_v2: [...decs, decisionRecord],
           approval_requests_v2: reqs.map((r) =>
-            r.id === requestId ? { ...r, ...requestPatch } : r
+            r.madrasa_id===madrasaId && r.id === requestId ? { ...r, ...requestPatch } : r
           ),
         };
       });
@@ -1045,7 +919,7 @@ export async function updateApprovalRequestStatus(
         await mergeJsonStore(madrasaId, "security", (store) => ({
           ...store,
           approval_requests_v2: (store.approval_requests_v2 || []).map(
-            (r: ApprovalRequestRecord) => (r.id === requestId ? { ...r, ...patch } : r)
+            (r: ApprovalRequestRecord) => (r.madrasa_id===madrasaId && r.id === requestId ? { ...r, ...patch } : r)
           ),
         }));
         return;
@@ -1057,7 +931,7 @@ export async function updateApprovalRequestStatus(
       await mergeJsonStore(madrasaId, "security", (store) => ({
         ...store,
         approval_requests_v2: (store.approval_requests_v2 || []).map(
-          (r: ApprovalRequestRecord) => (r.id === requestId ? { ...r, ...patch } : r)
+          (r: ApprovalRequestRecord) => (r.madrasa_id===madrasaId && r.id === requestId ? { ...r, ...patch } : r)
         ),
       }));
       return;
@@ -1088,7 +962,8 @@ export async function submitWorkflowHookApproval(params: {
   | { matched: false }
   | { matched: true; approvalRequestId: string; request: ApprovalRequestRecord }
 > {
-  const workflows = await listWorkflowsForMadrasa(params.madrasaId);
+  const finance=hasFinanceAction(params.payload);
+  const workflows = await listWorkflowsForMadrasa(params.madrasaId,finance);
   const matched = matchApprovalWorkflow(workflows, params.requestType, params.amount);
   if (!matched) {
     return { matched: false };
@@ -1126,6 +1001,10 @@ export async function submitWorkflowHookApproval(params: {
     decisions: [],
   };
 
+  if (finance) {
+    if(!steps.length) throw new Error('এই আর্থিক ওয়ার্কফ্লোর অনুমোদন ধাপ নেই।');
+    record.payload={...params.payload,financeWorkflow:financeWorkflowTerms(matched)};
+  }
   const saved = await insertApprovalRequestRecord(params.madrasaId, record);
 
   const { logAuditEvent } = await import("@/lib/audit-log");
