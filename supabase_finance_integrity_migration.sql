@@ -1,10 +1,31 @@
 -- Phase 1 only. Apply after the account-model and portal-parity migrations.
 -- No UPDATE/DELETE/backfill of historical postings. Unknown/conflicting history is reviewed, not guessed.
 BEGIN;
+-- PL/pgSQL posting functions may not notice missing columns until the first voucher.
+-- Repair an absent posting fund ID below, but don't hide a skipped prerequisite.
+DO $$
+DECLARE missing text;
+BEGIN
+  SELECT string_agg(t || '.' || c, ', ' ORDER BY t,c) INTO missing
+    FROM (VALUES ('donations',ARRAY['fund_name','status','void_reason','voided_at']),
+                 ('expenses',ARRAY['fund_name','status','void_reason','voided_at','voucher_no']),
+                 ('student_fees',ARRAY['fund_id','fund_name']),
+                 ('fee_payment_allocations',ARRAY['fund_id','fund_name'])) AS required(t,cols)
+    CROSS JOIN LATERAL unnest(cols) AS field(c)
+    WHERE NOT EXISTS (SELECT FROM information_schema.columns col
+      WHERE col.table_schema='public' AND col.table_name=t AND col.column_name=c);
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'Missing Phase 1 prerequisite columns: %', missing USING ERRCODE='42703',
+      HINT='Verify the account-model and portal-parity migrations on a restored copy. See docs/finance-integrity-rollout.bn.md.';
+  END IF;
+END $$;
 -- A stale whole-document settings save does not increment this revision. Only the
 -- source CAS writers advance it, in the same statement that changes the books.
 ALTER TABLE public.madrasas ADD COLUMN IF NOT EXISTS finance_source_revision bigint NOT NULL DEFAULT 0;
 ALTER TABLE public.donations ADD COLUMN IF NOT EXISTS member_id text;
+-- No default when adding a missing column: an old receipt is not evidence for General.
+ALTER TABLE public.donations ADD COLUMN IF NOT EXISTS fund_id text;
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS fund_id text;
 ALTER TABLE public.donations ALTER COLUMN fund_id DROP DEFAULT;
 ALTER TABLE public.expenses ALTER COLUMN fund_id DROP DEFAULT;
 ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS restricted_beneficiary text;
