@@ -4,31 +4,11 @@ import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
-function normalizeSubjectKey(raw?: string | null): string {
-  const s = String(raw || "")
-    .normalize("NFC")
-    .replace(/\u09AF\u09BC/g, "\u09DF")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-  if (s === "basic english" || s === "বেসিক ইংলিশ" || s === "ইংলিশ" || s === "ইংরেজি") {
-    return "english";
-  }
-  if (s === "gonit" || s === "general math" || s === "সাধারণ গণিত" || s === "গণিত") {
-    return "general math";
-  }
-  if (
-    s === "practical" ||
-    s === "প্রাক্টিকাল" ||
-    s === "প্র্যাকটিক্যাল" ||
-    s.startsWith("প্রাক্টিকাল (") ||
-    s.startsWith("প্র্যাকটিক্যাল (") ||
-    s.startsWith("practical (")
-  ) {
-    return "practical";
-  }
-  return s;
-}
+import {
+  mergeAndDedupeSubjectCatalog,
+  normalizeSubjectKey,
+  type SubjectCatalogRow,
+} from "@/lib/subject-catalog";
 
 export async function getSubjects() {
   try {
@@ -38,131 +18,126 @@ export async function getSubjects() {
     const { getAuthMadrasaId } = await import("./students");
     const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
 
-    let rawList: any[] = [];
+    const collectedRows: SubjectCatalogRow[] = [];
+    const assignedSubjectIds = new Set<string>();
+    const catalogTenantIds = new Set<string>();
 
-    if (madrasaId) {
-      const { data: scopedData, error: scopedErr } = await adminClient
+    const [scopedRes, classesRes, seedMadrasaRes] = await Promise.all([
+      adminClient
         .from("subjects")
         .select("*")
-        .or(`madrasa_id.eq.${madrasaId},madrasa_id.is.null`)
-        .order("name");
-      if (!scopedErr && scopedData && scopedData.length > 0) {
-        rawList = scopedData;
-      }
+        .or(madrasaId ? `madrasa_id.eq.${madrasaId},madrasa_id.is.null` : "madrasa_id.is.null")
+        .order("name"),
+      madrasaId
+        ? adminClient
+            .from("classes")
+            .select("id")
+            .or(`madrasa_id.eq.${madrasaId},madrasa_id.is.null`)
+        : Promise.resolve({ data: [] as any[], error: null }),
+      adminClient
+        .from("madrasas")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1),
+    ]);
+
+    if (!scopedRes.error && Array.isArray(scopedRes.data)) {
+      collectedRows.push(...scopedRes.data);
     }
 
-    if (rawList.length === 0) {
-      const { data: userData, error: userError } = await supabase
-        .from("subjects")
-        .select("*")
-        .order("name");
-      if (!userError && userData && userData.length > 0) {
-        rawList = userData;
-      }
+    const seedMadrasaId = seedMadrasaRes.data?.[0]?.id;
+    if (seedMadrasaId && seedMadrasaId !== madrasaId) {
+      catalogTenantIds.add(seedMadrasaId);
     }
 
-    if (rawList.length === 0) {
-      const { data: allData, error: allError } = await adminClient
-        .from("subjects")
-        .select("*")
-        .order("name");
-      if (!allError && allData && allData.length > 0) {
-        rawList = allData;
-      }
-    }
+    const classIds = (classesRes.data || [])
+      .map((c: any) => c?.id)
+      .filter(Boolean);
 
-    // B26 ফিক্স: আলাদা "নাহবেমীর" এবং "কাফিয়া" বিষয় ক্যাটালগে নিশ্চিত করা
-    const hasSeparateNahbemir = rawList.some((s) => {
-      const n = String(s.name || "").normalize("NFC").replace(/\u09AF\u09BC/g, "\u09DF").trim();
-      return n === "নাহবেমীর";
-    });
-    const hasSeparateKafiya = rawList.some((s) => {
-      const n = String(s.name || "").normalize("NFC").replace(/\u09AF\u09BC/g, "\u09DF").trim();
-      return n === "কাফিয়া";
-    });
+    if (madrasaId || classIds.length > 0) {
+      const [classSubRes, teacherSubRes, routineSubRes] = await Promise.all([
+        classIds.length > 0
+          ? adminClient
+              .from("class_subjects")
+              .select("subject_id, subjects(*)")
+              .in("class_id", classIds)
+          : Promise.resolve({ data: [] as any[], error: null }),
+        madrasaId
+          ? adminClient
+              .from("teacher_subjects")
+              .select("subject_id, subjects(*)")
+              .eq("madrasa_id", madrasaId)
+          : Promise.resolve({ data: [] as any[], error: null }),
+        madrasaId
+          ? adminClient
+              .from("routines")
+              .select("subject_id, subjects(*)")
+              .eq("madrasa_id", madrasaId)
+          : Promise.resolve({ data: [] as any[], error: null }),
+      ]);
 
-    if (rawList.length > 0 && (!hasSeparateNahbemir || !hasSeparateKafiya)) {
-      try {
-        if (!hasSeparateNahbemir) {
-          const { data: insNah } = await adminClient
-            .from("subjects")
-            .insert({
-              ...(madrasaId ? { madrasa_id: madrasaId } : {}),
-              name: "নাহবেমীর",
-              code: "NAH",
-              description: "ইলমুন নাহু-এর প্রাথমিক কিতাব ও বাক্য বিশ্লেষণ",
-            })
-            .select("*")
-            .maybeSingle();
-          if (insNah) rawList.push(insNah);
+      for (const linkList of [
+        classSubRes.data || [],
+        teacherSubRes.data || [],
+        routineSubRes.data || [],
+      ]) {
+        for (const row of linkList) {
+          if (row?.subject_id) {
+            assignedSubjectIds.add(row.subject_id);
+          }
+          const sub = Array.isArray(row?.subjects) ? row.subjects[0] : row?.subjects;
+          if (sub?.id) {
+            collectedRows.push(sub);
+            if (sub.madrasa_id && sub.madrasa_id !== madrasaId) {
+              catalogTenantIds.add(sub.madrasa_id);
+            }
+          }
         }
-        if (!hasSeparateKafiya) {
-          const { data: insKaf } = await adminClient
-            .from("subjects")
-            .insert({
-              ...(madrasaId ? { madrasa_id: madrasaId } : {}),
-              name: "কাফিয়া",
-              code: "KAF",
-              description: "উচ্চতর ইলমুন নাহু ও আরবি ব্যাকরণ",
-            })
-            .select("*")
-            .maybeSingle();
-          if (insKaf) rawList.push(insKaf);
-        }
-      } catch {
-        // non-fatal if DB insert fails
       }
     }
 
-    // R2 (B04/B26): পুরনো সম্মিলিত "নাহবেমীর ও কাফিয়া"-এর কোড NAH-KAF করে দেওয়া যাতে আলাদা "নাহবেমীর" (NAH)-এর সাথে কোড সংঘর্ষ না হয়
-    const normalizedRaw = rawList.map((item) => {
-      const cleanName = String(item.name || "")
-        .normalize("NFC")
-        .replace(/\u09AF\u09BC/g, "\u09DF")
-        .trim();
-      if (cleanName.includes("নাহবেমীর") && cleanName.includes("কাফিয়া")) {
-        return {
-          ...item,
-          code: item.code === "NAH" || !item.code ? "NAH-KAF" : item.code,
-        };
+    if (catalogTenantIds.size > 0) {
+      const { data: donorSubjects, error: donorErr } = await adminClient
+        .from("subjects")
+        .select("*")
+        .in("madrasa_id", Array.from(catalogTenantIds))
+        .order("name");
+      if (!donorErr && Array.isArray(donorSubjects)) {
+        collectedRows.push(...donorSubjects);
       }
-      return item;
-    });
-
-    // B04 ফিক্স: ডুপ্লিকেট বিষয় (যেমন প্রাক্টিকাল / প্রাক্টিকাল (আমলী), English/Basic English, Gonit/General Math) একীভূত করা
-    // তবে বর্তমান মাদরাসার নিজস্ব রেকর্ড এবং আলাদা "নাহবেমীর" (NAH) কোডকে অগ্রাধিকার দেওয়া
-    const sorted = [...normalizedRaw].sort((a, b) => {
-      const aOwn = madrasaId && a.madrasa_id === madrasaId ? 0 : 1;
-      const bOwn = madrasaId && b.madrasa_id === madrasaId ? 0 : 1;
-      if (aOwn !== bOwn) return aOwn - bOwn;
-      const aHasParen = String(a.name || "").includes("(") ? 1 : 0;
-      const bHasParen = String(b.name || "").includes("(") ? 1 : 0;
-      if (aHasParen !== bHasParen) return bHasParen - aHasParen;
-      const aHasMeta = (a.code ? 1 : 0) + (a.description ? 1 : 0);
-      const bHasMeta = (b.code ? 1 : 0) + (b.description ? 1 : 0);
-      return bHasMeta - aHasMeta;
-    });
-
-    const seenKeys = new Set<string>();
-    const usedCodes = new Set<string>();
-    const deduped: any[] = [];
-    for (const item of sorted) {
-      const key = normalizeSubjectKey(item.name);
-      if (!key || seenKeys.has(key)) continue;
-      seenKeys.add(key);
-
-      let finalCode = item.code ? String(item.code).trim().toUpperCase() : item.code;
-      if (finalCode && usedCodes.has(finalCode)) {
-        finalCode = `${finalCode}-2`;
-      }
-      if (finalCode) usedCodes.add(finalCode);
-
-      deduped.push({ ...item, code: finalCode });
     }
 
-    return deduped.sort((a, b) =>
-      String(a.name || "").localeCompare(String(b.name || ""), "bn"),
-    );
+    let merged = mergeAndDedupeSubjectCatalog(collectedRows, {
+      madrasaId,
+      assignedSubjectIds,
+    });
+
+    // Fallback: if catalog still has <= 2 items (e.g. partial 2-row state where seed catalog lives under another row),
+    // pull all existing catalog rows non-destructively without mutating any DB rows.
+    if (merged.length <= 2) {
+      const { data: userData } = await supabase
+        .from("subjects")
+        .select("*")
+        .order("name");
+      if (Array.isArray(userData) && userData.length > 0) {
+        collectedRows.push(...userData);
+      }
+
+      const { data: allData } = await adminClient
+        .from("subjects")
+        .select("*")
+        .order("name");
+      if (Array.isArray(allData) && allData.length > 0) {
+        collectedRows.push(...allData);
+      }
+
+      merged = mergeAndDedupeSubjectCatalog(collectedRows, {
+        madrasaId,
+        assignedSubjectIds,
+      });
+    }
+
+    return merged;
   } catch (err) {
     console.error("Exception in getSubjects:", err);
     return [];

@@ -38,14 +38,22 @@ export async function assignSubjectToClass(classId: string, subjectId: string) {
   try {
     const adminClient = await createAdminClient();
 
-    // 1. Get class details to get accurate madrasa_id
-    const { data: clsData } = await adminClient
-      .from("classes")
-      .select("madrasa_id")
-      .eq("id", classId)
-      .single();
+    // 1. Fetch class details and check duplicate assignment in parallel
+    const [{ data: clsData }, { data: existing }] = await Promise.all([
+      adminClient
+        .from("classes")
+        .select("madrasa_id")
+        .eq("id", classId)
+        .single(),
+      adminClient
+        .from("class_subjects")
+        .select("id")
+        .eq("class_id", classId)
+        .eq("subject_id", subjectId)
+        .maybeSingle(),
+    ]);
 
-    let madrasaId = clsData?.madrasa_id;
+    let madrasaId = clsData?.madrasa_id || __authz.madrasaId;
 
     if (!madrasaId) {
       const supabase = await createClient();
@@ -65,14 +73,6 @@ export async function assignSubjectToClass(classId: string, subjectId: string) {
     if (clsData?.madrasa_id && clsData.madrasa_id !== __authz.madrasaId) {
       return { error: "জামাত খুঁজে পাওয়া যায়নি।" };
     }
-
-    // 2. Check if already assigned
-    const { data: existing } = await adminClient
-      .from("class_subjects")
-      .select("id")
-      .eq("class_id", classId)
-      .eq("subject_id", subjectId)
-      .maybeSingle();
 
     if (existing) {
       return { error: "এই বিষয়টি ইতিমধ্যেই এই জামাতে বরাদ্দ করা হয়েছে।" };

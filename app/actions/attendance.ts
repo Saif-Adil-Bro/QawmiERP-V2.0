@@ -77,9 +77,13 @@ export async function getStudentsForAttendance(date: string, classId?: string) {
           date <= h.end_date &&
           holidayApplies(h, s.classes ? [s.classes] : []),
       );
+      const savedStatus = marked.get(s.id) ?? null;
       return {
         ...s,
-        status: marked.get(s.id) || (weekend || holiday ? "Leave" : "Present"),
+        savedStatus,
+        isSaved: savedStatus !== null,
+        isHolidayOrWeekend: Boolean(weekend || holiday),
+        status: savedStatus,
       };
     })
     .sort(
@@ -100,6 +104,10 @@ export async function saveAttendance(
 
   const finalMadrasaId = __authz.madrasaId;
   if (!finalMadrasaId) return { error: "Madrasa not found" };
+
+  if (!Array.isArray(attendanceData) || attendanceData.length === 0) {
+    return { error: "সংরক্ষণের জন্য অন্তত একজন শিক্ষার্থীর হাজিরা চিহ্নিত করুন।" };
+  }
 
   const alreadyVerified =
     options?.rosterVerifiedForTenant &&
@@ -133,6 +141,7 @@ export async function saveAttendance(
     return { error: error.message };
   }
 
+  revalidatePath("/dashboard");
   revalidatePath("/dashboard/attendance");
   revalidatePath("/dashboard/attendance/students");
   revalidatePath("/portal/attendance");
