@@ -432,7 +432,10 @@ async function resolveGuardUncached(
 
     const policy = MODULE_POLICIES[module] || MODULE_POLICIES.generic;
 
-    if(policy.denyRoles?.includes(String(userRow?.role).toLowerCase()))return denied(policy.errorMessage || "অনুমতি নেই।","FORBIDDEN");
+    const sessionRole = (session as { role?: string }).role;
+    if (sessionRole && policy.denyRoles?.includes(sessionRole.toLowerCase())) {
+      return denied(policy.errorMessage || "অনুমতি নেই।", "FORBIDDEN");
+    }
 
     const result = await requirePermission({
       userId: user.id,

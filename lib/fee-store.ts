@@ -284,30 +284,3 @@ export async function readStudentFeeCollectionContext(
     idempotent_payment: null,
   };
 }
-
-/**
- * Targeted writer for a single fee collection (`collectFeePayment`).
- * Upserts only the modified `student_fees` rows, the new `fee_payment`, and its
- * `fee_payment_allocations`, plus lightweight audit log metadata.
- */
-export async function saveSingleFeeCollection(
-  madrasaId: string,
-  params: {
-    modifiedStudentFees: StudentFee[];
-    newPayment: FeePayment;
-    auditLogEntry?: FeeAuditLog;
-  },
-): Promise<boolean> {
-  return saveFeeMetadata(madrasaId, {
-    student_fees: params.modifiedStudentFees,
-    payments: [params.newPayment],
-    ...(params.auditLogEntry
-      ? {
-          audit_logs: [
-            params.auditLogEntry,
-            ...((await getMadrasaMetadata(madrasaId)).audit_logs || []),
-          ].slice(0, 100),
-        }
-      : {}),
-  });
-}

@@ -291,7 +291,7 @@ export async function cashierPayment(
     revalidatePath("/portal/fees");
 
     // Non-blocking webhook event for payment confirmation (Feature 2.4)
-    after(async () => {
+    const sendWebhook = async () => {
       try {
         const { dispatchWebhookEvent } =
           await import("@/lib/webhooks/dispatcher");
@@ -309,7 +309,12 @@ export async function cashierPayment(
       } catch {
         // non-blocking webhook dispatch
       }
-    });
+    };
+    try {
+      after(sendWebhook);
+    } catch {
+      void sendWebhook();
+    }
 
     return {
       success: true,
