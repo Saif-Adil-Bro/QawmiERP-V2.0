@@ -39,6 +39,23 @@ ORDER BY table_name, column_name;
 - `donations` ও `expenses`-এ `fund_id` হওয়ার কথা `text`; দুটিতেই `fund_name`, `status`, `void_reason`, `voided_at` এবং `expenses`-এ `voucher_no` থাকার কথা। ফি-র দুই টেবিলেও `fund_id`, `fund_name` দেখুন। অন্য prerequisite ঠিক থাকলে নতুন Phase 1 স্ক্রিপ্ট কেবল অনুপস্থিত posting `fund_id` যোগ করে, কোনো default ছাড়া। পুরোনো সারির অন্যান্য তথ্য ও আগে থেকে থাকা ID অপরিবর্তিত থাকে। আগে ID ছিল কিন্তু এখন নেই এমন প্রমাণ থাকলে backup মেলান; নতুন খালি কলাম হারানো তথ্য ফেরায় না।
 - আরও কলাম না থাকলে শুধু এই দুই `fund_id` যোগ করা সমাধান নয়। খালি staging-এর ক্রম: base → account-model → portal-parity → finance-integrity। পুরোনো বইয়ে না দেখে base বা account-model পুনরায় চালাবেন না: account-model অনুপস্থিত `fund_id`-তে `'fund-general'` default দেয়, `[VOID:…]` রসিদের status বদলায় এবং একই payment/fee type/billing period-এর অতিরিক্ত allocation মুছে দিতে পারে। পরে default সরালে পুরোনো সারির General মান সরবে না। আগে restored copy-তে পার্থক্য ও অঙ্ক মেলান। তারপর ধাপ ৪ অনুযায়ী **পুরো** Phase 1 transaction চালান, ব্যর্থ লাইনের পর থেকে নয়।
 
+### `Missing Phase 1 prerequisite columns: donations.fund_name, …, expenses.voucher_no`
+
+`donations`-এর চারটি ও `expenses`-এর পাঁচটি কলামের এই তালিকা এলে Phase 1 প্রথম যাচাইয়েই থেমেছে, কোনো Phase 1 DDL চালায়নি। কলামগুলি [account-model migration](../supabase_fix_account_model_migration.sql)-এর ধাপ ৩ ও ৪-এর। ত্রুটিতে ফি টেবিলের নাম নেই মানে যাচাই করা ফি কলামগুলি দেখা গেছে; পুরো portal-parity migration বা তার grants ঠিক আছে, এমন প্রমাণ নয়। `RAISE` সরাবেন না।
+
+- **নতুন, সত্যিই খালি database:** base টেবিল আগে থেকেই থাকলে base পুনরায় নয়। সম্পূর্ণ `supabase_fix_account_model_migration.sql` চালান → `supabase_portal_parity_migration.sql` যাচাই/অনুপস্থিত হলে প্রয়োগ করুন → সম্পূর্ণ `supabase_finance_integrity_migration.sql` চালান। SQL editor-এ প্রতিটি ফাইল নিজের `BEGIN` থেকে `COMMIT` পর্যন্ত আলাদা query।
+- **আগের কোনো তথ্য আছে বা নিশ্চিত নন:** backup restore করে staging-এ লেখা বন্ধ রাখুন। Migration owner দিয়ে [account-model যাচাইয়ের SELECT](../scripts/sql/finance-account-model-check.sql) চালান। এক সারিতে শুধু schema-র নাম, counts ও booleans আসবে। `rls_may_filter_counts=true`, missing base object বা permission error হলে হিসাব অসম্পূর্ণ। `has_portal_*` কেবল চিহ্ন, সম্পূর্ণ migration history নয়। রসিদ শূন্য দেখালেও JSON খাতা থাকতে পারে।
+- **পুরোনো script চালানোর আগে সিদ্ধান্ত:** `allocation_rows_at_risk` ধনাত্মক হলে **থামুন**: পুরোনো script ঐ সংখ্যক allocation মুছে দেবে, যদিও সেগুলি আলাদা বিলের লাইনও হতে পারে। Donation-এর `notes` ও expense-এর `description`-এর VOID tag মূল খাতার সঙ্গে মেলান। অনুপস্থিত `status`-এ `DEFAULT 'COMPLETED'` পুরোনো সারিতেও বসে; পুরোনো script কিছু donation-কে `VOID` করে, expense-এর tag একইভাবে সরায় না। Fund, voucher বা status আগে ছিল কিন্তু হারিয়েছে সন্দেহ হলে backup থেকে যাচাই করুন; খালি কলাম হারানো মান ফেরাবে না। Legacy JSON metadata-র পরিবর্তনও যাচাই করুন। অমিল থাকলে account-model বা Phase 1 চালাবেন না।
+- **মিলিয়ে অনুমোদিত staging rehearsal-এ** পুরোনো script যেন অনুপস্থিত ফান্ডের জায়গায় General না বসায়, account-model ফাইলের **কপিতে** তার নিজের `BEGIN;`-এর ঠিক পরে নিচের লাইন দিন। এগুলি একা নয়টি কলামের সমাধান নয়, VOID/ডুপ্লিকেটের অনুমোদনও নয়। আগে থেকেই থাকা কোনো আইডি বা default এগুলি বদলায় না।
+
+```sql
+ALTER TABLE public.donations ADD COLUMN IF NOT EXISTS fund_id text;
+ALTER TABLE public.expenses ADD COLUMN IF NOT EXISTS fund_id text;
+ALTER TABLE public.fee_payment_allocations ADD COLUMN IF NOT EXISTS fund_id text;
+```
+
+অনুমোদিত prerequisite প্রয়োগের পরে একই SELECT আবার চালান; `missing_columns` খালি হওয়া ও portal চিহ্ন দুটির পাশাপাশি schema, indexes, grants ও পুরোনো বইয়ের নিয়ন্ত্রণ অঙ্ক মিলিয়ে তারপর ধাপ ৪ অনুসরণ করুন।
+
 ## ২. Read-only preflight
 
 Secret manager থেকে `QAWMI_STAGING_DATABASE_URL` দিন (TLS যাচাইকৃত **PostgreSQL** ঠিকানা, public API key নয়)। `TENANT_A` ও `TENANT_B` ভিন্ন staging UUID। URL, password, provider reference বা শিক্ষার্থী/দাতার তথ্য টিকিট বা লগে দেবেন না।
