@@ -79,7 +79,8 @@ export async function getLinkableProfiles() {
     const madrasaId = await getAuthMadrasaId(supabase, user);
     if (!madrasaId) return { teachers: [], students: [] };
 
-    const [teachersRes, studentsRes] = await Promise.all([
+    const { getMadrasaMetadata } = await import("@/lib/sessions");
+    const [teachersRes, studentsRes, meta] = await Promise.all([
       supabase
         .from("teachers")
         .select("id, first_name, last_name, phone, email, designation")
@@ -90,10 +91,59 @@ export async function getLinkableProfiles() {
         .select("id, first_name, last_name, roll_number, parent_phone, father_name, class_name, classes(name)")
         .eq("madrasa_id", madrasaId)
         .order("created_at", { ascending: true }),
+      getMadrasaMetadata(madrasaId, true),
     ]);
 
+    const sqlTeachers = teachersRes.data || [];
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
+    const seenPhones = new Set<string>();
+
+    const mergedTeachers: any[] = [];
+    for (const t of sqlTeachers) {
+      seenIds.add(t.id);
+      const fullName = `${t.first_name || ""} ${t.last_name || ""}`.trim();
+      if (fullName) seenNames.add(fullName);
+      const cleanPhone = String(t.phone || "").replace(/[^0-9]/g, "");
+      if (cleanPhone) seenPhones.add(cleanPhone);
+      mergedTeachers.push(t);
+    }
+
+    const staffMembers: any[] = Array.isArray(meta?.staff_members) ? meta.staff_members : [];
+    for (const sm of staffMembers) {
+      if (!sm || sm.is_deleted) continue;
+      const smId = sm.legacy_id || sm.id;
+      const fullName = String(sm.personal?.full_name_bn || sm.personal?.full_name_en || "").trim();
+      const phone = String(sm.contact?.mobile_primary || "").trim();
+      const cleanPhone = phone.replace(/[^0-9]/g, "");
+      if (
+        (smId && seenIds.has(smId)) ||
+        (sm.id && seenIds.has(sm.id)) ||
+        (fullName && seenNames.has(fullName)) ||
+        (cleanPhone && seenPhones.has(cleanPhone))
+      ) {
+        continue;
+      }
+      if (smId) seenIds.add(smId);
+      if (sm.id) seenIds.add(sm.id);
+      if (fullName) seenNames.add(fullName);
+      if (cleanPhone) seenPhones.add(cleanPhone);
+
+      const parts = fullName.split(/\s+/);
+      const firstName = parts[0] || "শিক্ষক";
+      const lastName = parts.slice(1).join(" ");
+      mergedTeachers.push({
+        id: sm.legacy_id || sm.id,
+        first_name: firstName,
+        last_name: lastName,
+        phone: phone || null,
+        email: sm.contact?.email || null,
+        designation: sm.employment?.designation_bn || sm.employment?.role_category || "স্টাফ",
+      });
+    }
+
     return {
-      teachers: teachersRes.data || [],
+      teachers: mergedTeachers,
       students: (studentsRes.data || []).map((s: any) => ({
         ...s,
         class_name: s.class_name || s.classes?.name || "",

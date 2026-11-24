@@ -1,17 +1,19 @@
-import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getSubjects } from "@/app/actions/subjects";
 import { getClassSubjects } from "@/app/actions/class_subjects";
-import { getClasses } from "@/app/actions/classes";
+import { getClasses, getTeachersForClassAssignment } from "@/app/actions/classes";
+import { getClassTeacherSubjects } from "@/app/actions/teacher_subjects";
 import ClassSubjectsManager from "./ClassSubjectsManager";
 
 export default async function ClassSubjectsPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const classId = params.id;
   
-  const [classesList, allSubjects, assignedSubjects] = await Promise.all([
+  const [classesList, allSubjects, assignedSubjects, availableTeachers, teacherSubjects] = await Promise.all([
     getClasses(),
     getSubjects(),
     getClassSubjects(classId),
+    getTeachersForClassAssignment(),
+    getClassTeacherSubjects(classId),
   ]);
 
   const cls = classesList.find((c) => c.id === classId);
@@ -24,6 +26,8 @@ export default async function ClassSubjectsPage(props: { params: Promise<{ id: s
       classTeacherName={cls?.class_teacher_name || null}
       initialAllSubjects={allSubjects || []}
       initialAssignedSubjects={assignedSubjects || []}
+      availableTeachers={availableTeachers || []}
+      initialTeacherSubjects={teacherSubjects || []}
     />
   );
 }

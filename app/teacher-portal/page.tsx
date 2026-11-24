@@ -5,7 +5,7 @@ import {portalHolidays} from '@/lib/portal/rules';
 import {getEarlyWarningAlerts} from '@/app/actions/early-warning';
 import TeacherDashboardClient from './TeacherDashboardClient';
 export default async function Page() {
-  const t = await webTeacher(); if (!t) return null;
+  const t = await webTeacher(true); if (!t) return null;
   const {i,scope} = t; const ids = (await teacherStudents(i,scope)).map(s=>s.id);
   const today = toDhakaDateString();
   const [schedule,a,h,n,alerts] = await Promise.all([teacherSchedule(i,scope),childLogs(i.db,i.tenant,'attendance',ids,today),

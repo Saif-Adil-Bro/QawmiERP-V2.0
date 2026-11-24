@@ -26,7 +26,13 @@ export async function portalSnapshot(
   portal: "student" | "teacher",
   requested?: string | null,
 ) {
-  if (!hasRole(i, portal === "student" ? studentRoles : teacherRoles))
+  const allowedRoles = [
+    ...(portal === "student" ? studentRoles : teacherRoles),
+    "super_admin",
+    "admin",
+    "muhtamim",
+  ];
+  if (!hasRole(i, allowedRoles))
     return null;
   const profile = {
     id: i.user.id,

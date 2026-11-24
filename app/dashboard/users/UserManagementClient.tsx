@@ -249,7 +249,8 @@ export default function UserManagementClient({
     const student = students.find((s) => s.id === sId);
     if (student) {
       const studentCode = getStudentIdNumber(student, students, madrasaPrefix);
-      if (asParent) {
+      const shouldBeStudent = !asParent || createMode === "student" || role === "student";
+      if (!shouldBeStudent) {
         setFullName(student.father_name || `${student.first_name}-এর অভিভাবক`);
         setPhone(student.parent_phone || student.phone || "");
         setRole("parent");
@@ -490,6 +491,14 @@ export default function UserManagementClient({
           >
             <UserPlus className="w-4 h-4" />
             <span>+ শিক্ষক একাউন্ট</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => openCreateModal("student")}
+            className="px-4 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 shadow-lg shadow-teal-950/40 transition active:scale-95 cursor-pointer"
+          >
+            <GraduationCap className="w-4 h-4" />
+            <span>+ শিক্ষার্থী একাউন্ট</span>
           </button>
           <button
             type="button"
@@ -989,7 +998,7 @@ export default function UserManagementClient({
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   ইউজার ক্যাটাগরি / ধরন বেছে নিন <span className="text-rose-500">*</span>
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -1008,8 +1017,35 @@ export default function UserManagementClient({
                   <button
                     type="button"
                     onClick={() => {
+                      setCreateMode("student");
+                      setRole("student");
+                      if (selectedStudentId) {
+                        const st = students.find((s) => s.id === selectedStudentId);
+                        if (st) {
+                          setFullName(`${st.first_name || ""} ${st.last_name || ""}`.trim());
+                        }
+                      }
+                    }}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      createMode === "student"
+                        ? "bg-teal-50 border-teal-500 text-teal-900 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    <GraduationCap className="w-3.5 h-3.5" />
+                    <span>শিক্ষার্থী</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
                       setCreateMode("parent");
                       setRole("parent");
+                      if (selectedStudentId) {
+                        const st = students.find((s) => s.id === selectedStudentId);
+                        if (st) {
+                          setFullName(st.father_name || `${st.first_name}-এর অভিভাবক`);
+                        }
+                      }
                     }}
                     className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
                       createMode === "parent"
@@ -1057,15 +1093,31 @@ export default function UserManagementClient({
                 </div>
               )}
 
-              {createMode === "parent" && students.length > 0 && (
-                <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 space-y-1.5">
-                  <label className="block text-xs font-bold text-blue-900">
-                    শিক্ষার্থী বেছে নিন (অভিভাবক তথ্য স্বয়ংক্রিয়ভাবে বসবে)
+              {(createMode === "parent" || createMode === "student") && students.length > 0 && (
+                <div
+                  className={`${
+                    createMode === "student"
+                      ? "bg-teal-50/70 border-teal-200"
+                      : "bg-blue-50/70 border-blue-200"
+                  } p-3 rounded-xl border space-y-1.5`}
+                >
+                  <label
+                    className={`block text-xs font-bold ${
+                      createMode === "student" ? "text-teal-900" : "text-blue-900"
+                    }`}
+                  >
+                    {createMode === "student"
+                      ? "শিক্ষার্থী বেছে নিন (শিক্ষার্থীর লগইন তথ্য স্বয়ংক্রিয়ভাবে বসবে)"
+                      : "শিক্ষার্থী বেছে নিন (অভিভাবক তথ্য স্বয়ংক্রিয়ভাবে বসবে)"}
                   </label>
                   <select
                     value={selectedStudentId}
-                    onChange={(e) => handleStudentSelect(e.target.value, true)}
-                    className="w-full p-2 border border-blue-300 rounded-lg text-xs sm:text-sm bg-white text-slate-800 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                    onChange={(e) => handleStudentSelect(e.target.value, createMode === "parent")}
+                    className={`w-full p-2 border ${
+                      createMode === "student"
+                        ? "border-teal-300 focus:ring-teal-500"
+                        : "border-blue-300 focus:ring-blue-500"
+                    } rounded-lg text-xs sm:text-sm bg-white text-slate-800 focus:ring-2 cursor-pointer`}
                   >
                     <option value="">-- শিক্ষার্থী বেছে নিন --</option>
                     {students.map((s) => (
@@ -1134,11 +1186,11 @@ export default function UserManagementClient({
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
-                    type="email"
+                    type="text"
                     name="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="user@qawmi.app বা নিজস্ব ইমেইল"
+                    placeholder="user@qawmi.app, নিজস্ব ইমেইল বা স্টুডেন্ট আইডি"
                     required
                     className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-sm font-mono focus:ring-2 focus:ring-slate-900"
                   />

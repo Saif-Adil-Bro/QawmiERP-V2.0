@@ -59,7 +59,112 @@ export async function getSyllabusDashboardData(overrideTeacherId?: string) {
     ]);
     const madrasaName=madrasa?.name || '', madrasaAddress=madrasa?.address || '';
     const activeHolidays=t ? portalHolidays(meta.academic_holidays,t.scope.classes) : (meta.academic_holidays || []).filter(h=>!h.is_archived);
-    const filteredSyllabuses:Syllabus[] = ((meta as any).syllabuses || []).filter((s:any)=> t ? ownsLesson(t,s) : !overrideTeacherId || s.teacher_id===overrideTeacherId);
+    let filteredSyllabuses:Syllabus[] = ((meta as any).syllabuses || []).filter((s:any)=> t ? ownsLesson(t,s) : !overrideTeacherId || s.teacher_id===overrideTeacherId);
+    if (t && filteredSyllabuses.length === 0) {
+      // Auto-bridge assigned subjects or in-charge class subjects so teacher syllabus tracker is never blank (PB-05)
+      let sourceAssignments = [...(t.scope.assignments || [])];
+      if (sourceAssignments.length === 0 && t.scope.classes.length > 0) {
+        const classIds = t.scope.classes.map((c) => c.id);
+        const classSubRows = await rows(() =>
+          admin
+            .from("class_subjects")
+            .select("*, classes(id, name), subjects(id, name, code)")
+            .in("class_id", classIds)
+        );
+        sourceAssignments = classSubRows;
+      }
+      if (sourceAssignments.length > 0) {
+        const classObjs = t.scope.classes;
+        const subjectObjs = sourceAssignments
+          .map((a: any) => a.subjects)
+          .filter(Boolean);
+        const generated = getDefaultSyllabuses(
+          madrasaId,
+          classObjs,
+          subjectObjs,
+          t.scope.teacher ? [t.scope.teacher] : []
+        );
+        filteredSyllabuses = sourceAssignments
+          .map((a: any, idx: number) => {
+            const cName =
+              a.classes?.name ||
+              classObjs.find((c) => c.id === a.class_id)?.name ||
+              "জামাত";
+            const sName = a.subjects?.name || a.subject_name || "কিতাব";
+            const matchTemplate = generated.find(
+              (g) =>
+                g.subject_id === a.subject_id ||
+                g.subject_name === sName ||
+                g.book_name === sName
+            );
+            if (matchTemplate) {
+              return {
+                ...matchTemplate,
+                id: `auto_syl_${a.class_id}_${a.subject_id || idx}`,
+                class_id: a.class_id,
+                class_name: cName,
+                subject_id: a.subject_id || matchTemplate.subject_id,
+                subject_name: sName,
+                book_name: sName,
+                teacher_id: t.scope.teacher?.id || t.i.user.id,
+                teacher_name: t.scope.display.name,
+              };
+            }
+            return {
+              id: `auto_syl_${a.class_id}_${a.subject_id || idx}`,
+              madrasa_id: madrasaId,
+              class_id: a.class_id,
+              class_name: cName,
+              subject_id: a.subject_id || `sub_${idx}`,
+              subject_name: sName,
+              book_name: sName,
+              total_pages: 150,
+              start_page: 1,
+              end_page: 150,
+              current_page: 1,
+              planned_daily_pages: 2,
+              planned_daily_topics: 1,
+              teacher_id: t.scope.teacher?.id || t.i.user.id,
+              teacher_name: t.scope.display.name,
+              academic_year: "১৪৪৭-৪৮ হিজরি",
+              start_date: "2026-04-15",
+              end_date: "2027-04-05",
+              revision_interval_days: 7,
+              status: "ACTIVE" as const,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              chapters: [
+                {
+                  id: `ch_${idx}_1`,
+                  syllabus_id: `auto_syl_${a.class_id}_${a.subject_id || idx}`,
+                  name: `${sName} — প্রথম অধ্যায় (প্রাথমিক পাঠ)`,
+                  order: 1,
+                  topics: [
+                    {
+                      id: `top_${idx}_1`,
+                      chapter_id: `ch_${idx}_1`,
+                      name: "ভূমিকা ও মৌলিক আলোচনা",
+                      order: 1,
+                      status: "PENDING" as const,
+                      progress_percentage: 0,
+                      revision_count: 0,
+                    },
+                    {
+                      id: `top_${idx}_2`,
+                      chapter_id: `ch_${idx}_1`,
+                      name: "মূল পাঠ ও তামরীন",
+                      order: 2,
+                      status: "PENDING" as const,
+                      progress_percentage: 0,
+                      revision_count: 0,
+                    },
+                  ],
+                },
+              ],
+            };
+          });
+      }
+    }
     const dailyClasses:DailyClassRecord[] = ((meta as any).daily_classes || []).filter((s:any)=>!t || ownsLesson(t,s));
     const todayStr=toDhakaDateString();
     const allMetrics=filteredSyllabuses.map(s=>SyllabusProgressEngine.calculateMetrics(s,dailyClasses,activeHolidays,routines,todayStr));

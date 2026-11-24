@@ -155,6 +155,32 @@ export default function TeacherSyllabusClient({ initialData }: Props) {
         </div>
       )}
 
+      {(!currentMetrics || !currentSyllabus) && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 sm:p-10 text-center space-y-3 shadow-xs">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center mx-auto">
+            <BookOpen className="w-7 h-7" />
+          </div>
+          <h3 className="text-base sm:text-lg font-black text-slate-900">
+            এখনো কোনো কিতাব বা সিলেবাস বরাদ্দ করা হয়নি
+          </h3>
+          <p className="text-xs sm:text-sm text-slate-600 max-w-lg mx-auto leading-relaxed">
+            আপনার নামে এখনো কোনো কিতাব বা জামাতের সিলেবাস যুক্ত নেই। মাদরাসা অ্যাডমিন প্যানেল থেকে আপনার নামে কিতাব বরাদ্দ করা হলে বা সিলেবাস সেটআপ করা হলে এখানে অধ্যায়ভিত্তিক অগ্রগতি ও দৈনিক পাঠ ট্র্যাকিং দেখা যাবে।
+          </p>
+          {data.classes.length > 0 && (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setIsDailyClassModalOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>আজকের পাঠ / ক্লাস রেকর্ড করুন</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {currentMetrics && currentSyllabus && (
         <>
           {/* ======================================================== */}

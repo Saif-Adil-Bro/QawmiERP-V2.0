@@ -31,8 +31,7 @@ export async function POST(req: NextRequest) {
     let isStudentLogin = false;
     let matchedStudent: any = null;
     let studentIdCode = "";
-    let canonicalEmail = "";
-    let legacyEmail = "";
+    let candidateEmails: string[] = [];
 
     // If identifier is not a standard external email (or matches student ID/roll/phone/qawmi format)
     if (!rawIdentifier.includes("@") || rawIdentifier.endsWith("@qawmi.app")) {
@@ -41,14 +40,18 @@ export async function POST(req: NextRequest) {
         isStudentLogin = true;
         matchedStudent = resolved.student;
         studentIdCode = resolved.canonicalStudentId;
-        canonicalEmail = resolved.portalEmail;
-        legacyEmail = resolved.legacyPortalEmail;
+        candidateEmails = resolved.candidateEmails?.length
+          ? resolved.candidateEmails
+          : [resolved.portalEmail, resolved.legacyPortalEmail];
 
-        targetEmail = canonicalEmail;
+        // If user entered an explicit email (like muse-480004@qawmi.app), try it first; otherwise try first DB-matched candidate
+        targetEmail = rawIdentifier.includes("@")
+          ? rawIdentifier.toLowerCase()
+          : candidateEmails[0] || resolved.portalEmail;
       } else if (!rawIdentifier.includes("@")) {
         return NextResponse.json(
           {
-            error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: AHH480001 বা 480001) অথবা ইমেইল প্রদান করুন।`,
+            error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: MUSE-480004 বা 480001) অথবা ইমেইল প্রদান করুন।`,
           },
           { status: 404 }
         );
@@ -82,16 +85,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If student login failed, try canonical or legacy email alternatives
+    // If student login failed, try all candidate email formats (including muse-480004@qawmi.app, student_muse480004@qawmi.app, etc.)
     if (error && isStudentLogin) {
-      const altEmails = [canonicalEmail, legacyEmail].filter(
+      const altEmails = candidateEmails.filter(
         (e) => e && e.toLowerCase() !== targetEmail.toLowerCase()
       );
       for (const alt of altEmails) {
-        const altAttempt = await supabase.auth.signInWithPassword({
+        let altAttempt = await supabase.auth.signInWithPassword({
           email: alt,
           password: rawPassword,
         });
+        if (altAttempt.error && normalizedPassword !== rawPassword) {
+          altAttempt = await supabase.auth.signInWithPassword({
+            email: alt,
+            password: normalizedPassword,
+          });
+        }
         if (!altAttempt.error && altAttempt.data.user) {
           data = altAttempt.data;
           error = null;

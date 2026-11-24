@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { 
   ArrowLeft, BookOpen, Layers, PlusCircle, Trash2, 
-  RefreshCw, AlertCircle, CheckCircle2, BookmarkCheck, ArrowRight
+  RefreshCw, AlertCircle, CheckCircle2, BookmarkCheck, ArrowRight, UserCheck
 } from "lucide-react";
 import { assignSubjectToClass, removeSubjectFromClass } from "@/app/actions/class_subjects";
+import { setClassSubjectTeacher } from "@/app/actions/teacher_subjects";
+import type { AvailableTeacher } from "@/app/actions/classes";
 
 interface SubjectItem {
   id: string;
@@ -22,6 +24,19 @@ interface AssignedSubjectItem {
   subjects: SubjectItem | null;
 }
 
+interface TeacherSubjectMapItem {
+  id: string;
+  teacher_id: string;
+  class_id: string;
+  subject_id: string;
+  teachers?: {
+    id: string;
+    first_name?: string;
+    last_name?: string;
+    designation?: string;
+  } | null;
+}
+
 interface ClassSubjectsManagerProps {
   classId: string;
   className: string;
@@ -29,6 +44,8 @@ interface ClassSubjectsManagerProps {
   classTeacherName?: string | null;
   initialAllSubjects: SubjectItem[];
   initialAssignedSubjects: AssignedSubjectItem[];
+  availableTeachers?: AvailableTeacher[];
+  initialTeacherSubjects?: TeacherSubjectMapItem[];
 }
 
 export default function ClassSubjectsManager({
@@ -38,12 +55,25 @@ export default function ClassSubjectsManager({
   classTeacherName,
   initialAllSubjects,
   initialAssignedSubjects,
+  availableTeachers = [],
+  initialTeacherSubjects = [],
 }: ClassSubjectsManagerProps) {
   const [assigned, setAssigned] = useState<AssignedSubjectItem[]>(initialAssignedSubjects || []);
   const [allSubjects] = useState<SubjectItem[]>(initialAllSubjects || []);
+  const [subjectTeachers, setSubjectTeachers] = useState<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    for (const row of initialTeacherSubjects || []) {
+      if (row.subject_id && row.teacher_id) {
+        map[row.subject_id] = row.teacher_id;
+      }
+    }
+    return map;
+  });
   
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [selectedTeacherId, setSelectedTeacherId] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const [savingTeacherForSubject, setSavingTeacherForSubject] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const pendingRef = useRef(false);
@@ -114,6 +144,37 @@ export default function ClassSubjectsManager({
     (sub) => !assigned.some((as) => as.subject_id === sub.id)
   );
 
+  const handleTeacherChange = async (subjectId: string, teacherId: string, subjectName: string) => {
+    const prevTeacherId = subjectTeachers[subjectId] || "";
+    setSubjectTeachers((prev) => ({ ...prev, [subjectId]: teacherId }));
+    setSavingTeacherForSubject(subjectId);
+    setSaveGuardActive(true);
+    setToast(null);
+    try {
+      const res = await setClassSubjectTeacher(classId, subjectId, teacherId || null);
+      if (res?.error) {
+        setSubjectTeachers((prev) => ({ ...prev, [subjectId]: prevTeacherId }));
+        setToast({ type: "error", message: res.error });
+      } else {
+        const resolvedId = res?.teacherId || teacherId || "";
+        setSubjectTeachers((prev) => ({ ...prev, [subjectId]: resolvedId }));
+        const teacherObj = availableTeachers.find((t) => t.id === teacherId || t.id === resolvedId);
+        setToast({
+          type: "success",
+          message: teacherId
+            ? `"${subjectName}" বিষয়ের জন্য শিক্ষক (${teacherObj?.name || "ওস্তাদ"}) নির্ধারণ করা হয়েছে!`
+            : `"${subjectName}" বিষয়ের শিক্ষক বরাদ্দ সরানো হয়েছে।`,
+        });
+      }
+    } catch (err: any) {
+      setSubjectTeachers((prev) => ({ ...prev, [subjectId]: prevTeacherId }));
+      setToast({ type: "error", message: err.message || "বিষয় শিক্ষক নির্ধারণ করতে সমস্যা হয়েছে।" });
+    } finally {
+      setSavingTeacherForSubject(null);
+      setSaveGuardActive(false);
+    }
+  };
+
   const handleAssign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSubjectId) {
@@ -123,6 +184,8 @@ export default function ClassSubjectsManager({
 
     const subToAssign = allSubjects.find((s) => s.id === selectedSubjectId);
     if (!subToAssign) return;
+
+    const teacherToAssign = selectedTeacherId;
 
     setSaveGuardActive(true);
     setIsPending(true);
@@ -140,6 +203,7 @@ export default function ClassSubjectsManager({
     // Apply optimistic update
     setAssigned((prev) => [...prev, newAssignedItem]);
     setSelectedSubjectId("");
+    setSelectedTeacherId("");
 
     try {
       const res = await assignSubjectToClass(classId, subToAssign.id);
@@ -161,6 +225,15 @@ export default function ClassSubjectsManager({
                 : item
             )
           );
+        }
+        if (teacherToAssign) {
+          const tRes = await setClassSubjectTeacher(classId, subToAssign.id, teacherToAssign);
+          if (!tRes?.error) {
+            setSubjectTeachers((prev) => ({
+              ...prev,
+              [subToAssign.id]: tRes?.teacherId || teacherToAssign,
+            }));
+          }
         }
         setToast({
           type: "success",
@@ -236,7 +309,7 @@ export default function ClassSubjectsManager({
               )}
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              {classDescription ? `${classDescription} • ` : ""}এই জামাতের জন্য নির্ধারিত বিষয়সমূহ নির্বাচন ও রুটিনে ব্যবহারের জন্য প্রস্তুত করুন।
+              {classDescription ? `${classDescription} • ` : ""}এই জামাতের জন্য নির্ধারিত বিষয়সমূহ নির্বাচন ও বিষয়ভিত্তিক শিক্ষক নির্ধারণ করুন।
             </p>
           </div>
         </div>
@@ -251,7 +324,7 @@ export default function ClassSubjectsManager({
       </div>
 
       {/* Active Save Progress Banner (R1 / B25) */}
-      {(isPending || deletingId) && (
+      {(isPending || deletingId || savingTeacherForSubject) && (
         <div
           role="status"
           aria-live="assertive"
@@ -300,7 +373,7 @@ export default function ClassSubjectsManager({
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-emerald-600" />
                 <h2 className="font-bold text-slate-800 text-sm sm:text-base">
-                  বরাদ্দকৃত বিষয়সমূহ
+                  বরাদ্দকৃত বিষয়সমূহ ও বিষয়-শিক্ষক
                 </h2>
               </div>
               <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1 rounded-lg border border-slate-200">
@@ -324,10 +397,12 @@ export default function ClassSubjectsManager({
                   {assigned.map((item, index) => {
                     const sub = item.subjects;
                     const isDeleting = deletingId === item.id;
+                    const isSavingTeacher = savingTeacherForSubject === item.subject_id;
+                    const currentTeacherId = subjectTeachers[item.subject_id] || "";
                     return (
                       <li
                         key={item.id}
-                        className="flex justify-between items-center p-4 sm:px-6 hover:bg-slate-50/60 transition gap-4"
+                        className="flex flex-col sm:flex-row sm:justify-between sm:items-center p-4 sm:px-6 hover:bg-slate-50/60 transition gap-3"
                       >
                         <div className="flex items-center gap-3.5 min-w-0">
                           <span className="w-7 h-7 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-black flex items-center justify-center border border-emerald-200 shrink-0">
@@ -352,19 +427,45 @@ export default function ClassSubjectsManager({
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(item)}
-                          disabled={isDeleting}
-                          className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl transition disabled:opacity-50 cursor-pointer shrink-0 border border-transparent hover:border-rose-200"
-                          title="বিষয়টি এই জামাত থেকে বাদ দিন"
-                        >
-                          {isDeleting ? (
-                            <RefreshCw className="w-4 h-4 animate-spin text-rose-500" />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                        </button>
+                        <div className="flex items-center gap-2.5 self-end sm:self-auto">
+                          <div className="flex items-center gap-1.5">
+                            <UserCheck className="w-4 h-4 text-emerald-600 shrink-0 hidden sm:inline" />
+                            <select
+                              value={currentTeacherId}
+                              disabled={isSavingTeacher || isDeleting}
+                              onChange={(e) =>
+                                handleTeacherChange(
+                                  item.subject_id,
+                                  e.target.value,
+                                  sub?.name || "বিষয়"
+                                )
+                              }
+                              aria-label={`${sub?.name || "বিষয়"} এর শিক্ষক নির্বাচন`}
+                              className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none max-w-[210px]"
+                            >
+                              <option value="">-- বিষয় শিক্ষক নির্বাচন --</option>
+                              {availableTeachers.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name} {t.designation ? `(${t.designation})` : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemove(item)}
+                            disabled={isDeleting}
+                            className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl transition disabled:opacity-50 cursor-pointer shrink-0 border border-transparent hover:border-rose-200"
+                            title="বিষয়টি এই জামাত থেকে বাদ দিন"
+                          >
+                            {isDeleting ? (
+                              <RefreshCw className="w-4 h-4 animate-spin text-rose-500" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
                       </li>
                     );
                   })}
@@ -410,6 +511,24 @@ export default function ClassSubjectsManager({
                       {unassignedSubjects.map((sub) => (
                         <option key={sub.id} value={sub.id}>
                           {sub.name} {sub.code ? `(${sub.code})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      বিষয় শিক্ষক নির্বাচন করুন (ঐচ্ছিক)
+                    </label>
+                    <select
+                      value={selectedTeacherId}
+                      onChange={(e) => setSelectedTeacherId(e.target.value)}
+                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all bg-white text-slate-800 text-sm font-medium"
+                    >
+                      <option value="">-- পরবর্তীতে নির্ধারণ করুন --</option>
+                      {availableTeachers.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} {t.designation ? `(${t.designation})` : ""}
                         </option>
                       ))}
                     </select>

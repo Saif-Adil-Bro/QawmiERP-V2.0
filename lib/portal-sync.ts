@@ -223,14 +223,24 @@ export async function postTeacherEntry(
   const endpoint = teacherEndpoints[actionType];
   if (!expectedOwner || expectedOwner !== ownerKey(browserSession()))
     throw new Error("অ্যাকাউন্ট বদলেছে। পেজ রিফ্রেশ করুন।");
-  const pending =
-    actionType === "hifz" &&
-    (await getOfflineDb(expectedOwner)
+  const isOnline = await checkIsOnline();
+  let pending =
+    actionType === "hifz"
+      ? await getOfflineDb(expectedOwner)
+          .offlineOutbox.where("actionType")
+          .equals("hifz")
+          .filter((i) => !i.rejected)
+          .count()
+      : 0;
+  if (pending > 0 && isOnline) {
+    await processOfflineOutbox().catch(() => {});
+    pending = await getOfflineDb(expectedOwner)
       .offlineOutbox.where("actionType")
       .equals("hifz")
       .filter((i) => !i.rejected)
-      .count());
-  if (!pending && (await checkIsOnline())) {
+      .count();
+  }
+  if (!pending && isOnline) {
     if (expectedOwner !== ownerKey(browserSession()))
       throw new Error("অ্যাকাউন্ট বদলেছে।");
     ensureWritable?.();
@@ -246,7 +256,7 @@ export async function postTeacherEntry(
           },
           body: JSON.stringify(payload),
         },
-        12000,
+        30000,
       );
       const json = await res.json();
       if (!res.ok || !json.success)
@@ -271,8 +281,17 @@ export async function postTeacherEntry(
     method: "POST",
     payload,
   });
-  if (pending && (await checkIsOnline()))
-    void processOfflineOutbox().catch(() => {});
+  if (await checkIsOnline()) {
+    await processOfflineOutbox().catch(() => {});
+    const remaining = await getOfflineDb(expectedOwner)
+      .offlineOutbox.where("actionType")
+      .equals(actionType)
+      .filter((i) => !i.rejected)
+      .count();
+    if (remaining === 0) {
+      return { success: true, offlineQueued: false, error: "" };
+    }
+  }
   return { success: true, offlineQueued: true, error: "" };
 }
 const draining = new Set<string>();

@@ -13,7 +13,7 @@ import { getExamSettingsBundle } from "../structured-config";
 import { sanitizeSubParts } from "../exam-subparts";
 
 export async function teacherClass(requested?: string) {
-  const t = await webTeacher();
+  const t = await webTeacher(true);
   if (!t) return null;
   const current = selected(t.scope.classes, requested);
   const students = current
@@ -33,7 +33,7 @@ export async function teacherExamData(
   if (!classes.length || !exam)
     return { subjects: [] as any[], students: [] as any[], marks: [] as any[] };
   const classIds = classes.map((c) => c.id);
-  const [definitions, direct, cohort, explicit, settingsBundle] = await Promise.all([
+  const [definitions, direct, cohort, explicit, classSubRows, settingsBundle] = await Promise.all([
     rows(
       () =>
         i.db
@@ -65,26 +65,62 @@ export async function teacherExamData(
             .in("subject_id", i.perms.profile.assignedSubjectIds),
         )
       : [],
+    rows(() =>
+      i.db
+        .from("class_subjects")
+        .select("id,class_id,subject_id,subjects(name)")
+        .in("class_id", classIds),
+    ),
     getExamSettingsBundle(i.tenant, exam.id),
   ]);
+  const normSub = (v: unknown) =>
+    typeof v === "string" ? v.trim().replace(/\s+/g, " ") : "";
   const subjects = classes.flatMap((c) => {
-    const own = new Set(
-      [...s.assignments, ...direct, ...explicit]
-        .filter((a) => a.class_id === c.id)
-        .map((a) => a.subjects?.name)
-        .filter(Boolean),
-    );
-    // A class-directory grant is not a grant to alter every subject in that class.
+    const isJimmadar = s.inCharge.some((ic) => ic.id === c.id);
+    const assignedNames = [...s.assignments, ...direct, ...explicit]
+      .filter((a) => a.class_id === c.id)
+      .map((a) => normSub(a.subjects?.name || a.subject_name))
+      .filter(Boolean);
+    const own = new Set(assignedNames);
     const setup = definitions.filter((d) => d.class_id === c.id);
-    const list = setup.length
-      ? setup.filter((d) => own.has(d.subject_name))
-      : [...own].map((subject_name) => ({
+
+    // If teacher is explicitly assigned subjects in this class, filter to those;
+    // If teacher is the class Jimmadar and has no separate subject rows yet, grant class subjects/exam subjects for their Jimmadar class.
+    let list: any[] = [];
+    if (setup.length) {
+      const matched = setup.filter((d) => own.has(normSub(d.subject_name)));
+      if (matched.length > 0) {
+        list = matched;
+      } else if (isJimmadar && own.size === 0) {
+        list = setup;
+      } else if (own.size > 0) {
+        // Teacher has assigned subjects that are not in exam_subjects yet — allow entering marks for their assigned subjects
+        list = [...own].map((subject_name) => ({
           exam_id: exam.id,
           class_id: c.id,
           subject_name,
           total_marks: 100,
           pass_marks: 33,
         }));
+      }
+    } else {
+      const fallbackNames =
+        own.size > 0
+          ? [...own]
+          : isJimmadar
+            ? (classSubRows || [])
+                .filter((cs: any) => cs.class_id === c.id)
+                .map((cs: any) => normSub(cs.subjects?.name))
+                .filter(Boolean)
+            : [];
+      list = [...new Set(fallbackNames)].map((subject_name) => ({
+        exam_id: exam.id,
+        class_id: c.id,
+        subject_name,
+        total_marks: 100,
+        pass_marks: 33,
+      }));
+    }
     return list.map((sub: any) => ({
       ...sub,
       sub_parts: sanitizeSubParts(
@@ -165,6 +201,6 @@ export async function verifyRoster(
 export async function matchesSyncOwner(req: Request) {
   const expected = req.headers.get("X-Qawmi-Sync-Owner");
   if (!expected) return true;
-  const t = await webTeacher();
+  const t = await webTeacher(true);
   return !!t && expected === `${t.i.tenant}:${t.i.user.id}:teacher`;
 }

@@ -12,7 +12,7 @@ export default async function Layout({
 }) {
   const identity = await webIdentity();
   if (!identity) redirect("/login");
-  if (!hasRole(identity, teacherRoles)) redirect("/dashboard");
+  if (!hasRole(identity, [...teacherRoles, "super_admin", "admin", "muhtamim"])) redirect("/dashboard");
   return (
     <PortalOwnerProvider
       owner={`${identity.tenant}:${identity.user.id}:teacher`}

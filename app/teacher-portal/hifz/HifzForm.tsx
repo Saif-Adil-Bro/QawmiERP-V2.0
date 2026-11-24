@@ -161,6 +161,15 @@ export default function HifzForm({
       setBusy(false);
     }
   }
+  const activePendingCount = (local?.pending || []).filter((v) => !v.rejected).length;
+  useEffect(() => {
+    if (
+      activePendingCount === 0 &&
+      message === "ডিভাইসে সংরক্ষিত। সংযোগ ফিরলে সিঙ্ক হবে।"
+    ) {
+      setMessage("এন্ট্রি সংরক্ষিত ও সিঙ্ক সম্পন্ন হয়েছে।");
+    }
+  }, [activePendingCount, message]);
   if (!onSave && changed) return <p>অ্যাকাউন্ট পরিবর্তিত হয়েছে। পেজ আবার খুলুন।</p>;
   return (
     <section className="hz">

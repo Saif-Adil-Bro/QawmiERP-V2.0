@@ -14,7 +14,7 @@ import {
   healthStats,
 } from "./model";
 import { HealthError, readCases } from "./store";
-import { webIdentity, hasRole } from "@/lib/portal/identity";
+import { webIdentity, webTeacher, hasRole } from "@/lib/portal/identity";
 import { studentRoles } from "@/lib/portal/rules";
 export const staffContext = cache(async () => {
   const guard = await writeGuard("student_health");
@@ -30,7 +30,7 @@ export async function roster(
   ids?: string[],
 ): Promise<HealthStudent[]> {
   if (ids && !ids.length) return [];
-  const [list, meta] = await Promise.all([
+  const [list, meta, teacherCtx] = await Promise.all([
     rows(() => {
       const q = db
         .from("students")
@@ -39,8 +39,18 @@ export async function roster(
       return ids ? q.in("id", ids) : q;
     }),
     getMadrasaMetadata(tenant, true),
+    webTeacher(),
   ]);
-  return list.map((raw) => {
+  const isStrictTeacher =
+    teacherCtx &&
+    !hasRole(teacherCtx.i, ["super_admin", "admin", "muhtamim", "hostel_manager"]);
+  const allowedClassIds = isStrictTeacher
+    ? new Set(teacherCtx.scope.classes.map((c: any) => c.id))
+    : null;
+  const scopedList = allowedClassIds
+    ? list.filter((raw: any) => raw.class_id && allowedClassIds.has(raw.class_id))
+    : list;
+  return scopedList.map((raw) => {
     const s = hydrateStudentWithMetadata(raw, meta);
     return {
       id: s.id,

@@ -28,11 +28,44 @@ export async function getHifzLogPagesCountAction(
 ) {
   return getHifzLogPagesCount(start, end);
 }
+const HIFZ_CLASS_REGEX =
+  /হিফজ|হিফয|হাফেজ|নাজেরা|নাযেরা|মক্তব|কায়দা|কায়দা|নূরানী|নুরানী|hifz|tahfiz|najera|nazera|maktab|qaida/i;
+
+function isHifzRelevantStudent(
+  s: any,
+  profile: any,
+  hasLogs: boolean,
+  explicitClassSelected: boolean,
+) {
+  if (explicitClassSelected) return true;
+  if (hasLogs || profile?.tracked) return true;
+  const className = String((s.classes as any)?.name || s.class_name || "").trim();
+  return HIFZ_CLASS_REGEX.test(className);
+}
+
 async function directory(classId?: string, child?: string) {
   const c = await webScope(classId, child);
+  const rawBundle = await readHifz(c.db, c.tenant, c.roster, c.legacy, !!child);
+  const explicitClassSelected = Boolean(classId && classId !== "All" && classId !== "all");
+  if (child || explicitClassSelected) {
+    return { c, bundle: rawBundle };
+  }
+  const logStudents = new Set(rawBundle.hifz_logs.map((l) => l.student_id));
+  const profileMap = new Map(rawBundle.hifz_profiles.map((p) => [p.student_id, p]));
+  const filteredRoster = c.roster.filter((s) =>
+    isHifzRelevantStudent(s, profileMap.get(s.id), logStudents.has(s.id), false)
+  );
+  // If filtering leaves at least 1 Hifz student (or if there are Hifz classes), use filteredRoster
+  const finalRoster = filteredRoster.length > 0 ? filteredRoster : c.roster;
+  const allowedIds = new Set(finalRoster.map((s) => s.id));
   return {
-    c,
-    bundle: await readHifz(c.db, c.tenant, c.roster, c.legacy, !!child),
+    c: { ...c, roster: finalRoster },
+    bundle: {
+      ...rawBundle,
+      hifz_profiles: rawBundle.hifz_profiles.filter((p) => allowedIds.has(p.student_id)),
+      hifz_logs: rawBundle.hifz_logs.filter((l) => allowedIds.has(l.student_id)),
+      hifz_weekly_sabina: rawBundle.hifz_weekly_sabina.filter((w) => allowedIds.has(w.student_id)),
+    },
   };
 }
 export async function getHifzDirectory(classId?: string) {
@@ -119,6 +152,7 @@ export async function getMonthlyHifzSummary(
     a.push(l);
     grouped.set(l.student_id, a);
   }
+  const profileByStudent = new Map(bundle.hifz_profiles.map((p) => [p.student_id, p]));
   const period = `${y}-${m}`;
   const last = new Date(Date.UTC(+y, +m, 0)).toISOString().slice(0, 10);
   return {
@@ -127,8 +161,8 @@ export async function getMonthlyHifzSummary(
     sabina: monthlySabina(bundle, period),
     summary: summarizeHifz(bundle, last < today ? last : today, period),
     events: bundle.hifz_special_sabina.filter((e) => e.status === "ongoing"),
-    reports: c.roster.map((s, index) => {
-      const p = bundle.hifz_profiles[index];
+    reports: c.roster.map((s) => {
+      const p = profileByStudent.get(s.id) || bundle.hifz_profiles[0];
       return {
         ...report(
           s,
@@ -137,8 +171,8 @@ export async function getMonthlyHifzSummary(
           m,
           y,
         ),
-        category: p.hifz_category,
-        khatams: p.khatam_completion_dates.filter((d) => d.startsWith(period))
+        category: p?.hifz_category || "sabqi",
+        khatams: (p?.khatam_completion_dates || []).filter((d) => d.startsWith(period))
           .length,
         weekly: bundle.hifz_weekly_sabina.filter(
           (w) => w.student_id === s.id && w.sabina_date.startsWith(period),

@@ -217,6 +217,23 @@ export default function AttendanceForm({
 
   return (
     <div className="space-y-5">
+      {/* Unassigned Teacher Guidance Banner (PB-13) */}
+      {allClasses.length === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 flex items-start gap-3 text-amber-900 shadow-xs">
+          <div className="p-2 bg-amber-100 text-amber-800 rounded-xl shrink-0">
+            <AlertCircle className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="font-bold text-sm sm:text-base text-amber-950">
+              জামাত বা বিষয় বরাদ্দ নেই
+            </h3>
+            <p className="text-xs sm:text-sm text-amber-800 mt-0.5 leading-relaxed">
+              আপনার জন্য এখনো কোনো জামাত বা বিষয় বরাদ্দ করা হয়নি — অনুগ্রহ করে মাদরাসা অ্যাডমিনের সাথে যোগাযোগ করুন।
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Holiday / Weekend Notice Banner */}
       {holidayInfo && (holidayInfo.isHoliday || holidayInfo.isWeekend) && (
         <div className="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">

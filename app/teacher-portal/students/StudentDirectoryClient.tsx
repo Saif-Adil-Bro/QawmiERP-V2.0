@@ -119,6 +119,23 @@ export default function StudentDirectoryClient({
         </div>
       </div>
 
+      {/* Unassigned Teacher Guidance Banner (PB-13) */}
+      {classes.length === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 flex items-start gap-3 text-amber-900 shadow-xs">
+          <div className="p-2 bg-amber-100 text-amber-800 rounded-xl shrink-0">
+            <Layers className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="font-bold text-sm sm:text-base text-amber-950">
+              জামাত বা বিষয় বরাদ্দ নেই
+            </h3>
+            <p className="text-xs sm:text-sm text-amber-800 mt-0.5 leading-relaxed">
+              আপনার জন্য এখনো কোনো জামাত বা বিষয় বরাদ্দ করা হয়নি — অনুগ্রহ করে মাদরাসা অ্যাডমিনের সাথে যোগাযোগ করুন।
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center gap-3">
         <div className="w-full sm:w-64 shrink-0">
@@ -157,10 +174,13 @@ export default function StudentDirectoryClient({
       {/* Student Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredStudents.length > 0 ? (
-          filteredStudents.map((s) => {
+          filteredStudents.map((s, idx) => {
             const phone = s.parent_phone || s.guardian_phone || s.phone || "";
             const guardian = s.guardian_name || s.father_name || "";
             const cleanPhone = phone.replace(/[^0-9]/g, "");
+            const displayStudentId = s.student_id_formatted || s.student_id
+              ? toBanglaNumber(s.student_id_formatted || s.student_id)
+              : resolveStudentIdBn(s, idx);
 
             return (
               <div
@@ -198,7 +218,7 @@ export default function StudentDirectoryClient({
                         {s.first_name} {s.last_name}
                       </h3>
                       <p className="text-xs text-slate-500 font-mono mt-0.5">
-                        রোল: <strong className="text-slate-800">{toBanglaNumber(s.roll_number || "-")}</strong> | আইডি: {toBanglaNumber(s.student_id_formatted || s.student_id || "—")}
+                        রোল: <strong className="text-slate-800">{toBanglaNumber(s.roll_number || "-")}</strong> | আইডি: {displayStudentId}
                       </p>
                     </div>
                   </div>

@@ -10,7 +10,7 @@ export default async function Page({
 }: {
   searchParams: Promise<{ class_id?: string; date?: string }>;
 }) {
-  const [t, params] = await Promise.all([webTeacher(), searchParams]);
+  const [t, params] = await Promise.all([webTeacher(true), searchParams]);
   if (!t) return null;
   const { i, scope } = t;
   const [students, teachers] = await Promise.all([

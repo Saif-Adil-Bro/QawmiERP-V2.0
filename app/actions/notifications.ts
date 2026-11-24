@@ -121,6 +121,39 @@ export async function getGlobalNotifications(limit = 60): Promise<{
     persistentReadIds = Array.isArray(meta.read_notification_ids) ? meta.read_notification_ids : [];
     const readSet = new Set(persistentReadIds);
 
+    const { webTeacher } = await import("@/lib/portal/identity");
+    const { maskPhoneNumber } = await import("@/lib/data-access-guards");
+    const teacherCtx = await webTeacher();
+    const isTeacher = !!teacherCtx;
+    const allowedClassIds = new Set(teacherCtx?.scope.classes.map((c) => c.id) || []);
+    const allowedClassNames = new Set(
+      teacherCtx?.scope.classes.map((c) => String(c.name || "").trim()).filter(Boolean) || []
+    );
+
+    const isClassAllowed = (classId?: string | null, className?: string | null) => {
+      if (!isTeacher) return true;
+      if (classId && allowedClassIds.has(classId)) return true;
+      if (className && allowedClassNames.has(String(className).trim())) return true;
+      return false;
+    };
+
+    // Map students for fee payment scoping when caller is a teacher
+    let allowedStudentIds = new Set<string>();
+    let allowedStudentNames = new Set<string>();
+    if (isTeacher && madrasaId && allowedClassIds.size > 0) {
+      const adminClient = await createAdminClient();
+      const { data: tStudents } = await adminClient
+        .from("students")
+        .select("id, first_name, last_name, class_id")
+        .eq("madrasa_id", madrasaId)
+        .in("class_id", Array.from(allowedClassIds));
+      for (const s of tStudents || []) {
+        allowedStudentIds.add(s.id);
+        const fullName = `${s.first_name || ""} ${s.last_name || ""}`.trim();
+        if (fullName) allowedStudentNames.add(fullName);
+      }
+    }
+
     // 1. Fetch Leaves Data (Both Student and Teacher)
     const linkedLeaveFeedbackIds = new Set<string>();
     if (leaveResult && !leaveResult.error) {
@@ -129,6 +162,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
 
       studentLeaves.forEach((s) => {
         if (s.feedback_id) linkedLeaveFeedbackIds.add(s.feedback_id);
+        if (!isClassAllowed((s as any).class_id, s.class_name)) return;
         const isPending = s.status === "PENDING";
         items.push({
           id: `leave-student-${s.id}`,
@@ -136,7 +170,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
           title: `শিক্ষার্থীর ছুটির আবেদন: ${s.student_name}`,
           description: `${s.leave_type || "ছুটি"} • জামাত: ${s.class_name || "অনির্দিষ্ট"} • মেয়াদ: ${s.start_date} হতে ${s.end_date} (${toBanglaNumber(s.total_days)} দিন)। কারণ: ${s.reason}`,
           timestamp: s.created_at || new Date().toISOString(),
-          link: "/dashboard/attendance/leaves",
+          link: isTeacher ? "/teacher-portal/leaves" : "/dashboard/attendance/leaves",
           status: isPending ? "PENDING" : "RESOLVED",
           severity: isPending ? "WARNING" : "INFO",
           sourceModule: "হাজিরা ও ছুটি",
@@ -151,6 +185,13 @@ export async function getGlobalNotifications(limit = 60): Promise<{
       });
 
       teacherLeaves.forEach((t) => {
+        if (
+          isTeacher &&
+          !teacherCtx?.scope.keys.includes((t as any).teacher_id) &&
+          t.teacher_name !== teacherCtx?.scope.display.name
+        ) {
+          return;
+        }
         const isPending = t.status === "PENDING";
         items.push({
           id: `leave-teacher-${t.id}`,
@@ -158,7 +199,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
           title: `উস্তাদের ছুটির আবেদন: ${t.teacher_name}`,
           description: `${t.leave_type_name_bn || "ছুটি"} • পদবি: ${t.designation || "শিক্ষক"} • মেয়াদ: ${t.start_date} হতে ${t.end_date} (${toBanglaNumber(t.total_days)} দিন)। কারণ: ${t.reason}`,
           timestamp: t.created_at || new Date().toISOString(),
-          link: "/dashboard/attendance/leaves",
+          link: isTeacher ? "/teacher-portal/leaves" : "/dashboard/attendance/leaves",
           status: isPending ? "PENDING" : "RESOLVED",
           severity: isPending ? "WARNING" : "INFO",
           sourceModule: "হাজিরা ও ছুটি",
@@ -183,6 +224,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
         (f.action_type === "GENERAL" &&
           (Boolean(f.subject?.includes("ছুটি")) || Boolean(f.description?.includes("ছুটি"))));
       if (isLeaveFeedback) return;
+      if (!isClassAllowed((f as any).class_id, f.class_name)) return;
 
       const isComplaint = f.action_type === "COMPLAINT";
       const isPending = f.status === "PENDING";
@@ -192,7 +234,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
         title: isComplaint ? `অভিযোগ: ${f.guardian_name || "অভিভাবক"}` : `মতামত/পরামর্শ: ${f.guardian_name || "অভিভাবক"}`,
         description: `বিষয়: ${f.subject} • শিক্ষার্থী: ${f.student_name || "অনির্দিষ্ট"} (${f.class_name || ""}) • বিবরণ: ${f.description?.slice(0, 90) || ""}`,
         timestamp: f.created_at || new Date().toISOString(),
-        link: "/dashboard/communication/feedback",
+        link: isTeacher ? "/teacher-portal/notices" : "/dashboard/communication/feedback",
         status: isPending ? "PENDING" : "RESOLVED",
         severity: isComplaint ? "CRITICAL" : "INFO",
         sourceModule: "অভিভাবক যোগাযোগ",
@@ -209,14 +251,20 @@ export async function getGlobalNotifications(limit = 60): Promise<{
     // 3. Fetch Online Admissions Applications
     const admissions = Array.isArray(admissionsRes) ? admissionsRes : [];
     admissions.forEach((a) => {
+      if (!isClassAllowed(a.target_class_id || a.class_id, a.target_class_name || a.class_name)) {
+        return;
+      }
       const isPending = a.status === "PENDING";
+      const displayPhone = isTeacher
+        ? maskPhoneNumber(a.guardian_phone || "")
+        : a.guardian_phone || "N/A";
       items.push({
         id: `admission-${a.id}`,
         category: "ADMISSION",
         title: `নতুন ভর্তি আবেদন: ${a.applicant_name_bn}`,
-        description: `আবেদন নং: ${a.application_no} • শ্রেণি: ${a.target_class_name || "অনির্দিষ্ট"} • অভিভাবকের ফোন: ${a.guardian_phone}`,
-        timestamp: a.created_at || new Date().toISOString(),
-        link: "/dashboard/admissions",
+        description: `আবেদন নং: ${a.application_no} • শ্রেণি: ${a.target_class_name || "অনির্দিষ্ট"} • অভিভাবকের ফোন: ${displayPhone}`,
+        timestamp: a.created_at || a.submitted_at || new Date().toISOString(),
+        link: isTeacher ? "/teacher-portal/students" : "/dashboard/admissions",
         status: isPending ? "PENDING" : "RESOLVED",
         severity: isPending ? "INFO" : "SUCCESS",
         sourceModule: "ভর্তি ব্যবস্থাপনা",
@@ -235,14 +283,25 @@ export async function getGlobalNotifications(limit = 60): Promise<{
         // Online transactions (bKash, Nagad, etc.)
         const onlineTxns: any[] = meta.online_transactions || [];
         onlineTxns.forEach((txn) => {
+          if (
+            isTeacher &&
+            !allowedStudentIds.has(txn.student_id) &&
+            !allowedStudentNames.has(String(txn.student_name || "").trim()) &&
+            !isClassAllowed(txn.class_id, txn.class_name)
+          ) {
+            return;
+          }
           const isSuccess = txn.status === "SUCCESS" || txn.status === "PAID" || txn.status === "COMPLETED";
+          const txnAmount = Number(
+            txn.total_amount_received ?? txn.paid_amount ?? txn.amount ?? txn.total_amount ?? 0
+          );
           items.push({
             id: `online-pay-${txn.id || txn.transaction_id}`,
             category: "PAYMENT",
-            title: `অনলাইন পেমেন্ট: ${txn.student_name || "শিক্ষার্থী"} (৳${toBanglaNumber(txn.amount)})`,
+            title: `অনলাইন পেমেন্ট: ${txn.student_name || "শিক্ষার্থী"} (৳${toBanglaNumber(txnAmount)})`,
             description: `গেটওয়ে: ${txn.payment_channel || "অনলাইন"} • ট্রানজেকশন আইডি: ${txn.transaction_id || txn.gateway_trx_id || "N/A"} • রোল: ${txn.student_roll || txn.roll_number || "অনির্দিষ্ট"}`,
-            timestamp: txn.payment_date || txn.created_at || new Date().toISOString(),
-            link: "/dashboard/accounting/gateway",
+            timestamp: txn.created_at || (txn.payment_date ? `${txn.payment_date}T12:00:00.000Z` : new Date().toISOString()),
+            link: isTeacher ? "/teacher-portal/students" : "/dashboard/accounting/gateway",
             status: isSuccess ? "PENDING" : "RESOLVED", // Pending review by accountant until acknowledged
             severity: "SUCCESS",
             sourceModule: "অনলাইন পেমেন্ট গেটওয়ে",
@@ -250,7 +309,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
             senderRole: "অভিভাবক / শিক্ষার্থী",
             metadata: {
               transaction_id: txn.transaction_id,
-              amount: txn.amount,
+              amount: txnAmount,
               status: txn.status,
             },
           });
@@ -259,13 +318,29 @@ export async function getGlobalNotifications(limit = 60): Promise<{
         // General fee payments from fee management
         const feePayments: any[] = meta.payments || [];
         feePayments.slice(0, 30).forEach((pay) => {
+          if (
+            isTeacher &&
+            !allowedStudentIds.has(pay.student_id) &&
+            !allowedStudentNames.has(String(pay.student_name || "").trim()) &&
+            !isClassAllowed(pay.class_id, pay.class_name)
+          ) {
+            return;
+          }
+          const payAmount = Number(
+            pay.total_amount_received ??
+              pay.paid_amount ??
+              pay.net_amount ??
+              pay.total_amount ??
+              pay.amount ??
+              0
+          );
           items.push({
             id: `fee-pay-${pay.id || pay.receipt_no}`,
             category: "FINANCE",
-            title: `ফি আদায়: রসিদ নং #${toBanglaNumber(pay.receipt_no || "")} (৳${toBanglaNumber(pay.total_amount || pay.amount || 0)})`,
+            title: `ফি আদায়: রসিদ নং #${toBanglaNumber(pay.receipt_no || "")} (৳${toBanglaNumber(payAmount)})`,
             description: `শিক্ষার্থী: ${pay.student_name || "শিক্ষার্থী"} • মাধ্যম: ${pay.payment_method || "নগদ"} • তারিখ: ${pay.payment_date || ""}`,
             timestamp: pay.created_at || (pay.payment_date ? `${pay.payment_date}T12:00:00.000Z` : new Date().toISOString()),
-            link: "/dashboard/accounting/payments",
+            link: isTeacher ? "/teacher-portal/students" : "/dashboard/accounting/payments",
             status: "PENDING",
             severity: "INFO",
             sourceModule: "ফি ও হিসাব ব্যবস্থাপনা",
@@ -274,7 +349,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
             metadata: {
               payment_id: pay.id,
               receipt_no: pay.receipt_no,
-              amount: pay.total_amount || pay.amount,
+              amount: payAmount,
             },
           });
         });
@@ -282,63 +357,67 @@ export async function getGlobalNotifications(limit = 60): Promise<{
         console.warn("Notification error fetching fee payments:", err);
       }
 
-      // 5. Fetch Online Donations & Fundraising Collections
-      try {
-        const onlineDonations: any[] = meta.online_donations || [];
-        onlineDonations.slice(0, 20).forEach((don) => {
-          const isVerified = don.status === "VERIFIED" || don.status === "COMPLETED";
-          items.push({
-            id: `donation-${don.id || don.trx_id}`,
-            category: "FINANCE",
-            title: `অনলাইন দান প্রাপ্তি: ৳${toBanglaNumber(don.amount)} (${don.donor_name || "নাম প্রকাশে অনিচ্ছুক"})`,
-            description: `ফান্ড: ${don.fund_name || "সাধারণ ফান্ড"} • মাধ্যম: ${don.payment_method || "অনলাইন"} • ট্রানজেকশন: ${don.trx_id || "N/A"} • ফোন: ${don.donor_phone || "N/A"}`,
-            timestamp: don.date || don.created_at || new Date().toISOString(),
-            link: "/dashboard/fundraising/online-donations",
-            status: isVerified ? "RESOLVED" : "PENDING",
-            severity: "SUCCESS",
-            sourceModule: "অনলাইন অনুদান ও তহবিল",
-            senderName: don.donor_name,
-            senderRole: "সম্মানিত দাতা",
-            metadata: {
-              donation_id: don.id,
-              amount: don.amount,
-              fund_id: don.fund_id,
-            },
-          });
-        });
-      } catch (err) {
-        console.warn("Notification error fetching donations:", err);
-      }
-
-      // 6. Fetch Inventory Low Stock Alerts
-      try {
-        const invItems: any[] = meta.inventory?.items || [];
-        invItems.forEach((item) => {
-          const minStock = Number(item.min_stock_alert || 5);
-          const currentQty = Number(item.quantity || 0);
-          if (currentQty <= minStock) {
+      // 5. Fetch Online Donations & Fundraising Collections (Admin / Finance only)
+      if (!isTeacher) {
+        try {
+          const onlineDonations: any[] = meta.online_donations || [];
+          onlineDonations.slice(0, 20).forEach((don) => {
+            const isVerified = don.status === "VERIFIED" || don.status === "COMPLETED";
             items.push({
-              id: `inv-low-${item.id}`,
-              category: "INVENTORY",
-              title: `মজুদ ঘাটতি সতর্কতা: ${item.name}`,
-              description: `বর্তমান মজুদ: ${toBanglaNumber(currentQty)} ${item.unit || "টি"} (সর্বনিম্ন সতর্কতা সীমা: ${toBanglaNumber(minStock)} ${item.unit || "টি"}) • ক্যাটাগরি: ${item.category || "মালামাল"}`,
-              timestamp: item.updated_at || item.created_at || new Date().toISOString(),
-              link: "/dashboard/inventory",
-              status: "PENDING",
-              severity: "WARNING",
-              sourceModule: "সম্পদ ও ইনভেন্টরি",
-              senderName: "সিস্টেম ইনভেন্টরি মনিটর",
-              senderRole: "অটোমেশন",
+              id: `donation-${don.id || don.trx_id}`,
+              category: "FINANCE",
+              title: `অনলাইন দান প্রাপ্তি: ৳${toBanglaNumber(don.amount)} (${don.donor_name || "নাম প্রকাশে অনিচ্ছুক"})`,
+              description: `ফান্ড: ${don.fund_name || "সাধারণ ফান্ড"} • মাধ্যম: ${don.payment_method || "অনলাইন"} • ট্রানজেকশন: ${don.trx_id || "N/A"} • ফোন: ${don.donor_phone || "N/A"}`,
+              timestamp: don.date || don.created_at || new Date().toISOString(),
+              link: "/dashboard/fundraising/online-donations",
+              status: isVerified ? "RESOLVED" : "PENDING",
+              severity: "SUCCESS",
+              sourceModule: "অনলাইন অনুদান ও তহবিল",
+              senderName: don.donor_name,
+              senderRole: "সম্মানিত দাতা",
               metadata: {
-                item_id: item.id,
-                quantity: currentQty,
-                min_stock: minStock,
+                donation_id: don.id,
+                amount: don.amount,
+                fund_id: don.fund_id,
               },
             });
-          }
-        });
-      } catch (err) {
-        console.warn("Notification error fetching inventory alerts:", err);
+          });
+        } catch (err) {
+          console.warn("Notification error fetching donations:", err);
+        }
+      }
+
+      // 6. Fetch Inventory Low Stock Alerts (Admin / Inventory Manager only)
+      if (!isTeacher) {
+        try {
+          const invItems: any[] = meta.inventory?.items || [];
+          invItems.forEach((item) => {
+            const minStock = Number(item.min_stock_alert || 5);
+            const currentQty = Number(item.quantity || 0);
+            if (currentQty <= minStock) {
+              items.push({
+                id: `inv-low-${item.id}`,
+                category: "INVENTORY",
+                title: `মজুদ ঘাটতি সতর্কতা: ${item.name}`,
+                description: `বর্তমান মজুদ: ${toBanglaNumber(currentQty)} ${item.unit || "টি"} (সর্বনিম্ন সতর্কতা সীমা: ${toBanglaNumber(minStock)} ${item.unit || "টি"}) • ক্যাটাগরি: ${item.category || "মালামাল"}`,
+                timestamp: item.updated_at || item.created_at || new Date().toISOString(),
+                link: "/dashboard/inventory",
+                status: "PENDING",
+                severity: "WARNING",
+                sourceModule: "সম্পদ ও ইনভেন্টরি",
+                senderName: "সিস্টেম ইনভেন্টরি মনিটর",
+                senderRole: "অটোমেশন",
+                metadata: {
+                  item_id: item.id,
+                  quantity: currentQty,
+                  min_stock: minStock,
+                },
+              });
+            }
+          });
+        } catch (err) {
+          console.warn("Notification error fetching inventory alerts:", err);
+        }
       }
     }
 
@@ -357,6 +436,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
 
         if (overdues && overdues.length > 0) {
           overdues.forEach((b: any) => {
+            if (isTeacher && !allowedStudentIds.has(b.student_id)) return;
             const bookTitle = b.books?.title || "কিতাব";
             const studentName = `${b.students?.first_name || ""} ${b.students?.last_name || ""}`.trim() || "শিক্ষার্থী";
             items.push({
@@ -365,7 +445,7 @@ export async function getGlobalNotifications(limit = 60): Promise<{
               title: `কিতাব ফেরত বিলম্ব: ${bookTitle}`,
               description: `গ্রহীতা: ${studentName} (রোল: ${toBanglaNumber(b.students?.roll_number || "")}) • নির্ধারিত শেষ তারিখ: ${b.due_date}`,
               timestamp: b.due_date ? `${b.due_date}T00:00:00.000Z` : new Date().toISOString(),
-              link: "/dashboard/library",
+              link: isTeacher ? "/teacher-portal/students" : "/dashboard/library",
               status: "PENDING",
               severity: "WARNING",
               sourceModule: "মাদরাসা গ্রন্থাগার",
@@ -388,6 +468,29 @@ export async function getGlobalNotifications(limit = 60): Promise<{
       try {
         const sysList: GlobalNotificationItem[] = meta.system_notifications || [];
         sysList.forEach((sys) => {
+          if (isTeacher) {
+            // Hide madrasa-wide accounting/expense/salary/other-class system alerts from regular teachers
+            if (
+              sys.category === "FINANCE" ||
+              sys.category === "PAYMENT" ||
+              sys.category === "INVENTORY" ||
+              sys.category === "ADMISSION"
+            ) {
+              const mentionedOwnName =
+                teacherCtx?.scope.display.name &&
+                (sys.title?.includes(teacherCtx.scope.display.name) ||
+                  sys.description?.includes(teacherCtx.scope.display.name));
+              if (!mentionedOwnName) return;
+            }
+            if (sys.category === "ACADEMIC") {
+              const matchesAnyOwnClass = Array.from(allowedClassNames).some(
+                (cn) => sys.title?.includes(cn) || sys.description?.includes(cn)
+              );
+              const mentionsAnyClass =
+                sys.title?.includes("জামাত") || sys.description?.includes("জামাত");
+              if (mentionsAnyClass && !matchesAnyOwnClass) return;
+            }
+          }
           items.push(sys);
         });
       } catch (err) {

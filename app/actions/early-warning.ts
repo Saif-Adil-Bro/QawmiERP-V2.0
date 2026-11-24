@@ -295,16 +295,112 @@ export async function getEarlyWarningAlerts(
 
     // Attach persisted composite risk scores if available
     const allPersistedScores = (await getStudentRiskScores(madrasaId, {classId})).filter(s=>studentMap.has(s.student_id));
-    if (allPersistedScores.length > 0) {
-      result.risk_scores = allPersistedScores.slice(0, 50);
+
+    // Also inspect unpaid/overdue fee invoices and SQL fees for students in scope (PB-04)
+    const metaForFees = teacher?.scope.meta || (await getMadrasaMetadata(madrasaId));
+    const dueByStudent = new Map<string, number>();
+
+    const invoices: any[] = Array.isArray(metaForFees?.fee_invoices) ? metaForFees.fee_invoices : [];
+    for (const inv of invoices) {
+      if (!inv?.student_id || !studentMap.has(inv.student_id)) continue;
+      if (inv.status === "PAID" || inv.status === "WAIVED") continue;
+      const due = Math.max(
+        0,
+        Number(inv.due_amount ?? (Number(inv.net_payable ?? inv.total_amount ?? 0) - Number(inv.paid_amount ?? 0)))
+      );
+      if (due > 0) {
+        dueByStudent.set(inv.student_id, (dueByStudent.get(inv.student_id) || 0) + due);
+      }
+    }
+
+    const { data: sqlFees } = await adminClient
+      .from("fees")
+      .select("student_id, amount, paid_amount, status")
+      .eq("madrasa_id", madrasaId)
+      .in("student_id", Array.from(studentMap.keys()));
+
+    for (const f of sqlFees || []) {
+      if (!f?.student_id || f.status === "PAID" || f.status === "paid") continue;
+      const due = Math.max(0, Number(f.amount || 0) - Number(f.paid_amount || 0));
+      if (due > 0 && !dueByStudent.has(f.student_id)) {
+        dueByStudent.set(f.student_id, (dueByStudent.get(f.student_id) || 0) + due);
+      }
+    }
+
+    const scoreByStudent = new Map<string, StudentRiskScoreRecord>();
+    for (const s of allPersistedScores) {
+      scoreByStudent.set(s.student_id, s);
+    }
+
+    dueByStudent.forEach((totalDue, studentId) => {
+      if (totalDue <= 0) return;
+      const st = studentMap.get(studentId);
+      if (!st) return;
+      const existing = scoreByStudent.get(studentId);
+      const feeFactor = `বকেয়া ফি: ৳${totalDue.toLocaleString("bn-BD")}`;
+      const feeRiskLevel = totalDue >= 5000 ? "HIGH" : "MEDIUM";
+      const feeScore = totalDue >= 5000 ? 68 : 45;
+      if (existing) {
+        const factors = Array.isArray(existing.factors) ? [...existing.factors] : [];
+        if (!factors.some((f) => f.includes("বকেয়া ফি"))) {
+          factors.unshift(feeFactor);
+        }
+        scoreByStudent.set(studentId, {
+          ...existing,
+          composite_score: Math.max(existing.composite_score || 0, feeScore),
+          fee_overdue_score: Math.max(existing.fee_overdue_score || 0, feeScore),
+          risk_level:
+            existing.risk_level === "CRITICAL"
+              ? "CRITICAL"
+              : feeRiskLevel === "HIGH" || existing.risk_level === "HIGH"
+                ? "HIGH"
+                : "MEDIUM",
+          factors,
+        });
+      } else {
+        scoreByStudent.set(studentId, {
+          id: `fee_risk_${studentId}`,
+          madrasa_id: madrasaId,
+          student_id: studentId,
+          student_name: st.name,
+          roll_number: st.roll_number,
+          class_id: st.class_id,
+          class_name: st.class_name,
+          parent_phone: st.parent_phone || null,
+          attendance_score: 0,
+          exam_drop_score: 0,
+          fee_overdue_score: feeScore,
+          hifz_stagnation_score: 0,
+          composite_score: feeScore,
+          risk_level: feeRiskLevel,
+          factors: [feeFactor],
+          intervention_status: "PENDING",
+          calculated_at: new Date().toISOString(),
+        });
+      }
+    });
+
+    const combinedScores = Array.from(scoreByStudent.values()).sort(
+      (a, b) => (b.composite_score || 0) - (a.composite_score || 0)
+    );
+
+    if (combinedScores.length > 0) {
+      result.risk_scores = combinedScores.slice(0, 50);
       result.risk_distribution = {
-        LOW: allPersistedScores.filter((s) => s.risk_level === "LOW").length,
-        MEDIUM: allPersistedScores.filter((s) => s.risk_level === "MEDIUM").length,
-        HIGH: allPersistedScores.filter((s) => s.risk_level === "HIGH").length,
-        CRITICAL: allPersistedScores.filter((s) => s.risk_level === "CRITICAL").length,
-        total: allPersistedScores.length,
+        LOW: combinedScores.filter((s) => s.risk_level === "LOW").length,
+        MEDIUM: combinedScores.filter((s) => s.risk_level === "MEDIUM").length,
+        HIGH: combinedScores.filter((s) => s.risk_level === "HIGH").length,
+        CRITICAL: combinedScores.filter((s) => s.risk_level === "CRITICAL").length,
+        total: combinedScores.length,
       };
     }
+
+    for (const s of combinedScores) {
+      if (s.risk_level === "CRITICAL" || s.risk_level === "HIGH") {
+        criticalStudentIds.add(s.student_id);
+      }
+    }
+    result.total_critical_students = criticalStudentIds.size;
 
     return applyPhoneMaskingToSummary(result, allowUnmasked);
   } catch (err) {

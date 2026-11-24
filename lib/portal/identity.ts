@@ -59,9 +59,62 @@ export async function webIdentity(
   }
 }
 export async function linkedStudents(i: Identity, requested?: string | null) {
-  const ids = hasRole(i, studentRoles)
+  let ids = hasRole(i, studentRoles)
     ? linkedIds(i.userRow, i.perms.profile)
     : [];
+  if (!ids.length && hasRole(i, studentRoles)) {
+    const metaStudentId = i.user?.user_metadata?.student_id;
+    if (typeof metaStudentId === "string" && metaStudentId.trim()) {
+      ids = [metaStudentId.trim()];
+    } else {
+      try {
+        const { findStudentByIdentifier } = await import("@/lib/student-auth");
+        const emailToResolve = String(i.userRow?.email || i.user?.email || "").trim();
+        if (emailToResolve) {
+          const resolved = await findStudentByIdentifier(emailToResolve);
+          if (resolved?.student?.id && (!resolved.madrasaId || resolved.madrasaId === i.tenant)) {
+            ids = [resolved.student.id];
+          }
+        }
+        if (!ids.length && i.userRow?.full_name) {
+          const targetName = String(i.userRow.full_name).replace(/\s*\(অভিভাবক\)\s*$/, "").trim();
+          const allTenantStudents = await rows(() =>
+            i.db
+              .from("students")
+              .select("id, first_name, last_name")
+              .eq("madrasa_id", i.tenant)
+          );
+          const byName = allTenantStudents.find(
+            (s: any) => `${s.first_name || ""} ${s.last_name || ""}`.trim() === targetName
+          );
+          if (byName?.id) {
+            ids = [byName.id];
+          }
+        }
+        if (ids.length === 1 && i.userRow?.id && !i.userRow.student_id) {
+          await i.db
+            .from("users")
+            .update({ student_id: ids[0] })
+            .eq("id", i.userRow.id)
+            .eq("madrasa_id", i.tenant);
+          i.userRow.student_id = ids[0];
+        }
+      } catch {
+        // non-fatal fallback
+      }
+    }
+  }
+  if (!ids.length && hasRole(i, ["super_admin", "admin", "muhtamim"])) {
+    const previewRows = await rows(() =>
+      i.db
+        .from("students")
+        .select("id")
+        .eq("madrasa_id", i.tenant)
+        .order("roll_number")
+        .limit(25),
+    );
+    ids = previewRows.map((r: any) => r.id).filter(Boolean);
+  }
   const meta = await getMadrasaMetadata(i.tenant, true);
   const students = !ids.length
     ? []
@@ -120,24 +173,45 @@ export async function teacherScope(i: Identity, staffId?: string) {
         )
       : [],
   ]);
-  const inCharge = allClasses.filter((c) =>
+  const display = teacherDisplay(teacher, staff, i.userRow.full_name);
+  const targetNames = new Set(
     [
+      display.name,
+      staff?.personal?.full_name_bn,
+      [teacher?.first_name, teacher?.last_name].filter(Boolean).join(" "),
+      !staffId ? i.userRow?.full_name : "",
+    ]
+      .map((n) => (typeof n === "string" ? n.trim() : ""))
+      .filter(Boolean),
+  );
+  const inCharge = allClasses.filter((c) => {
+    const byKey = [
       c.class_teacher_id,
       c.in_charge_teacher_id,
       meta.class_teachers?.[c.id]?.teacher_id,
-    ].some((v) => v && keys.includes(v)),
-  );
+    ].some((v) => v && keys.includes(v));
+    if (byKey) return true;
+    const assignedName = String(meta.class_teachers?.[c.id]?.teacher_name || "").trim();
+    return Boolean(assignedName && targetNames.has(assignedName));
+  });
+  const isAdminPreview =
+    !staffId && hasRole(i, ["super_admin", "admin", "muhtamim"]);
   const classIds = new Set([
     ...(!staffId ? i.perms.profile.assignedClassIds || [] : []),
     ...inCharge.map((c) => c.id),
     ...assignments.map((a) => a.class_id),
     ...direct.map((r) => r.class_id),
   ]);
-  const classes = allClasses.filter((c) => classIds.has(c.id));
+  const classes =
+    classIds.size > 0
+      ? allClasses.filter((c) => classIds.has(c.id))
+      : isAdminPreview
+        ? allClasses
+        : [];
   return {
     teacher,
     staff,
-    display: teacherDisplay(teacher, staff, i.userRow.full_name),
+    display,
     meta,
     classes,
     assignments,
@@ -145,11 +219,22 @@ export async function teacherScope(i: Identity, staffId?: string) {
     keys,
   };
 }
-export const webTeacher = cache(async () => {
+const cachedTeacherScope = cache(async () => {
   const i = await webIdentity();
-  if (!i || !hasRole(i, teacherRoles)) return null;
+  if (!i) return null;
   return { i, scope: await teacherScope(i) };
 });
+export const webTeacher = async (allowAdmin = false) => {
+  const ctx = await cachedTeacherScope();
+  if (!ctx) return null;
+  if (
+    !hasRole(ctx.i, teacherRoles) &&
+    !(allowAdmin && hasRole(ctx.i, ["super_admin", "admin", "muhtamim"]))
+  ) {
+    return null;
+  }
+  return ctx;
+};
 export type TeacherScope = Awaited<ReturnType<typeof teacherScope>>;
 export async function teacherSchedule(i: Identity, s: TeacherScope) {
   // A class/subject assignment grants roster access, not every slot on its timetable.
@@ -184,6 +269,15 @@ export async function teacherStudents(
 ) {
   const ids = classIds.filter((id) => scope.classes.some((c) => c.id === id));
   if (!ids.length) return [];
+  const allTenantStudents = await rows(() =>
+    i.db
+      .from("students")
+      .select("id, created_at")
+      .eq("madrasa_id", i.tenant)
+      .order("created_at", { ascending: true }),
+  );
+  const { getStudentIdNumber } = await import("@/lib/utils");
+  const prefix = scope.meta?.id_prefix || "";
   return (
     await rows(() =>
       i.db
@@ -198,6 +292,10 @@ export async function teacherStudents(
     .filter((s) => ["ACTIVE", "IRREGULAR"].includes(s.student_status))
     .map((s) => {
       // School directory fields only. Do not serialize financial, medical or ID-document metadata to Teacher clients.
+      const computedId =
+        s.student_id_formatted ||
+        s.student_id ||
+        getStudentIdNumber(s, allTenantStudents.length ? allTenantStudents : [s], prefix);
       const {
         id,
         madrasa_id,
@@ -208,8 +306,6 @@ export async function teacherStudents(
         classes,
         section,
         roll_number,
-        student_id,
-        student_id_formatted,
         student_status,
         photo_url,
         guardian_name,
@@ -230,8 +326,8 @@ export async function teacherStudents(
           classes,
           section,
           roll_number,
-          student_id,
-          student_id_formatted,
+          student_id: s.student_id || computedId,
+          student_id_formatted: computedId,
           student_status,
           photo_url,
           guardian_name,

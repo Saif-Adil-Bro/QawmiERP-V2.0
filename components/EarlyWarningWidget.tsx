@@ -77,11 +77,14 @@ export default function EarlyWarningWidget({
   } = initialData || {};
 
   const elevatedComposite = risk_scores.filter(
-    (s) => s.risk_level === "CRITICAL" || s.risk_level === "HIGH"
+    (s) => s.risk_level === "CRITICAL" || s.risk_level === "HIGH" || s.risk_level === "MEDIUM"
   );
   const totalAlerts =
     (attendance_alerts?.length || 0) + (exam_drop_alerts?.length || 0);
   const hasAnyRiskData = totalAlerts > 0 || elevatedComposite.length > 0;
+  const detailsHref = isTeacherView
+    ? "/teacher-portal/students"
+    : "/dashboard/analytics/early-warning";
 
   if (!hasAnyRiskData) {
     return (
@@ -95,15 +98,17 @@ export default function EarlyWarningWidget({
               আলহামদুলিল্লাহ! কোনো শিক্ষার্থী ঝুঁকিপূর্ণ তালিকায় নেই
             </h4>
             <p className="text-xs text-emerald-700 dark:text-emerald-400/90 mt-0.5">
-              সব শিক্ষার্থীর হাজিরা, একাডেমিক অগ্রগতি ও ফি পরিশোধ সন্তোষজনক গতিতে চলছে।
+              {isTeacherView
+                ? "আপনার জামাতের শিক্ষার্থীদের হাজিরা ও একাডেমিক অগ্রগতি সন্তোষজনক গতিতে চলছে।"
+                : "সব শিক্ষার্থীর হাজিরা, একাডেমিক অগ্রগতি ও ফি পরিশোধ সন্তোষজনক গতিতে চলছে।"}
             </p>
           </div>
         </div>
         <Link
-          href="/dashboard/analytics/early-warning"
+          href={detailsHref}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition self-start sm:self-center shrink-0"
         >
-          <span>বিস্তারিত ড্যাশবোর্ড</span>
+          <span>{isTeacherView ? "শিক্ষার্থী তালিকা" : "বিস্তারিত ড্যাশবোর্ড"}</span>
           <ChevronRight className="w-3.5 h-3.5" />
         </Link>
       </div>
@@ -147,10 +152,10 @@ export default function EarlyWarningWidget({
             {toBanglaNumber(displayCount)} জন শিক্ষার্থী নজরে রাখা প্রয়োজন
           </span>
           <Link
-            href="/dashboard/analytics/early-warning"
+            href={detailsHref}
             className="inline-flex items-center gap-1 px-3 py-1 bg-rose-900/40 hover:bg-rose-900/60 border border-white/25 text-white rounded-full text-xs font-bold transition"
           >
-            <span>পূর্ণ ড্যাশবোর্ড</span>
+            <span>{isTeacherView ? "শিক্ষার্থী তালিকা" : "পূর্ণ ড্যাশবোর্ড"}</span>
             <ChevronRight className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -177,10 +182,10 @@ export default function EarlyWarningWidget({
             </span>
           </div>
           <Link
-            href="/dashboard/analytics/early-warning"
+            href={detailsHref}
             className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:underline inline-flex items-center gap-1"
           >
-            <span>ইন্টারভেনশন ট্র্যাকার</span>
+            <span>{isTeacherView ? "শিক্ষার্থী তালিকা" : "ইন্টারভেনশন ট্র্যাকার"}</span>
             <ChevronRight className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -198,7 +203,7 @@ export default function EarlyWarningWidget({
                 : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-rose-100/60 dark:hover:bg-slate-800 border border-rose-200/60 dark:border-slate-700"
             }`}
           >
-            সব সতর্কবার্তা ({toBanglaNumber(totalAlerts)})
+            সব সতর্কবার্তা ({toBanglaNumber(displayCount)})
           </button>
           {risk_scores.length > 0 && (
             <button
@@ -298,10 +303,10 @@ export default function EarlyWarningWidget({
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Link
-                    href="/dashboard/analytics/early-warning"
+                    href={detailsHref}
                     className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-bold transition"
                   >
-                    ব্যবস্থা নিন
+                    {isTeacherView ? "শিক্ষার্থী দেখুন" : "ব্যবস্থা নিন"}
                   </Link>
                 </div>
               </div>

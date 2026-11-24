@@ -145,7 +145,11 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
             </Link>
           )}
 
-          <div className="flex items-center gap-3 p-2 bg-slate-800/50 rounded-xl border border-slate-700/50">
+          <Link
+            href="/teacher-portal/profile"
+            className="flex items-center gap-3 p-2 bg-slate-800/50 hover:bg-slate-800 rounded-xl border border-slate-700/50 transition-colors"
+            title="আমার প্রোফাইল, বেতন ও পাসওয়ার্ড পরিবর্তন"
+          >
             <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
               {(effectiveFullName || "উ")[0]}
             </div>
@@ -153,7 +157,7 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
               <p className="text-xs font-bold text-white truncate">{effectiveFullName}</p>
               <p className="text-[11px] text-slate-400 font-mono truncate">{effectiveEmail}</p>
             </div>
-          </div>
+          </Link>
 
           <button
             type="button"
@@ -210,7 +214,11 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
                   </Link>
                 )}
 
-                <div className="flex items-center gap-2.5 p-2 bg-slate-800/40 rounded-xl">
+                <Link
+                  href="/teacher-portal/profile"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="flex items-center gap-2.5 p-2 bg-slate-800/40 hover:bg-slate-800 rounded-xl transition-colors"
+                >
                   <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
                     {(effectiveFullName || "উ")[0]}
                   </div>
@@ -218,7 +226,7 @@ export default function TeacherShell({ user, userData, children }: TeacherShellP
                     <p className="text-xs font-bold text-white truncate">{effectiveFullName}</p>
                     <p className="text-[10px] text-slate-400 font-mono truncate">{effectiveEmail}</p>
                   </div>
-                </div>
+                </Link>
 
                 <button
                   type="button"

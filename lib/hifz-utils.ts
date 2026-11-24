@@ -443,28 +443,31 @@ export function buildStudentHifzReportFromLogs(params: {
     }
   });
 
-  const avgScore =
-    ratingScores.length > 0
-      ? ratingScores.reduce((a, b) => a + b, 0) / ratingScores.length
-      : 4;
-  let qawmiGrade = "জায়্যিদ (ভালো)";
-  let qawmiGradeShort = "Good";
+  let qawmiGrade = "প্রযোজ্য নয় (কোনো এন্ট্রি নেই)";
+  let qawmiGradeShort = "N/A";
 
-  if (avgScore >= 4.5) {
-    qawmiGrade = "মুমতাজ (অতি উত্তম)";
-    qawmiGradeShort = "Excellent";
-  } else if (avgScore >= 3.8) {
-    qawmiGrade = "জায়্যিদ জিদ্দান (উত্তম)";
-    qawmiGradeShort = "Very Good";
-  } else if (avgScore >= 3.0) {
-    qawmiGrade = "জায়্যিদ (ভালো)";
-    qawmiGradeShort = "Good";
-  } else if (avgScore >= 2.0) {
-    qawmiGrade = "মুতাওয়াসসিত (মধ্যম)";
-    qawmiGradeShort = "Average";
-  } else {
-    qawmiGrade = "তাকীদ (মনোযোগ প্রয়োজন)";
-    qawmiGradeShort = "Poor";
+  if (totalLogDays > 0 || ratingScores.length > 0) {
+    const avgScore =
+      ratingScores.length > 0
+        ? ratingScores.reduce((a, b) => a + b, 0) / ratingScores.length
+        : 4;
+
+    if (avgScore >= 4.5) {
+      qawmiGrade = "মুমতাজ (অতি উত্তম)";
+      qawmiGradeShort = "Excellent";
+    } else if (avgScore >= 3.8) {
+      qawmiGrade = "জায়্যিদ জিদ্দান (উত্তম)";
+      qawmiGradeShort = "Very Good";
+    } else if (avgScore >= 3.0) {
+      qawmiGrade = "জায়্যিদ (ভালো)";
+      qawmiGradeShort = "Good";
+    } else if (avgScore >= 2.0) {
+      qawmiGrade = "মুতাওয়াসসিত (মধ্যম)";
+      qawmiGradeShort = "Average";
+    } else {
+      qawmiGrade = "তাকীদ (মনোযোগ প্রয়োজন)";
+      qawmiGradeShort = "Poor";
+    }
   }
 
   const currentStage =

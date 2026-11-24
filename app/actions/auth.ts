@@ -31,20 +31,22 @@ export async function login(prevState: any, formData: FormData) {
 
     let targetEmail = rawIdentifier.trim().toLowerCase();
     let isStudentLogin = false;
-    let canonicalEmail = "";
-    let legacyEmail = "";
+    let candidateEmails: string[] = [];
 
-    // If identifier doesn't have '@' or is a student ID / roll / phone
+    // If identifier doesn't have '@' or is a student ID / roll / phone / @qawmi.app
     if (!rawIdentifier.includes("@") || rawIdentifier.endsWith("@qawmi.app")) {
       const resolved = await findStudentByIdentifier(rawIdentifier);
       if (resolved) {
         isStudentLogin = true;
-        canonicalEmail = resolved.portalEmail;
-        legacyEmail = resolved.legacyPortalEmail;
-        targetEmail = canonicalEmail;
+        candidateEmails = resolved.candidateEmails?.length
+          ? resolved.candidateEmails
+          : [resolved.portalEmail, resolved.legacyPortalEmail];
+        targetEmail = rawIdentifier.includes("@")
+          ? rawIdentifier.trim().toLowerCase()
+          : candidateEmails[0] || resolved.portalEmail;
       } else if (!rawIdentifier.includes("@")) {
         return {
-          error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: AHH480001 বা 480001) প্রদান করুন।`,
+          error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: MUSE-480004 বা 480001) প্রদান করুন।`,
         };
       }
     }
@@ -58,7 +60,7 @@ export async function login(prevState: any, formData: FormData) {
 
     // If student login failed, try fallback emails
     if (error && isStudentLogin) {
-      const altEmails = [canonicalEmail, legacyEmail].filter(
+      const altEmails = candidateEmails.filter(
         (e) => e && e.toLowerCase() !== targetEmail.toLowerCase()
       );
       for (const alt of altEmails) {

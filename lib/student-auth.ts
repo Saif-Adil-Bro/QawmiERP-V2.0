@@ -62,6 +62,7 @@ export interface ResolvedStudentTarget {
   numericStudentId: string;   // e.g. "480001"
   portalEmail: string;        // e.g. "student_ahm480001@qawmi.app"
   legacyPortalEmail: string;  // e.g. "student_480001@qawmi.app"
+  candidateEmails?: string[]; // all possible auth emails including muse-480004@qawmi.app
   madrasaId: string;
   madrasaPrefix: string;
   madrasaName: string;
@@ -71,9 +72,9 @@ export interface ResolvedStudentTarget {
  * Searches for a student by any identifier with multi-tenant prefix support:
  * - 6-digit sequential ID (e.g., "480001", "480034", "৪৮০০০১")
  * - Prefixed ID without hyphen (e.g., "AHM480001", "AHH480001", "ahm480001")
- * - Prefixed ID with hyphen (e.g., "AHM-480001", "AHH-480001")
+ * - Prefixed ID with hyphen (e.g., "AHM-480001", "AHH-480001", "MUSE-480004")
+ * - Direct student email (e.g., "muse-480004@qawmi.app", "student_muse480004@qawmi.app")
  * - Parent phone number (e.g., "01600989555", "+8801600989555")
- * - Student internal email (e.g., "student_480001@qawmi.app", "student_ahm480001@qawmi.app")
  */
 export async function findStudentByIdentifier(identifier: string): Promise<ResolvedStudentTarget | null> {
   if (!identifier) return null;
@@ -81,8 +82,11 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
   const raw = identifier.trim();
   const enStr = banglaToEnglishDigits(raw);
 
-  // Check if it's already a portal email format
-  const portalEmailMatch = enStr.match(/^student_([0-9a-zA-Z_-]+)@qawmi\.app$/i);
+  // Check if it's already a portal email format (with or without `student_` prefix)
+  const portalEmailMatch =
+    enStr.match(/^student_([0-9a-zA-Z_-]+)@qawmi\.app$/i) ||
+    enStr.match(/^([a-zA-Z]{2,6}[-_]?48\d{3,6})@qawmi\.app$/i) ||
+    enStr.match(/^(48\d{3,6})@qawmi\.app$/i);
   const targetCodeFromEmail = portalEmailMatch ? portalEmailMatch[1] : null;
 
   const adminClient = await createAdminClient();
@@ -99,8 +103,8 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
     }
   });
 
-  // Parse input to see if user entered an explicit prefix (e.g. AHM480001 or AHH480001)
-  const parsed = parseStudentIdentifier(targetCodeFromEmail || enStr);
+  // Parse input to see if user entered an explicit prefix (e.g. AHM480001 or MUSE-480004)
+  const parsed = parseStudentIdentifier(targetCodeFromEmail || enStr.replace(/@qawmi\.app$/i, ""));
   const explicitPrefix = parsed.prefix;
 
   // If explicit prefix matches a specific madrasa
@@ -122,13 +126,90 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
     studentQuery = studentQuery.eq("madrasa_id", targetMadrasaId);
   }
 
-  const { data: matchedStudents, error } = await studentQuery;
+  let { data: matchedStudents, error } = await studentQuery;
+
+  // Fallback if prefix didn't match a stored prefix (e.g. only 1 madrasa or custom prefix)
+  if ((!matchedStudents || matchedStudents.length === 0) && targetMadrasaId) {
+    const fallbackRes = await adminClient
+      .from("students")
+      .select("*, classes(id, name)")
+      .order("created_at", { ascending: true });
+    matchedStudents = fallbackRes.data;
+    error = fallbackRes.error;
+  }
 
   if (error || !matchedStudents || matchedStudents.length === 0) {
     return null;
   }
 
-  return searchStudentsList(matchedStudents, parsed, raw, enStr, targetCodeFromEmail, madrasaMap);
+  const result = searchStudentsList(matchedStudents, parsed, raw, enStr, targetCodeFromEmail, madrasaMap);
+  if (!result) return null;
+
+  // Build comprehensive candidate emails list & check public.users for linked accounts
+  const pLower = (explicitPrefix || result.madrasaPrefix || "ahm").toLowerCase();
+  const mPrefixLower = (result.madrasaPrefix || "ahm").toLowerCase();
+  const num = result.numericStudentId;
+
+  const emailSet = new Set<string>();
+  if (enStr.includes("@")) {
+    emailSet.add(enStr.toLowerCase());
+  } else {
+    const cleanInput = enStr.toLowerCase().replace(/[^a-z0-9._-]/g, "");
+    if (cleanInput) {
+      emailSet.add(`${cleanInput}@qawmi.app`);
+      emailSet.add(`student_${cleanInput}@qawmi.app`);
+    }
+  }
+  emailSet.add(`${pLower}-${num}@qawmi.app`);
+  emailSet.add(`${pLower}${num}@qawmi.app`);
+  emailSet.add(`student_${pLower}${num}@qawmi.app`);
+  emailSet.add(`student_${pLower}-${num}@qawmi.app`);
+  emailSet.add(`${mPrefixLower}-${num}@qawmi.app`);
+  emailSet.add(`${mPrefixLower}${num}@qawmi.app`);
+  emailSet.add(result.portalEmail.toLowerCase());
+  emailSet.add(result.legacyPortalEmail.toLowerCase());
+
+  try {
+    const candidateArr = Array.from(emailSet);
+    const { data: userRows } = await adminClient
+      .from("users")
+      .select("id, email, student_id, role, madrasa_id")
+      .eq("madrasa_id", result.madrasaId)
+      .or(`student_id.eq.${result.student.id},email.in.(${candidateArr.join(",")})`);
+
+    if (userRows && userRows.length > 0) {
+      // Put actual existing DB user emails at the front of candidateEmails
+      const dbEmails = userRows
+        .map((u: any) => String(u.email || "").toLowerCase())
+        .filter(Boolean);
+      const merged = new Set<string>();
+      if (enStr.includes("@")) merged.add(enStr.toLowerCase());
+      dbEmails.forEach((e) => merged.add(e));
+      candidateArr.forEach((e) => merged.add(e));
+      result.candidateEmails = Array.from(merged);
+
+      // Auto-heal missing student_id on matching student/parent user rows
+      for (const u of userRows) {
+        if (
+          u.id &&
+          !u.student_id &&
+          ["student", "parent", "guardian", "guardian_student"].includes(String(u.role || "").toLowerCase())
+        ) {
+          await adminClient
+            .from("users")
+            .update({ student_id: result.student.id })
+            .eq("id", u.id)
+            .eq("madrasa_id", result.madrasaId);
+        }
+      }
+    } else {
+      result.candidateEmails = candidateArr;
+    }
+  } catch {
+    result.candidateEmails = Array.from(emailSet);
+  }
+
+  return result;
 }
 
 /**
@@ -147,8 +228,20 @@ function searchStudentsList(
   let found: any = null;
   let foundIndex = 1;
 
+  // Check 0: Explicit student_id column match (e.g. "MUSE-480004" or "480004")
+  if (parsed.numericCode && parsed.numericCode.length >= 4) {
+    const idx = matchedStudents.findIndex((s) => {
+      const explicitCode = normDigits(s.student_id || s.admission_no || s.registration_no || "");
+      return explicitCode && explicitCode === parsed.numericCode;
+    });
+    if (idx !== -1) {
+      found = matchedStudents[idx];
+      foundIndex = idx + 1;
+    }
+  }
+
   // Check 1: Direct match by sequential 6-digit code (e.g., 480001 -> index 1)
-  if (parsed.numericCode && parsed.numericCode.startsWith("48") && parsed.numericCode.length >= 5) {
+  if (!found && parsed.numericCode && parsed.numericCode.startsWith("48") && parsed.numericCode.length >= 5) {
     const seqNum = parseInt(parsed.numericCode.slice(2), 10);
     if (!isNaN(seqNum) && seqNum >= 1 && seqNum <= matchedStudents.length) {
       found = matchedStudents[seqNum - 1];
@@ -165,7 +258,7 @@ function searchStudentsList(
     }
   }
 
-  // Check 2: Match by target code in portal email (e.g., "student_ahm480005@qawmi.app" or "student_ahm-480005@qawmi.app")
+  // Check 2b: Match by target code in portal email (e.g., "student_ahm480005@qawmi.app" or "muse-480004@qawmi.app")
   if (!found && targetCodeFromEmail) {
     const cleanEmailCode = targetCodeFromEmail.toLowerCase().replace(/[^a-z0-9]/g, "");
     matchedStudents.forEach((s, idx) => {
@@ -213,7 +306,7 @@ function searchStudentsList(
     (found.madrasa_id && madrasaMap.get(found.madrasa_id)) || {
       id: found.madrasa_id || "",
       name: "মাদরাসা",
-      prefix: "AHM",
+      prefix: parsed.prefix || "AHM",
     };
 
   const canonicalStudentId = resolveCanonicalStudentCode(found, foundIndex, madrasaInfo.prefix);

@@ -13,6 +13,7 @@ import {
   Users,
   Bell,
   Sparkles,
+  User,
 } from "lucide-react";
 
 interface TeacherNavProps {
@@ -36,6 +37,7 @@ export default function TeacherNav({ onItemClick, canUseHealth }: TeacherNavProp
     { href: "/teacher-portal/students", label: "শিক্ষার্থী ও যোগাযোগ", icon: Users },
     ...(canUseHealth ? [{ href: "/teacher-portal/health", label: "অসুস্থ শিক্ষার্থী ও স্বাস্থ্যসেবা", icon: Stethoscope }] : []),
     { href: "/teacher-portal/notices", label: "মাদরাসা নোটিশ বোর্ড", icon: Bell },
+    { href: "/teacher-portal/profile", label: "আমার প্রোফাইল ও বেতন", icon: User },
   ];
 
   return (
