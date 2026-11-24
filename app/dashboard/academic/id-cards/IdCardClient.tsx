@@ -274,47 +274,52 @@ export default function IdCardClient({
     setActionMessage(null);
 
     try {
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("qm_id_card_builder_config");
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("qm_id_card_builder_config");
+        }
+      } catch {}
+
+      const res = await resetIdCardBuilderConfig();
+
+      setTemplate("classic_islamic");
+      setThemeColor("emerald");
+      setMadrasaNameSize("medium");
+      setBanglaFont("font-solaiman");
+      setCardSide("both");
+      setFieldVisibility(DEFAULT_FIELD_VISIBILITY);
+      setEditableMadrasaInfo({
+        name: madrasaInfo?.name || "মাদরাসা",
+        name_arabic: "",
+        address: madrasaInfo?.address || "",
+        phone: madrasaInfo?.phone || "",
+        website: madrasaInfo?.website || "",
+        logo_url: madrasaInfo?.logo_url || "",
+        principal_name: madrasaInfo?.principal_name || "",
+        signature_url: madrasaInfo?.signature_url || madrasaInfo?.principal_signature_url || "",
+      });
+      setSignatureTitle("মুহতামিম / অধ্যক্ষ");
+      setQrLabel("যাচাই করুন");
+      setCustomExpiryDate("31-08-2027");
+      setCustomInstructions([
+        "মাদরাসায় অবস্থানকালীন সময়ে কার্ডটি পরিধান করা বাধ্যতামূলক।",
+        "এই কার্ডটি মাদরাসার সম্পত্তি এবং এটি হস্তান্তরযোগ্য নয়।",
+        "কার্ড হারিয়ে গেলে কর্তৃপক্ষকে অবিলম্বে অবহিত করতে হবে।",
+        "কার্ডটি পাওয়া গেলে নিচের ঠিকানায় ফেরত দিন।",
+      ]);
+      setTermsAndConditions(
+        "This identity card is issued by the authority. It is non-transferable and must be returned if found."
+      );
+
+      if (res.error) {
+        setActionMessage({ type: "error", text: res.error });
+      } else {
+        setActionMessage({ type: "success", text: "ডিফল্ট কাস্টমাইজেশন ডাটাবেজ সহ রিস্টোর করা হয়েছে!" });
       }
-    } catch {}
-
-    const res = await resetIdCardBuilderConfig();
-    setIsSavingBuilder(false);
-
-    setTemplate("classic_islamic");
-    setThemeColor("emerald");
-    setMadrasaNameSize("medium");
-    setBanglaFont("font-solaiman");
-    setCardSide("both");
-    setFieldVisibility(DEFAULT_FIELD_VISIBILITY);
-    setEditableMadrasaInfo({
-      name: madrasaInfo?.name || "মাদরাসা",
-      name_arabic: "",
-      address: madrasaInfo?.address || "",
-      phone: madrasaInfo?.phone || "",
-      website: madrasaInfo?.website || "",
-      logo_url: madrasaInfo?.logo_url || "",
-      principal_name: madrasaInfo?.principal_name || "",
-      signature_url: madrasaInfo?.signature_url || madrasaInfo?.principal_signature_url || "",
-    });
-    setSignatureTitle("মুহতামিম / অধ্যক্ষ");
-    setQrLabel("যাচাই করুন");
-    setCustomExpiryDate("31-08-2027");
-    setCustomInstructions([
-      "মাদরাসায় অবস্থানকালীন সময়ে কার্ডটি পরিধান করা বাধ্যতামূলক।",
-      "এই কার্ডটি মাদরাসার সম্পত্তি এবং এটি হস্তান্তরযোগ্য নয়।",
-      "কার্ড হারিয়ে গেলে কর্তৃপক্ষকে অবিলম্বে অবহিত করতে হবে।",
-      "কার্ডটি পাওয়া গেলে নিচের ঠিকানায় ফেরত দিন।",
-    ]);
-    setTermsAndConditions(
-      "This identity card is issued by the authority. It is non-transferable and must be returned if found."
-    );
-
-    if (res.error) {
-      setActionMessage({ type: "error", text: res.error });
-    } else {
-      setActionMessage({ type: "success", text: "ডিফল্ট কাস্টমাইজেশন ডাটাবেজ সহ রিস্টোর করা হয়েছে!" });
+    } catch (err: any) {
+      setActionMessage({ type: "error", text: err?.message || "ডিফল্ট রিস্টোর করতে সমস্যা হয়েছে।" });
+    } finally {
+      setIsSavingBuilder(false);
     }
   };
 
@@ -322,38 +327,43 @@ export default function IdCardClient({
     setIsSavingBuilder(true);
     setActionMessage(null);
 
-    const configToSave: IDCardBuilderConfig = {
-      template,
-      themeColor,
-      madrasaNameSize,
-      banglaFont,
-      cardSide,
-      fieldVisibility,
-      editableMadrasaInfo,
-      signatureTitle,
-      qrLabel,
-      customExpiryDate,
-      customInstructions,
-      termsAndConditions,
-      updated_at: new Date().toISOString(),
-    };
-
     try {
-      if (typeof window !== "undefined") {
-        localStorage.setItem("qm_id_card_builder_config", JSON.stringify(configToSave));
+      const configToSave: IDCardBuilderConfig = {
+        template,
+        themeColor,
+        madrasaNameSize,
+        banglaFont,
+        cardSide,
+        fieldVisibility,
+        editableMadrasaInfo,
+        signatureTitle,
+        qrLabel,
+        customExpiryDate,
+        customInstructions,
+        termsAndConditions,
+        updated_at: new Date().toISOString(),
+      };
+
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("qm_id_card_builder_config", JSON.stringify(configToSave));
+        }
+      } catch {}
+
+      const res = await saveIdCardBuilderConfig(configToSave);
+
+      if (res.error) {
+        setActionMessage({ type: "error", text: res.error });
+      } else {
+        setActionMessage({
+          type: "success",
+          text: "আইডি কার্ডের টেমপ্লেট ও কাস্টম ফিল্ড টিকমার্ক ডিজাইন সেটিংস সফলভাবে ডাটাবেজে সংরক্ষিত হয়েছে!",
+        });
       }
-    } catch {}
-
-    const res = await saveIdCardBuilderConfig(configToSave);
-    setIsSavingBuilder(false);
-
-    if (res.error) {
-      setActionMessage({ type: "error", text: res.error });
-    } else {
-      setActionMessage({
-        type: "success",
-        text: "আইডি কার্ডের টেমপ্লেট ও কাস্টম ফিল্ড টিকমার্ক ডিজাইন সেটিংস সফলভাবে ডাটাবেজে সংরক্ষিত হয়েছে!",
-      });
+    } catch (err: any) {
+      setActionMessage({ type: "error", text: err?.message || "সেটিংস সংরক্ষণ করতে সমস্যা হয়েছে।" });
+    } finally {
+      setIsSavingBuilder(false);
     }
   };
 
@@ -390,19 +400,24 @@ export default function IdCardClient({
     setLoadingAction(true);
     setActionMessage(null);
 
-    const res = await issueStudentIdCard({ student_id: selectedStudentForIssue });
-    setLoadingAction(false);
+    try {
+      const res = await issueStudentIdCard({ student_id: selectedStudentForIssue });
 
-    if (res.error) {
-      setActionMessage({ type: "error", text: res.error });
-    } else {
-      setActionMessage({ type: "success", text: "আইডি কার্ড সফলভাবে ইস্যু করা হয়েছে!" });
-      setShowIssueModal(false);
-      setSelectedStudentForIssue("");
-      if (res.card) {
-        setCards([res.card, ...cards]);
-        setStats({ ...stats, total: stats.total + 1, active: stats.active + 1 });
+      if (res.error) {
+        setActionMessage({ type: "error", text: res.error });
+      } else {
+        setActionMessage({ type: "success", text: "আইডি কার্ড সফলভাবে ইস্যু করা হয়েছে!" });
+        setShowIssueModal(false);
+        setSelectedStudentForIssue("");
+        if (res.card) {
+          setCards([res.card, ...cards]);
+          setStats({ ...stats, total: stats.total + 1, active: stats.active + 1 });
+        }
       }
+    } catch (err: any) {
+      setActionMessage({ type: "error", text: err?.message || "আইডি কার্ড ইস্যু করতে সমস্যা হয়েছে।" });
+    } finally {
+      setLoadingAction(false);
     }
   };
 
@@ -410,18 +425,23 @@ export default function IdCardClient({
     setLoadingAction(true);
     setActionMessage(null);
 
-    const res = await bulkGenerateIdCards({ class_id: bulkClassId });
-    setLoadingAction(false);
+    try {
+      const res = await bulkGenerateIdCards({ class_id: bulkClassId });
 
-    if (res.error) {
-      setActionMessage({ type: "error", text: res.error });
-    } else {
-      setActionMessage({ type: "success", text: `${res.count} জন শিক্ষার্থীর জন্য আইডি কার্ড তৈরি হয়েছে!` });
-      setShowBulkModal(false);
-      if (res.cards && res.cards.length > 0) {
-        setCards([...res.cards, ...cards]);
-        setStats({ ...stats, total: stats.total + res.count, active: stats.active + res.count });
+      if (res.error) {
+        setActionMessage({ type: "error", text: res.error });
+      } else {
+        setActionMessage({ type: "success", text: `${res.count} জন শিক্ষার্থীর জন্য আইডি কার্ড তৈরি হয়েছে!` });
+        setShowBulkModal(false);
+        if (res.cards && res.cards.length > 0) {
+          setCards([...res.cards, ...cards]);
+          setStats({ ...stats, total: stats.total + res.count, active: stats.active + res.count });
+        }
       }
+    } catch (err: any) {
+      setActionMessage({ type: "error", text: err?.message || "বাল্ক আইডি কার্ড তৈরি করতে সমস্যা হয়েছে।" });
+    } finally {
+      setLoadingAction(false);
     }
   };
 
@@ -430,19 +450,24 @@ export default function IdCardClient({
     setLoadingAction(true);
     setActionMessage(null);
 
-    const res = await reissueStudentIdCard(cardToReissue.id, reissueReason);
-    setLoadingAction(false);
+    try {
+      const res = await reissueStudentIdCard(cardToReissue.id, reissueReason);
 
-    if (res.error) {
-      setActionMessage({ type: "error", text: res.error });
-    } else {
-      setActionMessage({ type: "success", text: "কার্ডটি সফলভাবে রি-ইস্যু করা হয়েছে!" });
-      setCardToReissue(null);
-      setReissueReason("");
-      if (res.newCard) {
-        setCards([res.newCard, ...cards.map((c) => (c.id === cardToReissue.id ? { ...c, status: "REISSUED" as IDCardStatus } : c))]);
-        setStats({ ...stats, active: stats.active, reissued: stats.reissued + 1 });
+      if (res.error) {
+        setActionMessage({ type: "error", text: res.error });
+      } else {
+        setActionMessage({ type: "success", text: "কার্ডটি সফলভাবে রি-ইস্যু করা হয়েছে!" });
+        setCardToReissue(null);
+        setReissueReason("");
+        if (res.newCard) {
+          setCards([res.newCard, ...cards.map((c) => (c.id === cardToReissue.id ? { ...c, status: "REISSUED" as IDCardStatus } : c))]);
+          setStats({ ...stats, active: stats.active, reissued: stats.reissued + 1 });
+        }
       }
+    } catch (err: any) {
+      setActionMessage({ type: "error", text: err?.message || "কার্ড রি-ইস্যু করতে সমস্যা হয়েছে।" });
+    } finally {
+      setLoadingAction(false);
     }
   };
 

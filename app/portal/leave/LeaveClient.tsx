@@ -57,7 +57,6 @@ export default function LeaveClient({ students,selectedStudentId, userProfile, i
 
       if (res.error) {
         setErrorMsg(res.error);
-        setIsSubmitting(false);
         return;
       }
 
@@ -74,11 +73,11 @@ export default function LeaveClient({ students,selectedStudentId, userProfile, i
 
       setApplications((prev) => [newApp, ...prev]);
       setReason("");
-      setIsSubmitting(false);
       setSuccessMsg("আপনার ছুটির আবেদন মাদরাসা প্রশাসনে সফলভাবে জমা হয়েছে!");
       setTimeout(() => setSuccessMsg(""), 5000);
     } catch (err: any) {
       setErrorMsg(err?.message || "ছুটির আবেদন প্রক্রিয়াকরণে সমস্যা হয়েছে।");
+    } finally {
       setIsSubmitting(false);
     }
   };

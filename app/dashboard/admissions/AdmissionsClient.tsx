@@ -186,18 +186,23 @@ export default function AdmissionsClient({
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    const res = await submitAdmissionApplication(formData);
-    setIsLoading(false);
+    try {
+      const res = await submitAdmissionApplication(formData);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else if (res.application) {
-      setApplications([res.application, ...applications]);
-      setShowCreateModal(false);
-      showNotification(
-        "success",
-        `নতুন আবেদন ও প্রবেশপত্র তৈরি হয়েছে! আবেদন নং: ${res.application.application_no}, রোল: ${res.application.roll_number}`
-      );
+      if (res.error) {
+        showNotification("error", res.error);
+      } else if (res.application) {
+        setApplications([res.application, ...applications]);
+        setShowCreateModal(false);
+        showNotification(
+          "success",
+          `নতুন আবেদন ও প্রবেশপত্র তৈরি হয়েছে! আবেদন নং: ${res.application.application_no}, রোল: ${res.application.roll_number}`
+        );
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "আবেদন জমা দিতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -205,15 +210,20 @@ export default function AdmissionsClient({
     e.preventDefault();
     if (!selectedApp) return;
     setIsLoading(true);
-    const res = await updateAdmissionApplication(selectedApp.id, formData);
-    setIsLoading(false);
+    try {
+      const res = await updateAdmissionApplication(selectedApp.id, formData);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else if (res.application) {
-      setApplications(applications.map((a) => (a.id === selectedApp.id ? res.application! : a)));
-      setShowEditModal(false);
-      showNotification("success", "আবেদনের তথ্য সফলভাবে হালনাগাদ করা হয়েছে।");
+      if (res.error) {
+        showNotification("error", res.error);
+      } else if (res.application) {
+        setApplications(applications.map((a) => (a.id === selectedApp.id ? res.application! : a)));
+        setShowEditModal(false);
+        showNotification("success", "আবেদনের তথ্য সফলভাবে হালনাগাদ করা হয়েছে।");
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "আবেদনের তথ্য হালনাগাদ করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -295,57 +305,67 @@ export default function AdmissionsClient({
     if (!selectedApp) return;
     setIsLoading(true);
 
-    const totalMax = evalData.subjects.reduce((sum, s) => sum + (Number(s.max_marks) || 0), 0);
-    const totalObtained = evalData.subjects.reduce((sum, s) => sum + (Number(s.obtained_marks) || 0), 0);
+    try {
+      const totalMax = evalData.subjects.reduce((sum, s) => sum + (Number(s.max_marks) || 0), 0);
+      const totalObtained = evalData.subjects.reduce((sum, s) => sum + (Number(s.obtained_marks) || 0), 0);
 
-    const payload = {
-      subjects: evalData.subjects,
-      evaluated_by: evalData.evaluated_by,
-      evaluator_designation: evalData.evaluator_designation,
-      remarks: evalData.remarks,
-      pass_cutoff: evalData.pass_cutoff,
-      total_marks: totalObtained,
-      written_marks: evalData.subjects[0]?.obtained_marks || 0,
-      oral_marks: evalData.subjects[1]?.obtained_marks || 0,
-      quran_tilawat_marks: evalData.subjects[2]?.obtained_marks || 0,
-    };
+      const payload = {
+        subjects: evalData.subjects,
+        evaluated_by: evalData.evaluated_by,
+        evaluator_designation: evalData.evaluator_designation,
+        remarks: evalData.remarks,
+        pass_cutoff: evalData.pass_cutoff,
+        total_marks: totalObtained,
+        written_marks: evalData.subjects[0]?.obtained_marks || 0,
+        oral_marks: evalData.subjects[1]?.obtained_marks || 0,
+        quran_tilawat_marks: evalData.subjects[2]?.obtained_marks || 0,
+      };
 
-    const res = await evaluateAdmissionTest(selectedApp.id, payload);
-    setIsLoading(false);
+      const res = await evaluateAdmissionTest(selectedApp.id, payload);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else if (res.application) {
-      setApplications(applications.map((a) => (a.id === selectedApp.id ? res.application! : a)));
-      setShowEvalModal(false);
-      showNotification(
-        "success",
-        `নম্বর এন্ট্রি সংরক্ষিত হয়েছে! প্রাপ্ত নম্বর: ${toBanglaNumber(
-          res.application.test_evaluation?.total_marks || 0
-        )}/${toBanglaNumber(totalMax)} (${
-          res.application.status === "MERIT_SELECTED" ? "মেধাতালিকায় উত্তীর্ণ" : "বাতিল / অপেক্ষমান"
-        })`
-      );
+      if (res.error) {
+        showNotification("error", res.error);
+      } else if (res.application) {
+        setApplications(applications.map((a) => (a.id === selectedApp.id ? res.application! : a)));
+        setShowEvalModal(false);
+        showNotification(
+          "success",
+          `নম্বর এন্ট্রি সংরক্ষিত হয়েছে! প্রাপ্ত নম্বর: ${toBanglaNumber(
+            res.application.test_evaluation?.total_marks || 0
+          )}/${toBanglaNumber(totalMax)} (${
+            res.application.status === "MERIT_SELECTED" ? "মেধাতালিকায় উত্তীর্ণ" : "বাতিল / অপেক্ষমান"
+          })`
+        );
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "নম্বর সংরক্ষণ করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleAutoRank = async () => {
     if (!confirm("আপনি কি প্রাপ্ত নম্বরের ভিত্তিতে স্বয়ংক্রিয়ভাবে মেধা তালিকা তৈরি করতে চান?")) return;
     setIsLoading(true);
-    const res = await autoRankMeritList(classFilter);
-    setIsLoading(false);
+    try {
+      const res = await autoRankMeritList(classFilter);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else {
-      showNotification("success", `মোট ${toBanglaNumber(res.count || 0)} জন শিক্ষার্থীর মেধা স্থান সফলভাবে নির্ধারিত হয়েছে!`);
-      // Update local state sorted
-      const updated = [...applications].sort((a, b) => {
-        const rankA = a.test_evaluation?.merit_position || 9999;
-        const rankB = b.test_evaluation?.merit_position || 9999;
-        return rankA - rankB;
-      });
-      setApplications(updated);
+      if (res.error) {
+        showNotification("error", res.error);
+      } else {
+        showNotification("success", `মোট ${toBanglaNumber(res.count || 0)} জন শিক্ষার্থীর মেধা স্থান সফলভাবে নির্ধারিত হয়েছে!`);
+        // Update local state sorted
+        const updated = [...applications].sort((a, b) => {
+          const rankA = a.test_evaluation?.merit_position || 9999;
+          const rankB = b.test_evaluation?.merit_position || 9999;
+          return rankA - rankB;
+        });
+        setApplications(updated);
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "মেধা তালিকা তৈরি করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -353,30 +373,35 @@ export default function AdmissionsClient({
     e.preventDefault();
     if (!selectedApp) return;
     setIsLoading(true);
-    const res = await confirmAdmissionToStudent({
-      admissionId: selectedApp.id,
-      assignedClassId: confirmData.assignedClassId,
-      assignedRoll: confirmData.assignedRoll,
-    });
-    setIsLoading(false);
+    try {
+      const res = await confirmAdmissionToStudent({
+        admissionId: selectedApp.id,
+        assignedClassId: confirmData.assignedClassId,
+        assignedRoll: confirmData.assignedRoll,
+      });
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else {
-      setApplications(
-        applications.map((a) =>
-          a.id === selectedApp.id
-            ? {
-                ...a,
-                status: "CONFIRMED",
-                confirmed_student_id: res.student?.id,
-                assigned_permanent_roll: confirmData.assignedRoll,
-              }
-            : a
-        )
-      );
-      setShowConfirmModal(false);
-      showNotification("success", res.message || "ভর্তি সফলভাবে নিশ্চিত হয়েছে এবং শিক্ষার্থী তালিকায় যুক্ত হয়েছে!");
+      if (res.error) {
+        showNotification("error", res.error);
+      } else {
+        setApplications(
+          applications.map((a) =>
+            a.id === selectedApp.id
+              ? {
+                  ...a,
+                  status: "CONFIRMED",
+                  confirmed_student_id: res.student?.id,
+                  assigned_permanent_roll: confirmData.assignedRoll,
+                }
+              : a
+          )
+        );
+        setShowConfirmModal(false);
+        showNotification("success", res.message || "ভর্তি সফলভাবে নিশ্চিত হয়েছে এবং শিক্ষার্থী তালিকায় যুক্ত হয়েছে!");
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "ভর্তি নিশ্চিত করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -384,30 +409,40 @@ export default function AdmissionsClient({
     if (selectedIds.length === 0) return;
     if (!confirm(`আপনি কি নির্বাচিত ${toBanglaNumber(selectedIds.length)} জন শিক্ষার্থীর ভর্তি নিশ্চিত করতে চান?`)) return;
     setIsLoading(true);
-    const res = await bulkConfirmAdmissions(selectedIds);
-    setIsLoading(false);
+    try {
+      const res = await bulkConfirmAdmissions(selectedIds);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else {
-      showNotification("success", `মোট ${toBanglaNumber(res.confirmedCount || 0)} জন শিক্ষার্থীর ভর্তি নিশ্চিত হয়েছে!`);
-      setApplications(
-        applications.map((a) => (selectedIds.includes(a.id) ? { ...a, status: "CONFIRMED" } : a))
-      );
-      setSelectedIds([]);
+      if (res.error) {
+        showNotification("error", res.error);
+      } else {
+        showNotification("success", `মোট ${toBanglaNumber(res.confirmedCount || 0)} জন শিক্ষার্থীর ভর্তি নিশ্চিত হয়েছে!`);
+        setApplications(
+          applications.map((a) => (selectedIds.includes(a.id) ? { ...a, status: "CONFIRMED" } : a))
+        );
+        setSelectedIds([]);
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "বাল্ক ভর্তি নিশ্চিত করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`আপনি কি নিশ্চিত যে "${name}"-এর আবেদনটি মুছে ফেলতে চান?`)) return;
     setIsLoading(true);
-    const res = await deleteAdmissionApplication(id);
-    setIsLoading(false);
-    if (res.error) {
-      showNotification("error", res.error);
-    } else {
-      setApplications(applications.filter((a) => a.id !== id));
-      showNotification("success", "আবেদন মুছে ফেলা হয়েছে।");
+    try {
+      const res = await deleteAdmissionApplication(id);
+      if (res.error) {
+        showNotification("error", res.error);
+      } else {
+        setApplications(applications.filter((a) => a.id !== id));
+        showNotification("success", "আবেদন মুছে ফেলা হয়েছে।");
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "আবেদন মুছে ফেলতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -487,15 +522,20 @@ export default function AdmissionsClient({
     e.preventDefault();
     if (!selectedApp) return;
     setIsLoading(true);
-    const res = await approveAdmissionSchedule(selectedApp.id, scheduleData);
-    setIsLoading(false);
+    try {
+      const res = await approveAdmissionSchedule(selectedApp.id, scheduleData);
 
-    if (res.error) {
-      showNotification("error", res.error);
-    } else if (res.application) {
-      setApplications(applications.map((a) => (a.id === selectedApp.id ? res.application! : a)));
-      setShowScheduleModal(false);
-      showNotification("success", `প্রবেশপত্র ও পরীক্ষার শিডিউল অনুমোদিত হয়েছে! রোল: ${res.application.roll_number}`);
+      if (res.error) {
+        showNotification("error", res.error);
+      } else if (res.application) {
+        setApplications(applications.map((a) => (a.id === selectedApp.id ? res.application! : a)));
+        setShowScheduleModal(false);
+        showNotification("success", `প্রবেশপত্র ও পরীক্ষার শিডিউল অনুমোদিত হয়েছে! রোল: ${res.application.roll_number}`);
+      }
+    } catch (err: any) {
+      showNotification("error", err?.message || "পরীক্ষার শিডিউল অনুমোদন করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
     }
   };
 

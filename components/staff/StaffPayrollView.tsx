@@ -106,13 +106,18 @@ export default function StaffPayrollView({
 
   const handleGeneratePayroll = async () => {
     setIsGenerating(true);
-    const res = await generateMonthlyPayroll(selectedMonth, selectedYear);
-    setIsGenerating(false);
-    if (res.success) {
-      alert(`${toBanglaNumber(res.count || 0)} জন কর্মীর মাসিক পেরোল শিট সফলভাবে তৈরি করা হয়েছে।`);
-      onRefresh();
-    } else {
-      alert(res.error);
+    try {
+      const res = await generateMonthlyPayroll(selectedMonth, selectedYear);
+      if (res.success) {
+        alert(`${toBanglaNumber(res.count || 0)} জন কর্মীর মাসিক পেরোল শিট সফলভাবে তৈরি করা হয়েছে।`);
+        onRefresh();
+      } else {
+        alert(res.error || "পেরোল তৈরি করতে সমস্যা হয়েছে।");
+      }
+    } catch (err: any) {
+      alert(err?.message || "পেরোল তৈরি করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -121,21 +126,26 @@ export default function StaffPayrollView({
     if (!selectedRecordToPay) return;
     setIsPaying(true);
 
-    const res = await processSalaryPayment({
-      recordId: selectedRecordToPay.id,
-      paymentMethod,
-      transactionRef,
-      remarks,
-    });
-    setIsPaying(false);
+    try {
+      const res = await processSalaryPayment({
+        recordId: selectedRecordToPay.id,
+        paymentMethod,
+        transactionRef,
+        remarks,
+      });
 
-    if (res.success) {
-      setSelectedRecordToPay(null);
-      setTransactionRef("");
-      setRemarks("");
-      onRefresh();
-    } else {
-      alert(res.error);
+      if (res.success) {
+        setSelectedRecordToPay(null);
+        setTransactionRef("");
+        setRemarks("");
+        onRefresh();
+      } else {
+        alert(res.error || "বেতন পরিশোধ সম্পন্ন করা যায়নি।");
+      }
+    } catch (err: any) {
+      alert(err?.message || "বেতন পরিশোধ সম্পন্ন করা যায়নি।");
+    } finally {
+      setIsPaying(false);
     }
   };
 

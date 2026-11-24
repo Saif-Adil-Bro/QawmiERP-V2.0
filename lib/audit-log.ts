@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mergeJsonStore } from "@/lib/madrasa-store";
@@ -141,8 +142,18 @@ async function extractRequestContext(): Promise<{
   }
 }
 
+const fetchCachedActorRow = cache(async (actorId: string) => {
+  const adminClient = await createAdminClient();
+  const { data } = await adminClient
+    .from("users")
+    .select("full_name, email, role")
+    .eq("id", actorId)
+    .maybeSingle();
+  return data;
+});
+
 async function resolveActorInfo(
-  adminClient: any,
+  _adminClient: any,
   actorId?: string | null,
   actorName?: string | null,
   actorEmail?: string | null,
@@ -156,11 +167,7 @@ async function resolveActorInfo(
     };
   }
   try {
-    const { data } = await adminClient
-      .from("users")
-      .select("full_name, email, role")
-      .eq("id", actorId)
-      .maybeSingle();
+    const data = await fetchCachedActorRow(actorId);
     return {
       actorName: actorName || data?.full_name || data?.email || actorEmail || "সিস্টেম ব্যবহারকারী",
       actorEmail: actorEmail || data?.email || null,

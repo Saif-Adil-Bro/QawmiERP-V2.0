@@ -177,21 +177,9 @@ export default function LoginForm() {
           redirectUrl: targetUrl,
           savedAt: Date.now(),
         });
-
-        const portalType = resolvePortalTypeFromRole(userRole);
-        if (portalType === "student" || portalType === "teacher") {
-          setSyncProgress(10);
-          setSyncLabel("অফলাইন ডেটা ডাউনলোড হচ্ছে...");
-          await initialFullSync(portalType, {
-            onProgress: (pct, label) => {
-              setSyncProgress(pct);
-              setSyncLabel(label);
-            },
-          });
-        }
       }
 
-      // 3. Navigate directly to designated destination
+      // 3. Navigate directly to designated destination without blocking on full portal snapshot sync
       window.location.href = targetUrl;
     } catch (err: any) {
       console.error("Login submission error:", err);

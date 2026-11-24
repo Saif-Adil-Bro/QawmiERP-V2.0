@@ -96,137 +96,138 @@ export async function getGlobalNotifications(limit = 60): Promise<{
     let meta: any = {};
     let persistentReadIds: string[] = [];
 
-    if (madrasaId) {
-      try {
-        meta = await getMadrasaMetadata(madrasaId);
-        persistentReadIds = Array.isArray(meta.read_notification_ids) ? meta.read_notification_ids : [];
-      } catch (err) {
-        console.warn("Error fetching madrasa metadata for notifications:", err);
-      }
-    }
+    const [metaRes, leaveResult, feedbacksRes, admissionsRes] = await Promise.all([
+      madrasaId
+        ? getMadrasaMetadata(madrasaId).catch((err) => {
+            console.warn("Error fetching madrasa metadata for notifications:", err);
+            return {};
+          })
+        : Promise.resolve({}),
+      getAllLeaveData().catch((err) => {
+        console.warn("Notification error fetching leaves:", err);
+        return null;
+      }),
+      getParentFeedbacks().catch((err) => {
+        console.warn("Notification error fetching feedbacks:", err);
+        return [] as ParentFeedbackItem[];
+      }),
+      getAdmissionApplications().catch((err) => {
+        console.warn("Notification error fetching admissions:", err);
+        return [] as any[];
+      }),
+    ]);
 
+    meta = metaRes || {};
+    persistentReadIds = Array.isArray(meta.read_notification_ids) ? meta.read_notification_ids : [];
     const readSet = new Set(persistentReadIds);
 
     // 1. Fetch Leaves Data (Both Student and Teacher)
     const linkedLeaveFeedbackIds = new Set<string>();
-    try {
-      const leaveResult = await getAllLeaveData();
-      if (leaveResult && !leaveResult.error) {
-        const studentLeaves: StudentLeaveApplication[] = leaveResult.studentLeaves || [];
-        const teacherLeaves: TeacherLeaveApplication[] = leaveResult.teacherLeaves || [];
+    if (leaveResult && !leaveResult.error) {
+      const studentLeaves: StudentLeaveApplication[] = leaveResult.studentLeaves || [];
+      const teacherLeaves: TeacherLeaveApplication[] = leaveResult.teacherLeaves || [];
 
-        studentLeaves.forEach((s) => {
-          if (s.feedback_id) linkedLeaveFeedbackIds.add(s.feedback_id);
-          const isPending = s.status === "PENDING";
-          items.push({
-            id: `leave-student-${s.id}`,
-            category: "LEAVE",
-            title: `শিক্ষার্থীর ছুটির আবেদন: ${s.student_name}`,
-            description: `${s.leave_type || "ছুটি"} • জামাত: ${s.class_name || "অনির্দিষ্ট"} • মেয়াদ: ${s.start_date} হতে ${s.end_date} (${toBanglaNumber(s.total_days)} দিন)। কারণ: ${s.reason}`,
-            timestamp: s.created_at || new Date().toISOString(),
-            link: "/dashboard/attendance/leaves",
-            status: isPending ? "PENDING" : "RESOLVED",
-            severity: isPending ? "WARNING" : "INFO",
-            sourceModule: "হাজিরা ও ছুটি",
-            senderName: s.student_name,
-            senderRole: "শিক্ষার্থী",
-            metadata: {
-              leave_id: s.id,
-              type: "student",
-              status: s.status,
-            },
-          });
+      studentLeaves.forEach((s) => {
+        if (s.feedback_id) linkedLeaveFeedbackIds.add(s.feedback_id);
+        const isPending = s.status === "PENDING";
+        items.push({
+          id: `leave-student-${s.id}`,
+          category: "LEAVE",
+          title: `শিক্ষার্থীর ছুটির আবেদন: ${s.student_name}`,
+          description: `${s.leave_type || "ছুটি"} • জামাত: ${s.class_name || "অনির্দিষ্ট"} • মেয়াদ: ${s.start_date} হতে ${s.end_date} (${toBanglaNumber(s.total_days)} দিন)। কারণ: ${s.reason}`,
+          timestamp: s.created_at || new Date().toISOString(),
+          link: "/dashboard/attendance/leaves",
+          status: isPending ? "PENDING" : "RESOLVED",
+          severity: isPending ? "WARNING" : "INFO",
+          sourceModule: "হাজিরা ও ছুটি",
+          senderName: s.student_name,
+          senderRole: "শিক্ষার্থী",
+          metadata: {
+            leave_id: s.id,
+            type: "student",
+            status: s.status,
+          },
         });
+      });
 
-        teacherLeaves.forEach((t) => {
-          const isPending = t.status === "PENDING";
-          items.push({
-            id: `leave-teacher-${t.id}`,
-            category: "LEAVE",
-            title: `উস্তাদের ছুটির আবেদন: ${t.teacher_name}`,
-            description: `${t.leave_type_name_bn || "ছুটি"} • পদবি: ${t.designation || "শিক্ষক"} • মেয়াদ: ${t.start_date} হতে ${t.end_date} (${toBanglaNumber(t.total_days)} দিন)। কারণ: ${t.reason}`,
-            timestamp: t.created_at || new Date().toISOString(),
-            link: "/dashboard/attendance/leaves",
-            status: isPending ? "PENDING" : "RESOLVED",
-            severity: isPending ? "WARNING" : "INFO",
-            sourceModule: "হাজিরা ও ছুটি",
-            senderName: t.teacher_name,
-            senderRole: "শিক্ষক/স্টাফ",
-            metadata: {
-              leave_id: t.id,
-              type: "teacher",
-              status: t.status,
-            },
-          });
+      teacherLeaves.forEach((t) => {
+        const isPending = t.status === "PENDING";
+        items.push({
+          id: `leave-teacher-${t.id}`,
+          category: "LEAVE",
+          title: `উস্তাদের ছুটির আবেদন: ${t.teacher_name}`,
+          description: `${t.leave_type_name_bn || "ছুটি"} • পদবি: ${t.designation || "শিক্ষক"} • মেয়াদ: ${t.start_date} হতে ${t.end_date} (${toBanglaNumber(t.total_days)} দিন)। কারণ: ${t.reason}`,
+          timestamp: t.created_at || new Date().toISOString(),
+          link: "/dashboard/attendance/leaves",
+          status: isPending ? "PENDING" : "RESOLVED",
+          severity: isPending ? "WARNING" : "INFO",
+          sourceModule: "হাজিরা ও ছুটি",
+          senderName: t.teacher_name,
+          senderRole: "শিক্ষক/স্টাফ",
+          metadata: {
+            leave_id: t.id,
+            type: "teacher",
+            status: t.status,
+          },
         });
-      }
-    } catch (err) {
-      console.warn("Notification error fetching leaves:", err);
+      });
     }
 
     // 2. Fetch Parent Feedbacks & Complaints (skip leave requests already shown in section 1)
-    try {
-      const feedbacks: ParentFeedbackItem[] = await getParentFeedbacks();
-      feedbacks.forEach((f) => {
-        const isLeaveFeedback =
-          linkedLeaveFeedbackIds.has(f.id) ||
-          f.category === "ছুটির আবেদন" ||
-          (f.action_type as string) === "LEAVE_APPLICATION" ||
-          (f.action_type === "GENERAL" &&
-            (Boolean(f.subject?.includes("ছুটি")) || Boolean(f.description?.includes("ছুটি"))));
-        if (isLeaveFeedback) return;
+    const feedbacks: ParentFeedbackItem[] = Array.isArray(feedbacksRes) ? feedbacksRes : [];
+    feedbacks.forEach((f) => {
+      const isLeaveFeedback =
+        linkedLeaveFeedbackIds.has(f.id) ||
+        f.category === "ছুটির আবেদন" ||
+        (f.action_type as string) === "LEAVE_APPLICATION" ||
+        (f.action_type === "GENERAL" &&
+          (Boolean(f.subject?.includes("ছুটি")) || Boolean(f.description?.includes("ছুটি"))));
+      if (isLeaveFeedback) return;
 
-        const isComplaint = f.action_type === "COMPLAINT";
-        const isPending = f.status === "PENDING";
-        items.push({
-          id: `feedback-${f.id}`,
-          category: "COMPLAINT",
-          title: isComplaint ? `অভিযোগ: ${f.guardian_name || "অভিভাবক"}` : `মতামত/পরামর্শ: ${f.guardian_name || "অভিভাবক"}`,
-          description: `বিষয়: ${f.subject} • শিক্ষার্থী: ${f.student_name || "অনির্দিষ্ট"} (${f.class_name || ""}) • বিবরণ: ${f.description?.slice(0, 90) || ""}`,
-          timestamp: f.created_at || new Date().toISOString(),
-          link: "/dashboard/communication/feedback",
-          status: isPending ? "PENDING" : "RESOLVED",
-          severity: isComplaint ? "CRITICAL" : "INFO",
-          sourceModule: "অভিভাবক যোগাযোগ",
-          senderName: f.guardian_name,
-          senderRole: "অভিভাবক",
-          metadata: {
-            feedback_id: f.id,
-            action_type: f.action_type,
-            status: f.status,
-          },
-        });
+      const isComplaint = f.action_type === "COMPLAINT";
+      const isPending = f.status === "PENDING";
+      items.push({
+        id: `feedback-${f.id}`,
+        category: "COMPLAINT",
+        title: isComplaint ? `অভিযোগ: ${f.guardian_name || "অভিভাবক"}` : `মতামত/পরামর্শ: ${f.guardian_name || "অভিভাবক"}`,
+        description: `বিষয়: ${f.subject} • শিক্ষার্থী: ${f.student_name || "অনির্দিষ্ট"} (${f.class_name || ""}) • বিবরণ: ${f.description?.slice(0, 90) || ""}`,
+        timestamp: f.created_at || new Date().toISOString(),
+        link: "/dashboard/communication/feedback",
+        status: isPending ? "PENDING" : "RESOLVED",
+        severity: isComplaint ? "CRITICAL" : "INFO",
+        sourceModule: "অভিভাবক যোগাযোগ",
+        senderName: f.guardian_name,
+        senderRole: "অভিভাবক",
+        metadata: {
+          feedback_id: f.id,
+          action_type: f.action_type,
+          status: f.status,
+        },
       });
-    } catch (err) {
-      console.warn("Notification error fetching feedbacks:", err);
-    }
+    });
 
     // 3. Fetch Online Admissions Applications
-    try {
-      const admissions = await getAdmissionApplications();
-      admissions.forEach((a) => {
-        const isPending = a.status === "PENDING";
-        items.push({
-          id: `admission-${a.id}`,
-          category: "ADMISSION",
-          title: `নতুন ভর্তি আবেদন: ${a.applicant_name_bn}`,
-          description: `আবেদন নং: ${a.application_no} • শ্রেণি: ${a.target_class_name || "অনির্দিষ্ট"} • অভিভাবকের ফোন: ${a.guardian_phone}`,
-          timestamp: a.created_at || new Date().toISOString(),
-          link: "/dashboard/admissions",
-          status: isPending ? "PENDING" : "RESOLVED",
-          severity: isPending ? "INFO" : "SUCCESS",
-          sourceModule: "ভর্তি ব্যবস্থাপনা",
-          senderName: a.applicant_name_bn,
-          senderRole: "ভর্তিচ্ছু শিক্ষার্থী",
-          metadata: {
-            admission_id: a.id,
-            status: a.status,
-          },
-        });
+    const admissions = Array.isArray(admissionsRes) ? admissionsRes : [];
+    admissions.forEach((a) => {
+      const isPending = a.status === "PENDING";
+      items.push({
+        id: `admission-${a.id}`,
+        category: "ADMISSION",
+        title: `নতুন ভর্তি আবেদন: ${a.applicant_name_bn}`,
+        description: `আবেদন নং: ${a.application_no} • শ্রেণি: ${a.target_class_name || "অনির্দিষ্ট"} • অভিভাবকের ফোন: ${a.guardian_phone}`,
+        timestamp: a.created_at || new Date().toISOString(),
+        link: "/dashboard/admissions",
+        status: isPending ? "PENDING" : "RESOLVED",
+        severity: isPending ? "INFO" : "SUCCESS",
+        sourceModule: "ভর্তি ব্যবস্থাপনা",
+        senderName: a.applicant_name_bn,
+        senderRole: "ভর্তিচ্ছু শিক্ষার্থী",
+        metadata: {
+          admission_id: a.id,
+          status: a.status,
+        },
       });
-    } catch (err) {
-      console.warn("Notification error fetching admissions:", err);
-    }
+    });
 
     // 4. Fetch Online & Offline Fee Payments (New Payments)
     if (madrasaId) {

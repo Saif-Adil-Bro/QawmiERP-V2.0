@@ -67,9 +67,14 @@ export default function AdmitCardClient({
   const loadStudents = async () => {
     if (!classId) return;
     setLoading(true);
-    const data = await getStudentsByClass(classId);
-    setStudents(data);
-    setLoading(false);
+    try {
+      const data = await getStudentsByClass(classId);
+      setStudents(data);
+    } catch (err) {
+      console.error("Failed to load admit card students:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePrint = () => {

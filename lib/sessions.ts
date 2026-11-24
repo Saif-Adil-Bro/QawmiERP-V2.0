@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AcademicHoliday, HOLIDAY_CATEGORIES } from "./holidays";
 import { getStudentIdNumber, isUuid } from "./student-utils";
@@ -178,30 +179,51 @@ export interface MadrasaMetaWithSessions {
   [key: string]: any;
 }
 
+function cloneMetadataObject<T extends Record<string, any>>(obj: T): T {
+  try {
+    return structuredClone(obj);
+  } catch {
+    return JSON.parse(JSON.stringify(obj));
+  }
+}
+
+const getRequestMadrasaMetaCache = cache(
+  () => new Map<string, Promise<MadrasaMetaWithSessions>>()
+);
+
 /**
- * Helper to get parsed metadata from madrasas table
+ * Uncached direct reader for madrasa metadata from the madrasas table.
  */
-export async function getMadrasaMetadata(madrasaId: string, strict = false): Promise<MadrasaMetaWithSessions> {
+export async function getMadrasaMetadataUncached(
+  madrasaId: string,
+  strict = false
+): Promise<MadrasaMetaWithSessions> {
   try {
     const adminClient = await createAdminClient();
-    const {data,error}=await adminClient.from('madrasas').select('*').eq('id',madrasaId).single();
-    if (strict && (error || !data)) throw new Error(error?.message || "প্রতিষ্ঠানের তথ্য পাওয়া যায়নি।");
+    const { data, error } = await adminClient
+      .from("madrasas")
+      .select("*")
+      .eq("id", madrasaId)
+      .single();
+    if (strict && (error || !data))
+      throw new Error(error?.message || "প্রতিষ্ঠানের তথ্য পাওয়া যায়নি।");
     if (error || !data) return {};
-    const dedicated=data.metadata && typeof data.metadata==='object' ? data.metadata : {};
+    const dedicated =
+      data.metadata && typeof data.metadata === "object" ? data.metadata : {};
     if (!data.registration_no) {
       return dedicated;
     }
 
     if (data.registration_no.startsWith("{")) {
       try {
-        return {...dedicated,...JSON.parse(data.registration_no)};
+        return { ...dedicated, ...JSON.parse(data.registration_no) };
       } catch {
         if (strict) throw new Error("প্রতিষ্ঠানের সংরক্ষিত ডেটা পড়া যায়নি।");
-        return {...dedicated, reg_no: data.registration_no };
+        return { ...dedicated, reg_no: data.registration_no };
       }
     }
 
-    return {...dedicated, reg_no: data.registration_no };
+    return { ...dedicated, reg_no: data.registration_no };
   } catch (err) {
     if (strict) throw err;
     console.error("Error reading madrasa metadata:", err);
@@ -210,9 +232,37 @@ export async function getMadrasaMetadata(madrasaId: string, strict = false): Pro
 }
 
 /**
- * Helper to save metadata to madrasas table
+ * Helper to get parsed metadata from madrasas table with per-request deduplication
+ * and write-through cache invalidation on saveMadrasaMetadata.
  */
-export async function saveMadrasaMetadata(madrasaId: string, meta: MadrasaMetaWithSessions): Promise<boolean> {
+export async function getMadrasaMetadata(
+  madrasaId: string,
+  strict = false
+): Promise<MadrasaMetaWithSessions> {
+  if (!madrasaId) return {};
+  const cacheMap = getRequestMadrasaMetaCache();
+  const key = `${madrasaId}:${strict ? "1" : "0"}`;
+  let pending = cacheMap.get(key);
+  if (!pending) {
+    pending = getMadrasaMetadataUncached(madrasaId, strict).catch((err) => {
+      cacheMap.delete(key);
+      throw err;
+    });
+    cacheMap.set(key, pending);
+  }
+  const meta = await pending;
+  return cloneMetadataObject(meta);
+}
+
+/**
+ * Helper to save metadata to madrasas table and immediately update the request cache
+ * so no post-write read within the same request can observe stale metadata.
+ */
+export async function saveMadrasaMetadata(
+  madrasaId: string,
+  meta: MadrasaMetaWithSessions
+): Promise<boolean> {
+  const cacheMap = getRequestMadrasaMetaCache();
   try {
     const adminClient = await createAdminClient();
     const jsonStr = JSON.stringify(meta);
@@ -223,11 +273,18 @@ export async function saveMadrasaMetadata(madrasaId: string, meta: MadrasaMetaWi
 
     if (error) {
       console.error("Error saving madrasa metadata:", error);
+      cacheMap.delete(`${madrasaId}:0`);
+      cacheMap.delete(`${madrasaId}:1`);
       return false;
     }
+    const snap = cloneMetadataObject(meta);
+    cacheMap.set(`${madrasaId}:0`, Promise.resolve(snap));
+    cacheMap.set(`${madrasaId}:1`, Promise.resolve(snap));
     return true;
   } catch (err) {
     console.error("Exception saving madrasa metadata:", err);
+    cacheMap.delete(`${madrasaId}:0`);
+    cacheMap.delete(`${madrasaId}:1`);
     return false;
   }
 }

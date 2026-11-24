@@ -99,23 +99,28 @@ export default function StaffLeaveView({
     }
     setIsSubmitting(true);
 
-    const res = await submitStaffLeaveRequest({
-      staffId: selectedStaffId,
-      leaveType,
-      leaveTypeNameBn: LEAVE_TYPE_LABELS[leaveType] || "ছুটি",
-      startDate,
-      endDate,
-      totalDays: Number(totalDays),
-      reason,
-    });
-    setIsSubmitting(false);
+    try {
+      const res = await submitStaffLeaveRequest({
+        staffId: selectedStaffId,
+        leaveType,
+        leaveTypeNameBn: LEAVE_TYPE_LABELS[leaveType] || "ছুটি",
+        startDate,
+        endDate,
+        totalDays: Number(totalDays),
+        reason,
+      });
 
-    if (res.success) {
-      setShowAddModal(false);
-      setReason("");
-      onRefresh();
-    } else {
-      alert(res.error);
+      if (res.success) {
+        setShowAddModal(false);
+        setReason("");
+        onRefresh();
+      } else {
+        alert(res.error || "ছুটির আবেদন জমা দেওয়া যায়নি।");
+      }
+    } catch (err: any) {
+      alert(err?.message || "ছুটির আবেদন জমা দেওয়া যায়নি।");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

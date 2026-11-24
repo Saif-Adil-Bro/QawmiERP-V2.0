@@ -42,9 +42,14 @@ export default function AttendanceReportPage() {
   useEffect(() => {
     async function loadReport() {
       setLoading(true);
-      const reportData = await getAttendanceReport(month, year, type);
-      setData(reportData);
-      setLoading(false);
+      try {
+        const reportData = await getAttendanceReport(month, year, type);
+        setData(reportData);
+      } catch (err) {
+        console.error("Failed to load attendance report:", err);
+      } finally {
+        setLoading(false);
+      }
     }
     loadReport();
   }, [month, year, type]);

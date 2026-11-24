@@ -50,9 +50,14 @@ export default function AccountingReportPage() {
   useEffect(() => {
     async function loadReport() {
       setLoading(true);
-      const data = await getAccountingReport(month, year, selectedFundId);
-      setReport(data);
-      setLoading(false);
+      try {
+        const data = await getAccountingReport(month, year, selectedFundId);
+        setReport(data);
+      } catch (err) {
+        console.error("Failed to load accounting report:", err);
+      } finally {
+        setLoading(false);
+      }
     }
     loadReport();
   }, [month, year, selectedFundId]);

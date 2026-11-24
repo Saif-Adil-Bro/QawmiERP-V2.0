@@ -1,5 +1,12 @@
 "use server";
-import {getFeeMetadata as readFeeStore,saveFeeMetadata,generateNextReceiptNumber} from '@/lib/fee-store';
+import {
+  getFeeMetadata as readFeeStore,
+  saveFeeMetadata,
+  generateNextReceiptNumber,
+  readStudentFeeCollectionContext,
+  saveSingleFeeCollection,
+} from "@/lib/fee-store";
+import { after } from "next/server";
 import {rows} from '@/lib/portal/queries';
 import {studentLedger,reconcilePayments} from '@/lib/portal/ledger';
 import {webIdentity,hasRole,linkedStudents} from '@/lib/portal/identity';
@@ -750,7 +757,8 @@ export async function generateMonthlyFees(params: {
     }
 
     revalidatePath("/dashboard/accounting");
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/generate");
     revalidatePath("/dashboard/accounting/reports");
@@ -1012,30 +1020,13 @@ export async function collectFeePayment(paymentData: {
     const studentClass = student.class_name || clsObj?.name || "সাধারণ";
     const studentRoll = student.roll_number ? String(student.roll_number) : "";
 
-    const meta = await getFeeMetadata(madrasaId);
+    const ctx = await readStudentFeeCollectionContext(madrasaId, paymentData.student_id);
     const now = new Date().toISOString();
     const paymentDate = paymentData.payment_date || toDhakaDateStringFrom(now);
 
-    // HI-2: দ্বিতীয় স্তরের ১৫-সেকেন্ডের মেটাডেটা গার্ডও সরানো হলো (একই ত্রুটি —
-    // বৈধ দ্বিতীয় পেমেন্ট গিলে ফেলা)। idempotencyKey-ভিত্তিক চেকই যথেষ্ট।
-    if (idempotencyKey && meta?.payments && Array.isArray(meta.payments)) {
-      const keyMatch = meta.payments.find((p: any) => p.idempotency_key === idempotencyKey);
-      if (keyMatch) {
-        return {
-          success: true,
-          receipt_no: keyMatch.receipt_no,
-          receiptNo: keyMatch.receipt_no,
-          newPaymentId: keyMatch.id,
-          payment: keyMatch,
-          message: "পেমেন্টটি ইতিমধ্যে সফলভাবে গ্রহণ করা হয়েছে (ডুপ্লিকেট সাবমিশন প্রতিরোধ করা হয়েছে)।",
-        };
-      }
-    }
-
-
-    const studentFees = [...(meta.student_fees || [])];
-    const payments = [...(meta.payments || [])];
-    const feeTypesList = meta.fee_types || DEFAULT_FEE_TYPES;
+    const studentFees = [...(ctx.student_fees || [])];
+    const modifiedFeeIds = new Set<string>();
+    const feeTypesList = ctx.fee_types || DEFAULT_FEE_TYPES;
 
     // Guard 1B: Filter out allocations on invoices that are already fully PAID or due_amount === 0
     if (paymentData.fee_allocations && paymentData.fee_allocations.length > 0) {
@@ -1093,8 +1084,6 @@ export async function collectFeePayment(paymentData: {
 
     const requestedDiscount = Number(paymentData.discount_amount) || 0;
     if (requestedDiscount > 0) {
-      const adminClientForDiscount = await createAdminClient();
-      const { requirePermission } = await import("@/lib/permissions-server");
       const discountGuard = await requirePermission({
         userId: user.id,
         madrasaId,
@@ -1109,7 +1098,6 @@ export async function collectFeePayment(paymentData: {
             " অনুগ্রহ করে মুহতামিম/হিসাবরক্ষকের অনুমোদন নিন।",
         };
       }
-      void adminClientForDiscount;
     }
 
     // Generate formatted unique serial receipt number atomically: MR-YYYY-XXXXX
@@ -1206,17 +1194,12 @@ export async function collectFeePayment(paymentData: {
             const feeIdx = studentFees.findIndex((f) => f.id === alloc.student_fee_id);
             if (feeIdx >= 0) {
               const target = studentFees[feeIdx];
-              // ক) student_fees রেকর্ডের discount_amount বাড়ানো
               const newDiscount = Number(target.discount_amount || 0) + allocDiscount;
-              // খ) payable_amount পুনরায় হিসাব
               const baseAmt = Number(target.base_amount || 0);
               const fineAmt = Number(target.fine_amount || 0);
               const newPayable = Math.max(0, baseAmt + fineAmt - newDiscount);
-              // গ) paid_amount হিসাব
               const newPaid = Number(target.paid_amount || 0) + allocCash;
-              // ঘ) due_amount হিসাব
               const newDue = Math.max(0, newPayable - newPaid);
-              // ঙ) status নির্ধারণ: newDue === 0 হলে PAID (শতভাগ ছাড় হলে WAIVED)
               let newStatus: FeeStatus = "PARTIAL";
               if (newDue === 0) {
                 newStatus = (newPayable === 0 && newDiscount > 0) ? "WAIVED" : "PAID";
@@ -1234,21 +1217,7 @@ export async function collectFeePayment(paymentData: {
                 status: newStatus,
                 updated_at: now,
               };
-
-              // Also synchronize directly in relational student_fees table
-              try {
-                await adminClient.from("student_fees").update({
-                  discount_amount: newDiscount,
-                  discount_reason: paymentData.discount_reason || target.discount_reason,
-                  payable_amount: newPayable,
-                  paid_amount: newPaid,
-                  due_amount: newDue,
-                  status: newStatus,
-                  updated_at: now,
-                }).eq("id", target.id).eq("madrasa_id", madrasaId);
-              } catch (errRel) {
-                console.warn("Direct update to relational student_fees table fallback:", errRel);
-              }
+              modifiedFeeIds.add(target.id);
             }
           }
         }
@@ -1295,18 +1264,7 @@ export async function collectFeePayment(paymentData: {
           status: newStatus,
           updated_at: now,
         };
-
-        try {
-          await adminClient.from("student_fees").update({
-            discount_amount: newDiscount,
-            discount_reason: paymentData.discount_reason || fee.discount_reason,
-            payable_amount: newPayable,
-            paid_amount: newPaid,
-            due_amount: newDue,
-            status: newStatus,
-            updated_at: now,
-          }).eq("id", fee.id).eq("madrasa_id", madrasaId);
-        } catch {}
+        modifiedFeeIds.add(fee.id);
 
         const fundInfo = resolveFund(
           fee.fee_type_id,
@@ -1395,13 +1353,9 @@ export async function collectFeePayment(paymentData: {
         finalAllocations.reduce((sum, a) => sum + (Number(a.discount_applied) || 0), 0)
       ),
       fine_total: Number(paymentData.fine_amount) || 0,
-      // HI-12 ফিক্স: আগে advance_amount সর্বদা 0 সেভ হতো, ফলে অগ্রিম জমা কোথাও সঠিকভাবে
-      // রেকর্ড হতো না এবং "অগ্রিম" রিপোর্ট সবসময় শূন্য দেখাত। এখন অগ্রিম বণ্টন থেকে
-      // প্রকৃত পরিমাণ হিসাব করে সেভ করা হয়।
       advance_amount: finalAllocations
         .filter((a) => (a.billing_period || "").includes("অগ্রিম"))
         .reduce((sum, a) => sum + (Number(a.allocated_amount) || 0), 0),
-      // HI-2: ডুপ্লিকেট প্রতিরোধের জন্য ক্লায়েন্ট-প্রদত্ত idempotency key সংরক্ষণ
       idempotency_key: idempotencyKey || undefined,
       collector_name: user.email?.split("@")[0] || "হিসাব বিভাগ",
       notes: paymentData.notes,
@@ -1409,11 +1363,7 @@ export async function collectFeePayment(paymentData: {
       created_at: now,
     };
 
-    payments.unshift(newPayment);
-
-    // Record audit log
-    const auditLogs = meta.audit_logs || [];
-    auditLogs.unshift({
+    const auditLogEntry: FeeAuditLog = {
       id: `audit_${Date.now()}`,
       madrasa_id: madrasaId,
       action: "COLLECT_FEE_PAYMENT",
@@ -1422,23 +1372,14 @@ export async function collectFeePayment(paymentData: {
       record_id: newPayment.id,
       details: `${studentFullName} (${studentClass}, রোল: ${studentRoll})-এর কাছ থেকে ৳${amountToDistribute} ফি গ্রহণ করা হয়েছে। রিসিট নং: ${receiptNo}`,
       created_at: now,
-    });
+    };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // HI-11 ফিক্স — লেখার ক্রম উল্টানো হলো
-    //
-    // আগে legacy `fees` টেবিলে row ইনসার্ট করে তারপর `saveFeeMetadata` (আসল
-    // fee_payments + allocations + student_fees) সেভ করা হতো। মাঝখানে ব্যর্থ হলে
-    // ফাংশন “টাকা জমা হিসেবে গণ্য হয়নি” বার্তা দিয়ে ফিরত, কিন্তু legacy row থেকে যেত —
-    // আর `getFeeDashboardOverview` সেই untracked row-কে বৈধ আয় হিসেবে গুনে ফেলত
-    // (অর্থাৎ সিস্টেম নিজেই যা অস্বীকার করেছে, ড্যাশবোর্ডে সেটাই আয় হয়ে যেত)।
-    //
-    // এখন আসল (authoritative) রেকর্ড আগে লেখা হয়; সফল হলে তবেই legacy row।
-    // ─────────────────────────────────────────────────────────────────────────
-    const saved = await saveFeeMetadata(madrasaId, {
-      student_fees: studentFees,
-      payments,
-      audit_logs: auditLogs.slice(0, 100),
+    const modifiedStudentFees = studentFees.filter((sf) => modifiedFeeIds.has(sf.id));
+
+    const saved = await saveSingleFeeCollection(madrasaId, {
+      modifiedStudentFees,
+      newPayment,
+      auditLogEntry,
     });
     if (!saved) {
       return { error: "পেমেন্ট গ্রহণের তথ্য ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন। (টাকা জমা হিসেবে গণ্য হয়নি)" };
@@ -1469,12 +1410,15 @@ export async function collectFeePayment(paymentData: {
       if (dbFee?.id) {
         legacyFeeId = dbFee.id;
         newPayment.db_fee_id = dbFee.id;
-        // db_fee_id মেটাডেটাতেও best-effort আপডেট (ব্যর্থ হলেও কিছু হারায় না,
-        // কারণ legacy row সবসময় রসিদ নম্বর দিয়েই মেলানো হয়)
+        // Targeted single-row update for db_fee_id instead of re-upserting all payments
         try {
-          await saveFeeMetadata(madrasaId, { payments });
+          await adminClient
+            .from("fee_payments")
+            .update({ db_fee_id: dbFee.id })
+            .eq("id", newPayment.id)
+            .eq("madrasa_id", madrasaId);
         } catch (dbIdErr) {
-          console.warn("db_fee_id metadata sync warning:", dbIdErr);
+          console.warn("db_fee_id relational update warning:", dbIdErr);
         }
       }
     } catch (legacyErr) {
@@ -1508,29 +1452,42 @@ export async function collectFeePayment(paymentData: {
 
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/fees");
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/receipts");
     revalidatePath("/dashboard/accounting/payments");
     revalidatePath(`/dashboard/students/${paymentData.student_id}`);
     revalidatePath("/portal/fees");
 
-    // Non-blocking webhook event for payment confirmation (Feature 2.4)
+    // Serverless-safe non-blocking webhook event for payment confirmation via Next.js after()
+    const webhookPayload = {
+      payment_id: newPayment.id,
+      receipt_no: receiptNo,
+      student_id: paymentData.student_id,
+      student_name: newPayment.student_name,
+      class_name: newPayment.class_name,
+      amount: newPayment.total_amount_received,
+      payment_method: newPayment.payment_method,
+      payment_date: paymentDate,
+      status: newPayment.status,
+    };
     try {
-      const { dispatchWebhookEvent } = await import("@/lib/webhooks/dispatcher");
-      await dispatchWebhookEvent(madrasaId, "payment.confirmed", {
-        payment_id: newPayment.id,
-        receipt_no: receiptNo,
-        student_id: paymentData.student_id,
-        student_name: newPayment.student_name,
-        class_name: newPayment.class_name,
-        amount: newPayment.total_amount_received,
-        payment_method: newPayment.payment_method,
-        payment_date: paymentDate,
-        status: newPayment.status,
+      after(async () => {
+        try {
+          const { dispatchWebhookEvent } = await import("@/lib/webhooks/dispatcher");
+          await dispatchWebhookEvent(madrasaId, "payment.confirmed", webhookPayload);
+        } catch {
+          // non-blocking webhook dispatch
+        }
       });
     } catch {
-      // non-blocking webhook dispatch
+      // Fallback if called outside a Next.js request scope (e.g. unit test runner)
+      import("@/lib/webhooks/dispatcher")
+        .then(({ dispatchWebhookEvent }) =>
+          dispatchWebhookEvent(madrasaId, "payment.confirmed", webhookPayload)
+        )
+        .catch(() => {});
     }
 
     return {
@@ -1669,7 +1626,8 @@ export async function resetAllFeeData(options: {
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/payments");
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/income");
     revalidatePath("/dashboard/accounting/fees");
@@ -1981,7 +1939,8 @@ export async function reverseFeePayment(paymentId: string, reason: string) {
 
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/payments");
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
 
     return { success: true, message: "পেমেন্ট সফলভাবে রিভার্স করা হয়েছে এবং বকেয়া পুনর্স্থাপন করা হয়েছে।" };
@@ -2182,7 +2141,8 @@ export async function voidFeePayment(paymentId: string, reason: string) {
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/payments");
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/income");
     revalidatePath("/dashboard/accounting/receipts");
@@ -2311,7 +2271,8 @@ export async function unvoidFeePayment(paymentId: string, reason: string) {
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/payments");
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/income");
 
@@ -2667,7 +2628,8 @@ export async function deleteStudentFee(feeId: string): Promise<{ success?: boole
       return { error: "ডাটাবেজে পরিবর্তন সংরক্ষণ করা যায়নি।" };
     }
 
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/fees");
     revalidatePath("/dashboard/accounting/generate");
@@ -2775,7 +2737,8 @@ export async function deleteGeneratedFeeBatch(params: {
       return { error: "ডাটাবেজে পরিবর্তন সংরক্ষণ করা যায়নি।" };
     }
 
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/accounting/fees");
     revalidatePath("/dashboard/accounting/generate");

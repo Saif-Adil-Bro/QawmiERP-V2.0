@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -33,13 +34,26 @@ function parseJsonBlob(raw: unknown): Record<string, any> | null {
   }
 }
 
+function cloneJsonObject<T extends Record<string, any>>(obj: T): T {
+  try {
+    return structuredClone(obj);
+  } catch {
+    return JSON.parse(JSON.stringify(obj));
+  }
+}
+
+const getRequestJsonStoreCache = cache(
+  () => new Map<string, Promise<Record<string, any>>>()
+);
+
 /**
- * Reads a madrasa JSON store. Returns {} when nothing is stored yet.
- * Tolerant of missing columns (falls back to registration_no JSON).
+ * Uncached direct reader for a madrasa JSON store.
+ * Always hits the database directly (used on cache miss or inside read-modify-write).
  */
-export async function readJsonStore(
+export async function readJsonStoreUncached(
   madrasaId: string,
-  kind: JsonStoreKind, strict=false
+  kind: JsonStoreKind,
+  strict = false
 ): Promise<Record<string, any>> {
   if (!madrasaId) return {};
   const adminClient = await createAdminClient();
@@ -56,14 +70,20 @@ export async function readJsonStore(
     const value = (primary.data as any)[column];
     const parsed = parseJsonBlob(value);
     if (parsed) return parsed;
-    if(strict && value) throw new Error('Invalid security profile store');
+    if (strict && value) throw new Error("Invalid security profile store");
     // Column exists but empty -> also honour legacy registration_no blob (one-time upgrade path)
     const legacy = parseJsonBlob((primary.data as any).registration_no);
-    if(strict && String((primary.data as any).registration_no || '').trimStart().startsWith('{') && !legacy) throw new Error('Invalid legacy profile store');
+    if (
+      strict &&
+      String((primary.data as any).registration_no || "").trimStart().startsWith("{") &&
+      !legacy
+    )
+      throw new Error("Invalid legacy profile store");
     return legacy || {};
   }
 
-  if(strict && primary.error && !['42703','PGRST204'].includes(primary.error.code)) throw new Error(primary.error.message);
+  if (strict && primary.error && !["42703", "PGRST204"].includes(primary.error.code))
+    throw new Error(primary.error.message);
   // 2) Column missing in this database -> legacy behaviour.
   const legacyOnly = await adminClient
     .from("madrasas")
@@ -71,14 +91,42 @@ export async function readJsonStore(
     .eq("id", madrasaId)
     .maybeSingle();
 
-  if(strict && (legacyOnly.error || !legacyOnly.data)) throw new Error('Cannot load security profile');
-  const raw=legacyOnly.data?.registration_no, parsed=parseJsonBlob(raw);
-  if(strict && String(raw || '').trimStart().startsWith('{') && !parsed) throw new Error('Invalid legacy profile store');
+  if (strict && (legacyOnly.error || !legacyOnly.data))
+    throw new Error("Cannot load security profile");
+  const raw = legacyOnly.data?.registration_no,
+    parsed = parseJsonBlob(raw);
+  if (strict && String(raw || "").trimStart().startsWith("{") && !parsed)
+    throw new Error("Invalid legacy profile store");
   return parsed || {};
 }
 
 /**
- * Writes a madrasa JSON store. Returns false only when every strategy failed.
+ * Reads a madrasa JSON store with per-request deduplication and write-through cache invalidation.
+ * Returns a fresh clone so in-place mutations by callers never poison the request cache.
+ */
+export async function readJsonStore(
+  madrasaId: string,
+  kind: JsonStoreKind,
+  strict = false
+): Promise<Record<string, any>> {
+  if (!madrasaId) return {};
+  const storeMap = getRequestJsonStoreCache();
+  const key = `${madrasaId}:${kind}:${strict ? "1" : "0"}`;
+  let pending = storeMap.get(key);
+  if (!pending) {
+    pending = readJsonStoreUncached(madrasaId, kind, strict).catch((err) => {
+      storeMap.delete(key);
+      throw err;
+    });
+    storeMap.set(key, pending);
+  }
+  const data = await pending;
+  return cloneJsonObject(data);
+}
+
+/**
+ * Writes a madrasa JSON store and updates the request-local cache so subsequent
+ * reads in the same request never observe stale data.
  */
 export async function writeJsonStore(
   madrasaId: string,
@@ -88,6 +136,13 @@ export async function writeJsonStore(
   if (!madrasaId) return false;
   const adminClient = await createAdminClient();
   const column = COLUMN[kind];
+  const storeMap = getRequestJsonStoreCache();
+
+  const updateRequestCache = (nextVal: Record<string, any>) => {
+    const snap = cloneJsonObject(nextVal);
+    storeMap.set(`${madrasaId}:${kind}:0`, Promise.resolve(snap));
+    storeMap.set(`${madrasaId}:${kind}:1`, Promise.resolve(snap));
+  };
 
   // 1) Preferred: dedicated column.
   const primary = await adminClient
@@ -97,7 +152,10 @@ export async function writeJsonStore(
     .select("id")
     .maybeSingle();
 
-  if (!primary.error) return true;
+  if (!primary.error) {
+    updateRequestCache(value);
+    return true;
+  }
 
   // 2) Fallback: legacy registration_no JSON blob (never destroy a real registration number).
   const current = await adminClient
@@ -129,8 +187,11 @@ export async function writeJsonStore(
 
   if (error) {
     console.error(`Error writing madrasa ${kind} store:`, error);
+    storeMap.delete(`${madrasaId}:${kind}:0`);
+    storeMap.delete(`${madrasaId}:${kind}:1`);
     return false;
   }
+  updateRequestCache(value);
   return true;
 }
 
@@ -140,8 +201,9 @@ export async function mergeJsonStore(
   kind: JsonStoreKind,
   updater: (current: Record<string, any>) => Record<string, any>
 ): Promise<Record<string, any> | null> {
-  const current = await readJsonStore(madrasaId, kind);
+  const current = await readJsonStoreUncached(madrasaId, kind);
   const next = updater(current || {});
   const ok = await writeJsonStore(madrasaId, kind, next);
   return ok ? next : null;
 }
+

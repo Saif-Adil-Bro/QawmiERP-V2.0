@@ -500,7 +500,7 @@ export async function createAcademicHoliday(payload: Omit<AcademicHoliday, "id" 
       revalidatePath("/portal/holidays");
       revalidatePath("/portal/notices");
       revalidatePath("/portal/leave");
-      revalidatePath("/portal", "layout");
+      revalidatePath("/portal");
     } catch (rErr) {
       console.warn("revalidatePath error:", rErr);
     }
@@ -591,7 +591,7 @@ export async function updateAcademicHoliday(id: string, payload: Partial<Academi
       revalidatePath("/portal/holidays");
       revalidatePath("/portal/notices");
       revalidatePath("/portal/leave");
-      revalidatePath("/portal", "layout");
+      revalidatePath("/portal");
     } catch (rErr) {
       console.warn("revalidatePath error:", rErr);
     }
@@ -657,7 +657,7 @@ export async function deleteAcademicHoliday(id: string) {
       revalidatePath("/dashboard/communication/notices");
       revalidatePath("/portal/holidays");
       revalidatePath("/portal/notices");
-      revalidatePath("/portal", "layout");
+      revalidatePath("/portal");
     } catch (rErr) {
       console.warn("revalidatePath error:", rErr);
     }
@@ -834,7 +834,7 @@ export async function seedDefaultQawmiHolidays(year?: string) {
     revalidatePath("/portal/holidays");
     revalidatePath("/portal/notices");
     revalidatePath("/portal/leave");
-    revalidatePath("/portal", "layout");
+    revalidatePath("/portal");
 
     return {
       success: true,

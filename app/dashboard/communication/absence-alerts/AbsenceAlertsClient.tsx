@@ -187,14 +187,19 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingSettings(true);
-    const res = await saveAbsenceAlertSettings(settings);
-    setIsSavingSettings(false);
-    if (res.error) {
-      setAlertStatus({ type: "error", text: res.error });
-    } else {
-      setAlertStatus({ type: "success", text: "স্বয়ংক্রিয় অনুপস্থিতি অ্যালার্ট সেটিংস সফলভাবে সংরক্ষিত হয়েছে!" });
-      setIsSettingsOpen(false);
-      handleRefreshData();
+    try {
+      const res = await saveAbsenceAlertSettings(settings);
+      if (res.error) {
+        setAlertStatus({ type: "error", text: res.error });
+      } else {
+        setAlertStatus({ type: "success", text: "স্বয়ংক্রিয় অনুপস্থিতি অ্যালার্ট সেটিংস সফলভাবে সংরক্ষিত হয়েছে!" });
+        setIsSettingsOpen(false);
+        handleRefreshData();
+      }
+    } catch (err: any) {
+      setAlertStatus({ type: "error", text: err?.message || "সেটিংস সংরক্ষণ করতে সমস্যা হয়েছে।" });
+    } finally {
+      setIsSavingSettings(false);
     }
   };
 

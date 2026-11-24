@@ -32,6 +32,29 @@ import {
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { sendNativeStatusBarNotification } from "@/lib/nativeNotifications";
 
+let sharedNotificationsPromise: ReturnType<typeof getGlobalNotifications> | null = null;
+let sharedNotificationsCache: {
+  at: number;
+  data: Awaited<ReturnType<typeof getGlobalNotifications>>;
+} | null = null;
+
+async function fetchGlobalNotificationsDeduped(force = false) {
+  if (!force && sharedNotificationsCache && Date.now() - sharedNotificationsCache.at < 25000) {
+    return sharedNotificationsCache.data;
+  }
+  if (!sharedNotificationsPromise) {
+    sharedNotificationsPromise = getGlobalNotifications(45)
+      .then((res) => {
+        sharedNotificationsCache = { at: Date.now(), data: res };
+        return res;
+      })
+      .finally(() => {
+        sharedNotificationsPromise = null;
+      });
+  }
+  return sharedNotificationsPromise;
+}
+
 export default function GlobalNotificationBell() {
   const router = useRouter();
   const pathname = usePathname();
@@ -76,10 +99,10 @@ export default function GlobalNotificationBell() {
   const pushedStatusBarIdsRef = useRef<Set<string>>(new Set());
 
   // Fetch notifications
-  const loadNotifications = async () => {
+  const loadNotifications = async (force = false) => {
     try {
       setLoading(true);
-      const res = await getGlobalNotifications(45);
+      const res = await fetchGlobalNotificationsDeduped(force);
       if (res && res.notifications) {
         const readSet = new Set<string>(
           Array.isArray(res.readIds) ? res.readIds : Array.from(readIds)
@@ -124,15 +147,17 @@ export default function GlobalNotificationBell() {
 
   useEffect(() => {
     const initialTimer = setTimeout(() => {
-      loadNotifications();
-    }, 1500);
+      if (typeof document === "undefined" || document.visibilityState === "visible") {
+        loadNotifications(false);
+      }
+    }, 4000);
 
-    // Poll every 90 seconds only when tab/app is visible
+    // Poll every 180 seconds only when tab/app is visible
     const interval = setInterval(() => {
       if (typeof document === "undefined" || document.visibilityState === "visible") {
-        loadNotifications();
+        loadNotifications(false);
       }
-    }, 90000);
+    }, 180000);
 
     return () => {
       clearTimeout(initialTimer);
@@ -355,7 +380,7 @@ export default function GlobalNotificationBell() {
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={loadNotifications}
+                onClick={() => loadNotifications(true)}
                 disabled={loading}
                 className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 rounded-lg transition"
                 title="রিফ্রেশ করুন"

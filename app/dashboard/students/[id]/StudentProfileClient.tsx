@@ -83,22 +83,39 @@ export default function StudentProfileClient({
 
   const loadCertificates = async () => {
     setLoadingCertificates(true);
-    const certs = await getStudentCertificates(student.id);
-    setStudentCertificates(certs);
-    setLoadingCertificates(false);
+    try {
+      const certs = await getStudentCertificates(student.id);
+      setStudentCertificates(certs);
+    } catch (err) {
+      console.error("Failed to load student certificates:", err);
+    } finally {
+      setLoadingCertificates(false);
+    }
   };
 
   const loadDigitalId = async () => {
     setLoadingIdCard(true);
-    const res = await getStudentDigitalId(student.id);
-    setDigitalIdData(res);
-    setLoadingIdCard(false);
+    try {
+      const res = await getStudentDigitalId(student.id);
+      setDigitalIdData(res);
+    } catch (err) {
+      console.error("Failed to load student digital ID:", err);
+    } finally {
+      setLoadingIdCard(false);
+    }
   };
 
   const handleIssueCard = async () => {
     setLoadingIdCard(true);
-    await issueStudentIdCard({ student_id: student.id });
-    await loadDigitalId();
+    try {
+      await issueStudentIdCard({ student_id: student.id });
+      const res = await getStudentDigitalId(student.id);
+      setDigitalIdData(res);
+    } catch (err) {
+      console.error("Failed to issue student ID card:", err);
+    } finally {
+      setLoadingIdCard(false);
+    }
   };
 
   return (

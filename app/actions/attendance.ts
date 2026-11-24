@@ -91,20 +91,19 @@ export async function getStudentsForAttendance(date: string, classId?: string) {
 export async function saveAttendance(
   date: string,
   attendanceData: { student_id: string; status: string; notes?: string }[],
+  options?: { rosterVerifiedForTenant?: string },
 ) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("attendance");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("attendance");
+  if (!__authz.allowed) return __authz.fallback;
 
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "Unauthorized" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
+  const finalMadrasaId = __authz.madrasaId;
   if (!finalMadrasaId) return { error: "Madrasa not found" };
+
+  const alreadyVerified =
+    options?.rosterVerifiedForTenant &&
+    options.rosterVerifiedForTenant === finalMadrasaId;
 
   if (
     !validDate(date) ||
@@ -112,7 +111,7 @@ export async function saveAttendance(
     attendanceData.some(
       (r) => !attendanceStatuses.some((s) => s === r.status),
     ) ||
-    !(await verifyRoster(finalMadrasaId, attendanceData))
+    (!alreadyVerified && !(await verifyRoster(finalMadrasaId, attendanceData)))
   )
     return { error: "শিক্ষার্থী বা হাজিরা বৈধ নয়।" };
   const recordsToUpsert = attendanceData.map((record) => ({
@@ -136,8 +135,10 @@ export async function saveAttendance(
 
   revalidatePath("/dashboard/attendance");
   revalidatePath("/dashboard/attendance/students");
-  revalidatePath("/portal", "layout");
-  revalidatePath("/teacher-portal", "layout");
+  revalidatePath("/portal/attendance");
+  revalidatePath("/portal");
+  revalidatePath("/teacher-portal/attendance");
+  revalidatePath("/teacher-portal");
   return { success: true };
 }
 

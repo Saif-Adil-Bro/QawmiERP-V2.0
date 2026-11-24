@@ -99,8 +99,9 @@ export async function POST(req: NextRequest) {
       saved++;
     }
 
-    revalidatePath("/portal", "layout");
-    revalidatePath("/teacher-portal", "layout");
+    revalidatePath("/portal/academic");
+    revalidatePath("/teacher-portal/kitab");
+    revalidatePath("/dashboard/kitab");
     return NextResponse.json({ success: true, count: saved });
   } catch (err: any) {
     console.error("Error saving kitab logs in API:", err);

@@ -47,11 +47,16 @@ export default function ExamResultsClient({
 
   const loadResults = async () => {
     setLoading(true);
-    const data = await getStudentReportCard(examId, classId || undefined);
-    // Sort by percentage descending
-    const sortedData = data.sort((a, b) => Number(b.percentage) - Number(a.percentage));
-    setResults(sortedData);
-    setLoading(false);
+    try {
+      const data = await getStudentReportCard(examId, classId || undefined);
+      // Sort by percentage descending
+      const sortedData = data.sort((a, b) => Number(b.percentage) - Number(a.percentage));
+      setResults(sortedData);
+    } catch (err) {
+      console.error("Failed to load exam results:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePrint = () => {

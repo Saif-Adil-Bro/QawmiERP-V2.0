@@ -532,3 +532,98 @@ export async function saveFeeMetadata(
     return false;
   }
 }
+
+/**
+ * Targeted reader for single-student fee collection (`collectFeePayment`).
+ * Loads only `fee_types`, the target student's `student_fees`, and lightweight madrasa metadata,
+ * avoiding a full-tenant scan of thousands of `student_fees` and `fee_payments`.
+ */
+export async function readStudentFeeCollectionContext(
+  madrasaId: string,
+  studentId: string,
+): Promise<{
+  fee_types: FeeType[];
+  student_fees: StudentFee[];
+  audit_logs: FeeAuditLog[];
+  idempotent_payment: FeePayment | null;
+}> {
+  const adminClient = await createAdminClient();
+  const [ftRes, sfData, meta] = await Promise.all([
+    adminClient
+      .from("fee_types")
+      .select("*")
+      .eq("madrasa_id", madrasaId)
+      .order("created_at", { ascending: true }),
+    rows(
+      () =>
+        adminClient
+          .from("student_fees")
+          .select("*")
+          .eq("madrasa_id", madrasaId)
+          .eq("student_id", studentId)
+          .order("created_at", { ascending: false }),
+      true,
+    ),
+    getMadrasaMetadata(madrasaId),
+  ]);
+
+  const feeTypes: FeeType[] =
+    ftRes.data && ftRes.data.length > 0
+      ? ftRes.data.map((ft: any) => ({
+          ...ft,
+          default_amount: Number(ft.default_amount) || 0,
+        }))
+      : Array.isArray(meta.fee_types) && meta.fee_types.length > 0
+        ? meta.fee_types
+        : DEFAULT_FEE_TYPES;
+
+  let studentFees: StudentFee[] = (sfData || []).map((sf: any) => ({
+    ...sf,
+    base_amount: Number(sf.base_amount) || 0,
+    discount_amount: Number(sf.discount_amount) || 0,
+    fine_amount: Number(sf.fine_amount) || 0,
+    payable_amount: Number(sf.payable_amount) || 0,
+    paid_amount: Number(sf.paid_amount) || 0,
+    due_amount: Number(sf.due_amount) || 0,
+  }));
+
+  if (studentFees.length === 0 && Array.isArray(meta.student_fees)) {
+    studentFees = meta.student_fees.filter(
+      (sf: any) => sf?.student_id === studentId,
+    );
+  }
+
+  return {
+    fee_types: feeTypes,
+    student_fees: studentFees,
+    audit_logs: Array.isArray(meta.audit_logs) ? meta.audit_logs : [],
+    idempotent_payment: null,
+  };
+}
+
+/**
+ * Targeted writer for a single fee collection (`collectFeePayment`).
+ * Upserts only the modified `student_fees` rows, the new `fee_payment`, and its
+ * `fee_payment_allocations`, plus lightweight audit log metadata.
+ */
+export async function saveSingleFeeCollection(
+  madrasaId: string,
+  params: {
+    modifiedStudentFees: StudentFee[];
+    newPayment: FeePayment;
+    auditLogEntry?: FeeAuditLog;
+  },
+): Promise<boolean> {
+  return saveFeeMetadata(madrasaId, {
+    student_fees: params.modifiedStudentFees,
+    payments: [params.newPayment],
+    ...(params.auditLogEntry
+      ? {
+          audit_logs: [
+            params.auditLogEntry,
+            ...((await getMadrasaMetadata(madrasaId)).audit_logs || []),
+          ].slice(0, 100),
+        }
+      : {}),
+  });
+}

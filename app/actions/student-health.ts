@@ -94,9 +94,9 @@ function refresh() {
     "/dashboard/students/health",
     "/teacher-portal/health",
     "/dashboard",
+    "/portal",
   ])
     revalidatePath(p);
-  revalidatePath("/portal", "layout");
 }
 async function afterSave(
   c: StaffContext,
