@@ -335,6 +335,7 @@ export async function getFeePaymentsForLedger(madrasaId: string): Promise<{
 
   const payments: FeePayment[] = fpData.map((fp: any) => ({
     id: fp.id,
+    db_fee_id: fp.db_fee_id,
     receipt_no: fp.receipt_no,
     madrasa_id: fp.madrasa_id,
     student_id: fp.student_id,
@@ -362,6 +363,16 @@ export async function getFeePaymentsForLedger(madrasaId: string): Promise<{
     reversal_reason: fp.reversal_reason,
     created_at: fp.created_at,
   }));
+
+  if (payments.length === 0) {
+    const meta = await getMadrasaMetadata(madrasaId);
+    return {
+      fee_types:
+        meta.fee_types && meta.fee_types.length > 0 ? meta.fee_types : feeTypes,
+      payments: meta.payments || [],
+      student_fees: meta.student_fees || [],
+    };
+  }
 
   return {
     fee_types: feeTypes,

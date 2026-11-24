@@ -311,50 +311,9 @@ export async function runFinancialAnomalyScan(
     scope: "মোট পেমেন্ট রসিদ",
   });
 
-  // 6. Negative Fund Balances (B20 / B27)
+  // 6, 7, 8, 9. Fund Balance & Student Fee Integrity Checks (P4 / B27)
   let scannedFunds = 0;
   let negFundAnoms: DetectedAnomaly[] = [];
-  try {
-    const books = await readBooks(madrasaId, getFeePaymentsForLedger);
-    const groups = new Map(
-      books.funds.map((f) => [f.id, { income: 0, expense: 0 }])
-    );
-    for (const e of ledgerEntries(books)) {
-      if (e.status === "VOID" || e.reason) continue;
-      const g = groups.get(e.fund_id);
-      if (!g) continue;
-      if (e.income) g.income = money(g.income + e.amount);
-      else g.expense = money(g.expense + e.amount);
-    }
-    const movement = new Map<string, number>();
-    for (const leg of journalLegs(books.journals, books.funds)) {
-      movement.set(leg.fund_id, money((movement.get(leg.fund_id) || 0) + leg.delta));
-    }
-    const fundSnapshots = books.funds.map((f) => {
-      const g = groups.get(f.id) || { income: 0, expense: 0 };
-      return {
-        id: f.id,
-        name: f.name,
-        totalCollected: g.income,
-        totalExpense: g.expense,
-        currentBalance: money(g.income - g.expense + (movement.get(f.id) || 0)),
-      };
-    });
-    scannedFunds = fundSnapshots.length;
-    negFundAnoms = detectNegativeFundBalances(fundSnapshots, todayStr);
-    detected.push(...negFundAnoms);
-  } catch {
-    // non-fatal in isolated mock environments
-  }
-  checkSummaries.push({
-    key: "NEGATIVE_FUND_BALANCE",
-    label: "ঋণাত্মক ফান্ড ব্যালেন্স",
-    scannedCount: scannedFunds,
-    detectedCount: negFundAnoms.length,
-    scope: "সকল সক্রিয় ফান্ড",
-  });
-
-  // 7, 8, 9. Student Fee Integrity Checks (Agreement vs Billed, Missing Invoices, Due Formula)
   let scannedAgreementRecords = 0;
   let agreementAnoms: DetectedAnomaly[] = [];
   let scannedActiveStudents = 0;
@@ -367,32 +326,72 @@ export async function runFinancialAnomalyScan(
       getFeeMetadata(madrasaId),
       admin
         .from("students")
-        .select("id, first_name, last_name, status, class_name, classes(name)")
+        .select("id, first_name, last_name, roll_number, class_id, classes(id, name)")
         .eq("madrasa_id", madrasaId),
     ]);
 
-    const allStudents = Array.isArray(studentsRes.data) ? studentsRes.data : [];
-    const activeStudents = allStudents.filter(
-      (s: any) => !s.status || String(s.status).toLowerCase() === "active"
-    );
-    scannedActiveStudents = activeStudents.length;
+    // 6. Negative Fund Balances — use feeMeta with readBooks so fee collection receipts (e.g. General + Lillah hostel fees) are included identically to loadFundOverview
+    try {
+      const books = await readBooks(madrasaId, async () => feeMeta);
+      const groups = new Map(
+        books.funds.map((f) => [f.id, { income: 0, expense: 0 }])
+      );
+      for (const e of ledgerEntries(books)) {
+        if (e.status === "VOID" || e.reason) continue;
+        const g = groups.get(e.fund_id);
+        if (!g) continue;
+        if (e.income) g.income = money(g.income + e.amount);
+        else g.expense = money(g.expense + e.amount);
+      }
+      const movement = new Map<string, number>();
+      for (const leg of journalLegs(books.journals, books.funds)) {
+        movement.set(leg.fund_id, money((movement.get(leg.fund_id) || 0) + leg.delta));
+      }
+      const fundSnapshots = books.funds.map((f) => {
+        const g = groups.get(f.id) || { income: 0, expense: 0 };
+        return {
+          id: f.id,
+          name: f.name,
+          totalCollected: g.income,
+          totalExpense: g.expense,
+          currentBalance: money(g.income - g.expense + (movement.get(f.id) || 0)),
+        };
+      });
+      scannedFunds = fundSnapshots.length;
+      negFundAnoms = detectNegativeFundBalances(fundSnapshots, todayStr);
+      detected.push(...negFundAnoms);
+    } catch {
+      // non-fatal in isolated mock environments
+    }
 
     const studentFees = feeMeta.student_fees || [];
     scannedInvoices = studentFees.length;
     const studentProfiles = feeMeta.student_profiles || {};
 
-    // 7. Fee Agreement vs Billed Monthly Amount
+    const allStudents = Array.isArray(studentsRes.data) ? studentsRes.data : [];
+    const activeStudents = allStudents.filter((s: any) => {
+      const prof: any = studentProfiles[s.id];
+      const stStatus = String(
+        prof?.student_status || s.student_status || s.status || "ACTIVE"
+      ).toUpperCase();
+      return !["INACTIVE", "TC_ISSUED", "GRADUATED", "DROPPED", "ARCHIVED"].includes(
+        stStatus
+      );
+    });
+    scannedActiveStudents = activeStudents.length;
+
+    // 7. Fee Agreement vs Billed Monthly Amount (including legacy ৳0 profiles like Tahmid & Salman)
     const monthlyByStudentPeriod = new Map<
       string,
       { studentId: string; studentName: string; billingPeriod: string; total: number }
     >();
     const monthlyTypeIds = new Set(
       (feeMeta.fee_types || [])
-        .filter((ft) => ft.frequency === "MONTHLY")
+        .filter((ft) => ft.frequency === "MONTHLY" || ft.code === "MONTHLY")
         .map((ft) => ft.id)
     );
     for (const inv of studentFees) {
-      if (!monthlyTypeIds.has(inv.fee_type_id)) continue;
+      if (monthlyTypeIds.size > 0 && !monthlyTypeIds.has(inv.fee_type_id)) continue;
       const key = `${inv.student_id}::${inv.billing_period}`;
       const existing = monthlyByStudentPeriod.get(key) || {
         studentId: inv.student_id,
@@ -413,17 +412,34 @@ export async function runFinancialAnomalyScan(
     }> = [];
     for (const entry of monthlyByStudentPeriod.values()) {
       const prof: any = studentProfiles[entry.studentId];
-      if (
-        prof &&
-        prof.total_monthly_fee !== undefined &&
-        prof.total_monthly_fee !== null &&
-        prof.total_monthly_fee !== ""
-      ) {
+      if (prof) {
+        const boardingLabel = String(prof.boarding_type || "");
+        const isFree =
+          prof.is_free === true ||
+          prof.free_student === true ||
+          prof.student_status === "SCHOLARSHIP" ||
+          boardingLabel.includes("লিল্লাহ");
+        const agreedMonthlyTotal = isFree
+          ? 0
+          : prof.total_monthly_fee !== undefined &&
+              prof.total_monthly_fee !== null &&
+              prof.total_monthly_fee !== ""
+            ? Number(prof.total_monthly_fee)
+            : Math.max(
+                0,
+                Number(prof.monthly_fee || 0) +
+                  Number(prof.khoraki_fee || 0) +
+                  Number(prof.accommodation_fee || 0) +
+                  Number(prof.transport_fee || 0) +
+                  Number(prof.other_fee || 0) -
+                  Number(prof.fee_discount || 0)
+              );
+
         agreementInputs.push({
           studentId: entry.studentId,
           studentName: entry.studentName,
           billingPeriod: entry.billingPeriod,
-          agreedMonthlyTotal: Number(prof.total_monthly_fee),
+          agreedMonthlyTotal,
           billedMonthlyTotal: entry.total,
         });
       }
@@ -446,14 +462,15 @@ export async function runFinancialAnomalyScan(
       unbilledAnoms = detectUnbilledActiveStudents(
         {
           latestPeriod,
-          activeStudents: activeStudents.map((s: any) => ({
-            id: s.id,
-            name: `${s.first_name || ""} ${s.last_name || ""}`.trim() || "শিক্ষার্থী",
-            className:
-              (Array.isArray(s.classes) ? s.classes[0]?.name : s.classes?.name) ||
-              s.class_name ||
-              "",
-          })),
+          activeStudents: activeStudents.map((s: any) => {
+            const prof: any = studentProfiles[s.id];
+            const clsObj = Array.isArray(s.classes) ? s.classes[0] : s.classes;
+            return {
+              id: s.id,
+              name: `${s.first_name || ""} ${s.last_name || ""}`.trim() || "শিক্ষার্থী",
+              className: clsObj?.name || prof?.class_name || s.class_name || "",
+            };
+          }),
           billedStudentIds: billedIds,
         },
         todayStr
@@ -481,6 +498,14 @@ export async function runFinancialAnomalyScan(
   } catch {
     // non-fatal in isolated mock environments
   }
+
+  checkSummaries.push({
+    key: "NEGATIVE_FUND_BALANCE",
+    label: "ঋণাত্মক ফান্ড ব্যালেন্স",
+    scannedCount: scannedFunds,
+    detectedCount: negFundAnoms.length,
+    scope: "সকল সক্রিয় ফান্ড",
+  });
 
   checkSummaries.push(
     {

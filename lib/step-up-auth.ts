@@ -1168,7 +1168,10 @@ async function deliverEmailOtp(
   });
 
   if (!res.ok) {
-    return { delivered: false, note: res.error || "Email ডেলিভারি ত্রুটি।" };
+    const cleanNote = String(res.error || "Email ডেলিভারি ত্রুটি।")
+      .replace(/\s*\[Email delivery failed[^\]]*\]$/i, "")
+      .trim();
+    return { delivered: false, note: cleanNote || "Email ডেলিভারি ত্রুটি।" };
   }
   return { delivered: true };
 }

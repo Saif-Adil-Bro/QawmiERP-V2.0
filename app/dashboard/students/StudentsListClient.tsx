@@ -197,13 +197,16 @@ export default function StudentsListClient({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, "bn"));
   }, [classes, students]);
 
-  // System/Department classification helper
+  // System/Department classification helper (F5/B10: normalize য় U+09AF+U+09BC and য় U+09DF)
   const getStudentSystem = (student: any): "হিফজ" | "কিতাব" | "নূরানী" | "নাজেরা" | "সাধারণ" => {
     const cName = (
       (Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) ||
       student.class_name ||
       ""
-    ).toLowerCase();
+    )
+      .normalize("NFC")
+      .replace(/\u09AF\u09BC/g, "\u09DF")
+      .toLowerCase();
 
     if (cName.includes("হিফজ") || cName.includes("তাহফিজ") || cName.includes("কুরআন")) {
       return "হিফজ";
@@ -220,14 +223,21 @@ export default function StudentsListClient({
       cName.includes("মিজান") ||
       cName.includes("নাহবেমীর") ||
       cName.includes("হেদায়াত") ||
+      cName.includes("হিদায়া") ||
       cName.includes("কাফিয়া") ||
+      cName.includes("বেকায়া") ||
       cName.includes("শরহে") ||
       cName.includes("দহম") ||
       cName.includes("ইয়াযদাহুম") ||
       cName.includes("জালালাইন") ||
       cName.includes("মেশকাত") ||
       cName.includes("দাওরা") ||
+      cName.includes("তাকমীল") ||
       cName.includes("ইফতা") ||
+      cName.includes("ফযীলত") ||
+      cName.includes("ফজিলত") ||
+      cName.includes("সানাবিয়া") ||
+      cName.includes("মুতাওয়াসসিতাহ") ||
       cName.includes("কিতাব")
     ) {
       return "কিতাব";
