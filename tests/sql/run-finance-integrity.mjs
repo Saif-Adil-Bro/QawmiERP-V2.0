@@ -10,6 +10,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { withDisposablePostgres } from "./disposable-postgres.mjs";
 
+const migration = readFileSync("supabase_finance_integrity_migration.sql", "utf8");
+async function checkPostingFundColumns(db) {
+  const [{ n }] = await db`select count(*)::int n from information_schema.columns where table_schema='public'
+    and table_name in ('donations','expenses') and column_name='fund_id' and data_type='text'
+    and is_nullable='YES' and column_default is null`;
+  assert.equal(n, 2);
+}
+
 let beforeRestore;
 await withDisposablePostgres(async ({ db }) => {
   const [a, b] =
@@ -63,10 +71,6 @@ await withDisposablePostgres(async ({ db }) => {
   const snapshot = async () =>
     await db`select id,amount,donation_type,fund_id,receipt_no from donations order by id`;
   const before = await snapshot();
-  const migration = readFileSync(
-    "supabase_finance_integrity_migration.sql",
-    "utf8",
-  );
   const conn = await db.reserve();
   try {
     await conn.unsafe(migration);
@@ -81,6 +85,7 @@ await withDisposablePostgres(async ({ db }) => {
     { name: true, blob: false },
   );
   assert.deepEqual(await snapshot(), before);
+  await checkPostingFundColumns(db);
   assert.equal((await db`select count(*) from expenses`)[0].count, "3");
   assert.equal(
     (await db`select count(*) from finance_fund_catalog(${a.id})`)[0].count,
@@ -424,3 +429,35 @@ await withDisposablePostgres(async ({ db }) => {
   assert.deepEqual(await recoveryEvidence(restored),beforeRestore);
   console.log('PASS restored a separate cold PostgreSQL copy: financial rows/digests, child exports by owning tenant, linked payments, checkout, calendar and grants');
 }});
+
+await withDisposablePostgres(async ({ db }) => {
+  // Simulate schema drift on empty fixture tables, BEFORE any history is recorded.
+  await db`alter table public.donations drop column fund_id`;
+  await db`alter table public.expenses drop column fund_id`;
+  const [{ id }] = await db`insert into madrasas(name,contact_email) values('Legacy','test@example.invalid') returning id`;
+  await db`insert into donations(madrasa_id,receipt_no,amount,donation_type) values(${id},'OLD-R',5.25,'Zakat')`;
+  await db`insert into expenses(madrasa_id,voucher_no,amount,category) values(${id},'OLD-V',2.15,'Food')`;
+  const conn = await db.reserve();
+  try {
+    await conn`alter table public.expenses rename column voucher_no to legacy_voucher_no`;
+    await assert.rejects(() => conn.unsafe(migration), {
+      code: "42703",
+      message: /expenses\.voucher_no/,
+      hint: /account-model/,
+    });
+    await conn`rollback`;
+    await conn`alter table public.expenses rename column legacy_voucher_no to voucher_no`;
+    await conn.unsafe(migration);
+    await conn.unsafe(migration);
+  } finally {
+    conn.release();
+  }
+  const receipts = await db`select receipt_no,amount,donation_type,fund_id from donations`;
+  const vouchers = await db`select voucher_no,amount,category,fund_id from expenses`;
+  assert.deepEqual([...receipts], [{ receipt_no: "OLD-R", amount: "5.25", donation_type: "Zakat", fund_id: null }]);
+  assert.deepEqual([...vouchers], [{ voucher_no: "OLD-V", amount: "2.15", category: "Food", fund_id: null }]);
+  await checkPostingFundColumns(db);
+  await assert.rejects(() => db`insert into donations(madrasa_id,amount,donation_type) values(${id},1,'General')`, /ফান্ড/);
+  await db`insert into donations(madrasa_id,amount,fund_id) values(${id},1,'fund-dev')`;
+  console.log('PASS missing fund_id on legacy books: prerequisite diagnostic, repeatable upgrade, history preserved without a General default, new receipt still requires a fund');
+});

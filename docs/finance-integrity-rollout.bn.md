@@ -23,6 +23,22 @@
 3. `supabase_schema.sql`-এর প্রয়োজনীয় টেবিল, `supabase_fix_account_model_migration.sql` এবং `supabase_portal_parity_migration.sql` বর্তমান আছে কি না যাচাই করুন। পুরোনো production schema-তে না দেখে base schema পুনরায় চালাবেন না। আগে [portal/fee preflight](./portal-staging-checks.bn.md) চালান।
 4. **শুধু staging-এ**, migration runner দিয়ে [`supabase_finance_integrity_migration.sql`](../supabase_finance_integrity_migration.sql) এক transaction-এ প্রয়োগ করুন। নিজস্ব `BEGIN`/`COMMIT` আছে; `ON_ERROR_STOP` বা সমতুল্য fail-on-error দরকার। আগে ও পরে row count, মোট অঙ্ক, পুরোনো voucher ID, receipt no ও status মেলান। কপিতে দ্বিতীয়বার চালিয়েও এগুলো বদলানো চলবে না। App ও migration একসঙ্গে পরীক্ষা করুন; migration-পরবর্তী grants পুরোনো সরাসরি client write/read বন্ধ করে।
 
+### `42703: column "fund_id" of relation "donations" does not exist`
+
+`DROP DEFAULT` কলাম তৈরি করে না। পুরোনো Phase 1 স্ক্রিপ্টে এই ত্রুটি হলে, একই session এখনো failed transaction-এ থাকলে আগে `ROLLBACK;` দিন। Migration চালানোর role দিয়ে **শুধু schema** দেখুন:
+
+```sql
+SELECT table_name, column_name, data_type, column_default
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name IN ('donations', 'expenses', 'student_fees', 'fee_payment_allocations')
+  AND column_name IN ('fund_id', 'fund_name', 'status', 'void_reason', 'voided_at', 'voucher_no')
+ORDER BY table_name, column_name;
+```
+
+- `donations` ও `expenses`-এ `fund_id` হওয়ার কথা `text`; দুটিতেই `fund_name`, `status`, `void_reason`, `voided_at` এবং `expenses`-এ `voucher_no` থাকার কথা। ফি-র দুই টেবিলেও `fund_id`, `fund_name` দেখুন। অন্য prerequisite ঠিক থাকলে নতুন Phase 1 স্ক্রিপ্ট কেবল অনুপস্থিত posting `fund_id` যোগ করে, কোনো default ছাড়া। পুরোনো সারির অন্যান্য তথ্য ও আগে থেকে থাকা ID অপরিবর্তিত থাকে। আগে ID ছিল কিন্তু এখন নেই এমন প্রমাণ থাকলে backup মেলান; নতুন খালি কলাম হারানো তথ্য ফেরায় না।
+- আরও কলাম না থাকলে শুধু এই দুই `fund_id` যোগ করা সমাধান নয়। খালি staging-এর ক্রম: base → account-model → portal-parity → finance-integrity। পুরোনো বইয়ে না দেখে base বা account-model পুনরায় চালাবেন না: account-model অনুপস্থিত `fund_id`-তে `'fund-general'` default দেয়, `[VOID:…]` রসিদের status বদলায় এবং একই payment/fee type/billing period-এর অতিরিক্ত allocation মুছে দিতে পারে। পরে default সরালে পুরোনো সারির General মান সরবে না। আগে restored copy-তে পার্থক্য ও অঙ্ক মেলান। তারপর ধাপ ৪ অনুযায়ী **পুরো** Phase 1 transaction চালান, ব্যর্থ লাইনের পর থেকে নয়।
+
 ## ২. Read-only preflight
 
 Secret manager থেকে `QAWMI_STAGING_DATABASE_URL` দিন (TLS যাচাইকৃত **PostgreSQL** ঠিকানা, public API key নয়)। `TENANT_A` ও `TENANT_B` ভিন্ন staging UUID। URL, password, provider reference বা শিক্ষার্থী/দাতার তথ্য টিকিট বা লগে দেবেন না।
