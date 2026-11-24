@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { 
   ArrowLeft, BookOpen, Layers, PlusCircle, Trash2, 
@@ -46,6 +46,17 @@ export default function ClassSubjectsManager({
   const [isPending, setIsPending] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // B25 ফিক্স: সেভ চলাকালীন পেজ রিলোড/নেভিগেশন করলে বরাদ্দ হারানো রোধ
+  useEffect(() => {
+    if (!isPending && !deletingId) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "বিষয় বণ্টন সেভ হচ্ছে। এখনই পেজ রিলোড করবেন না।";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isPending, deletingId]);
 
   // Derive unassigned subjects list
   const unassignedSubjects = allSubjects.filter(

@@ -122,11 +122,11 @@ function NewStudentContent() {
   };
 
   const applyHalfFreePreset = () => {
-    const numFee = Number(monthlyFee) || 0;
-    const base = numFee > 0 ? numFee : 1000;
+    const numFee = Number(monthlyFee);
+    const base = !isNaN(numFee) && numFee > 0 ? numFee : 1000;
     setMonthlyFee(base);
     setFeeDiscount(Math.round(base * 0.5));
-    setFeeDiscountReason("হাফ-ফ্রি সুবিধা (৫০% মাসিক বেতন মওকুফ)");
+    setFeeDiscountReason(`হাফ-ফ্রি সুবিধা (৫০% মাসিক বেতন মওকুফ — ৳${base}-এর ৫০%)`);
   };
 
   const applyLillahBoardingPreset = () => {
@@ -139,7 +139,8 @@ function NewStudentContent() {
   };
 
   const applyStandardPreset = () => {
-    setMonthlyFee(1000);
+    const numFee = Number(monthlyFee);
+    setMonthlyFee(!isNaN(numFee) && numFee > 0 ? numFee : 1000);
     setFeeDiscount(0);
     setFeeDiscountReason("");
     if (residentialStatus === "আবাসিক") {

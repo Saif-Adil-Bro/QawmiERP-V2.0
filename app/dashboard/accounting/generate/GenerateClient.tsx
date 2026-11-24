@@ -85,8 +85,11 @@ export default function GenerateClient({
   const [result, setResult] = useState<{
     success?: boolean;
     generatedCount?: number;
+    affectedStudentCount?: number;
     skippedCount?: number;
     updatedCount?: number;
+    skippedNoStructureStudents?: Array<{ id: string; name: string; className: string }>;
+    skippedClasses?: string[];
     message?: string;
     error?: string;
   } | null>(null);
@@ -337,6 +340,37 @@ export default function GenerateClient({
                 {result.success ? "ফি জেনারেট সফল হয়েছে!" : "ত্রুটি ঘটেছে"}
               </h3>
               <p className="text-xs sm:text-sm font-medium">{result.message || result.error}</p>
+
+              {Array.isArray(result.skippedNoStructureStudents) &&
+                result.skippedNoStructureStudents.length > 0 && (
+                  <div className="mt-3 p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 space-y-2">
+                    <div className="font-bold text-xs sm:text-sm flex items-center gap-1.5 text-amber-800">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>
+                        ফি স্ট্রাকচার না থাকায় {result.skippedNoStructureStudents.length} জন শিক্ষার্থী বাদ পড়েছে (
+                        {(result.skippedClasses || []).join(", ")})
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-amber-800">
+                      এই জামাতগুলোর জন্য প্রথমে &quot;ফি স্ট্রাকচার&quot; সেটআপ করে পুনরায় জেনারেট করুন:
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {result.skippedNoStructureStudents.slice(0, 20).map((s: any) => (
+                        <span
+                          key={s.id}
+                          className="px-2 py-0.5 rounded-md bg-white border border-amber-200 text-[11px] font-medium text-amber-900"
+                        >
+                          {s.name} ({s.className})
+                        </span>
+                      ))}
+                      {result.skippedNoStructureStudents.length > 20 && (
+                        <span className="text-[11px] text-amber-700 font-semibold">
+                          + আরও {result.skippedNoStructureStudents.length - 20} জন
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
               {result.success && (
                 <div className="flex flex-wrap items-center gap-3 pt-3">

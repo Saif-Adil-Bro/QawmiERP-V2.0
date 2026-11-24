@@ -66,7 +66,13 @@ export function reconcilePayments(
     (a, b) =>
       String(b.payment_date || "").localeCompare(
         String(a.payment_date || ""),
-      ) || String(b.id).localeCompare(String(a.id)),
+      ) ||
+      String(b.receipt_no || "").localeCompare(
+        String(a.receipt_no || ""),
+        undefined,
+        { numeric: true },
+      ) ||
+      String(b.id).localeCompare(String(a.id)),
   );
 }
 export async function studentLedger(

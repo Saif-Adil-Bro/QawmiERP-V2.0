@@ -6,7 +6,7 @@ import { createExpense, ExpenseActionState } from "@/app/actions/accounting";
 import PendingApprovalBanner from "@/components/permissions/PendingApprovalBanner";
 import {getExpenseHeads,getVoucherChoices} from '@/app/actions/treasury';
 import {tenders,type Head,type Choice} from '@/lib/finance/treasury-types';
-import { getFundChoices } from "@/app/actions/zakat";
+import { getFundChoices, getFundOverview } from "@/app/actions/zakat";
 import { isRestrictedFund, FundItem } from "@/lib/fund-utils";
 import { Landmark, FileText, CheckCircle2, ArrowRight, List, Plus, Trash2, Layers, AlignLeft, AlertTriangle } from "lucide-react";
 import Link from "next/link";
@@ -22,13 +22,19 @@ interface ItemRow {
   amount: string;
 }
 
+type FundChoiceWithBalance = FundItem & {
+  current_balance?: number;
+};
+
 export default function AddExpenseForm() {
   const [state, formAction, isPending] = useActionState(createExpense, initialState);
   const formRef = useRef<HTMLFormElement>(null);
-  const [funds, setFunds] = useState<FundItem[]>([]);
+  const [funds, setFunds] = useState<FundChoiceWithBalance[]>([]);
   const [selectedFundId, setSelectedFundId] = useState<string>("");
   const [createdVoucher, setCreatedVoucher] = useState<ExpenseItem | null>(null);
   const [madrasaInfo, setMadrasaInfo] = useState<MadrasaInfo | undefined>(undefined);
+  const [confirmNegativeBalance, setConfirmNegativeBalance] = useState(false);
+  const [negativeBalanceReason, setNegativeBalanceReason] = useState("");
 
   // Entry Mode: "itemized" (স্মার্ট আইটেম তালিকা) vs "simple" (একক বা সাধারণ বিবরণ)
   const [entryMode, setEntryMode] = useState<"itemized" | "simple">("itemized");
@@ -47,12 +53,16 @@ export default function AddExpenseForm() {
   useEffect(() => {
     async function loadInitialData() {
       try {
-        const [fundsList, madrasaRes] = await Promise.all([
+        const [overviewRes, fundsList, madrasaRes] = await Promise.all([
+          getFundOverview().catch(() => null),
           getFundChoices(),
           fetch(apiUrl("/api/madrasa-info")).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
 
-        if (fundsList && fundsList.length > 0) {
+        const overviewFunds = overviewRes?.funds?.filter((f: any) => f.is_active !== false) || [];
+        if (overviewFunds.length > 0) {
+          setFunds(overviewFunds);
+        } else if (fundsList && fundsList.length > 0) {
           setFunds(fundsList);
         }
         if (madrasaRes) {
@@ -73,6 +83,8 @@ export default function AddExpenseForm() {
       setItemRows([{ id: "item-1", name: "", amount: "" }]);
       setSimpleAmount("");
       setSimpleDescription("");
+      setConfirmNegativeBalance(false);
+      setNegativeBalanceReason("");
       const dateInput = formRef.current?.elements.namedItem('expense_date') as HTMLInputElement;
       if (dateInput) {
         dateInput.value = toDhakaDateString();
@@ -166,19 +178,38 @@ export default function AddExpenseForm() {
             <select
               id="fund_id_select" required
               value={selectedFundId}
-              onChange={(e) => setSelectedFundId(e.target.value)}
+              onChange={(e) => {
+                setSelectedFundId(e.target.value);
+                setConfirmNegativeBalance(false);
+              }}
               className="w-full px-3.5 py-2.5 border border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 transition bg-emerald-50/40 font-semibold text-slate-900"
             >
               <option value="">ফান্ড নির্বাচন করুন</option>
               {funds.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name} {f.code ? `(${f.code})` : ""}
+                  {typeof f.current_balance === "number"
+                    ? ` — স্থিতি: ৳${formatBanglaCurrency(f.current_balance)}`
+                    : ""}
                 </option>
               ))}
             </select>
-            <p className="text-xs text-slate-500">
-              {selectedFund?.description || "নির্বাচিত ফান্ডের তহবিল থেকে এই ব্যয়ের অর্থ সমন্বয় করা হবে।"}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <p className="text-slate-500">
+                {selectedFund?.description || "নির্বাচিত ফান্ডের তহবিল থেকে এই ব্যয়ের অর্থ সমন্বয় করা হবে।"}
+              </p>
+              {typeof selectedFund?.current_balance === "number" && (
+                <span
+                  className={`font-mono font-bold px-2 py-0.5 rounded border ${
+                    selectedFund.current_balance < 0
+                      ? "bg-red-50 text-red-700 border-red-200"
+                      : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  }`}
+                >
+                  বর্তমান নিট স্থিতি: ৳ {formatBanglaCurrency(selectedFund.current_balance)}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Category & Date Grid */}
@@ -361,6 +392,75 @@ export default function AddExpenseForm() {
             )}
           </div>
         </div>
+
+        {(() => {
+          const parsedAmt = parseFloat(finalAmount || "0") || 0;
+          const liveBal =
+            typeof selectedFund?.current_balance === "number"
+              ? selectedFund.current_balance
+              : state?.negativeBalanceWarning && typeof state.currentBalance === "number"
+                ? state.currentBalance
+                : null;
+          const projected =
+            liveBal !== null && parsedAmt > 0
+              ? Number((liveBal - parsedAmt).toFixed(2))
+              : state?.negativeBalanceWarning && typeof state.projectedBalance === "number"
+                ? state.projectedBalance
+                : null;
+          const showOverdraft =
+            (projected !== null && projected < 0) || Boolean(state?.negativeBalanceWarning);
+
+          if (!showOverdraft) return null;
+
+          return (
+            <div className="p-4 rounded-xl border-2 border-red-300 bg-red-50/90 space-y-3">
+              <div className="flex items-start gap-2.5 text-red-800">
+                <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div className="text-xs sm:text-sm space-y-1">
+                  <p className="font-bold">
+                    ফান্ড ব্যালেন্স সতর্কতা: এই খরচটি করলে ফান্ড ঋণাত্মক (Negative Balance) হয়ে যাবে!
+                  </p>
+                  {liveBal !== null && projected !== null && (
+                    <p className="font-mono text-xs text-red-700">
+                      বর্তমান স্থিতি: ৳{formatBanglaCurrency(liveBal)} − খরচ: ৳{formatBanglaCurrency(parsedAmt)} = সম্ভাব্য স্থিতি: ৳{formatBanglaCurrency(projected)}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <label className="flex items-start gap-2 text-xs sm:text-sm font-semibold text-red-900 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="confirm_negative_balance"
+                  value="true"
+                  checked={confirmNegativeBalance}
+                  onChange={(e) => setConfirmNegativeBalance(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-red-400 text-red-600 focus:ring-red-500"
+                  required
+                />
+                <span>
+                  আমি বুঝেছি যে ফান্ডে পর্যাপ্ত ব্যালেন্স নেই এবং ঋণাত্মক ব্যালেন্সের দায়িত্বসহ এই খরচ অনুমোদন করছি (অডিট লগে সংরক্ষিত হবে)।
+                </span>
+              </label>
+              <div>
+                <label htmlFor="negative_balance_reason" className="block text-xs font-bold text-red-800 mb-1">
+                  ঋণাত্মক ব্যালেন্সে খরচের কারণ (আবশ্যক) *
+                </label>
+                <input
+                  id="negative_balance_reason"
+                  name="negative_balance_reason"
+                  type="text"
+                  required
+                  minLength={3}
+                  maxLength={300}
+                  value={negativeBalanceReason}
+                  onChange={(e) => setNegativeBalanceReason(e.target.value)}
+                  placeholder="যেমন: জরুরি বাজার/বেতন পরিশোধ, পরে সাধারণ ফান্ড থেকে সমন্বয় হবে"
+                  className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-red-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="pt-4 border-t flex flex-col sm:flex-row items-center gap-3">
           <button

@@ -328,10 +328,21 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
 
   const resolvedStudentId = rawExplicitId || "";
 
+  const rawFirst = String(profile.first_name ?? student.first_name ?? "").trim();
+  const rawLast = String(
+    profile.last_name !== undefined ? profile.last_name : student.last_name ?? "",
+  ).trim();
+  const dedupedLast =
+    rawFirst && rawLast && rawLast.startsWith(rawFirst)
+      ? rawLast.slice(rawFirst.length).trim()
+      : rawLast === rawFirst
+        ? ""
+        : rawLast;
+
   return {
     ...student,
-    first_name: profile.first_name || student.first_name || "",
-    last_name: profile.last_name || student.last_name || "",
+    first_name: rawFirst,
+    last_name: dedupedLast,
     student_id: resolvedStudentId,
     student_id_formatted: resolvedStudentId,
     roll_number: 'roll_number' in student ? (student.roll_number || '') : (profile.roll_number || ''),

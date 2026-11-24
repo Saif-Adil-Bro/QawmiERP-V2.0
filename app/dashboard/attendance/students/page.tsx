@@ -46,18 +46,26 @@ export default function AttendancePage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     async function loadData() {
       setLoading(true);
+      setStudents([]);
       try {
         const data = await getStudentsForAttendance(date, classId);
-        setStudents(data || []);
+        if (!cancelled) {
+          setStudents(Array.isArray(data) ? data : []);
+        }
       } catch (err) {
         console.error("getStudentsForAttendance failed:", err);
+        if (!cancelled) setStudents([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     loadData();
+    return () => {
+      cancelled = true;
+    };
   }, [date, classId]);
 
   const handleStatusChange = (studentId: string, status: string) => {
@@ -70,15 +78,6 @@ export default function AttendancePage() {
     setStudents(prev => prev.map(s => ({ ...s, status })));
   };
 
-  const stats = useMemo(() => {
-    const total = students.length;
-    const present = students.filter(s => s.status === 'Present').length;
-    const absent = students.filter(s => s.status === 'Absent').length;
-    const late = students.filter(s => s.status === 'Late').length;
-    const leave = students.filter(s => s.status === 'Leave').length;
-    return { total, present, absent, late, leave };
-  }, [students]);
-
   const filteredStudents = useMemo(() => {
     if (!searchQuery.trim()) return students;
     const q = searchQuery.toLowerCase().trim();
@@ -88,6 +87,15 @@ export default function AttendancePage() {
       return name.includes(q) || roll.includes(q);
     });
   }, [students, searchQuery]);
+
+  const stats = useMemo(() => {
+    const total = filteredStudents.length;
+    const present = filteredStudents.filter(s => s.status === 'Present').length;
+    const absent = filteredStudents.filter(s => s.status === 'Absent').length;
+    const late = filteredStudents.filter(s => s.status === 'Late').length;
+    const leave = filteredStudents.filter(s => s.status === 'Leave').length;
+    return { total, present, absent, late, leave };
+  }, [filteredStudents]);
 
   const getStudentClassName = (student: any) => {
     if (!student.classes) return 'N/A';

@@ -216,6 +216,8 @@ export default function StudentsListClient({
     }
     if (
       cName.includes("মীযান") ||
+      cName.includes("মিযান") ||
+      cName.includes("মিজান") ||
       cName.includes("নাহবেমীর") ||
       cName.includes("হেদায়াত") ||
       cName.includes("কাফিয়া") ||
@@ -233,23 +235,30 @@ export default function StudentsListClient({
     return "সাধারণ";
   };
 
-  // Fee category classification helper
+  // Fee category classification helper (B09: detect Lillah Boarding & explicit 100% free students)
   const getStudentFeeCategory = (student: any): "লিল্লাহ_ফ্রি" | "মওকুফপ্রাপ্ত" | "পেইং" => {
     const bType = String(student.boarding_type || "");
     const discount = Number(student.fee_discount || 0);
     const monthlyFee = Number(student.monthly_fee || 0);
+    const khorakiFee = Number(student.khoraki_fee || 0);
+    const totalFee =
+      student.total_monthly_fee !== undefined && student.total_monthly_fee !== null
+        ? Number(student.total_monthly_fee)
+        : Math.max(0, monthlyFee + khorakiFee - discount);
     const isFree =
-      bType === "লিল্লাহ" ||
-      student.is_free ||
-      student.free_student ||
-      (monthlyFee === 0 && discount > 0);
+      bType.includes("লিল্লাহ") ||
+      bType.includes("সম্পূর্ণ ফ্রি") ||
+      student.is_free === true ||
+      student.free_student === true ||
+      student.student_status === "SCHOLARSHIP" ||
+      (monthlyFee === 0 && khorakiFee === 0 && totalFee === 0);
 
     if (isFree) return "লিল্লাহ_ফ্রি";
     if (discount > 0 || bType.includes("হাফ") || bType.includes("মওকুফ")) return "মওকুফপ্রাপ্ত";
     return "পেইং";
   };
 
-  // Quick stats calculation
+  // Quick stats calculation (B08: align nonResidential count with filteredStudents)
   const stats = useMemo(() => {
     const total = students.length;
     let residential = 0;
@@ -263,9 +272,10 @@ export default function StudentsListClient({
     let discountedCount = 0;
 
     students.forEach((s) => {
-      if (s.residential_status === "আবাসিক" || s.is_boarding) {
+      const resStatus = s.residential_status || (s.is_boarding ? "আবাসিক" : "অনাবাসিক");
+      if (resStatus === "আবাসিক") {
         residential++;
-      } else {
+      } else if (resStatus === "অনাবাসিক") {
         nonResidential++;
       }
       if (s.gender === "FEMALE") female++;

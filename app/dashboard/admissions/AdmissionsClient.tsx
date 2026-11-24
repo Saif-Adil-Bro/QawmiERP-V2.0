@@ -552,10 +552,23 @@ export default function AdmissionsClient({
 
   const openConfirm = async (app: AdmissionApplication) => {
     setSelectedApp(app);
+    // B11 ফিক্স: target_class_id না মিললে target_class_name দিয়ে আসল জামাত ম্যাচ করা
+    const exactIdMatch = classes.find((c) => c.id === app.target_class_id);
+    const targetNameNorm = String(app.target_class_name || "").trim().toLowerCase();
+    const nameMatch =
+      exactIdMatch ||
+      classes.find((c) => String(c.name || "").trim().toLowerCase() === targetNameNorm) ||
+      classes.find(
+        (c) =>
+          targetNameNorm &&
+          (String(c.name || "").trim().toLowerCase().includes(targetNameNorm) ||
+            targetNameNorm.includes(String(c.name || "").trim().toLowerCase())),
+      );
+    const resolvedClassId = nameMatch?.id || app.target_class_id || classes[0]?.id || "";
     // Dynamic next roll from database
-    const rollRes = await getNextClassRoll(app.target_class_id);
+    const rollRes = await getNextClassRoll(resolvedClassId);
     setConfirmData({
-      assignedClassId: app.target_class_id,
+      assignedClassId: resolvedClassId,
       assignedRoll: rollRes.nextRoll || "১",
       remarks: "",
     });

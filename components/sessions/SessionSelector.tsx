@@ -62,7 +62,7 @@ export default function SessionSelector() {
             ? "bg-emerald-50 text-emerald-950 border-emerald-200 hover:bg-emerald-100/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 sepia-mode:bg-[#EAE2D2] sepia-mode:text-[#2C1A0C] sepia-mode:border-[#D5C9B3]"
             : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 sepia-mode:bg-[#F5EFE6] sepia-mode:text-[#5A3825] sepia-mode:border-[#E8DFD1]"
         }`}
-        title={`শিক্ষাবর্ষ: ${selectedSession?.name || "১৪৪৭-৪৮ হিজরি"} (পরিবর্তন করতে ট্যাপ করুন)`}
+        title={`শিক্ষাবর্ষ: ${selectedSession?.name || "শিক্ষাবর্ষ সেট করুন"} (পরিবর্তন করতে ট্যাপ করুন)`}
         aria-expanded={isOpen}
       >
         <div className="flex items-center gap-1.5 min-w-0">
@@ -77,7 +77,7 @@ export default function SessionSelector() {
           />
           <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 hidden lg:inline">শিক্ষাবর্ষ:</span>
           <span className="font-semibold truncate hidden sm:inline max-w-[120px] md:max-w-[160px]">
-            {selectedSession?.name || "১৪৪৭-৪৮ হিজরি"}
+            {selectedSession?.name || "শিক্ষাবর্ষ সেট করুন"}
           </span>
         </div>
 

@@ -251,7 +251,7 @@ export async function saveFeeStructure(structure: Partial<FeeStructure>) {
     let onetimeTotal = 0;
     (structure.items || []).forEach((item) => {
       if (item.frequency === "MONTHLY") monthlyTotal += Math.round(Number(item.amount)*100);
-      else onetimeTotal += Math.round(Number(item.amount)*100);
+      else if (item.frequency === "ONETIME") onetimeTotal += Math.round(Number(item.amount)*100);
     });
 
     monthlyTotal /= 100; onetimeTotal /= 100;
@@ -385,8 +385,8 @@ export async function generateMonthlyFees(params: {
     if (!guard.allowed) return { error: guard.error || "এই কাজটি করার অনুমতি নেই।" };
 
     params={...params,billingPeriod:billPeriodKey(params.billingPeriod),sessionId:await billingSession(adminClient,madrasaId,params.sessionId)};
-    // Fetch students strictly belonging to this madrasa
-    let students=await rows(()=>adminClient.from("students").select("*").eq('madrasa_id',madrasaId));
+    // Fetch students strictly belonging to this madrasa (with classes join so class_name is accurate - B23)
+    let students=await rows(()=>adminClient.from("students").select("*, classes(id, name)").eq('madrasa_id',madrasaId));
     students=students.filter(s=>!s.status || String(s.status).toUpperCase()==='ACTIVE');
 
     if (params.classId && params.classId !== "ALL") {
@@ -420,6 +420,9 @@ export async function generateMonthlyFees(params: {
     let generatedCount = 0;
     let skippedCount = 0;
     let updatedCount = 0;
+    const generatedStudentIds = new Set<string>();
+    const updatedStudentIds = new Set<string>();
+    const skippedNoStructureStudents: Array<{ id: string; name: string; className: string }> = [];
     const now = new Date().toISOString();
     const dueDate =
       params.dueDate ||
@@ -428,9 +431,22 @@ export async function generateMonthlyFees(params: {
 
     for (const student of students) {
       const studentClassId = student.class_id || params.classId || "ALL";
-      const studentClassName = student.class_name || "সাধারণ";
+      const clsObj: any = Array.isArray(student.classes) ? student.classes[0] : student.classes;
+      const prof: any = meta.student_profiles?.[student.id];
+      const studentClassName = clsObj?.name || prof?.class_name || student.class_name || "সাধারণ";
+      const studentFullName = `${student.first_name || ""} ${student.last_name || ""}`.trim() || "শিক্ষার্থী";
 
-      for(const {ft,baseAmount,discountAmount,discountReason,payable} of monthlyCharges(meta,student,{...params,auto:!params.feeTypeIds?.length})) {
+      const charges = monthlyCharges(meta,student,{...params,auto:!params.feeTypeIds?.length});
+      if (charges.length === 0) {
+        skippedNoStructureStudents.push({
+          id: student.id,
+          name: studentFullName,
+          className: studentClassName,
+        });
+        continue;
+      }
+
+      for(const {ft,baseAmount,discountAmount,discountReason,payable} of charges) {
         // Guard 3 Idempotency: Check if already exists for this period in memory OR in database
         const existingInMemoryIdx = currentStudentFees.findIndex(
           (f) =>
@@ -460,6 +476,7 @@ export async function generateMonthlyFees(params: {
             }
 
             updatedCount++;
+            updatedStudentIds.add(student.id);
           } else {
             skippedCount++;
           }
@@ -475,7 +492,7 @@ export async function generateMonthlyFees(params: {
           madrasa_id: madrasaId,
           session_id: params.sessionId,
           student_id: student.id,
-          student_name: `${student.first_name || ""} ${student.last_name || ""}`.trim() || "শিক্ষার্থী",
+          student_name: studentFullName,
           student_roll: student.roll_number ? String(student.roll_number) : "",
           class_id: studentClassId,
           class_name: studentClassName,
@@ -501,8 +518,12 @@ export async function generateMonthlyFees(params: {
 
         currentStudentFees.push(newFee);
         generatedCount++;
+        generatedStudentIds.add(student.id);
       }
     }
+
+    const affectedStudentCount = new Set([...generatedStudentIds, ...updatedStudentIds]).size;
+    const skippedClasses = Array.from(new Set(skippedNoStructureStudents.map((s) => s.className)));
 
     // Record audit log
     const auditLogs = meta.audit_logs || [];
@@ -512,7 +533,7 @@ export async function generateMonthlyFees(params: {
       action: "GENERATE_MONTHLY_FEES",
       user_name: user?.email || "হিসাবরক্ষক",
       user_role: "accountant",
-      details: `${params.billingPeriod} সেশনের জন্য মোট ${generatedCount} টি নতুন ফি তৈরি করা হয়েছে (${skippedCount} টি পূর্বেই বিদ্যমান ছিল, ${updatedCount} টি আপডেট করা হয়েছে)।`,
+      details: `${params.billingPeriod} সেশনের জন্য ${affectedStudentCount} জন শিক্ষার্থীর মোট ${generatedCount} টি নতুন ফি লাইন তৈরি করা হয়েছে (${skippedCount} টি পূর্বেই বিদ্যমান, ${updatedCount} টি আপডেট, ${skippedNoStructureStudents.length} জন স্ট্রাকচারহীন বাদ পড়েছে)।`,
       created_at: now,
     });
 
@@ -528,15 +549,23 @@ export async function generateMonthlyFees(params: {
     revalidatePath("/dashboard/accounting/generate");
     revalidatePath("/dashboard/accounting/reports");
 
+    const skippedNotice =
+      skippedNoStructureStudents.length > 0
+        ? ` সতর্কতা: ফি স্ট্রাকচার না থাকায় ${skippedNoStructureStudents.length} জন শিক্ষার্থী (${skippedClasses.join(", ")}) বাদ পড়েছে।`
+        : "";
+
     const message = updatedCount > 0
-      ? `সফলভাবে ${generatedCount} টি নতুন ফি তৈরি এবং ${updatedCount} টি ফি আপডেট করা হয়েছে (${skippedCount} টি স্কিপ হয়েছে)।`
-      : `সফলভাবে ${generatedCount} জন শিক্ষার্থীর জন্য ${params.billingPeriod} ফি তৈরি করা হয়েছে (${skippedCount} টি পূর্বেই বিদ্যমান ছিল)।`;
+      ? `সফলভাবে ${affectedStudentCount} জন শিক্ষার্থীর জন্য ${generatedCount} টি নতুন ফি লাইন তৈরি এবং ${updatedCount} টি আপডেট করা হয়েছে (${skippedCount} টি স্কিপ হয়েছে)।${skippedNotice}`
+      : `সফলভাবে ${generatedStudentIds.size} জন শিক্ষার্থীর জন্য ${params.billingPeriod} মাসের মোট ${generatedCount} টি ফি লাইন তৈরি করা হয়েছে (${skippedCount} টি পূর্বেই বিদ্যমান ছিল)।${skippedNotice}`;
 
     return {
       success: true,
       generatedCount,
+      affectedStudentCount,
       skippedCount,
       updatedCount,
+      skippedNoStructureStudents,
+      skippedClasses,
       message,
     };
   } catch (err: any) {
@@ -840,23 +869,25 @@ export async function getDueManagementData(filters?: {
       getFeeMetadata(madrasaId),
       supabase
         .from("students")
-        .select("id, first_name, last_name, roll_number, student_id, phone, parent_phone, class_name")
+        .select("id, first_name, last_name, roll_number, parent_phone, class_id, class_name, classes(id, name)")
         .eq("madrasa_id", madrasaId),
     ]);
 
-    let students = studentsRes.data || [];
+    let students: any[] = studentsRes.data || [];
     if (students.length === 0) {
       try {
         const adminClient = await createAdminClient();
         const { data: adminStudents } = await adminClient
           .from("students")
-          .select("id, first_name, last_name, roll_number, student_id, phone, parent_phone, class_name")
+          .select("id, first_name, last_name, roll_number, parent_phone, class_id, class_name, classes(id, name)")
           .eq("madrasa_id", madrasaId);
         if (adminStudents && adminStudents.length > 0) {
           students = adminStudents;
         }
       } catch {}
     }
+    const studentMap = new Map(students.map((s) => [s.id, s]));
+    const studentProfiles = meta.student_profiles || {};
     let fees = meta.student_fees || [];
 
     if (filters?.sessionId && filters.sessionId !== "ALL") {
@@ -879,15 +910,44 @@ export async function getDueManagementData(filters?: {
 
     for (const f of fees) {
       if (f.due_amount > 0) {
-        const student = students.find((s) => s.id === f.student_id);
+        const rawStudent = studentMap.get(f.student_id);
+        const prof: any = studentProfiles[f.student_id];
+        const clsObj: any = rawStudent
+          ? Array.isArray(rawStudent.classes)
+            ? rawStudent.classes[0]
+            : rawStudent.classes
+          : null;
+        const resolvedClassName =
+          clsObj?.name || prof?.class_name || rawStudent?.class_name || f.class_name || "সাধারণ";
+        const resolvedParentPhone =
+          rawStudent?.parent_phone ||
+          prof?.guardian_phone ||
+          prof?.father_phone ||
+          prof?.parent_phone ||
+          prof?.phone ||
+          "";
+
+        const hydratedStudent = rawStudent
+          ? {
+              ...rawStudent,
+              parent_phone: resolvedParentPhone,
+              phone: resolvedParentPhone,
+              class_name: resolvedClassName,
+              classes: clsObj || (rawStudent.class_id ? { id: rawStudent.class_id, name: resolvedClassName } : null),
+            }
+          : {
+              id: f.student_id,
+              first_name: f.student_name || "শিক্ষার্থী",
+              last_name: "",
+              roll_number: f.student_roll || "-",
+              parent_phone: resolvedParentPhone,
+              phone: resolvedParentPhone,
+              class_name: resolvedClassName,
+              classes: f.class_id ? { id: f.class_id, name: resolvedClassName } : null,
+            };
+
         const existing = studentDueMap.get(f.student_id) || {
-          student: student || {
-            id: f.student_id,
-            first_name: f.student_name || "শিক্ষার্থী",
-            last_name: "",
-            roll_number: f.student_roll || "-",
-            class_name: f.class_name || "সাধারণ",
-          },
+          student: hydratedStudent,
           totalDue: 0,
           unpaidCount: 0,
           feeItems: [],
