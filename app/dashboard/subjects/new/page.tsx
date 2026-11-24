@@ -6,24 +6,77 @@ import Link from "next/link";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+const KNOWN_SEEDED_SUBJECT_NAMES = [
+  "আমপারা",
+  "ক্বায়েদা",
+  "কায়েদা",
+  "কুরআন মাজিদ ও তাজবীদ",
+  "কুরআন (নাজেরা)",
+  "তাজবীদ",
+  "উর্দু ও ফার্সি",
+  "মিযানুস সরফ ও মুনশাইব",
+  "মিযানুস সরফ",
+  "নাহবেমীর",
+  "কাফিয়া",
+  "নাহবেমীর ও কাফিয়া",
+  "ফিকহ",
+  "ফিকহ (আল-হিদায়াহ ও কুদূরী)",
+  "মাসায়েল",
+  "হাদিস",
+  "তাফসীরে জালালাইন শরীফ",
+  "সহীহ বুখারী শরীফ",
+  "বাংলা",
+  "বাংলা ব্যাকরণ ও সাহিত্য",
+  "গণিত",
+  "সাধারণ গণিত",
+  "ইংরেজি",
+  "বেসিক ইংলিশ",
+  "প্রাক্টিকাল",
+  "প্রাক্টিকাল (আমলী)",
+  "আরবি সাহিত্য",
+  "সীরাত ও ইতিহাস",
+  "আকাইদ ও ফিকহ",
+];
+
 function normalizeName(s: string) {
-  return s
+  return String(s || "")
     .normalize("NFC")
     .replace(/\u09AF\u09BC/g, "\u09DF")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
 }
 
+function baseSubjectTokens(s: string): string[] {
+  const full = normalizeName(s);
+  if (!full) return [];
+  const withoutParens = normalizeName(full.replace(/\([^)]*\)/g, " "));
+  const beforeDash = normalizeName(withoutParens.split(/[-–—:/]/)[0] || "");
+  return Array.from(new Set([full, withoutParens, beforeDash].filter(Boolean)));
+}
+
 export default function NewSubjectPage() {
   const [state, formAction, isPending] = useActionState(createSubject, null);
   const [nameInput, setNameInput] = useState("");
-  const [existingSubjects, setExistingSubjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [codeInput, setCodeInput] = useState("");
+  const [existingSubjects, setExistingSubjects] = useState<
+    Array<{ id: string; name: string; code?: string | null }>
+  >(() =>
+    KNOWN_SEEDED_SUBJECT_NAMES.map((name, i) => ({
+      id: `seed-${i}`,
+      name,
+    }))
+  );
   const router = useRouter();
 
   useEffect(() => {
     getSubjects()
-      .then((list) => setExistingSubjects(Array.isArray(list) ? list : []))
+      .then((list) => {
+        if (Array.isArray(list) && list.length > 0) {
+          setExistingSubjects(list);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -35,10 +88,29 @@ export default function NewSubjectPage() {
   }, [state, router]);
 
   const duplicateMatch = useMemo(() => {
-    const key = normalizeName(nameInput);
-    if (!key) return null;
-    return existingSubjects.find((s) => normalizeName(String(s.name || "")) === key) || null;
-  }, [nameInput, existingSubjects]);
+    const typedTokens = baseSubjectTokens(nameInput);
+    const typedCode = codeInput.trim().toUpperCase();
+    if (typedTokens.length === 0 && !typedCode) return null;
+
+    for (const sub of existingSubjects) {
+      const subTokens = baseSubjectTokens(String(sub.name || ""));
+      if (
+        typedTokens.length > 0 &&
+        typedTokens[0].length >= 2 &&
+        subTokens.some((t) => typedTokens.includes(t))
+      ) {
+        return sub;
+      }
+      if (
+        typedCode &&
+        sub.code &&
+        String(sub.code).trim().toUpperCase() === typedCode
+      ) {
+        return sub;
+      }
+    }
+    return null;
+  }, [nameInput, codeInput, existingSubjects]);
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-12">
@@ -61,10 +133,14 @@ export default function NewSubjectPage() {
           )}
 
           {duplicateMatch && (
-            <div className="p-3 bg-amber-50 text-amber-800 rounded-xl text-xs sm:text-sm border border-amber-300 flex items-center gap-2 font-semibold">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <div
+              role="alert"
+              className="p-3.5 bg-amber-50 text-amber-900 rounded-xl text-xs sm:text-sm border border-amber-300 flex items-center gap-2.5 font-bold shadow-2xs"
+            >
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
               <span>
-                সতর্কতা: &quot;{duplicateMatch.name}&quot; বিষয়টি ইতিমধ্যেই তালিকায় রয়েছে। ডুপ্লিকেট বিষয় যোগ করা যাবে না।
+                ডুপ্লিকেট সতর্কতা: &quot;{duplicateMatch.name}&quot;
+                {duplicateMatch.code ? ` (${duplicateMatch.code})` : ""} বিষয়টি ইতিমধ্যেই তালিকায় রয়েছে। একই নামে বা কোডে পুনরায় যোগ করা যাবে না।
               </span>
             </div>
           )}
@@ -80,6 +156,8 @@ export default function NewSubjectPage() {
                 required
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
+                onInput={(e) => setNameInput((e.target as HTMLInputElement).value)}
+                onBlur={(e) => setNameInput(e.target.value)}
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-sm font-medium"
                 placeholder="বিষয়ের নাম লিখুন"
               />
@@ -91,6 +169,9 @@ export default function NewSubjectPage() {
               <input
                 type="text"
                 name="code"
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value)}
+                onInput={(e) => setCodeInput((e.target as HTMLInputElement).value)}
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-sm font-mono"
                 placeholder="যেমন: ARB-101"
               />

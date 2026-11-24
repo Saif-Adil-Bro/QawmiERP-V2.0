@@ -531,14 +531,14 @@ export async function runFinancialAnomalyScan(
     }
   );
 
-  // Deduplicate against existing OPEN/INVESTIGATING anomalies
+  // Deduplicate against existing OPEN/INVESTIGATING anomalies, and update existing open alerts with fresh metrics/descriptions (R3 / B27)
   let useFallback = false;
-  const existingOpenKeys = new Set<string>();
+  const existingOpenByKey = new Map<string, string>();
 
   try {
     const { data: existingRows, error: existingErr } = await admin
       .from("financial_anomalies")
-      .select("dedup_key, status")
+      .select("id, dedup_key, status")
       .eq("madrasa_id", madrasaId)
       .in("status", ["OPEN", "INVESTIGATING"]);
 
@@ -548,7 +548,7 @@ export async function runFinancialAnomalyScan(
       }
     } else if (Array.isArray(existingRows)) {
       for (const r of existingRows) {
-        if (r.dedup_key) existingOpenKeys.add(String(r.dedup_key));
+        if (r.dedup_key) existingOpenByKey.set(String(r.dedup_key), String(r.id));
       }
     }
   } catch {
@@ -562,16 +562,46 @@ export async function runFinancialAnomalyScan(
         (r.status === "OPEN" || r.status === "INVESTIGATING") &&
         r.dedup_key
       ) {
-        existingOpenKeys.add(r.dedup_key);
+        existingOpenByKey.set(r.dedup_key, r.id);
       }
     }
   }
 
-  const newDetected = detected.filter((d) => !existingOpenKeys.has(d.dedupKey));
+  const newDetected = detected.filter((d) => !existingOpenByKey.has(d.dedupKey));
+  const existingDetected = detected.filter((d) => existingOpenByKey.has(d.dedupKey));
   const persistedNew: FinancialAnomalyRecord[] = [];
 
-  if (newDetected.length > 0) {
-    if (!useFallback) {
+  // R3 ফিক্স: বিদ্যমান খোলা অ্যালার্টগুলোর অঙ্ক ও বিবরণ সর্বশেষ লেজার অনুযায়ী হালনাগাদ করা
+  if (existingDetected.length > 0 && !useFallback) {
+    try {
+      await Promise.all(
+        existingDetected.map((d) => {
+          const existingId = existingOpenByKey.get(d.dedupKey);
+          if (!existingId) return Promise.resolve();
+          return admin
+            .from("financial_anomalies")
+            .update({
+              severity: d.severity,
+              title: d.title,
+              description: d.description,
+              metric_value: d.metricValue,
+              baseline_value: d.baselineValue,
+              z_score: d.zScore,
+              detected_date: d.detectedDate || null,
+              metadata: d.metadata,
+              updated_at: nowIso,
+            })
+            .eq("madrasa_id", madrasaId)
+            .eq("id", existingId);
+        })
+      );
+    } catch {
+      // non-fatal if update fails in mock env
+    }
+  }
+
+  if (newDetected.length > 0 || (useFallback && existingDetected.length > 0)) {
+    if (!useFallback && newDetected.length > 0) {
       const insertPayload = newDetected.map((d) => ({
         madrasa_id: madrasaId,
         anomaly_type: d.anomalyType,
@@ -609,6 +639,29 @@ export async function runFinancialAnomalyScan(
 
     if (useFallback) {
       const fb = await readFallbackAnomalies(madrasaId);
+      const existingByDedup = new Map(existingDetected.map((d) => [d.dedupKey, d]));
+      const updatedFb = fb.map((r) => {
+        if (
+          (r.status === "OPEN" || r.status === "INVESTIGATING") &&
+          r.dedup_key &&
+          existingByDedup.has(r.dedup_key)
+        ) {
+          const d = existingByDedup.get(r.dedup_key)!;
+          return {
+            ...r,
+            severity: d.severity,
+            title: d.title,
+            description: d.description,
+            metric_value: d.metricValue,
+            baseline_value: d.baselineValue,
+            z_score: d.zScore,
+            detected_date: d.detectedDate,
+            metadata: d.metadata,
+            updated_at: nowIso,
+          };
+        }
+        return r;
+      });
       const fbRecords: FinancialAnomalyRecord[] = newDetected.map((d, idx) => ({
         id: `anom-fb-${Date.now()}-${idx}`,
         madrasa_id: madrasaId,
@@ -629,7 +682,7 @@ export async function runFinancialAnomalyScan(
         created_at: nowIso,
         updated_at: nowIso,
       }));
-      await writeFallbackAnomalies(madrasaId, [...fbRecords, ...fb]);
+      await writeFallbackAnomalies(madrasaId, [...fbRecords, ...updatedFb]);
       persistedNew.push(...fbRecords);
     }
 
