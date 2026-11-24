@@ -339,6 +339,15 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
         ? ""
         : rawLast;
 
+  const rawPhotoUrl = String(
+    profile.photo_url || student.photo_url || admission?.photo_url || "",
+  ).trim();
+  const isLegacyStockPhoto =
+    rawPhotoUrl.includes("photo-1544717305-2782549b5136") ||
+    rawPhotoUrl.includes("photo-1534528741775-53994a69daeb") ||
+    rawPhotoUrl.includes("images.unsplash.com");
+  const cleanPhotoUrl = isLegacyStockPhoto ? "" : rawPhotoUrl;
+
   return {
     ...student,
     first_name: rawFirst,
@@ -354,7 +363,7 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
     father_name: profile.father_name || student.father_name || "",
     parent_phone: profile.parent_phone || student.parent_phone || "",
     address: profile.address || student.address || "",
-    photo_url: profile.photo_url || student.photo_url || admission?.photo_url || "",
+    photo_url: cleanPhotoUrl,
     residential_status: residentialStatus,
     is_boarding: isBoarding,
     boarding_type: boardingType,

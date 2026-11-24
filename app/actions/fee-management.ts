@@ -1398,8 +1398,8 @@ export async function getGeneratedFeeBatches() {
       batch.totalPayable += f.payable_amount || 0;
       batch.totalPaid += f.paid_amount || 0;
       batch.totalDue += f.due_amount || 0;
-      if (f.paid_amount > 0) batch.paidCount++;
-      else batch.unpaidCount++;
+      if (Number(f.paid_amount || 0) > 0) batch.paidCount++;
+      if (Number(f.due_amount || 0) > 0) batch.unpaidCount++;
     });
 
     return Array.from(batchMap.values()).map((b) => ({

@@ -132,32 +132,70 @@ export function monthlyCharges(
     }
   } else if (shouldSyncProfiles && studentProfile) {
     const boardingLabel = String(studentProfile.boarding_type || "");
-    const hasExplicitZeroAgreement =
-      (studentProfile.total_monthly_fee !== undefined &&
-        studentProfile.total_monthly_fee !== null &&
-        studentProfile.total_monthly_fee !== "" &&
-        Number(studentProfile.total_monthly_fee) === 0 &&
-        Number(studentProfile.monthly_fee || 0) === 0 &&
-        Number(studentProfile.khoraki_fee || 0) === 0) ||
+    const hasAnyDefinedFeeField =
       (studentProfile.monthly_fee !== undefined &&
         studentProfile.monthly_fee !== null &&
-        studentProfile.monthly_fee !== "" &&
-        Number(studentProfile.monthly_fee) === 0 &&
-        (studentProfile.khoraki_fee === undefined ||
-          studentProfile.khoraki_fee === null ||
-          studentProfile.khoraki_fee === "" ||
-          Number(studentProfile.khoraki_fee) === 0) &&
-        (studentProfile.transport_fee === undefined ||
-          studentProfile.transport_fee === null ||
-          studentProfile.transport_fee === "" ||
-          Number(studentProfile.transport_fee) === 0));
+        studentProfile.monthly_fee !== "") ||
+      (studentProfile.khoraki_fee !== undefined &&
+        studentProfile.khoraki_fee !== null &&
+        studentProfile.khoraki_fee !== "") ||
+      (studentProfile.accommodation_fee !== undefined &&
+        studentProfile.accommodation_fee !== null &&
+        studentProfile.accommodation_fee !== "") ||
+      (studentProfile.transport_fee !== undefined &&
+        studentProfile.transport_fee !== null &&
+        studentProfile.transport_fee !== "") ||
+      (studentProfile.other_fee !== undefined &&
+        studentProfile.other_fee !== null &&
+        studentProfile.other_fee !== "") ||
+      (studentProfile.total_monthly_fee !== undefined &&
+        studentProfile.total_monthly_fee !== null &&
+        studentProfile.total_monthly_fee !== "");
+
+    // F2 (B18): Full student profiles created by confirmAdmissionToStudent or createStudent
+    // always include `first_name` / `student_status` / `boarding_type`. If their fee fields were left
+    // unset (or set to 0), their hydrated profile fee in the UI is ৳0 and must be honored as a ৳0 contract.
+    const isFullStudentProfileRecord =
+      hasAnyDefinedFeeField ||
+      Boolean(studentProfile.first_name) ||
+      Boolean(studentProfile.student_status) ||
+      Boolean(studentProfile.boarding_type);
+
+    const hydratedMonthly = Number(studentProfile.monthly_fee || 0);
+    const hydratedKhoraki = Number(studentProfile.khoraki_fee || 0);
+    const hydratedAccommodation = Number(studentProfile.accommodation_fee || 0);
+    const hydratedTransport = Number(studentProfile.transport_fee || 0);
+    const hydratedOther = Number(studentProfile.other_fee || 0);
+    const hydratedTotal =
+      studentProfile.total_monthly_fee !== undefined &&
+      studentProfile.total_monthly_fee !== null &&
+      studentProfile.total_monthly_fee !== ""
+        ? Number(studentProfile.total_monthly_fee)
+        : Math.max(
+            0,
+            hydratedMonthly +
+              hydratedKhoraki +
+              hydratedAccommodation +
+              hydratedTransport +
+              hydratedOther -
+              Number(studentProfile.fee_discount || 0),
+          );
+
+    const hasZeroHydratedAgreement =
+      isFullStudentProfileRecord &&
+      hydratedTotal === 0 &&
+      hydratedMonthly === 0 &&
+      hydratedKhoraki === 0 &&
+      hydratedAccommodation === 0 &&
+      hydratedTransport === 0 &&
+      hydratedOther === 0;
 
     const isFreeStudent =
       studentProfile.is_free === true ||
       studentProfile.free_student === true ||
       studentProfile.student_status === "SCHOLARSHIP" ||
       boardingLabel.includes("লিল্লাহ") ||
-      hasExplicitZeroAgreement;
+      hasZeroHydratedAgreement;
 
     if (isFreeStudent) {
       isGeneralFullWaiver = true;
@@ -165,7 +203,9 @@ export function monthlyCharges(
         studentProfile.fee_discount_reason ||
         (boardingLabel.includes("লিল্লাহ")
           ? "লিল্লাহ বোর্ডিং / ১০০% ফ্রি শিক্ষার্থী"
-          : "৳০ ফি-চুক্তি / ১০০% মওকুফ শিক্ষার্থী");
+          : !hasAnyDefinedFeeField
+            ? "প্রোফাইলে নির্ধারিত ফি ৳০ (চুক্তি অনুযায়ী মওকুফ)"
+            : "৳০ ফি-চুক্তি / ১০০% মওকুফ শিক্ষার্থী");
     } else if (
       studentProfile.fee_discount &&
       Number(studentProfile.fee_discount) > 0
@@ -176,6 +216,30 @@ export function monthlyCharges(
         "শিক্ষার্থী প্রোফাইল ভিত্তিক ছাড় / মওকুফ";
     }
   }
+
+  const hasProfileFeeContract =
+    Boolean(shouldSyncProfiles && studentProfile) &&
+    ((studentProfile.monthly_fee !== undefined &&
+      studentProfile.monthly_fee !== null &&
+      studentProfile.monthly_fee !== "") ||
+      (studentProfile.khoraki_fee !== undefined &&
+        studentProfile.khoraki_fee !== null &&
+        studentProfile.khoraki_fee !== "") ||
+      (studentProfile.accommodation_fee !== undefined &&
+        studentProfile.accommodation_fee !== null &&
+        studentProfile.accommodation_fee !== "") ||
+      (studentProfile.transport_fee !== undefined &&
+        studentProfile.transport_fee !== null &&
+        studentProfile.transport_fee !== "") ||
+      (studentProfile.other_fee !== undefined &&
+        studentProfile.other_fee !== null &&
+        studentProfile.other_fee !== "") ||
+      (studentProfile.total_monthly_fee !== undefined &&
+        studentProfile.total_monthly_fee !== null &&
+        studentProfile.total_monthly_fee !== "") ||
+      Boolean(studentProfile.first_name) ||
+      Boolean(studentProfile.student_status) ||
+      Boolean(studentProfile.boarding_type));
 
   for (const ft of selectedFeeTypes) {
     let baseAmount = ft.default_amount || 0;
@@ -217,31 +281,35 @@ export function monthlyCharges(
 
     // 1. Check student individual profile agreed fee (from admission or student edit)
     let profileAgreedFee: number | undefined = undefined;
-    if (shouldSyncProfiles && studentProfile) {
-      if (
-        isTuition &&
-        studentProfile.monthly_fee !== undefined &&
-        studentProfile.monthly_fee !== null
-      ) {
-        profileAgreedFee = Number(studentProfile.monthly_fee);
-      } else if (
-        isFood &&
-        studentProfile.khoraki_fee !== undefined &&
-        studentProfile.khoraki_fee !== null
-      ) {
-        profileAgreedFee = Number(studentProfile.khoraki_fee);
-      } else if (
-        isHostel &&
-        studentProfile.accommodation_fee !== undefined &&
-        studentProfile.accommodation_fee !== null
-      ) {
-        profileAgreedFee = Number(studentProfile.accommodation_fee);
-      } else if (
-        isTransport &&
-        studentProfile.transport_fee !== undefined &&
-        studentProfile.transport_fee !== null
-      ) {
-        profileAgreedFee = Number(studentProfile.transport_fee);
+    if (shouldSyncProfiles && studentProfile && hasProfileFeeContract) {
+      if (isTuition) {
+        profileAgreedFee =
+          studentProfile.monthly_fee !== undefined &&
+          studentProfile.monthly_fee !== null &&
+          studentProfile.monthly_fee !== ""
+            ? Number(studentProfile.monthly_fee)
+            : 0;
+      } else if (isFood) {
+        profileAgreedFee =
+          studentProfile.khoraki_fee !== undefined &&
+          studentProfile.khoraki_fee !== null &&
+          studentProfile.khoraki_fee !== ""
+            ? Number(studentProfile.khoraki_fee)
+            : 0;
+      } else if (isHostel) {
+        profileAgreedFee =
+          studentProfile.accommodation_fee !== undefined &&
+          studentProfile.accommodation_fee !== null &&
+          studentProfile.accommodation_fee !== ""
+            ? Number(studentProfile.accommodation_fee)
+            : 0;
+      } else if (isTransport) {
+        profileAgreedFee =
+          studentProfile.transport_fee !== undefined &&
+          studentProfile.transport_fee !== null &&
+          studentProfile.transport_fee !== ""
+            ? Number(studentProfile.transport_fee)
+            : 0;
       } else if (
         isAdmission &&
         studentProfile.admission_fee !== undefined &&

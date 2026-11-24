@@ -546,6 +546,12 @@ export default function SettingsClient({
                   <img
                     src={logoPreview}
                     alt="Madrasa Logo"
+                    onError={() => setLogoPreview(null)}
+                    ref={(el) => {
+                      if (el && el.complete && el.naturalWidth === 0) {
+                        setLogoPreview(null);
+                      }
+                    }}
                     className="w-full h-full object-cover rounded-full"
                   />
                 ) : (
@@ -598,6 +604,12 @@ export default function SettingsClient({
                     <img
                       src={signaturePreview}
                       alt="Principal Signature"
+                      onError={() => setSignaturePreview(null)}
+                      ref={(el) => {
+                        if (el && el.complete && el.naturalWidth === 0) {
+                          setSignaturePreview(null);
+                        }
+                      }}
                       className="max-h-full max-w-[200px] object-contain drop-shadow-sm"
                     />
                   </div>
@@ -1185,6 +1197,7 @@ export default function SettingsClient({
                           <img
                             src={signaturePreview}
                             alt="Signature Preview"
+                            onError={() => setSignaturePreview(null)}
                             className="max-h-full max-w-full object-contain"
                           />
                         </div>
@@ -1534,6 +1547,86 @@ export default function SettingsClient({
                         .join(", ")}
                     </strong>
                   </span>
+                </div>
+              </div>
+
+              {/* Section 4.5: Fee Defaults & Boarding Fund Routing (B05 / B19) */}
+              <div className="space-y-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                      ফি ডিফল্ট ও বোর্ডিং ফান্ড রাউটিং (কাস্টম সেটিংস)
+                    </h2>
+                  </div>
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    সব ফর্মে স্বয়ংক্রিয় সিঙ্ক
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-700 block">
+                      ডিফল্ট মাসিক বেতন (৳)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="50"
+                      value={defaultMonthlyFee}
+                      onChange={(e) => setDefaultMonthlyFee(e.target.value)}
+                      placeholder="1000"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono font-bold"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      নতুন ভর্তি, অনলাইন ভর্তি কনফার্ম ও ফি টাইপে এই অঙ্ক ডিফল্ট হিসেবে বসবে।
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-700 block">
+                      ডিফল্ট বোর্ডিং / খাবার ফি (৳)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="50"
+                      value={defaultKhorakiFee}
+                      onChange={(e) => setDefaultKhorakiFee(e.target.value)}
+                      placeholder="2000"
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono font-bold"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      আবাসিক শিক্ষার্থীদের জন্য ডিফল্ট মাসিক খোরাকি/বোর্ডিং অঙ্ক।
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-700 block">
+                      বোর্ডিং / খাবারের ফি ডিফল্ট ফান্ড
+                    </label>
+                    <select
+                      value={boardingDefaultFundId}
+                      onChange={(e) => setBoardingDefaultFundId(e.target.value)}
+                      className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-white font-semibold text-slate-800"
+                    >
+                      {funds.length > 0 ? (
+                        funds.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name} {f.code ? `(${f.code})` : ""}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="fund-general">সাধারণ ফান্ড (General Fund)</option>
+                          <option value="fund-lillah">লিল্লাহ বোর্ডিং ফান্ড (Lillah Fund)</option>
+                        </>
+                      )}
+                    </select>
+                    <p className="text-[11px] text-slate-500">
+                      বোর্ডিং/খাবারের ফি আদায় হলে কোন ফান্ডে জমা হবে তা এখান থেকে নির্ধারণ করুন।
+                    </p>
+                  </div>
                 </div>
               </div>
 

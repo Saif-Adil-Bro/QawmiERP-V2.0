@@ -69,6 +69,7 @@ export default function StaffDashboardView({
   onNavigateTab,
 }: StaffDashboardViewProps) {
   const totalStaff = stats.total || 1; // avoid / 0
+  const [logoError, setLogoError] = React.useState(false);
 
   return (
     <div className="space-y-6">
@@ -76,12 +77,15 @@ export default function StaffDashboardView({
       {madrasaInfo && (
         <div className="bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-900 text-white rounded-2xl p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-emerald-700/50">
           <div className="flex items-center gap-3.5">
-            {madrasaInfo.logo_url ? (
+            {madrasaInfo.logo_url && !logoError ? (
               <img
                 src={madrasaInfo.logo_url}
                 alt="Madrasa Logo"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                onError={() => setLogoError(true)}
+                ref={(el) => {
+                  if (el && el.complete && el.naturalWidth === 0) {
+                    setLogoError(true);
+                  }
                 }}
                 className="w-12 h-12 rounded-full object-cover bg-white shadow-xs border border-emerald-300/40 shrink-0"
               />

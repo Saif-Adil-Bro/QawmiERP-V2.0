@@ -662,7 +662,7 @@ export default function StructureClient({
                         {item.fee_type_name}
                       </span>
                       <span className="text-[11px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
-                        {item.frequency === "MONTHLY" ? "মাসিক" : "এককালীন"}
+                        {item.frequency === "MONTHLY" ? "মাসিক" : item.frequency === "ONETIME" ? "এককালীন" : "মেয়াদী"}
                       </span>
                       <div className="flex items-center gap-1">
                         <span className="text-slate-500 font-mono">৳</span>

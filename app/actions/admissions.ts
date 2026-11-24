@@ -48,6 +48,17 @@ export async function getAdmissionApplications(filters?: {
       await saveMadrasaMetadata(madrasaId, meta);
     }
 
+    list = list.map((item) => ({
+      ...item,
+      photo_url:
+        item.photo_url &&
+        (item.photo_url.includes("photo-1544717305-2782549b5136") ||
+          item.photo_url.includes("photo-1534528741775-53994a69daeb") ||
+          item.photo_url.includes("images.unsplash.com"))
+          ? ""
+          : item.photo_url,
+    }));
+
     if (!filters?.includeArchived) {
       list = list.filter((item) => !item.is_archived);
     }
