@@ -405,6 +405,24 @@ export async function runMetadataToTablesMigration(): Promise<{
           migratedLegacyIds.add(legacyId);
         }
       }
+      // Prune already-migrated fallback entries from metadata so they never linger alongside SQL rows
+      try {
+        const { mergeJsonStore } = await import("@/lib/madrasa-store");
+        await mergeJsonStore(madrasaId, "meta", (current) => {
+          const existing = Array.isArray(current.system_audit_logs_fallback)
+            ? current.system_audit_logs_fallback
+            : [];
+          const remaining = existing.filter(
+            (entry: any) => !migratedLegacyIds.has(String(entry?.id || ""))
+          );
+          return {
+            ...current,
+            system_audit_logs_fallback: remaining,
+          };
+        });
+      } catch {
+        // non-fatal cleanup; canonical reader still deduplicates by legacy_id
+      }
     }
 
     await logAuditEvent({

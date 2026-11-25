@@ -9,6 +9,8 @@ import {
   type SystemAuditLogRecord,
   type AuditSeverity,
   isMissingTableError,
+  mergeAndDeduplicateAuditLogs,
+  fetchCanonicalAuditLogsAndCount,
 } from "@/lib/audit-log";
 
 export interface SystemAuditQueryFilters {
@@ -32,27 +34,7 @@ function mergeAuditLogSources(
   sqlLogs: SystemAuditLogRecord[],
   fallbackLogs: SystemAuditLogRecord[]
 ): SystemAuditLogRecord[] {
-  const seen = new Set<string>();
-  const merged: SystemAuditLogRecord[] = [];
-
-  for (const row of sqlLogs) {
-    const key = String(row.id || `${row.created_at}:${row.action}:${row.entity_id || ""}`);
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(row);
-    }
-  }
-
-  for (const row of fallbackLogs) {
-    const key = String(row.id || `${row.created_at}:${row.action}:${row.entity_id || ""}`);
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(row);
-    }
-  }
-
-  merged.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
-  return merged;
+  return mergeAndDeduplicateAuditLogs(sqlLogs, fallbackLogs);
 }
 
 export async function getSystemAuditLogs(filters?: SystemAuditQueryFilters): Promise<{
@@ -95,62 +77,85 @@ export async function getSystemAuditLogs(filters?: SystemAuditQueryFilters): Pro
 
     const adminClient = await createAdminClient();
     const limit = Math.min(Math.max(Number(filters?.limit) || 200, 10), 500);
-
-    let query = adminClient
-      .from("system_audit_logs")
-      .select("*")
-      .eq("madrasa_id", madrasaId)
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    if (filters?.module && filters.module !== "ALL") {
-      query = query.eq("module", filters.module);
-    }
-    if (filters?.severity && filters.severity !== "ALL") {
-      query = query.eq("severity", filters.severity);
-    }
-    if (filters?.dateFrom) {
-      query = query.gte("created_at", `${filters.dateFrom}T00:00:00.000Z`);
-    }
-    if (filters?.dateTo) {
-      query = query.lte("created_at", `${filters.dateTo}T23:59:59.999Z`);
-    }
-
-    const [{ data, error }, meta] = await Promise.all([
-      query,
-      getMadrasaMetadata(madrasaId),
-    ]);
-
-    const rawFallback: SystemAuditLogRecord[] = Array.isArray((meta as any)?.system_audit_logs_fallback)
-      ? ((meta as any).system_audit_logs_fallback as SystemAuditLogRecord[])
-      : [];
-
-    const filteredFallback = rawFallback.filter((item) => {
-      if (filters?.module && filters.module !== "ALL" && item.module !== filters.module) return false;
-      if (filters?.severity && filters.severity !== "ALL" && item.severity !== filters.severity) return false;
-      if (filters?.dateFrom && String(item.created_at || "") < `${filters.dateFrom}T00:00:00`) return false;
-      if (filters?.dateTo && String(item.created_at || "") > `${filters.dateTo}T23:59:59`) return false;
-      return true;
-    });
+    const hasFilter = Boolean(
+      (filters?.module && filters.module !== "ALL") ||
+        (filters?.severity && filters.severity !== "ALL") ||
+        filters?.dateFrom ||
+        filters?.dateTo ||
+        (filters?.search && filters.search.trim())
+    );
 
     let logs: SystemAuditLogRecord[] = [];
     let storage: "sql" | "fallback" = "sql";
 
-    if (!error && Array.isArray(data)) {
-      // N9 Parity Fix: Always merge SQL system_audit_logs + deduplicated fallback logs
-      // so Audit Logs page and Backup stats report the exact same canonical count.
-      logs = mergeAuditLogSources(data as SystemAuditLogRecord[], filteredFallback);
-    } else if (error && isMissingTableError(error)) {
-      storage = "fallback";
-      logs = mergeAuditLogSources([], filteredFallback);
-    } else if (error) {
-      return {
-        success: false,
-        storage: "fallback",
-        logs: [],
-        stats: emptyStats,
-        error: error.message,
-      };
+    if (!hasFilter) {
+      // N9 Parity Fix: Read via the exact same canonical deduplicated query as Backup Overview
+      const canonical = await fetchCanonicalAuditLogsAndCount(adminClient, madrasaId, {
+        limit: Math.max(limit, 500),
+      });
+      if (canonical.error) {
+        return {
+          success: false,
+          storage: "fallback",
+          logs: [],
+          stats: emptyStats,
+          error: canonical.error,
+        };
+      }
+      logs = canonical.logs;
+      storage = canonical.storage;
+    } else {
+      let query = adminClient
+        .from("system_audit_logs")
+        .select("*")
+        .eq("madrasa_id", madrasaId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (filters?.module && filters.module !== "ALL") {
+        query = query.eq("module", filters.module);
+      }
+      if (filters?.severity && filters.severity !== "ALL") {
+        query = query.eq("severity", filters.severity);
+      }
+      if (filters?.dateFrom) {
+        query = query.gte("created_at", `${filters.dateFrom}T00:00:00.000Z`);
+      }
+      if (filters?.dateTo) {
+        query = query.lte("created_at", `${filters.dateTo}T23:59:59.999Z`);
+      }
+
+      const [{ data, error }, meta] = await Promise.all([
+        query,
+        getMadrasaMetadata(madrasaId, true),
+      ]);
+
+      const rawFallback: SystemAuditLogRecord[] = Array.isArray((meta as any)?.system_audit_logs_fallback)
+        ? ((meta as any).system_audit_logs_fallback as SystemAuditLogRecord[])
+        : [];
+
+      const filteredFallback = rawFallback.filter((item) => {
+        if (filters?.module && filters.module !== "ALL" && item.module !== filters.module) return false;
+        if (filters?.severity && filters.severity !== "ALL" && item.severity !== filters.severity) return false;
+        if (filters?.dateFrom && String(item.created_at || "") < `${filters.dateFrom}T00:00:00`) return false;
+        if (filters?.dateTo && String(item.created_at || "") > `${filters.dateTo}T23:59:59`) return false;
+        return true;
+      });
+
+      if (!error && Array.isArray(data)) {
+        logs = mergeAuditLogSources(data as SystemAuditLogRecord[], filteredFallback);
+      } else if (error && isMissingTableError(error)) {
+        storage = "fallback";
+        logs = mergeAuditLogSources([], filteredFallback);
+      } else if (error) {
+        return {
+          success: false,
+          storage: "fallback",
+          logs: [],
+          stats: emptyStats,
+          error: error.message,
+        };
+      }
     }
 
     if (filters?.search && filters.search.trim()) {

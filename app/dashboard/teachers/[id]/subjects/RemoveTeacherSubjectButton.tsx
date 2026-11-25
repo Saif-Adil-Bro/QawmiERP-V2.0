@@ -1,6 +1,5 @@
 "use client";
 
-import { removeSubjectFromTeacher } from "@/app/actions/teacher_subjects";
 import { acquireSaveGuard } from "@/lib/save-guard";
 import { Trash2, Loader2, AlertTriangle, X } from "lucide-react";
 import { useState } from "react";
@@ -27,9 +26,21 @@ export default function RemoveTeacherSubjectButton({
     setErrorMsg("");
     const releaseGuard = acquireSaveGuard("teacher-subject-remove");
     try {
-      const res = await removeSubjectFromTeacher(teacherSubjectId, teacherId);
-      if (res?.error) {
-        setErrorMsg(res.error);
+      const response = await fetch(
+        `/api/teachers/${encodeURIComponent(teacherId)}/subjects`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          keepalive: true,
+          body: JSON.stringify({ teacherSubjectId }),
+        },
+      );
+      const res = await response.json().catch(() => ({}));
+      if (!response.ok || res?.error) {
+        setErrorMsg(res?.error || "বিষয়টি মুছতে সমস্যা হয়েছে।");
       } else {
         setConfirmOpen(false);
         router.refresh();

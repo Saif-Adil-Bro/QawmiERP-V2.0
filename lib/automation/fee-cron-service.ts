@@ -176,25 +176,24 @@ export async function runMonthlyFeeGenerationCron(opts: {
           }
         }
 
-        if (successCount > 0 || skippedExisting > 0) {
-          await logAuditEvent({
-            madrasaId,
-            module: "fees",
-            action: "AUTOMATION_MONTHLY_FEE_CRON",
-            entityType: "student_fees",
-            entityId: billingPeriod,
-            entityLabel: billingPeriod,
-            summary: `মাসিক ফি অটো-জেনারেশন (${triggerSource}): ${billingPeriod}-এ ${successCount}টি নতুন ইনভয়েস তৈরি, ${skippedExisting}টি ডুপ্লিকেট স্কিপ হয়েছে`,
-            newValue: {
-              billing_period: billingPeriod,
-              trigger_source: triggerSource,
-              generated_count: successCount,
-              skipped_existing: skippedExisting,
-              failed_count: failedCount,
-              dedup_enabled: true,
-            },
-          });
-        }
+        await logAuditEvent({
+          madrasaId,
+          module: "fees",
+          action: "AUTOMATION_MONTHLY_FEE_CRON",
+          entityType: "student_fees",
+          entityId: billingPeriod,
+          entityLabel: billingPeriod,
+          summary: `মাসিক ফি অটো-জেনারেশন (${triggerSource}): ${billingPeriod}-এ ${successCount}টি নতুন ইনভয়েস তৈরি, ${skippedExisting}টি ডুপ্লিকেট স্কিপ হয়েছে (মোট প্রসেস: ${processedCount})`,
+          newValue: {
+            billing_period: billingPeriod,
+            trigger_source: triggerSource,
+            processed_count: processedCount,
+            generated_count: successCount,
+            skipped_existing: skippedExisting,
+            failed_count: failedCount,
+            dedup_enabled: true,
+          },
+        });
 
         return {
           processedCount,

@@ -2,6 +2,8 @@ import { Metadata } from "next";
 import { getBackupOverviewStats, BackupOverviewStats } from "@/app/actions/backup";
 import BackupClient from "./BackupClient";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "ডাটা ব্যাকআপ ও রিস্টোর | QawmiManager",
   description: "মাদরাসার সম্পূর্ণ ডাটাবেজ ব্যাকআপ ও রিস্টোর ব্যবস্থাপনা",

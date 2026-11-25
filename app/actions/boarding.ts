@@ -608,6 +608,24 @@ export async function syncBoardingBillsToAccounting(year: string, month: string,
       return { error: "একাউন্টিং লেজারে বোর্ডিং বিল যুক্ত করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
     }
 
+    const { logAuditEvent } = await import("@/lib/audit-log");
+    await logAuditEvent({
+      madrasaId,
+      actorId: user?.id || null,
+      actorEmail: user?.email || null,
+      module: "fees",
+      action: "BOARDING_FEES_GENERATED",
+      entityType: "student_fees",
+      entityId: billingPeriod,
+      entityLabel: billingPeriod,
+      summary: `${monthName} (${billingPeriod}) মাসের ${syncedCount} জন আবাসিক শিক্ষার্থীর বোর্ডিং ফি ইনভয়েস তৈরি ও সিঙ্ক করা হয়েছে`,
+      newValue: {
+        billing_period: billingPeriod,
+        month_name: monthName,
+        synced_count: syncedCount,
+      },
+    });
+
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/due");
     revalidatePath("/dashboard/boarding/reports");

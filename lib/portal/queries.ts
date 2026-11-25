@@ -47,9 +47,14 @@ export async function routines(
   db: any,
   tenant: string,
   classIds: string[],
-  teacherId?: string,
+  teacherId?: string | string[],
 ) {
   if (!classIds.length) return [];
+  const teacherIds = Array.isArray(teacherId)
+    ? teacherId.filter(Boolean)
+    : teacherId
+      ? [teacherId]
+      : [];
   const data = await rows(() => {
     const q = db
       .from("routines")
@@ -59,7 +64,9 @@ export async function routines(
       .eq("madrasa_id", tenant)
       .in("class_id", classIds)
       .order("start_time");
-    return teacherId ? q.eq("teacher_id", teacherId) : q;
+    if (teacherIds.length === 1) return q.eq("teacher_id", teacherIds[0]);
+    if (teacherIds.length > 1) return q.in("teacher_id", teacherIds);
+    return q;
   });
   return data.map((r) => {
     const item = parseRoutineItem(r);

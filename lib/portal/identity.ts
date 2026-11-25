@@ -4,6 +4,7 @@ import {
   maskStudentSensitiveFields,
 } from "../pii-masking";
 import {
+  extractTeacherCandidateNames,
   normalizeBengaliTeacherName,
   normalizePhoneKey,
   resolveTeacherIdentity,
@@ -136,9 +137,33 @@ export async function linkedStudents(i: Identity, requested?: string | null) {
   return { students, child: selected(students, requested), meta };
 }
 
+export type TeacherStaffHint = {
+  legacyId?: string | null;
+  teacherId?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  fullNameBn?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+};
+
+const ANY_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const isUnmaskedValue = (v: unknown): string => {
+  if (typeof v !== "string") return "";
+  const trimmed = v.trim();
+  if (!trimmed || trimmed.includes("*")) return "";
+  return trimmed;
+};
+
 // Authenticated identity and administrator-maintained links only. A name, partial phone, or
 // user_editable_metadata value is not a teacher assignment. Validate class IDs against the tenant.
-export async function teacherScope(i: Identity, staffId?: string) {
+export async function teacherScope(
+  i: Identity,
+  staffId?: string,
+  staffHint?: TeacherStaffHint,
+) {
   const { tenant, db } = i;
   const meta = await getMadrasaMetadata(tenant, true);
   const [teachers, tenantUsers] = await Promise.all([
@@ -163,61 +188,152 @@ export async function teacherScope(i: Identity, staffId?: string) {
         },
   );
 
-  // PB-06 Bridge: When admin inspects a staff profile via staffId, the staff record in metadata
-  // may link to a teacher via a tenant users row (email/phone/auth_user_id/normalized Bengali name -> user.teacher_id).
+  // PB-06 Bridge: When admin inspects a staff profile via staffId, bridge across metadata staff_members,
+  // tenant users (email/phone/auth_user_id/normalized Bengali or English name -> user.teacher_id),
+  // and SQL teachers (including duplicate rows sharing verified phone/name/email without conflicting auth).
+  const matchedUserNames: string[] = [];
   if (staffId) {
-    const targetEmail = String(
-      staff?.contact?.email || staff?.email || teacher?.email || "",
-    )
-      .trim()
-      .toLowerCase();
-    const targetPhone = normalizePhoneKey(
-      staff?.contact?.phone || staff?.phone || teacher?.phone || "",
+    const keySet = new Set<string>(keys);
+    keySet.add(staffId);
+    if (staffHint?.legacyId) keySet.add(staffHint.legacyId);
+    if (staffHint?.teacherId) keySet.add(staffHint.teacherId);
+
+    if (!staff) {
+      staff =
+        staffMembers.find(
+          (s: any) =>
+            s.id === staffId ||
+            s.legacy_id === staffId ||
+            s.teacher_id === staffId ||
+            (staffHint?.legacyId &&
+              (s.id === staffHint.legacyId || s.legacy_id === staffHint.legacyId)),
+        ) || null;
+    }
+    if (staff) {
+      if (staff.id) keySet.add(staff.id);
+      if (staff.legacy_id) keySet.add(staff.legacy_id);
+      if (staff.teacher_id) keySet.add(staff.teacher_id);
+    }
+
+    const hintRecord = staffHint
+      ? {
+          full_name_bn: staffHint.fullNameBn,
+          first_name: staffHint.firstName,
+          last_name: staffHint.lastName,
+        }
+      : null;
+
+    const candidateEmails = new Set<string>(
+      [
+        isUnmaskedValue(staff?.contact?.email),
+        isUnmaskedValue(staff?.email),
+        isUnmaskedValue(teacher?.email),
+        isUnmaskedValue(staffHint?.email),
+      ]
+        .filter(Boolean)
+        .map((e) => e.toLowerCase()),
     );
-    const targetNormName = normalizeBengaliTeacherName(
-      staff?.personal?.full_name_bn ||
-        [staff?.personal?.first_name, staff?.personal?.last_name]
-          .filter(Boolean)
-          .join(" ") ||
-        [teacher?.first_name, teacher?.last_name].filter(Boolean).join(" "),
+    const candidatePhones = new Set<string>(
+      [
+        isUnmaskedValue(staff?.contact?.phone),
+        isUnmaskedValue(staff?.phone),
+        isUnmaskedValue(teacher?.phone),
+        isUnmaskedValue(staffHint?.phone),
+      ]
+        .map((p) => normalizePhoneKey(p))
+        .filter(Boolean),
     );
-    const matchedUser = tenantUsers.find((u: any) => {
-      if (u.id === staffId || u.teacher_id === staffId) return true;
-      if (staff?.auth_user_id && u.id === staff.auth_user_id) return true;
-      if (teacher?.auth_user_id && u.id === teacher.auth_user_id) return true;
-      if (targetEmail && String(u.email || "").trim().toLowerCase() === targetEmail)
+    const candidateNames = new Set<string>([
+      ...extractTeacherCandidateNames(staff),
+      ...extractTeacherCandidateNames(teacher),
+      ...extractTeacherCandidateNames(hintRecord),
+    ]);
+
+    const knownAuthIds = new Set<string>(
+      [staff?.auth_user_id, teacher?.auth_user_id].filter(Boolean),
+    );
+
+    const matchedUsers = tenantUsers.filter((u: any) => {
+      if (keySet.has(u.id) || (u.teacher_id && keySet.has(u.teacher_id))) {
         return true;
-      if (targetPhone && normalizePhoneKey(u.phone) === targetPhone) return true;
-      if (targetNormName && normalizeBengaliTeacherName(u.full_name) === targetNormName)
-        return true;
+      }
+      if (knownAuthIds.has(u.id)) return true;
+      const uEmail = String(u.email || "").trim().toLowerCase();
+      if (uEmail && candidateEmails.has(uEmail)) return true;
+      const uPhone = normalizePhoneKey(u.phone);
+      if (uPhone && candidatePhones.has(uPhone)) return true;
+      const uName = normalizeBengaliTeacherName(u.full_name);
+      if (uName && candidateNames.has(uName)) return true;
       return false;
     });
-    if (matchedUser) {
-      if (matchedUser.teacher_id && !keys.includes(matchedUser.teacher_id)) {
-        keys = [...keys, matchedUser.teacher_id];
-      }
-      if (!teacher && matchedUser.teacher_id) {
-        teacher =
-          teachers.find((t: any) => t.id === matchedUser.teacher_id) || teacher;
-      }
-      if (!teacher && matchedUser.id) {
-        teacher =
-          teachers.find((t: any) => t.auth_user_id === matchedUser.id) || teacher;
-        if (teacher?.id && !keys.includes(teacher.id)) {
-          keys = [...keys, teacher.id];
-        }
+
+    for (const u of matchedUsers) {
+      if (u.teacher_id) keySet.add(u.teacher_id);
+      if (u.id) knownAuthIds.add(u.id);
+      const uEmail = String(u.email || "").trim().toLowerCase();
+      if (uEmail) candidateEmails.add(uEmail);
+      const uPhone = normalizePhoneKey(u.phone);
+      if (uPhone) candidatePhones.add(uPhone);
+      if (u.full_name) {
+        matchedUserNames.push(String(u.full_name).trim());
+        const uNorm = normalizeBengaliTeacherName(u.full_name);
+        if (uNorm) candidateNames.add(uNorm);
       }
     }
-    if (!keys.includes(staffId)) {
-      keys = [...keys, staffId];
+
+    const matchedTeachers = teachers.filter((t: any) => {
+      if (keySet.has(t.id)) return true;
+      if (t.auth_user_id && knownAuthIds.has(t.auth_user_id)) return true;
+      // Do not bridge into a SQL teacher explicitly bound to a different auth account
+      if (
+        knownAuthIds.size > 0 &&
+        t.auth_user_id &&
+        !knownAuthIds.has(t.auth_user_id)
+      ) {
+        return false;
+      }
+      const tEmail = String(t.email || "").trim().toLowerCase();
+      if (tEmail && candidateEmails.has(tEmail)) return true;
+      const tPhone = normalizePhoneKey(t.phone);
+      if (tPhone && candidatePhones.has(tPhone)) return true;
+      const tNames = extractTeacherCandidateNames(t);
+      if (tNames.some((n) => candidateNames.has(n))) return true;
+      return false;
+    });
+
+    for (const mt of matchedTeachers) {
+      if (mt.id) keySet.add(mt.id);
     }
+    if (!teacher && matchedTeachers.length > 0) {
+      teacher = matchedTeachers[0];
+    }
+
+    // Also include sibling staff records matching the same teacher ID / phone / normalized name
+    // so meta.class_teachers keyed by an older or duplicate staff ID still resolves.
+    for (const sm of staffMembers) {
+      const smMatch =
+        keySet.has(sm.id) ||
+        (sm.legacy_id && keySet.has(sm.legacy_id)) ||
+        (sm.teacher_id && keySet.has(sm.teacher_id)) ||
+        (candidatePhones.size > 0 &&
+          candidatePhones.has(normalizePhoneKey(sm.contact?.phone || sm.phone))) ||
+        extractTeacherCandidateNames(sm).some((n) => candidateNames.has(n));
+      if (smMatch) {
+        if (sm.id) keySet.add(sm.id);
+        if (sm.legacy_id) keySet.add(sm.legacy_id);
+        if (sm.teacher_id) keySet.add(sm.teacher_id);
+      }
+    }
+
+    keys = Array.from(keySet);
   }
 
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const teacherUuidKeys = Array.from(
-    new Set([teacher?.id, ...keys].filter((k) => k && UUID_RE.test(String(k))))
+    new Set(
+      [teacher?.id, ...keys].filter((k) => k && ANY_UUID_RE.test(String(k))),
+    ),
   );
-  const [allClasses, assignments, direct] = await Promise.all([
+  const [allClasses, rawAssignments, direct] = await Promise.all([
     rows(() => {
       const q = db.from("classes").select("*");
       try {
@@ -227,13 +343,21 @@ export async function teacherScope(i: Identity, staffId?: string) {
       }
     }),
     teacherUuidKeys.length > 0
-      ? rows(() =>
-          db
+      ? rows(() => {
+          const q = db
             .from("teacher_subjects")
             .select("*, subjects(id,name,code), classes(id,name)")
-            .eq("madrasa_id", tenant)
-            .in("teacher_id", teacherUuidKeys),
-        )
+            .in("teacher_id", teacherUuidKeys);
+          try {
+            return q.or(`madrasa_id.eq.${tenant},madrasa_id.is.null`);
+          } catch {
+            return db
+              .from("teacher_subjects")
+              .select("*, subjects(id,name,code), classes(id,name)")
+              .eq("madrasa_id", tenant)
+              .in("teacher_id", teacherUuidKeys);
+          }
+        })
       : [],
     teacherUuidKeys.length > 0
       ? rows(() =>
@@ -245,13 +369,67 @@ export async function teacherScope(i: Identity, staffId?: string) {
         )
       : [],
   ]);
+
+  // Hydrate missing class/subject joins on teacher_subjects and deduplicate by class+subject
+  const classLookup = new Map(allClasses.map((c: any) => [String(c.id), c]));
+  let subjectLookup = new Map<string, any>();
+  const missingSubjectIds = Array.from(
+    new Set(
+      rawAssignments
+        .filter((a: any) => !a.subjects?.name && a.subject_id)
+        .map((a: any) => String(a.subject_id)),
+    ),
+  );
+  if (missingSubjectIds.length > 0) {
+    try {
+      const { data: subRows } = await db
+        .from("subjects")
+        .select("id, name, code")
+        .in("id", missingSubjectIds);
+      subjectLookup = new Map(
+        (subRows || []).map((s: any) => [String(s.id), s]),
+      );
+    } catch {
+      // non-fatal hydration fallback
+    }
+  }
+
+  const seenAssignmentPairs = new Set<string>();
+  const assignments = rawAssignments
+    .map((a: any) => {
+      const cls =
+        (Array.isArray(a.classes) ? a.classes[0] : a.classes) ||
+        classLookup.get(String(a.class_id)) ||
+        null;
+      const sub =
+        (Array.isArray(a.subjects) ? a.subjects[0] : a.subjects) ||
+        subjectLookup.get(String(a.subject_id)) ||
+        null;
+      return {
+        ...a,
+        classes: cls,
+        subjects: sub,
+      };
+    })
+    .filter((a: any) => {
+      const pairKey = `${a.class_id || ""}:${a.subject_id || ""}`;
+      if (seenAssignmentPairs.has(pairKey)) return false;
+      seenAssignmentPairs.add(pairKey);
+      return true;
+    });
+
   const display = teacherDisplay(teacher, staff, i.userRow.full_name);
   const targetNames = new Set(
     [
       display.name,
       staff?.personal?.full_name_bn,
-      [staff?.personal?.first_name, staff?.personal?.last_name].filter(Boolean).join(" "),
+      [staff?.personal?.first_name, staff?.personal?.last_name]
+        .filter(Boolean)
+        .join(" "),
       [teacher?.first_name, teacher?.last_name].filter(Boolean).join(" "),
+      staffHint?.fullNameBn,
+      [staffHint?.firstName, staffHint?.lastName].filter(Boolean).join(" "),
+      ...matchedUserNames,
       !staffId ? i.userRow?.full_name : "",
     ]
       .flatMap((n) => {
@@ -269,7 +447,9 @@ export async function teacherScope(i: Identity, staffId?: string) {
       meta.class_teachers?.[c.id]?.teacher_id,
     ].some((v) => v && keys.includes(v));
     if (byKey) return true;
-    const assignedName = String(meta.class_teachers?.[c.id]?.teacher_name || "").trim();
+    const assignedName = String(
+      meta.class_teachers?.[c.id]?.teacher_name || "",
+    ).trim();
     const assignedNorm = normalizeBengaliTeacherName(assignedName);
     return Boolean(
       (assignedName && targetNames.has(assignedName)) ||
@@ -320,22 +500,30 @@ export const webTeacher = async (allowAdmin = false) => {
 export type TeacherScope = Awaited<ReturnType<typeof teacherScope>>;
 export async function teacherSchedule(i: Identity, s: TeacherScope) {
   // A class/subject assignment grants roster access, not every slot on its timetable.
-  const visible = s.teacher?.id
-    ? await routines(
-        i.db,
-        i.tenant,
-        s.classes.map((c) => c.id),
-        s.teacher.id,
-      )
-    : [];
+  const teacherUuidKeys = Array.from(
+    new Set(
+      [s.teacher?.id, ...s.keys].filter(
+        (k) => k && ANY_UUID_RE.test(String(k)),
+      ),
+    ),
+  );
+  const visible =
+    teacherUuidKeys.length > 0 && s.classes.length > 0
+      ? await routines(
+          i.db,
+          i.tenant,
+          s.classes.map((c) => c.id),
+          teacherUuidKeys,
+        )
+      : [];
   return {
     teacherId: s.teacher?.id || s.staff?.id || "",
     isTeachingStaff: !!(s.classes.length || s.teacher || s.staff),
     assignedSubjects: s.assignments.map((a) => ({
       ...a,
-      class_name: a.classes?.name,
-      subject_name: a.subjects?.name,
-      subject_code: a.subjects?.code,
+      class_name: a.classes?.name || "নির্ধারিত জামাত",
+      subject_name: a.subjects?.name || "নির্ধারিত কিতাব",
+      subject_code: a.subjects?.code || null,
     })),
     inChargeClasses: s.inCharge.map((c) => ({
       class_id: c.id,

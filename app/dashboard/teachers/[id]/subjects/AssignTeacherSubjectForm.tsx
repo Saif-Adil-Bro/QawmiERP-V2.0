@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { assignSubjectToTeacher } from "@/app/actions/teacher_subjects";
 import {
   acquireSaveGuard,
   hasActiveSaveGuards,
   installGlobalSaveGuardListeners,
 } from "@/lib/save-guard";
-import { BookOpen, Check, AlertCircle, Loader2 } from "lucide-react";
+import { BookOpen, Check, AlertCircle, Loader2, ShieldAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function AssignTeacherSubjectForm({
@@ -19,9 +18,12 @@ export default function AssignTeacherSubjectForm({
 }) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
+  const [selectedValue, setSelectedValue] = useState("");
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [navBlockedNotice, setNavBlockedNotice] = useState(false);
   const pendingRef = useRef(false);
+  const preArmReleaseRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     installGlobalSaveGuardListeners();
@@ -31,23 +33,60 @@ export default function AssignTeacherSubjectForm({
       e.returnValue = "";
       return "";
     };
+    const handleAnchorClickCapture = (e: MouseEvent) => {
+      if (!pendingRef.current && !hasActiveSaveGuards()) return;
+      const target = e.target as HTMLElement | null;
+      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (anchor && anchor.href && !anchor.href.startsWith("javascript:")) {
+        e.preventDefault();
+        e.stopPropagation();
+        setNavBlockedNotice(true);
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload, { capture: true });
     window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("click", handleAnchorClickCapture, true);
     return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload, { capture: true });
       window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("click", handleAnchorClickCapture, true);
+      if (preArmReleaseRef.current) {
+        preArmReleaseRef.current();
+        preArmReleaseRef.current = null;
+      }
     };
   }, []);
+
+  const preArmBeforeSubmit = () => {
+    if (!selectedValue || isPending) return;
+    if (!preArmReleaseRef.current) {
+      preArmReleaseRef.current = acquireSaveGuard("teacher-subject-prearm");
+      // Auto-release if pointerdown never completes a form submit
+      window.setTimeout(() => {
+        if (!pendingRef.current && preArmReleaseRef.current) {
+          preArmReleaseRef.current();
+          preArmReleaseRef.current = null;
+        }
+      }, 1500);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsPending(true);
     setError("");
     setSuccessMsg("");
+    setNavBlockedNotice(false);
 
     const form = e.currentTarget;
     const formData = new FormData(form);
-    const classSubjectStr = formData.get("class_subject") as string;
+    const classSubjectStr = (formData.get("class_subject") as string) || selectedValue;
 
     if (!classSubjectStr) {
+      if (preArmReleaseRef.current) {
+        preArmReleaseRef.current();
+        preArmReleaseRef.current = null;
+      }
       setError("অনুগ্রহ করে একটি বিষয় নির্বাচন করুন।");
       setIsPending(false);
       return;
@@ -56,13 +95,30 @@ export default function AssignTeacherSubjectForm({
     const [classId, subjectId] = classSubjectStr.split("|");
     pendingRef.current = true;
     const releaseGuard = acquireSaveGuard("teacher-subject-assign");
+    if (preArmReleaseRef.current) {
+      preArmReleaseRef.current();
+      preArmReleaseRef.current = null;
+    }
 
     try {
-      const res = await assignSubjectToTeacher(teacherId, classId, subjectId);
-      if (res?.error) {
-        setError(res.error);
+      const response = await fetch(
+        `/api/teachers/${encodeURIComponent(teacherId)}/subjects`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          keepalive: true,
+          body: JSON.stringify({ classId, subjectId }),
+        },
+      );
+      const res = await response.json().catch(() => ({}));
+      if (!response.ok || res?.error) {
+        setError(res?.error || "বিষয় এসাইন করতে সমস্যা হয়েছে।");
       } else {
         setSuccessMsg("বিষয় সফলভাবে এসাইন করা হয়েছে!");
+        setSelectedValue("");
         form.reset();
         router.refresh();
       }
@@ -71,6 +127,7 @@ export default function AssignTeacherSubjectForm({
       setError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
       pendingRef.current = false;
+      setNavBlockedNotice(false);
       releaseGuard();
       setIsPending(false);
     }
@@ -85,7 +142,17 @@ export default function AssignTeacherSubjectForm({
           className="p-3 bg-amber-50 text-amber-900 rounded-xl text-xs font-semibold border border-amber-200 flex items-center gap-2"
         >
           <Loader2 className="w-4 h-4 animate-spin text-amber-600 shrink-0" />
-          <span>বিষয় বরাদ্দ সেভ হচ্ছে — পেজ রিলোড করবেন না।</span>
+          <span>বিষয় বরাদ্দ নিরাপদে সেভ হচ্ছে — অনুগ্রহ করে পেজ রিলোড বা বন্ধ করবেন না।</span>
+        </div>
+      )}
+
+      {navBlockedNotice && isPending && (
+        <div
+          role="alert"
+          className="p-2.5 bg-amber-100 text-amber-950 rounded-xl text-xs font-bold border border-amber-300 flex items-center gap-2"
+        >
+          <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0" />
+          <span>সেভ শেষ না হওয়া পর্যন্ত অন্য পেজে যাওয়া সাময়িকভাবে বন্ধ রাখা হয়েছে।</span>
         </div>
       )}
 
@@ -117,8 +184,9 @@ export default function AssignTeacherSubjectForm({
             </label>
             <select
               name="class_subject"
+              value={selectedValue}
+              onChange={(e) => setSelectedValue(e.target.value)}
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all text-slate-900 font-medium"
-              defaultValue=""
               required
             >
               <option value="" disabled>
@@ -135,6 +203,7 @@ export default function AssignTeacherSubjectForm({
           <button
             type="submit"
             disabled={isPending}
+            onPointerDown={preArmBeforeSubmit}
             className="w-full min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-xs"
           >
             {isPending ? (

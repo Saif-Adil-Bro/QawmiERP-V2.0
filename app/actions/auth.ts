@@ -14,6 +14,68 @@ import {
 } from "@/lib/student-auth";
 import { logAuditEvent } from "@/lib/audit-log";
 
+async function resolveFailedWebLoginMadrasaId(
+  identifier: string,
+  hintedMadrasaId?: string | null
+): Promise<string | null> {
+  if (hintedMadrasaId) return hintedMadrasaId;
+  try {
+    const admin = await createAdminClient();
+    const cleaned = identifier.trim().toLowerCase();
+    if (cleaned.includes("@")) {
+      const { data: userRow } = await admin
+        .from("users")
+        .select("madrasa_id")
+        .ilike("email", cleaned)
+        .limit(1)
+        .maybeSingle();
+      if (userRow?.madrasa_id) return String(userRow.madrasa_id);
+    }
+    const { data: firstMadrasa } = await admin
+      .from("madrasas")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    return firstMadrasa?.id ? String(firstMadrasa.id) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function recordFailedWebLogin(
+  identifier: string,
+  reason: string,
+  hintedMadrasaId?: string | null
+) {
+  try {
+    const madrasaId = await resolveFailedWebLoginMadrasaId(
+      identifier,
+      hintedMadrasaId
+    );
+    if (!madrasaId) return;
+    const safeIdentifier = String(identifier || "unknown").trim().slice(0, 120);
+    await logAuditEvent({
+      madrasaId,
+      actorEmail: safeIdentifier.includes("@") ? safeIdentifier : null,
+      actorName: safeIdentifier,
+      module: "security",
+      action: "LOGIN_FAILED",
+      entityType: "auth_session",
+      entityLabel: safeIdentifier,
+      summary: `ব্যর্থ ওয়েব লগইন প্রচেষ্টা (${safeIdentifier}): ${reason}`,
+      metadata: {
+        identifier: safeIdentifier,
+        reason,
+        channel: "web_action",
+      },
+      severity: "WARNING",
+    });
+  } catch {
+    // Non-fatal: audit failure must never block auth response
+  }
+}
+
 export async function login(prevState: any, formData: FormData) {
   let isSuccess = false;
   let targetRedirectUrl = "/dashboard";
@@ -32,6 +94,7 @@ export async function login(prevState: any, formData: FormData) {
 
     let targetEmail = rawIdentifier.trim().toLowerCase();
     let isStudentLogin = false;
+    let resolvedStudentMadrasaId: string | null = null;
     let candidateEmails: string[] = [];
 
     // If identifier doesn't have '@' or is a student ID / roll / phone / @qawmi.app
@@ -39,6 +102,7 @@ export async function login(prevState: any, formData: FormData) {
       const resolved = await findStudentByIdentifier(rawIdentifier);
       if (resolved) {
         isStudentLogin = true;
+        resolvedStudentMadrasaId = resolved.madrasaId || null;
         candidateEmails = resolved.candidateEmails?.length
           ? resolved.candidateEmails
           : [resolved.portalEmail, resolved.legacyPortalEmail];
@@ -46,6 +110,7 @@ export async function login(prevState: any, formData: FormData) {
           ? rawIdentifier.trim().toLowerCase()
           : candidateEmails[0] || resolved.portalEmail;
       } else if (!rawIdentifier.includes("@")) {
+        await recordFailedWebLogin(rawIdentifier, "অজানা শিক্ষার্থী আইডি বা রোল");
         return {
           error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: MUSE-480004 বা 480001) প্রদান করুন।`,
         };
@@ -84,6 +149,11 @@ export async function login(prevState: any, formData: FormData) {
     // সিস্টেম নিজেই সেটি মুছে 123456 করে দিত। এই স্বয়ংক্রিয় রিসেট সম্পূর্ণভাবে সরিয়ে দেওয়া হলো।
     // পাসওয়ার্ড ভুলে গেলে মাদ্রাসা প্রশাসন (PermissionGuard-যুক্ত resetUserPassword) রিসেট করাবেন।
     if (error && isStudentLogin) {
+      await recordFailedWebLogin(
+        rawIdentifier,
+        "শিক্ষার্থী পোর্টাল ভুল পাসওয়ার্ড",
+        resolvedStudentMadrasaId
+      );
       return {
         error:
           "পাসওয়ার্ড সঠিক নয়। আপনি যদি পাসওয়ার্ড ভুলে গিয়ে থাকেন, তবে মাদ্রাসা প্রশাসনের সাথে যোগাযোগ করে পাসওয়ার্ড রিসেট করিয়ে নিন।",
@@ -91,11 +161,26 @@ export async function login(prevState: any, formData: FormData) {
     }
 
     if (error || !data?.user) {
+      await recordFailedWebLogin(
+        targetEmail,
+        error?.message || "ভুল ইমেইল বা পাসওয়ার্ড",
+        resolvedStudentMadrasaId
+      );
       return { error: error?.message || "লগইন ব্যর্থ হয়েছে।" };
     }
-    if (!data.session) return {error: "লগইন ব্যর্থ হয়েছে।"};
+    if (!data.session) {
+      await recordFailedWebLogin(targetEmail, "সেশন তৈরি হয়নি", resolvedStudentMadrasaId);
+      return {error: "লগইন ব্যর্থ হয়েছে।"};
+    }
     const login = await completeAppLogin(supabase, data.session, "web", false, await headers());
-    if (!login.ok) return {error: login.message};
+    if (!login.ok) {
+      await recordFailedWebLogin(
+        data.user.email || targetEmail,
+        login.message || "অ্যাকাউন্ট সেশন অনুমোদিত হয়নি",
+        resolvedStudentMadrasaId
+      );
+      return {error: login.message};
+    }
     if (login.perms.madrasaId) {
       await logAuditEvent({
         madrasaId: login.perms.madrasaId,

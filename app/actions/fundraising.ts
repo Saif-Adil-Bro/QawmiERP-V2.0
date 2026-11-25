@@ -1164,6 +1164,26 @@ export async function recordDonorSubscriptionPayment(payment: Partial<DonorSubsc
       notes:`[মাসিক চাঁদা: ${newPayment.month}] ${newPayment.notes || ""}`,
     });
 
+    await logAuditEvent({
+      madrasaId: finalMadrasaId,
+      actorId: user.id,
+      actorEmail: user.email || null,
+      module: "finance",
+      action: "DONATION_RECEIPT_CREATED",
+      entityType: "donation_receipt",
+      entityId: newPayment.id,
+      entityLabel: receiptNo,
+      summary: `আজীবন/মাসিক দাতা চাঁদা রসিদ তৈরি (${newPayment.donor_name || "দাতা"}): ৳${newPayment.amount} (রসিদ: ${receiptNo})`,
+      newValue: {
+        receipt_no: receiptNo,
+        amount: newPayment.amount,
+        donor_name: newPayment.donor_name,
+        month: newPayment.month,
+        fund_name: fund.name,
+      },
+      metadata: { source: "donor_subscription" },
+    });
+
     revalidatePath("/dashboard/fundraising/donors");
     revalidatePath("/dashboard/zakat/donors");
     revalidatePath("/dashboard/zakat/collection");
@@ -1445,6 +1465,26 @@ export async function saveQurbaniLeatherRecord(data: Partial<QurbaniLeatherRecor
     },!!previous);
     else if (previous && saleAmount(previous) > 0) return {error:"জমাকৃত চালান বাতিলের জন্য হিসাব যাচাই করুন।"};
     else await replaceSources(finalMadrasaId,before,meta,__authz.userId);
+
+    await logAuditEvent({
+      madrasaId: finalMadrasaId,
+      actorId: __authz.userId || null,
+      actorEmail: __authz.actorEmail || null,
+      module: "finance",
+      action: "DONATION_RECEIPT_CREATED",
+      entityType: "qurbani_leather",
+      entityId: targetId,
+      entityLabel: receiptNo,
+      summary: `কুরবানির চামড়া বিক্রয় রসিদ সংরক্ষিত (${type}, ${quantity} পিস): ৳${depositAmount} (চালান: ${receiptNo})`,
+      newValue: {
+        receipt_no: receiptNo,
+        amount: depositAmount,
+        total_sale: totalSale,
+        quantity,
+        fund_name: fund.name,
+      },
+      metadata: { source: "qurbani_leather" },
+    });
 
     try {
       revalidatePath("/dashboard/fundraising/collections");
@@ -1800,6 +1840,25 @@ export async function recordDonationBoxCollection(log: Partial<DonationBoxCollec
       notes:`[দানবাক্স কালেকশন] বক্স: ${boxCode} (${locName}), স্বাক্ষী: ${witness} ${log.notes || ""}`,
     });
 
+    await logAuditEvent({
+      madrasaId: finalMadrasaId,
+      actorId: __authz.userId || null,
+      actorEmail: __authz.actorEmail || null,
+      module: "finance",
+      action: "DONATION_RECEIPT_CREATED",
+      entityType: "donation_box_collection",
+      entityId: newLog.id,
+      entityLabel: receiptNo,
+      summary: `দানবাক্স সংগ্রহ রসিদ তৈরি (${boxCode} - ${locName}): ৳${amount} (রসিদ: ${receiptNo})`,
+      newValue: {
+        receipt_no: receiptNo,
+        amount,
+        box_code: boxCode,
+        fund_name: fund.name,
+      },
+      metadata: { source: "donation_box" },
+    });
+
     try {
       revalidatePath("/dashboard/fundraising/collections");
       revalidatePath("/dashboard/zakat");
@@ -2009,6 +2068,25 @@ export async function submitOnlineDonation(donation: Partial<OnlineDonation>) {
     const db = await createAdminClient();
     const {error} = await db.rpc("replace_portal_gateway_key",{p_tenant:finalMadrasaId,p_key:"online_donations",p_before:meta.online_donations ?? null,p_after:[newDonation,...donations]});
     if (error) return {error:"অনুদান সংরক্ষণ হয়নি। রিফ্রেশ করে আবার চেষ্টা করুন।"};
+
+    await logAuditEvent({
+      madrasaId: finalMadrasaId,
+      actorName: newDonation.donor_name || "অনলাইন দাতা",
+      actorEmail: newDonation.email || null,
+      module: "finance",
+      action: "DONATION_RECEIPT_CREATED",
+      entityType: "online_donation",
+      entityId: newDonation.id,
+      entityLabel: receiptNo,
+      summary: `অনলাইন দান রসিদ দাখিল (${fund.name}): ৳${newDonation.amount} (রসিদ: ${receiptNo})`,
+      newValue: {
+        receipt_no: receiptNo,
+        amount: newDonation.amount,
+        fund_name: fund.name,
+        payment_method: newDonation.payment_method,
+      },
+      metadata: { source: "online_donation" },
+    });
 
     try {
       revalidatePath("/dashboard/fundraising/online-donations");

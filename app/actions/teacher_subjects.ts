@@ -1,5 +1,5 @@
 "use server";
-import { webIdentity, teacherScope, teacherSchedule, hasRole } from '@/lib/portal/identity';
+import { webIdentity, teacherScope, teacherSchedule, hasRole, type TeacherStaffHint } from '@/lib/portal/identity';
 import {studentRoles, teacherRoles} from '@/lib/portal/rules';
 
 import { writeGuard } from "@/lib/action-authorization";
@@ -382,21 +382,28 @@ export interface TeacherAcademicSchedule {
   routines: TeacherRoutineScheduleItem[];
 }
 
-export async function getTeacherAcademicSchedule(staffId: string): Promise<TeacherAcademicSchedule> {
+export async function getTeacherAcademicSchedule(
+  staffId: string,
+  staffHint?: TeacherStaffHint,
+): Promise<TeacherAcademicSchedule> {
   const i = await webIdentity();
   if (i && !hasRole(i, studentRoles)) {
     // PB-06 Fix: If staffId is explicitly provided and the caller has staff or staffRead access (e.g. Admin viewing a teacher drawer),
-    // always pass staffId to teacherScope so admin users who also hold a teacher role don't see their own empty scope instead of the target teacher!
+    // always pass staffId + staffHint to teacherScope so admin users who also hold a teacher role don't see their own empty scope instead of the target teacher!
     if (staffId) {
       const canViewStaff =
         (await writeGuard("staff")).allowed ||
-        (await writeGuard("staffRead")).allowed;
+        (await writeGuard("staffRead")).allowed ||
+        hasRole(i, ["super_admin", "admin", "muhtamim", "naib_muhtamim", "hr_manager", "office_staff"]);
       if (canViewStaff) {
-        return teacherSchedule(i, await teacherScope(i, staffId));
+        return teacherSchedule(i, await teacherScope(i, staffId, staffHint));
       }
     }
     if (hasRole(i, teacherRoles)) {
-      return teacherSchedule(i, await teacherScope(i, staffId || undefined));
+      return teacherSchedule(
+        i,
+        await teacherScope(i, staffId || undefined, staffId ? staffHint : undefined),
+      );
     }
   }
   return { teacherId: "", isTeachingStaff: false, assignedSubjects: [], inChargeClasses: [], routines: [] };

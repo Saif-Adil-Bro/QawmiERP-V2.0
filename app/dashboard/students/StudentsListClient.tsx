@@ -32,8 +32,10 @@ import {
   Building2,
   Sparkles,
   FileSpreadsheet,
+  AlertTriangle,
 } from "lucide-react";
 import { getStudentIdNumber, convertToBanglaNumber } from "@/lib/student-utils";
+import { normalizeStudentFeeFilterParam } from "@/lib/search-normalize";
 import { deleteStudent } from "@/app/actions/students";
 import { useStepUpAction } from "@/components/security/useStepUpAction";
 
@@ -106,8 +108,10 @@ export default function StudentsListClient({
   const [selectedSystem, setSelectedSystem] = useState<string>(
     searchParams?.get("system") || "ALL"
   );
-  const [selectedFeeCategory, setSelectedFeeCategory] = useState<string>(
-    searchParams?.get("fee") || "ALL"
+  const initialFeeFilter = normalizeStudentFeeFilterParam(searchParams?.get("fee"));
+  const [selectedFeeCategory, setSelectedFeeCategory] = useState<string>(initialFeeFilter.value);
+  const [unknownFeeFilterValue, setUnknownFeeFilterValue] = useState<string | null>(
+    initialFeeFilter.isUnknown ? initialFeeFilter.rawValue : null
   );
   const [selectedResidential, setSelectedResidential] = useState<string>(
     searchParams?.get("residential") || "ALL"
@@ -121,6 +125,15 @@ export default function StudentsListClient({
   const [selectedBloodGroup, setSelectedBloodGroup] = useState<string>(
     searchParams?.get("blood") || "ALL"
   );
+
+  // Sync ?fee= URL parameter changes (e.g., client navigation to ?fee=WAIVED or unknown value)
+  const rawFeeParam = searchParams?.get("fee") || null;
+  useEffect(() => {
+    if (!rawFeeParam) return;
+    const normalized = normalizeStudentFeeFilterParam(rawFeeParam);
+    setSelectedFeeCategory(normalized.value);
+    setUnknownFeeFilterValue(normalized.isUnknown ? normalized.rawValue : null);
+  }, [rawFeeParam]);
 
   // Sorting & Layout States
   const [sortBy, setSortBy] = useState<string>("roll_asc");
@@ -347,6 +360,7 @@ export default function StudentsListClient({
     setSelectedClass("ALL");
     setSelectedSystem("ALL");
     setSelectedFeeCategory("ALL");
+    setUnknownFeeFilterValue(null);
     setSelectedSession("ALL");
     setSelectedResidential("ALL");
     setSelectedStatus("ALL");
@@ -748,6 +762,35 @@ export default function StudentsListClient({
         </div>
       </div>
 
+      {/* Unknown ?fee= URL Filter Notice Banner */}
+      {unknownFeeFilterValue && (
+        <div
+          role="status"
+          data-testid="unknown-fee-filter-banner"
+          className="flex items-start justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs sm:text-sm text-amber-900 shadow-2xs"
+        >
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">
+                অজানা ফি ফিল্টার মান (&ldquo;{unknownFeeFilterValue}&rdquo;) — সকল শিক্ষার্থী দেখানো হচ্ছে।
+              </p>
+              <p className="text-[11px] sm:text-xs text-amber-800 mt-0.5">
+                সঠিক ফিল্টার মান: লিল্লাহ/ফ্রি (<code className="font-mono">FREE</code>), মওকুফ/ছাড়প্রাপ্ত (<code className="font-mono">DISCOUNTED</code> বা <code className="font-mono">WAIVED</code>), অথবা সাধারণ পেইং (<code className="font-mono">PAYING</code>)।
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUnknownFeeFilterValue(null)}
+            aria-label="সতর্কতা বন্ধ করুন"
+            className="shrink-0 rounded-lg p-1.5 text-amber-700 hover:bg-amber-100 transition cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Main Filter & Control Center */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         {/* Primary Filter Bar */}
@@ -848,7 +891,10 @@ export default function StudentsListClient({
                 <div className="relative">
                   <select
                     value={selectedFeeCategory}
-                    onChange={(e) => setSelectedFeeCategory(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedFeeCategory(e.target.value);
+                      setUnknownFeeFilterValue(null);
+                    }}
                     className="w-full appearance-none pl-3 pr-8 py-2 text-xs sm:text-sm bg-white border border-slate-300 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-2xs cursor-pointer"
                   >
                     <option value="ALL">সকল ফি ব্যবস্থা</option>

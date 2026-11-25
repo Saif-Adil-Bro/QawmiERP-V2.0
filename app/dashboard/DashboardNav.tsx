@@ -1,6 +1,7 @@
 "use client";
 
 import { HEALTH_ROLES } from "@/lib/student-health/model";
+import { normalizeBengaliSearchText } from "@/lib/search-normalize";
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -224,7 +225,7 @@ const navGroups: NavGroup[] = [
         icon: BookOpen,
         permission: "academic.manage",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "admin", "education_secretary"],
-        keywords: ["subject", "kitab", "bishoy", "কিতাব", "বিষয়"],
+        keywords: ["subject", "subjects", "kitab", "bishoy", "কিতাব", "বিষয়", "বিষয়", "বিষয়সমূহ", "বিষয়সমূহ"],
       },
       {
         name: "ক্লাস ও বিষয় রুটিন (Routine)",
@@ -232,7 +233,7 @@ const navGroups: NavGroup[] = [
         icon: CalendarDays,
         permission: "routine.view",
         roles: ["super_admin", "muhtamim", "naib_muhtamim", "teacher", "admin", "education_secretary"],
-        keywords: ["routine", "schedule", "ক্লাস রুটিন", "সময়সূচি"],
+        keywords: ["routine", "schedule", "ক্লাস রুটিন", "সময়সূচি", "সময়সূচি", "বিষয়", "বিষয়"],
       },
       {
         name: "দৈনিক পড়া ও অ্যাসাইনমেন্ট (Assignments)",
@@ -916,11 +917,11 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
 
   // Filter items based on search query and permissions
   const filteredData = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = normalizeBengaliSearchText(searchQuery);
 
     const visibleDirectItems = directTopItems.filter(isItemAllowed).filter((item) => {
       if (!q) return true;
-      return item.name.toLowerCase().includes(q);
+      return normalizeBengaliSearchText(item.name).includes(q);
     });
 
     const visibleGroups = activeNavGroups
@@ -928,10 +929,15 @@ export default function DashboardNav({ onItemClick }: DashboardNavProps = {}) {
         const allowedItems = group.items.filter(isItemAllowed);
         const matchedItems = allowedItems.filter((item: any) => {
           if (!q) return true;
-          const matchName = item.name.toLowerCase().includes(q);
-          const matchGroup = group.title.toLowerCase().includes(q);
-          const matchKeywords = item.keywords?.some((k: string) => k.toLowerCase().includes(q));
-          return matchName || matchGroup || !!matchKeywords;
+          const matchName = normalizeBengaliSearchText(item.name).includes(q);
+          const matchGroup = normalizeBengaliSearchText(group.title).includes(q);
+          const matchBadge = item.badge
+            ? normalizeBengaliSearchText(item.badge).includes(q)
+            : false;
+          const matchKeywords = item.keywords?.some((k: string) =>
+            normalizeBengaliSearchText(k).includes(q)
+          );
+          return matchName || matchGroup || matchBadge || !!matchKeywords;
         });
 
         return {

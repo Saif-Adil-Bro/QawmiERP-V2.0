@@ -2,7 +2,8 @@
 import {postTeacherEntry} from '@/lib/portal-sync';
 import {usePortalOwner} from '@/hooks/useOfflinePortalData';
 
-import { useState, useMemo, useEffect, useTransition } from "react";
+import { useState, useMemo, useEffect, useTransition, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 
 import {
@@ -22,6 +23,26 @@ import { toBanglaNumber } from "@/lib/numberToBangla";
 import { resolveStudentIdBn } from "@/lib/student-utils";
 import { apiUrl } from "@/lib/api-url";
 
+export interface RecentAttendanceDateStatus {
+  date: string;
+  savedCount: number;
+  totalCount: number;
+}
+
+const BN_WEEKDAYS_SHORT = ["রবি", "সোম", "মঙ্গল", "বুধ", "বৃহঃ", "শুক্র", "শনি"];
+
+function formatDateChipParts(dateStr: string): { weekdayBn: string; dayBn: string; monthDayBn: string } {
+  const parts = dateStr.split("-").map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) {
+    return { weekdayBn: "", dayBn: dateStr, monthDayBn: dateStr };
+  }
+  const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+  const weekdayBn = BN_WEEKDAYS_SHORT[d.getUTCDay()] || "";
+  const dayBn = toBanglaNumber(String(parts[2]).padStart(2, "0"));
+  const monthDayBn = `${dayBn}/${toBanglaNumber(String(parts[1]).padStart(2, "0"))}`;
+  return { weekdayBn, dayBn, monthDayBn };
+}
+
 interface AttendanceFormProps {
   classes?: any[];
   students?: any[];
@@ -32,6 +53,7 @@ interface AttendanceFormProps {
   currentClassId: string;
   currentDate: string;
   madrasaId?: string;
+  recentDateStatuses?: RecentAttendanceDateStatus[];
   holidayInfo?: {
     isHoliday: boolean;
     isWeekend: boolean;
@@ -51,6 +73,7 @@ export default function AttendanceForm({
   currentClassId,
   currentDate,
   madrasaId,
+  recentDateStatuses = [],
   holidayInfo,
 }: AttendanceFormProps) {
   const router = useRouter();
@@ -58,7 +81,33 @@ export default function AttendanceForm({
   const [loading, setLoading] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<"success" | "error" | "">("");
+  const [lastSavedReceipt, setLastSavedReceipt] = useState<{ date: string; count: number; offline: boolean } | null>(null);
+  const [optimisticSavedCounts, setOptimisticSavedCounts] = useState<Record<string, number>>({});
   const [searchQuery, setSearchQuery] = useState("");
+  const [portalMounted, setPortalMounted] = useState(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setPortalMounted(true);
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  const showSaveFeedback = (text: string, type: "success" | "error", durationMs = 8000) => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+    setMessage(text);
+    setMessageType(type);
+    toastTimerRef.current = setTimeout(() => {
+      setMessage("");
+      setMessageType("");
+      toastTimerRef.current = null;
+    }, durationMs);
+  };
 
   const allStudents = students || initialStudents || [];
   const allClasses = classes || initialClasses || [];
@@ -105,6 +154,8 @@ export default function AttendanceForm({
 
   const handleClassChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newClass = e.target.value;
+    setOptimisticSavedCounts({});
+    setLastSavedReceipt(null);
     startTransition(() => {
       router.push(
         `/teacher-portal/attendance?class_id=${newClass}&date=${currentDate}`
@@ -112,8 +163,9 @@ export default function AttendanceForm({
     });
   };
 
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newDate = e.target.value;
+  const navigateToDate = (newDate: string) => {
+    if (!newDate || newDate === currentDate) return;
+    setLastSavedReceipt(null);
     startTransition(() => {
       router.push(
         `/teacher-portal/attendance?class_id=${currentClassId}&date=${newDate}`
@@ -121,7 +173,12 @@ export default function AttendanceForm({
     });
   };
 
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    navigateToDate(e.target.value);
+  };
+
   const handleStatusChange = (studentId: string, status: string) => {
+    setLastSavedReceipt(null);
     setAttendanceState((prev) => ({
       ...prev,
       [studentId]: {
@@ -143,6 +200,7 @@ export default function AttendanceForm({
 
   // Bulk actions
   const markAllStatus = (status: string) => {
+    setLastSavedReceipt(null);
     setAttendanceState((prev) => {
       const next = { ...prev };
       allStudents.forEach((s) => {
@@ -171,6 +229,7 @@ export default function AttendanceForm({
   const saveAttendance = async () => {
     setLoading(true);
     setMessage("");
+    setMessageType("");
 
     try {
       const validStatuses = new Set(["Present", "Absent", "Late", "Leave"]);
@@ -193,7 +252,11 @@ export default function AttendanceForm({
         .filter((r): r is NonNullable<typeof r> => r !== null);
 
       if (recordsToUpsert.length === 0) {
-        setMessage("সংরক্ষণের জন্য অন্তত একজন শিক্ষার্থীর হাজিরা চিহ্নিত করুন।");
+        showSaveFeedback(
+          "সংরক্ষণের জন্য অন্তত একজন শিক্ষার্থীর হাজিরা চিহ্নিত করুন।",
+          "error",
+          6000
+        );
         setLoading(false);
         return;
       }
@@ -204,21 +267,80 @@ export default function AttendanceForm({
         throw new Error(result.error || "Failed to save attendance");
       }
 
-      setMessage(
+      const savedCount = recordsToUpsert.length;
+      setOptimisticSavedCounts((prev) => ({
+        ...prev,
+        [currentDate]: savedCount,
+      }));
+      setLastSavedReceipt({
+        date: currentDate,
+        count: savedCount,
+        offline: Boolean(result.offlineQueued),
+      });
+
+      showSaveFeedback(
         result.offlineQueued
-          ? `অফলাইনে ${toBanglaNumber(recordsToUpsert.length)} জন শিক্ষার্থীর হাজিরা সংরক্ষিত হয়েছে! ইন্টারনেট এলে স্বয়ংক্রিয়ভাবে সিঙ্ক হবে।`
-          : `হাজিরা সফলভাবে সংরক্ষিত হয়েছে! (${toBanglaNumber(recordsToUpsert.length)} জন শিক্ষার্থী)`
+          ? `অফলাইনে ${toBanglaNumber(savedCount)} জন শিক্ষার্থীর হাজিরা সংরক্ষিত হয়েছে! ইন্টারনেট এলে স্বয়ংক্রিয়ভাবে সিঙ্ক হবে।`
+          : `হাজিরা সফলভাবে সংরক্ষিত হয়েছে! (${toBanglaNumber(savedCount)} জন শিক্ষার্থী)`,
+        "success",
+        8000
       );
-      setTimeout(() => setMessage(""), 6000);
+
       if (!result.offlineQueued) {
         router.refresh();
       }
     } catch (err: any) {
-      setMessage("হাজিরা সংরক্ষণ করতে সমস্যা হয়েছে। অনুগ্রহ করে পুনরায় চেষ্টা করুন।");
+      showSaveFeedback(
+        err?.message && err.message !== "Failed to save attendance"
+          ? err.message
+          : "হাজিরা সংরক্ষণ করতে সমস্যা হয়েছে। অনুগ্রহ করে পুনরায় চেষ্টা করুন।",
+        "error",
+        8000
+      );
     } finally {
       setLoading(false);
     }
   };
+
+  const serverSavedForCurrentDate = useMemo(() => {
+    const uniqueSavedIds = new Set(allAttendance.map((a) => String(a.student_id || "")).filter(Boolean));
+    return uniqueSavedIds.size;
+  }, [allAttendance]);
+
+  const effectiveSavedForCurrentDate = Math.max(
+    serverSavedForCurrentDate,
+    optimisticSavedCounts[currentDate] || 0
+  );
+
+  const currentDateBadge = useMemo(() => {
+    const total = allStudents.length;
+    if (effectiveSavedForCurrentDate > 0 && total > 0 && effectiveSavedForCurrentDate >= total) {
+      return {
+        label: `সংরক্ষিত (${toBanglaNumber(effectiveSavedForCurrentDate)}/${toBanglaNumber(total)} জন)`,
+        tone: "bg-emerald-50 text-emerald-800 border-emerald-200",
+        dot: "bg-emerald-500",
+      };
+    }
+    if (effectiveSavedForCurrentDate > 0) {
+      return {
+        label: `আংশিক সংরক্ষিত (${toBanglaNumber(effectiveSavedForCurrentDate)}/${toBanglaNumber(total)} জন)`,
+        tone: "bg-amber-50 text-amber-800 border-amber-200",
+        dot: "bg-amber-500",
+      };
+    }
+    if (isOffDay) {
+      return {
+        label: "ছুটির দিন",
+        tone: "bg-blue-50 text-blue-800 border-blue-200",
+        dot: "bg-blue-500",
+      };
+    }
+    return {
+      label: "হাজিরা বাকি",
+      tone: "bg-slate-100 text-slate-700 border-slate-200",
+      dot: "bg-slate-400",
+    };
+  }, [allStudents.length, effectiveSavedForCurrentDate, isOffDay]);
 
   const presentCount = Object.values(attendanceState).filter((a) => a.status === "Present").length;
   const absentCount = Object.values(attendanceState).filter((a) => a.status === "Absent").length;
@@ -321,9 +443,18 @@ export default function AttendanceForm({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              হাজিরার তারিখ <span className="text-emerald-600">*</span>
-            </label>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700">
+                হাজিরার তারিখ <span className="text-emerald-600">*</span>
+              </label>
+              <span
+                data-testid="attendance-date-status-badge"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${currentDateBadge.tone}`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${currentDateBadge.dot}`} />
+                <span>{currentDateBadge.label}</span>
+              </span>
+            </div>
             <input
               type="date"
               value={currentDate}
@@ -333,6 +464,90 @@ export default function AttendanceForm({
             />
           </div>
         </div>
+
+        {/* Recent 7-Day Saved Status Strip */}
+        {recentDateStatuses.length > 0 && (
+          <div className="pt-3 border-t border-slate-100 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                <span>সাম্প্রতিক ৭ দিনের হাজিরা স্ট্যাটাস</span>
+              </span>
+              <div className="flex items-center gap-3 text-[10px] font-semibold text-slate-500">
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" /> সংরক্ষিত
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" /> আংশিক
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-slate-300" /> বাকি
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+              {recentDateStatuses.map((item) => {
+                const effCount = Math.max(
+                  item.savedCount,
+                  optimisticSavedCounts[item.date] || 0
+                );
+                const total = item.totalCount || allStudents.length;
+                const isSelected = item.date === currentDate;
+                const isFullSaved = effCount > 0 && total > 0 && effCount >= total;
+                const isPartialSaved = effCount > 0 && !isFullSaved;
+                const { weekdayBn, monthDayBn } = formatDateChipParts(item.date);
+
+                return (
+                  <button
+                    key={item.date}
+                    type="button"
+                    disabled={isPending || loading}
+                    onClick={() => navigateToDate(item.date)}
+                    className={`min-h-[44px] min-w-[76px] px-2.5 py-1.5 rounded-xl border text-left transition flex flex-col justify-center shrink-0 cursor-pointer disabled:opacity-60 ${
+                      isSelected
+                        ? "bg-emerald-700 text-white border-emerald-700 ring-2 ring-emerald-500/30 shadow-xs"
+                        : isFullSaved
+                          ? "bg-emerald-50/80 text-emerald-950 border-emerald-200 hover:bg-emerald-100/70"
+                          : isPartialSaved
+                            ? "bg-amber-50/80 text-amber-950 border-amber-200 hover:bg-amber-100/70"
+                            : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                    }`}
+                    title={`${item.date} — ${isFullSaved ? "সংরক্ষিত" : isPartialSaved ? "আংশিক সংরক্ষিত" : "হাজিরা বাকি"}`}
+                  >
+                    <div className="flex items-center justify-between gap-1.5 w-full">
+                      <span className={`text-[10px] font-bold ${isSelected ? "text-emerald-100" : "text-slate-500"}`}>
+                        {weekdayBn}
+                      </span>
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          isFullSaved
+                            ? isSelected ? "bg-emerald-300" : "bg-emerald-500"
+                            : isPartialSaved
+                              ? "bg-amber-400"
+                              : isSelected ? "bg-white/40" : "bg-slate-300"
+                        }`}
+                      />
+                    </div>
+                    <span className="text-xs font-black leading-tight mt-0.5">{monthDayBn}</span>
+                    <span
+                      className={`text-[9px] font-bold leading-tight mt-0.5 ${
+                        isSelected
+                          ? "text-emerald-100"
+                          : isFullSaved
+                            ? "text-emerald-700"
+                            : isPartialSaved
+                              ? "text-amber-700"
+                              : "text-slate-400"
+                      }`}
+                    >
+                      {isFullSaved ? "সংরক্ষিত" : isPartialSaved ? "আংশিক" : "বাকি"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Quick Stats & Bulk Actions */}
         <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
@@ -617,13 +832,28 @@ export default function AttendanceForm({
         </div>
 
         {/* Bottom Save Bar */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
-          <div className="text-xs text-slate-500 font-medium">
-            মোট শিক্ষার্থী: <strong>{toBanglaNumber(allStudents.length)}</strong> জন
-            {unmarkedCount > 0 && (
-              <span className="ml-2 text-amber-700 font-semibold">
-                • বাকি: {toBanglaNumber(unmarkedCount)} জন
-              </span>
+        <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-slate-500 font-medium space-y-1">
+            <div>
+              মোট শিক্ষার্থী: <strong>{toBanglaNumber(allStudents.length)}</strong> জন
+              {unmarkedCount > 0 && (
+                <span className="ml-2 text-amber-700 font-semibold">
+                  • বাকি: {toBanglaNumber(unmarkedCount)} জন
+                </span>
+              )}
+            </div>
+            {lastSavedReceipt && lastSavedReceipt.date === currentDate && (
+              <div
+                role="status"
+                className="inline-flex items-center gap-1.5 text-emerald-700 font-bold text-xs"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>
+                  {lastSavedReceipt.offline
+                    ? `অফলাইনে সংরক্ষিত ✓ (${toBanglaNumber(lastSavedReceipt.count)} জন)`
+                    : `সফলভাবে সংরক্ষিত ✓ (${toBanglaNumber(lastSavedReceipt.count)} জন)`}
+                </span>
+              </div>
             )}
           </div>
 
@@ -637,37 +867,77 @@ export default function AttendanceForm({
             <span>{loading ? "সংরক্ষণ হচ্ছে..." : "হাজিরা সংরক্ষণ করুন"}</span>
           </button>
         </div>
+
+        {/* Inline Bottom Confirmation Banner (PB-07 — always visible right next to Save button) */}
+        {message && (
+          <div
+            role="status"
+            aria-live="assertive"
+            className={`px-4 py-3 border-t text-xs sm:text-sm font-bold flex items-center justify-between gap-2 ${
+              messageType === "success" || message.includes("সফল") || message.includes("অফলাইনে")
+                ? "bg-emerald-50 text-emerald-900 border-emerald-200"
+                : "bg-rose-50 text-rose-900 border-rose-200"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {messageType === "success" || message.includes("সফল") || message.includes("অফলাইনে") ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span>{message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setMessage("");
+                setMessageType("");
+              }}
+              className="p-1 text-slate-500 hover:text-slate-800 rounded-lg"
+              aria-label="বন্ধ করুন"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Floating Save Toast (PB-07 — always visible regardless of scroll position) */}
-      {message && (
-        <div
-          role="status"
-          aria-live="polite"
-          className={`fixed bottom-20 md:bottom-6 right-4 left-4 sm:left-auto sm:max-w-md z-50 p-4 rounded-2xl shadow-xl border flex items-center justify-between gap-3 text-xs sm:text-sm font-bold ${
-            message.includes("সফল") || message.includes("অফলাইনে")
-              ? "bg-emerald-700 text-white border-emerald-600"
-              : "bg-rose-700 text-white border-rose-600"
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            {message.includes("সফল") || message.includes("অফলাইনে") ? (
-              <CheckCircle2 className="w-5 h-5 shrink-0" />
-            ) : (
-              <AlertCircle className="w-5 h-5 shrink-0" />
-            )}
-            <span>{message}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setMessage("")}
-            className="p-1 rounded-lg hover:bg-white/15 shrink-0"
-            aria-label="বন্ধ করুন"
+      {/* Floating Save Toast (PB-07 — rendered via portal onto document.body so shell overflow never clips it) */}
+      {portalMounted &&
+        message &&
+        createPortal(
+          <div
+            role="alert"
+            aria-live="assertive"
+            data-testid="attendance-save-toast"
+            className={`fixed top-16 md:top-6 right-4 left-4 sm:left-auto sm:max-w-md z-[9999] p-4 rounded-2xl shadow-2xl border flex items-center justify-between gap-3 text-xs sm:text-sm font-bold ${
+              messageType === "success" || message.includes("সফল") || message.includes("অফলাইনে")
+                ? "bg-emerald-700 text-white border-emerald-500"
+                : "bg-rose-700 text-white border-rose-500"
+            }`}
           >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+            <div className="flex items-center gap-2.5">
+              {messageType === "success" || message.includes("সফল") || message.includes("অফলাইনে") ? (
+                <CheckCircle2 className="w-5 h-5 shrink-0" />
+              ) : (
+                <AlertCircle className="w-5 h-5 shrink-0" />
+              )}
+              <span>{message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setMessage("");
+                setMessageType("");
+              }}
+              className="p-1.5 rounded-lg hover:bg-white/15 shrink-0 cursor-pointer"
+              aria-label="বন্ধ করুন"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

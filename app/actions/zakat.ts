@@ -609,13 +609,15 @@ export async function addDonation(prevState: any, formData: FormData) {
       await logAuditEvent({
         madrasaId: finalMadrasaId,
         actorId: user?.id || null,
+        actorEmail: user?.email || null,
         module: "finance",
-        action: "DONATION_COLLECTED",
+        action: "DONATION_RECEIPT_CREATED",
         entityType: "donation",
         entityId: data.id,
         entityLabel: receipt_no,
-        summary: `"${fund.name}" তহবিলে ৳${amount} অনুদান সংগ্রহ করা হয়েছে (রসিদ: ${receipt_no})`,
+        summary: `"${fund.name}" তহবিলে ৳${amount} দান-রসিদ তৈরি করা হয়েছে (রসিদ: ${receipt_no})`,
         newValue: { id: data.id, receipt_no, amount, fund_id: fund.id, fund_name: fund.name, payment_method },
+        metadata: { receipt_no, source: "zakat_donation" },
       });
     }
 

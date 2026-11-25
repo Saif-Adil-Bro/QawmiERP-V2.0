@@ -484,12 +484,18 @@ export async function getBackupOverviewStats(): Promise<{
       countCollectionItems(meta.academic_holidays) +
       1; // Madrasa profile settings
 
-    // Audit logs (N9 Parity Fix: count exact same canonical sources as /dashboard/settings/audit-logs:
-    // SQL system_audit_logs + deduplicated meta.system_audit_logs_fallback, without double-counting legacy meta.audit_logs or backup_history)
+    // Audit logs (N9 Parity Fix: count exact same canonical deduplicated sources as /dashboard/settings/audit-logs)
     const fallbackAuditLogs = Array.isArray(meta.system_audit_logs_fallback)
       ? meta.system_audit_logs_fallback
       : [];
-    const auditLogsCount = (sysAuditLogsRes.count || 0) + fallbackAuditLogs.length;
+    const { fetchCanonicalAuditLogsAndCount } = await import("@/lib/audit-log");
+    const canonicalAudit = await fetchCanonicalAuditLogsAndCount(admin, madrasaId, {
+      fallbackLogs: fallbackAuditLogs,
+      countOnly: true,
+    });
+    const auditLogsCount = canonicalAudit.error
+      ? (sysAuditLogsRes.count || 0)
+      : canonicalAudit.totalCount;
 
     // Dynamic extensions (any other custom keys in metadata that aren't specifically categorized above)
     const standardMetaKeys = new Set([

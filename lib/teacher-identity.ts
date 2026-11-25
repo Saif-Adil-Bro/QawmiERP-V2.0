@@ -39,13 +39,39 @@ export function normalizeBengaliTeacherName(v: unknown): string {
   return v
     .normalize("NFC")
     .replace(/য়/g, "য়")
+    .replace(/ড়/g, "ড়")
+    .replace(/ঢ়/g, "ঢ়")
     .replace(/ূ/g, "ু")
     .replace(/ী/g, "ি")
-    .replace(/^(হযরত\s+|আলহাজ্ব\s+|মাওলানা\s+|হাফেজ\s+|হাফিয\s+|মুফতি\s+|মুফতী\s+|ক্বারী\s+|কারী\s+|উস্তাদ\s+|ওস্তাদ\s+|জনাব\s+|ড\.\s+|প্রফেসর\s+)+/gi, "")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(
+      /^(হযরত\s+|আলহাজ্ব\s+|মাওলানা\s+|হাফেজ\s+|হাফিয\s+|মুফতি\s+|মুফতী\s+|ক্বারী\s+|ক্বারি\s+|কারী\s+|কারি\s+|মৌলভী\s+|মৌলভি\s+|উস্তাদ\s+|ওস্তাদ\s+|জনাব\s+|মোঃ\s*|মো\.\s*|মোহাম্মদ\s+|মুহাম্মদ\s+|মুহাম্মাদ\s+|ড\.\s+|প্রফেসর\s+)+/gi,
+      "",
+    )
     .replace(/(\s+সাহেব|\s+হুজুর|\s+দা\.বা\.|\s+রহ\.)+$/gi, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+export function extractTeacherCandidateNames(record: any): string[] {
+  if (!record) return [];
+  const rawNames = [
+    record?.personal?.full_name_bn,
+    [record?.personal?.first_name, record?.personal?.last_name]
+      .filter(Boolean)
+      .join(" "),
+    record?.full_name_bn,
+    record?.full_name,
+    record?.name,
+    [record?.first_name, record?.last_name].filter(Boolean).join(" "),
+  ];
+  const out = new Set<string>();
+  for (const raw of rawNames) {
+    const n = normalizeBengaliTeacherName(raw);
+    if (n) out.add(n);
+  }
+  return Array.from(out);
 }
 
 const staffIdMatches = (s: any, id: string) =>
@@ -86,19 +112,12 @@ export function resolveTeacherIdentity(
       ss = emailSs;
     }
   }
-  const staffFullName = (s: any) =>
-    normalizeBengaliTeacherName(
-      s?.personal?.full_name_bn ||
-        [s?.personal?.first_name, s?.personal?.last_name]
-          .filter(Boolean)
-          .join(" ") ||
-        s?.name ||
-        [s?.first_name, s?.last_name].filter(Boolean).join(" "),
-    );
-  const teacherFullName = (t: any) =>
-    normalizeBengaliTeacherName(
-      [t?.first_name, t?.last_name].filter(Boolean).join(" ") || t?.name,
-    );
+  const hasSharedName = (a: any, b: any) => {
+    const aNames = extractTeacherCandidateNames(a);
+    if (!aNames.length) return false;
+    const bNames = new Set(extractTeacherCandidateNames(b));
+    return aNames.some((n) => bNames.has(n));
+  };
 
   if (!ts.length && ss.length >= 1) {
     const s = ss[0];
@@ -110,8 +129,11 @@ export function resolveTeacherIdentity(
     const email = norm(s.contact?.email || s.email);
     if (!ts.length && email) {
       const emailMatches = teachers.filter((r) => norm(r.email) === email);
-      if (emailMatches.length > 1) return empty;
-      ts = emailMatches;
+      if (emailMatches.length > 1) {
+        if (!linkedId) return empty;
+      } else {
+        ts = emailMatches;
+      }
     }
     const phone = normalizePhoneKey(s.contact?.phone || s.phone);
     if (!ts.length && phone) {
@@ -120,9 +142,8 @@ export function resolveTeacherIdentity(
       );
       if (phoneMatches.length === 1) ts = phoneMatches;
     }
-    const sName = staffFullName(s);
-    if (!ts.length && sName) {
-      const nameMatches = teachers.filter((r) => teacherFullName(r) === sName);
+    if (!ts.length && extractTeacherCandidateNames(s).length > 0) {
+      const nameMatches = teachers.filter((r) => hasSharedName(s, r));
       if (nameMatches.length === 1) ts = nameMatches;
     }
   }
@@ -136,8 +157,11 @@ export function resolveTeacherIdentity(
       const emailMatches = staffMembers.filter(
         (r) => norm(r.contact?.email || r.email) === email,
       );
-      if (emailMatches.length > 1) return empty;
-      ss = emailMatches;
+      if (emailMatches.length > 1) {
+        if (!linkedId) return empty;
+      } else {
+        ss = emailMatches;
+      }
     }
     const phone = normalizePhoneKey(t.phone);
     if (!ss.length && phone) {
@@ -146,9 +170,8 @@ export function resolveTeacherIdentity(
       );
       if (phoneMatches.length === 1) ss = phoneMatches;
     }
-    const tName = teacherFullName(t);
-    if (!ss.length && tName) {
-      const nameMatches = staffMembers.filter((r) => staffFullName(r) === tName);
+    if (!ss.length && extractTeacherCandidateNames(t).length > 0) {
+      const nameMatches = staffMembers.filter((r) => hasSharedName(t, r));
       if (nameMatches.length === 1) ss = nameMatches;
     }
   }
@@ -166,14 +189,13 @@ export function resolveTeacherIdentity(
   if (ts.length >= 1) {
     const primary = ts[0];
     const pPhone = normalizePhoneKey(primary.phone);
-    const pName = teacherFullName(primary);
     const extraTeachers = teachers.filter(
       (r) =>
         (!r.auth_user_id ||
           !primary.auth_user_id ||
           r.auth_user_id === primary.auth_user_id) &&
         ((pPhone && normalizePhoneKey(r.phone) === pPhone) ||
-          (pName && teacherFullName(r) === pName)),
+          hasSharedName(primary, r)),
     );
     for (const et of extraTeachers) {
       if (!ts.some((x) => x.id === et.id)) ts.push(et);

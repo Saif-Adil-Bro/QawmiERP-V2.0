@@ -219,9 +219,146 @@ function extractChangedKeys(oldVal: unknown, newVal: unknown): string[] {
 function triggerAuditRevalidate() {
   try {
     revalidatePath("/dashboard/settings/audit-logs");
+    revalidatePath("/dashboard/settings/backup");
   } catch {
     // Safe no-op outside Next.js server action/request lifecycle (e.g. unit tests)
   }
+}
+
+function buildAuditSemanticKey(row: Partial<SystemAuditLogRecord>): string {
+  const tsSecond = String(row.created_at || "").slice(0, 19);
+  const action = String(row.action || "").trim().toUpperCase();
+  const mod = String(row.module || "").trim().toLowerCase();
+  const entityId = String(row.entity_id || "").trim();
+  const summaryPrefix = String(row.summary || "").trim().slice(0, 80);
+  if (!tsSecond || !action) return "";
+  return `${action}|${mod}|${entityId}|${tsSecond}|${summaryPrefix}`;
+}
+
+/**
+ * Canonical deduplication across SQL `system_audit_logs` and metadata fallback logs.
+ * Prevents double-counting rows that were migrated from `system_audit_logs_fallback`
+ * into SQL (linked via `metadata.legacy_id` or identical action/entity/timestamp).
+ */
+export function mergeAndDeduplicateAuditLogs(
+  sqlLogs: SystemAuditLogRecord[],
+  fallbackLogs: SystemAuditLogRecord[]
+): SystemAuditLogRecord[] {
+  const seenIds = new Set<string>();
+  const migratedLegacyIds = new Set<string>();
+  const seenSemanticKeys = new Set<string>();
+  const merged: SystemAuditLogRecord[] = [];
+
+  for (const row of sqlLogs) {
+    const id = String(row.id || "");
+    const legacyId = String((row.metadata as any)?.legacy_id || "");
+    const semKey = buildAuditSemanticKey(row);
+    if (id && seenIds.has(id)) continue;
+    if (id) seenIds.add(id);
+    if (legacyId) migratedLegacyIds.add(legacyId);
+    if (semKey) seenSemanticKeys.add(semKey);
+    merged.push(row);
+  }
+
+  for (const row of fallbackLogs) {
+    const id = String(row.id || "");
+    const semKey = buildAuditSemanticKey(row);
+    if (id && (seenIds.has(id) || migratedLegacyIds.has(id))) continue;
+    if (semKey && seenSemanticKeys.has(semKey)) continue;
+    if (id) seenIds.add(id);
+    if (semKey) seenSemanticKeys.add(semKey);
+    merged.push(row);
+  }
+
+  merged.sort((a, b) =>
+    String(b.created_at || "").localeCompare(String(a.created_at || ""))
+  );
+  return merged;
+}
+
+/**
+ * Shared canonical audit log counter/reader used by both `/dashboard/settings/audit-logs`
+ * and `/dashboard/settings/backup` so both views always show the exact same record count.
+ */
+export async function fetchCanonicalAuditLogsAndCount(
+  adminClient: any,
+  madrasaId: string,
+  options?: {
+    fallbackLogs?: SystemAuditLogRecord[];
+    countOnly?: boolean;
+    limit?: number;
+  }
+): Promise<{
+  logs: SystemAuditLogRecord[];
+  totalCount: number;
+  storage: "sql" | "fallback";
+  error?: string;
+}> {
+  let fallbackLogs: SystemAuditLogRecord[] = Array.isArray(options?.fallbackLogs)
+    ? options.fallbackLogs
+    : [];
+
+  if (!options?.fallbackLogs) {
+    try {
+      const { getMadrasaMetadata } = await import("@/lib/sessions");
+      const meta: any = await getMadrasaMetadata(madrasaId, true);
+      fallbackLogs = Array.isArray(meta?.system_audit_logs_fallback)
+        ? (meta.system_audit_logs_fallback as SystemAuditLogRecord[])
+        : [];
+    } catch {
+      fallbackLogs = [];
+    }
+  }
+
+  const selectCols = options?.countOnly
+    ? "id, madrasa_id, module, action, entity_id, summary, metadata, severity, created_at"
+    : "*";
+
+  const sqlRows: SystemAuditLogRecord[] = [];
+  let storage: "sql" | "fallback" = "sql";
+  const maxRows = options?.countOnly
+    ? 5000
+    : Math.min(Math.max(Number(options?.limit) || 500, 10), 2000);
+  const pageSize = 500;
+
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const end = Math.min(offset + pageSize - 1, maxRows - 1);
+    const { data, error } = await adminClient
+      .from("system_audit_logs")
+      .select(selectCols)
+      .eq("madrasa_id", madrasaId)
+      .order("created_at", { ascending: false })
+      .range(offset, end);
+
+    if (error) {
+      if (isMissingTableError(error)) {
+        storage = "fallback";
+        const mergedFallback = mergeAndDeduplicateAuditLogs([], fallbackLogs);
+        return {
+          logs: mergedFallback,
+          totalCount: mergedFallback.length,
+          storage,
+        };
+      }
+      return {
+        logs: [],
+        totalCount: 0,
+        storage: "fallback",
+        error: error.message,
+      };
+    }
+
+    const batch = Array.isArray(data) ? (data as SystemAuditLogRecord[]) : [];
+    sqlRows.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+
+  const merged = mergeAndDeduplicateAuditLogs(sqlRows, fallbackLogs);
+  return {
+    logs: merged,
+    totalCount: merged.length,
+    storage,
+  };
 }
 
 /**
