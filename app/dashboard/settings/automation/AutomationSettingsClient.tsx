@@ -10,6 +10,7 @@ import {
   CalendarClock,
   Save,
   X,
+  ShieldCheck,
 } from "lucide-react";
 import {
   getAutomationRulesAction,
@@ -239,6 +240,35 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
           {feedback.text}
         </div>
       )}
+
+      {/* DEC-1 Scheduler & Monthly Fee Deduplication Guard Status */}
+      <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50/90 to-teal-50/70 p-4 sm:p-5 shadow-xs dark:border-emerald-900/60 dark:from-emerald-950/40 dark:to-teal-950/30">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-emerald-600/10 p-2.5 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 shrink-0">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-sm sm:text-base font-bold text-emerald-950 dark:text-emerald-100">
+                মাসিক ফি অটোমেশন ও ডুপ্লিকেট সুরক্ষা সক্রিয়
+              </h2>
+              <p className="mt-0.5 text-xs text-emerald-800/90 dark:text-emerald-300/90">
+                একই শিক্ষার্থী, ফি-খাত ও বিলিং পিরিয়ডের (student + fee_type + billing_period) জন্য স্বয়ংক্রিয়ভাবে ডুপ্লিকেট ইনভয়েস ব্লক করা হয়।
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300/80 bg-white/80 px-2.5 py-1 text-emerald-900 dark:border-emerald-800 dark:bg-slate-900/70 dark:text-emerald-200">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+              সক্রিয় রুল: {toBanglaNumber(rules.filter((r) => r.is_enabled !== false).length)} / {toBanglaNumber(rules.length)}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-teal-300/80 bg-white/80 px-2.5 py-1 text-teal-900 dark:border-teal-800 dark:bg-slate-900/70 dark:text-teal-200">
+              <CalendarClock className="h-3.5 w-3.5 text-teal-600" />
+              সময় অঞ্চল: Asia/Dhaka (BDT)
+            </span>
+          </div>
+        </div>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         {rules.map((rule) => {
@@ -499,9 +529,16 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
                       </span>
                     </td>
                     <td className="py-2 pr-3 text-slate-600 dark:text-slate-300">
-                      {toBanglaNumber(log.processed_count || 0)} /{" "}
-                      {toBanglaNumber(log.success_count || 0)} /{" "}
-                      {toBanglaNumber(log.failed_count || 0)}
+                      <div>
+                        {toBanglaNumber(log.processed_count || 0)} /{" "}
+                        {toBanglaNumber(log.success_count || 0)} /{" "}
+                        {toBanglaNumber(log.failed_count || 0)}
+                      </div>
+                      {typeof log.summary?.skippedExisting === "number" && (
+                        <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                          ডুপ্লিকেট স্কিপ: {toBanglaNumber(log.summary.skippedExisting)}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2 text-xs text-slate-500 dark:text-slate-400">
                       {toBanglaNumber(log.duration_ms || 0)} ms

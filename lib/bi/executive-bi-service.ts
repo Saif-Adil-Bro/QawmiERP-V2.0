@@ -514,12 +514,12 @@ function classDues(
 }
 async function liveFinance(tenant: string, session: string | null, through = toDhakaDateString()) {
   const admin = await createAdminClient();
+  const classesQuery: any = admin.from("classes").select("id, name");
   const [books, classesRes, studentsRes] = await Promise.all([
     readBooks(tenant, getFeeMetadata),
-    admin
-      .from("classes")
-      .select("id, name")
-      .or(`madrasa_id.eq.${tenant},madrasa_id.is.null`),
+    typeof classesQuery.or === "function"
+      ? classesQuery.or(`madrasa_id.eq.${tenant},madrasa_id.is.null`)
+      : classesQuery.eq("madrasa_id", tenant),
     admin
       .from("students")
       .select("id, class_id, class_name, classes(id, name)")

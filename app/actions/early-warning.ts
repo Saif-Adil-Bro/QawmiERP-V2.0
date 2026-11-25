@@ -1,5 +1,6 @@
 "use server";
 import {getMadrasaMetadata} from '@/lib/sessions';
+import {getFeeMetadata} from '@/lib/fee-store';
 import {studentRoles} from '@/lib/portal/rules';
 import {webIdentity,hasRole,webTeacher} from '@/lib/portal/identity';
 
@@ -298,15 +299,15 @@ export async function getEarlyWarningAlerts(
       studentMap.has(s.student_id)
     );
 
-    // Also inspect unpaid/overdue fee invoices and SQL student_fees / fees for students in scope (PB-04 & N11)
+    // Also inspect unpaid/overdue fee invoices and SQL/metadata student_fees / fees for students in scope (PB-04 & N11)
     const metaForFees = teacher?.scope.meta || (await getMadrasaMetadata(madrasaId));
     const dueByStudent = new Map<string, number>();
 
     const scopedIds = Array.from(studentMap.keys());
-    const [{ data: studentFeesRows }, { data: sqlFees }] = await Promise.all([
+    const [{ data: studentFeesRows }, { data: sqlFees }, feeBook] = await Promise.all([
       adminClient
         .from("student_fees")
-        .select("student_id, payable_amount, paid_amount, due_amount, status")
+        .select("id, student_id, payable_amount, paid_amount, due_amount, status")
         .eq("madrasa_id", madrasaId)
         .in("student_id", scopedIds),
       adminClient
@@ -314,15 +315,38 @@ export async function getEarlyWarningAlerts(
         .select("student_id, amount, paid_amount, status")
         .eq("madrasa_id", madrasaId)
         .in("student_id", scopedIds),
+      getFeeMetadata(madrasaId).catch(() => ({ student_fees: [] as any[] })),
     ]);
 
+    const seenFeeIds = new Set<string>();
     for (const sf of studentFeesRows || []) {
       if (!sf?.student_id) continue;
+      if (sf.id) seenFeeIds.add(String(sf.id));
       const stStatus = String(sf.status || "").toUpperCase();
       if (stStatus === "PAID" || stStatus === "WAIVED") continue;
       const payable = Number(sf.payable_amount || 0);
       const paid = Number(sf.paid_amount || 0);
       const due = Math.max(0, Number(sf.due_amount ?? payable - paid));
+      if (due > 0) {
+        dueByStudent.set(sf.student_id, (dueByStudent.get(sf.student_id) || 0) + due);
+      }
+    }
+
+    // Merge canonical fee-store / metadata student_fees (deduplicated by fee id)
+    const metaStudentFees: any[] = Array.isArray((feeBook as any)?.student_fees)
+      ? (feeBook as any).student_fees
+      : Array.isArray((metaForFees as any)?.student_fees)
+        ? (metaForFees as any).student_fees
+        : [];
+    for (const sf of metaStudentFees) {
+      if (!sf?.student_id || !studentMap.has(sf.student_id)) continue;
+      if (sf.id && seenFeeIds.has(String(sf.id))) continue;
+      if (sf.id) seenFeeIds.add(String(sf.id));
+      const stStatus = String(sf.status || "").toUpperCase();
+      if (stStatus === "PAID" || stStatus === "WAIVED") continue;
+      const payable = Number(sf.payable_amount ?? sf.amount ?? 0);
+      const paid = Number(sf.paid_amount ?? 0);
+      const due = Math.max(0, Number(sf.due_amount ?? Math.max(0, payable - paid)));
       if (due > 0) {
         dueByStudent.set(sf.student_id, (dueByStudent.get(sf.student_id) || 0) + due);
       }
@@ -434,30 +458,45 @@ export async function getEarlyWarningAlerts(
       });
     }
 
-    // Apply overdue fees into composite score
+    // Apply overdue fees into composite score (overrides new-student grace period when due > 0)
     dueByStudent.forEach((totalDue, studentId) => {
       if (totalDue <= 0) return;
       const existing = scoreByStudent.get(studentId);
       if (!existing) return;
       const feeFactor = `বকেয়া ফি: ৳${totalDue.toLocaleString("bn-BD")}`;
       const feeRiskLevel = totalDue >= 5000 ? "HIGH" : "MEDIUM";
-      const feeScore = totalDue >= 5000 ? 68 : 45;
+      const feeScorePart = totalDue >= 5000 ? 30 : totalDue >= 2000 ? 25 : 15;
+      const compositeFloor = totalDue >= 5000 ? 55 : totalDue >= 2000 ? 35 : 25;
       const factors = Array.isArray(existing.factors)
-        ? existing.factors.filter((f) => f !== "স্বাভাবিক একাডেমিক ও হাজিরা অগ্রগতি")
+        ? existing.factors.filter(
+            (f) =>
+              f !== "স্বাভাবিক একাডেমিক ও হাজিরা অগ্রগতি" &&
+              !f.includes("প্রাথমিক গ্রেস পিরিয়ড") &&
+              !f.includes("নতুন ভর্তি হওয়া শিক্ষার্থী")
+          )
         : [];
-      if (!factors.some((f) => f.includes("বকেয়া ফি"))) {
+      if (!factors.some((f) => f.includes("বকেয়া ফি") || f.includes("ফি বকেয়া"))) {
         factors.unshift(feeFactor);
       }
       const recs = Array.isArray(existing.recommendations)
-        ? existing.recommendations.filter((r) => r !== "নিয়মিত পর্যবেক্ষণ অব্যাহত রাখুন।")
+        ? existing.recommendations.filter(
+            (r) =>
+              r !== "নিয়মিত পর্যবেক্ষণ অব্যাহত রাখুন।" &&
+              !r.includes("প্রাথমিক ক্লাস পর্যবেক্ষণ চালু রাখুন")
+          )
         : [];
       if (!recs.some((r) => r.includes("বকেয়া ফি") || r.includes("বকেয়া ফি"))) {
         recs.push("অভিভাবকের সাথে যোগাযোগ করে বকেয়া ফি পরিশোধের তাগিদ দিন।");
       }
+      const nextFeeScore = Math.max(existing.fee_score || 0, feeScorePart);
+      const summedComposite = Math.min(
+        100,
+        (existing.attendance_score || 0) + (existing.academic_score || 0) + nextFeeScore
+      );
       scoreByStudent.set(studentId, {
         ...existing,
-        composite_score: Math.max(existing.composite_score || 0, feeScore),
-        fee_score: Math.max(existing.fee_score || 0, 30),
+        composite_score: Math.max(existing.composite_score || 0, summedComposite, compositeFloor),
+        fee_score: nextFeeScore,
         risk_level:
           existing.risk_level === "CRITICAL"
             ? "CRITICAL"

@@ -112,6 +112,22 @@ export function computeStudentRiskScore(
         factors.push(`মোট ${formatBanglaCurrency(overdueAmt)} ফি বকেয়া`);
       }
 
+      if (overdueInvoices >= 1 && overdueAmt > 0) {
+        if (overdueAmt >= 5000) {
+          feeScore += 14;
+        } else if (overdueAmt >= 2000) {
+          feeScore += 9;
+        } else if (overdueAmt >= 500) {
+          feeScore += 4;
+        }
+        const dueLabel = `মোট ${formatBanglaCurrency(overdueAmt)} ফি বকেয়া`;
+        if (!factors.some((f) => f.includes("ফি বকেয়া"))) {
+          factors.push(dueLabel);
+        } else {
+          factors.push(`বকেয়া পরিমাণ: ${formatBanglaCurrency(overdueAmt)}`);
+        }
+      }
+
       feeScore = clamp(feeScore, 0, 30);
       if (feeScore >= 15) {
         recommendations.push(

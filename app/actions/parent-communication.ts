@@ -12,6 +12,7 @@ import { getAuthMadrasaId } from "./students";
 import { sendSMS, sendBulkSMS, getSMSGatewayConfig } from "./communication";
 import { normalizePhoneNumber } from "@/lib/sms-gateway";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import { logAuditEvent } from "@/lib/audit-log";
 import {
   computeAbsenceStreakAndMonthly,
   computeRosterAttendanceTruth,
@@ -459,7 +460,8 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
       .single();
 
     const madrasaName = madrasaRow?.name || "কওমি মাদরাসা";
-    const date = targetDate || toDhakaDateString();
+    const requestedDate = typeof targetDate === "string" ? targetDate.trim() : "";
+    let date = requestedDate || toDhakaDateString();
 
     // 1. Fetch all students of this madrasa with classes(id, name)
     let studentQuery = adminClient
@@ -494,11 +496,36 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
     );
 
     // 2. Fetch attendance for this date
-    const { data: attList } = await adminClient
+    let { data: attList } = await adminClient
       .from("attendance")
       .select("student_id, status")
       .eq("madrasa_id", madrasaId)
       .eq("date", date);
+
+    let usedFallbackLatestDate = false;
+    // N6 Fix: When no explicit date was requested and today has zero attendance rows yet,
+    // fall back to the most recent recorded attendance date for this madrasa so summary
+    // counters reflect the latest saved attendance register instead of showing 0 present / all unmarked.
+    if (!requestedDate && (!attList || attList.length === 0)) {
+      const { data: latestRow } = await adminClient
+        .from("attendance")
+        .select("date")
+        .eq("madrasa_id", madrasaId)
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestRow?.date && String(latestRow.date) !== date) {
+        date = String(latestRow.date);
+        usedFallbackLatestDate = true;
+        const { data: fallbackAtt } = await adminClient
+          .from("attendance")
+          .select("student_id, status")
+          .eq("madrasa_id", madrasaId)
+          .eq("date", date);
+        attList = fallbackAtt || [];
+      }
+    }
 
     const truth = computeRosterAttendanceTruth(students, attList || []);
 
@@ -629,6 +656,7 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
       unmarkedCount: truth.unmarkedCount,
       madrasaName,
       date,
+      usedFallbackLatestDate,
       settings,
     };
   } catch (e) {
@@ -749,6 +777,18 @@ export async function saveAbsenceAlertSettings(settings: Partial<AbsenceAlertSet
       .eq("id", madrasaId);
 
     if (error) return { error: error.message };
+
+    await logAuditEvent({
+      madrasaId,
+      actorId: user?.id || null,
+      actorEmail: user?.email || null,
+      module: "settings",
+      action: "ABSENCE_ALERT_SETTINGS_UPDATED",
+      entityType: "madrasa_settings",
+      entityId: madrasaId,
+      summary: "অনুপস্থিতি ও হোয়াটসঅ্যাপ অ্যালার্ট সেটিংস হালনাগাদ করা হয়েছে",
+      newValue: updatedMeta.absence_alerts,
+    });
 
     revalidatePath("/dashboard/communication/absence-alerts");
     return { success: true };

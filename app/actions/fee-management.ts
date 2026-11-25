@@ -573,6 +573,25 @@ export async function generateMonthlyFees(params: {
       return { error: "তৈরি হওয়া ফি ইনভয়েসগুলো ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন। (কোনো পরিবর্তন প্রয়োগ হয়নি)" };
     }
 
+    await logAuditEvent({
+      madrasaId,
+      actorId: user?.id || null,
+      actorEmail: user?.email || null,
+      module: "fees",
+      action: "MONTHLY_FEES_GENERATED",
+      entityType: "student_fees",
+      entityId: params.billingPeriod,
+      entityLabel: params.billingPeriod,
+      summary: `${params.billingPeriod} সেশনের জন্য ${affectedStudentCount} জন শিক্ষার্থীর ${generatedCount}টি নতুন ফি ইনভয়েস তৈরি করা হয়েছে (${skippedCount}টি স্কিপ, ${updatedCount}টি আপডেট)`,
+      newValue: {
+        billing_period: params.billingPeriod,
+        generated_count: generatedCount,
+        updated_count: updatedCount,
+        skipped_count: skippedCount,
+        affected_students: affectedStudentCount,
+      },
+    });
+
     revalidatePath("/dashboard/accounting");
     revalidatePath("/portal/fees");
     revalidatePath("/portal");

@@ -398,7 +398,11 @@ export async function getGlobalNotifications(limit = 60): Promise<{
             const rawStock = item.in_stock_qty ?? item.quantity ?? item.current_stock;
             if (rawStock === undefined || rawStock === null) return;
             const currentQty = Number(rawStock);
-            const minStock = Number(item.min_stock_alert ?? 0);
+            const rawMin = item.min_stock_alert ?? item.min_stock ?? item.reorder_level;
+            const minStock =
+              rawMin !== undefined && rawMin !== null && Number(rawMin) > 0
+                ? Number(rawMin)
+                : 3;
             if (!Number.isFinite(currentQty) || minStock <= 0) return;
             if (currentQty < minStock) {
               items.push({

@@ -7,6 +7,7 @@ import {
 import { toDhakaDateString, toDhakaDateStringFrom } from "@/lib/date-utils";
 import { computeStudentRiskScore } from "@/lib/early-warning-engine";
 import { dispatchNotification } from "@/lib/notifications/orchestrator";
+import { getFeeMetadata } from "@/lib/fee-store";
 import type {
   AttendanceDropAlert,
   EarlyWarningSummary,
@@ -133,11 +134,13 @@ export async function recalculateStudentRiskScores(
 
   const studentIds = students.map((s) => String(s.id));
 
-  // 2. Parallel Data Fetching (using ONLY verified SQL columns)
+  // 2. Parallel Data Fetching (using ONLY verified SQL columns + canonical fee store)
   const [
     attendanceRes,
     examResultsRes,
     studentFeesRes,
+    legacyFeesRes,
+    feeBook,
     waiversRes,
     hifzRes,
     kitabRes,
@@ -156,9 +159,14 @@ export async function recalculateStudentRiskScores(
     admin
       .from("student_fees")
       .select(
-        "id, student_id, payable_amount, paid_amount, due_amount, due_date, status"
+        "id, student_id, payable_amount, paid_amount, due_amount, status, created_at"
       )
       .eq("madrasa_id", madrasaId),
+    admin
+      .from("fees")
+      .select("id, student_id, amount, paid_amount, status, created_at")
+      .eq("madrasa_id", madrasaId),
+    getFeeMetadata(madrasaId).catch(() => ({ student_fees: [] as any[] })),
     admin
       .from("fee_discount_waivers")
       .select("student_id, discount_type, status")
@@ -296,7 +304,22 @@ export async function recalculateStudentRiskScores(
     string,
     { overdueCount: number; overdueAmount: number; totalPayable: number; maxOverdueDays: number; allPaid: boolean }
   >();
-  for (const f of studentFeesRes.data || []) {
+  const seenFeeRowIds = new Set<string>();
+  const allFeeRows: any[] = [];
+  for (const row of studentFeesRes.data || []) {
+    const rid = String(row.id || "");
+    if (rid) seenFeeRowIds.add(rid);
+    allFeeRows.push(row);
+  }
+  for (const row of Array.isArray((feeBook as any)?.student_fees) ? (feeBook as any).student_fees : []) {
+    const rid = String(row?.id || "");
+    if (rid && seenFeeRowIds.has(rid)) continue;
+    if (rid) seenFeeRowIds.add(rid);
+    allFeeRows.push(row);
+  }
+
+  for (const f of allFeeRows) {
+    if (!f?.student_id) continue;
     const sid = String(f.student_id);
     const cur = feeStatsByStudent.get(sid) || {
       overdueCount: 0,
@@ -305,22 +328,52 @@ export async function recalculateStudentRiskScores(
       maxOverdueDays: 0,
       allPaid: true,
     };
-    const payable = Number(f.payable_amount || 0);
-    const due = Number(f.due_amount ?? Math.max(0, payable - Number(f.paid_amount || 0)));
+    const payable = Number(f.payable_amount ?? f.amount ?? 0);
+    const paid = Number(f.paid_amount ?? 0);
+    const due = Math.max(0, Number(f.due_amount ?? Math.max(0, payable - paid)));
     const status = String(f.status || "").toUpperCase();
     cur.totalPayable += payable;
 
     if (status !== "PAID" && status !== "WAIVED" && due > 0) {
       cur.allPaid = false;
-      const dueDateStr = f.due_date ? String(f.due_date).slice(0, 10) : "";
+      const dueDateStr = f.due_date
+        ? String(f.due_date).slice(0, 10)
+        : f.created_at
+          ? String(f.created_at).slice(0, 10)
+          : "";
       const daysOverdue = dueDateStr && dueDateStr < todayStr ? diffDays(todayStr, dueDateStr) : 0;
-      if (daysOverdue > 0 || status === "OVERDUE" || status === "UNPAID" || status === "PARTIAL") {
+      if (daysOverdue > 0 || status === "OVERDUE" || status === "UNPAID" || status === "PARTIAL" || due > 0) {
         cur.overdueCount += 1;
         cur.overdueAmount += due;
         if (daysOverdue > cur.maxOverdueDays) cur.maxOverdueDays = daysOverdue;
       }
     }
     feeStatsByStudent.set(sid, cur);
+  }
+
+  // Fallback for legacy SQL `fees` rows when student has no records in `student_fees`
+  for (const lf of legacyFeesRes.data || []) {
+    if (!lf?.student_id) continue;
+    const sid = String(lf.student_id);
+    if (feeStatsByStudent.has(sid)) continue;
+    const status = String(lf.status || "").toUpperCase();
+    const amount = Number(lf.amount || 0);
+    const paid = Number(lf.paid_amount || 0);
+    const due = Math.max(0, amount - paid);
+    if (status !== "PAID" && status !== "WAIVED" && due > 0) {
+      const cur = feeStatsByStudent.get(sid) || {
+        overdueCount: 0,
+        overdueAmount: 0,
+        totalPayable: 0,
+        maxOverdueDays: 0,
+        allPaid: false,
+      };
+      cur.totalPayable += amount;
+      cur.overdueCount += 1;
+      cur.overdueAmount += due;
+      cur.allPaid = false;
+      feeStatsByStudent.set(sid, cur);
+    }
   }
 
   // Group Hifz & Kitab logs by student

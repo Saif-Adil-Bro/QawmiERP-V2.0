@@ -39,6 +39,7 @@ export interface DefaultAutomationRule {
   description: string;
   cron_expression: string;
   is_enabled: boolean;
+  config?: Record<string, any>;
 }
 
 const FALLBACK_RULES_KEY = "automation_rules";
@@ -52,9 +53,14 @@ export const DEFAULT_AUTOMATION_RULES: DefaultAutomationRule[] = [
     rule_key: "monthly_fee_generation",
     name: "Monthly Fee Invoice Generation",
     name_bn: "মাসিক ফি ইনভয়েস অটো-জেনারেশন",
-    description: "নির্ধারিত দিনে সকল সক্রিয় শিক্ষার্থীর মাসিক ফি ইনভয়েস তৈরি করে।",
+    description: "নির্ধারিত দিনে ডুপ্লিকেট ইনভয়েস সুরক্ষাসহ সকল সক্রিয় শিক্ষার্থীর মাসিক ফি ইনভয়েস তৈরি করে।",
     cron_expression: "0 7 1 * *", // মাসের ১ তারিখ সকাল ০৭:০০ BDT
     is_enabled: true,
+    config: {
+      timezone: "Asia/Dhaka",
+      dedup_enabled: true,
+      dedup_window: "billing_period",
+    },
   },
   {
     rule_key: "overdue_reminders",

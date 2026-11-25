@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { 
   ArrowLeft, BookOpen, Layers, PlusCircle, Trash2, 
-  RefreshCw, AlertCircle, CheckCircle2, BookmarkCheck, ArrowRight, UserCheck
+  RefreshCw, AlertCircle, CheckCircle2, BookmarkCheck, ArrowRight, UserCheck, AlertTriangle, X
 } from "lucide-react";
 import { setClassSubjectTeacher } from "@/app/actions/teacher_subjects";
 import type { AvailableTeacher } from "@/app/actions/classes";
@@ -88,6 +88,7 @@ export default function ClassSubjectsManager({
   const [isPending, setIsPending] = useState(false);
   const [savingTeacherForSubject, setSavingTeacherForSubject] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<AssignedSubjectItem | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const pendingRef = useRef(false);
   const submittingRef = useRef(false);
@@ -307,11 +308,15 @@ export default function ClassSubjectsManager({
     }
   };
 
-  const handleRemove = async (assignedItem: AssignedSubjectItem) => {
+  const requestRemove = (assignedItem: AssignedSubjectItem) => {
+    setPendingDeleteItem(assignedItem);
+  };
+
+  const handleConfirmRemove = async () => {
+    if (!pendingDeleteItem) return;
+    const assignedItem = pendingDeleteItem;
     const subName = assignedItem.subjects?.name || "বিষয়টি";
-    if (!confirm(`আপনি কি নিশ্চিত যে "${subName}" বিষয়টিকে ${className} জামাত থেকে বাদ দিতে চান?`)) {
-      return;
-    }
+    setPendingDeleteItem(null);
 
     submittingRef.current = true;
     armSaveGuard("class-subject-remove");
@@ -527,7 +532,7 @@ export default function ClassSubjectsManager({
 
                           <button
                             type="button"
-                            onClick={() => handleRemove(item)}
+                            onClick={() => requestRemove(item)}
                             disabled={isDeleting}
                             className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl transition disabled:opacity-50 cursor-pointer shrink-0 border border-transparent hover:border-rose-200"
                             title="বিষয়টি এই জামাত থেকে বাদ দিন"
@@ -645,6 +650,64 @@ export default function ClassSubjectsManager({
           </div>
         </div>
       </div>
+
+      {/* In-app Delete Confirmation Modal (No native window.confirm) */}
+      {pendingDeleteItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="class-subject-remove-title"
+        >
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-5 sm:p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <h3 id="class-subject-remove-title" className="text-base font-black text-slate-900">
+                    জামাত থেকে বিষয় বাদ দিন
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">এই কাজটি নিশ্চিত করুন</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingDeleteItem(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                aria-label="বন্ধ করুন"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-700 leading-relaxed">
+              আপনি কি নিশ্চিত যে{" "}
+              <span className="font-bold text-slate-900">
+                &ldquo;{pendingDeleteItem.subjects?.name || "বিষয়টি"}&rdquo;
+              </span>{" "}
+              বিষয়টিকে <span className="font-semibold text-emerald-700">{className}</span> জামাত থেকে বাদ দিতে চান?
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteItem(null)}
+                className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+              >
+                বাতিল করুন
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRemove}
+                className="min-h-[44px] px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-bold transition-colors inline-flex items-center gap-2 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>হ্যাঁ, বাদ দিন</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

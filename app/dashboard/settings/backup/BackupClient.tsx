@@ -900,7 +900,7 @@ export default function BackupClient({
               <span>যাকাত ও অনুদান</span>
             </div>
             <p className="text-lg sm:text-xl font-black text-slate-900 mt-1">
-              {((stats.counts?.zakat_donations || 0) + (stats.counts?.fundraising_special || 0) + (stats.counts?.donors_funds || 0)).toLocaleString("bn-BD")} টি
+              {(stats.counts?.zakat_donations || 0).toLocaleString("bn-BD")} টি
             </p>
           </div>
 

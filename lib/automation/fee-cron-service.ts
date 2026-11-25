@@ -4,11 +4,26 @@ import {billingSession} from '@/lib/finance/billing-session';
 import {monthlyCharges} from '@/lib/finance/monthly-charges';
 import {rows} from "@/lib/portal/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isMissingTableError } from "@/lib/audit-log";
+import { isMissingTableError, logAuditEvent } from "@/lib/audit-log";
 import { toDhakaMonthString } from "@/lib/date-utils";
 import { dispatchNotification } from "@/lib/notifications/orchestrator";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { runTrackedCronJob } from "@/lib/automation/cron-auth";
+
+/**
+ * DEC-1 Canonical Deduplication Key for monthly fee generation.
+ * Ensures a student can never receive duplicate invoices for the same fee type & billing period
+ * across automated cron runs, manual triggers, or session transitions.
+ */
+export function buildMonthlyFeeDedupKey(
+  studentId: string,
+  feeTypeId: string,
+  billingPeriod: string
+): string {
+  const raw = String(billingPeriod || "").trim();
+  const period = /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 7) : billPeriodKey(raw);
+  return `${String(studentId).trim()}::${String(feeTypeId).trim()}::${period}`;
+}
 
 async function getTargetMadrasaIds(madrasaId?: string | null): Promise<string[]> {
   if (madrasaId) return [madrasaId];
@@ -67,12 +82,37 @@ export async function runMonthlyFeeGenerationCron(opts: {
         }
 
         const admin = await createAdminClient();
-        const [roster,book,activeSession]=await Promise.all([
-          rows(()=>admin.from('students').select('*').eq('madrasa_id',madrasaId)),
-          getFeeMetadata(madrasaId),billingSession(admin,madrasaId)
+        const [roster, book, activeSession, sqlExistingFees] = await Promise.all([
+          rows(() => admin.from("students").select("*").eq("madrasa_id", madrasaId)),
+          getFeeMetadata(madrasaId),
+          billingSession(admin, madrasaId),
+          rows(() =>
+            admin
+              .from("student_fees")
+              .select("student_id, fee_type_id, billing_period, session_id")
+              .eq("madrasa_id", madrasaId)
+          ),
         ]);
-        const students=roster.filter(s=>!s.status || String(s.status).toUpperCase()==='ACTIVE');
-        const existingSet=new Set((book.student_fees||[]).filter(f=>f.session_id===activeSession).map(f=>`${f.student_id}::${f.fee_type_id}::${billPeriodKey(f.billing_period)}`));
+        const students = roster.filter(
+          (s) => !s.status || String(s.status).toUpperCase() === "ACTIVE"
+        );
+        // DEC-1 Strict Deduplication: union of both metadata book.student_fees AND SQL student_fees
+        // keyed strictly by (student_id, fee_type_id, normalized billing_period)
+        const existingSet = new Set<string>();
+        for (const f of book.student_fees || []) {
+          if (f?.student_id && f?.fee_type_id && f?.billing_period) {
+            existingSet.add(
+              buildMonthlyFeeDedupKey(f.student_id, f.fee_type_id, f.billing_period)
+            );
+          }
+        }
+        for (const f of sqlExistingFees || []) {
+          if (f?.student_id && f?.fee_type_id && f?.billing_period) {
+            existingSet.add(
+              buildMonthlyFeeDedupKey(f.student_id, f.fee_type_id, f.billing_period)
+            );
+          }
+        }
         let processedCount = 0;
         let successCount = 0;
         let failedCount = 0;
@@ -80,19 +120,26 @@ export async function runMonthlyFeeGenerationCron(opts: {
 
         for (const student of students) {
           let charges;
-          try {charges=monthlyCharges(book,student,{sessionId:activeSession,auto:true});}
-          catch {failedCount++;continue;}
-          for(const {ft,baseAmount,discountAmount,discountReason,payable} of charges){
+          try {
+            charges = monthlyCharges(book, student, { sessionId: activeSession, auto: true });
+          } catch {
+            failedCount++;
+            continue;
+          }
+          for (const { ft, baseAmount, discountAmount, discountReason, payable } of charges) {
             processedCount++;
-            const dedupKey = `${student.id}::${ft.id}::${billingPeriod}`;
+            const dedupKey = buildMonthlyFeeDedupKey(student.id, ft.id, billingPeriod);
             if (existingSet.has(dedupKey)) {
               skippedExisting++;
               continue;
             }
 
             const fullName = `${student.first_name || ""} ${student.last_name || ""}`.trim() || "শিক্ষার্থী";
-            const id=crypto.randomUUID();
-            const after={id,fund_id:ft.fund_id,fund_name:ft.fund_name,
+            const id = crypto.randomUUID();
+            const after = {
+              id,
+              fund_id: ft.fund_id,
+              fund_name: ft.fund_name,
               madrasa_id: madrasaId,
               session_id: activeSession,
               student_id: student.id,
@@ -105,15 +152,20 @@ export async function runMonthlyFeeGenerationCron(opts: {
               billing_period: billingPeriod,
               month_name: billingPeriod,
               year: yearStr,
-              base_amount:baseAmount,
-              discount_amount:discountAmount,discount_reason:discountReason,
+              base_amount: baseAmount,
+              discount_amount: discountAmount,
+              discount_reason: discountReason,
               fine_amount: 0,
               payable_amount: payable,
               paid_amount: 0,
               due_amount: payable,
-              status:payable===0?"WAIVED":"UNPAID",
+              status: payable === 0 ? "WAIVED" : "UNPAID",
             };
-            const {error:insErr}=await admin.rpc('finance_edit_bills',{p_tenant:madrasaId,p_changes:[{id,before:null,after}],p_audit:null});
+            const { error: insErr } = await admin.rpc("finance_edit_bills", {
+              p_tenant: madrasaId,
+              p_changes: [{ id, before: null, after }],
+              p_audit: null,
+            });
 
             if (insErr) {
               failedCount++;
@@ -124,6 +176,26 @@ export async function runMonthlyFeeGenerationCron(opts: {
           }
         }
 
+        if (successCount > 0 || skippedExisting > 0) {
+          await logAuditEvent({
+            madrasaId,
+            module: "fees",
+            action: "AUTOMATION_MONTHLY_FEE_CRON",
+            entityType: "student_fees",
+            entityId: billingPeriod,
+            entityLabel: billingPeriod,
+            summary: `মাসিক ফি অটো-জেনারেশন (${triggerSource}): ${billingPeriod}-এ ${successCount}টি নতুন ইনভয়েস তৈরি, ${skippedExisting}টি ডুপ্লিকেট স্কিপ হয়েছে`,
+            newValue: {
+              billing_period: billingPeriod,
+              trigger_source: triggerSource,
+              generated_count: successCount,
+              skipped_existing: skippedExisting,
+              failed_count: failedCount,
+              dedup_enabled: true,
+            },
+          });
+        }
+
         return {
           processedCount,
           successCount,
@@ -132,6 +204,8 @@ export async function runMonthlyFeeGenerationCron(opts: {
             billingPeriod,
             generatedCount: successCount,
             skippedExisting,
+            dedupEnabled: true,
+            dedupKeyFormat: "student_id::fee_type_id::billing_period",
           },
         };
       }

@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { assignSubjectToTeacher } from "@/app/actions/teacher_subjects";
+import {
+  acquireSaveGuard,
+  hasActiveSaveGuards,
+  installGlobalSaveGuardListeners,
+} from "@/lib/save-guard";
 import { BookOpen, Check, AlertCircle, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -16,6 +21,21 @@ export default function AssignTeacherSubjectForm({
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const pendingRef = useRef(false);
+
+  useEffect(() => {
+    installGlobalSaveGuardListeners();
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!pendingRef.current && !hasActiveSaveGuards()) return;
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -34,6 +54,8 @@ export default function AssignTeacherSubjectForm({
     }
 
     const [classId, subjectId] = classSubjectStr.split("|");
+    pendingRef.current = true;
+    const releaseGuard = acquireSaveGuard("teacher-subject-assign");
 
     try {
       const res = await assignSubjectToTeacher(teacherId, classId, subjectId);
@@ -48,12 +70,25 @@ export default function AssignTeacherSubjectForm({
       console.error("assignSubjectToTeacher failed:", err);
       setError("একটি অপ্রত্যাশিত সমস্যা হয়েছে। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।");
     } finally {
+      pendingRef.current = false;
+      releaseGuard();
       setIsPending(false);
     }
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {isPending && (
+        <div
+          role="status"
+          aria-live="assertive"
+          className="p-3 bg-amber-50 text-amber-900 rounded-xl text-xs font-semibold border border-amber-200 flex items-center gap-2"
+        >
+          <Loader2 className="w-4 h-4 animate-spin text-amber-600 shrink-0" />
+          <span>বিষয় বরাদ্দ সেভ হচ্ছে — পেজ রিলোড করবেন না।</span>
+        </div>
+      )}
+
       {error && (
         <div className="p-3 bg-rose-50 text-rose-800 rounded-xl text-xs sm:text-sm border border-rose-200 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -100,7 +135,7 @@ export default function AssignTeacherSubjectForm({
           <button
             type="submit"
             disabled={isPending}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+            className="w-full min-h-[44px] bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-xs"
           >
             {isPending ? (
               <>

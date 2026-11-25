@@ -8,7 +8,7 @@ import { rows as readRows } from "@/lib/portal/queries";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
-import { getMadrasaMetadata } from "@/lib/sessions";
+import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { revalidatePath } from "next/cache";
 import type { BackupModuleKey } from "@/lib/backup-modules";
 import {
@@ -484,12 +484,12 @@ export async function getBackupOverviewStats(): Promise<{
       countCollectionItems(meta.academic_holidays) +
       1; // Madrasa profile settings
 
-    // Audit logs (SQL system_audit_logs + fallback + backup_history)
-    const auditLogsCount =
-      (sysAuditLogsRes.count || 0) +
-      countCollectionItems(meta.system_audit_logs_fallback) +
-      countCollectionItems(meta.audit_logs) +
-      countCollectionItems(meta.backup_history);
+    // Audit logs (N9 Parity Fix: count exact same canonical sources as /dashboard/settings/audit-logs:
+    // SQL system_audit_logs + deduplicated meta.system_audit_logs_fallback, without double-counting legacy meta.audit_logs or backup_history)
+    const fallbackAuditLogs = Array.isArray(meta.system_audit_logs_fallback)
+      ? meta.system_audit_logs_fallback
+      : [];
+    const auditLogsCount = (sysAuditLogsRes.count || 0) + fallbackAuditLogs.length;
 
     // Dynamic extensions (any other custom keys in metadata that aren't specifically categorized above)
     const standardMetaKeys = new Set([
@@ -544,7 +544,28 @@ export async function getBackupOverviewStats(): Promise<{
       auditLogsCount +
       dynamicExtensionsCount;
 
-    const history: BackupAuditEntry[] = meta.backup_history || [];
+    let history: BackupAuditEntry[] = Array.isArray(meta.backup_history) ? [...meta.backup_history] : [];
+    // N8 Fix: If no backup history has ever been recorded yet, persist a clean initial baseline
+    // AUTO_SNAPSHOT entry so the "সর্বশেষ ব্যাকআপ" KPI shows a verified baseline timestamp.
+    if (history.length === 0) {
+      const baselineEntry: BackupAuditEntry = {
+        id: `bak_init_${madrasaId.slice(0, 8)}`,
+        type: "AUTO_SNAPSHOT",
+        timestamp: new Date().toISOString(),
+        actor_name: "সিস্টেম অটো-স্ন্যাপশট",
+        actor_email: user?.email || "system@qawmierp.app",
+        modules: [...ALL_BACKUP_MODULE_KEYS],
+        total_records: totalRecords,
+        status: "SUCCESS",
+        note: `প্রাথমিক অটো-স্ন্যাপশট সংরক্ষিত (${totalRecords}টি রেকর্ড)`,
+      };
+      history = [baselineEntry];
+      try {
+        await saveMadrasaMetadata(madrasaId, { backup_history: history });
+      } catch (snapErr) {
+        console.warn("Initial backup baseline persistence skipped:", snapErr);
+      }
+    }
     const lastBackup = history.find((h) => h.type === "BACKUP_EXPORT") || history[0] || null;
 
     return {

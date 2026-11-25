@@ -1,7 +1,7 @@
 import { completeAppLogin } from "@/lib/app-login";
 import { privateResponseHeaders } from "@/lib/private-response";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getPortalRedirectUrl } from "@/lib/role-redirect";
 import {
   findStudentByIdentifier,
@@ -10,6 +10,35 @@ import {
 import { DEMO_ADMIN_EMAIL } from "@/lib/demo-data";
 import { ensureDemoMadrasaExists } from "@/app/actions/demo-seed";
 import { logAuditEvent } from "@/lib/audit-log";
+
+async function resolveFailedLoginMadrasaId(
+  matchedStudent: any,
+  targetEmail: string
+): Promise<string | null> {
+  if (matchedStudent?.madrasa_id) return String(matchedStudent.madrasa_id);
+  try {
+    const admin = await createAdminClient();
+    if (targetEmail && targetEmail.includes("@")) {
+      const { data: userRow } = await admin
+        .from("users")
+        .select("madrasa_id")
+        .ilike("email", targetEmail.trim())
+        .limit(1)
+        .maybeSingle();
+      if (userRow?.madrasa_id) return String(userRow.madrasa_id);
+    }
+    const { data: firstMadrasa } = await admin
+      .from("madrasas")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (firstMadrasa?.id) return String(firstMadrasa.id);
+  } catch {
+    // non-fatal
+  }
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,6 +79,20 @@ export async function POST(req: NextRequest) {
           ? rawIdentifier.toLowerCase()
           : candidateEmails[0] || resolved.portalEmail;
       } else if (!rawIdentifier.includes("@")) {
+        const failMadrasaId = await resolveFailedLoginMadrasaId(null, targetEmail);
+        if (failMadrasaId) {
+          await logAuditEvent({
+            madrasaId: failMadrasaId,
+            actorEmail: rawIdentifier,
+            module: "security",
+            action: "LOGIN_FAILED",
+            entityType: "auth_session",
+            entityId: rawIdentifier,
+            entityLabel: rawIdentifier,
+            summary: `লগইন প্রচেষ্টা ব্যর্থ হয়েছে — অজানা শিক্ষার্থী আইডি (${rawIdentifier})`,
+            severity: "WARNING",
+          });
+        }
         return NextResponse.json(
           {
             error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: MUSE-480004 বা 480001) অথবা ইমেইল প্রদান করুন।`,
@@ -112,9 +155,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (error || !data?.session || !data.user) {
-      if (matchedStudent?.madrasa_id) {
+      const failMadrasaId = await resolveFailedLoginMadrasaId(matchedStudent, targetEmail);
+      if (failMadrasaId) {
         await logAuditEvent({
-          madrasaId: matchedStudent.madrasa_id,
+          madrasaId: failMadrasaId,
           actorEmail: targetEmail,
           module: "security",
           action: "LOGIN_FAILED",

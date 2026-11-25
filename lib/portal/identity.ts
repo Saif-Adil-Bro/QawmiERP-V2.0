@@ -3,7 +3,12 @@ import {
   canViewUnmaskedField,
   maskStudentSensitiveFields,
 } from "../pii-masking";
-import { resolveTeacherIdentity, teacherDisplay } from "../teacher-identity";
+import {
+  normalizeBengaliTeacherName,
+  normalizePhoneKey,
+  resolveTeacherIdentity,
+  teacherDisplay,
+} from "../teacher-identity";
 import { cache } from "react";
 import { getWebAppSession, createAdminClient } from "@/lib/supabase/server";
 import {
@@ -136,12 +141,19 @@ export async function linkedStudents(i: Identity, requested?: string | null) {
 export async function teacherScope(i: Identity, staffId?: string) {
   const { tenant, db } = i;
   const meta = await getMadrasaMetadata(tenant, true);
-  const teachers = await rows(() =>
-    db.from("teachers").select("*").eq("madrasa_id", tenant),
-  );
-  const { teacher, staff, keys } = resolveTeacherIdentity(
+  const [teachers, tenantUsers] = await Promise.all([
+    rows(() => db.from("teachers").select("*").eq("madrasa_id", tenant)),
+    rows(() =>
+      db
+        .from("users")
+        .select("id, email, full_name, phone, teacher_id, role")
+        .eq("madrasa_id", tenant),
+    ),
+  ]);
+  const staffMembers = Array.isArray(meta.staff_members) ? meta.staff_members : [];
+  let { teacher, staff, keys } = resolveTeacherIdentity(
     teachers,
-    meta.staff_members || [],
+    staffMembers,
     staffId
       ? { linkedId: staffId }
       : {
@@ -150,18 +162,70 @@ export async function teacherScope(i: Identity, staffId?: string) {
           verifiedEmail: i.user.email_confirmed_at ? i.user.email : null,
         },
   );
+
+  // PB-06 Bridge: When admin inspects a staff profile via staffId, the staff record in metadata
+  // may link to a teacher via a tenant users row (email/phone/auth_user_id/normalized Bengali name -> user.teacher_id).
+  if (staffId) {
+    const targetEmail = String(
+      staff?.contact?.email || staff?.email || teacher?.email || "",
+    )
+      .trim()
+      .toLowerCase();
+    const targetPhone = normalizePhoneKey(
+      staff?.contact?.phone || staff?.phone || teacher?.phone || "",
+    );
+    const targetNormName = normalizeBengaliTeacherName(
+      staff?.personal?.full_name_bn ||
+        [staff?.personal?.first_name, staff?.personal?.last_name]
+          .filter(Boolean)
+          .join(" ") ||
+        [teacher?.first_name, teacher?.last_name].filter(Boolean).join(" "),
+    );
+    const matchedUser = tenantUsers.find((u: any) => {
+      if (u.id === staffId || u.teacher_id === staffId) return true;
+      if (staff?.auth_user_id && u.id === staff.auth_user_id) return true;
+      if (teacher?.auth_user_id && u.id === teacher.auth_user_id) return true;
+      if (targetEmail && String(u.email || "").trim().toLowerCase() === targetEmail)
+        return true;
+      if (targetPhone && normalizePhoneKey(u.phone) === targetPhone) return true;
+      if (targetNormName && normalizeBengaliTeacherName(u.full_name) === targetNormName)
+        return true;
+      return false;
+    });
+    if (matchedUser) {
+      if (matchedUser.teacher_id && !keys.includes(matchedUser.teacher_id)) {
+        keys = [...keys, matchedUser.teacher_id];
+      }
+      if (!teacher && matchedUser.teacher_id) {
+        teacher =
+          teachers.find((t: any) => t.id === matchedUser.teacher_id) || teacher;
+      }
+      if (!teacher && matchedUser.id) {
+        teacher =
+          teachers.find((t: any) => t.auth_user_id === matchedUser.id) || teacher;
+        if (teacher?.id && !keys.includes(teacher.id)) {
+          keys = [...keys, teacher.id];
+        }
+      }
+    }
+    if (!keys.includes(staffId)) {
+      keys = [...keys, staffId];
+    }
+  }
+
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const teacherUuidKeys = Array.from(
     new Set([teacher?.id, ...keys].filter((k) => k && UUID_RE.test(String(k))))
   );
   const [allClasses, assignments, direct] = await Promise.all([
-    rows(() =>
-      db
-        .from("classes")
-        .select("*")
-        .or(`madrasa_id.eq.${tenant},madrasa_id.is.null`)
-        .order("name"),
-    ),
+    rows(() => {
+      const q = db.from("classes").select("*");
+      try {
+        return q.or(`madrasa_id.eq.${tenant},madrasa_id.is.null`).order("name");
+      } catch {
+        return db.from("classes").select("*").eq("madrasa_id", tenant).order("name");
+      }
+    }),
     teacherUuidKeys.length > 0
       ? rows(() =>
           db
@@ -186,10 +250,16 @@ export async function teacherScope(i: Identity, staffId?: string) {
     [
       display.name,
       staff?.personal?.full_name_bn,
+      [staff?.personal?.first_name, staff?.personal?.last_name].filter(Boolean).join(" "),
       [teacher?.first_name, teacher?.last_name].filter(Boolean).join(" "),
       !staffId ? i.userRow?.full_name : "",
     ]
-      .map((n) => (typeof n === "string" ? n.trim() : ""))
+      .flatMap((n) => {
+        if (typeof n !== "string" || !n.trim()) return [];
+        const trimmed = n.trim();
+        const normalized = normalizeBengaliTeacherName(trimmed);
+        return normalized ? [trimmed, normalized] : [trimmed];
+      })
       .filter(Boolean),
   );
   const inCharge = allClasses.filter((c) => {
@@ -200,7 +270,11 @@ export async function teacherScope(i: Identity, staffId?: string) {
     ].some((v) => v && keys.includes(v));
     if (byKey) return true;
     const assignedName = String(meta.class_teachers?.[c.id]?.teacher_name || "").trim();
-    return Boolean(assignedName && targetNames.has(assignedName));
+    const assignedNorm = normalizeBengaliTeacherName(assignedName);
+    return Boolean(
+      (assignedName && targetNames.has(assignedName)) ||
+        (assignedNorm && targetNames.has(assignedNorm)),
+    );
   });
   const isAdminPreview =
     !staffId && hasRole(i, ["super_admin", "admin", "muhtamim"]);

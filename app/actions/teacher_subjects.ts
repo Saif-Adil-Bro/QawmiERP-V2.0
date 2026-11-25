@@ -14,7 +14,8 @@ export async function getTeacherSubjects(teacherId: string) {
   const i = await webIdentity();
   if (!i || hasRole(i, studentRoles)) return [];
   const staffGuard = await writeGuard("staff");
-  const isStaffViewer = staffGuard.allowed;
+  const staffReadGuard = staffGuard.allowed ? staffGuard : await writeGuard("staffRead");
+  const isStaffViewer = staffGuard.allowed || staffReadGuard.allowed;
   if (!hasRole(i, teacherRoles) && !isStaffViewer) return [];
   // When an explicit teacherId is passed by a staff/admin viewer, always resolve that teacher's scope
   const s = await teacherScope(i, isStaffViewer ? teacherId : undefined);
@@ -269,31 +270,73 @@ export async function removeSubjectFromTeacher(teacherSubjectId: string, teacher
   if (!__authz.allowed) return __authz.fallback;
 
   const tenant = (await webIdentity())?.tenant || __authz.madrasaId || "";
+  if (!tenant) {
+    return { error: "সিস্টেমে কোনো মাদ্রাসা পাওয়া যায়নি।" };
+  }
+
   const adminClient = await createAdminClient();
+  const { data: existingRow, error: fetchErr } = await adminClient
+    .from("teacher_subjects")
+    .select("id, madrasa_id, teacher_id, class_id, subject_id")
+    .eq("id", teacherSubjectId)
+    .maybeSingle();
+
+  if (fetchErr) {
+    return { error: `বিষয়টি যাচাই করতে সমস্যা হয়েছে: ${fetchErr.message}` };
+  }
+
+  if (!existingRow) {
+    return { error: "নির্বাচিত বিষয় বরাদ্দটি খুঁজে পাওয়া যায়নি।" };
+  }
+
+  // Tenant ownership verification: allow if row belongs to tenant or legacy null madrasa_id owned by a teacher in this tenant
+  if (existingRow.madrasa_id && existingRow.madrasa_id !== tenant) {
+    return { error: "এই বিষয় বরাদ্দটি আপনার প্রতিষ্ঠানের নয়।" };
+  }
+  if (!existingRow.madrasa_id && existingRow.teacher_id) {
+    const { data: teacherRow } = await adminClient
+      .from("teachers")
+      .select("id, madrasa_id")
+      .eq("id", existingRow.teacher_id)
+      .maybeSingle();
+    if (teacherRow?.madrasa_id && teacherRow.madrasa_id !== tenant) {
+      return { error: "এই বিষয় বরাদ্দটি আপনার প্রতিষ্ঠানের নয়।" };
+    }
+  }
+
   const { error } = await adminClient
     .from("teacher_subjects")
     .delete()
-    .eq("madrasa_id", tenant)
     .eq("id", teacherSubjectId);
 
   if (error) {
     return { error: `বিষয়টি মুছতে সমস্যা হয়েছে: ${error.message}` };
   }
 
-  if (tenant) {
-    await logAuditEvent({
-      madrasaId: tenant,
-      actorId: __authz.user?.id || null,
-      module: "staff",
-      action: "TEACHER_SUBJECT_REMOVED",
-      entityType: "teacher_subject",
-      entityId: teacherSubjectId,
-      summary: `শিক্ষকের বিষয় বরাদ্দ মুছে ফেলা হয়েছে (${teacherId})`,
-      oldValue: { id: teacherSubjectId, teacher_id: teacherId },
-    });
-  }
+  await logAuditEvent({
+    madrasaId: tenant,
+    actorId: __authz.user?.id || null,
+    actorEmail: __authz.user?.email || null,
+    module: "staff",
+    action: "TEACHER_SUBJECT_REMOVED",
+    entityType: "teacher_subject",
+    entityId: teacherSubjectId,
+    summary: `শিক্ষকের বিষয় বরাদ্দ মুছে ফেলা হয়েছে (${teacherId})`,
+    oldValue: {
+      id: teacherSubjectId,
+      teacher_id: existingRow.teacher_id || teacherId,
+      class_id: existingRow.class_id,
+      subject_id: existingRow.subject_id,
+    },
+  });
 
   revalidatePath(`/dashboard/teachers/${teacherId}/subjects`);
+  if (existingRow.teacher_id && existingRow.teacher_id !== teacherId) {
+    revalidatePath(`/dashboard/teachers/${existingRow.teacher_id}/subjects`);
+  }
+  if (existingRow.class_id) {
+    revalidatePath(`/dashboard/classes/${existingRow.class_id}/subjects`);
+  }
   revalidatePath(`/dashboard/teachers`);
   revalidatePath(`/dashboard/staff`);
   revalidatePath(`/teacher-portal`);
@@ -342,10 +385,15 @@ export interface TeacherAcademicSchedule {
 export async function getTeacherAcademicSchedule(staffId: string): Promise<TeacherAcademicSchedule> {
   const i = await webIdentity();
   if (i && !hasRole(i, studentRoles)) {
-    // PB-06 Fix: If staffId is explicitly provided and the caller has staff writeGuard access (e.g. Admin viewing a teacher drawer),
+    // PB-06 Fix: If staffId is explicitly provided and the caller has staff or staffRead access (e.g. Admin viewing a teacher drawer),
     // always pass staffId to teacherScope so admin users who also hold a teacher role don't see their own empty scope instead of the target teacher!
-    if (staffId && (await writeGuard("staff")).allowed) {
-      return teacherSchedule(i, await teacherScope(i, staffId));
+    if (staffId) {
+      const canViewStaff =
+        (await writeGuard("staff")).allowed ||
+        (await writeGuard("staffRead")).allowed;
+      if (canViewStaff) {
+        return teacherSchedule(i, await teacherScope(i, staffId));
+      }
     }
     if (hasRole(i, teacherRoles)) {
       return teacherSchedule(i, await teacherScope(i, staffId || undefined));

@@ -45,17 +45,22 @@ interface Props {
     totalStudents: number;
     presentCount: number;
     absentCount: number;
+    lateCount?: number;
+    leaveCount?: number;
+    unmarkedCount?: number;
     madrasaName: string;
     date?: string;
+    usedFallbackLatestDate?: boolean;
     settings?: AbsenceAlertSettings;
   };
   classes: any[];
+  initialClass?: string;
 }
 
-export default function AbsenceAlertsClient({ initialData, classes }: Props) {
+export default function AbsenceAlertsClient({ initialData, classes, initialClass = "ALL" }: Props) {
   const [data, setData] = useState(initialData);
   const [selectedDate, setSelectedDate] = useState(initialData.date || toDhakaDateString());
-  const [selectedClass, setSelectedClass] = useState("ALL");
+  const [selectedClass, setSelectedClass] = useState(initialClass || "ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterMode, setFilterMode] = useState<"all" | "threshold_only" | "non_threshold">("all");
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>(
@@ -82,6 +87,9 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
 
     const res = await getAbsenceAlertData(targetDate, targetClass);
     setData(res);
+    if (res.date) {
+      setSelectedDate(res.date);
+    }
     setSelectedStudentIds(res.absentStudents.map((s) => s.id));
     setIsRefreshing(false);
   };
@@ -602,7 +610,7 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-400" />
               <input
                 type="date"
@@ -613,6 +621,12 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
                 }}
                 className="px-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-emerald-500"
               />
+              {data.usedFallbackLatestDate && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold">
+                  <Info className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  সর্বশেষ সংরক্ষিত হাজিরার তারিখ ({selectedDate})
+                </span>
+              )}
             </div>
 
             <select

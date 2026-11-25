@@ -65,7 +65,8 @@ export default function AttendanceForm({
   const allAttendance = existingAttendance || initialAttendance || [];
 
   const isOffDay = Boolean(holidayInfo?.isHoliday || holidayInfo?.isWeekend);
-  const defaultStatus = isOffDay ? "Leave" : "Present";
+  // Working days with no saved attendance record must stay unmarked ("") rather than pre-marking Present
+  const defaultStatus = isOffDay ? "Leave" : "";
   const defaultNotes = isOffDay
     ? (holidayInfo?.holiday?.title ? `নির্ধারিত একাডেমিক ছুটি: ${holidayInfo.holiday.title}` : "সাপ্তাহিক ছুটি")
     : "";
@@ -86,7 +87,7 @@ export default function AttendanceForm({
 
   useEffect(() => {
     const isOffDay = Boolean(holidayInfo?.isHoliday || holidayInfo?.isWeekend);
-    const defaultStatus = isOffDay ? "Leave" : "Present";
+    const defaultStatus = isOffDay ? "Leave" : "";
     const defaultNotes = isOffDay
       ? (holidayInfo?.holiday?.title ? `নির্ধারিত একাডেমিক ছুটি: ${holidayInfo.holiday.title}` : "সাপ্তাহিক ছুটি")
       : "";
@@ -172,23 +173,32 @@ export default function AttendanceForm({
     setMessage("");
 
     try {
-      const recordsToUpsert = allStudents.map((s) => {
-        const currentRec = attendanceState[s.id] || { status: "Present", notes: "" };
-        const existing = allAttendance.find((a) => a.student_id === s.id);
+      const validStatuses = new Set(["Present", "Absent", "Late", "Leave"]);
+      const recordsToUpsert = allStudents
+        .map((s) => {
+          const currentRec = attendanceState[s.id] || { status: "", notes: "" };
+          if (!validStatuses.has(currentRec.status)) return null;
+          const existing = allAttendance.find((a) => a.student_id === s.id);
 
-        return {
-          id: existing ? existing.id : undefined,
-          student_id: s.id,
-          class_id: currentClassId,
-          madrasa_id: madrasaId,
-          date: currentDate,
-          status: currentRec.status,
-          notes: currentRec.notes,
-        };
-      });
+          return {
+            id: existing ? existing.id : undefined,
+            student_id: s.id,
+            class_id: currentClassId,
+            madrasa_id: madrasaId,
+            date: currentDate,
+            status: currentRec.status,
+            notes: currentRec.notes,
+          };
+        })
+        .filter((r): r is NonNullable<typeof r> => r !== null);
 
-      const result = await postTeacherEntry('attendance',{ records: recordsToUpsert },syncOwner);
+      if (recordsToUpsert.length === 0) {
+        setMessage("সংরক্ষণের জন্য অন্তত একজন শিক্ষার্থীর হাজিরা চিহ্নিত করুন।");
+        setLoading(false);
+        return;
+      }
 
+      const result = await postTeacherEntry("attendance", { records: recordsToUpsert }, syncOwner);
 
       if (!result.success) {
         throw new Error(result.error || "Failed to save attendance");
@@ -196,10 +206,10 @@ export default function AttendanceForm({
 
       setMessage(
         result.offlineQueued
-          ? "অফলাইনে হাজিরা সংরক্ষিত হয়েছে! ইন্টারনেট এলে স্বয়ংক্রিয়ভাবে সিঙ্ক হবে।"
-          : "আজকের হাজিরা সফলভাবে সংরক্ষিত হয়েছে!"
+          ? `অফলাইনে ${toBanglaNumber(recordsToUpsert.length)} জন শিক্ষার্থীর হাজিরা সংরক্ষিত হয়েছে! ইন্টারনেট এলে স্বয়ংক্রিয়ভাবে সিঙ্ক হবে।`
+          : `হাজিরা সফলভাবে সংরক্ষিত হয়েছে! (${toBanglaNumber(recordsToUpsert.length)} জন শিক্ষার্থী)`
       );
-      setTimeout(() => setMessage(""), 4000);
+      setTimeout(() => setMessage(""), 6000);
       if (!result.offlineQueued) {
         router.refresh();
       }
@@ -214,6 +224,7 @@ export default function AttendanceForm({
   const absentCount = Object.values(attendanceState).filter((a) => a.status === "Absent").length;
   const lateCount = Object.values(attendanceState).filter((a) => a.status === "Late").length;
   const leaveCount = Object.values(attendanceState).filter((a) => a.status === "Leave").length;
+  const unmarkedCount = Object.values(attendanceState).filter((a) => !a.status).length;
 
   return (
     <div className="space-y-5">
@@ -341,6 +352,11 @@ export default function AttendanceForm({
             <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-blue-100 text-blue-800">
               ছুটি (Leave): {toBanglaNumber(leaveCount)}
             </span>
+            {unmarkedCount > 0 && (
+              <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                হাজিরা বাকি: {toBanglaNumber(unmarkedCount)}
+              </span>
+            )}
           </div>
 
           {/* Bulk Buttons */}
@@ -391,21 +407,33 @@ export default function AttendanceForm({
         </div>
       </div>
 
-      {/* Save Notification Banner */}
+      {/* Save Notification Banner (PB-07) */}
       {message && (
         <div
-          className={`p-4 rounded-2xl text-xs sm:text-sm font-semibold flex items-center gap-2 shadow-xs ${
-            message.includes("সফল")
+          role="status"
+          aria-live="polite"
+          className={`p-4 rounded-2xl text-xs sm:text-sm font-semibold flex items-center justify-between gap-2 shadow-sm ${
+            message.includes("সফল") || message.includes("অফলাইনে")
               ? "bg-emerald-50 text-emerald-900 border border-emerald-300"
               : "bg-red-50 text-red-900 border border-red-300"
           }`}
         >
-          {message.includes("সফল") ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          ) : (
-            <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
-          )}
-          <span>{message}</span>
+          <div className="flex items-center gap-2">
+            {message.includes("সফল") || message.includes("অফলাইনে") ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+            )}
+            <span>{message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMessage("")}
+            className="p-1 text-slate-400 hover:text-slate-700 rounded-lg"
+            aria-label="বন্ধ করুন"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -425,7 +453,7 @@ export default function AttendanceForm({
             <tbody className="divide-y divide-slate-100 text-sm">
               {filteredStudents.length > 0 ? (
                 filteredStudents.map((s: any) => {
-                  const state = attendanceState[s.id] || { status: "Present", notes: "" };
+                  const state = attendanceState[s.id] || { status: "", notes: "" };
 
                   return (
                     <tr key={s.id} className="hover:bg-slate-50/60 transition">
@@ -480,6 +508,11 @@ export default function AttendanceForm({
                               {st.label}
                             </button>
                           ))}
+                          {!state.status && (
+                            <span className="ml-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                              হাজিরা বাকি
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-5 py-3.5">
@@ -509,7 +542,7 @@ export default function AttendanceForm({
         <div className="md:hidden divide-y divide-slate-100">
           {filteredStudents.length > 0 ? (
             filteredStudents.map((s: any) => {
-              const state = attendanceState[s.id] || { status: "Present", notes: "" };
+              const state = attendanceState[s.id] || { status: "", notes: "" };
 
               return (
                 <div key={s.id} className="p-4 space-y-3 bg-white">
@@ -584,22 +617,57 @@ export default function AttendanceForm({
         </div>
 
         {/* Bottom Save Bar */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
           <div className="text-xs text-slate-500 font-medium">
-            মোট তালিকাভুক্ত শিক্ষার্থী: <strong>{toBanglaNumber(allStudents.length)}</strong> জন
+            মোট শিক্ষার্থী: <strong>{toBanglaNumber(allStudents.length)}</strong> জন
+            {unmarkedCount > 0 && (
+              <span className="ml-2 text-amber-700 font-semibold">
+                • বাকি: {toBanglaNumber(unmarkedCount)} জন
+              </span>
+            )}
           </div>
 
           <button
             type="button"
             onClick={saveAttendance}
             disabled={loading || allStudents.length === 0}
-            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center gap-2 disabled:opacity-50"
+            className="min-h-[44px] px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition flex items-center gap-2 disabled:opacity-50 cursor-pointer"
           >
             <Save className="w-4 h-4" />
             <span>{loading ? "সংরক্ষণ হচ্ছে..." : "হাজিরা সংরক্ষণ করুন"}</span>
           </button>
         </div>
       </div>
+
+      {/* Floating Save Toast (PB-07 — always visible regardless of scroll position) */}
+      {message && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-20 md:bottom-6 right-4 left-4 sm:left-auto sm:max-w-md z-50 p-4 rounded-2xl shadow-xl border flex items-center justify-between gap-3 text-xs sm:text-sm font-bold ${
+            message.includes("সফল") || message.includes("অফলাইনে")
+              ? "bg-emerald-700 text-white border-emerald-600"
+              : "bg-rose-700 text-white border-rose-600"
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            {message.includes("সফল") || message.includes("অফলাইনে") ? (
+              <CheckCircle2 className="w-5 h-5 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 shrink-0" />
+            )}
+            <span>{message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMessage("")}
+            className="p-1 rounded-lg hover:bg-white/15 shrink-0"
+            aria-label="বন্ধ করুন"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -226,11 +226,13 @@ export async function updateMadrasaDetails(formData: FormData) {
   try {
     const adminClient = await createAdminClient();
     let madrasaId: string | null = null;
+    let authUser: { id?: string; email?: string | null } | null = null;
 
     try {
       const supabase = await createClient();
       const user = await getAuthUser(supabase);
       if (user) {
+        authUser = user;
         madrasaId = await getAuthMadrasaId(supabase, user);
       }
     } catch {
@@ -630,6 +632,8 @@ export async function updateMadrasaDetails(formData: FormData) {
 
     await logAuditEvent({
       madrasaId,
+      actorId: authUser?.id || null,
+      actorEmail: authUser?.email || null,
       module: "settings",
       action: "MADRASA_SETTINGS_UPDATED",
       entityType: "madrasa",

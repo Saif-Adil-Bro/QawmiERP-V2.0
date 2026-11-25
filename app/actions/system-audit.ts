@@ -28,6 +28,33 @@ export interface SystemAuditStats {
   moduleCounts: Record<string, number>;
 }
 
+function mergeAuditLogSources(
+  sqlLogs: SystemAuditLogRecord[],
+  fallbackLogs: SystemAuditLogRecord[]
+): SystemAuditLogRecord[] {
+  const seen = new Set<string>();
+  const merged: SystemAuditLogRecord[] = [];
+
+  for (const row of sqlLogs) {
+    const key = String(row.id || `${row.created_at}:${row.action}:${row.entity_id || ""}`);
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(row);
+    }
+  }
+
+  for (const row of fallbackLogs) {
+    const key = String(row.id || `${row.created_at}:${row.action}:${row.entity_id || ""}`);
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(row);
+    }
+  }
+
+  merged.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  return merged;
+}
+
 export async function getSystemAuditLogs(filters?: SystemAuditQueryFilters): Promise<{
   success: boolean;
   storage: "sql" | "fallback";
@@ -89,26 +116,33 @@ export async function getSystemAuditLogs(filters?: SystemAuditQueryFilters): Pro
       query = query.lte("created_at", `${filters.dateTo}T23:59:59.999Z`);
     }
 
-    const { data, error } = await query;
+    const [{ data, error }, meta] = await Promise.all([
+      query,
+      getMadrasaMetadata(madrasaId),
+    ]);
+
+    const rawFallback: SystemAuditLogRecord[] = Array.isArray((meta as any)?.system_audit_logs_fallback)
+      ? ((meta as any).system_audit_logs_fallback as SystemAuditLogRecord[])
+      : [];
+
+    const filteredFallback = rawFallback.filter((item) => {
+      if (filters?.module && filters.module !== "ALL" && item.module !== filters.module) return false;
+      if (filters?.severity && filters.severity !== "ALL" && item.severity !== filters.severity) return false;
+      if (filters?.dateFrom && String(item.created_at || "") < `${filters.dateFrom}T00:00:00`) return false;
+      if (filters?.dateTo && String(item.created_at || "") > `${filters.dateTo}T23:59:59`) return false;
+      return true;
+    });
 
     let logs: SystemAuditLogRecord[] = [];
     let storage: "sql" | "fallback" = "sql";
 
     if (!error && Array.isArray(data)) {
-      logs = data as SystemAuditLogRecord[];
+      // N9 Parity Fix: Always merge SQL system_audit_logs + deduplicated fallback logs
+      // so Audit Logs page and Backup stats report the exact same canonical count.
+      logs = mergeAuditLogSources(data as SystemAuditLogRecord[], filteredFallback);
     } else if (error && isMissingTableError(error)) {
       storage = "fallback";
-      const meta: any = await getMadrasaMetadata(madrasaId);
-      const rawFallback: SystemAuditLogRecord[] = Array.isArray(meta?.system_audit_logs_fallback)
-        ? meta.system_audit_logs_fallback
-        : [];
-      logs = rawFallback.filter((item) => {
-        if (filters?.module && filters.module !== "ALL" && item.module !== filters.module) return false;
-        if (filters?.severity && filters.severity !== "ALL" && item.severity !== filters.severity) return false;
-        if (filters?.dateFrom && item.created_at < `${filters.dateFrom}T00:00:00`) return false;
-        if (filters?.dateTo && item.created_at > `${filters.dateTo}T23:59:59`) return false;
-        return true;
-      });
+      logs = mergeAuditLogSources([], filteredFallback);
     } else if (error) {
       return {
         success: false,

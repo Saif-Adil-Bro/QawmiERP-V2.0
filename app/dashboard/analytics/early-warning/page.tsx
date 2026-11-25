@@ -24,9 +24,9 @@ export default async function EarlyWarningAnalyticsPage() {
     <EarlyWarningDashboardClient
       initialSummary={summary}
       initialScores={
-        scoresRes.scores && scoresRes.scores.length > 0
-          ? scoresRes.scores
-          : summary.risk_scores || []
+        summary.risk_scores && summary.risk_scores.length > 0
+          ? summary.risk_scores
+          : scoresRes.scores || []
       }
     />
   );

@@ -130,7 +130,12 @@ export default async function TeacherSubjectsPage(props: { params: Promise<{ id:
                           </p>
                         </div>
                       </div>
-                      <RemoveTeacherSubjectButton teacherSubjectId={item.id} teacherId={teacherId} />
+                      <RemoveTeacherSubjectButton
+                        teacherSubjectId={item.id}
+                        teacherId={teacherId}
+                        subjectName={item.subjects?.name || undefined}
+                        className={item.classes?.name || undefined}
+                      />
                     </li>
                   ))}
                 </ul>
