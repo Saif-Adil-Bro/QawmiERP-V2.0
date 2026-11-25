@@ -9,6 +9,7 @@ import {
 } from "@/lib/student-auth";
 import { DEMO_ADMIN_EMAIL } from "@/lib/demo-data";
 import { ensureDemoMadrasaExists } from "@/app/actions/demo-seed";
+import { logAuditEvent } from "@/lib/audit-log";
 
 export async function POST(req: NextRequest) {
   try {
@@ -111,6 +112,19 @@ export async function POST(req: NextRequest) {
     }
 
     if (error || !data?.session || !data.user) {
+      if (matchedStudent?.madrasa_id) {
+        await logAuditEvent({
+          madrasaId: matchedStudent.madrasa_id,
+          actorEmail: targetEmail,
+          module: "security",
+          action: "LOGIN_FAILED",
+          entityType: "auth_session",
+          entityId: rawIdentifier,
+          entityLabel: rawIdentifier,
+          summary: `লগইন প্রচেষ্টা ব্যর্থ হয়েছে (${rawIdentifier})`,
+          severity: "WARNING",
+        });
+      }
       if (isStudentLogin) {
         return NextResponse.json(
           {
@@ -127,6 +141,22 @@ export async function POST(req: NextRequest) {
     const {perms:ctx} = login;
     const userRole = ctx.profile.primaryRole, resolvedMadrasaId = ctx.madrasaId;
     const redirectUrl = getPortalRedirectUrl(userRole, ctx.roles);
+
+    if (resolvedMadrasaId) {
+      await logAuditEvent({
+        madrasaId: resolvedMadrasaId,
+        actorId: data.user.id,
+        actorEmail: data.user.email || targetEmail,
+        actorRole: userRole,
+        module: "security",
+        action: "LOGIN",
+        entityType: "auth_session",
+        entityId: data.user.id,
+        entityLabel: data.user.email || targetEmail,
+        summary: `ব্যবহারকারী সফলভাবে লগইন করেছেন (${data.user.email || targetEmail})`,
+        severity: "INFO",
+      });
+    }
 
     const res = NextResponse.json({
       success: true,

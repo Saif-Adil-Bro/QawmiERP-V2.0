@@ -285,6 +285,7 @@ export interface OnlineDonationSettings {
   bank_routing_no: string;
   gateway_enabled: boolean;
   gateway_provider?: string;
+  active_gateways?: string[];
   instructions?: string;
   updated_at?: string;
 }
@@ -301,8 +302,9 @@ export const DEFAULT_ONLINE_DONATION_SETTINGS: OnlineDonationSettings = {
   bank_account_name: "আলহাজ্ব আবুল হোসেন হাফিজিয়া মাদ্রাসা",
   bank_account_no: "20501234567890",
   bank_routing_no: "125272654",
-  gateway_enabled: true,
+  gateway_enabled: false,
   gateway_provider: "SSLCOMMERZ",
+  active_gateways: [],
   instructions: "সরাসরি মার্চেন্ট বা পার্সোনাল নম্বরে সেন্ড মানি/পেমেন্ট করে ট্রানজেকশন আইডি (TrxID) দিয়ে সাবমিট করুন। অথবা গেটওয়ের মাধ্যমে সরাসরি পরিশোধ করুন।",
 };
 

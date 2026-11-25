@@ -5,6 +5,7 @@ import { getMadrasaMetadata } from "@/lib/sessions";
 import { dispatchNotification } from "@/lib/notifications/orchestrator";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { runTrackedCronJob } from "@/lib/automation/cron-auth";
+import { resolveStudentClassName } from "@/lib/attendance-truth";
 
 async function getTargetMadrasaIds(madrasaId?: string | null): Promise<string[]> {
   if (madrasaId) return [madrasaId];
@@ -111,7 +112,7 @@ export async function runAbsenceAlertsCron(opts: {
             .eq("status", "Absent"),
           admin
             .from("students")
-            .select("id, first_name, last_name, roll_number, class_name, parent_phone")
+            .select("id, first_name, last_name, roll_number, class_id, class_name, parent_phone, classes(id, name)")
             .eq("madrasa_id", madrasaId),
           admin.from("madrasas").select("name").eq("id", madrasaId).maybeSingle(),
         ]);
@@ -144,7 +145,7 @@ export async function runAbsenceAlertsCron(opts: {
             variables: {
               StudentName: fullName,
               RollNumber: toBanglaNumber(student.roll_number || "১"),
-              ClassName: student.class_name || "সাধারণ জামাত",
+              ClassName: resolveStudentClassName(student, undefined, "সাধারণ জামাত"),
               Date: targetDate,
               MadrasaName: madrasaName,
             },

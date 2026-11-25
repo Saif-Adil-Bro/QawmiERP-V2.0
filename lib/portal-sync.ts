@@ -266,6 +266,23 @@ export async function postTeacherEntry(
         );
       if (expectedOwner !== ownerKey(browserSession()))
         throw new Error("অ্যাকাউন্ট বদলেছে।");
+      try {
+        const db = getOfflineDb(expectedOwner);
+        const nowTs = Date.now();
+        await db.portalSnapshots
+          .where("id")
+          .equals("teacher:")
+          .modify({ syncedAt: nowTs });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("qawmi-portal-synced", {
+              detail: { portal: "teacher", syncedAt: nowTs, actionType },
+            })
+          );
+        }
+      } catch {
+        // non-fatal timestamp bump
+      }
       return { success: true, offlineQueued: false, error: "" };
     } catch (e) {
       if (!isNetworkOrTimeoutError(e)) throw e;
@@ -289,6 +306,16 @@ export async function postTeacherEntry(
       .filter((i) => !i.rejected)
       .count();
     if (remaining === 0) {
+      try {
+        const db = getOfflineDb(expectedOwner);
+        const nowTs = Date.now();
+        await db.portalSnapshots
+          .where("id")
+          .equals("teacher:")
+          .modify({ syncedAt: nowTs });
+      } catch {
+        // non-fatal
+      }
       return { success: true, offlineQueued: false, error: "" };
     }
   }

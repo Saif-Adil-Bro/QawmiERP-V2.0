@@ -50,6 +50,7 @@ interface PortalDashboardClientProps {
   latestHifz: any | null;
   totalPaid: number;
   totalDue: number;
+  invoicesCount?: number;
   latestReceiptNo: string;
   feesList: any[];
   latestExam: DashboardLatestExamInfo | null;
@@ -93,6 +94,7 @@ export default function PortalDashboardClient({
   latestHifz,
   totalPaid,
   totalDue,
+  invoicesCount = 0,
   latestReceiptNo,
   feesList,
   latestExam,
@@ -115,7 +117,7 @@ export default function PortalDashboardClient({
   const effectiveAssignments = cache?.homework ?? childAssignments;
   const stored = cache?.examSummaries[0];
   const effectiveLatestExam:DashboardLatestExamInfo|null = !cache ? latestExam : stored ? {...stored.summary,...stored.merit,examId:stored.exam_id,examTitle:stored.exam_title,examYear:stored.exam_year,meritLabel:stored.merit_label} : null;
-  if (cache) { latestHifz=cache.hifzLogs[0]; totalPaid=cache.totalPaid; totalDue=cache.totalDue; latestReceiptNo=cache.feePayments[0]?.receipt_no || '—'; }
+  if (cache) { latestHifz=cache.hifzLogs[0]; totalPaid=cache.totalPaid; totalDue=cache.totalDue; latestReceiptNo=cache.feePayments[0]?.receipt_no || '—'; invoicesCount = Array.isArray(cache.fees) ? cache.fees.length : invoicesCount; }
   const {total:totalDays,present:presentDays,absent:absentDays,percentage:attendanceRate} = attendanceStats(effectiveAttendance);
   const todayAssignments = effectiveAssignments.filter(
     (a: any) => a.type === "TODAY_LESSON" || a.assigned_date === todayDateStr
@@ -370,14 +372,26 @@ export default function PortalDashboardClient({
           </div>
           <p
             className={`text-xs font-semibold mt-2 flex items-center gap-1 ${
-              totalDue > 0 ? "text-rose-600" : "text-emerald-600"
+              totalDue > 0
+                ? "text-rose-600"
+                : invoicesCount === 0 && totalPaid <= 0 && (!feesList || feesList.length === 0)
+                  ? "text-amber-600"
+                  : "text-emerald-600"
             }`}
           >
-            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+            {totalDue > 0 ? (
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+            ) : invoicesCount === 0 && totalPaid <= 0 && (!feesList || feesList.length === 0) ? (
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+            )}
             <span>
               {totalDue > 0
                 ? `বর্তমান বকেয়া: ৳ ${formatBanglaCurrency(totalDue)}`
-                : "কোনো বকেয়া নেই (পরিশোধিত)"}
+                : invoicesCount === 0 && totalPaid <= 0 && (!feesList || feesList.length === 0)
+                  ? "ফি নির্ধারণ হয়নি / ইনভয়েস তৈরি হয়নি"
+                  : "কোনো বকেয়া নেই (পরিশোধিত)"}
             </span>
           </p>
           <div className="mt-2 text-[11px] text-slate-500 font-mono truncate">

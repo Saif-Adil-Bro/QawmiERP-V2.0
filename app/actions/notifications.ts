@@ -392,9 +392,15 @@ export async function getGlobalNotifications(limit = 60): Promise<{
         try {
           const invItems: any[] = meta.inventory?.items || [];
           invItems.forEach((item) => {
-            const minStock = Number(item.min_stock_alert || 5);
-            const currentQty = Number(item.quantity || 0);
-            if (currentQty <= minStock) {
+            if (!item || item.is_deleted || item.status === "ARCHIVED" || item.status === "DELETED") {
+              return;
+            }
+            const rawStock = item.in_stock_qty ?? item.quantity ?? item.current_stock;
+            if (rawStock === undefined || rawStock === null) return;
+            const currentQty = Number(rawStock);
+            const minStock = Number(item.min_stock_alert ?? 0);
+            if (!Number.isFinite(currentQty) || minStock <= 0) return;
+            if (currentQty < minStock) {
               items.push({
                 id: `inv-low-${item.id}`,
                 category: "INVENTORY",
@@ -467,7 +473,27 @@ export async function getGlobalNotifications(limit = 60): Promise<{
     if (madrasaId && meta.system_notifications) {
       try {
         const sysList: GlobalNotificationItem[] = meta.system_notifications || [];
+        const activeInvMap = new Map<string, number>();
+        for (const it of meta.inventory?.items || []) {
+          if (it?.name) {
+            activeInvMap.set(String(it.name).trim(), Number(it.in_stock_qty ?? it.quantity ?? 0));
+          }
+        }
         sysList.forEach((sys) => {
+          // Skip stale inventory 0-stock notifications when the item currently has positive stock
+          if (
+            sys.category === "INVENTORY" ||
+            sys.title?.includes("মজুদ ঘাটতি") ||
+            sys.description?.includes("বর্তমান মজুদ: ০")
+          ) {
+            let isStaleZero = false;
+            activeInvMap.forEach((qty, name) => {
+              if ((sys.title?.includes(name) || sys.description?.includes(name)) && qty > 0) {
+                isStaleZero = true;
+              }
+            });
+            if (isStaleZero) return;
+          }
           if (isTeacher) {
             // Hide madrasa-wide accounting/expense/salary/other-class system alerts from regular teachers
             if (

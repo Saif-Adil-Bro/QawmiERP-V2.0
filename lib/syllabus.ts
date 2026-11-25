@@ -502,6 +502,10 @@ export class SyllabusProgressEngine {
     const targetWeeklyPagesLabel = remainingPages === 0 ? "কিতাব সমাপ্ত" : `প্রতি সপ্তাহে গড়ে ${Math.round(requiredPagesPerDay * 6)} পৃষ্ঠা`;
 
     // 5. Status determination
+    const hasAnyProgress = completedTopics > 0 || completedPages > 0 || actualProgressPercentage > 0;
+    const effectiveCurrentPace = totalTopics > 0 ? currentPacePerDay : currentPagesPerDay;
+    const effectiveRequiredPace = totalTopics > 0 ? requiredPacePerDay : requiredPagesPerDay;
+
     let status: "COMPLETED" | "ON_TRACK" | "AT_RISK" | "BEHIND" = "ON_TRACK";
     let statusLabel = "নির্ধারিত সময় অনুযায়ী এগিয়ে আছেন";
     let statusDesc = "বর্তমান গতি বজায় রাখলে নির্ধারিত সময়ের পূর্বেই সিলেবাস সফলভাবে সম্পন্ন হবে।";
@@ -510,11 +514,18 @@ export class SyllabusProgressEngine {
       status = "COMPLETED";
       statusLabel = "সিলেবাস সম্পন্ন";
       statusDesc = "মাশাআল্লাহ! নির্ধারিত সিলেবাস সফলভাবে শতভাগ সম্পন্ন হয়েছে।";
-    } else if (currentPacePerDay >= requiredPacePerDay || actualProgressPercentage >= expectedProgressPercentage) {
+    } else if (!hasAnyProgress && workingDays.elapsed_working_days > 0) {
+      status = expectedProgressPercentage > 15 ? "BEHIND" : "AT_RISK";
+      statusLabel = "পাঠদান শুরু অপেক্ষমাণ (০% সম্পন্ন)";
+      statusDesc = `ইতিমধ্যে ${workingDays.elapsed_working_days} কর্মদিবস অতিবাহিত হয়েছে। নির্ধারিত সময়ে শেষ করতে প্রতিদিন গড়ে ${requiredPagesPerDay} পৃষ্ঠা সম্পন্ন করা প্রয়োজন।`;
+    } else if (
+      hasAnyProgress &&
+      (effectiveCurrentPace >= effectiveRequiredPace || actualProgressPercentage >= expectedProgressPercentage)
+    ) {
       status = "ON_TRACK";
       statusLabel = "সময়মতো এগিয়ে আছেন (On Track)";
       statusDesc = "আপনি নির্ধারিত সময় অনুযায়ী সঠিক গতিতে এগিয়ে আছেন।";
-    } else if (currentPacePerDay >= requiredPacePerDay * 0.75) {
+    } else if (hasAnyProgress && effectiveCurrentPace >= effectiveRequiredPace * 0.75) {
       status = "AT_RISK";
       statusLabel = "সামান্য বেশি গতি প্রয়োজন (At Risk)";
       statusDesc = "সিলেবাস সময়মতো শেষ করতে বর্তমান গতির চেয়ে সামান্য বেশি গতি প্রয়োজন।";
@@ -551,30 +562,45 @@ export class SyllabusProgressEngine {
         : "বর্তমান পাঠদান গতি বজায় রাখুন।";
 
     // 7. Forecast completion date
-    const sustainablePace = currentPacePerDay > 0.1 ? currentPacePerDay : (currentPagesPerDay > 0 ? currentPagesPerDay / 10 : 0.5);
-    const itemsToComplete = totalTopics > 0 ? remainingTopics : remainingPages;
-    const daysNeeded = Math.ceil(itemsToComplete / sustainablePace);
     let forecastDateStr = syllabus.end_date;
     let forecastVarianceDays = 0;
-
-    if (daysNeeded <= remainingWorkingDates.length) {
-      forecastDateStr = remainingWorkingDates[daysNeeded - 1] || syllabus.end_date;
-      forecastVarianceDays = remainingWorkingDates.length - daysNeeded;
-    } else {
-      const extraDaysNeeded = daysNeeded - remainingWorkingDates.length;
-      const endObj = new Date(syllabus.end_date);
-      endObj.setDate(endObj.getDate() + extraDaysNeeded * 1.4);
-      forecastDateStr = AcademicWorkingDayCalculator.formatDate(endObj);
-      forecastVarianceDays = -extraDaysNeeded;
-    }
-
     let forecastLabel = "";
+
     if (remainingTopics === 0 && remainingPages === 0) {
       forecastLabel = "সিলেবাস ইতিমধ্যে সম্পন্ন হয়েছে";
-    } else if (forecastVarianceDays >= 0) {
-      forecastLabel = `সম্ভাব্য সমাপ্তি: ${forecastDateStr} (নির্ধারিত সময়ের পূর্বে/সময়মতো)`;
+    } else if (!hasAnyProgress) {
+      forecastDateStr = syllabus.end_date;
+      forecastVarianceDays = 0;
+      forecastLabel = `নির্ধারিত সমাপ্তির লক্ষ্য: ${syllabus.end_date} (পাঠদান অগ্রগতি এন্ট্রি হলে পূর্বাভাস গণনা হবে)`;
     } else {
-      forecastLabel = `সম্ভাব্য সমাপ্তি: ${forecastDateStr} (আনুমানিক ${Math.abs(forecastVarianceDays)} কর্মদিবস পিছিয়ে)`;
+      const itemsToComplete = totalTopics > 0 ? remainingTopics : remainingPages;
+      const measuredVelocity =
+        totalTopics > 0
+          ? currentPacePerDay > 0
+            ? currentPacePerDay
+            : requiredPacePerDay
+          : currentPagesPerDay > 0
+          ? currentPagesPerDay
+          : requiredPagesPerDay;
+      const sustainablePace = Math.max(0.1, measuredVelocity);
+      const daysNeeded = Math.ceil(itemsToComplete / sustainablePace);
+
+      if (daysNeeded <= remainingWorkingDates.length) {
+        forecastDateStr = remainingWorkingDates[daysNeeded - 1] || syllabus.end_date;
+        forecastVarianceDays = remainingWorkingDates.length - daysNeeded;
+      } else {
+        const extraDaysNeeded = daysNeeded - remainingWorkingDates.length;
+        const endObj = new Date(syllabus.end_date);
+        endObj.setDate(endObj.getDate() + Math.ceil(extraDaysNeeded * 1.4));
+        forecastDateStr = AcademicWorkingDayCalculator.formatDate(endObj);
+        forecastVarianceDays = -extraDaysNeeded;
+      }
+
+      if (forecastVarianceDays >= 0) {
+        forecastLabel = `সম্ভাব্য সমাপ্তি: ${forecastDateStr} (নির্ধারিত সময়ের পূর্বে/সময়মতো)`;
+      } else {
+        forecastLabel = `সম্ভাব্য সমাপ্তি: ${forecastDateStr} (আনুমানিক ${Math.abs(forecastVarianceDays)} কর্মদিবস পিছিয়ে)`;
+      }
     }
 
     return {

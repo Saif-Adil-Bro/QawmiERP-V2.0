@@ -6,6 +6,7 @@ import {dashboardFinance} from "@/lib/finance/dashboard";
 import {readBooks} from "@/lib/finance/read-books";
 import {getFeeMetadata} from "@/lib/fee-store";
 import { readJsonStore } from "@/lib/madrasa-store";
+import { computeRosterAttendanceTruth } from "@/lib/attendance-truth";
 
 export const dynamic = "force-dynamic";
 
@@ -21,30 +22,28 @@ export async function GET(req: NextRequest) {
     const thirtyDaysAgo = toDhakaDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
     const [
-      { count: studentsCount },
+      { data: rosterStudents },
       { count: teachersCount },
       { count: classesCount },
-      { count: todayPresent },
-      { count: todayAbsent },
-      { count: todayLeave },
-      { count: todayLate },
+      { data: todayAttRows },
       finance,
       { data: attendance30Data },
       { data: examResultsData },
       metaStore,
     ] = await Promise.all([
-      auth.adminClient.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      auth.adminClient.from("students").select("id").eq("madrasa_id", madrasaId),
       auth.adminClient.from("teachers").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
       auth.adminClient.from("classes").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
-      auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Present"),
-      auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Absent"),
-      auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Leave"),
-      auth.adminClient.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", madrasaId).eq("date", today).eq("status", "Late"),
+      auth.adminClient.from("attendance").select("student_id, status").eq("madrasa_id", madrasaId).eq("date", today),
       canReadSchoolFinance([auth.ctx.role,...auth.ctx.roles],auth.ctx.permissions) ? readBooks(madrasaId,getFeeMetadata).then(b=>dashboardFinance(b,today)) : null,
-      auth.adminClient.from("attendance").select("status").eq("madrasa_id", madrasaId).gte("date", thirtyDaysAgo).lte("date", today),
+      auth.adminClient.from("attendance").select("student_id, status").eq("madrasa_id", madrasaId).gte("date", thirtyDaysAgo).lte("date", today),
       auth.adminClient.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", madrasaId),
       readJsonStore(madrasaId, "meta"),
     ]);
+
+    const activeRoster = rosterStudents || [];
+    const rosterIdSet = new Set(activeRoster.map((s: any) => String(s.id)));
+    const truth = computeRosterAttendanceTruth(activeRoster, todayAttRows || []);
 
     const staffMembers = Array.isArray(metaStore.staff_members) ? metaStore.staff_members : [];
     const effectiveTeachersCount = Math.max(teachersCount || 0, staffMembers.length);
@@ -60,9 +59,10 @@ export async function GET(req: NextRequest) {
         expense: monthlyMap[month].expense,
       }));
 
-    // 30-day attendance breakdown
+    // 30-day attendance breakdown (restricted to active roster students)
     const attCounts = { Present: 0, Absent: 0, Leave: 0, Late: 0 };
     (attendance30Data || []).forEach((a: any) => {
+      if (rosterIdSet.size > 0 && a.student_id && !rosterIdSet.has(String(a.student_id))) return;
       if (a.status in attCounts) (attCounts as any)[a.status]++;
     });
 
@@ -84,23 +84,25 @@ export async function GET(req: NextRequest) {
     return mobileSuccess(
       {
         stats: {
-          students_count: studentsCount || 0,
+          students_count: truth.totalStudents,
           teachers_count: effectiveTeachersCount,
           classes_count: classesCount || 0,
-          today_present: todayPresent || 0,
-          today_absent: todayAbsent || 0,
-          today_leave: todayLeave || 0,
-          today_late: todayLate || 0,
+          today_present: truth.presentCount,
+          today_absent: truth.absentCount,
+          today_leave: truth.leaveCount,
+          today_late: truth.lateCount,
+          today_unmarked: truth.unmarkedCount,
           ...(finance ? {today_income:finance.todayIncome,today_expense:finance.todayExpense,total_income:finance.totalIncome,total_expense:finance.totalExpense,
             net_balance:finance.balance,expenses_sum:finance.expensesSum,bazar_sum:finance.bazarSum} : {}),
         },
         charts: {
           ...(finance ? {monthly_income_expense} : {}),
           today_attendance: [
-            { name: "উপস্থিত", value: todayPresent || 0 },
-            { name: "অনুপস্থিত", value: todayAbsent || 0 },
-            { name: "ছুটি", value: todayLeave || 0 },
-            { name: "বিলম্ব", value: todayLate || 0 },
+            { name: "উপস্থিত", value: truth.presentCount },
+            { name: "অনুপস্থিত", value: truth.absentCount },
+            { name: "ছুটি", value: truth.leaveCount },
+            { name: "বিলম্ব", value: truth.lateCount },
+            { name: "হাজিরা বাকি", value: truth.unmarkedCount },
           ].filter((x) => x.value > 0),
           thirty_day_attendance: [
             { name: "উপস্থিত", value: attCounts.Present },

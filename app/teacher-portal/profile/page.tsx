@@ -24,7 +24,17 @@ export default async function TeacherProfilePage() {
   const meta = scope.meta || {};
   const teacherId = scope.teacher?.id || "";
   const staffId = scope.staff?.id || "";
-  const keys = new Set([teacherId, staffId, scope.staff?.legacy_id, i.user?.id].filter(Boolean));
+  const keys = new Set(
+    [
+      teacherId,
+      staffId,
+      scope.staff?.legacy_id,
+      i.user?.id,
+      ...(Array.isArray(scope.keys) ? scope.keys : []),
+    ].filter(Boolean)
+  );
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const uuidKeys = Array.from(keys).filter((k) => UUID_RE.test(String(k)));
   const teacherName = scope.display.name;
 
   // 1. Salary & Payslip records for this teacher
@@ -76,14 +86,19 @@ export default async function TeacherProfilePage() {
   });
 
   let sqlLoans: any[] = [];
-  if (keys.size > 0) {
-    sqlLoans = await rows(() =>
-      i.db
+  if (uuidKeys.length > 0) {
+    try {
+      const { data: loanData, error: loanError } = await i.db
         .from("borrow_records")
         .select("id, book_id, issue_date, due_date, return_date, status, books(title, author)")
         .eq("madrasa_id", i.tenant)
-        .in("teacher_id", Array.from(keys))
-    );
+        .in("teacher_id", uuidKeys);
+      if (!loanError && Array.isArray(loanData)) {
+        sqlLoans = loanData;
+      }
+    } catch {
+      sqlLoans = [];
+    }
   }
 
   const libraryRecords = [

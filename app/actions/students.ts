@@ -72,15 +72,20 @@ export async function getStudents() {
       const madrasaId = rawStudents[0]?.madrasa_id || (await getAuthMadrasaId(supabase));
       if (madrasaId) {
         const meta = await getMadrasaMetadata(madrasaId);
-        const prefix = getActiveMadrasaPrefix() || meta?.madrasa_info?.prefix || "";
+        const prefix = getActiveMadrasaPrefix() || (meta as any)?.id_prefix || meta?.madrasa_info?.prefix || "MUSE";
         const hydrated = rawStudents.map((std: any) => hydrateStudentWithMetadata(std, meta));
         return hydrated.map((st: any) => {
           const officialId = getStudentIdNumber(st, hydrated, prefix);
+          const cleanPrefix = prefix.replace(/[-_\s]+$/, "").toUpperCase();
+          const formattedId =
+            cleanPrefix && !officialId.toUpperCase().startsWith(cleanPrefix)
+              ? `${cleanPrefix}-${officialId}`
+              : officialId;
           return maskStudentSensitiveFields(
             {
               ...st,
-              student_id: officialId,
-              student_id_formatted: officialId,
+              student_id: formattedId,
+              student_id_formatted: formattedId,
             },
             maskingCtx.allowUnmasked
           );
@@ -90,13 +95,19 @@ export async function getStudents() {
       console.warn("Hydrate students metadata warning:", hydrateErr);
     }
 
+    const fallbackPrefix = getActiveMadrasaPrefix() || "MUSE";
     return rawStudents.map((st: any) => {
-      const officialId = getStudentIdNumber(st, rawStudents);
+      const officialId = getStudentIdNumber(st, rawStudents, fallbackPrefix);
+      const cleanPrefix = fallbackPrefix.replace(/[-_\s]+$/, "").toUpperCase();
+      const formattedId =
+        cleanPrefix && !officialId.toUpperCase().startsWith(cleanPrefix)
+          ? `${cleanPrefix}-${officialId}`
+          : officialId;
       return maskStudentSensitiveFields(
         {
           ...st,
-          student_id: (!st.student_id || isUuid(st.student_id)) ? officialId : st.student_id,
-          student_id_formatted: officialId,
+          student_id: (!st.student_id || isUuid(st.student_id)) ? formattedId : st.student_id,
+          student_id_formatted: formattedId,
         },
         maskingCtx.allowUnmasked
       );

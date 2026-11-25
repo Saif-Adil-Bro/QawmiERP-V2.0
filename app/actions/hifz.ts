@@ -29,7 +29,7 @@ export async function getHifzLogPagesCountAction(
   return getHifzLogPagesCount(start, end);
 }
 const HIFZ_CLASS_REGEX =
-  /হিফজ|হিফয|হাফেজ|নাজেরা|নাযেরা|মক্তব|কায়দা|কায়দা|নূরানী|নুরানী|hifz|tahfiz|najera|nazera|maktab|qaida/i;
+  /হিফ[জয]|হেফ[জয]|হাফে[জয]|তাহফি[জয]|hifz|tahfiz/i;
 
 function isHifzRelevantStudent(
   s: any,
@@ -55,8 +55,7 @@ async function directory(classId?: string, child?: string) {
   const filteredRoster = c.roster.filter((s) =>
     isHifzRelevantStudent(s, profileMap.get(s.id), logStudents.has(s.id), false)
   );
-  // If filtering leaves at least 1 Hifz student (or if there are Hifz classes), use filteredRoster
-  const finalRoster = filteredRoster.length > 0 ? filteredRoster : c.roster;
+  const finalRoster = filteredRoster;
   const allowedIds = new Set(finalRoster.map((s) => s.id));
   return {
     c: { ...c, roster: finalRoster },
@@ -125,10 +124,11 @@ export async function getStudentHifzReport(
   year?: string,
 ) {
   const { c, bundle } = await directory(undefined, id);
+  const matchedProfile = bundle.hifz_profiles.find((p) => p.student_id === id);
   return c.roster[0]
     ? report(
         c.roster[0],
-        { ...c.legacy?.[id], ...bundle.hifz_profiles[0] },
+        { ...c.legacy?.[id], ...(matchedProfile || {}) },
         bundle.hifz_logs,
         month,
         year,
@@ -162,11 +162,11 @@ export async function getMonthlyHifzSummary(
     summary: summarizeHifz(bundle, last < today ? last : today, period),
     events: bundle.hifz_special_sabina.filter((e) => e.status === "ongoing"),
     reports: c.roster.map((s) => {
-      const p = profileByStudent.get(s.id) || bundle.hifz_profiles[0];
+      const p = profileByStudent.get(s.id);
       return {
         ...report(
           s,
-          { ...c.legacy?.[s.id], ...p },
+          { ...c.legacy?.[s.id], ...(p || {}) },
           grouped.get(s.id) || [],
           m,
           y,

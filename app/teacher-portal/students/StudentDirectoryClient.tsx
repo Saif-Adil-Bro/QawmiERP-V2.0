@@ -178,8 +178,13 @@ export default function StudentDirectoryClient({
             const phone = s.parent_phone || s.guardian_phone || s.phone || "";
             const guardian = s.guardian_name || s.father_name || "";
             const cleanPhone = phone.replace(/[^0-9]/g, "");
-            const displayStudentId = s.student_id_formatted || s.student_id
-              ? toBanglaNumber(s.student_id_formatted || s.student_id)
+            const rawFormattedId = String(s.student_id_formatted || s.student_id || "").trim();
+            const displayStudentId = rawFormattedId
+              ? /^[A-Za-z]+-\d+$/.test(rawFormattedId)
+                ? rawFormattedId
+                : /^\d+$/.test(rawFormattedId)
+                ? `MUSE-${rawFormattedId}`
+                : toBanglaNumber(rawFormattedId)
               : resolveStudentIdBn(s, students);
 
             return (
@@ -232,7 +237,7 @@ export default function StudentDirectoryClient({
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1.5 text-xs text-slate-700">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500">জামাত:</span>
-                    <span className="font-semibold text-slate-900">{s.classes?.name || s.class_name || "—"}</span>
+                    <span className="font-semibold text-slate-900">{s.classes?.name || s.class_name || "নির্ধারিত জামাত"}</span>
                   </div>
 
                   <div className="flex items-center justify-between">

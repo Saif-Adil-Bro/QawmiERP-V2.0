@@ -554,7 +554,9 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="text-xs font-semibold text-slate-500">মোট শিক্ষার্থী</div>
           <div className="text-2xl font-bold text-slate-800 mt-1">{toBanglaNumber(data.totalStudents)}</div>
-          <div className="text-[11px] text-slate-400 mt-0.5">মাদরাসার সক্রিয় শিক্ষার্থী</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">
+            হাজিরা বাকি: {toBanglaNumber((data as any).unmarkedCount || 0)} জন
+          </div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
@@ -563,7 +565,9 @@ export default function AbsenceAlertsClient({ initialData, classes }: Props) {
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-2xl font-bold text-emerald-700 mt-1">{toBanglaNumber(data.presentCount)}</div>
-          <div className="text-[11px] text-emerald-600 mt-0.5">সকালের ক্লাসে উপস্থিত</div>
+          <div className="text-[11px] text-emerald-600 mt-0.5">
+            সকালের ক্লাসে উপস্থিত {((data as any).lateCount || 0) > 0 ? `(বিলম্বে: ${toBanglaNumber((data as any).lateCount)})` : ""}
+          </div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-rose-200 bg-rose-50/20 shadow-sm">

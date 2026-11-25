@@ -19,6 +19,7 @@ import { collectionFund, isRestrictedFund, exactFundLabel, storedFund, bazarFund
 import { getMadrasaInfo } from "@/lib/getMadrasaInfo";
 import { getFeeMetadata, voidFeePayment, unvoidFeePayment } from "./fee-management";
 import { getFeePaymentsForLedger } from "@/lib/fee-store";
+import { logAuditEvent } from "@/lib/audit-log";
 
 // The number is a proposal, not a reservation; the database rejects concurrent collisions.
 export async function getNextDonationReceiptNo(tenant:string,prefix="ZR") {
@@ -162,6 +163,20 @@ export async function createFund(formData: FormData) {
     });
     if (error) return {error:error.message};
 
+    if (finalMadrasaId) {
+      await logAuditEvent({
+        madrasaId: finalMadrasaId,
+        actorId: user?.id || null,
+        module: "finance",
+        action: "FUND_CREATED",
+        entityType: "zakat_fund",
+        entityId: newFund.id,
+        entityLabel: name,
+        summary: `নতুন তহবিল "${name}" (${code}) তৈরি করা হয়েছে`,
+        newValue: { id: newFund.id, name, code, category, target_amount },
+      });
+    }
+
     revalidatePath("/dashboard/zakat");
     revalidatePath("/dashboard/zakat/funds");
     revalidatePath("/dashboard/zakat/collection");
@@ -208,6 +223,18 @@ export async function updateFund(fundId: string, formData: FormData): Promise<{ 
       if (insert.error) return {error:insert.error.message};
     }
 
+    await logAuditEvent({
+      madrasaId: finalMadrasaId,
+      actorId: user.id,
+      module: "finance",
+      action: "FUND_UPDATED",
+      entityType: "zakat_fund",
+      entityId: fundId,
+      entityLabel: name,
+      summary: `তহবিল "${name}" আপডেট করা হয়েছে`,
+      newValue: patch,
+    });
+
     revalidatePath("/dashboard/zakat/funds");
     revalidatePath("/dashboard/zakat/collection");
     return { success: true };
@@ -242,6 +269,17 @@ export async function deleteFund(fundId: string): Promise<{ success?: boolean; e
       const insert = await adminClient.from("zakat_funds").insert({id:f.id,madrasa_id:finalMadrasaId,name:f.name,code:f.code,category:f.category,is_active:false});
       if (insert.error) return {error:insert.error.message};
     }
+
+    await logAuditEvent({
+      madrasaId: finalMadrasaId,
+      actorId: user.id,
+      module: "finance",
+      action: "FUND_ARCHIVED",
+      entityType: "zakat_fund",
+      entityId: fundId,
+      entityLabel: f.name,
+      summary: `তহবিল "${f.name}" আর্কাইভ করা হয়েছে`,
+    });
 
     revalidatePath("/dashboard/zakat/funds");
     revalidatePath("/dashboard/zakat/collection");
@@ -471,6 +509,17 @@ async function changeFundTransaction(id:string,type:string,reason:string,voiding
       const result=await (voiding?voidFeePayment:unvoidFeePayment)(feeId,reason.trim());
       if (result.error) return {error:result.error};
     } else if (!await changeVoucherStatus(guard.madrasaId,guard.userId,id,type==='INCOME',reason,voiding)) return {error:'সুনির্দিষ্ট মূল ভাউচার পাওয়া যায়নি।'};
+    await logAuditEvent({
+      madrasaId: guard.madrasaId,
+      actorId: guard.userId,
+      module: "finance",
+      action: voiding ? "VOUCHER_VOIDED" : "VOUCHER_UNVOIDED",
+      entityType: "voucher",
+      entityId: id,
+      summary: voiding ? `ভাউচার বাতিল করা হয়েছে (${id}) — কারণ: ${reason}` : `ভাউচার পুনরায় সক্রিয় করা হয়েছে (${id})`,
+      newValue: { id, type, reason, voiding },
+      severity: voiding ? "WARNING" : "INFO",
+    });
     for (const path of ['zakat','zakat/funds','zakat/collection','zakat/reports','accounting','accounting/income','accounting/reports','accounting/expenses','fundraising/collections','fundraising/online-donations']) revalidatePath(`/dashboard/${path}`);
     return {success:true,message:voiding ? "ভাউচার বাতিল হয়েছে।" : "ভাউচার পুনরায় সক্রিয় হয়েছে।"};
   } catch (err:any) {return {error:err.message || "ভাউচার পরিবর্তন হয়নি।"};}
@@ -555,6 +604,20 @@ export async function addDonation(prevState: any, formData: FormData) {
     if (error || !posted?.receipt?.id) return {error:error?.message || 'মূল রসিদ নিশ্চিত হয়নি।'};
     const data=posted.receipt;
     const createdDonorObj:DonorItem|null=posted.donor ? {...posted.donor,pledge_amount:new_donor_pledge,total_donated:amount,donation_count:1,last_donation_date:donation_date} : null;
+
+    if (finalMadrasaId) {
+      await logAuditEvent({
+        madrasaId: finalMadrasaId,
+        actorId: user?.id || null,
+        module: "finance",
+        action: "DONATION_COLLECTED",
+        entityType: "donation",
+        entityId: data.id,
+        entityLabel: receipt_no,
+        summary: `"${fund.name}" তহবিলে ৳${amount} অনুদান সংগ্রহ করা হয়েছে (রসিদ: ${receipt_no})`,
+        newValue: { id: data.id, receipt_no, amount, fund_id: fund.id, fund_name: fund.name, payment_method },
+      });
+    }
 
     revalidatePath("/dashboard/zakat");
     revalidatePath("/dashboard/zakat/collection");

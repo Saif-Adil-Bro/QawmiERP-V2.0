@@ -921,11 +921,11 @@ export default function BackupClient({
             </div>
             <p className="text-xs font-bold text-slate-800 mt-1.5 truncate">
               {stats.last_backup?.timestamp
-                ? new Date(stats.last_backup.timestamp).toLocaleDateString("bn-BD", {
+                ? `${new Date(stats.last_backup.timestamp).toLocaleDateString("bn-BD", {
                     month: "short",
                     day: "numeric",
                     year: "numeric",
-                  })
+                  })} (${stats.last_backup.status === "SUCCESS" ? "সফল" : "সতর্কতা"})`
                 : "এখনও নেওয়া হয়নি"}
             </p>
           </div>
@@ -940,7 +940,7 @@ export default function BackupClient({
             </span>
           </div>
           <span className="hidden sm:inline-flex bg-white px-2.5 py-1 rounded-lg font-bold border border-emerald-200 text-[11px] text-emerald-800 shrink-0">
-            মোট ২৬ টি স্বতন্ত্র মডিউল
+            মোট {MODULE_DEFINITIONS.length.toLocaleString("bn-BD")} টি স্বতন্ত্র মডিউল
           </span>
         </div>
       </div>

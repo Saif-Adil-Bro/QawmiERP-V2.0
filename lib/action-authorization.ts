@@ -345,6 +345,7 @@ export interface BoundAuditPayload {
 export type ActionGuardAllowed = {
   allowed: true;
   userId?: string;
+  user?: any;
   madrasaId?: string;
   actorName?: string;
   actorEmail?: string;

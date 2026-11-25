@@ -3,6 +3,7 @@
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logAuditEvent } from "@/lib/audit-log";
 
 export async function getClassSubjects(classId: string) {
   try {
@@ -113,6 +114,18 @@ export async function assignSubjectToClass(classId: string, subjectId: string) {
       return { error: insertRes.error.message || "বিষয় বরাদ্দ করতে সমস্যা হয়েছে।" };
     }
 
+    await logAuditEvent({
+      madrasaId,
+      actorId: __authz.user?.id || null,
+      module: "settings",
+      action: "CLASS_SUBJECT_ASSIGNED",
+      entityType: "class_subject",
+      entityId: insertRes.data?.id || `${classId}:${subjectId}`,
+      entityLabel: insertRes.data?.subjects?.name || subjectId,
+      summary: `জামাতে "${insertRes.data?.subjects?.name || subjectId}" বিষয় বরাদ্দ করা হয়েছে`,
+      newValue: { class_id: classId, subject_id: subjectId },
+    });
+
     revalidatePath(`/dashboard/classes/${classId}/subjects`);
     revalidatePath("/dashboard/classes");
     return { success: true, item: insertRes.data };
@@ -171,6 +184,19 @@ export async function removeSubjectFromClass(classSubjectId: string, classId: st
     if (error) {
       console.error("Error removing class subject:", error);
       return { error: error.message || "বিষয় ডিলিট করতে সমস্যা হয়েছে।" };
+    }
+
+    if (__authz.madrasaId) {
+      await logAuditEvent({
+        madrasaId: __authz.madrasaId,
+        actorId: __authz.user?.id || null,
+        module: "settings",
+        action: "CLASS_SUBJECT_REMOVED",
+        entityType: "class_subject",
+        entityId: classSubjectId,
+        summary: `জামাত থেকে বিষয়টি সরানো হয়েছে (${classId})`,
+        oldValue: { class_id: classId, subject_id: subjectId, id: classSubjectId },
+      });
     }
 
     revalidatePath(`/dashboard/classes/${classId}/subjects`);

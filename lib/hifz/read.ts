@@ -160,8 +160,8 @@ export function isHifzStudent(s: any, legacy: any = {}) {
   return (
     ["HIFZ", "DAWR"].includes(legacy?.hifz_stage) ||
     !!legacy?.completed_hifz_paras?.length ||
-    /হিফ[জয]|হেফ[জয]|তাহফি[জয]|hifz/i.test(
-      [s.classes?.name, s.class_name].join(" "),
+    /হিফ[জয]|হেফ[জয]|হাফে[জয]|তাহফি[জয]|hifz|tahfiz/i.test(
+      [s?.classes?.name, s?.class_name].join(" "),
     )
   );
 }

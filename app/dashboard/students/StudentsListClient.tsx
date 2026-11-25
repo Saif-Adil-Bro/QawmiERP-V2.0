@@ -129,8 +129,9 @@ export default function StudentsListClient({
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
 
-  // Update URL search parameters when filters change
+  // Update URL search parameters when filters change (without triggering RSC navigation)
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const params = new URLSearchParams();
     if (searchQuery) params.set("q", searchQuery);
     if (selectedClass !== "ALL") params.set("class", selectedClass);
@@ -144,7 +145,7 @@ export default function StudentsListClient({
 
     const queryString = params.toString();
     const targetUrl = queryString ? `${pathname}?${queryString}` : pathname;
-    router.replace(targetUrl, { scroll: false });
+    window.history.replaceState(null, "", targetUrl);
   }, [
     searchQuery,
     selectedClass,
@@ -156,7 +157,6 @@ export default function StudentsListClient({
     selectedGender,
     selectedBloodGroup,
     pathname,
-    router,
   ]);
 
   // Derive consolidated classes list with student counts
@@ -489,8 +489,12 @@ export default function StudentsListClient({
       });
   }, [
     students,
+    classes,
+    madrasaPrefix,
     searchQuery,
     selectedClass,
+    selectedSystem,
+    selectedFeeCategory,
     selectedSession,
     selectedResidential,
     selectedStatus,

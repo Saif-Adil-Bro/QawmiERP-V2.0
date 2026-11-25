@@ -150,26 +150,34 @@ export async function teacherScope(i: Identity, staffId?: string) {
           verifiedEmail: i.user.email_confirmed_at ? i.user.email : null,
         },
   );
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const teacherUuidKeys = Array.from(
+    new Set([teacher?.id, ...keys].filter((k) => k && UUID_RE.test(String(k))))
+  );
   const [allClasses, assignments, direct] = await Promise.all([
     rows(() =>
-      db.from("classes").select("*").eq("madrasa_id", tenant).order("name"),
+      db
+        .from("classes")
+        .select("*")
+        .or(`madrasa_id.eq.${tenant},madrasa_id.is.null`)
+        .order("name"),
     ),
-    teacher
+    teacherUuidKeys.length > 0
       ? rows(() =>
           db
             .from("teacher_subjects")
             .select("*, subjects(id,name,code), classes(id,name)")
             .eq("madrasa_id", tenant)
-            .eq("teacher_id", teacher.id),
+            .in("teacher_id", teacherUuidKeys),
         )
       : [],
-    teacher
+    teacherUuidKeys.length > 0
       ? rows(() =>
           db
             .from("routines")
             .select("id,class_id")
             .eq("madrasa_id", tenant)
-            .eq("teacher_id", teacher.id),
+            .in("teacher_id", teacherUuidKeys),
         )
       : [],
   ]);
@@ -277,7 +285,10 @@ export async function teacherStudents(
       .order("created_at", { ascending: true }),
   );
   const { getStudentIdNumber } = await import("@/lib/student-utils");
-  const prefix = scope.meta?.id_prefix || "";
+  const prefix = scope.meta?.id_prefix || "MUSE";
+  const classMap = new Map<string, string>(
+    scope.classes.map((c: any) => [String(c.id), String(c.name || "")])
+  );
   return (
     await rows(() =>
       i.db
@@ -292,17 +303,26 @@ export async function teacherStudents(
     .filter((s) => ["ACTIVE", "IRREGULAR"].includes(s.student_status))
     .map((s) => {
       // School directory fields only. Do not serialize financial, medical or ID-document metadata to Teacher clients.
-      const computedId =
+      const rawId =
         s.student_id_formatted ||
         s.student_id ||
         getStudentIdNumber(s, allTenantStudents.length ? allTenantStudents : [s], prefix);
+      const cleanPrefix = String(prefix).replace(/[-_\s]+$/g, "").toUpperCase();
+      const computedId =
+        rawId && cleanPrefix && /^\d+$/.test(String(rawId).trim())
+          ? `${cleanPrefix}-${String(rawId).trim()}`
+          : rawId;
+      const resolvedClassName =
+        (Array.isArray(s.classes) ? s.classes[0]?.name : s.classes?.name) ||
+        s.class_name ||
+        (s.class_id ? classMap.get(String(s.class_id)) : "") ||
+        "নির্ধারিত জামাত";
       const {
         id,
         madrasa_id,
         first_name,
         last_name,
         class_id,
-        class_name,
         classes,
         section,
         roll_number,
@@ -322,11 +342,11 @@ export async function teacherStudents(
           first_name,
           last_name,
           class_id,
-          class_name,
-          classes,
+          class_name: resolvedClassName,
+          classes: classes || { id: class_id, name: resolvedClassName },
           section,
           roll_number,
-          student_id: s.student_id || computedId,
+          student_id: computedId,
           student_id_formatted: computedId,
           student_status,
           photo_url,

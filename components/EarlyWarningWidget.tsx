@@ -86,6 +86,11 @@ export default function EarlyWarningWidget({
     ? "/teacher-portal/students"
     : "/dashboard/analytics/early-warning";
 
+  const totalAnalyzed =
+    (risk_distribution?.total || 0) > 0
+      ? risk_distribution!.total
+      : risk_scores.length;
+
   if (!hasAnyRiskData) {
     return (
       <div className="bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -95,12 +100,16 @@ export default function EarlyWarningWidget({
           </div>
           <div>
             <h4 className="font-bold text-emerald-950 dark:text-emerald-200 text-sm">
-              আলহামদুলিল্লাহ! কোনো শিক্ষার্থী ঝুঁকিপূর্ণ তালিকায় নেই
+              {totalAnalyzed === 0
+                ? "ঝুঁকি বিশ্লেষণ এখনো চালানো হয়নি"
+                : "আলহামদুলিল্লাহ! কোনো শিক্ষার্থী ঝুঁকিপূর্ণ তালিকায় নেই"}
             </h4>
             <p className="text-xs text-emerald-700 dark:text-emerald-400/90 mt-0.5">
-              {isTeacherView
-                ? "আপনার জামাতের শিক্ষার্থীদের হাজিরা ও একাডেমিক অগ্রগতি সন্তোষজনক গতিতে চলছে।"
-                : "সব শিক্ষার্থীর হাজিরা, একাডেমিক অগ্রগতি ও ফি পরিশোধ সন্তোষজনক গতিতে চলছে।"}
+              {totalAnalyzed === 0
+                ? "বিস্তারিত ড্যাশবোর্ডে গিয়ে ঝুঁকি বিশ্লেষণ চালু করুন।"
+                : isTeacherView
+                  ? `বিশ্লেষিত ${toBanglaNumber(totalAnalyzed)} জন শিক্ষার্থীর হাজিরা ও একাডেমিক অগ্রগতি সন্তোষজনক গতিতে চলছে।`
+                  : `বিশ্লেষিত ${toBanglaNumber(totalAnalyzed)} জন শিক্ষার্থীর হাজিরা, একাডেমিক অগ্রগতি ও ফি পরিশোধ সন্তোষজনক গতিতে চলছে।`}
             </p>
           </div>
         </div>
@@ -332,9 +341,11 @@ export default function EarlyWarningWidget({
                     <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold">
                       রোল: {toBanglaNumber(alert.roll_number || "---")}
                     </span>
-                    <span className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 text-xs font-semibold">
-                      {alert.class_name}
-                    </span>
+                    {alert.class_name && (
+                      <span className="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 text-xs font-semibold">
+                        {alert.class_name}
+                      </span>
+                    )}
                     <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black tracking-wide">
                       পরপর {toBanglaNumber(alert.consecutive_absent_days)} দিন অনুপস্থিত
                     </span>
@@ -404,9 +415,11 @@ export default function EarlyWarningWidget({
                     <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold">
                       রোল: {toBanglaNumber(alert.roll_number || "---")}
                     </span>
-                    <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 text-xs font-semibold">
-                      {alert.class_name}
-                    </span>
+                    {alert.class_name && (
+                      <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 text-xs font-semibold">
+                        {alert.class_name}
+                      </span>
+                    )}
                     <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black tracking-wide flex items-center gap-1">
                       <ArrowDownRight className="w-3 h-3" />
                       <span>{toBanglaNumber(alert.drop_percentage)}% নম্বর ড্রপ করেছে!</span>

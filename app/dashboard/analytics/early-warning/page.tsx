@@ -23,7 +23,11 @@ export default async function EarlyWarningAnalyticsPage() {
   return (
     <EarlyWarningDashboardClient
       initialSummary={summary}
-      initialScores={scoresRes.scores || summary.risk_scores || []}
+      initialScores={
+        scoresRes.scores && scoresRes.scores.length > 0
+          ? scoresRes.scores
+          : summary.risk_scores || []
+      }
     />
   );
 }

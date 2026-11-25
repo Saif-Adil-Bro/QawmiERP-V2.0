@@ -133,6 +133,17 @@ export async function saveFeeType(feeType: Partial<FeeType>) {
     if (!saved) {
       return { error: "ফি টাইপ ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
     }
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      module: "fees",
+      action: feeType.id ? "FEE_TYPE_UPDATED" : "FEE_TYPE_CREATED",
+      entityType: "fee_type",
+      entityId: savedId,
+      entityLabel: feeType.name || savedId,
+      summary: `ফি খাত "${feeType.name || savedId}" সংরক্ষিত হয়েছে`,
+      newValue: feeTypes.find((f) => f.id === savedId),
+    });
     revalidatePath("/dashboard/accounting/structure");
     revalidatePath("/dashboard/accounting/generate");
     revalidatePath("/dashboard/accounting");
@@ -176,6 +187,15 @@ export async function deleteFeeType(feeTypeId: string) {
     if (!saved) {
       return { error: "ফি টাইপ ডেটাবেজ থেকে মুছে ফেলা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
     }
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      module: "fees",
+      action: "FEE_TYPE_DELETED",
+      entityType: "fee_type",
+      entityId: feeTypeId,
+      summary: `ফি খাত মুছে ফেলা হয়েছে (${feeTypeId})`,
+    });
     revalidatePath("/dashboard/accounting/structure");
     revalidatePath("/dashboard/accounting/generate");
     revalidatePath("/dashboard/accounting");
@@ -290,6 +310,17 @@ export async function saveFeeStructure(structure: Partial<FeeStructure>) {
     if (!saved) {
       return { error: "ফি কাঠামো ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।" };
     }
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      module: "fees",
+      action: structure.id ? "FEE_STRUCTURE_UPDATED" : "FEE_STRUCTURE_CREATED",
+      entityType: "fee_structure",
+      entityId: structure.id || "new",
+      entityLabel: structure.name || structure.class_name || "ফি কাঠামো",
+      summary: `ফি কাঠামো "${structure.name || structure.class_name || "ফি কাঠামো"}" সংরক্ষিত হয়েছে`,
+      newValue: { class_id: structure.class_id, total_monthly_amount: monthlyTotal, total_onetime_amount: onetimeTotal },
+    });
     revalidatePath("/dashboard/accounting/structure");
     revalidatePath("/dashboard/accounting");
 

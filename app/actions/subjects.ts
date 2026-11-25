@@ -3,6 +3,7 @@
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logAuditEvent } from "@/lib/audit-log";
 
 import {
   mergeAndDedupeSubjectCatalog,
@@ -198,6 +199,15 @@ export async function createSubject(prevState: any, formData: FormData) {
     });
 
     if (!userError) {
+      await logAuditEvent({
+        madrasaId,
+        module: "settings",
+        action: "SUBJECT_CREATED",
+        entityType: "subject",
+        entityLabel: name,
+        summary: `"${name}" বিষয়টি তৈরি করা হয়েছে`,
+        newValue: { name, code, description },
+      });
       revalidatePath("/dashboard/subjects");
       return { success: true };
     }
@@ -212,6 +222,16 @@ export async function createSubject(prevState: any, formData: FormData) {
     if (adminError) {
       return { error: userError?.message || adminError.message };
     }
+
+    await logAuditEvent({
+      madrasaId,
+      module: "settings",
+      action: "SUBJECT_CREATED",
+      entityType: "subject",
+      entityLabel: name,
+      summary: `"${name}" বিষয়টি তৈরি করা হয়েছে`,
+      newValue: { name, code, description },
+    });
 
     revalidatePath("/dashboard/subjects");
     return { success: true };
@@ -250,10 +270,8 @@ export async function getSubjectById(subjectId: string) {
 export async function updateSubject(subjectId: string, prevState: any, formData: FormData) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("subjects");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("subjects");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
@@ -289,6 +307,19 @@ export async function updateSubject(subjectId: string, prevState: any, formData:
       .eq("id", subjectId);
 
     if (!userError) {
+      if (__authz.madrasaId) {
+        await logAuditEvent({
+          madrasaId: __authz.madrasaId,
+          actorId: __authz.user?.id || null,
+          module: "settings",
+          action: "SUBJECT_UPDATED",
+          entityType: "subject",
+          entityId: subjectId,
+          entityLabel: name,
+          summary: `"${name}" বিষয়টি আপডেট করা হয়েছে`,
+          newValue: updatePayload,
+        });
+      }
       revalidatePath("/dashboard/subjects");
       revalidatePath("/dashboard/classes");
       return { success: true };
@@ -303,6 +334,20 @@ export async function updateSubject(subjectId: string, prevState: any, formData:
       return { error: userError?.message || adminError.message };
     }
 
+    if (__authz.madrasaId) {
+      await logAuditEvent({
+        madrasaId: __authz.madrasaId,
+        actorId: __authz.user?.id || null,
+        module: "settings",
+        action: "SUBJECT_UPDATED",
+        entityType: "subject",
+        entityId: subjectId,
+        entityLabel: name,
+        summary: `"${name}" বিষয়টি আপডেট করা হয়েছে`,
+        newValue: updatePayload,
+      });
+    }
+
     revalidatePath("/dashboard/subjects");
     revalidatePath("/dashboard/classes");
     return { success: true };
@@ -314,10 +359,8 @@ export async function updateSubject(subjectId: string, prevState: any, formData:
 export async function deleteSubject(subjectId: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("subjects");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("subjects");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const supabase = await createClient();
@@ -329,6 +372,17 @@ export async function deleteSubject(subjectId: string) {
       .eq("id", subjectId);
 
     if (!userError) {
+      if (__authz.madrasaId) {
+        await logAuditEvent({
+          madrasaId: __authz.madrasaId,
+          actorId: __authz.user?.id || null,
+          module: "settings",
+          action: "SUBJECT_DELETED",
+          entityType: "subject",
+          entityId: subjectId,
+          summary: `বিষয় মুছে ফেলা হয়েছে (${subjectId})`,
+        });
+      }
       revalidatePath("/dashboard/subjects");
       return { success: true };
     }
@@ -340,6 +394,18 @@ export async function deleteSubject(subjectId: string) {
 
     if (adminError) {
       return { error: userError?.message || adminError.message };
+    }
+
+    if (__authz.madrasaId) {
+      await logAuditEvent({
+        madrasaId: __authz.madrasaId,
+        actorId: __authz.user?.id || null,
+        module: "settings",
+        action: "SUBJECT_DELETED",
+        entityType: "subject",
+        entityId: subjectId,
+        summary: `বিষয় মুছে ফেলা হয়েছে (${subjectId})`,
+      });
     }
 
     revalidatePath("/dashboard/subjects");

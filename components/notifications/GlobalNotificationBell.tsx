@@ -32,27 +32,51 @@ import {
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { sendNativeStatusBarNotification } from "@/lib/nativeNotifications";
 
-let sharedNotificationsPromise: ReturnType<typeof getGlobalNotifications> | null = null;
-let sharedNotificationsCache: {
+type PortalScopeKey = "teacher" | "student" | "admin";
+
+const sharedNotificationsPromises: Partial<Record<PortalScopeKey, ReturnType<typeof getGlobalNotifications> | null>> = {};
+const sharedNotificationsCaches: Partial<Record<PortalScopeKey, {
   at: number;
   data: Awaited<ReturnType<typeof getGlobalNotifications>>;
-} | null = null;
+} | null>> = {};
 
-async function fetchGlobalNotificationsDeduped(force = false) {
-  if (!force && sharedNotificationsCache && Date.now() - sharedNotificationsCache.at < 25000) {
-    return sharedNotificationsCache.data;
+async function fetchGlobalNotificationsDeduped(scopeKey: PortalScopeKey, force = false) {
+  const cached = sharedNotificationsCaches[scopeKey];
+  if (!force && cached && Date.now() - cached.at < 25000) {
+    return cached.data;
   }
-  if (!sharedNotificationsPromise) {
-    sharedNotificationsPromise = getGlobalNotifications(45)
+  if (!sharedNotificationsPromises[scopeKey]) {
+    sharedNotificationsPromises[scopeKey] = getGlobalNotifications(45)
       .then((res) => {
-        sharedNotificationsCache = { at: Date.now(), data: res };
+        sharedNotificationsCaches[scopeKey] = { at: Date.now(), data: res };
         return res;
       })
       .finally(() => {
-        sharedNotificationsPromise = null;
+        sharedNotificationsPromises[scopeKey] = null;
       });
   }
-  return sharedNotificationsPromise;
+  return sharedNotificationsPromises[scopeKey]!;
+}
+
+function updateCachedNotificationsReadState(scopeKey: PortalScopeKey, readSet: Set<string>) {
+  const cached = sharedNotificationsCaches[scopeKey];
+  if (!cached || !cached.data) return;
+  const nextNotifications = (cached.data.notifications || []).map((n) =>
+    readSet.has(n.id) ? { ...n, isRead: true, status: (n.status === "UNREAD" ? "READ" : n.status) as any } : n
+  );
+  const unread = nextNotifications.filter((n) => !readSet.has(n.id) && (n.status === "PENDING" || n.status === "UNREAD")).length;
+  sharedNotificationsCaches[scopeKey] = {
+    at: Date.now(),
+    data: {
+      ...cached.data,
+      notifications: nextNotifications,
+      readIds: Array.from(readSet),
+      stats: {
+        ...cached.data.stats,
+        unread,
+      },
+    },
+  };
 }
 
 export default function GlobalNotificationBell() {
@@ -60,6 +84,7 @@ export default function GlobalNotificationBell() {
   const pathname = usePathname();
   const isTeacherPortal = pathname?.startsWith("/teacher-portal") ?? false;
   const isStudentPortal = pathname?.startsWith("/portal") ?? false;
+  const portalScope: PortalScopeKey = isTeacherPortal ? "teacher" : isStudentPortal ? "student" : "admin";
 
   const resolveSafeLink = (link?: string) => {
     if (isTeacherPortal) return "/teacher-portal/notices";
@@ -83,7 +108,7 @@ export default function GlobalNotificationBell() {
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load read notification IDs from localStorage as initial fallback
+  // Load read notification IDs from localStorage as initial fallback & sync across instances
   useEffect(() => {
     try {
       const stored = localStorage.getItem("qawmi_read_notification_ids");
@@ -93,6 +118,15 @@ export default function GlobalNotificationBell() {
     } catch {
       // ignore
     }
+
+    const onSyncRead = (e: Event) => {
+      const detail = (e as CustomEvent<{ readIds?: string[] }>).detail;
+      if (detail?.readIds && Array.isArray(detail.readIds)) {
+        setReadIds(new Set(detail.readIds));
+      }
+    };
+    window.addEventListener("qawmi-notifications-read", onSyncRead);
+    return () => window.removeEventListener("qawmi-notifications-read", onSyncRead);
   }, []);
 
   const hasInitializedPollRef = useRef(false);
@@ -102,11 +136,18 @@ export default function GlobalNotificationBell() {
   const loadNotifications = async (force = false) => {
     try {
       setLoading(true);
-      const res = await fetchGlobalNotificationsDeduped(force);
+      const res = await fetchGlobalNotificationsDeduped(portalScope, force);
       if (res && res.notifications) {
-        const readSet = new Set<string>(
-          Array.isArray(res.readIds) ? res.readIds : Array.from(readIds)
-        );
+        let localStoredIds: string[] = [];
+        try {
+          const raw = localStorage.getItem("qawmi_read_notification_ids");
+          if (raw) localStoredIds = JSON.parse(raw);
+        } catch {}
+        const mergedReadSet = new Set<string>([
+          ...(Array.isArray(res.readIds) ? res.readIds : []),
+          ...Array.from(readIds),
+          ...localStoredIds,
+        ]);
 
         if (!hasInitializedPollRef.current) {
           res.notifications.forEach((n) => pushedStatusBarIdsRef.current.add(n.id));
@@ -115,7 +156,7 @@ export default function GlobalNotificationBell() {
           const newlyArrived = res.notifications.filter(
             (n) =>
               !pushedStatusBarIdsRef.current.has(n.id) &&
-              !readSet.has(n.id) &&
+              !mergedReadSet.has(n.id) &&
               n.status !== "READ" &&
               !n.isRead
           );
@@ -131,12 +172,10 @@ export default function GlobalNotificationBell() {
 
         setNotifications(res.notifications);
         setStats(res.stats);
-        if (res.readIds && Array.isArray(res.readIds)) {
-          setReadIds(new Set(res.readIds));
-          try {
-            localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(res.readIds));
-          } catch {}
-        }
+        setReadIds(mergedReadSet);
+        try {
+          localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(Array.from(mergedReadSet)));
+        } catch {}
       }
     } catch (err) {
       console.warn("Failed to load notifications:", err);
@@ -163,7 +202,7 @@ export default function GlobalNotificationBell() {
       clearTimeout(initialTimer);
       clearInterval(interval);
     };
-  }, []);
+  }, [portalScope]);
 
   // Close dropdown on outside click or escape
   useEffect(() => {
@@ -191,9 +230,19 @@ export default function GlobalNotificationBell() {
 
   // Compute unread count considering persistent readIds
   const effectiveUnreadCount = notifications.filter((n) => {
-    if (readIds.has(n.id)) return false;
+    if (readIds.has(n.id) || n.isRead || n.status === "READ" || n.status === "RESOLVED") return false;
     return n.status === "PENDING" || n.status === "UNREAD";
   }).length;
+
+  const broadcastReadIds = (nextSet: Set<string>) => {
+    const arr = Array.from(nextSet);
+    setReadIds(nextSet);
+    updateCachedNotificationsReadState(portalScope, nextSet);
+    try {
+      localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(arr));
+      window.dispatchEvent(new CustomEvent("qawmi-notifications-read", { detail: { readIds: arr } }));
+    } catch {}
+  };
 
   const handleMarkAllAsRead = async () => {
     const prevReadIds = new Set(readIds);
@@ -201,10 +250,7 @@ export default function GlobalNotificationBell() {
     if (targetIds.length === 0) return;
 
     const nextIds = new Set([...Array.from(readIds), ...targetIds]);
-    setReadIds(nextIds);
-    try {
-      localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(Array.from(nextIds)));
-    } catch {}
+    broadcastReadIds(nextIds);
 
     // Persist to database
     try {
@@ -213,30 +259,21 @@ export default function GlobalNotificationBell() {
         targetIds
       );
       if (res.success && res.readIds) {
-        setReadIds(new Set(res.readIds));
-        try {
-          localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(res.readIds));
-        } catch {}
-      } else {
+        const merged = new Set([...Array.from(nextIds), ...res.readIds]);
+        broadcastReadIds(merged);
+      } else if (!res.success) {
         console.error("Failed to persist mark all as read:", res.error);
-        setReadIds(prevReadIds);
-        try {
-          localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(Array.from(prevReadIds)));
-        } catch {}
       }
     } catch (err) {
       console.error("Error persisting mark all as read:", err);
-      setReadIds(prevReadIds);
+      void prevReadIds;
     }
   };
 
   const handleNotificationClick = async (item: GlobalNotificationItem) => {
     const nextReadIds = new Set(readIds);
     nextReadIds.add(item.id);
-    setReadIds(nextReadIds);
-    try {
-      localStorage.setItem("qawmi_read_notification_ids", JSON.stringify(Array.from(nextReadIds)));
-    } catch {}
+    broadcastReadIds(nextReadIds);
 
     // Persist to server before navigating
     try {

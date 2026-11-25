@@ -12,6 +12,7 @@ import {
   findUniquePrefix,
 } from "@/lib/madrasa-prefix";
 import { getAllMadrasasWithPrefixes } from "@/lib/madrasa-prefix-server";
+import { logAuditEvent } from "@/lib/audit-log";
 
 export async function registerMadrasa(formData: FormData) {
   const madrasaName = formData.get("madrasaName") as string;
@@ -356,19 +357,21 @@ export async function updateMadrasaDetails(formData: FormData) {
       }
 
       // Also persist to Supabase Storage
+      let storageUploadOk = false;
       try {
-        await adminClient.storage
+        const { error: uploadErr } = await adminClient.storage
           .from('logos')
           .upload(filePath, buffer, {
             contentType: logoFile.type || "image/png",
             upsert: true
           });
+        storageUploadOk = !uploadErr;
       } catch {
         // Ignore storage error if cloudUrl is present
       }
 
       const { data: pubLogo } = adminClient.storage.from('logos').getPublicUrl(filePath);
-      finalLogoUrl = cloudUrl || pubLogo.publicUrl || finalLogoUrl;
+      finalLogoUrl = cloudUrl || (storageUploadOk ? pubLogo.publicUrl : "") || finalLogoUrl;
     } else if (logoUrl && logoUrl.startsWith("http")) {
       let fetchUrl = logoUrl;
       if (fetchUrl.includes("drive.google.com")) {
@@ -624,6 +627,17 @@ export async function updateMadrasaDetails(formData: FormData) {
     if (!updatedRows || updatedRows.length === 0) {
       return { error: "মাদরাসা আইডি ডাটাবেজে পাওয়া যায়নি। অনুগ্রহ করে পেজ রিফ্রেশ করে আবার চেষ্টা করুন।" };
     }
+
+    await logAuditEvent({
+      madrasaId,
+      module: "settings",
+      action: "MADRASA_SETTINGS_UPDATED",
+      entityType: "madrasa",
+      entityId: madrasaId,
+      entityLabel: name,
+      summary: `মাদ্রাসার প্রাতিষ্ঠানিক সেটিংস আপডেট করা হয়েছে (${name})`,
+      newValue: { name, prefix: cleanPrefix, phone, email, default_monthly_fee: parsedDefaultMonthly },
+    });
     
     // Clear cache to show the updated settings immediately across all routes
     revalidatePath("/", "layout");

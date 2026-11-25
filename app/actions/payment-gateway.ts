@@ -10,6 +10,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { getMadrasaMetadata } from "@/lib/sessions";
 import { getFullPaymentGatewayConfig, gatewayManagerIdentity } from "@/lib/payment-gateway-config";
 import { revalidatePath } from "next/cache";
+import { logAuditEvent } from "@/lib/audit-log";
 import {
   PaymentGatewayConfig,
   DEFAULT_GATEWAY_CONFIG,
@@ -75,8 +76,24 @@ export async function savePaymentGatewayConfig(config: Partial<PaymentGatewayCon
       return { error: "গেটওয়ে কনফিগারেশন সেভ করতে সমস্যা হয়েছে।" };
     }
 
+    await logAuditEvent({
+      madrasaId,
+      actorId: manager.user || null,
+      module: "settings",
+      action: "PAYMENT_GATEWAY_CONFIG_UPDATED",
+      entityType: "payment_gateway",
+      entityId: mergedConfig.active_provider,
+      summary: `অনলাইন পেমেন্ট গেটওয়ে কনফিগারেশন আপডেট করা হয়েছে (${mergedConfig.active_provider}, সক্রিয়: ${mergedConfig.is_enabled ? "হ্যাঁ" : "না"})`,
+      newValue: {
+        is_enabled: mergedConfig.is_enabled,
+        active_provider: mergedConfig.active_provider,
+        enabled_methods: mergedConfig.enabled_methods,
+      },
+    });
+
     revalidatePath("/dashboard/accounting");
     revalidatePath("/dashboard/accounting/gateway");
+    revalidatePath("/dashboard/fundraising/online-donations");
     revalidatePath("/portal/fees");
 
     return {

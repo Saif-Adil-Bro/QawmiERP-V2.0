@@ -22,6 +22,7 @@ import SickStudentsWidget from "@/components/widgets/SickStudentsWidget";
 import { healthWidget } from "@/lib/student-health/staff";
 import { getTenantWidgets } from "@/lib/widgets/service";
 import type { WidgetConfigItem } from "@/lib/widgets/types";
+import { computeRosterAttendanceTruth } from "@/lib/attendance-truth";
 
 
 
@@ -43,6 +44,9 @@ export default async function DashboardPage() {
   let classesCount = 0;
   let todayPresent = 0;
   let todayAbsent = 0;
+  let todayLate = 0;
+  let todayLeave = 0;
+  let todayUnmarked = 0;
   let financeLoaded=false;
   let todayIncome = 0;
   let todayExpense = 0;
@@ -86,16 +90,13 @@ export default async function DashboardPage() {
         Promise.all([
           earlyWarningPromise,
           anomaliesPromise,
-          supabase.from("students").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
+          supabase.from("students").select("id").eq("madrasa_id", profile.madrasa_id),
           supabase.from("teachers").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
           supabase.from("classes").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id),
-          supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Present"),
-          supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Absent"),
-          supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Leave"),
-          supabase.from("attendance").select("*", { count: "exact", head: true }).eq("madrasa_id", profile.madrasa_id).eq("date", today).eq("status", "Late"),
+          supabase.from("attendance").select("student_id, status").eq("madrasa_id", profile.madrasa_id).eq("date", today),
 
           financeAllowed ? readBooks(identity.tenant,getFeeMetadata).then(b=>dashboardFinance(b,today)).catch(()=>null) : null,
-          supabase.from("attendance").select("status").eq("madrasa_id", profile.madrasa_id).gte("date", toDhakaDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))).lte("date", today),
+          supabase.from("attendance").select("student_id, status").eq("madrasa_id", profile.madrasa_id).gte("date", toDhakaDateString(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))).lte("date", today),
           supabase.from("exam_results").select("marks_obtained, total_marks, exams(title)").eq("madrasa_id", profile.madrasa_id),
           getStaffRoster().catch(()=>[]),
         ]).then(data => ({ ok: true as const, data }), error => ({ ok: false as const, error })),
@@ -107,13 +108,10 @@ export default async function DashboardPage() {
       const [
         alerts,
         anomalies,
-        { count: sCount },
+        { data: rosterStudents },
         { count: tCount },
         { count: cCount },
-        { count: presentCount },
-        { count: absentCount },
-        { count: leaveCount },
-        { count: lateCount },
+        { data: todayAttRows },
 
         finance,
         { data: attendanceAllData },
@@ -123,12 +121,19 @@ export default async function DashboardPage() {
       earlyWarningData = alerts;
       anomaliesData = anomalies;
 
-      studentsCount = sCount || 0;
+      const activeRoster = rosterStudents || [];
+      const rosterIdSet = new Set(activeRoster.map((s: any) => String(s.id)));
+      const truth = computeRosterAttendanceTruth(activeRoster, todayAttRows || []);
+
+      studentsCount = truth.totalStudents;
       const staffMembers = staffFullData;
       teachersCount = Math.max(tCount || 0, staffMembers.length);
       classesCount = cCount || 0;
-      todayPresent = presentCount || 0;
-      todayAbsent = absentCount || 0;
+      todayPresent = truth.presentCount;
+      todayAbsent = truth.absentCount;
+      todayLate = truth.lateCount;
+      todayLeave = truth.leaveCount;
+      todayUnmarked = truth.unmarkedCount;
 
 
       financeLoaded=!!finance;
@@ -136,12 +141,13 @@ export default async function DashboardPage() {
       else if(finance) ({totalIncome,totalExpense,todayIncome,todayExpense,expensesSum,bazarSum,balance:fundBalance}=finance);
       const monthlyData=finance?.monthlyData || {};
 
-      // Process Attendance Rate
+      // Process Attendance Rate (restricted to active roster students)
       let presentTotal = 0;
       let absentTotal = 0;
       let leaveTotal = 0;
       let lateTotal = 0;
       (attendanceAllData || []).forEach((a: any) => {
+        if (rosterIdSet.size > 0 && a.student_id && !rosterIdSet.has(String(a.student_id))) return;
         if (a.status === 'Present') presentTotal++;
         else if (a.status === 'Absent') absentTotal++;
         else if (a.status === 'Leave') leaveTotal++;
@@ -169,8 +175,9 @@ export default async function DashboardPage() {
       todayAttendanceData = [
         { name: 'উপস্থিত', value: todayPresent },
         { name: 'অনুপস্থিত', value: todayAbsent },
-        { name: 'ছুটি', value: leaveCount || 0 },
-        { name: 'বিলম্ব', value: lateCount || 0 },
+        { name: 'ছুটি', value: todayLeave },
+        { name: 'বিলম্ব', value: todayLate },
+        { name: 'হাজিরা বাকি', value: todayUnmarked },
       ].filter(d => d.value > 0);
 
       attendanceData = [
@@ -220,8 +227,9 @@ export default async function DashboardPage() {
           classesCount,
           todayPresent,
           todayAbsent,
-          todayLate: todayAttendanceData.find((d) => d.name === "বিলম্ব")?.value || 0,
-          todayLeave: todayAttendanceData.find((d) => d.name === "ছুটি")?.value || 0,
+          todayLate,
+          todayLeave,
+          todayUnmarked,
           todayIncome,
           todayExpense,
           totalIncome,

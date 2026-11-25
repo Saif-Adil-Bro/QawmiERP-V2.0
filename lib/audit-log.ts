@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { headers } from "next/headers";
+import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mergeJsonStore } from "@/lib/madrasa-store";
 
@@ -142,7 +143,14 @@ async function extractRequestContext(): Promise<{
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isValidUuid(val?: string | null): boolean {
+  return Boolean(val && UUID_REGEX.test(String(val).trim()));
+}
+
 const fetchCachedActorRow = cache(async (actorId: string) => {
+  if (!isValidUuid(actorId)) return null;
   const adminClient = await createAdminClient();
   const { data } = await adminClient
     .from("users")
@@ -159,7 +167,7 @@ async function resolveActorInfo(
   actorEmail?: string | null,
   actorRole?: string | null
 ) {
-  if (!actorId || (actorName && actorEmail && actorRole)) {
+  if (!actorId || !isValidUuid(actorId) || (actorName && actorEmail && actorRole)) {
     return {
       actorName: actorName || actorEmail || "সিস্টেম অ্যাডমিন",
       actorEmail: actorEmail || null,
@@ -208,11 +216,20 @@ function extractChangedKeys(oldVal: unknown, newVal: unknown): string[] {
   return changed;
 }
 
+function triggerAuditRevalidate() {
+  try {
+    revalidatePath("/dashboard/settings/audit-logs");
+  } catch {
+    // Safe no-op outside Next.js server action/request lifecycle (e.g. unit tests)
+  }
+}
+
 /**
  * Central Immutable Audit Logger.
  * Writes directly to `public.system_audit_logs`. If the table has not been
- * migrated yet in Supabase, safely persists to a bounded fallback list inside
- * `madrasas.metadata.system_audit_logs_fallback` so no critical audit trail is lost.
+ * migrated yet or if SQL insertion fails (e.g. FK constraint / non-UUID actor_id),
+ * retries with `actor_id: null` and safely persists to a bounded fallback list inside
+ * `madrasas.metadata.system_audit_logs_fallback` so no critical audit trail is ever lost.
  * Never throws to callers so audit logging cannot break primary business workflows.
  */
 export async function logAuditEvent(input: AuditEventInput): Promise<{
@@ -240,14 +257,16 @@ export async function logAuditEvent(input: AuditEventInput): Promise<{
     const cleanOld = sanitizeJsonValue(input.oldValue);
     const cleanNew = sanitizeJsonValue(input.newValue);
     const changedKeys = extractChangedKeys(cleanOld, cleanNew);
+    const hasUuidActor = isValidUuid(input.actorId);
     const mergedMeta: Record<string, unknown> = {
       ...(input.metadata || {}),
       ...(changedKeys.length > 0 ? { changed_fields: changedKeys } : {}),
+      ...(input.actorId && !hasUuidActor ? { original_actor_id: input.actorId } : {}),
     };
 
     const rowPayload = {
       madrasa_id: input.madrasaId,
-      actor_id: input.actorId || null,
+      actor_id: hasUuidActor ? String(input.actorId).trim() : null,
       actor_name: actor.actorName,
       actor_email: actor.actorEmail,
       actor_role: actor.actorRole,
@@ -265,39 +284,57 @@ export async function logAuditEvent(input: AuditEventInput): Promise<{
       severity: input.severity || "INFO",
     };
 
-    const { data, error } = await adminClient
+    let { data, error } = await adminClient
       .from("system_audit_logs")
       .insert(rowPayload)
       .select("id")
       .single();
 
     if (!error && data?.id) {
+      triggerAuditRevalidate();
       return { success: true, storage: "sql", id: data.id };
     }
 
-    if (error && isMissingTableError(error)) {
-      const fallbackId = `audit_fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      const fallbackRecord: SystemAuditLogRecord = {
-        id: fallbackId,
+    // Retry with actor_id = null if FK or UUID constraint failed on users(id)
+    if (error && rowPayload.actor_id !== null && !isMissingTableError(error)) {
+      const retryPayload = {
         ...rowPayload,
-        created_at: new Date().toISOString(),
+        actor_id: null,
+        metadata: {
+          ...mergedMeta,
+          original_actor_id: rowPayload.actor_id,
+        },
       };
-      await mergeJsonStore(input.madrasaId, "meta", (current) => {
-        const list = Array.isArray(current.system_audit_logs_fallback)
-          ? current.system_audit_logs_fallback
-          : [];
-        return {
-          ...current,
-          system_audit_logs_fallback: [fallbackRecord, ...list].slice(0, 300),
-        };
-      });
-      return { success: true, storage: "fallback", id: fallbackId };
+      const retryRes = await adminClient
+        .from("system_audit_logs")
+        .insert(retryPayload)
+        .select("id")
+        .single();
+      if (!retryRes.error && retryRes.data?.id) {
+        triggerAuditRevalidate();
+        return { success: true, storage: "sql", id: retryRes.data.id };
+      }
+      error = retryRes.error || error;
     }
 
-    if (error) {
-      console.warn("logAuditEvent SQL insert error:", error.message);
-    }
-    return { success: false, storage: "none" };
+    // Fallback to metadata store for ANY SQL failure so no audit log is ever lost
+    const fallbackId = `audit_fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const fallbackRecord: SystemAuditLogRecord = {
+      id: fallbackId,
+      ...rowPayload,
+      created_at: new Date().toISOString(),
+    };
+    await mergeJsonStore(input.madrasaId, "meta", (current) => {
+      const list = Array.isArray(current.system_audit_logs_fallback)
+        ? current.system_audit_logs_fallback
+        : [];
+      return {
+        ...current,
+        system_audit_logs_fallback: [fallbackRecord, ...list].slice(0, 300),
+      };
+    });
+    triggerAuditRevalidate();
+    return { success: true, storage: "fallback", id: fallbackId };
   } catch (err) {
     console.warn("logAuditEvent exception:", err);
     return { success: false, storage: "none" };

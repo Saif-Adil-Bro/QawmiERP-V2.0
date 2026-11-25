@@ -12,6 +12,7 @@ import {
   syncAllStudentsDefaultLogins,
   SyncStudentLoginsResult,
 } from "@/lib/student-auth";
+import { logAuditEvent } from "@/lib/audit-log";
 
 export async function login(prevState: any, formData: FormData) {
   let isSuccess = false;
@@ -95,6 +96,21 @@ export async function login(prevState: any, formData: FormData) {
     if (!data.session) return {error: "লগইন ব্যর্থ হয়েছে।"};
     const login = await completeAppLogin(supabase, data.session, "web", false, await headers());
     if (!login.ok) return {error: login.message};
+    if (login.perms.madrasaId) {
+      await logAuditEvent({
+        madrasaId: login.perms.madrasaId,
+        actorId: data.user.id,
+        actorEmail: data.user.email || targetEmail,
+        actorRole: login.perms.role,
+        module: "security",
+        action: "LOGIN",
+        entityType: "auth_session",
+        entityId: data.user.id,
+        entityLabel: data.user.email || targetEmail,
+        summary: `ব্যবহারকারী সফলভাবে লগইন করেছেন (${data.user.email || targetEmail})`,
+        severity: "INFO",
+      });
+    }
     targetRedirectUrl = getPortalRedirectUrl(login.perms.role, login.perms.roles);
     isSuccess = true;
   } catch (err: any) {
@@ -175,7 +191,25 @@ export async function changeGuardianPassword(
       return { success: false, error: `পাসওয়ার্ড আপডেটে ত্রুটি: ${updateErr.message}` };
     }
 
+    const madrasaId = user.user_metadata?.madrasa_id || null;
+    if (madrasaId) {
+      await logAuditEvent({
+        madrasaId,
+        actorId: user.id,
+        actorEmail: user.email || null,
+        module: "security",
+        action: "PASSWORD_CHANGED",
+        entityType: "user",
+        entityId: user.id,
+        entityLabel: user.email || user.id,
+        summary: "পোর্টাল থেকে ব্যবহারকারীর পাসওয়ার্ড পরিবর্তন করা হয়েছে",
+        severity: "INFO",
+      });
+    }
+
     revalidatePath("/portal");
+    revalidatePath("/teacher-portal/profile");
+    revalidatePath("/teacher-portal");
     return {
       success: true,
       message: "আলহামদুলিল্লাহ! আপনার পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে। পরবর্তী সময়ে এই নতুন পাসওয়ার্ড দিয়ে লগইন করুন।",
@@ -214,6 +248,20 @@ export async function logout() {
         const result = await revokeUserSession({sessionId:verified.session.id, madrasaId:verified.session.madrasa_id,
           ownerUserId:verified.user.id, revokedBy:verified.user.id, reason:"USER_LOGOUT", skipAudit:true});
         if (!result.success) confirmed = false;
+        if (verified.session.madrasa_id) {
+          await logAuditEvent({
+            madrasaId: verified.session.madrasa_id,
+            actorId: verified.user.id,
+            actorEmail: verified.user.email || null,
+            module: "security",
+            action: "LOGOUT",
+            entityType: "auth_session",
+            entityId: verified.session.id,
+            entityLabel: verified.user.email || verified.user.id,
+            summary: "ব্যবহারকারী সিস্টেম থেকে লগআউট করেছেন",
+            severity: "INFO",
+          });
+        }
       } else { confirmed = false; }
     } catch { confirmed = false; }
     // Still attempt issuer sign-out if the app registry was unavailable. Other

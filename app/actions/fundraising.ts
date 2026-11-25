@@ -36,6 +36,7 @@ import {
   validateGatewayCredentials,
 } from "@/lib/payment-gateway-engine";
 import { DEFAULT_GATEWAY_CONFIG, PaymentGatewayConfig } from "@/lib/payment-gateway";
+import { logAuditEvent } from "@/lib/audit-log";
 
 // ============================================================================
 // 1. MAHFIL (বার্ষিক মহাসম্মেলন ও মাহফিল)
@@ -1820,10 +1821,22 @@ export async function getOnlineDonationSettings(): Promise<OnlineDonationSetting
     const finalMadrasaId = await getSafeMadrasaId();
     if (!finalMadrasaId) return DEFAULT_ONLINE_DONATION_SETTINGS;
 
-    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    const meta = await getMadrasaMetadata(finalMadrasaId, true);
     const existing = meta.online_donation_settings;
-    const gw = meta.payment_gateway_config;
+    const gw: PaymentGatewayConfig = meta.payment_gateway_config || DEFAULT_GATEWAY_CONFIG;
     const islami = gw?.islami_bank;
+
+    // N7 Fix: Derive gateway_enabled and active_gateways directly from canonical payment_gateway_config
+    const realGatewayEnabled = Boolean(gw?.is_enabled);
+    const activeMethods: string[] = [];
+    if (realGatewayEnabled) {
+      if (gw?.active_provider) activeMethods.push(gw.active_provider);
+      if (gw?.enabled_methods?.bkash) activeMethods.push("bKash");
+      if (gw?.enabled_methods?.nagad) activeMethods.push("Nagad");
+      if (gw?.enabled_methods?.rocket) activeMethods.push("Rocket");
+      if (gw?.enabled_methods?.islami_bank) activeMethods.push("Islami Bank");
+      if (gw?.enabled_methods?.cards) activeMethods.push("Cards");
+    }
 
     return {
       ...DEFAULT_ONLINE_DONATION_SETTINGS,
@@ -1833,8 +1846,9 @@ export async function getOnlineDonationSettings(): Promise<OnlineDonationSetting
       bank_account_name: existing?.bank_account_name || islami?.account_name || DEFAULT_ONLINE_DONATION_SETTINGS.bank_account_name,
       bank_account_no: existing?.bank_account_no || islami?.account_number || DEFAULT_ONLINE_DONATION_SETTINGS.bank_account_no,
       bank_routing_no: existing?.bank_routing_no || islami?.routing_number || DEFAULT_ONLINE_DONATION_SETTINGS.bank_routing_no,
-      gateway_enabled: existing?.gateway_enabled !== undefined ? existing.gateway_enabled : (gw?.is_enabled ?? true),
+      gateway_enabled: realGatewayEnabled,
       gateway_provider: gw?.active_provider || DEFAULT_ONLINE_DONATION_SETTINGS.gateway_provider,
+      active_gateways: activeMethods,
     };
   } catch (err) {
     console.error("Error in getOnlineDonationSettings:", err);
@@ -1845,21 +1859,22 @@ export async function getOnlineDonationSettings(): Promise<OnlineDonationSetting
 export async function saveOnlineDonationSettings(settings: Partial<OnlineDonationSettings>) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("fundraising");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("fundraising");
+  if (!__authz.allowed) return __authz.fallback;
 
   try {
     const finalMadrasaId = await getAuthMadrasaId();
     if (!finalMadrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
-    const meta = await getMadrasaMetadata(finalMadrasaId,true);
+    const meta = await getMadrasaMetadata(finalMadrasaId, true);
     const current = meta.online_donation_settings || DEFAULT_ONLINE_DONATION_SETTINGS;
+    const gw: PaymentGatewayConfig = meta.payment_gateway_config || DEFAULT_GATEWAY_CONFIG;
 
     const updated: OnlineDonationSettings = {
       ...current,
       ...settings,
+      gateway_enabled: Boolean(gw?.is_enabled),
+      gateway_provider: gw?.active_provider || settings.gateway_provider || current.gateway_provider,
       updated_at: new Date().toISOString(),
     };
 
@@ -1878,8 +1893,25 @@ export async function saveOnlineDonationSettings(settings: Partial<OnlineDonatio
     const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
     if (!ok) return { error: "সেটিংস সংরক্ষণ ব্যর্থ হয়েছে" };
 
+    await logAuditEvent({
+      madrasaId: finalMadrasaId,
+      actorId: __authz.user?.id || null,
+      module: "finance",
+      action: "ONLINE_DONATION_SETTINGS_SAVED",
+      entityType: "online_donation_settings",
+      entityId: finalMadrasaId,
+      summary: "অনলাইন অনুদান অ্যাকাউন্ট ও গেটওয়ে সেটিংস আপডেট করা হয়েছে",
+      newValue: {
+        bkash_number: updated.bkash_number,
+        nagad_number: updated.nagad_number,
+        bank_name: updated.bank_name,
+        gateway_enabled: updated.gateway_enabled,
+      },
+    });
+
     try {
       revalidatePath("/dashboard/fundraising/online-donations");
+      revalidatePath("/dashboard/accounting/gateway");
       revalidatePath("/portal/donate");
       revalidatePath("/donate");
     } catch {}

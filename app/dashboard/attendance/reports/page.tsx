@@ -96,7 +96,7 @@ export default function AttendanceReportPage() {
     if (attendanceStatusFilter === 'has_absent') {
       matchesStatus = (item.stats?.absent || 0) > 0;
     } else if (attendanceStatusFilter === 'no_absent') {
-      matchesStatus = (item.stats?.absent || 0) === 0;
+      matchesStatus = (item.stats?.total || 0) > 0 && (item.stats?.present || 0) === (item.stats?.total || 0);
     } else if (attendanceStatusFilter === 'has_late') {
       matchesStatus = (item.stats?.late || 0) > 0;
     } else if (attendanceStatusFilter === 'has_leave') {
@@ -255,7 +255,7 @@ export default function AttendanceReportPage() {
             <div className="bg-emerald-50/50 p-3 rounded-lg border border-emerald-100 flex flex-col justify-center">
               <span className="text-xs text-emerald-600/80 font-medium">শতভাগ উপস্থিত</span>
               <span className="text-lg font-bold text-emerald-700">
-                {filteredData.filter(item => (item.stats?.absent || 0) === 0 && (item.stats?.total || 0) > 0).length} জন
+                {filteredData.filter(item => (item.stats?.total || 0) > 0 && (item.stats?.present || 0) === (item.stats?.total || 0)).length} জন
               </span>
             </div>
             <div className="bg-amber-50/50 p-3 rounded-lg border border-amber-100 flex flex-col justify-center">

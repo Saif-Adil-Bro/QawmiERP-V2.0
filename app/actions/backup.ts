@@ -222,6 +222,7 @@ const KNOWN_DB_TABLES = [
   "leaves",
   "inventory_items",
   "gateways",
+  "system_audit_logs",
 ];
 
 /**
@@ -341,6 +342,16 @@ export async function getBackupOverviewStats(): Promise<{
       feeTypesRes,
       feeDiscountsRes,
       feePaymentsRes,
+      routinesRes,
+      kitabLogsRes,
+      teacherAttRes,
+      examSubjectsRes,
+      bazarExpRes,
+      donationsRes,
+      donorsRes,
+      fundsRes,
+      zakatFundsRes,
+      sysAuditLogsRes,
     ] = await Promise.all([
       admin.from("students").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
       admin.from("classes").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
@@ -360,17 +371,36 @@ export async function getBackupOverviewStats(): Promise<{
       admin.from("fee_types").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
       admin.from("fee_discount_waivers").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
       admin.from("fee_payments").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("routines").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("kitab_logs").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("teacher_attendance").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("exam_subjects").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("bazar_expenses").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("donations").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("donors").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("funds").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("zakat_funds").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
+      admin.from("system_audit_logs").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
     ]);
 
-    const studentCount = (studentsRes.count || 0) + countCollectionItems(meta.student_enrollments) + countCollectionItems(meta.student_profiles);
+    // Student count: actual SQL student rows (do not double-count meta.student_profiles for existing students)
+    const studentCount = Math.max(studentsRes.count || 0, countCollectionItems(meta.student_profiles));
     const admissionsCount = countCollectionItems(meta.admissions);
     const classCount = classesRes.count || 0;
     const subjectCount = (subjectsRes.count || 0) + countCollectionItems(meta.syllabus);
-    const routinesCount = countCollectionItems(meta.routines) + countCollectionItems(meta.exam_routines);
-    const hifzKitabCount = (hifzRes.count || 0) + countCollectionItems(meta.kitab_logs);
-    const attCount = (attRes.count || 0) + countCollectionItems(meta.teacher_attendance);
+    const routinesCount =
+      Math.max(routinesRes.count || 0, countCollectionItems(meta.routines)) +
+      countCollectionItems(meta.exam_routines);
+    const hifzKitabCount =
+      (hifzRes.count || 0) +
+      Math.max(kitabLogsRes.count || 0, countCollectionItems(meta.kitab_logs));
+    const attCount =
+      (attRes.count || 0) +
+      Math.max(teacherAttRes.count || 0, countCollectionItems(meta.teacher_attendance));
     const leavesCount = countCollectionItems(meta.student_leaves) + countCollectionItems(meta.teacher_leaves);
-    const examCount = (examsRes.count || 0) + countCollectionItems(meta.exam_subjects);
+    const examCount =
+      (examsRes.count || 0) +
+      Math.max(examSubjectsRes.count || 0, countCollectionItems(meta.exam_subjects));
     const examResultCount = (examResultsRes.count || 0) + countCollectionItems(meta.published_exams);
     const questionBankCount = countCollectionItems(meta.question_bank) + countCollectionItems(meta.exam_papers);
     
@@ -387,27 +417,29 @@ export async function getBackupOverviewStats(): Promise<{
       countCollectionItems(meta.fee_types) +
       countCollectionItems(meta.discounts);
 
-    const feesCount = relFeesCount > 0 ? relFeesCount : metaFeesCount;
+    const feesCount = Math.max(relFeesCount, metaFeesCount);
 
-    // Cash transactions & fee collection receipts (prefer relational table counts if present; fallback to metadata counts if 0)
+    // Cash transactions & fee collection receipts
     const relFinanceTxCount = (feePaymentsRes.count || 0) + (feesRes.count || 0);
     const metaFinanceTxCount = countCollectionItems(meta.payments);
 
-    const financeTransactionsCount = relFinanceTxCount > 0 ? relFinanceTxCount : metaFinanceTxCount;
+    const financeTransactionsCount = Math.max(relFinanceTxCount, metaFinanceTxCount);
     
     // Expenses and Bazar
-    const expensesCount = (expRes.count || 0) + countCollectionItems(meta.bazar_expenses);
+    const expensesCount =
+      (expRes.count || 0) +
+      Math.max(bazarExpRes.count || 0, countCollectionItems(meta.bazar_expenses));
     
     // Zakat & General Donations (Zakat, General, Lillah, and online donations)
     const zakatDonationsCount =
-      countCollectionItems(meta.donations) +
-      countCollectionItems(meta.zakat_funds) +
+      Math.max(donationsRes.count || 0, countCollectionItems(meta.donations)) +
+      Math.max(zakatFundsRes.count || 0, countCollectionItems(meta.zakat_funds)) +
       countCollectionItems(meta.online_donations);
       
     // Donors Register & Fund Categories
     const donorsFundsCount =
-      countCollectionItems(meta.donors) +
-      countCollectionItems(meta.funds);
+      Math.max(donorsRes.count || 0, countCollectionItems(meta.donors)) +
+      Math.max(fundsRes.count || 0, countCollectionItems(meta.funds));
       
     // Special Fundraising (Mahfil, Life members, Subscriptions, Leather, Donation boxes)
     const fundraisingSpecialCount =
@@ -421,19 +453,21 @@ export async function getBackupOverviewStats(): Promise<{
     // Payment Gateway & API configs
     const paymentGatewayCount =
       countCollectionItems(meta.gateways) +
-      (meta.online_settings ? 1 : 0);
+      (meta.online_settings || meta.payment_gateway_config ? 1 : 0);
 
     // ID Cards & Certificates
     const idCardsCount = countCollectionItems(meta.id_cards) + countCollectionItems(meta.id_card_templates);
     const certificatesCount = countCollectionItems(meta.certificates) + countCollectionItems(meta.certificate_templates);
 
     // Boarding, Library, Inventory
-    const boardingMealsCount = (mealsRes.count || 0) + countCollectionItems(meta.meal_entries);
+    const boardingMealsCount = Math.max(mealsRes.count || 0, countCollectionItems(meta.meal_entries));
     const libraryBooksCount = (booksRes.count || 0) + countCollectionItems(meta.book_issues);
     const inventoryCount = countCollectionItems(meta.inventory?.items || meta.inventory);
 
     // Staff & Users
-    const teachersStaffCount = (teachersRes.count || 0) + countCollectionItems(meta.users);
+    const teachersStaffCount =
+      Math.max(teachersRes.count || 0, countCollectionItems(meta.staff_members)) +
+      countCollectionItems(meta.users);
 
     // Parent communication & complaints
     const parentFeedbacksCount = countCollectionItems(meta.parent_feedbacks) + countCollectionItems(meta.parent_appointments);
@@ -450,21 +484,25 @@ export async function getBackupOverviewStats(): Promise<{
       countCollectionItems(meta.academic_holidays) +
       1; // Madrasa profile settings
 
-    // Audit logs
-    const auditLogsCount = countCollectionItems(meta.audit_logs) + countCollectionItems(meta.backup_history);
+    // Audit logs (SQL system_audit_logs + fallback + backup_history)
+    const auditLogsCount =
+      (sysAuditLogsRes.count || 0) +
+      countCollectionItems(meta.system_audit_logs_fallback) +
+      countCollectionItems(meta.audit_logs) +
+      countCollectionItems(meta.backup_history);
 
     // Dynamic extensions (any other custom keys in metadata that aren't specifically categorized above)
     const standardMetaKeys = new Set([
       "sessions", "academic_holidays", "backup_history", "student_profiles", "admissions",
       "student_enrollments", "student_fees", "payments", "fee_structures", "fee_types",
-      "discounts", "audit_logs", "receipt_counter", "mahfils", "life_members",
+      "discounts", "audit_logs", "system_audit_logs_fallback", "receipt_counter", "mahfils", "life_members",
       "subscription_payments", "qurbani_leathers", "donation_boxes", "box_collections",
-      "online_donations", "online_settings", "id_cards", "id_card_templates",
+      "online_donations", "online_settings", "payment_gateway_config", "id_cards", "id_card_templates",
       "certificates", "certificate_templates", "student_leaves", "teacher_leaves",
       "alumni", "inventory", "parent_feedbacks", "parent_appointments", "absence_alert_settings",
       "fee_alert_settings", "syllabus", "published_exams", "kitab_logs", "sms_logs",
       "donors", "donations", "funds", "zakat_funds", "routines", "exam_routines", "question_bank",
-      "exam_papers", "bazar_expenses", "gateways", "read_notification_ids"
+      "exam_papers", "bazar_expenses", "gateways", "read_notification_ids", "staff_members"
     ]);
 
     let dynamicExtensionsCount = 0;

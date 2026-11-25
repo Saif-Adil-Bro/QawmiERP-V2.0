@@ -5,6 +5,7 @@ import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/ser
 import { revalidatePath } from "next/cache";
 import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
 import { isTeachingStaff } from "@/lib/staff-management";
+import { logAuditEvent } from "@/lib/audit-log";
 
 // Helper to parse sequence and actual description from a stored description text
 function parseClassDescription(description: string | null): { sequence: number; actualDescription: string } {
@@ -257,6 +258,21 @@ export async function assignClassTeacher(classId: string, teacherId: string | nu
 
     await saveMadrasaMetadata(madrasaId, meta);
 
+    await logAuditEvent({
+      madrasaId,
+      actorId: user.id,
+      actorEmail: user.email || null,
+      module: "staff",
+      action: teacherId && teacherId !== "NONE" ? "CLASS_TEACHER_ASSIGNED" : "CLASS_TEACHER_REMOVED",
+      entityType: "class",
+      entityId: classId,
+      summary:
+        teacherId && teacherId !== "NONE"
+          ? `জামাতের শ্রেণি শিক্ষক নির্ধারণ করা হয়েছে (${meta.class_teachers[classId]?.teacher_name || teacherId})`
+          : `জামাতের শ্রেণি শিক্ষক বরাদ্দ বাতিল করা হয়েছে (${classId})`,
+      newValue: { class_id: classId, teacher_id: teacherId || null },
+    });
+
     revalidatePath("/dashboard/classes");
     revalidatePath("/dashboard/academic");
     revalidatePath("/dashboard/staff");
@@ -342,6 +358,18 @@ export async function createClass(prevState: any, formData: FormData) {
       await assignClassTeacher(createdClassId, classTeacherId);
     }
 
+    await logAuditEvent({
+      madrasaId,
+      actorId: __authz.user?.id || null,
+      module: "settings",
+      action: "CLASS_CREATED",
+      entityType: "class",
+      entityId: createdClassId || name,
+      entityLabel: name,
+      summary: `"${name}" জামাত তৈরি করা হয়েছে`,
+      newValue: { id: createdClassId, name, sequence: sequenceVal },
+    });
+
     revalidatePath("/dashboard/classes");
     revalidatePath("/dashboard/academic");
     return { success: true };
@@ -413,6 +441,20 @@ export async function updateClass(
       await assignClassTeacher(classId, classTeacherId);
     }
 
+    if (__authz.madrasaId) {
+      await logAuditEvent({
+        madrasaId: __authz.madrasaId,
+        actorId: __authz.user?.id || null,
+        module: "settings",
+        action: "CLASS_UPDATED",
+        entityType: "class",
+        entityId: classId,
+        entityLabel: trimmedName,
+        summary: `"${trimmedName}" জামাত আপডেট করা হয়েছে`,
+        newValue: { id: classId, name: trimmedName, sequence: seqVal },
+      });
+    }
+
     revalidatePath("/dashboard/classes");
     revalidatePath("/dashboard/academic");
     return { success: true };
@@ -476,6 +518,18 @@ export async function deleteClass(classId: string) {
       }
     } catch (cleanErr) {
       console.warn("Class metadata delete warning:", cleanErr);
+    }
+
+    if (__authz.madrasaId) {
+      await logAuditEvent({
+        madrasaId: __authz.madrasaId,
+        actorId: __authz.user?.id || null,
+        module: "settings",
+        action: "CLASS_DELETED",
+        entityType: "class",
+        entityId: classId,
+        summary: `জামাত ডিলিট করা হয়েছে (${classId})`,
+      });
     }
 
     revalidatePath("/dashboard/classes");

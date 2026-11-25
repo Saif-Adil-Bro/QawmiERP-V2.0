@@ -177,14 +177,24 @@ export default function ParentPortalFeesClient({
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-xs font-bold text-slate-500 tracking-wide">বর্তমান বকেয়া</h3>
             <Clock
-              className={`w-4 h-4 ${totalDue > 0 ? "text-rose-500" : "text-emerald-600"}`}
+              className={`w-4 h-4 ${
+                totalDue > 0
+                  ? "text-rose-500"
+                  : invoices.length === 0 && effectiveTotalPaid <= 0 && effectivePayments.length === 0
+                    ? "text-amber-500"
+                    : "text-emerald-600"
+              }`}
             />
           </div>
           <div>
             <div className="flex items-baseline justify-between gap-2">
               <p
                 className={`text-2xl sm:text-3xl font-black font-mono ${
-                  totalDue > 0 ? "text-rose-700" : "text-emerald-700"
+                  totalDue > 0
+                    ? "text-rose-700"
+                    : invoices.length === 0 && effectiveTotalPaid <= 0 && effectivePayments.length === 0
+                      ? "text-amber-700"
+                      : "text-emerald-700"
                 }`}
               >
                 ৳ {formatBanglaCurrency(totalDue)}
@@ -203,7 +213,9 @@ export default function ParentPortalFeesClient({
             <p className="text-xs text-slate-500 mt-1">
               {totalDue > 0
                 ? `বকেয়া ইনভয়েস: ${toBanglaNumber(unpaidInvoices.length)}টি`
-                : "কোনো বকেয়া নেই (পরিশোধিত)"}
+                : invoices.length === 0 && effectiveTotalPaid <= 0 && effectivePayments.length === 0
+                  ? "ফি নির্ধারণ হয়নি / ইনভয়েস তৈরি হয়নি"
+                  : "কোনো বকেয়া নেই (পরিশোধিত)"}
             </p>
           </div>
         </div>

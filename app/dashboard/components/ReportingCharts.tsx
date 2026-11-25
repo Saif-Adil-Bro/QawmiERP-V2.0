@@ -32,6 +32,7 @@ const STATUS_COLORS: Record<string, string> = {
   অনুপস্থিত: "#f43f5e", // Rose red
   ছুটি: "#f59e0b", // Amber orange
   বিলম্ব: "#0ea5e9", // Sky blue
+  "হাজিরা বাকি": "#94a3b8", // Slate 400
 };
 
 interface ReportingChartsProps {

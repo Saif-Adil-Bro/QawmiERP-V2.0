@@ -432,7 +432,11 @@ function normalizeExamRows(rows: any[]): BiSessionExamResultRow[] {
   }));
 }
 
-function classDues(feeRows: any[]) {
+function classDues(
+  feeRows: any[],
+  studentClassMap?: Map<string, { classId: string; className: string }>,
+  classNameById?: Map<string, string>,
+) {
   // 3. Class-wise fee dues
   const classDueMap = new Map<
     string,
@@ -448,17 +452,38 @@ function classDues(feeRows: any[]) {
   >();
 
   for (const sf of feeRows) {
-    const cKey =
-      (sf.class_id && String(sf.class_id).trim()) ||
-      (sf.class_name && String(sf.class_name).trim()) ||
-      "UNASSIGNED";
+    const sid = sf.student_id ? String(sf.student_id) : "";
+    const studentInfo = sid ? studentClassMap?.get(sid) : undefined;
+    const rawClassId = sf.class_id ? String(sf.class_id).trim() : "";
+    const rawClassName = sf.class_name ? String(sf.class_name).trim() : "";
+    const isGenericClass =
+      !rawClassName ||
+      rawClassName === "সাধারণ" ||
+      rawClassName === "সাধারণ জামাত" ||
+      rawClassName === "ALL" ||
+      rawClassName === "UNASSIGNED";
+
+    const resolvedClassId =
+      rawClassId && rawClassId !== "ALL" && rawClassId !== "UNASSIGNED"
+        ? rawClassId
+        : studentInfo?.classId || "";
+
+    const resolvedClassName =
+      !isGenericClass
+        ? rawClassName
+        : (resolvedClassId && classNameById?.get(resolvedClassId)) ||
+          studentInfo?.className ||
+          rawClassName ||
+          "অনির্ধারিত জামাত";
+
+    const cKey = resolvedClassId || resolvedClassName || "UNASSIGNED";
     const mapKey = `${sf.session_id || "all"}::${cKey}`;
     let entry = classDueMap.get(mapKey);
     if (!entry) {
       entry = {
         session_id: sf.session_id ? String(sf.session_id) : null,
         class_key: cKey,
-        class_name: String(sf.class_name || "সাধারণ জামাত"),
+        class_name: resolvedClassName,
         studentIds: new Set<string>(),
         payable: 0,
         paid: 0,
@@ -466,7 +491,7 @@ function classDues(feeRows: any[]) {
       };
       classDueMap.set(mapKey, entry);
     }
-    if (sf.student_id) entry.studentIds.add(String(sf.student_id));
+    if (sid) entry.studentIds.add(sid);
     entry.payable = safeRound(entry.payable + safeNum(sf.payable_amount));
     entry.paid = safeRound(entry.paid + safeNum(sf.paid_amount));
     entry.due = safeRound(entry.due + safeNum(sf.due_amount));
@@ -488,8 +513,38 @@ function classDues(feeRows: any[]) {
   return classFeeDues;
 }
 async function liveFinance(tenant: string, session: string | null, through = toDhakaDateString()) {
-  const books = await readBooks(tenant, getFeeMetadata),
-    entries = ledgerEntries(books).filter((e) => e.status !== "VOID" && e.date <= through);
+  const admin = await createAdminClient();
+  const [books, classesRes, studentsRes] = await Promise.all([
+    readBooks(tenant, getFeeMetadata),
+    admin
+      .from("classes")
+      .select("id, name")
+      .or(`madrasa_id.eq.${tenant},madrasa_id.is.null`),
+    admin
+      .from("students")
+      .select("id, class_id, class_name, classes(id, name)")
+      .eq("madrasa_id", tenant),
+  ]);
+  const classNameById = new Map<string, string>();
+  for (const c of classesRes.data || []) {
+    if (c?.id && c?.name) classNameById.set(String(c.id), String(c.name).trim());
+  }
+  const studentClassMap = new Map<string, { classId: string; className: string }>();
+  for (const s of studentsRes.data || []) {
+    if (!s?.id) continue;
+    const cid = s.class_id ? String(s.class_id) : "";
+    const joinedName = Array.isArray(s.classes)
+      ? (s.classes[0] as any)?.name
+      : (s.classes as any)?.name;
+    const cname =
+      String(joinedName || s.class_name || (cid ? classNameById.get(cid) : "") || "").trim();
+    if (cid && cname && !classNameById.has(cid)) {
+      classNameById.set(cid, cname);
+    }
+    studentClassMap.set(String(s.id), { classId: cid, className: cname });
+  }
+
+  const entries = ledgerEntries(books).filter((e) => e.status !== "VOID" && e.date <= through);
   const balances = new Map<string, number>(),
     donations = new Map<string, BiDonationBreakdownRow>();
   const bazarByMonth = new Map<string, number>();
@@ -564,7 +619,7 @@ async function liveFinance(tenant: string, session: string | null, through = toD
     bazarByMonth,
     boardingPaid,
     billRows,
-    classFeeDues: classDues(billRows),
+    classFeeDues: classDues(billRows, studentClassMap, classNameById),
     funds: normalizeFundRows(
       allFunds.map((f) => ({ ...f, current_balance: balances.get(f.id) || 0 })),
     ),

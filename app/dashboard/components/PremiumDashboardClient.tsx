@@ -43,6 +43,7 @@ export interface PremiumDashboardClientProps {
     todayAbsent: number;
     todayLate?: number;
     todayLeave?: number;
+    todayUnmarked?: number;
     todayIncome: number;
     todayExpense: number;
     totalIncome: number;
@@ -132,11 +133,11 @@ export default function PremiumDashboardClient({
     stats.todayAbsent +
     (stats.todayLate || 0) +
     (stats.todayLeave || 0);
+  const attendanceDenominator =
+    stats.studentsCount > 0 ? stats.studentsCount : totalMarkedToday;
   const attendancePercent =
-    totalMarkedToday > 0
-      ? Math.round((stats.todayPresent / totalMarkedToday) * 100)
-      : stats.studentsCount > 0 && stats.todayPresent > 0
-      ? Math.min(100, Math.round((stats.todayPresent / stats.studentsCount) * 100))
+    attendanceDenominator > 0
+      ? Math.min(100, Math.round((stats.todayPresent / attendanceDenominator) * 100))
       : 0;
 
   const activeIncome =
@@ -454,13 +455,23 @@ export default function PremiumDashboardClient({
                 </div>
               </div>
               <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
                   <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
                     হার: {toBanglaNumber(attendancePercent)}%
                   </span>
                   <span className="text-rose-500 font-semibold">
                     অনুপস্থিত: {toBanglaNumber(stats.todayAbsent)}
                   </span>
+                  {(stats.todayLate || 0) > 0 && (
+                    <span className="text-sky-600 dark:text-sky-400 font-semibold">
+                      বিলম্বে: {toBanglaNumber(stats.todayLate)}
+                    </span>
+                  )}
+                  {(stats.todayUnmarked || 0) > 0 && (
+                    <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                      হাজিরা বাকি: {toBanglaNumber(stats.todayUnmarked)}
+                    </span>
+                  )}
                 </div>
                 <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                   <div

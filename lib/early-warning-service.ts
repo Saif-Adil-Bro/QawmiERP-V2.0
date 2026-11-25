@@ -587,7 +587,7 @@ export async function getStudentRiskScores(
     }
 
     const { data, error } = await query;
-    if (!error && Array.isArray(data)) {
+    if (!error && Array.isArray(data) && data.length > 0) {
       return data.map((row: any) => ({
         ...row,
         composite_score: Number(row.composite_score || 0),
@@ -602,7 +602,6 @@ export async function getStudentRiskScores(
 
     if (error && !isMissingTableError(error)) {
       console.error("getStudentRiskScores error:", error.message);
-      return [];
     }
   } catch {
     // fallback below
@@ -610,6 +609,18 @@ export async function getStudentRiskScores(
 
   let list = await readFallbackRiskScores(madrasaId);
   list = list.filter((r) => r.madrasa_id === madrasaId);
+
+  if (list.length === 0 && (!filters?.riskLevel || filters.riskLevel === "ALL")) {
+    try {
+      const recalc = await recalculateStudentRiskScores(madrasaId, {
+        classId: filters?.classId,
+      });
+      list = Array.isArray(recalc.risk_scores) ? [...recalc.risk_scores] : [];
+    } catch (e) {
+      console.error("Auto recalculateStudentRiskScores failed:", e);
+    }
+  }
+
   if (filters?.riskLevel && filters.riskLevel !== "ALL") {
     const target = filters.riskLevel.toUpperCase();
     list = list.filter((r) => r.risk_level === target);

@@ -8,6 +8,7 @@ import {
   RefreshCw, Sparkles
 } from "lucide-react";
 import { toBanglaNumber } from "@/lib/numberToBangla";
+import SafeLogo from "@/components/print/SafeLogo";
 
 interface MadrasaInfo {
   id?: string;
@@ -433,11 +434,13 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden z-0">
             {resolvedLogoUrl ? (
               <div className="w-[3.5in] h-[3.5in] max-w-[45vw] max-h-[45vh] flex items-center justify-center opacity-[0.05] print:opacity-[0.06]">
-                <img 
-                  src={resolvedLogoUrl} 
-                  alt="Madrasa Logo Watermark" 
+                <SafeLogo
+                  src={resolvedLogoUrl}
+                  alt="Madrasa Logo Watermark"
+                  madrasaName={mName}
+                  prefix={resolvedPrefix}
                   className="w-full h-full object-contain filter grayscale"
-                  referrerPolicy="no-referrer"
+                  fallbackClassName={`w-full h-full rounded-full border-8 ${currentTheme.border} flex items-center justify-center text-[120px] font-black tracking-widest`}
                 />
               </div>
             ) : (
@@ -459,18 +462,14 @@ export default function PrintLetterpad({ children, madrasaInfo, logoUrl, title, 
               {/* Left Column: Logo & Established */}
               <div className="flex items-center space-x-3 print:space-x-2 shrink-0">
                 <div className={`w-16 h-16 print:w-10 print:h-10 rounded-full border-2 ${currentTheme.border} bg-white flex items-center justify-center shadow-sm relative shrink-0 overflow-hidden`}>
-                  {resolvedLogoUrl ? (
-                    <img 
-                      src={resolvedLogoUrl} 
-                      alt="Logo" 
-                      className="w-full h-full object-cover rounded-full"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className={`w-full h-full rounded-full ${currentTheme.bg} flex items-center justify-center`}>
-                      <GraduationCap className={`w-8 h-8 print:w-5 print:h-5 ${currentTheme.text}`} />
-                    </div>
-                  )}
+                  <SafeLogo
+                    src={resolvedLogoUrl}
+                    alt="Logo"
+                    madrasaName={mName}
+                    prefix={resolvedPrefix}
+                    className="w-full h-full object-cover rounded-full"
+                    fallbackClassName={`w-full h-full rounded-full ${currentTheme.bg} ${currentTheme.text} flex items-center justify-center text-lg print:text-xs font-black`}
+                  />
                 </div>
                 <div className="text-left leading-tight">
                   <span className={`text-[10px] print:text-[9px] uppercase font-bold tracking-wider ${currentTheme.lightText}`}>স্থাপিত: {establishedYear} ইং</span>

@@ -22,7 +22,14 @@ export default function HifzReportPage() {
     async function fetchClasses() {
       try {
         const cls = await getClasses();
-        setClasses(cls || []);
+        const list = cls || [];
+        setClasses(list);
+        const hifzCls = list.find((c: any) =>
+          /হিফ[জয]|হেফ[জয]|হাফে[জয]|তাহফি[জয]|hifz|tahfiz/i.test(String(c?.name || ""))
+        );
+        if (hifzCls?.id) {
+          setClassId((prev) => (prev === "All" ? hifzCls.id : prev));
+        }
       } catch (e) {
         console.error("Failed to load classes:", e);
       }

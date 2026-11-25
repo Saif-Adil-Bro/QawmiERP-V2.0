@@ -58,6 +58,7 @@ export default async function PortalOverview(props: {
       latestHifz={hifz[0] || null}
       totalPaid={ledger.total_paid}
       totalDue={ledger.total_due}
+      invoicesCount={Array.isArray(ledger.fees) ? ledger.fees.length : 0}
       latestReceiptNo={ledger.payments[0]?.receipt_no || '—'}
       feesList={ledger.payments}
       latestExam={latestExam}

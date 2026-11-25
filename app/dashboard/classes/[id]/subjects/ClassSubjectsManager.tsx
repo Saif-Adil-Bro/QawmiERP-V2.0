@@ -93,6 +93,26 @@ export default function ClassSubjectsManager({
   const submittingRef = useRef(false);
   const releaseGuardRef = useRef<(() => void) | null>(null);
 
+  const activeSavesCountRef = useRef(0);
+
+  const beginSaveOperation = (label = "class-subjects"): (() => void) => {
+    activeSavesCountRef.current += 1;
+    pendingRef.current = true;
+    submittingRef.current = true;
+    const release = acquireSaveGuard(label);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      release();
+      activeSavesCountRef.current = Math.max(0, activeSavesCountRef.current - 1);
+      if (activeSavesCountRef.current === 0) {
+        pendingRef.current = false;
+        submittingRef.current = false;
+      }
+    };
+  };
+
   const armSaveGuard = (label = "class-subjects") => {
     pendingRef.current = true;
     if (!releaseGuardRef.current) {
@@ -101,8 +121,10 @@ export default function ClassSubjectsManager({
   };
 
   const disarmSaveGuard = () => {
-    pendingRef.current = false;
-    submittingRef.current = false;
+    if (activeSavesCountRef.current === 0) {
+      pendingRef.current = false;
+      submittingRef.current = false;
+    }
     if (releaseGuardRef.current) {
       const rel = releaseGuardRef.current;
       releaseGuardRef.current = null;
@@ -121,7 +143,7 @@ export default function ClassSubjectsManager({
       return "";
     };
     const handleClickCapture = (e: MouseEvent) => {
-      if (!pendingRef.current) return;
+      if (!pendingRef.current && !hasActiveSaveGuards()) return;
       const target = e.target as HTMLElement | null;
       const anchor = target?.closest?.("a[href]");
       if (anchor) {
@@ -133,27 +155,11 @@ export default function ClassSubjectsManager({
         });
       }
     };
-    const handleKeyDownCapture = (e: KeyboardEvent) => {
-      if (!pendingRef.current) return;
-      const isReloadKey =
-        e.key === "F5" ||
-        ((e.ctrlKey || e.metaKey) && (e.key === "r" || e.key === "R"));
-      if (isReloadKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        setToast({
-          type: "error",
-          message: "বিষয় বণ্টন সেভ হচ্ছে — সেভ শেষ না হওয়া পর্যন্ত পেজ রিলোড করা যাবে না।",
-        });
-      }
-    };
     window.addEventListener("beforeunload", handleBeforeUnload);
     window.addEventListener("click", handleClickCapture, { capture: true });
-    window.addEventListener("keydown", handleKeyDownCapture, { capture: true });
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("click", handleClickCapture, { capture: true });
-      window.removeEventListener("keydown", handleKeyDownCapture, { capture: true });
       disarmSaveGuard();
     };
   }, []);
@@ -175,14 +181,23 @@ export default function ClassSubjectsManager({
     const prevTeacherId = subjectTeachers[subjectId] || "";
     setSubjectTeachers((prev) => ({ ...prev, [subjectId]: teacherId }));
     setSavingTeacherForSubject(subjectId);
-    submittingRef.current = true;
-    armSaveGuard("class-subject-teacher");
+    const finishOp = beginSaveOperation("class-subject-teacher");
     setToast(null);
     try {
-      const res = await setClassSubjectTeacher(classId, subjectId, teacherId || null);
-      if (res?.error) {
+      const response = await fetch(`/api/classes/${encodeURIComponent(classId)}/subjects`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        keepalive: true,
+        body: JSON.stringify({
+          subjectId,
+          teacherId: teacherId || null,
+        }),
+      });
+      const res = await response.json().catch(() => ({}));
+      if (!response.ok || res?.error) {
         setSubjectTeachers((prev) => ({ ...prev, [subjectId]: prevTeacherId }));
-        setToast({ type: "error", message: res.error });
+        setToast({ type: "error", message: res?.error || "বিষয় শিক্ষক নির্ধারণ করতে সমস্যা হয়েছে।" });
       } else {
         const resolvedId = res?.teacherId || teacherId || "";
         setSubjectTeachers((prev) => ({ ...prev, [subjectId]: resolvedId }));
@@ -198,8 +213,8 @@ export default function ClassSubjectsManager({
       setSubjectTeachers((prev) => ({ ...prev, [subjectId]: prevTeacherId }));
       setToast({ type: "error", message: err.message || "বিষয় শিক্ষক নির্ধারণ করতে সমস্যা হয়েছে।" });
     } finally {
-      setSavingTeacherForSubject(null);
-      disarmSaveGuard();
+      setSavingTeacherForSubject((cur) => (cur === subjectId ? null : cur));
+      finishOp();
     }
   };
 

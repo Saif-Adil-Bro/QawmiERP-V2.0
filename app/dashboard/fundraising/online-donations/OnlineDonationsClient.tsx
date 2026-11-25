@@ -329,26 +329,49 @@ export default function OnlineDonationsClient({
       </div>
 
       {/* Gateway & Accounts Status Banner */}
-      <div className="bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-200/80 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
+      <div
+        className={`border rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs ${
+          settings.gateway_enabled
+            ? "bg-linear-to-r from-emerald-50 to-teal-50 border-emerald-200/80"
+            : "bg-slate-50 border-slate-200/80"
+        }`}
+      >
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+          <div
+            className={`w-10 h-10 rounded-xl text-white flex items-center justify-center shrink-0 shadow-xs ${
+              settings.gateway_enabled ? "bg-emerald-600" : "bg-slate-500"
+            }`}
+          >
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-emerald-950 text-sm">
-                অনলাইন পেমেন্ট গেটওয়ে সিঙ্ক সক্রিয়
-              </span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-800">
-                {settings.gateway_provider || "SSLCOMMERZ"}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`font-bold text-sm ${
+                  settings.gateway_enabled ? "text-emerald-950" : "text-slate-800"
+                }`}
+              >
+                {settings.gateway_enabled
+                  ? "অনলাইন পেমেন্ট গেটওয়ে সিঙ্ক সক্রিয়"
+                  : "অনলাইন পেমেন্ট গেটওয়ে নিষ্ক্রিয় (শুধু ম্যানুয়াল TrxID চালু)"}
               </span>
               {settings.gateway_enabled ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  সরাসরি গেটওয়ে চালু
-                </span>
+                <>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-800">
+                    {settings.gateway_provider || "SSLCOMMERZ"}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    সরাসরি গেটওয়ে চালু
+                  </span>
+                </>
               ) : (
-                <span className="text-[10px] text-slate-500">গেটওয়ে বন্ধ</span>
+                <a
+                  href="/dashboard/accounting/gateway"
+                  className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors"
+                >
+                  গেটওয়ে সেটিংস থেকে চালু করুন →
+                </a>
               )}
             </div>
             <p className="text-slate-600 mt-0.5">

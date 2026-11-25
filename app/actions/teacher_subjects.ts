@@ -6,15 +6,19 @@ import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import {resolveTeacherUuid} from '@/lib/teacher-profile-write';
+import { logAuditEvent } from "@/lib/audit-log";
 
 export async function getTeacherSubjects(teacherId: string) {
   if (!teacherId) return [];
 
-  const i = await webIdentity(); if (!i || hasRole(i,studentRoles)) return [];
-  if (!hasRole(i,teacherRoles) && !(await writeGuard("staff")).allowed) return [];
-  const s = await teacherScope(i,hasRole(i,teacherRoles) ? undefined : teacherId);
+  const i = await webIdentity();
+  if (!i || hasRole(i, studentRoles)) return [];
+  const staffGuard = await writeGuard("staff");
+  const isStaffViewer = staffGuard.allowed;
+  if (!hasRole(i, teacherRoles) && !isStaffViewer) return [];
+  // When an explicit teacherId is passed by a staff/admin viewer, always resolve that teacher's scope
+  const s = await teacherScope(i, isStaffViewer ? teacherId : undefined);
   return s.assignments;
-
 }
 
 export async function getAvailableClassSubjects() {
@@ -109,18 +113,40 @@ export async function assignSubjectToTeacher(teacherId: string, classId: string,
 
   const adminClient = await createAdminClient();
 
-  const [classRow, subjectRow] = await Promise.all([
-    adminClient.from("classes").select("id, madrasa_id").eq("id", classId).maybeSingle(),
-    adminClient.from("subjects").select("id, madrasa_id").eq("id", subjectId).maybeSingle(),
+  const [classRow, subjectRow, classSubLink] = await Promise.all([
+    adminClient.from("classes").select("id, name, madrasa_id").eq("id", classId).maybeSingle(),
+    adminClient.from("subjects").select("id, name, madrasa_id").eq("id", subjectId).maybeSingle(),
+    adminClient
+      .from("class_subjects")
+      .select("id")
+      .eq("class_id", classId)
+      .eq("subject_id", subjectId)
+      .maybeSingle(),
   ]);
+
   if (
     !classRow.data ||
     !subjectRow.data ||
-    (classRow.data.madrasa_id && classRow.data.madrasa_id !== finalMadrasaId) ||
-    (subjectRow.data.madrasa_id && subjectRow.data.madrasa_id !== finalMadrasaId)
+    (classRow.data.madrasa_id && classRow.data.madrasa_id !== finalMadrasaId)
   ) {
     return { error: "জামাত বা বিষয় এই প্রতিষ্ঠানের নয়।" };
   }
+
+  // S2 Fix: Allow subject if it belongs to this tenant, is global (madrasa_id is null),
+  // is linked via class_subjects for this class, or is in the visible subject catalog.
+  if (
+    subjectRow.data.madrasa_id &&
+    subjectRow.data.madrasa_id !== finalMadrasaId &&
+    !classSubLink.data
+  ) {
+    const { getSubjects } = await import("./subjects");
+    const visibleCatalog = await getSubjects();
+    const isInVisibleCatalog = (visibleCatalog || []).some((s: any) => s.id === subjectId);
+    if (!isInVisibleCatalog) {
+      return { error: "জামাত বা বিষয় এই প্রতিষ্ঠানের নয়।" };
+    }
+  }
+
   const { error } = await adminClient.from("teacher_subjects").insert({
     madrasa_id: finalMadrasaId,
     teacher_id: resolvedTeacherId,
@@ -136,11 +162,25 @@ export async function assignSubjectToTeacher(teacherId: string, classId: string,
     return { error: `বিষয় এসাইন করতে সমস্যা হয়েছে: ${error.message}` };
   }
 
+  await logAuditEvent({
+    madrasaId: finalMadrasaId,
+    actorId: user.id,
+    actorEmail: user.email || null,
+    module: "staff",
+    action: "TEACHER_SUBJECT_ASSIGNED",
+    entityType: "teacher_subject",
+    entityId: `${resolvedTeacherId}:${classId}:${subjectId}`,
+    entityLabel: `${classRow.data.name || classId} - ${subjectRow.data.name || subjectId}`,
+    summary: `শিক্ষকের জন্য "${subjectRow.data.name || subjectId}" (${classRow.data.name || classId}) বিষয় নির্ধারণ করা হয়েছে`,
+    newValue: { teacher_id: resolvedTeacherId, class_id: classId, subject_id: subjectId },
+  });
+
   revalidatePath(`/dashboard/teachers/${teacherId}/subjects`);
   revalidatePath(`/dashboard/teachers/${resolvedTeacherId}/subjects`);
   revalidatePath(`/dashboard/classes/${classId}/subjects`);
   revalidatePath(`/dashboard/teachers`);
   revalidatePath(`/dashboard/staff`);
+  revalidatePath(`/teacher-portal`);
   return { success: true, teacherId: resolvedTeacherId };
 }
 
@@ -169,8 +209,20 @@ export async function setClassSubjectTeacher(classId: string, subjectId: string,
     .eq("subject_id", subjectId);
 
   if (!teacherId || teacherId === "NONE") {
+    await logAuditEvent({
+      madrasaId: finalMadrasaId,
+      actorId: user.id,
+      actorEmail: user.email || null,
+      module: "staff",
+      action: "CLASS_SUBJECT_TEACHER_CLEARED",
+      entityType: "teacher_subject",
+      entityId: `${classId}:${subjectId}`,
+      summary: `জামাতের বিষয় শিক্ষক বরাদ্দ বাতিল করা হয়েছে (${classId})`,
+      oldValue: { class_id: classId, subject_id: subjectId },
+    });
     revalidatePath(`/dashboard/classes/${classId}/subjects`);
     revalidatePath(`/dashboard/staff`);
+    revalidatePath(`/teacher-portal`);
     return { success: true, teacherId: null };
   }
 
@@ -190,33 +242,61 @@ export async function setClassSubjectTeacher(classId: string, subjectId: string,
     return { error: `বিষয় শিক্ষক নির্ধারণে সমস্যা হয়েছে: ${error.message}` };
   }
 
+  await logAuditEvent({
+    madrasaId: finalMadrasaId,
+    actorId: user.id,
+    actorEmail: user.email || null,
+    module: "staff",
+    action: "CLASS_SUBJECT_TEACHER_SET",
+    entityType: "teacher_subject",
+    entityId: `${resolvedTeacherId}:${classId}:${subjectId}`,
+    summary: `জামাতের বিষয়ের জন্য শিক্ষক নির্ধারণ করা হয়েছে`,
+    newValue: { teacher_id: resolvedTeacherId, class_id: classId, subject_id: subjectId },
+  });
+
   revalidatePath(`/dashboard/classes/${classId}/subjects`);
   revalidatePath(`/dashboard/teachers/${teacherId}/subjects`);
   revalidatePath(`/dashboard/teachers/${resolvedTeacherId}/subjects`);
   revalidatePath(`/dashboard/staff`);
+  revalidatePath(`/teacher-portal`);
   return { success: true, teacherId: resolvedTeacherId };
 }
 
 export async function removeSubjectFromTeacher(teacherSubjectId: string, teacherId: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("staff");
-    if (!__authz.allowed) return __authz.fallback;
-  }
+  const __authz = await writeGuard("staff");
+  if (!__authz.allowed) return __authz.fallback;
 
+  const tenant = (await webIdentity())?.tenant || __authz.madrasaId || "";
   const adminClient = await createAdminClient();
   const { error } = await adminClient
     .from("teacher_subjects")
     .delete()
-    .eq("madrasa_id",(await webIdentity())?.tenant || "").eq("id", teacherSubjectId);
+    .eq("madrasa_id", tenant)
+    .eq("id", teacherSubjectId);
 
   if (error) {
     return { error: `বিষয়টি মুছতে সমস্যা হয়েছে: ${error.message}` };
   }
 
+  if (tenant) {
+    await logAuditEvent({
+      madrasaId: tenant,
+      actorId: __authz.user?.id || null,
+      module: "staff",
+      action: "TEACHER_SUBJECT_REMOVED",
+      entityType: "teacher_subject",
+      entityId: teacherSubjectId,
+      summary: `শিক্ষকের বিষয় বরাদ্দ মুছে ফেলা হয়েছে (${teacherId})`,
+      oldValue: { id: teacherSubjectId, teacher_id: teacherId },
+    });
+  }
+
   revalidatePath(`/dashboard/teachers/${teacherId}/subjects`);
   revalidatePath(`/dashboard/teachers`);
+  revalidatePath(`/dashboard/staff`);
+  revalidatePath(`/teacher-portal`);
   return { success: true };
 }
 
@@ -261,9 +341,15 @@ export interface TeacherAcademicSchedule {
 
 export async function getTeacherAcademicSchedule(staffId: string): Promise<TeacherAcademicSchedule> {
   const i = await webIdentity();
-  if (i && !hasRole(i,studentRoles)) {
-    if (hasRole(i,teacherRoles)) return teacherSchedule(i, await teacherScope(i));
-    if (staffId && (await writeGuard('staff')).allowed) return teacherSchedule(i, await teacherScope(i,staffId));
+  if (i && !hasRole(i, studentRoles)) {
+    // PB-06 Fix: If staffId is explicitly provided and the caller has staff writeGuard access (e.g. Admin viewing a teacher drawer),
+    // always pass staffId to teacherScope so admin users who also hold a teacher role don't see their own empty scope instead of the target teacher!
+    if (staffId && (await writeGuard("staff")).allowed) {
+      return teacherSchedule(i, await teacherScope(i, staffId));
+    }
+    if (hasRole(i, teacherRoles)) {
+      return teacherSchedule(i, await teacherScope(i, staffId || undefined));
+    }
   }
-  return {teacherId:'',isTeachingStaff:false,assignedSubjects:[],inChargeClasses:[],routines:[]};
+  return { teacherId: "", isTeachingStaff: false, assignedSubjects: [], inChargeClasses: [], routines: [] };
 }

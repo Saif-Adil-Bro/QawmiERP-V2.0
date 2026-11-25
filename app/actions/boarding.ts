@@ -35,7 +35,7 @@ export async function getStudentsForMeals(
   // 1. Fetch classes to display filters
   let query = supabase
     .from("students")
-    .select("id, first_name, last_name, roll_number, class_id, class_name")
+    .select("id, first_name, last_name, roll_number, class_id, class_name, classes(id, name)")
     .eq("madrasa_id", finalMadrasaId)
     .order("roll_number");
 
@@ -72,7 +72,7 @@ export async function getStudentsForMeals(
   const mealMap = new Map((mealEntries || []).map(m => [m.student_id, m.meal_status]));
 
   // 4. Map student meal status and residential profile
-  const mapped = (students || []).map(student => {
+  const mapped = (students || []).map((student: any) => {
     const profile = meta?.student_profiles?.[student.id] || {};
     const admission = (meta?.admissions || []).find((a: any) => a.confirmed_student_id === student.id);
     const residentialStatus = profile.residential_status !== undefined
@@ -90,12 +90,19 @@ export async function getStudentsForMeals(
       meal_status = isBoarding ? "On" : "Off";
     }
 
+    const resolvedClassName =
+      (Array.isArray(student.classes) ? student.classes[0]?.name : student.classes?.name) ||
+      student.class_name ||
+      profile.class_name ||
+      "নির্ধারিত জামাত";
+
     return {
       id: student.id,
       first_name: student.first_name,
       last_name: student.last_name,
       roll_number: student.roll_number,
-      class_name: student.class_name,
+      class_id: student.class_id,
+      class_name: resolvedClassName,
       residential_status: residentialStatus,
       is_boarding: isBoarding,
       boarding_type: profile.boarding_type !== undefined ? profile.boarding_type : (isBoarding ? "সাধারণ পেইং" : "অনাবাসিক"),
@@ -392,7 +399,7 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
 
   const {getMadrasaMetadata}=await import('@/lib/sessions');
   const [students,mealsData,meta]=await Promise.all([
-    rows(()=>adminClient.from('students').select('id,first_name,last_name,roll_number,class_name,classes(id,name)').eq('madrasa_id',finalMadrasaId)),
+    rows(()=>adminClient.from('students').select('id,first_name,last_name,roll_number,class_id,class_name,classes(id,name)').eq('madrasa_id',finalMadrasaId)),
     rows(()=>adminClient.from('meal_entries').select('id,student_id,entry_date,meal_status').eq('madrasa_id',finalMadrasaId).eq('meal_status','On').gte('entry_date',startDate).lt('entry_date',nextMonthStr)),
     getMadrasaMetadata(finalMadrasaId,true),
   ]);
@@ -459,7 +466,11 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
     totalLillahSponsored+=Math.round(charge.discount_amount*100);
     const className = Array.isArray(student.classes)
       ? (student.classes[0] as any)?.name
-      : (student.classes as any)?.name || student.class_name || "—";
+      : (student.classes as any)?.name || student.class_name || "নির্ধারিত জামাত";
+    const classIdVal =
+      student.class_id ||
+      (Array.isArray(student.classes) ? (student.classes[0] as any)?.id : (student.classes as any)?.id) ||
+      null;
 
     return {
       id: student.id,
@@ -467,6 +478,7 @@ export async function getMonthlyBoardingReport(year: string, month: string) {
       last_name: student.last_name,
       student_name: `${student.first_name || ""} ${student.last_name || ""}`.trim(),
       roll_number: student.roll_number || "-",
+      class_id: classIdVal,
       class_name: className,
       residential_status: residentialStatus,
       is_boarding: isBoarding,
@@ -567,8 +579,8 @@ export async function syncBoardingBillsToAccounting(year: string, month: string,
           student_id: student.id,
           student_name: student.student_name || `${student.first_name || ""} ${student.last_name || ""}`.trim(),
           student_roll: String(student.roll_number || ""),
-          class_id: "ALL",
-          class_name: student.class_name || "সাধারণ",
+          class_id: (student as any).class_id || "ALL",
+          class_name: student.class_name && student.class_name !== "—" ? student.class_name : "নির্ধারিত জামাত",
           fee_type_id: khorakiFeeTypeId,
           fee_type_name: khorakiFeeTypeName,
           fund_id:billFund.id,

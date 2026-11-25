@@ -13,6 +13,11 @@ import { sendSMS, sendBulkSMS, getSMSGatewayConfig } from "./communication";
 import { normalizePhoneNumber } from "@/lib/sms-gateway";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import {
+  computeAbsenceStreakAndMonthly,
+  computeRosterAttendanceTruth,
+  resolveStudentClassName,
+} from "@/lib/attendance-truth";
+import {
   ParentFeedbackItem,
   AbsenceAlertSettings,
   AbsentStudentInfo,
@@ -435,7 +440,16 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
     // P2-Fix: first-madrasa fallback সরানো — fail-closed
 
     if (!madrasaId) {
-      return { absentStudents: [], totalStudents: 0, presentCount: 0, absentCount: 0, madrasaName: "মাদরাসা" };
+      return {
+        absentStudents: [],
+        totalStudents: 0,
+        presentCount: 0,
+        absentCount: 0,
+        lateCount: 0,
+        leaveCount: 0,
+        unmarkedCount: 0,
+        madrasaName: "মাদরাসা",
+      };
     }
 
     const { data: madrasaRow } = await adminClient
@@ -447,10 +461,10 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
     const madrasaName = madrasaRow?.name || "কওমি মাদরাসা";
     const date = targetDate || toDhakaDateString();
 
-    // 1. Fetch all students of this madrasa
+    // 1. Fetch all students of this madrasa with classes(id, name)
     let studentQuery = adminClient
       .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, class_id, father_name, parent_phone")
+      .select("id, first_name, last_name, roll_number, class_name, class_id, father_name, parent_phone, classes(id, name)")
       .eq("madrasa_id", madrasaId)
       .order("roll_number", { ascending: true });
 
@@ -458,10 +472,26 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
       studentQuery = studentQuery.eq("class_id", classFilter);
     }
 
-    const { data: students, error: studentErr } = await studentQuery;
+    const [{ data: students, error: studentErr }, { data: classList }] = await Promise.all([
+      studentQuery,
+      adminClient.from("classes").select("id, name").eq("madrasa_id", madrasaId),
+    ]);
     if (studentErr || !students) {
-      return { absentStudents: [], totalStudents: 0, presentCount: 0, absentCount: 0, madrasaName };
+      return {
+        absentStudents: [],
+        totalStudents: 0,
+        presentCount: 0,
+        absentCount: 0,
+        lateCount: 0,
+        leaveCount: 0,
+        unmarkedCount: 0,
+        madrasaName,
+      };
     }
+
+    const classMap = new Map<string, string>(
+      (classList || []).map((c: any) => [String(c.id), String(c.name || "")])
+    );
 
     // 2. Fetch attendance for this date
     const { data: attList } = await adminClient
@@ -470,7 +500,7 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
       .eq("madrasa_id", madrasaId)
       .eq("date", date);
 
-    const attMap = new Map((attList || []).map((a) => [a.student_id, a.status]));
+    const truth = computeRosterAttendanceTruth(students, attList || []);
 
     // Settings
     const settings = await getAbsenceAlertSettings();
@@ -480,7 +510,6 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
     const thirtyDaysAgo = new Date(targetDateObj);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 35);
     const startDateStr = toDhakaDateString(thirtyDaysAgo);
-    const currentMonthPrefix = date.substring(0, 7); // "YYYY-MM"
 
     const { data: pastAttList } = await adminClient
       .from("attendance")
@@ -501,68 +530,54 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
     }
 
     const absentStudents: AbsentStudentInfo[] = [];
-    let presentCount = 0;
-    let absentCount = 0;
-
     const thresholdDays = Math.max(1, settings.absenceThresholdDays || 1);
 
     for (const s of students) {
-      const status = attMap.get(s.id) || "Present"; // Default present if not logged
-      if (status === "Present") {
-        presentCount++;
-      } else if (status === "Absent" || status === "Late") {
-        absentCount++;
-        const fullName = `${s.first_name || ""} ${s.last_name || ""}`.trim() || "শিক্ষার্থী";
-        const rollStr = toBanglaNumber(s.roll_number ?? "১");
-        const classNameStr = s.class_name || "সাধারণ জামাত";
+      const status = truth.statusByStudentId.get(String(s.id)) || "Unmarked";
+      // N6: Only strictly "Absent" students belong in the absence alerts table.
+      // "Late" and "Unmarked" ("হাজিরা বাকি") must NEVER be counted as Absent or Present.
+      if (status !== "Absent") {
+        continue;
+      }
 
-        // Calculate consecutive absence days leading up to target date
-        const history = studentHistoryMap.get(s.id) || [];
-        history.sort((a, b) => b.date.localeCompare(a.date));
+      const fullName = `${s.first_name || ""} ${s.last_name || ""}`.trim() || "শিক্ষার্থী";
+      const rollStr = toBanglaNumber(s.roll_number ?? "১");
+      const classNameStr = resolveStudentClassName(s, classMap, "সাধারণ জামাত");
 
-        let consecutiveDays = 0;
-        for (const h of history) {
-          if (h.date > date) continue;
-          if (h.status === "Absent" || h.status === "Late") {
-            consecutiveDays++;
-          } else if (h.status === "Leave" && settings.excludeExcusedLeaves) {
-            continue; // Excused leave does not break streak if configured
-          } else {
-            break; // Present breaks streak
-          }
-        }
-        if (consecutiveDays === 0) consecutiveDays = 1;
+      const history = studentHistoryMap.get(s.id) || [];
+      const { consecutiveAbsent, monthlyAbsent } = computeAbsenceStreakAndMonthly(
+        history,
+        date,
+        settings.excludeExcusedLeaves
+      );
 
-        // Calculate monthly absence count in current month
-        const monthlyAbsenceCount = Math.max(
-          consecutiveDays,
-          history.filter(
-            (h) => h.date.startsWith(currentMonthPrefix) && (h.status === "Absent" || h.status === "Late")
-          ).length
-        );
+      const consecutiveDays = Math.max(1, consecutiveAbsent);
+      const monthlyAbsenceCount = Math.max(consecutiveDays, monthlyAbsent);
 
-        // Determine threshold matching
-        let isThresholdMet = false;
-        let thresholdReason = "";
+      // Determine threshold matching
+      let isThresholdMet = false;
+      let thresholdReason = "";
 
-        if (settings.triggerType === "daily") {
-          isThresholdMet = consecutiveDays >= thresholdDays;
-          thresholdReason = consecutiveDays > 1 
-            ? `টানা ${toBanglaNumber(consecutiveDays)} দিন অনুপস্থিত` 
+      if (settings.triggerType === "daily") {
+        isThresholdMet = consecutiveDays >= thresholdDays;
+        thresholdReason =
+          consecutiveDays > 1
+            ? `টানা ${toBanglaNumber(consecutiveDays)} দিন অনুপস্থিত`
             : "দৈনিক অনুপস্থিতি";
-        } else if (settings.triggerType === "consecutive") {
-          isThresholdMet = consecutiveDays >= thresholdDays;
-          thresholdReason = `টানা ${toBanglaNumber(consecutiveDays)} দিন অনুপস্থিত (থ্রেশহোল্ড: ${toBanglaNumber(thresholdDays)} দিন)`;
-        } else if (settings.triggerType === "total_in_month") {
-          isThresholdMet = monthlyAbsenceCount >= thresholdDays;
-          thresholdReason = `মাসে মোট ${toBanglaNumber(monthlyAbsenceCount)} বার অনুপস্থিত (থ্রেশহোল্ড: ${toBanglaNumber(thresholdDays)} বার)`;
-        } else {
-          isThresholdMet = true;
-          thresholdReason = "অনুপস্থিতি";
-        }
+      } else if (settings.triggerType === "consecutive") {
+        isThresholdMet = consecutiveDays >= thresholdDays;
+        thresholdReason = `টানা ${toBanglaNumber(consecutiveDays)} দিন অনুপস্থিত (থ্রেশহোল্ড: ${toBanglaNumber(thresholdDays)} দিন)`;
+      } else if (settings.triggerType === "total_in_month") {
+        isThresholdMet = monthlyAbsenceCount >= thresholdDays;
+        thresholdReason = `মাসে মোট ${toBanglaNumber(monthlyAbsenceCount)} বার অনুপস্থিত (থ্রেশহোল্ড: ${toBanglaNumber(thresholdDays)} বার)`;
+      } else {
+        isThresholdMet = true;
+        thresholdReason = "অনুপস্থিতি";
+      }
 
-        // Render template - choose consecutive template if consecutive >= 2 and configured
-        let msg = (consecutiveDays >= 2 && settings.consecutiveTemplate)
+      // Render template - choose consecutive template if consecutive >= 2 and configured
+      const msg =
+        consecutiveDays >= 2 && settings.consecutiveTemplate
           ? settings.consecutiveTemplate
               .replace(/\[ছাত্রের নাম\]/g, fullName)
               .replace(/\[রোল\]/g, rollStr)
@@ -575,48 +590,59 @@ export async function getAbsenceAlertData(targetDate?: string, classFilter?: str
               .replace(/\[জামাত\]/g, classNameStr)
               .replace(/\[মাদরাসা\]/g, madrasaName);
 
-        const cleanPhone = normalizePhoneNumber(s.parent_phone || "", false);
-        const intlPhone = normalizePhoneNumber(s.parent_phone || "", true); // 8801...
+      const cleanPhone = normalizePhoneNumber(s.parent_phone || "", false);
+      const intlPhone = normalizePhoneNumber(s.parent_phone || "", true);
 
-        // WhatsApp direct URL: https://wa.me/8801XXXXXXXXX?text=...
-        const whatsappUrl = intlPhone.length >= 11
+      const whatsappUrl =
+        intlPhone.length >= 11
           ? `https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`
           : "";
 
-        absentStudents.push({
-          id: s.id,
-          first_name: s.first_name || "",
-          last_name: s.last_name || "",
-          full_name: fullName,
-          roll_number: s.roll_number || "",
-          class_name: classNameStr,
-          class_id: s.class_id || "",
-          father_name: s.father_name || "",
-          parent_phone: cleanPhone,
-          status,
-          date,
-          customMessage: msg,
-          whatsappUrl,
-          consecutiveDays,
-          monthlyAbsenceCount,
-          isThresholdMet,
-          thresholdReason,
-        });
-      }
+      absentStudents.push({
+        id: s.id,
+        first_name: s.first_name || "",
+        last_name: s.last_name || "",
+        full_name: fullName,
+        roll_number: s.roll_number || "",
+        class_name: classNameStr,
+        class_id: s.class_id || "",
+        father_name: s.father_name || "",
+        parent_phone: cleanPhone,
+        status: "Absent",
+        date,
+        customMessage: msg,
+        whatsappUrl,
+        consecutiveDays,
+        monthlyAbsenceCount,
+        isThresholdMet,
+        thresholdReason,
+      });
     }
 
     return {
       absentStudents,
-      totalStudents: students.length,
-      presentCount,
-      absentCount,
+      totalStudents: truth.totalStudents,
+      presentCount: truth.presentCount,
+      absentCount: truth.absentCount,
+      lateCount: truth.lateCount,
+      leaveCount: truth.leaveCount,
+      unmarkedCount: truth.unmarkedCount,
       madrasaName,
       date,
       settings,
     };
   } catch (e) {
     console.error("getAbsenceAlertData error:", e);
-    return { absentStudents: [], totalStudents: 0, presentCount: 0, absentCount: 0, madrasaName: "মাদরাসা" };
+    return {
+      absentStudents: [],
+      totalStudents: 0,
+      presentCount: 0,
+      absentCount: 0,
+      lateCount: 0,
+      leaveCount: 0,
+      unmarkedCount: 0,
+      madrasaName: "মাদরাসা",
+    };
   }
 }
 
@@ -798,20 +824,27 @@ export async function getFeeAlertStudentsData(classFilter?: string, customBaseUr
 
     const madrasaName = madrasaRow?.name || "কওমি মাদরাসা";
 
-    // 1. Fetch Students
+    // 1. Fetch Students with classes(id, name)
     let studentQuery = adminClient
       .from("students")
-      .select("id, first_name, last_name, roll_number, class_name, class_id, father_name, parent_phone")
+      .select("id, first_name, last_name, roll_number, class_name, class_id, father_name, parent_phone, classes(id, name)")
       .eq("madrasa_id", madrasaId);
 
     if (classFilter && classFilter !== "ALL") {
       studentQuery = studentQuery.eq("class_id", classFilter);
     }
 
-    const { data: students } = await studentQuery;
+    const [{ data: students }, { data: classList }] = await Promise.all([
+      studentQuery,
+      adminClient.from("classes").select("id, name").eq("madrasa_id", madrasaId),
+    ]);
     if (!students || students.length === 0) {
       return { feeStudents: [], totalDueOverall: 0, madrasaName, detectedBaseUrl: "" };
     }
+
+    const classMap = new Map<string, string>(
+      (classList || []).map((c: any) => [String(c.id), String(c.name || "")])
+    );
 
     // 2. Fetch Unpaid / Partial Student Fees
     const { data: fees } = await adminClient
@@ -842,6 +875,7 @@ export async function getFeeAlertStudentsData(classFilter?: string, customBaseUr
         const fullName = `${s.first_name || ""} ${s.last_name || ""}`.trim() || "শিক্ষার্থী";
         const rollStr = toBanglaNumber(s.roll_number ?? "১");
         const dueStr = toBanglaNumber(dueInfo.totalDue.toLocaleString());
+        const classNameStr = resolveStudentClassName(s, classMap, "সাধারণ জামাত");
         const paymentLink = appBaseUrl
           ? `${appBaseUrl}/portal/fees?student_id=${s.id}`
           : `/portal/fees?student_id=${s.id}`;
@@ -865,7 +899,7 @@ export async function getFeeAlertStudentsData(classFilter?: string, customBaseUr
           last_name: s.last_name || "",
           full_name: fullName,
           roll_number: s.roll_number || "",
-          class_name: s.class_name || "সাধারণ জামাত",
+          class_name: classNameStr,
           class_id: s.class_id || "",
           parent_phone: cleanPhone,
           father_name: s.father_name || "",

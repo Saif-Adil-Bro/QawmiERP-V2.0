@@ -294,11 +294,39 @@ export async function getEarlyWarningAlerts(
     result.total_critical_students = criticalStudentIds.size;
 
     // Attach persisted composite risk scores if available
-    const allPersistedScores = (await getStudentRiskScores(madrasaId, {classId})).filter(s=>studentMap.has(s.student_id));
+    const allPersistedScores = (await getStudentRiskScores(madrasaId, { classId })).filter((s) =>
+      studentMap.has(s.student_id)
+    );
 
-    // Also inspect unpaid/overdue fee invoices and SQL fees for students in scope (PB-04)
+    // Also inspect unpaid/overdue fee invoices and SQL student_fees / fees for students in scope (PB-04 & N11)
     const metaForFees = teacher?.scope.meta || (await getMadrasaMetadata(madrasaId));
     const dueByStudent = new Map<string, number>();
+
+    const scopedIds = Array.from(studentMap.keys());
+    const [{ data: studentFeesRows }, { data: sqlFees }] = await Promise.all([
+      adminClient
+        .from("student_fees")
+        .select("student_id, payable_amount, paid_amount, due_amount, status")
+        .eq("madrasa_id", madrasaId)
+        .in("student_id", scopedIds),
+      adminClient
+        .from("fees")
+        .select("student_id, amount, paid_amount, status")
+        .eq("madrasa_id", madrasaId)
+        .in("student_id", scopedIds),
+    ]);
+
+    for (const sf of studentFeesRows || []) {
+      if (!sf?.student_id) continue;
+      const stStatus = String(sf.status || "").toUpperCase();
+      if (stStatus === "PAID" || stStatus === "WAIVED") continue;
+      const payable = Number(sf.payable_amount || 0);
+      const paid = Number(sf.paid_amount || 0);
+      const due = Math.max(0, Number(sf.due_amount ?? payable - paid));
+      if (due > 0) {
+        dueByStudent.set(sf.student_id, (dueByStudent.get(sf.student_id) || 0) + due);
+      }
+    }
 
     const invoices: any[] = Array.isArray(metaForFees?.fee_invoices) ? metaForFees.fee_invoices : [];
     for (const inv of invoices) {
@@ -308,16 +336,10 @@ export async function getEarlyWarningAlerts(
         0,
         Number(inv.due_amount ?? (Number(inv.net_payable ?? inv.total_amount ?? 0) - Number(inv.paid_amount ?? 0)))
       );
-      if (due > 0) {
+      if (due > 0 && !dueByStudent.has(inv.student_id)) {
         dueByStudent.set(inv.student_id, (dueByStudent.get(inv.student_id) || 0) + due);
       }
     }
-
-    const { data: sqlFees } = await adminClient
-      .from("fees")
-      .select("student_id, amount, paid_amount, status")
-      .eq("madrasa_id", madrasaId)
-      .in("student_id", Array.from(studentMap.keys()));
 
     for (const f of sqlFees || []) {
       if (!f?.student_id || f.status === "PAID" || f.status === "paid") continue;
@@ -327,73 +349,138 @@ export async function getEarlyWarningAlerts(
       }
     }
 
+    const nowIso = new Date().toISOString();
     const scoreByStudent = new Map<string, StudentRiskScoreRecord>();
     for (const s of allPersistedScores) {
-      scoreByStudent.set(s.student_id, s);
+      const st = studentMap.get(s.student_id);
+      scoreByStudent.set(s.student_id, {
+        ...s,
+        class_name: s.class_name || st?.class_name || null,
+        student_name: s.student_name || st?.name || null,
+        roll_number: s.roll_number || st?.roll_number || null,
+      });
     }
 
-    dueByStudent.forEach((totalDue, studentId) => {
-      if (totalDue <= 0) return;
-      const st = studentMap.get(studentId);
-      if (!st) return;
-      const existing = scoreByStudent.get(studentId);
-      const feeFactor = `বকেয়া ফি: ৳${totalDue.toLocaleString("bn-BD")}`;
-      const feeRiskLevel = totalDue >= 5000 ? "HIGH" : "MEDIUM";
-      const feeScore = totalDue >= 5000 ? 68 : 45;
-      if (existing) {
-        const factors = Array.isArray(existing.factors) ? [...existing.factors] : [];
-        if (!factors.some((f) => f.includes("বকেয়া ফি"))) {
-          factors.unshift(feeFactor);
-        }
+    // Ensure every active student in scope has a baseline record so total analyzed matches active student count (11 for admin, 3 for teacher)
+    studentMap.forEach((st, studentId) => {
+      if (!scoreByStudent.has(studentId)) {
         scoreByStudent.set(studentId, {
-          ...existing,
-          composite_score: Math.max(existing.composite_score || 0, feeScore),
-          fee_score: Math.max(existing.fee_score || 0, 30),
-          risk_level:
-            existing.risk_level === "CRITICAL"
-              ? "CRITICAL"
-              : feeRiskLevel === "HIGH" || existing.risk_level === "HIGH"
-                ? "HIGH"
-                : "MEDIUM",
-          factors,
-        });
-      } else {
-        scoreByStudent.set(studentId, {
-          id: `fee_risk_${studentId}`,
+          id: `risk_${studentId}`,
           madrasa_id: madrasaId,
           student_id: studentId,
           student_name: st.name,
-          roll_number: st.roll_number,
-          class_id: st.class_id,
-          class_name: st.class_name,
+          roll_number: st.roll_number || null,
+          class_id: st.class_id || null,
+          class_name: st.class_name || null,
           parent_phone: st.parent_phone || null,
           attendance_score: 0,
           academic_score: 0,
-          fee_score: 30,
-          composite_score: feeScore,
-          risk_level: feeRiskLevel,
-          factors: [feeFactor],
-          recommendations: ["অভিভাবকের সাথে যোগাযোগ করে বকেয়া ফি পরিশোধের তাগিদ দিন।"],
+          fee_score: 0,
+          composite_score: 0,
+          risk_level: "LOW",
+          factors: ["স্বাভাবিক একাডেমিক ও হাজিরা অগ্রগতি"],
+          recommendations: ["নিয়মিত পর্যবেক্ষণ অব্যাহত রাখুন।"],
           intervention_status: "PENDING",
-          last_calculated_at: new Date().toISOString(),
+          last_calculated_at: nowIso,
         });
       }
+    });
+
+    // Apply attendance alerts into composite score
+    for (const att of result.attendance_alerts) {
+      const existing = scoreByStudent.get(att.student_id);
+      if (!existing) continue;
+      const attFactor = `টানা ${att.consecutive_absent_days} দিন অনুপস্থিত`;
+      const factors = Array.isArray(existing.factors)
+        ? existing.factors.filter((f) => f !== "স্বাভাবিক একাডেমিক ও হাজিরা অগ্রগতি")
+        : [];
+      if (!factors.some((f) => f.includes("অনুপস্থিত"))) {
+        factors.unshift(attFactor);
+      }
+      const attScore = att.consecutive_absent_days >= 5 ? 80 : 60;
+      scoreByStudent.set(att.student_id, {
+        ...existing,
+        attendance_score: Math.max(existing.attendance_score || 0, 35),
+        composite_score: Math.max(existing.composite_score || 0, attScore),
+        risk_level:
+          att.alert_level === "CRITICAL" || existing.risk_level === "CRITICAL"
+            ? "CRITICAL"
+            : "HIGH",
+        factors,
+      });
+    }
+
+    // Apply exam drop alerts into composite score
+    for (const ex of result.exam_drop_alerts) {
+      const existing = scoreByStudent.get(ex.student_id);
+      if (!existing) continue;
+      const exFactor = `পরীক্ষার নম্বর ${ex.drop_percentage}% হ্রাস পেয়েছে`;
+      const factors = Array.isArray(existing.factors)
+        ? existing.factors.filter((f) => f !== "স্বাভাবিক একাডেমিক ও হাজিরা অগ্রগতি")
+        : [];
+      if (!factors.some((f) => f.includes("পরীক্ষার নম্বর"))) {
+        factors.push(exFactor);
+      }
+      const exScore = ex.drop_percentage >= 25 ? 78 : 58;
+      scoreByStudent.set(ex.student_id, {
+        ...existing,
+        academic_score: Math.max(existing.academic_score || 0, 30),
+        composite_score: Math.max(existing.composite_score || 0, exScore),
+        risk_level:
+          ex.alert_level === "CRITICAL" || existing.risk_level === "CRITICAL"
+            ? "CRITICAL"
+            : "HIGH",
+        factors,
+      });
+    }
+
+    // Apply overdue fees into composite score
+    dueByStudent.forEach((totalDue, studentId) => {
+      if (totalDue <= 0) return;
+      const existing = scoreByStudent.get(studentId);
+      if (!existing) return;
+      const feeFactor = `বকেয়া ফি: ৳${totalDue.toLocaleString("bn-BD")}`;
+      const feeRiskLevel = totalDue >= 5000 ? "HIGH" : "MEDIUM";
+      const feeScore = totalDue >= 5000 ? 68 : 45;
+      const factors = Array.isArray(existing.factors)
+        ? existing.factors.filter((f) => f !== "স্বাভাবিক একাডেমিক ও হাজিরা অগ্রগতি")
+        : [];
+      if (!factors.some((f) => f.includes("বকেয়া ফি"))) {
+        factors.unshift(feeFactor);
+      }
+      const recs = Array.isArray(existing.recommendations)
+        ? existing.recommendations.filter((r) => r !== "নিয়মিত পর্যবেক্ষণ অব্যাহত রাখুন।")
+        : [];
+      if (!recs.some((r) => r.includes("বকেয়া ফি") || r.includes("বকেয়া ফি"))) {
+        recs.push("অভিভাবকের সাথে যোগাযোগ করে বকেয়া ফি পরিশোধের তাগিদ দিন।");
+      }
+      scoreByStudent.set(studentId, {
+        ...existing,
+        composite_score: Math.max(existing.composite_score || 0, feeScore),
+        fee_score: Math.max(existing.fee_score || 0, 30),
+        risk_level:
+          existing.risk_level === "CRITICAL"
+            ? "CRITICAL"
+            : feeRiskLevel === "HIGH" || existing.risk_level === "HIGH"
+              ? "HIGH"
+              : "MEDIUM",
+        factors,
+        recommendations: recs.length > 0 ? recs : existing.recommendations,
+      });
     });
 
     const combinedScores = Array.from(scoreByStudent.values()).sort(
       (a, b) => (b.composite_score || 0) - (a.composite_score || 0)
     );
 
-    if (combinedScores.length > 0) {
-      result.risk_scores = combinedScores.slice(0, 50);
-      result.risk_distribution = {
-        LOW: combinedScores.filter((s) => s.risk_level === "LOW").length,
-        MEDIUM: combinedScores.filter((s) => s.risk_level === "MEDIUM").length,
-        HIGH: combinedScores.filter((s) => s.risk_level === "HIGH").length,
-        CRITICAL: combinedScores.filter((s) => s.risk_level === "CRITICAL").length,
-        total: combinedScores.length,
-      };
-    }
+    result.risk_scores = combinedScores;
+    result.risk_distribution = {
+      LOW: combinedScores.filter((s) => s.risk_level === "LOW").length,
+      MEDIUM: combinedScores.filter((s) => s.risk_level === "MEDIUM").length,
+      HIGH: combinedScores.filter((s) => s.risk_level === "HIGH").length,
+      CRITICAL: combinedScores.filter((s) => s.risk_level === "CRITICAL").length,
+      total: combinedScores.length,
+    };
 
     for (const s of combinedScores) {
       if (s.risk_level === "CRITICAL" || s.risk_level === "HIGH") {

@@ -25,6 +25,7 @@ import {
 import { revalidatePath } from "next/cache";
 import { getAuthMadrasaId } from "./students";
 import { getMadrasaMetadata } from "@/lib/sessions";
+import { logAuditEvent } from "@/lib/audit-log";
 
 export async function getStudentsForAttendance(date: string, classId?: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
@@ -141,9 +142,23 @@ export async function saveAttendance(
     return { error: error.message };
   }
 
+  await logAuditEvent({
+    madrasaId: finalMadrasaId,
+    actorId: __authz.user?.id || null,
+    module: "students",
+    action: "ATTENDANCE_SAVED",
+    entityType: "attendance",
+    entityId: date,
+    entityLabel: `শিক্ষার্থী হাজিরা (${date})`,
+    summary: `${date} তারিখের ${attendanceData.length} জন শিক্ষার্থীর হাজিরা সংরক্ষণ করা হয়েছে`,
+    newValue: { date, count: attendanceData.length },
+  });
+
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/attendance");
   revalidatePath("/dashboard/attendance/students");
+  revalidatePath("/dashboard/attendance/reports");
+  revalidatePath("/dashboard/communication/absence-alerts");
   revalidatePath("/portal/attendance");
   revalidatePath("/portal");
   revalidatePath("/teacher-portal/attendance");
@@ -288,8 +303,22 @@ export async function saveTeacherAttendance(
     return { error: error.message };
   }
 
+  await logAuditEvent({
+    madrasaId: finalMadrasaId,
+    actorId: user.id,
+    actorEmail: user.email || null,
+    module: "teachers",
+    action: "TEACHER_ATTENDANCE_SAVED",
+    entityType: "teacher_attendance",
+    entityId: date,
+    entityLabel: `শিক্ষক হাজিরা (${date})`,
+    summary: `${date} তারিখের ${attendanceData.length} জন শিক্ষকের হাজিরা সংরক্ষণ করা হয়েছে`,
+    newValue: { date, count: attendanceData.length },
+  });
+
   revalidatePath("/dashboard/attendance");
   revalidatePath("/dashboard/attendance/teachers");
+  revalidatePath("/dashboard/attendance/reports");
   return { success: true };
 }
 
