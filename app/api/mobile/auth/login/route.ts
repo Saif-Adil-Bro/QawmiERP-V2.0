@@ -1,3 +1,4 @@
+import {recordFailedLogin} from "@/lib/failed-login-audit";
 import { NextRequest } from "next/server";
 import { completeAppLogin } from "@/lib/app-login";
 import {
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
     const normalizedPassword = banglaToEnglishDigits(rawPassword);
     let targetEmail = rawIdentifier.toLowerCase();
     let isStudentLogin = false;
+    let tenant:string|null=null;
     let studentIdCode = "";
     let canonicalEmail = "";
     let legacyEmail = "";
@@ -43,12 +45,14 @@ export async function POST(req: NextRequest) {
     if (!rawIdentifier.includes("@") || rawIdentifier.endsWith("@qawmi.app")) {
       const resolved = await findStudentByIdentifier(rawIdentifier);
       if (resolved) {
+        tenant=resolved.madrasaId;
         isStudentLogin = true;
         studentIdCode = resolved.canonicalStudentId;
         canonicalEmail = resolved.portalEmail;
         legacyEmail = resolved.legacyPortalEmail;
         targetEmail = canonicalEmail;
       } else if (!rawIdentifier.includes("@")) {
+        await recordFailedLogin(rawIdentifier,"mobile");
         return mobileError(
           `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি।`,
           404,
@@ -99,6 +103,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (error || !data?.user || !data?.session) {
+      await recordFailedLogin(targetEmail,"mobile",tenant);
       return mobileError(
         isStudentLogin
           ? "প্রদত্ত শিক্ষার্থী আইডি অথবা পাসওয়ার্ড সঠিক নয়।"
@@ -109,7 +114,7 @@ export async function POST(req: NextRequest) {
     }
 
     const login = await completeAppLogin(supabase, data.session, "mobile", true, req.headers);
-    if (!login.ok) return mobileError(login.message, login.status, login.code);
+    if (!login.ok) {await recordFailedLogin(targetEmail,"mobile",tenant);return mobileError(login.message, login.status, login.code); }
     const {row:userRow, perms} = login;
     const {role, roles, madrasaId} = perms;
     const permissions = perms.summary.effectivePermissions;

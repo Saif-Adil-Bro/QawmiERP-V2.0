@@ -232,6 +232,7 @@ export default function SystemAuditLogsClient({
 
   return (
     <div className="space-y-5">
+      {error && <p role="alert" className="text-rose-700">{error} — আগের ফলাফল দেখানো হচ্ছে।</p>}
       {/* Storage Mode Notice */}
       {storage === "fallback" ? (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -283,7 +284,7 @@ export default function SystemAuditLogsClient({
           <p className="text-2xl font-bold text-slate-900 mt-1.5">
             {toBanglaNumber(stats.total)}
           </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">সর্বশেষ লোডকৃত লগ</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">নির্বাচিত পরিসর · উভয় খাতা</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs">

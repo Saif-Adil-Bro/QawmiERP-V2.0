@@ -1,6 +1,7 @@
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
 import { getTeacherSubjects, getAvailableClassSubjects } from "@/app/actions/teacher_subjects";
-import { getAuthMadrasaId } from "@/app/actions/students";
+import {writeGuard} from "@/lib/action-authorization";
+import {notFound} from "next/navigation";
 import { getMadrasaMetadata } from "@/lib/sessions";
 import Link from "next/link";
 import { ArrowLeft, BookOpen, GraduationCap, PlusCircle, CheckCircle2, UserCheck } from "lucide-react";
@@ -12,20 +13,19 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 export default async function TeacherSubjectsPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const teacherId = params.id;
-  const supabase = await createClient();
-  const adminClient = await createAdminClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
-  const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
-
+  const access=await writeGuard("staffRead");
+  if(!access.allowed || !access.madrasaId) notFound();
+  const madrasaId=access.madrasaId,adminClient=await createAdminClient();
+  let found=false;
   let teacherName = "শিক্ষক";
   let teacherDesignation = "ওস্তাদ";
   let teacherPhone = "";
 
   // 1. Try fetching from SQL teachers table
   if (UUID_REGEX.test(teacherId)) {
-    const { data: teacher } = await adminClient.from("teachers").select("*").eq("id", teacherId).maybeSingle();
+    const { data: teacher } = await adminClient.from("teachers").select("first_name,last_name,designation,phone").eq("madrasa_id",madrasaId).eq("id", teacherId).maybeSingle();
     if (teacher) {
+      found=true;
       teacherName = `${teacher.first_name || ""} ${teacher.last_name || ""}`.trim() || "শিক্ষক";
       teacherDesignation = teacher.designation || "ওস্তাদ";
       teacherPhone = teacher.phone || "";
@@ -33,17 +33,19 @@ export default async function TeacherSubjectsPage(props: { params: Promise<{ id:
   }
 
   // 2. If not found or legacy ID, lookup in madrasa metadata staff
-  if (madrasaId && teacherName === "শিক্ষক") {
-    const meta: any = await getMadrasaMetadata(madrasaId);
+  if (!found) {
+    const meta: any = await getMadrasaMetadata(madrasaId,true);
     const staffList = meta.staff_members || [];
-    const staff = staffList.find((s: any) => s.id === teacherId || s.legacy_id === teacherId);
+    const staff = staffList.find((s: any) => (!s.madrasa_id || s.madrasa_id===madrasaId) && (s.id === teacherId || s.legacy_id === teacherId));
     if (staff) {
+      found=true;
       teacherName = staff.personal?.full_name_bn || `${staff.personal?.first_name || ""} ${staff.personal?.last_name || ""}`.trim() || "শিক্ষক";
       teacherDesignation = staff.employment?.designation || "ওস্তাদ";
       teacherPhone = staff.contact?.phone || "";
     }
   }
 
+  if(!found) notFound();
   const availableClassSubjects = await getAvailableClassSubjects();
   const assignedSubjects = await getTeacherSubjects(teacherId);
 

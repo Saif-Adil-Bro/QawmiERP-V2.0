@@ -1,8 +1,10 @@
 import { cache } from "react";
+import { startOfDhakaDay } from "@/lib/date-utils";
+import { getMadrasaMetadataUncached } from "@/lib/sessions";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { mergeJsonStore } from "@/lib/madrasa-store";
+import { patchTenantJson } from "@/lib/tenant-json-patch";
 
 export type AuditSeverity = "INFO" | "WARNING" | "CRITICAL";
 
@@ -121,7 +123,9 @@ export function isMissingTableError(error: any): boolean {
   return (
     code === "42P01" ||
     code === "PGRST205" ||
-    /does not exist|Could not find the table|relation .* does not exist/i.test(msg)
+    /does not exist|Could not find the table|relation .* does not exist/i.test(
+      msg,
+    )
   );
 }
 
@@ -143,7 +147,8 @@ async function extractRequestContext(): Promise<{
   }
 }
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isValidUuid(val?: string | null): boolean {
   return Boolean(val && UUID_REGEX.test(String(val).trim()));
@@ -165,9 +170,13 @@ async function resolveActorInfo(
   actorId?: string | null,
   actorName?: string | null,
   actorEmail?: string | null,
-  actorRole?: string | null
+  actorRole?: string | null,
 ) {
-  if (!actorId || !isValidUuid(actorId) || (actorName && actorEmail && actorRole)) {
+  if (
+    !actorId ||
+    !isValidUuid(actorId) ||
+    (actorName && actorEmail && actorRole)
+  ) {
     return {
       actorName: actorName || actorEmail || "সিস্টেম অ্যাডমিন",
       actorEmail: actorEmail || null,
@@ -177,7 +186,12 @@ async function resolveActorInfo(
   try {
     const data = await fetchCachedActorRow(actorId);
     return {
-      actorName: actorName || data?.full_name || data?.email || actorEmail || "সিস্টেম ব্যবহারকারী",
+      actorName:
+        actorName ||
+        data?.full_name ||
+        data?.email ||
+        actorEmail ||
+        "সিস্টেম ব্যবহারকারী",
       actorEmail: actorEmail || data?.email || null,
       actorRole: actorRole || data?.role || null,
     };
@@ -226,137 +240,194 @@ function triggerAuditRevalidate() {
 }
 
 function buildAuditSemanticKey(row: Partial<SystemAuditLogRecord>): string {
-  const tsSecond = String(row.created_at || "").slice(0, 19);
-  const action = String(row.action || "").trim().toUpperCase();
-  const mod = String(row.module || "").trim().toLowerCase();
+  const epoch = Date.parse(row.created_at || "");
+  const tsSecond = Number.isFinite(epoch)
+    ? new Date(epoch).toISOString().slice(0, 19)
+    : "";
+  const action = String(row.action || "")
+    .trim()
+    .toUpperCase();
+  const mod = String(row.module || "")
+    .trim()
+    .toLowerCase();
   const entityId = String(row.entity_id || "").trim();
-  const summaryPrefix = String(row.summary || "").trim().slice(0, 80);
+  const summaryPrefix = String(row.summary || "")
+    .trim()
+    .slice(0, 80);
   if (!tsSecond || !action) return "";
   return `${action}|${mod}|${entityId}|${tsSecond}|${summaryPrefix}`;
 }
 
-/**
- * Canonical deduplication across SQL `system_audit_logs` and metadata fallback logs.
- * Prevents double-counting rows that were migrated from `system_audit_logs_fallback`
- * into SQL (linked via `metadata.legacy_id` or identical action/entity/timestamp).
- */
-export function mergeAndDeduplicateAuditLogs(
-  sqlLogs: SystemAuditLogRecord[],
-  fallbackLogs: SystemAuditLogRecord[]
-): SystemAuditLogRecord[] {
-  const seenIds = new Set<string>();
-  const migratedLegacyIds = new Set<string>();
-  const seenSemanticKeys = new Set<string>();
-  const merged: SystemAuditLogRecord[] = [];
-
-  for (const row of sqlLogs) {
-    const id = String(row.id || "");
-    const legacyId = String((row.metadata as any)?.legacy_id || "");
-    const semKey = buildAuditSemanticKey(row);
-    if (id && seenIds.has(id)) continue;
-    if (id) seenIds.add(id);
-    if (legacyId) migratedLegacyIds.add(legacyId);
-    if (semKey) seenSemanticKeys.add(semKey);
-    merged.push(row);
-  }
-
-  for (const row of fallbackLogs) {
-    const id = String(row.id || "");
-    const semKey = buildAuditSemanticKey(row);
-    if (id && (seenIds.has(id) || migratedLegacyIds.has(id))) continue;
-    if (semKey && seenSemanticKeys.has(semKey)) continue;
-    if (id) seenIds.add(id);
-    if (semKey) seenSemanticKeys.add(semKey);
-    merged.push(row);
-  }
-
-  merged.sort((a, b) =>
-    String(b.created_at || "").localeCompare(String(a.created_at || ""))
-  );
-  return merged;
+export type AuditStats = {
+  total: number;
+  todayCount: number;
+  criticalCount: number;
+  warningCount: number;
+  moduleCounts: Record<string, number>;
+};
+export type AuditFilters = {
+  module?: string;
+  severity?: AuditSeverity | "ALL";
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+};
+export function emptyAuditStats(): AuditStats {
+  return {
+    total: 0,
+    todayCount: 0,
+    criticalCount: 0,
+    warningCount: 0,
+    moduleCounts: {},
+  };
 }
 
-/**
- * Shared canonical audit log counter/reader used by both `/dashboard/settings/audit-logs`
- * and `/dashboard/settings/backup` so both views always show the exact same record count.
- */
+/** Display and backup use the same ordered, tenant-scoped stream. Do not cap
+ * the COUNT at a UI page. Keep at most the displayed SQL rows, one page and
+ * the (small) legacy book in memory. Never turn a denied read into zero. */
 export async function fetchCanonicalAuditLogsAndCount(
-  adminClient: any,
-  madrasaId: string,
-  options?: {
+  db: Awaited<ReturnType<typeof createAdminClient>>,
+  tenant: string,
+  options: AuditFilters & {
     fallbackLogs?: SystemAuditLogRecord[];
     countOnly?: boolean;
-    limit?: number;
-  }
-): Promise<{
-  logs: SystemAuditLogRecord[];
-  totalCount: number;
-  storage: "sql" | "fallback";
-  error?: string;
-}> {
-  let fallbackLogs: SystemAuditLogRecord[] = Array.isArray(options?.fallbackLogs)
-    ? options.fallbackLogs
-    : [];
-
-  if (!options?.fallbackLogs) {
-    try {
-      const { getMadrasaMetadata } = await import("@/lib/sessions");
-      const meta: any = await getMadrasaMetadata(madrasaId, true);
-      fallbackLogs = Array.isArray(meta?.system_audit_logs_fallback)
-        ? (meta.system_audit_logs_fallback as SystemAuditLogRecord[])
-        : [];
-    } catch {
-      fallbackLogs = [];
-    }
-  }
-
-  const selectCols = options?.countOnly
-    ? "id, madrasa_id, module, action, entity_id, summary, metadata, severity, created_at"
-    : "*";
-
-  const sqlRows: SystemAuditLogRecord[] = [];
+  } = {},
+) {
+  const limit = options.countOnly
+    ? 0
+    : Math.min(500, Math.max(1, options.limit || 200));
+  const stats = emptyAuditStats();
+  const today = startOfDhakaDay().getTime();
+  const q = options.search?.trim().toLowerCase();
+  const from = options.dateFrom
+    ? Date.parse(options.dateFrom + "T00:00:00+06:00")
+    : -Infinity;
+  const until = options.dateTo
+    ? Date.parse(options.dateTo + "T00:00:00+06:00") + 86400000
+    : Infinity;
+  if (Number.isNaN(from) || Number.isNaN(until)) throw Error("তারিখ সঠিক নয়।");
+  const matches = (r: SystemAuditLogRecord) => {
+    const ts = Date.parse(r.created_at);
+    return (
+      (!r.madrasa_id || r.madrasa_id === tenant) &&
+      ts >= from &&
+      ts < until &&
+      (!options.module ||
+        options.module === "ALL" ||
+        r.module === options.module) &&
+      (!options.severity ||
+        options.severity === "ALL" ||
+        r.severity === options.severity) &&
+      (!q ||
+        [
+          r.summary,
+          r.action,
+          r.module,
+          AUDIT_MODULE_LABELS_BN[r.module],
+          r.actor_name,
+          r.actor_email,
+          r.actor_role,
+          r.entity_label,
+          r.entity_id,
+          r.ip_address,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(q))
+    );
+  };
+  const count = (r: SystemAuditLogRecord) => {
+    stats.total++;
+    if (
+      Date.parse(r.created_at) >= today &&
+      Date.parse(r.created_at) < today + 86400000
+    )
+      stats.todayCount++;
+    if (r.severity === "CRITICAL") stats.criticalCount++;
+    if (r.severity === "WARNING") stats.warningCount++;
+    stats.moduleCounts[r.module] = (stats.moduleCounts[r.module] || 0) + 1;
+  };
+  const raw =
+    options.fallbackLogs ??
+    (await getMadrasaMetadataUncached(tenant, true))
+      .system_audit_logs_fallback ??
+    [];
+  if (!Array.isArray(raw)) throw Error("বিকল্প অডিট খাতা পড়া যায়নি।");
+  const fallback: SystemAuditLogRecord[] = raw.filter(
+    (r): r is SystemAuditLogRecord =>
+      !!r && (!r.madrasa_id || r.madrasa_id === tenant),
+  );
+  const ids = new Set(fallback.map((r) => r.id));
+  // Old migrated records sometimes lack a legacy_id. Never collapse two new
+  // events just because they share a second and an action code.
+  const oldKeys = new Set(
+    fallback.filter((r) => !isValidUuid(r.id)).map(buildAuditSemanticKey),
+  );
+  const sqlTop: SystemAuditLogRecord[] = [];
   let storage: "sql" | "fallback" = "sql";
-  const maxRows = options?.countOnly
-    ? 5000
-    : Math.min(Math.max(Number(options?.limit) || 500, 10), 2000);
-  const pageSize = 500;
-
-  for (let offset = 0; offset < maxRows; offset += pageSize) {
-    const end = Math.min(offset + pageSize - 1, maxRows - 1);
-    const { data, error } = await adminClient
+  const pageSize = 500,
+    cutoff = new Date().toISOString();
+  for (let offset = 0; ; offset += pageSize) {
+    const full = sqlTop.length < limit;
+    const { data, error } = await db
       .from("system_audit_logs")
-      .select(selectCols)
-      .eq("madrasa_id", madrasaId)
+      .select(
+        full
+          ? "*"
+          : "id,madrasa_id,module,action,entity_id,summary,metadata,severity,created_at" +
+              (q
+                ? ",actor_name,actor_email,actor_role,entity_label,ip_address"
+                : ""),
+      )
+      .eq("madrasa_id", tenant)
+      .lte("created_at", cutoff)
       .order("created_at", { ascending: false })
-      .range(offset, end);
-
+      .order("id", { ascending: false })
+      .range(offset, offset + pageSize - 1);
     if (error) {
-      if (isMissingTableError(error)) {
+      if (
+        offset === 0 &&
+        (error.code === "42P01" || error.code === "PGRST205")
+      ) {
         storage = "fallback";
-        const mergedFallback = mergeAndDeduplicateAuditLogs([], fallbackLogs);
-        return {
-          logs: mergedFallback,
-          totalCount: mergedFallback.length,
-          storage,
-        };
+        break;
       }
-      return {
-        logs: [],
-        totalCount: 0,
-        storage: "fallback",
-        error: error.message,
-      };
+      throw Error("অডিট খাতা সম্পূর্ণ পড়া যায়নি।");
     }
-
-    const batch = Array.isArray(data) ? (data as SystemAuditLogRecord[]) : [];
-    sqlRows.push(...batch);
-    if (batch.length < pageSize) break;
+    if (!Array.isArray(data)) throw Error("অডিট খাতার উত্তর অসম্পূর্ণ।");
+    for (const r of data as unknown as SystemAuditLogRecord[]) {
+      ids.delete(r.id);
+      if (r.metadata?.legacy_id) ids.delete(String(r.metadata.legacy_id));
+      oldKeys.delete(buildAuditSemanticKey(r));
+      if (matches(r)) {
+        count(r);
+        if (sqlTop.length < limit) sqlTop.push(r);
+      }
+    }
+    if (data.length < pageSize) break;
   }
-
-  const merged = mergeAndDeduplicateAuditLogs(sqlRows, fallbackLogs);
+  const display = [...sqlTop];
+  for (const r of fallback) {
+    if (
+      !ids.delete(r.id) ||
+      (!isValidUuid(r.id) && !oldKeys.has(buildAuditSemanticKey(r))) ||
+      !matches(r)
+    )
+      continue;
+    count(r);
+    if (limit) display.push(r);
+  }
+  display.sort(
+    (a, b) =>
+      Date.parse(b.created_at) - Date.parse(a.created_at) ||
+      b.id.localeCompare(a.id),
+  );
   return {
-    logs: merged,
-    totalCount: merged.length,
+    logs: display.slice(0, limit),
+    totalCount: stats.total,
+    stats,
     storage,
   };
 }
@@ -387,7 +458,7 @@ export async function logAuditEvent(input: AuditEventInput): Promise<{
         input.actorId,
         input.actorName,
         input.actorEmail,
-        input.actorRole
+        input.actorRole,
       ),
     ]);
 
@@ -398,10 +469,13 @@ export async function logAuditEvent(input: AuditEventInput): Promise<{
     const mergedMeta: Record<string, unknown> = {
       ...(input.metadata || {}),
       ...(changedKeys.length > 0 ? { changed_fields: changedKeys } : {}),
-      ...(input.actorId && !hasUuidActor ? { original_actor_id: input.actorId } : {}),
+      ...(input.actorId && !hasUuidActor
+        ? { original_actor_id: input.actorId }
+        : {}),
     };
 
     const rowPayload = {
+      id: crypto.randomUUID(),
       madrasa_id: input.madrasaId,
       actor_id: hasUuidActor ? String(input.actorId).trim() : null,
       actor_name: actor.actorName,
@@ -455,21 +529,22 @@ export async function logAuditEvent(input: AuditEventInput): Promise<{
     }
 
     // Fallback to metadata store for ANY SQL failure so no audit log is ever lost
-    const fallbackId = `audit_fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const fallbackId = rowPayload.id;
     const fallbackRecord: SystemAuditLogRecord = {
-      id: fallbackId,
       ...rowPayload,
       created_at: new Date().toISOString(),
     };
-    await mergeJsonStore(input.madrasaId, "meta", (current) => {
-      const list = Array.isArray(current.system_audit_logs_fallback)
-        ? current.system_audit_logs_fallback
-        : [];
-      return {
-        ...current,
-        system_audit_logs_fallback: [fallbackRecord, ...list].slice(0, 300),
-      };
-    });
+    await patchTenantJson(input.madrasaId, (current) => ({
+      patch: {
+        system_audit_logs_fallback: [
+          fallbackRecord,
+          ...(current.system_audit_logs_fallback || []).filter(
+            (r: any) => r.id !== fallbackId,
+          ),
+        ].slice(0, 300),
+      },
+      result: null,
+    }));
     triggerAuditRevalidate();
     return { success: true, storage: "fallback", id: fallbackId };
   } catch (err) {

@@ -129,55 +129,18 @@ export default function StaffProfileView({
   const [isLoadingAcademic, setIsLoadingAcademic] = useState(false);
   const [academicReloadTick, setAcademicReloadTick] = useState(0);
 
-  const staffLegacyId = (staff as any)?.legacy_id || null;
-  const staffTeacherId = (staff as any)?.teacher_id || null;
-  const staffEmail = staff.contact?.email || null;
-  const staffPhone = staff.contact?.phone || null;
-  const staffFullNameBn = staff.personal?.full_name_bn || null;
-  const staffFirstName = staff.personal?.first_name || null;
-  const staffLastName = staff.personal?.last_name || null;
-
+  const [academicError, setAcademicError] = useState("");
   useEffect(() => {
-    let isMounted = true;
-    async function loadAcademicSchedule() {
-      setIsLoadingAcademic(true);
-      try {
-        const data = await getTeacherAcademicSchedule(staff.id, {
-          legacyId: staffLegacyId,
-          teacherId: staffTeacherId,
-          email: staffEmail,
-          phone: staffPhone,
-          fullNameBn: staffFullNameBn,
-          firstName: staffFirstName,
-          lastName: staffLastName,
-        });
-        if (isMounted) {
-          setAcademicData(data);
-        }
-      } catch (err) {
-        console.error("Error fetching teacher academic schedule:", err);
-      } finally {
-        if (isMounted) {
-          setIsLoadingAcademic(false);
-        }
-      }
-    }
-    loadAcademicSchedule();
-    return () => {
-      isMounted = false;
-    };
-  }, [
-    staff.id,
-    staffLegacyId,
-    staffTeacherId,
-    staffEmail,
-    staffPhone,
-    staffFullNameBn,
-    staffFirstName,
-    staffLastName,
-    activeTab === "responsibilities",
-    academicReloadTick,
-  ]);
+    if (activeTab !== "responsibilities") return;
+    let current = true;
+    setAcademicData(null);
+    setAcademicError("");
+    setIsLoadingAcademic(true);
+    getTeacherAcademicSchedule(staff.id).then(data => { if (current) setAcademicData(data); })
+      .catch(() => { if (current) setAcademicError("বরাদ্দ পড়া যায়নি। আবার চেষ্টা করুন।"); })
+      .finally(() => { if (current) setIsLoadingAcademic(false); });
+    return () => { current = false; };
+  }, [staff.id, activeTab, academicReloadTick]);
 
   // Promotion / Transfer / Status modals
   const [showPromoteModal, setShowPromoteModal] = useState(false);
@@ -1042,7 +1005,8 @@ export default function StaffProfileView({
       )}
 
       {/* TAB 6: RESPONSIBILITIES, ASSIGNED SUBJECTS & WEEKLY ROUTINE */}
-      {activeTab === "responsibilities" && (
+      {activeTab === "responsibilities" && !academicData && <div role="status" className="bg-white p-5 rounded-xl">{academicError || "দায়িত্ব ও বরাদ্দ পড়া হচ্ছে…"} {academicError && <button onClick={()=>setAcademicReloadTick(t=>t+1)}>পুনরায় চেষ্টা করুন</button>}</div>}
+      {activeTab === "responsibilities" && academicData && (
         <div className="space-y-6 animate-fade-in">
           {/* Top Academic Summary Banner */}
           <div className="bg-white rounded-2xl p-5 sm:p-6 shadow-xs border border-slate-200/80 space-y-4">
@@ -1125,7 +1089,7 @@ export default function StaffProfileView({
                 <div>
                   <p className="text-[11px] font-bold text-indigo-800">সাপ্তাহিক পাঠদান পিরিয়ড</p>
                   <p className="text-lg font-black text-indigo-950">
-                    {toBanglaNumber(academicData?.routines.length || 0)} টি ক্লাস / ঘণ্টা
+                    {academicData.routineUnavailable ? "রুটিন পড়া যায়নি" : `${toBanglaNumber(academicData.routines.length)} টি ক্লাস / ঘণ্টা`}
                   </p>
                 </div>
               </div>

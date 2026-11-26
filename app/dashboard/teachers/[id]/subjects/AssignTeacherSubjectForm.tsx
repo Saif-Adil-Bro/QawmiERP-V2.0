@@ -27,12 +27,7 @@ export default function AssignTeacherSubjectForm({
 
   useEffect(() => {
     installGlobalSaveGuardListeners();
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!pendingRef.current && !hasActiveSaveGuards()) return;
-      e.preventDefault();
-      e.returnValue = "";
-      return "";
-    };
+    // The shared beforeunload handler owns the native browser prompt.
     const handleAnchorClickCapture = (e: MouseEvent) => {
       if (!pendingRef.current && !hasActiveSaveGuards()) return;
       const target = e.target as HTMLElement | null;
@@ -43,12 +38,8 @@ export default function AssignTeacherSubjectForm({
         setNavBlockedNotice(true);
       }
     };
-    window.addEventListener("beforeunload", handleBeforeUnload, { capture: true });
-    window.addEventListener("beforeunload", handleBeforeUnload);
     document.addEventListener("click", handleAnchorClickCapture, true);
     return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload, { capture: true });
-      window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("click", handleAnchorClickCapture, true);
       if (preArmReleaseRef.current) {
         preArmReleaseRef.current();
@@ -114,7 +105,7 @@ export default function AssignTeacherSubjectForm({
         },
       );
       const res = await response.json().catch(() => ({}));
-      if (!response.ok || res?.error) {
+      if (!response.ok || !res?.success || res?.error) {
         setError(res?.error || "বিষয় এসাইন করতে সমস্যা হয়েছে।");
       } else {
         setSuccessMsg("বিষয় সফলভাবে এসাইন করা হয়েছে!");

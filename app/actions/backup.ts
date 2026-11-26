@@ -8,7 +8,7 @@ import { rows as readRows } from "@/lib/portal/queries";
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "./students";
-import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
+import { getMadrasaMetadata } from "@/lib/sessions";
 import { revalidatePath } from "next/cache";
 import type { BackupModuleKey } from "@/lib/backup-modules";
 import {
@@ -190,6 +190,7 @@ const KNOWN_DB_TABLES = [
   "kitab_logs",
   "attendance",
   "teacher_attendance",
+  "biometric_punch_events",
   "exams",
   "exam_subjects",
   "exam_routines",
@@ -320,7 +321,7 @@ export async function getBackupOverviewStats(): Promise<{
       .single();
 
     const madrasaName = madrasaData?.name || "কওমি মাদরাসা";
-    const meta = await getMadrasaMetadata(madrasaId);
+    const meta = await getMadrasaMetadata(madrasaId, true);
 
     // 2. Fetch primary DB counts in parallel
     const [
@@ -351,7 +352,6 @@ export async function getBackupOverviewStats(): Promise<{
       donorsRes,
       fundsRes,
       zakatFundsRes,
-      sysAuditLogsRes,
     ] = await Promise.all([
       admin.from("students").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
       admin.from("classes").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
@@ -380,7 +380,6 @@ export async function getBackupOverviewStats(): Promise<{
       admin.from("donors").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
       admin.from("funds").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
       admin.from("zakat_funds").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
-      admin.from("system_audit_logs").select("id", { count: "exact", head: true }).eq("madrasa_id", madrasaId),
     ]);
 
     // Student count: actual SQL student rows (do not double-count meta.student_profiles for existing students)
@@ -493,9 +492,7 @@ export async function getBackupOverviewStats(): Promise<{
       fallbackLogs: fallbackAuditLogs,
       countOnly: true,
     });
-    const auditLogsCount = canonicalAudit.error
-      ? (sysAuditLogsRes.count || 0)
-      : canonicalAudit.totalCount;
+    const auditLogsCount = canonicalAudit.totalCount;
 
     // Dynamic extensions (any other custom keys in metadata that aren't specifically categorized above)
     const standardMetaKeys = new Set([
@@ -550,28 +547,9 @@ export async function getBackupOverviewStats(): Promise<{
       auditLogsCount +
       dynamicExtensionsCount;
 
-    let history: BackupAuditEntry[] = Array.isArray(meta.backup_history) ? [...meta.backup_history] : [];
-    // N8 Fix: If no backup history has ever been recorded yet, persist a clean initial baseline
-    // AUTO_SNAPSHOT entry so the "সর্বশেষ ব্যাকআপ" KPI shows a verified baseline timestamp.
-    if (history.length === 0) {
-      const baselineEntry: BackupAuditEntry = {
-        id: `bak_init_${madrasaId.slice(0, 8)}`,
-        type: "AUTO_SNAPSHOT",
-        timestamp: new Date().toISOString(),
-        actor_name: "সিস্টেম অটো-স্ন্যাপশট",
-        actor_email: user?.email || "system@qawmierp.app",
-        modules: [...ALL_BACKUP_MODULE_KEYS],
-        total_records: totalRecords,
-        status: "SUCCESS",
-        note: `প্রাথমিক অটো-স্ন্যাপশট সংরক্ষিত (${totalRecords}টি রেকর্ড)`,
-      };
-      history = [baselineEntry];
-      try {
-        await saveMadrasaMetadata(madrasaId, { backup_history: history });
-      } catch (snapErr) {
-        console.warn("Initial backup baseline persistence skipped:", snapErr);
-      }
-    }
+    // A count/read is not a backup. Do not write a fictitious snapshot (or
+    // replace the school's entire metadata document) when the history is empty.
+    const history: BackupAuditEntry[] = Array.isArray(meta.backup_history) ? [...meta.backup_history] : [];
     const lastBackup = history.find((h) => h.type === "BACKUP_EXPORT") || history[0] || null;
 
     return {
@@ -711,7 +689,7 @@ export async function generateBackupExport(options?: {
       }
       // Some installations keep these optional modules only in metadata. Only
       // a known absent *optional table* is empty, never a denied or partial read.
-      const optional=['kitab_logs','exam_routines','exam_papers','question_bank','book_issues','funds','sms_templates','sms_logs','alumni','leaves','gateways'];
+      const optional=['biometric_punch_events','kitab_logs','exam_routines','exam_papers','question_bank','book_issues','funds','sms_templates','sms_logs','alumni','leaves','gateways'];
       return readRows(()=>admin.from(tableName).select('*').eq('madrasa_id',madrasaId),optional.includes(tableName));
     };
 

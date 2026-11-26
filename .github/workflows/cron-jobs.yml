@@ -6,7 +6,7 @@ name: Cron Jobs (Master Dispatcher — Railway & Vercel Hobby Compatible)
 #
 # ব্যবহার:
 #   GitHub Secrets-এ `RAILWAY_APP_URL` (বা Vercel Hobby-র URL) এবং `CRON_SECRET` সেট করুন।
-#   `RAILWAY_APP_URL` সেট না থাকলে workflow কোনো এরর ছাড়াই নিরাপদে skip হবে।
+#   `RAILWAY_APP_URL` সেট না থাকলে workflow ব্যর্থতা জানায়; সবুজ চেককে চালু cron ভাববেন না।
 
 on:
   schedule:
@@ -37,12 +37,12 @@ jobs:
       EVENT_NAME: ${{ github.event_name }}
       INPUT_ROUTE: ${{ github.event.inputs.route }}
     steps:
-      - name: Skip if RAILWAY_APP_URL is not configured
+      - name: Verify production cron URL is configured
         id: gate
         run: |
           if [ -z "${RAILWAY_APP_URL// /}" ]; then
-            echo "::notice title=Cron skipped::RAILWAY_APP_URL সেট করা নেই — কিছু করার নেই।"
-            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::error title=Cron not configured::RAILWAY_APP_URL সেট করা নেই; dispatcher চালানো হয়নি।"
+            exit 1
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
@@ -62,8 +62,8 @@ jobs:
           BASE_URL="${RAILWAY_APP_URL%/}"
           while [ "${BASE_URL}" != "${BASE_URL%/}" ]; do BASE_URL="${BASE_URL%/}"; done
           case "$BASE_URL" in
-            http://*|https://*) ;;
-            *) echo "::error title=Invalid URL::RAILWAY_APP_URL অবশ্যই http(s):// দিয়ে শুরু হতে হবে।"; exit 1 ;;
+            https://*) ;;
+            *) echo "::error title=Invalid URL::RAILWAY_APP_URL অবশ্যই https:// দিয়ে শুরু হতে হবে।"; exit 1 ;;
           esac
 
           ALL_ROUTES=(
@@ -91,11 +91,17 @@ jobs:
           for ROUTE in "${ROUTES[@]}"; do
             [ -z "$ROUTE" ] && continue
             echo "::group::GET ${ROUTE}"
-            if curl --fail-with-body -s -S -X GET \
+            if [[ "$ROUTE" != "/api/cron/dispatch" ]] && ! printf '%s\n' "${ALL_ROUTES[@]}" | grep -Fxq -- "$ROUTE"; then
+              echo "::error::Unknown cron route"; exit 1
+            fi
+            if curl --proto '=https' --output "$RUNNER_TEMP/cron-result.json" --fail-with-body -s -S -X GET \
                  --connect-timeout 20 --max-time 600 \
                  -H "Authorization: Bearer $CRON_SECRET" \
                  -H "Accept: application/json" \
-                 "${BASE_URL}${ROUTE}"; then
+                 "${BASE_URL}${ROUTE}" && jq -e --arg route "$ROUTE" '
+                   type == "object" and (.ok != false) and
+                   ($route != "/api/cron/dispatch" or (.ok == true and .tenantsChecked > 0 and (.results | length) == .tenantsChecked))
+                 ' "$RUNNER_TEMP/cron-result.json" >/dev/null; then
               echo
               echo "✅ ${ROUTE} OK"
             else

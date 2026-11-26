@@ -149,8 +149,8 @@ describe("FOLLOWUP3 Regressions — S1, S2, S3", () => {
 
       const ret = window.onbeforeunload!(fakeEvent);
       expect(prevented).toBe(true);
-      expect(fakeEvent.returnValue).toBe("");
-      expect(ret).toBe("");
+      expect(fakeEvent.returnValue).toBeTruthy();
+      expect(ret).toBe(fakeEvent.returnValue);
 
       // Releasing one in-flight save keeps guard active while second is still saving
       release1();

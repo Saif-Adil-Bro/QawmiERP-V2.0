@@ -136,13 +136,15 @@ export function resolveTeacherIdentity(
       }
     }
     const phone = normalizePhoneKey(s.contact?.phone || s.phone);
-    if (!ts.length && phone) {
+    if (!ts.length && phone.length===10) {
       const phoneMatches = teachers.filter(
         (r) => normalizePhoneKey(r.phone) === phone,
       );
       if (phoneMatches.length === 1) ts = phoneMatches;
+      else if (phoneMatches.length && linkedId && phoneMatches.every(t => hasSharedName(s,t)) &&
+        new Set([s,...phoneMatches].map(r=>r.auth_user_id).filter(Boolean)).size <= 1) ts = phoneMatches;
     }
-    if (!ts.length && extractTeacherCandidateNames(s).length > 0) {
+    if (!authUserId && !ts.length && extractTeacherCandidateNames(s).length > 0) {
       const nameMatches = teachers.filter((r) => hasSharedName(s, r));
       if (nameMatches.length === 1) ts = nameMatches;
     }
@@ -164,39 +166,30 @@ export function resolveTeacherIdentity(
       }
     }
     const phone = normalizePhoneKey(t.phone);
-    if (!ss.length && phone) {
+    if (!ss.length && phone.length===10) {
       const phoneMatches = staffMembers.filter(
         (r) => normalizePhoneKey(r.contact?.phone || r.phone) === phone,
       );
       if (phoneMatches.length === 1) ss = phoneMatches;
     }
-    if (!ss.length && extractTeacherCandidateNames(t).length > 0) {
+    if (!authUserId && !ss.length && extractTeacherCandidateNames(t).length > 0) {
       const nameMatches = staffMembers.filter((r) => hasSharedName(t, r));
       if (nameMatches.length === 1) ss = nameMatches;
     }
   }
 
-  // Reject conflicting auth_user_id bindings between linked teacher and staff records
-  if (ts.length >= 1 && ss.length >= 1) {
-    const tAuth = ts[0]?.auth_user_id;
-    const sAuth = ss[0]?.auth_user_id;
-    if (tAuth && sAuth && tAuth !== sAuth) {
-      return empty;
-    }
-  }
+  // Never bridge two distinct logins, even if their roster names/phones match.
+  if(new Set([authUserId,...ts.map(t=>t.auth_user_id),...ss.map(s=>s.auth_user_id)].filter(Boolean)).size>1)return empty;
 
-  // Also collect any sibling duplicate teacher rows sharing the same normalized name or phone (only when no conflicting auth_user_id)
+  // Match a duplicate by its verified account or BOTH full phone and name.
   if (ts.length >= 1) {
     const primary = ts[0];
     const pPhone = normalizePhoneKey(primary.phone);
-    const extraTeachers = teachers.filter(
-      (r) =>
-        (!r.auth_user_id ||
-          !primary.auth_user_id ||
-          r.auth_user_id === primary.auth_user_id) &&
-        ((pPhone && normalizePhoneKey(r.phone) === pPhone) ||
-          hasSharedName(primary, r)),
-    );
+    const extraTeachers = teachers.filter(r => r.id === primary.id || (
+      (!r.auth_user_id || r.auth_user_id === (primary.auth_user_id || ss[0]?.auth_user_id || authUserId)) &&
+      ((primary.auth_user_id && r.auth_user_id === primary.auth_user_id) ||
+       (pPhone.length===10 && normalizePhoneKey(r.phone) === pPhone && hasSharedName(primary,r)))
+    ));
     for (const et of extraTeachers) {
       if (!ts.some((x) => x.id === et.id)) ts.push(et);
     }

@@ -1,6 +1,9 @@
+import {changeAutomationList} from "./setting-cas";
+import {toDhakaMonthString} from "@/lib/date-utils";
+import {rows} from "@/lib/portal/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isMissingTableError } from "@/lib/audit-log";
-import { getStructuredMadrasaSetting, saveStructuredMadrasaSetting } from "@/lib/structured-config";
+import { getStructuredMadrasaSetting } from "@/lib/structured-config";
 import { runTrackedCronJob } from "@/lib/automation/cron-auth";
 import {
   runMonthlyFeeGenerationCron,
@@ -114,7 +117,8 @@ export const DEFAULT_AUTOMATION_RULES: DefaultAutomationRule[] = [
 
 export function mergeRulesWithDefaults(
   madrasaId: string,
-  stored: any[]
+  stored: any[],
+  forecast = true,
 ): (CronRuleLike & {
   madrasa_id: string;
   name: string;
@@ -149,6 +153,9 @@ export function mergeRulesWithDefaults(
     merged.push({ ...extra, madrasa_id: madrasaId });
   }
 
+  // A forecast is for display only. Feeding a freshly computed future date to
+  // isRuleDue on every tick starves every default (and every NULL cursor).
+  if (!forecast) return merged;
   const now = new Date();
   return merged.map((rule: any) => {
     if (!rule.next_run_at && rule.is_enabled !== false && rule.cron_expression) {
@@ -219,11 +226,12 @@ async function runDigestForMadrasa(madrasaId: string) {
 export async function executeAutomationJob(
   jobKey: AutomationJobKey | string,
   madrasaId: string,
-  triggerSource: "cron" | "manual" | "retry" = "cron"
+  triggerSource: "cron" | "manual" | "retry" = "cron",
+  now: Date = new Date(),
 ) {
   switch (jobKey) {
     case "monthly_fee_generation":
-      return runMonthlyFeeGenerationCron({ madrasaId, triggerSource });
+      return runMonthlyFeeGenerationCron({ madrasaId, triggerSource, billingPeriod:toDhakaMonthString(now) });
 
     case "overdue_reminders":
       return runOverdueRemindersCron({ madrasaId, triggerSource });
@@ -303,7 +311,7 @@ async function loadMadrasaRules(madrasaId: string) {
   if (!error) {
     return {
       usingSql: true,
-      rules: mergeRulesWithDefaults(madrasaId, data || []),
+      rules: mergeRulesWithDefaults(madrasaId, data || [], false),
     };
   }
 
@@ -311,61 +319,59 @@ async function loadMadrasaRules(madrasaId: string) {
     const fb = await getStructuredMadrasaSetting<any[]>(
       madrasaId,
       "automation",
-      FALLBACK_RULES_KEY
+      FALLBACK_RULES_KEY, true
     );
     return {
       usingSql: false,
-      rules: mergeRulesWithDefaults(madrasaId, Array.isArray(fb.value) ? fb.value : []),
+      rules: mergeRulesWithDefaults(madrasaId, Array.isArray(fb.value) ? fb.value : [], false),
     };
   }
 
-  return { usingSql: true, rules: mergeRulesWithDefaults(madrasaId, []) };
+  throw new Error(error.message);
 }
 
-async function markRuleExecuted(
-  madrasaId: string,
-  rule: any,
-  usingSql: boolean,
-  now: Date
-) {
-  const tz = String((rule.config as any)?.timezone || DEFAULT_CRON_TIMEZONE);
-  const nextRun = computeNextRunAt(String(rule.cron_expression || ""), now, tz);
-  const lastRunIso = now.toISOString();
-  const nextRunIso = nextRun ? nextRun.toISOString() : null;
-
-  if (usingSql) {
-    const admin = await createAdminClient();
-    await admin.from("automation_rules").upsert(
-      {
-        madrasa_id: madrasaId,
-        rule_key: rule.rule_key,
-        name: rule.name || rule.rule_key,
-        name_bn: rule.name_bn || rule.name || rule.rule_key,
-        description: rule.description || null,
-        cron_expression: rule.cron_expression,
-        is_enabled: rule.is_enabled !== false,
-        config: rule.config || {},
-        last_run_at: lastRunIso,
-        next_run_at: nextRunIso,
-        updated_at: lastRunIso,
-      },
-      { onConflict: "madrasa_id,rule_key" }
-    );
-    return;
+// Compare persisted cursor values, not a recalculated display forecast. An
+// insert for a default competes on UNIQUE(madrasa_id,rule_key); later ticks
+// compete on the old cursor. Never overwrite a concurrent admin schedule edit.
+async function writeCursor(tenant:string,rule:any,sql:boolean,stamp:{next_run_at:string;last_run_at?:string}) {
+  if (!sql) return changeAutomationList(tenant,FALLBACK_RULES_KEY,stored=>{
+    const all=mergeRulesWithDefaults(tenant,stored,false), current=all.find(r=>r.rule_key===rule.rule_key);
+    if(!current || current.is_enabled!==rule.is_enabled || current.next_run_at!==rule.next_run_at || current.last_run_at!==rule.last_run_at || current.cron_expression!==rule.cron_expression) return null;
+    return all.map(r=>r===current?{...r,...stamp}:r);
+  });
+  const db=await createAdminClient();
+  if(!rule.id && !rule.next_run_at && !rule.last_run_at){
+    const {error}=await db.from('automation_rules').insert({...rule,...stamp});
+    if(error?.code==='23505')return false;
+    if(error)throw Error(error.message);
+    return true;
   }
+  let q=db.from('automation_rules').update(stamp).eq('madrasa_id',tenant).eq('rule_key',rule.rule_key)
+    .eq('is_enabled',rule.is_enabled).eq('cron_expression',rule.cron_expression);
+  q=rule.next_run_at?q.eq('next_run_at',rule.next_run_at):q.is('next_run_at',null);
+  q=rule.last_run_at?q.eq('last_run_at',rule.last_run_at):q.is('last_run_at',null);
+  const {data,error}=await q.select('id');if(error)throw Error(error.message);
+  return !!data?.length;
+}
 
-  const fb = await getStructuredMadrasaSetting<any[]>(
-    madrasaId,
-    "automation",
-    FALLBACK_RULES_KEY
-  );
-  const list = mergeRulesWithDefaults(madrasaId, Array.isArray(fb.value) ? fb.value : []);
-  const updated = list.map((r) =>
-    r.rule_key === rule.rule_key
-      ? { ...r, last_run_at: lastRunIso, next_run_at: nextRunIso, updated_at: lastRunIso }
-      : r
-  );
-  await saveStructuredMadrasaSetting(madrasaId, "automation", FALLBACK_RULES_KEY, updated);
+async function claimSlot(tenant:string,rule:any,sql:boolean,now:Date) {
+  if(!rule.is_enabled)return null;
+  const tz=rule.config?.timezone || DEFAULT_CRON_TIMEZONE, due=isRuleDue(rule,now,tz);
+  if(!due && rule.next_run_at)return null;
+  const next=computeNextRunAt(rule.cron_expression,now,tz)?.toISOString();
+  if(!next)throw Error(`No next slot for ${rule.rule_key}`);
+  // A killed worker must not consume the whole billing month. Only the
+  // idempotent invoice job is leased/retried automatically. Non-idempotent
+  // notifications have an attempt log and require an operator retry on failure.
+  const money=due && rule.rule_key==='monthly_fee_generation';
+  const stamp={next_run_at:money?new Date(+now+15*60_000).toISOString():next,...(due?{last_run_at:now.toISOString()}:{})};
+  if(!await writeCursor(tenant,rule,sql,stamp) || !due)return null;
+  return async()=>{if(money && !await writeCursor(tenant,{...rule,...stamp},sql,{next_run_at:next}))throw Error("Job finished but schedule changed; inspect the cursor");};
+}
+
+export function jobSucceeded(outcome:any) {
+  const runs=outcome?.results || [outcome];
+  return runs.length>0 && runs.every((r:any)=>r?.ok && r.status==='SUCCESS' && !!r.logId);
 }
 
 /**
@@ -380,7 +386,8 @@ export async function recordManualRuleExecution(
   const { usingSql, rules } = await loadMadrasaRules(madrasaId);
   const rule = rules.find((r) => r.rule_key === jobKey);
   if (!rule) return;
-  await markRuleExecuted(madrasaId, rule, usingSql, now);
+  const next=computeNextRunAt(rule.cron_expression,now,String(rule.config?.timezone || DEFAULT_CRON_TIMEZONE));
+  if(!next || !await writeCursor(madrasaId,rule,usingSql,{last_run_at:now.toISOString(),next_run_at:next.toISOString()}))throw Error("কাজ শেষ হয়েছে, সময়সূচি বদলেছে — লগ ও পরবর্তী রান যাচাই করুন।");
 }
 
 /**
@@ -400,7 +407,7 @@ export async function runMasterCronDispatch(opts: {
   if (opts.madrasaId) {
     madrasaIds = [opts.madrasaId];
   } else {
-    const { data: madrasas } = await admin.from("madrasas").select("id");
+    const madrasas = await rows(()=>admin.from("madrasas").select("id"));
     madrasaIds = (madrasas || []).map((m: any) => String(m.id));
   }
 
@@ -411,30 +418,33 @@ export async function runMasterCronDispatch(opts: {
   }> = [];
 
   for (const madrasaId of madrasaIds) {
-    const { usingSql, rules } = await loadMadrasaRules(madrasaId);
+    let loaded;
+    try {loaded=await loadMadrasaRules(madrasaId);} catch(err){
+      console.error("[cron] Cannot load tenant schedules",err);perTenantResults.push({madrasaId,executed:[{ruleKey:"load_rules",ok:false}],skippedCount:0});continue;
+    }
+    const {usingSql,rules}=loaded;
     const executed: Array<{ ruleKey: string; ok: boolean }> = [];
     let skippedCount = 0;
 
     for (const rule of rules) {
-      const tz = String((rule.config as any)?.timezone || DEFAULT_CRON_TIMEZONE);
-      if (!isRuleDue(rule, now, tz)) {
-        skippedCount++;
-        continue;
+      try {
+        const complete=await claimSlot(madrasaId,rule,usingSql,now);
+        if(!complete) { skippedCount++; continue; }
+        const outcome=await executeAutomationJob(rule.rule_key,madrasaId,triggerSource,now);
+        const ok=jobSucceeded(outcome);
+        if(ok) await complete();
+        executed.push({ruleKey:rule.rule_key,ok});
+      } catch (err) {
+        console.error("[cron]", rule.rule_key, err);
+        executed.push({ruleKey:rule.rule_key, ok:false});
       }
-
-      const outcome: any = await executeAutomationJob(rule.rule_key, madrasaId, triggerSource);
-      await markRuleExecuted(madrasaId, rule, usingSql, now);
-      executed.push({
-        ruleKey: rule.rule_key,
-        ok: outcome?.ok !== false,
-      });
     }
 
     perTenantResults.push({ madrasaId, executed, skippedCount });
   }
 
   return {
-    ok: true,
+    ok: perTenantResults.every(t=>t.executed.every(r=>r.ok)),
     dispatchedAt: now.toISOString(),
     tenantsChecked: madrasaIds.length,
     totalExecuted: perTenantResults.reduce((sum, t) => sum + t.executed.length, 0),

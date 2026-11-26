@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { authorizeCronRequest, resolveCronTenant } from "@/lib/automation/cron-auth";
+import {
+  authorizeCronRequest,
+  resolveCronTenant,
+} from "@/lib/automation/cron-auth";
 import { runMonthlyFeeGenerationCron } from "@/lib/automation/fee-cron-service";
 
 // Next.js যেন কোনো প্ল্যাটফর্মে (Vercel/Railway) cron রিকোয়েস্ট ক্যাশ না করে
@@ -15,8 +18,12 @@ async function handle(req: Request) {
     body = await req.json().catch(() => ({}));
   }
   const { searchParams } = new URL(req.url);
-  const madrasaId = resolveCronTenant(auth, body.madrasaId || searchParams.get("madrasaId") || null);
-  const billingPeriod = body.billingPeriod || searchParams.get("billingPeriod") || undefined;
+  const madrasaId = resolveCronTenant(
+    auth,
+    body.madrasaId || searchParams.get("madrasaId") || null,
+  );
+  const billingPeriod =
+    body.billingPeriod || searchParams.get("billingPeriod") || undefined;
 
   const result = await runMonthlyFeeGenerationCron({
     madrasaId,
@@ -24,7 +31,10 @@ async function handle(req: Request) {
     triggerSource: "cron",
   });
 
-  return NextResponse.json({ ok: true, ...result });
+  const ok =
+    result.results.length > 0 &&
+    result.results.every((r) => r.ok && r.logId && r.status === "SUCCESS");
+  return NextResponse.json({ ok, ...result }, { status: ok ? 200 : 503 });
 }
 
 export async function GET(req: Request) {

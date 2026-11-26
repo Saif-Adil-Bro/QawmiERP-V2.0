@@ -89,74 +89,31 @@ export function getInAppSchedulerStatus(): SchedulerHealthSnapshot {
   };
 }
 
-export async function persistSchedulerHeartbeatForTenants(
-  madrasaIds: string[],
-  heartbeat: Omit<PersistedSchedulerHeartbeat, "updatedAt">
-) {
-  const payload: PersistedSchedulerHeartbeat = {
-    ...heartbeat,
-    updatedAt: new Date().toISOString(),
-  };
-
-  for (const madrasaId of madrasaIds) {
-    if (!madrasaId) continue;
-    await saveStructuredMadrasaSetting(
-      madrasaId,
-      HEARTBEAT_NAMESPACE,
-      HEARTBEAT_KEY,
-      payload
-    ).catch(() => {});
-  }
+export async function getPersistedSchedulerHeartbeat(madrasaId:string) {
+  const res=await getStructuredMadrasaSetting<PersistedSchedulerHeartbeat>(madrasaId,HEARTBEAT_NAMESPACE,HEARTBEAT_KEY,true);
+  return res.value || null;
 }
 
-export async function getPersistedSchedulerHeartbeat(
-  madrasaId: string
-): Promise<PersistedSchedulerHeartbeat | null> {
-  try {
-    const res = await getStructuredMadrasaSetting<PersistedSchedulerHeartbeat>(
-      madrasaId,
-      HEARTBEAT_NAMESPACE,
-      HEARTBEAT_KEY
-    );
-    if (res?.value && typeof res.value === "object") {
-      return res.value;
-    }
-    return null;
-  } catch {
-    return null;
+export async function recordDispatchHeartbeat(result:Awaited<ReturnType<typeof runMasterCronDispatch>>,source:'cron'|'in-app') {
+  const state=getRuntimeState(), now=new Date().toISOString();
+  state.lastTickAt=now; state.lastTriggerSource=source; state.tickCount++;
+  state.lastDispatchedCount=result.totalExecuted; state.lastTenantsChecked=result.tenantsChecked;
+  state.lastError=result.ok?null:'এক বা একাধিক জব ব্যর্থ';
+  // Runtime totals are process-local. Never publish another school's outcomes
+  // (or its last successful run) in the tenant-facing operations page.
+  const errors:string[]=[];
+  for(const {madrasaId,executed} of result.results){
+    try {
+      const failures=executed.filter(r=>!r.ok);
+      const heartbeat:PersistedSchedulerHeartbeat={lastTickAt:now,lastTriggerSource:source,
+        lastSuccessAt:failures.length ? (await getPersistedSchedulerHeartbeat(madrasaId))?.lastSuccessAt || null : now,
+        lastError:failures.length?'ব্যর্থ: '+failures.map(r=>r.ruleKey).join(', '):null,lastDispatchedCount:executed.length,updatedAt:now};
+      const saved=await saveStructuredMadrasaSetting(madrasaId,HEARTBEAT_NAMESPACE,HEARTBEAT_KEY,heartbeat);
+      if(!saved.ok)errors.push(madrasaId);
+    }catch{errors.push(madrasaId);}
   }
-}
-
-export async function recordDispatchHeartbeat(params: {
-  madrasaIds: string[];
-  totalExecuted: number;
-  tenantsChecked: number;
-  source: "in-app" | "cron" | "manual";
-  error?: string | null;
-}) {
-  const state = getRuntimeState();
-  const nowIso = new Date().toISOString();
-
-  state.lastTickAt = nowIso;
-  state.lastTriggerSource = params.source;
-  state.lastTenantsChecked = params.tenantsChecked;
-  state.lastDispatchedCount = params.totalExecuted;
-  state.tickCount += 1;
-
-  if (params.error) {
-    state.lastError = params.error;
-  } else {
-    state.lastSuccessAt = nowIso;
-    state.lastError = null;
-  }
-
-  await persistSchedulerHeartbeatForTenants(params.madrasaIds, {
-    lastTickAt: nowIso,
-    lastSuccessAt: params.error ? state.lastSuccessAt : nowIso,
-    lastError: params.error || null,
-    lastDispatchedCount: params.totalExecuted,
-    lastTriggerSource: params.source,
-  });
+  if(errors.length){state.lastError='শিডিউলার হার্টবিট সংরক্ষণ হয়নি।';throw Error(state.lastError);}
+  if(result.ok)state.lastSuccessAt=now;
 }
 
 export async function runInAppSchedulerTick(): Promise<{
@@ -183,26 +140,8 @@ export async function runInAppSchedulerTick(): Promise<{
 
   try {
     const result = await runMasterCronDispatch({ triggerSource: "cron" });
-    const madrasaIds = (result.results || []).map((r) => r.madrasaId);
-    state.lastSuccessAt = new Date().toISOString();
-    state.lastError = null;
-    state.lastDispatchedCount = result.totalExecuted || 0;
-    state.lastTenantsChecked = result.tenantsChecked || 0;
-    state.tickCount += 1;
-
-    await persistSchedulerHeartbeatForTenants(madrasaIds, {
-      lastTickAt: startedIso,
-      lastSuccessAt: state.lastSuccessAt,
-      lastError: null,
-      lastDispatchedCount: state.lastDispatchedCount,
-      lastTriggerSource: "in-app",
-    });
-
-    return {
-      ok: true,
-      totalExecuted: state.lastDispatchedCount,
-      tenantsChecked: state.lastTenantsChecked,
-    };
+    await recordDispatchHeartbeat(result,"in-app");
+    return {ok:result.ok,totalExecuted:result.totalExecuted,tenantsChecked:result.tenantsChecked,...(state.lastError?{error:state.lastError}:{})};
   } catch (err: any) {
     const message = String(err?.message || "অটোমেশন শিডিউলার চালানো যায়নি").slice(0, 300);
     state.lastError = message;

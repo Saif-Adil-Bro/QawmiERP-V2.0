@@ -605,8 +605,7 @@ export async function addDonation(prevState: any, formData: FormData) {
     const data=posted.receipt;
     const createdDonorObj:DonorItem|null=posted.donor ? {...posted.donor,pledge_amount:new_donor_pledge,total_donated:amount,donation_count:1,last_donation_date:donation_date} : null;
 
-    if (finalMadrasaId) {
-      await logAuditEvent({
+    const auditWrite = await logAuditEvent({
         madrasaId: finalMadrasaId,
         actorId: user?.id || null,
         actorEmail: user?.email || null,
@@ -619,7 +618,6 @@ export async function addDonation(prevState: any, formData: FormData) {
         newValue: { id: data.id, receipt_no, amount, fund_id: fund.id, fund_name: fund.name, payment_method },
         metadata: { receipt_no, source: "zakat_donation" },
       });
-    }
 
     revalidatePath("/dashboard/zakat");
     revalidatePath("/dashboard/zakat/collection");
@@ -628,7 +626,8 @@ export async function addDonation(prevState: any, formData: FormData) {
     revalidatePath("/dashboard/zakat/funds");
 
     return { 
-      success: true, 
+      success: true,
+      auditWarning:auditWrite?.success ? undefined : "রসিদ সংরক্ষিত; অডিট লগ যাচাই করুন, আবার রসিদ তৈরি করবেন না।",
       donation: {
         ...data,
         payment_method,

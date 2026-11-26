@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authorizeSuperAdminOrCron } from "@/lib/api-auth";
 import { isMissingTableError, logAuditEvent } from "@/lib/audit-log";
-import { getStructuredMadrasaSetting, saveStructuredMadrasaSetting } from "@/lib/structured-config";
+import {changeAutomationList} from "./setting-cas";
 
 export interface CronJobOutcome<T = Record<string, unknown>> {
   processedCount: number;
@@ -55,7 +55,7 @@ async function persistJobLog(
     const admin = await createAdminClient();
     const { data, error } = await admin
       .from("job_execution_logs")
-      .insert({ madrasa_id: madrasaId, ...record })
+      .upsert({ madrasa_id: madrasaId, ...record },{onConflict:"id"})
       .select("id")
       .maybeSingle();
 
@@ -72,20 +72,13 @@ async function persistJobLog(
   }
 
   // Fallback to madrasa_settings when job_execution_logs table is missing
-  const fallbackId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  const fb = await getStructuredMadrasaSetting<any[]>(
-    madrasaId,
-    "automation",
-    FALLBACK_LOGS_KEY
-  );
-  const list = Array.isArray(fb.value) ? fb.value : [];
-  await saveStructuredMadrasaSetting(
-    madrasaId,
-    "automation",
-    FALLBACK_LOGS_KEY,
-    [{ id: fallbackId, madrasa_id: madrasaId, ...record, created_at: new Date().toISOString() }, ...list].slice(0, 200)
-  );
-  return fallbackId;
+  try {
+    const stored=await changeAutomationList(madrasaId,FALLBACK_LOGS_KEY,list=>[
+      {madrasa_id:madrasaId,...record,created_at:record.started_at},...list.filter(r=>r.id!==record.id)
+    ].slice(0,200));
+    return stored?record.id:undefined;
+  } catch(err){console.error("Could not record cron attempt",err);return undefined;}
+
 }
 
 /**
@@ -100,8 +93,10 @@ export async function runTrackedCronJob<T = Record<string, unknown>>(
 ): Promise<TrackedCronResult<T>> {
   const startedAt = new Date();
   const startMs = Date.now();
+  const id=crypto.randomUUID();
 
   try {
+    if (madrasaId && !await persistJobLog(madrasaId,{id,job_key:jobKey,trigger_source:triggerSource,status:"RUNNING",started_at:startedAt.toISOString()})) throw Error("ক্রন শুরুর লগ সংরক্ষণ হয়নি; কাজ চালানো হয়নি।");
     const outcome = await fn();
     const finishedAt = new Date();
     const durationMs = Math.max(0, Date.now() - startMs);
@@ -113,6 +108,7 @@ export async function runTrackedCronJob<T = Record<string, unknown>>(
           : "SUCCESS";
 
     const logId = await persistJobLog(madrasaId, {
+      id,
       job_key: jobKey,
       trigger_source: triggerSource,
       status,
@@ -127,7 +123,7 @@ export async function runTrackedCronJob<T = Record<string, unknown>>(
     });
 
     if (madrasaId) {
-      logAuditEvent({
+      await logAuditEvent({
         madrasaId,
         module: "automation",
         action: "CRON_EXECUTED",
@@ -148,7 +144,7 @@ export async function runTrackedCronJob<T = Record<string, unknown>>(
     }
 
     return {
-      ok: status !== "FAILED",
+      ok: status === "SUCCESS" && !!logId,
       jobKey,
       status,
       durationMs,
@@ -164,6 +160,7 @@ export async function runTrackedCronJob<T = Record<string, unknown>>(
     const errorMessage = err?.message || "Unknown cron execution error";
 
     const logId = await persistJobLog(madrasaId, {
+      id,
       job_key: jobKey,
       trigger_source: triggerSource,
       status: "FAILED",
@@ -178,7 +175,7 @@ export async function runTrackedCronJob<T = Record<string, unknown>>(
     });
 
     if (madrasaId) {
-      logAuditEvent({
+      await logAuditEvent({
         madrasaId,
         module: "automation",
         action: "CRON_EXECUTED",

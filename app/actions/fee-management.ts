@@ -433,7 +433,9 @@ export async function generateMonthlyFees(params: {
       };
     }
 
-    const meta = await getFeeMetadata(madrasaId);
+    const [meta,legacy]=await Promise.all([getFeeMetadata(madrasaId),getMadrasaMetadata(madrasaId,true)]);
+    const key=(student:string,type:string,period:string)=>JSON.stringify([student,type,billPeriodKey(period)]);
+    const historical=new Set((legacy.student_fees || []).filter((f:any)=>f?.billing_period).map((f:any)=>key(f.student_id,f.fee_type_id,f.billing_period)));
     const feeTypes = meta.fee_types && meta.fee_types.length > 0 ? meta.fee_types : DEFAULT_FEE_TYPES;
     const currentStudentFees = [...(meta.student_fees || [])];
 
@@ -483,14 +485,14 @@ export async function generateMonthlyFees(params: {
           (f) =>
             f.student_id === student.id &&
             f.fee_type_id === ft.id &&
-            billPeriodKey(f.billing_period) === params.billingPeriod && f.session_id===params.sessionId
+            billPeriodKey(f.billing_period) === billPeriodKey(params.billingPeriod)
         );
 
         if (existingInMemoryIdx >= 0) {
           const targetFee = currentStudentFees[existingInMemoryIdx];
           const isUnpaid = targetFee.status !== "PAID" && (Number(targetFee.paid_amount) || 0) === 0;
 
-          if (params.forceUpdate && isUnpaid) {
+          if (params.forceUpdate && isUnpaid && targetFee.session_id === params.sessionId) {
             if (existingInMemoryIdx >= 0) {
               const oldFee = currentStudentFees[existingInMemoryIdx];
               currentStudentFees[existingInMemoryIdx] = {
@@ -514,6 +516,9 @@ export async function generateMonthlyFees(params: {
           continue; // SKIP generating duplicate invoice!
         }
 
+        // A partially migrated school may still have this invoice in the
+        // read-only legacy book. Never copy it into the writable book.
+        if(historical.has(key(student.id,ft.id,params.billingPeriod))) {skippedCount++;continue;}
         const targetFundId = ft.fund_id;
         const targetFundName =
           ft.fund_name;
@@ -573,7 +578,7 @@ export async function generateMonthlyFees(params: {
       return { error: "তৈরি হওয়া ফি ইনভয়েসগুলো ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন। (কোনো পরিবর্তন প্রয়োগ হয়নি)" };
     }
 
-    await logAuditEvent({
+    const auditWrite = await logAuditEvent({
       madrasaId,
       actorId: user?.id || null,
       actorEmail: user?.email || null,
@@ -616,7 +621,7 @@ export async function generateMonthlyFees(params: {
       updatedCount,
       skippedNoStructureStudents,
       skippedClasses,
-      message,
+      message: message + (auditWrite?.success ? "" : " ফি সংরক্ষিত; অডিট লগ যাচাই করুন, আবার জেনারেট করবেন না।"),
     };
   } catch (err: any) {
     console.error("Error in generateMonthlyFees:", err);

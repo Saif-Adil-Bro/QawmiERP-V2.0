@@ -13,6 +13,8 @@
     "preflight:cashbooks": "node scripts/portal-fee-preflight.mjs --cashbooks",
     "preflight:finance": "node scripts/portal-fee-preflight.mjs --finance",
     "test:finance:sql": "node tests/sql/run-finance-integrity.mjs && node tests/sql/run-cashbooks.mjs",
+    "test:round7:sql": "node tests/sql/round7.mjs",
+    "test:round7:browser": "node tests/browser/round7.mjs",
     "test:finance:browser": "node tests/browser/finance-integrity.mjs",
     "preflight:fees": "node scripts/portal-fee-preflight.mjs",
     "predev": "node scripts/build-offline-hifz.mjs",

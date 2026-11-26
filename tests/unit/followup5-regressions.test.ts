@@ -60,12 +60,13 @@ describe("FOLLOWUP 5 Regressions", () => {
       const loginSrc = readWorkspaceFile("app/api/auth/login/route.ts");
       const feeSrc = readWorkspaceFile("app/actions/fee-management.ts");
 
-      expect(auditSrc).toContain("mergeAuditLogSources");
+      expect(auditSrc).toContain("fetchCanonicalAuditLogsAndCount");
+      expect(backupSrc).toContain("fetchCanonicalAuditLogsAndCount");
       expect(backupSrc).not.toContain(
         "countCollectionItems(meta.audit_logs) +\n      countCollectionItems(meta.backup_history)"
       );
-      expect(loginSrc).toContain("resolveFailedLoginMadrasaId");
-      expect(loginSrc).toContain('action: "LOGIN_FAILED"');
+      expect(loginSrc).toContain("await recordFailedLogin(");
+      expect(readWorkspaceFile("lib/failed-login-audit.ts")).toContain("LOGIN_FAILED");
       expect(feeSrc).toContain('action: "MONTHLY_FEES_GENERATED"');
     });
   });
@@ -148,13 +149,15 @@ describe("FOLLOWUP 5 Regressions", () => {
       expect(notifSrc).toContain(": 3;");
     });
 
-    it("N8: BackupClient top Zakat KPI matches zakat_donations count & backup.ts initializes baseline", () => {
+    it("N8: BackupClient top Zakat KPI matches zakat_donations count; only a verified snapshot is recorded as a backup", () => {
       const clientSrc = readWorkspaceFile(
         "app/dashboard/settings/backup/BackupClient.tsx"
       );
       const backupSrc = readWorkspaceFile("app/actions/backup.ts");
       expect(clientSrc).toContain('(stats.counts?.zakat_donations || 0).toLocaleString("bn-BD")');
-      expect(backupSrc).toContain('type: "AUTO_SNAPSHOT"');
+      expect(backupSrc).not.toContain('bak_init_');
+      expect(backupSrc).toContain("type:'AUTO_SNAPSHOT'");
+      expect(backupSrc).toContain('storage_path:upload.storagePath,checksum:snapshot.backupPayload.manifest.checksum');
     });
 
     it("PB-07 & Pre-Marking: Teacher AttendanceForm leaves unsaved working days unmarked and shows floating toast", () => {

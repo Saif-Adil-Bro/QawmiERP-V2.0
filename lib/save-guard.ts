@@ -3,7 +3,6 @@
 declare global {
   interface Window {
     __qawmiActiveSaveTokens?: Set<string>;
-    __qawmiSaveGuardInstalled?: boolean;
   }
 }
 
@@ -24,8 +23,8 @@ function beforeUnloadHandler(event: BeforeUnloadEvent): string | undefined {
   if (!hasActiveSaveGuards()) return undefined;
   event.preventDefault();
   // WHATWG HTML standard + legacy cross-browser trigger for native Leave/Stay prompt
-  event.returnValue = "";
-  return "";
+  event.returnValue = "সেভ চলছে";
+  return event.returnValue;
 }
 
 function syncWindowOnBeforeUnload() {
@@ -40,11 +39,7 @@ function syncWindowOnBeforeUnload() {
 export function installGlobalSaveGuardListeners(): () => void {
   if (typeof window === "undefined") return () => {};
   getTokenSet();
-  if (!window.__qawmiSaveGuardInstalled) {
-    window.addEventListener("beforeunload", beforeUnloadHandler, { capture: true });
-    window.addEventListener("beforeunload", beforeUnloadHandler);
-    window.__qawmiSaveGuardInstalled = true;
-  }
+  // Install only while an actual write is outstanding (also preserves bfcache).
   syncWindowOnBeforeUnload();
   return () => {
     // Keep global window listener registered for the lifetime of the SPA session

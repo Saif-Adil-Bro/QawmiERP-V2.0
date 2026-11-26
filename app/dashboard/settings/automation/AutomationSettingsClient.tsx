@@ -13,7 +13,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import {
-  getAutomationRulesAction,
+  getAutomationRulesAction,getAutomationHeartbeatAction,
   getJobExecutionLogsAction,
   saveAutomationRuleAction,
   triggerAutomationJobAction,
@@ -27,6 +27,8 @@ import {
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
 interface Props {
+  initialHeartbeat:import('@/lib/automation/in-app-scheduler').PersistedSchedulerHeartbeat|null;
+  initialError?:string|null;
   initialRules: any[];
   initialLogs: any[];
 }
@@ -98,8 +100,10 @@ function formatBdtDateTime(iso?: string | null): string {
   });
 }
 
-export default function AutomationSettingsClient({ initialRules, initialLogs }: Props) {
+export default function AutomationSettingsClient({ initialRules, initialLogs, initialHeartbeat, initialError }: Props) {
   const [rules, setRules] = useState<any[]>(initialRules);
+  const [heartbeat,setHeartbeat]=useState(initialHeartbeat);
+  const [readError,setReadError]=useState(initialError || '');
   const [logs, setLogs] = useState<any[]>(initialLogs);
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -114,12 +118,11 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
 
   const reload = () => {
     startTransition(async () => {
-      const [r, l] = await Promise.all([
-        getAutomationRulesAction(),
-        getJobExecutionLogsAction(50),
-      ]);
-      setRules(r.rules || []);
-      setLogs(l.logs || []);
+      try {
+        const [r,l,h]=await Promise.all([getAutomationRulesAction(),getJobExecutionLogsAction(50),getAutomationHeartbeatAction()]);
+        setReadError(r.error || l.error || h.error || '');
+        if(!r.error)setRules(r.rules);if(!l.error)setLogs(l.logs);if(!h.error)setHeartbeat(h.heartbeat);
+      }catch{setReadError('শিডিউল ও লগ পড়া যায়নি। আবার রিফ্রেশ করুন।');}
     });
   };
 
@@ -229,6 +232,16 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
         </button>
       </div>
 
+      {readError && <p role="alert" className="rounded-lg border border-rose-200 p-3 text-rose-800">{readError}</p>}
+      <section aria-label="শিডিউলার হার্টবিট" className="rounded-xl border border-slate-200 p-4 text-sm space-y-1">
+        <h2 className="font-bold">শিডিউলার হার্টবিট</h2>
+        {!heartbeat?.lastTickAt ? <p>ডিসপ্যাচার চলার প্রমাণ এখনো নেই। হোস্ট ও cron ট্রিগার যাচাই করুন।</p> : <>
+          <p>শেষ ডিসপ্যাচ: {formatBdtDateTime(heartbeat.lastTickAt)} ({heartbeat.lastTriggerSource})। শেষ সফল ডিসপ্যাচ: {formatBdtDateTime(heartbeat.lastSuccessAt)}।</p>
+          {heartbeat.lastError && <p role="alert" className="text-rose-700">{heartbeat.lastError}</p>}
+          {Date.now()-Date.parse(heartbeat.lastTickAt)>30*60_000 && <p className="text-amber-800">৩০ মিনিটের বেশি নতুন হার্টবিট নেই। ট্রিগার ও হোস্টের লগ দেখুন।</p>}
+        </>}
+        <p className="text-xs text-slate-500">হার্টবিট শুধু ডিসপ্যাচারের খবর। ফি তৈরি বা ডুপ্লিকেট বাদ পড়ার প্রমাণ নিচের জব লগ।</p>
+      </section>
       {feedback && (
         <div
           className={`rounded-lg border px-4 py-3 text-sm ${
@@ -250,7 +263,7 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-bold text-emerald-950 dark:text-emerald-100">
-                মাসিক ফি অটোমেশন ও ডুপ্লিকেট সুরক্ষা সক্রিয়
+                মাসিক ফি অটোমেশন ও ডুপ্লিকেট সুরক্ষা
               </h2>
               <p className="mt-0.5 text-xs text-emerald-800/90 dark:text-emerald-300/90">
                 একই শিক্ষার্থী, ফি-খাত ও বিলিং পিরিয়ডের (student + fee_type + billing_period) জন্য স্বয়ংক্রিয়ভাবে ডুপ্লিকেট ইনভয়েস ব্লক করা হয়।
@@ -488,7 +501,7 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
           সাম্প্রতিক জব এক্সিকিউশন লগ ({toBanglaNumber(logs.length)})
         </h2>
         {logs.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-slate-400">কোনো এক্সিকিউশন লগ নেই।</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">{readError ? "লগের সংখ্যা নিশ্চিত নয়।" : "কোনো এক্সিকিউশন লগ নেই।"}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -506,6 +519,8 @@ export default function AutomationSettingsClient({ initialRules, initialLogs }: 
                   <tr key={log.id}>
                     <td className="py-2 pr-3 font-medium text-slate-800 dark:text-slate-200">
                       {log.job_key}
+                      <span className="block text-xs text-slate-500">{formatBdtDateTime(log.started_at)}</span>
+                      {log.error_message && <span className="block text-xs text-rose-700">{log.error_message}</span>}
                     </td>
                     <td className="py-2 pr-3 text-slate-600 dark:text-slate-300">
                       {log.trigger_source}

@@ -1,815 +1,445 @@
 "use server";
 
-import { toDhakaDateString } from "@/lib/date-utils";
-import { writeGuard } from "@/lib/action-authorization";
-import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import { getAuthMadrasaId } from "./students";
-import { getMadrasaMetadata, saveMadrasaMetadata } from "@/lib/sessions";
+import { writeGuard } from "@/lib/action-authorization";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getMadrasaMetadata, hydrateStudentWithMetadata } from "@/lib/sessions";
+import { rows } from "@/lib/portal/queries";
+import { toDhakaDateString } from "@/lib/date-utils";
+import { patchTenantJson } from "@/lib/tenant-json-patch";
+import { storeDevice } from "@/lib/biometric-registry";
+import { ingestPunches, replayPunch } from "@/lib/biometric-ingest";
 import {
-  BiometricDevice,
-  BiometricUserMapping,
-  BiometricPunchLog,
-  generateDeviceToken,
-  parseBiometricPunchFile,
+  historicalPunch,
   getDeviceConnectionStatus,
+  parsePunchReport,
+  uniquePunchLogs,
+  type BiometricDevice as Device,
+  type BiometricPunchLog as Log,
+  type BiometricUserMapping as Mapping,
 } from "@/lib/biometric";
 
-/**
- * Get all biometric devices for the current madrasa
- */
-export async function getBiometricDevices(): Promise<BiometricDevice[]> {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("biometric");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return [];
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return [];
-
-  try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    let devices: BiometricDevice[] = meta.biometric_devices || [];
-
-    // Provide default initial device if none exists yet
-    if (devices.length === 0) {
-      const now = new Date().toISOString();
-      const defaultDevice: BiometricDevice = {
-        id: `dev_${finalMadrasaId.substring(0, 8)}_main`,
-        madrasa_id: finalMadrasaId,
-        name: "মেইন গেট বায়োমেট্রিক পাঞ্চ মেশিন",
-        device_model: "ZKTeco_K40",
-        serial_number: `ZK-${finalMadrasaId.substring(0, 4).toUpperCase()}-01`,
-        ip_address: "192.168.1.201",
-        port: 4370,
-        protocol: "cloud_push",
-        target_audience: "all",
-        location: "প্রধান প্রবেশদ্বার / অফিস",
-        status: "active",
-        secret_token: generateDeviceToken("zk"),
-        total_punches_count: 0,
-        created_at: now,
-        updated_at: now,
-        notes: "ডিভাইসের ক্লাউড সার্ভার অপশনে আমাদের সার্ভার URL ও টোকেন দিয়ে সরাসরি লাইভ সিঙ্ক করা যাবে।",
-      };
-      devices = [defaultDevice];
-      meta.biometric_devices = devices;
-      await saveMadrasaMetadata(finalMadrasaId, meta);
-    }
-
-    return devices;
-  } catch (err) {
-    console.error("Error in getBiometricDevices:", err);
-    return [];
-  }
+async function operator() {
+  const g = await writeGuard("biometric");
+  if (!g.allowed || !g.madrasaId)
+    throw Error("বায়োমেট্রিক ব্যবস্থাপনার অনুমতি নেই।");
+  return { tenant: g.madrasaId, audit: g.logAudit };
+}
+const message = (e: unknown) =>
+  e instanceof Error ? e.message : "কাজ সম্পন্ন হয়নি। আবার চেষ্টা করুন।";
+const refresh = () => revalidatePath("/dashboard/attendance/devices");
+function attendanceChanged() {
+  refresh();
+  for (const p of ["", "/students", "/teachers", "/reports"])
+    revalidatePath("/dashboard/attendance" + p);
 }
 
-/**
- * Create or update a biometric device
- */
-export async function saveBiometricDevice(
-  deviceData: Partial<BiometricDevice>
-): Promise<{ success?: boolean; device?: BiometricDevice; error?: string }> {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("biometric");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "অনুগ্রহ করে পুনরায় লগইন করুন" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "মাদরাসা আইডি পাওয়া যায়নি" };
-
-  if (!deviceData.name?.trim()) {
-    return { error: "ডিভাইসের নাম দেওয়া আবশ্যক" };
-  }
-
-  try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    let devices: BiometricDevice[] = meta.biometric_devices || [];
-    const now = new Date().toISOString();
-
-    let savedDevice: BiometricDevice;
-
-    if (deviceData.id && devices.some((d) => d.id === deviceData.id)) {
-      // Update existing device
-      devices = devices.map((d) => {
-        if (d.id === deviceData.id) {
-          savedDevice = {
-            ...d,
-            ...deviceData,
-            secret_token: deviceData.secret_token || d.secret_token || generateDeviceToken(),
-            updated_at: now,
-          } as BiometricDevice;
-          return savedDevice;
-        }
-        return d;
-      });
-    } else {
-      // Create new device
-      savedDevice = {
-        id: deviceData.id || `dev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        madrasa_id: finalMadrasaId,
-        name: deviceData.name.trim(),
-        device_model: deviceData.device_model || "ZKTeco_K40",
-        serial_number: deviceData.serial_number?.trim() || `DEV-${Date.now().toString().slice(-6)}`,
-        ip_address: deviceData.ip_address?.trim() || "",
-        port: deviceData.port || 4370,
-        protocol: deviceData.protocol || "cloud_push",
-        target_audience: deviceData.target_audience || "all",
-        location: deviceData.location?.trim() || "",
-        status: deviceData.status || "active",
-        secret_token: deviceData.secret_token?.trim() || generateDeviceToken(),
-        total_punches_count: deviceData.total_punches_count || 0,
-        notes: deviceData.notes?.trim() || "",
-        created_at: now,
-        updated_at: now,
-      };
-      devices.unshift(savedDevice);
-    }
-
-    meta.biometric_devices = devices;
-    const ok = await saveMadrasaMetadata(finalMadrasaId, meta);
-    if (!ok) return { error: "ডিভাইস তথ্য সংরক্ষণ করা সম্ভব হয়নি" };
-
-    revalidatePath("/dashboard/attendance");
-    revalidatePath("/dashboard/attendance/devices");
-
-    return { success: true, device: savedDevice! };
-  } catch (err: any) {
-    console.error("Error saving biometric device:", err);
-    return { error: err.message || "সার্ভার এরর" };
-  }
-}
-
-/**
- * Delete a biometric device
- */
-export async function deleteBiometricDevice(deviceId: string): Promise<{ success?: boolean; error?: string }> {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("biometric");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
-
-  try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    meta.biometric_devices = (meta.biometric_devices || []).filter((d: BiometricDevice) => d.id !== deviceId);
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    revalidatePath("/dashboard/attendance");
-    revalidatePath("/dashboard/attendance/devices");
-    return { success: true };
-  } catch (err: any) {
-    return { error: err.message };
-  }
-}
-
-/**
- * Test device ping / connection
- */
-export async function testBiometricDeviceConnection(
-  deviceId: string
-): Promise<{ success: boolean; isOnline: boolean; message: string; lastPing: string }> {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { success: false, isOnline: false, message: "অননুমোদিত অ্যাক্সেস", lastPing: "" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { success: false, isOnline: false, message: "মাদরাসা পাওয়া যায়নি", lastPing: "" };
-
-  const meta = await getMadrasaMetadata(finalMadrasaId);
-  const devices: BiometricDevice[] = meta.biometric_devices || [];
-  const targetDevice = devices.find((d) => d.id === deviceId);
-
-  if (!targetDevice) {
-    return { success: false, isOnline: false, message: "ডিভাইসটি পাওয়া যায়নি", lastPing: "" };
-  }
-
-  const conn = getDeviceConnectionStatus(targetDevice);
-
-  if (conn.status === "online") {
-    return {
-      success: true,
-      isOnline: true,
-      message: `"${targetDevice.name}" সফলভাবে লাইভ অনলাইন আছে (${conn.lastSeenText})। ক্লাউড গেটওয়ে সক্রিয়।`,
-      lastPing: targetDevice.last_ping_at || targetDevice.last_sync_at || "",
-    };
-  } else if (conn.status === "waiting") {
-    return {
-      success: false,
-      isOnline: false,
-      message: `"${targetDevice.name}" এখনও সার্ভারের সাথে কোনো ডাটা বা পিং পাঠায়নি (অফলাইন / কানেকশন অপেক্ষমাণ)। অনুগ্রহ করে মেশিনের ক্লাউড বা ADMS সেটিংসে সার্ভার পুশ URL ও সিরিয়াল নম্বর সঠিক আছে কিনা যাচাই করুন এবং মেশিনে একটি টেস্ট পাঞ্চ দিন।`,
-      lastPing: "",
-    };
-  } else {
-    return {
-      success: false,
-      isOnline: false,
-      message: `"${targetDevice.name}" অফলাইন আছে (সর্বশেষ দেখা: ${conn.lastSeenText})। অনুগ্রহ করে মেশিনের পাওয়ার ও ইন্টারনেট সংযোগ চেক করুন।`,
-      lastPing: targetDevice.last_ping_at || targetDevice.last_sync_at || "",
-    };
-  }
-}
-
-/**
- * Get all biometric user mappings
- */
-export async function getBiometricUserMappings(): Promise<BiometricUserMapping[]> {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return [];
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return [];
-
-  try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    return meta.biometric_mappings || [];
-  } catch (err) {
-    console.error("Error in getBiometricUserMappings:", err);
-    return [];
-  }
-}
-
-/**
- * Save / Update a user mapping
- */
-export async function saveBiometricUserMapping(
-  mapping: Partial<BiometricUserMapping>
-): Promise<{ success?: boolean; error?: string }> {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("biometric");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
-
-  if (!mapping.device_user_id?.trim()) {
-    return { error: "ডিভাইস ইউজার আইডি (মেশিনের আইডি) আবশ্যক" };
-  }
-  if (!mapping.target_id) {
-    return { error: "শিক্ষার্থী বা শিক্ষক নির্বাচন করুন" };
-  }
-
-  try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    let mappings: BiometricUserMapping[] = meta.biometric_mappings || [];
-    const now = new Date().toISOString();
-
-    const cleanDeviceId = mapping.device_user_id.trim();
-
-    // Remove any previous mapping with same device_user_id to prevent duplicates
-    mappings = mappings.filter((m) => m.id !== mapping.id && m.device_user_id !== cleanDeviceId);
-
-    const newMapping: BiometricUserMapping = {
-      id: mapping.id || `map_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      madrasa_id: finalMadrasaId,
-      device_user_id: cleanDeviceId,
-      user_type: mapping.user_type || "student",
-      target_id: mapping.target_id,
-      target_name: mapping.target_name || "নাম পাওয়া যায়নি",
-      target_identifier: mapping.target_identifier || "",
-      class_name: mapping.class_name || "",
-      rfid_card_no: mapping.rfid_card_no || "",
-      fingerprint_registered: mapping.fingerprint_registered !== false,
-      face_registered: Boolean(mapping.face_registered),
-      created_at: mapping.created_at || now,
-      updated_at: now,
-    };
-
-    mappings.unshift(newMapping);
-    meta.biometric_mappings = mappings;
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    revalidatePath("/dashboard/attendance/devices");
-    return { success: true };
-  } catch (err: any) {
-    return { error: err.message };
-  }
-}
-
-/**
- * Delete a user mapping
- */
-export async function deleteBiometricUserMapping(
-  mappingId: string
-): Promise<{ success?: boolean; error?: string }> {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("biometric");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { error: "অননুমোদিত অ্যাক্সেস" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "মাদরাসা পাওয়া যায়নি" };
-
-  try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    meta.biometric_mappings = (meta.biometric_mappings || []).filter(
-      (m: BiometricUserMapping) => m.id !== mappingId
+// The registry tab needs one summary, not a roster and a day of logs. For the
+// log tab use the last displayed (instant,id) as a stable tenant-scoped cursor.
+export async function getBiometricSnapshot(
+  date?: string,
+  deviceId = "all",
+  before?: { time: string; id: string },
+) {
+  const { tenant } = await operator(),
+    meta = await getMadrasaMetadata(tenant, true);
+  const db = await createAdminClient(),
+    today = toDhakaDateString();
+  const size = 100;
+  let q = db
+    .from("biometric_punch_events")
+    .select("*")
+    .eq("madrasa_id", tenant);
+  if (date) q = q.eq("punch_date", date);
+  if (deviceId !== "all") q = q.eq("device_id", deviceId);
+  if (before) {
+    if (
+      !/^[A-Za-z0-9_-]{1,160}$/.test(before.id) ||
+      !Number.isFinite(Date.parse(before.time))
+    )
+      throw Error("লগের পৃষ্ঠা মেলেনি।");
+    const iso = new Date(before.time).toISOString();
+    q = q.or(
+      `punch_time.lt.${iso},and(punch_time.eq.${iso},id.lt.${before.id})`,
     );
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    revalidatePath("/dashboard/attendance/devices");
-    return { success: true };
-  } catch (err: any) {
-    return { error: err.message };
   }
-}
-
-/**
- * Auto-generate user mappings for all students & staff in the madrasa
- */
-export async function autoGenerateUserMappings(): Promise<{
-  success: boolean;
-  totalMapped: number;
-  message: string;
-}> {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("biometric");
-    if (!__authz.allowed) return __authz.fallback;
+  const [recent, totals] = await Promise.all([
+    date === undefined
+      ? { data: [], error: null }
+      : q
+          .order("punch_time", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(size + 1),
+    db.rpc("biometric_event_counts", { t: tenant, today }),
+  ]);
+  if (recent.error || totals.error) throw Error("পাঞ্চের খাতা পড়া যায়নি।");
+  const legacy = uniquePunchLogs(meta.biometric_logs || []),
+    counts = new Map<string, number>(),
+    uncertain = new Map<string, number>();
+  let totalPunchesToday = 0;
+  for (const r of totals.data || []) {
+    counts.set(r.device, Number(r.total));
+    totalPunchesToday += Number(r.today_count);
   }
-
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { success: false, totalMapped: 0, message: "অননুমোদিত অ্যাক্সেস" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { success: false, totalMapped: 0, message: "মাদরাসা পাওয়া যায়নি" };
-
-  try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const existingMappings: BiometricUserMapping[] = meta.biometric_mappings || [];
-    const mappedTargetIds = new Set(existingMappings.map((m) => m.target_id));
-    const usedDeviceIds = new Set(existingMappings.map((m) => m.device_user_id));
-
-    // 1. Fetch Students
-    const { data: students } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, student_id, class_id, classes(name)")
-      .eq("madrasa_id", finalMadrasaId);
-
-    // 2. Fetch Teachers / Staff
-    const { data: teachers } = await supabase
-      .from("users")
-      .select("id, full_name, role, phone")
-      .eq("madrasa_id", finalMadrasaId)
-      .in("role", ["teacher", "admin", "muhtamim", "accountant", "hostel_manager"]);
-
-    const newMappings: BiometricUserMapping[] = [...existingMappings];
-    const now = new Date().toISOString();
-    let newlyCreatedCount = 0;
-
-    // Map Students
-    (students || []).forEach((s, idx) => {
-      if (!mappedTargetIds.has(s.id)) {
-        const studentName = `${s.first_name || ""} ${s.last_name || ""}`.trim() || "শিক্ষার্থী";
-        const rollStr = s.roll_number ? String(s.roll_number).trim() : "";
-        const idCode = s.student_id ? String(s.student_id).trim() : "";
-        const sAny = s as any;
-        const className = Array.isArray(sAny.classes) ? sAny.classes[0]?.name : sAny.classes?.name || "";
-
-        // Determine device user ID (prefer roll number, or student code number, or fallback index)
-        let candidateDeviceId = rollStr || idCode.replace(/\D/g, "") || String(100 + idx + 1);
-        if (usedDeviceIds.has(candidateDeviceId)) {
-          candidateDeviceId = `${candidateDeviceId}_${idx + 1}`;
-        }
-        usedDeviceIds.add(candidateDeviceId);
-        mappedTargetIds.add(s.id);
-
-        newMappings.push({
-          id: `map_std_${s.id.substring(0, 8)}_${Date.now()}`,
-          madrasa_id: finalMadrasaId,
-          device_user_id: candidateDeviceId,
-          user_type: "student",
-          target_id: s.id,
-          target_name: studentName,
-          target_identifier: idCode || `রোল: ${rollStr || "N/A"}`,
-          class_name: className,
-          fingerprint_registered: true,
-          created_at: now,
-        });
-        newlyCreatedCount++;
-      }
-    });
-
-    // Map Teachers
-    (teachers || []).forEach((t, idx) => {
-      if (!mappedTargetIds.has(t.id)) {
-        let candidateDeviceId = t.phone ? t.phone.slice(-4) : String(900 + idx + 1);
-        if (usedDeviceIds.has(candidateDeviceId)) {
-          candidateDeviceId = `T${idx + 1}`;
-        }
-        usedDeviceIds.add(candidateDeviceId);
-        mappedTargetIds.add(t.id);
-
-        newMappings.push({
-          id: `map_tch_${t.id.substring(0, 8)}_${Date.now()}`,
-          madrasa_id: finalMadrasaId,
-          device_user_id: candidateDeviceId,
-          user_type: "teacher",
-          target_id: t.id,
-          target_name: t.full_name || "উস্তাদ / স্টাফ",
-          target_identifier: t.phone || t.role,
-          fingerprint_registered: true,
-          created_at: now,
-        });
-        newlyCreatedCount++;
-      }
-    });
-
-    meta.biometric_mappings = newMappings;
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    revalidatePath("/dashboard/attendance/devices");
-
-    return {
-      success: true,
-      totalMapped: newlyCreatedCount,
-      message: `${newlyCreatedCount} জন শিক্ষার্থী ও শিক্ষকের জন্য সফলভাবে বায়োমেট্রিক আইডি ম্যাপিং সম্পন্ন হয়েছে।`,
-    };
-  } catch (err: any) {
-    console.error("Auto mapping error:", err);
-    return { success: false, totalMapped: 0, message: err.message || "ম্যাপিং ব্যর্থ হয়েছে" };
+  for (const l of legacy) {
+    if (historicalPunch(l)) {
+      counts.set(l.device_id, (counts.get(l.device_id) || 0) + 1);
+      if (l.punch_date === today) totalPunchesToday++;
+    } else uncertain.set(l.device_id, (uncertain.get(l.device_id) || 0) + 1);
   }
-}
-
-/**
- * Get Biometric Punch Logs
- */
-export async function getBiometricPunchLogs(filters?: {
-  date?: string;
-  deviceId?: string;
-  userType?: string;
-  limit?: number;
-}): Promise<BiometricPunchLog[]> {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return [];
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return [];
-
-  try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    let logs: BiometricPunchLog[] = meta.biometric_logs || [];
-
-    if (filters?.date) {
-      logs = logs.filter((l) => l.punch_date === filters.date);
-    }
-    if (filters?.deviceId && filters.deviceId !== "all") {
-      logs = logs.filter((l) => l.device_id === filters.deviceId);
-    }
-    if (filters?.userType && filters.userType !== "all") {
-      logs = logs.filter((l) => l.user_type === filters.userType);
-    }
-
-    const limit = filters?.limit || 100;
-    return logs.slice(0, limit);
-  } catch (err) {
-    console.error("Error in getBiometricPunchLogs:", err);
-    return [];
-  }
-}
-
-/**
- * Import Biometric logs from USB attlog.dat or CSV / Text file
- */
-export async function importBiometricLogsFromFile(
-  fileContent: string,
-  fileName: string,
-  deviceId?: string,
-  userTypeTarget: string = "all"
-): Promise<{
-  success: boolean;
-  totalParsed: number;
-  totalProcessed: number;
-  unmappedCount: number;
-  uniqueDates: string[];
-  message: string;
-  error?: string;
-}> {
-  // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
-  // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("biometric");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return { success: false, totalParsed: 0, totalProcessed: 0, unmappedCount: 0, uniqueDates: [], message: "অননুমোদিত অ্যাক্সেস" };
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { success: false, totalParsed: 0, totalProcessed: 0, unmappedCount: 0, uniqueDates: [], message: "মাদরাসা পাওয়া যায়নি" };
-
-  try {
-    const parsedRecords = parseBiometricPunchFile(fileContent);
-    if (parsedRecords.length === 0) {
-      return {
-        success: false,
-        totalParsed: 0,
-        totalProcessed: 0,
-        unmappedCount: 0,
-        uniqueDates: [],
-        message: "ফাইলে কোনো বৈধ পাঞ্চ বা হাজিরার রেকর্ড পাওয়া যায়নি। ফাইলের ফরম্যাট যাচাই করুন।",
-      };
-    }
-
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const mappings: BiometricUserMapping[] = meta.biometric_mappings || [];
-    const devices: BiometricDevice[] = meta.biometric_devices || [];
-
-    const matchedDevice = devices.find((d) => d.id === deviceId) || devices[0] || {
-      id: "usb_device",
-      name: "USB ফাইল ইমপোর্ট",
-    };
-
-    // Build fast lookup map from device_user_id & rfid_card_no
-    const mappingMap = new Map<string, BiometricUserMapping>();
-    mappings.forEach((m) => {
-      if (m.device_user_id) mappingMap.set(m.device_user_id.trim(), m);
-      if (m.rfid_card_no) mappingMap.set(m.rfid_card_no.trim(), m);
-    });
-
-    // Also build fallback maps for student roll and ID code
-    const { data: allStudents } = await supabase
-      .from("students")
-      .select("id, first_name, last_name, roll_number, student_id, class_id, classes(name)")
-      .eq("madrasa_id", finalMadrasaId);
-
-    const studentRollMap = new Map<string, any>();
-    const studentIdCodeMap = new Map<string, any>();
-    (allStudents || []).forEach((s) => {
-      if (s.roll_number) studentRollMap.set(String(s.roll_number).trim(), s);
-      if (s.student_id) studentIdCodeMap.set(String(s.student_id).trim(), s);
-    });
-
-    const { data: allTeachers } = await supabase
-      .from("users")
-      .select("id, full_name, phone")
-      .eq("madrasa_id", finalMadrasaId);
-    const teacherMap = new Map<string, any>();
-    (allTeachers || []).forEach((t) => {
-      teacherMap.set(t.id, t);
-      if (t.phone) teacherMap.set(t.phone.trim(), t);
-    });
-
-    const studentAttendanceToUpsert: { madrasa_id: string; student_id: string; date: string; status: string }[] = [];
-    const teacherAttendanceToUpsert: { madrasa_id: string; teacher_id: string; date: string; status: string }[] = [];
-    const newLogs: BiometricPunchLog[] = [];
-    const uniqueDatesSet = new Set<string>();
-
-    let totalProcessed = 0;
-    let unmappedCount = 0;
-    const now = new Date().toISOString();
-
-    for (const record of parsedRecords) {
-      uniqueDatesSet.add(record.date);
-      const mapped = mappingMap.get(record.device_user_id);
-
-      let targetId = mapped?.target_id;
-      let targetName = mapped?.target_name;
-      let targetIdentifier = mapped?.target_identifier;
-      let userType: "student" | "teacher" | "unknown" = mapped?.user_type || "unknown";
-      let className = mapped?.class_name;
-
-      // Fallback matching if not explicitly in mappings
-      if (!mapped) {
-        const matchedStudent = studentRollMap.get(record.device_user_id) || studentIdCodeMap.get(record.device_user_id);
-        if (matchedStudent) {
-          targetId = matchedStudent.id;
-          targetName = `${matchedStudent.first_name || ""} ${matchedStudent.last_name || ""}`.trim();
-          targetIdentifier = matchedStudent.student_id || `রোল: ${matchedStudent.roll_number}`;
-          userType = "student";
-          const stdAny = matchedStudent as any;
-          className = Array.isArray(stdAny.classes) ? stdAny.classes[0]?.name : stdAny.classes?.name;
-        } else {
-          const matchedTeacher = teacherMap.get(record.device_user_id);
-          if (matchedTeacher) {
-            targetId = matchedTeacher.id;
-            targetName = matchedTeacher.full_name;
-            targetIdentifier = matchedTeacher.phone;
-            userType = "teacher";
-          }
-        }
-      }
-
-      if (targetId && (userTypeTarget === "all" || userTypeTarget === userType)) {
-        if (userType === "student") {
-          studentAttendanceToUpsert.push({
-            madrasa_id: finalMadrasaId,
-            student_id: targetId,
-            date: record.date,
-            status: "Present",
-          });
-        } else if (userType === "teacher") {
-          teacherAttendanceToUpsert.push({
-            madrasa_id: finalMadrasaId,
-            teacher_id: targetId,
-            date: record.date,
-            status: "Present",
-          });
-        }
-        totalProcessed++;
-
-        newLogs.push({
-          id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-          madrasa_id: finalMadrasaId,
-          device_id: matchedDevice.id,
-          device_name: matchedDevice.name,
-          device_user_id: record.device_user_id,
-          user_type: userType,
-          target_id: targetId,
-          target_name: targetName,
-          target_identifier: targetIdentifier,
-          class_name: className,
-          punch_time: record.timestamp,
-          punch_date: record.date,
-          punch_type: record.punch_type || "check_in",
-          status: "processed",
-          sync_mode: "usb_import",
-          raw_data: record.raw_line,
-          created_at: now,
-        });
-      } else {
-        unmappedCount++;
-        newLogs.push({
-          id: `log_unmapped_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-          madrasa_id: finalMadrasaId,
-          device_id: matchedDevice.id,
-          device_name: matchedDevice.name,
-          device_user_id: record.device_user_id,
-          user_type: "unknown",
-          punch_time: record.timestamp,
-          punch_date: record.date,
-          punch_type: record.punch_type || "auto",
-          status: "unmapped",
-          sync_mode: "usb_import",
-          raw_data: record.raw_line,
-          created_at: now,
-        });
-      }
-    }
-
-    // Execute batch upserts into database tables using Admin Client for 100% reliable execution
-    const adminClient = await createAdminClient();
-
-    if (studentAttendanceToUpsert.length > 0) {
-      // Deduplicate student attendance by student_id and date
-      const uniqueStudentAttMap = new Map<string, any>();
-      studentAttendanceToUpsert.forEach((r) => uniqueStudentAttMap.set(`${r.student_id}_${r.date}`, r));
-      const dedupedStudents = Array.from(uniqueStudentAttMap.values());
-
-      const { error: stdErr } = await adminClient
-        .from("attendance")
-        .upsert(dedupedStudents, { onConflict: "student_id, date" });
-
-      if (stdErr) console.error("Error bulk upserting student attendance:", stdErr);
-    }
-
-    if (teacherAttendanceToUpsert.length > 0) {
-      const uniqueTeacherAttMap = new Map<string, any>();
-      teacherAttendanceToUpsert.forEach((r) => uniqueTeacherAttMap.set(`${r.teacher_id}_${r.date}`, r));
-      const dedupedTeachers = Array.from(uniqueTeacherAttMap.values());
-
-      const { error: tchErr } = await adminClient
-        .from("teacher_attendance")
-        .upsert(dedupedTeachers, { onConflict: "teacher_id, date" });
-
-      if (tchErr) console.error("Error bulk upserting teacher attendance:", tchErr);
-    }
-
-    // Save Logs into Madrasa Metadata
-    const existingLogs: BiometricPunchLog[] = meta.biometric_logs || [];
-    const combinedLogs = [...newLogs, ...existingLogs].slice(0, 500); // keep last 500 logs
-    meta.biometric_logs = combinedLogs;
-
-    // Update Device Stats
-    if (meta.biometric_devices) {
-      meta.biometric_devices = meta.biometric_devices.map((d: BiometricDevice) => {
-        if (d.id === matchedDevice.id) {
-          return {
-            ...d,
-            last_sync_at: now,
-            total_punches_count: (d.total_punches_count || 0) + totalProcessed,
-          };
-        }
-        return d;
-      });
-    }
-
-    await saveMadrasaMetadata(finalMadrasaId, meta);
-
-    // Revalidate paths so attendance rates, student lists, reports and dashboard update immediately
-    revalidatePath("/dashboard/attendance");
-    revalidatePath("/dashboard/attendance/students");
-    revalidatePath("/dashboard/attendance/teachers");
-    revalidatePath("/dashboard/attendance/reports");
-    revalidatePath("/dashboard/attendance/devices");
-
-    const uniqueDatesArr = Array.from(uniqueDatesSet);
-
-    return {
-      success: true,
-      totalParsed: parsedRecords.length,
-      totalProcessed,
-      unmappedCount,
-      uniqueDates: uniqueDatesArr,
-      message: `${fileName} থেকে মোট ${parsedRecords.length} টি পাঞ্চ রেকর্ড পড়া হয়েছে। ${totalProcessed} জন শিক্ষার্থী ও শিক্ষকের উপস্থিতি সফলভাবে ডাটাবেজে রেকর্ড করা হয়েছে।`,
-    };
-  } catch (err: any) {
-    console.error("Error in importBiometricLogsFromFile:", err);
-    return {
-      success: false,
-      totalParsed: 0,
-      totalProcessed: 0,
-      unmappedCount: 0,
-      uniqueDates: [],
-      message: err.message || "ফাইল প্রসেসিং ব্যর্থ হয়েছে",
-      error: err.message,
-    };
-  }
-}
-
-/**
- * Get overview stats for Biometric Dashboard
- */
-export async function getBiometricOverviewStats() {
-  const supabase = await createClient();
-  const user = await getAuthUser(supabase);
-  if (!user) return null;
-
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return null;
-
-  try {
-    const meta = await getMadrasaMetadata(finalMadrasaId);
-    const devices: BiometricDevice[] = meta.biometric_devices || [];
-    const mappings: BiometricUserMapping[] = meta.biometric_mappings || [];
-    const logs: BiometricPunchLog[] = meta.biometric_logs || [];
-
-    const todayStr = toDhakaDateString();
-    const todayLogs = logs.filter((l) => l.punch_date === todayStr);
-
-    const activeDevices = devices.filter((d) => d.status === "active").length;
-    const onlineDevices = devices.filter((d) => {
-      const conn = getDeviceConnectionStatus(d);
-      return d.status === "active" && conn.status === "online";
-    }).length;
-    const waitingDevices = devices.filter((d) => {
-      const conn = getDeviceConnectionStatus(d);
-      return d.status === "active" && conn.status === "waiting";
-    }).length;
-    const totalPunchesToday = todayLogs.length;
-
-    return {
+  const old =
+    date === undefined
+      ? []
+      : legacy.filter(
+          (l) =>
+            (!date || l.punch_date === date) &&
+            (deviceId === "all" || deviceId === l.device_id) &&
+            (!before ||
+              Date.parse(l.punch_time) < Date.parse(before.time) ||
+              (Date.parse(l.punch_time) === Date.parse(before.time) &&
+                l.id < before.id)),
+        );
+  const all = uniquePunchLogs([...((recent.data as Log[]) || []), ...old]).sort(
+    (a, b) =>
+      Date.parse(b.punch_time) - Date.parse(a.punch_time) ||
+      (a.id > b.id ? -1 : 1),
+  );
+  const devices: Device[] = (meta.biometric_devices || []).map((d: Device) => ({
+    ...d,
+    total_punches_count: counts.get(d.id) || 0,
+    unverified_history_count: uncertain.get(d.id) || 0,
+  }));
+  const mappings: Mapping[] = meta.biometric_mappings || [],
+    active = devices.filter((d) => d.status === "active");
+  return {
+    devices,
+    mappings,
+    logs: all.slice(0, size),
+    hasMore: all.length > size,
+    stats: {
+      madrasaId: tenant,
       totalDevices: devices.length,
-      activeDevices,
-      onlineDevices,
-      waitingDevices,
+      activeDevices: active.length,
+      onlineDevices: active.filter(
+        (d) => getDeviceConnectionStatus(d).status === "online",
+      ).length,
+      waitingDevices: active.filter(
+        (d) => getDeviceConnectionStatus(d).status === "waiting",
+      ).length,
       totalMappings: mappings.length,
       studentMappings: mappings.filter((m) => m.user_type === "student").length,
       teacherMappings: mappings.filter((m) => m.user_type === "teacher").length,
       totalPunchesToday,
-      lastSyncAt: devices[0]?.last_sync_at || null,
-      madrasaId: finalMadrasaId,
+    },
+  };
+}
+
+export async function saveBiometricDevice(input: Partial<Device>) {
+  try {
+    const { tenant, audit } = await operator(),
+      device = await storeDevice(tenant, input);
+    const logged = await audit({
+      action: input.id ? "BIOMETRIC_DEVICE_UPDATED" : "BIOMETRIC_DEVICE_ADDED",
+      entityType: "biometric_device",
+      entityId: device.id,
+      entityLabel: device.name,
+      summary: `ডিভাইস ${input.id ? "সম্পাদনা" : "নিবন্ধন"}: ${device.name}`,
+    });
+    refresh();
+    return {
+      success: true,
+      device,
+      warning: logged.success ? "" : "ডিভাইস সেভ হয়েছে, অডিট লগ যাচাই করুন।",
     };
-  } catch (err) {
-    console.error("Error in getBiometricOverviewStats:", err);
-    return null;
+  } catch (e) {
+    return { error: message(e) };
+  }
+}
+export async function deleteBiometricDevice(
+  id: string,
+  serial: string,
+  observedName: string,
+) {
+  try {
+    const { tenant, audit } = await operator();
+    const name = await patchTenantJson(tenant, (meta) => {
+      const devices: Device[] = meta.biometric_devices || [],
+        d = devices.find(
+          (d) =>
+            d.id === id &&
+            d.serial_number === serial &&
+            d.name === observedName,
+        );
+      if (!d) throw Error("নিশ্চিত করা ডিভাইসটি মেলেনি। কিছুই মোছা হয়নি।");
+      return {
+        patch: { biometric_devices: devices.filter((d) => d.id !== id) },
+        result: d.name,
+      };
+    });
+    const logged = await audit({
+      action: "BIOMETRIC_DEVICE_DELETED",
+      entityType: "biometric_device",
+      entityId: id,
+      entityLabel: name,
+      summary: `ডিভাইস মোছা হয়েছে: ${name}`,
+    });
+    refresh();
+    return {
+      success: true,
+      warning: logged.success ? "" : "ডিভাইস মুছেছে, অডিট লগ যাচাই করুন।",
+    };
+  } catch (e) {
+    return { error: message(e) };
+  }
+}
+export async function testBiometricDeviceConnection(id: string) {
+  try {
+    const { tenant, audit } = await operator(),
+      meta = await getMadrasaMetadata(tenant, true);
+    const d: Device = meta.biometric_devices?.find((d: Device) => d.id === id);
+    if (!d) throw Error("ডিভাইসটি পাওয়া যায়নি।");
+    const conn = getDeviceConnectionStatus(d),
+      isOnline = d.status === "active" && conn.status === "online";
+    const msg = `${d.name}: ${isOnline ? "লাইভ সংযোগ আছে" : "লাইভ সংযোগ নিশ্চিত নয়"}। ${conn.lastSeenText}`;
+    const logged = await audit({
+      action: "BIOMETRIC_CONNECTION_TESTED",
+      entityType: "biometric_device",
+      entityId: id,
+      summary: msg,
+      metadata: { online: isOnline },
+    });
+    return {
+      isOnline,
+      message: msg + (logged.success ? "" : " — অডিট লগ যাচাই করুন।"),
+    };
+  } catch (e) {
+    return { isOnline: false, message: message(e) };
+  }
+}
+async function roster(tenant: string) {
+  const db = await createAdminClient();
+  const [ss, ts, meta] = await Promise.all([
+    rows(() =>
+      db.from("students").select("*,classes(name)").eq("madrasa_id", tenant),
+    ),
+    rows(() => db.from("teachers").select("*").eq("madrasa_id", tenant)),
+    getMadrasaMetadata(tenant, true),
+  ]);
+  return [
+    ...ss.map((row) => {
+      const s = hydrateStudentWithMetadata(row, meta),
+        code = String(s.student_id || "").trim();
+      const pin = String(
+        row.biometric_user_id ||
+          (
+            meta.student_profiles?.[row.id] as
+              { biometric_user_id?: string } | undefined
+          )?.biometric_user_id ||
+          (/^\d+$/.test(code)
+            ? code
+            : /^[A-Za-z]+[-_](\d+)$/.exec(code)?.[1]) ||
+          "",
+      );
+      return {
+        id: row.id,
+        type: "student" as const,
+        name: `${s.first_name} ${s.last_name || ""}`.trim(),
+        code,
+        pin,
+        className: s.class_name || row.classes?.name || "",
+      };
+    }),
+    ...ts.map((t) => ({
+      id: t.id,
+      type: "teacher" as const,
+      name: `${t.first_name} ${t.last_name || ""}`.trim(),
+      code: String(t.staff_id_code || ""),
+      pin: String(t.biometric_user_id || ""),
+      className: "",
+    })),
+  ];
+}
+export async function getBiometricRoster() {
+  return roster((await operator()).tenant);
+}
+
+export async function autoGenerateUserMappings() {
+  try {
+    const { tenant } = await operator(),
+      people = await roster(tenant),
+      counts = new Map<string, number>();
+    for (const p of people) counts.set(p.pin, (counts.get(p.pin) || 0) + 1);
+    return await patchTenantJson(tenant, (meta) => {
+      const maps: Mapping[] = meta.biometric_mappings || [],
+        used = new Set(maps.flatMap((m) => [m.device_user_id, m.rfid_card_no])),
+        targets = new Set(maps.map((m) => m.target_id));
+      const add = people
+        .filter(
+          (p) =>
+            /^\d{1,32}$/.test(p.pin) &&
+            counts.get(p.pin) === 1 &&
+            !used.has(p.pin) &&
+            !targets.has(p.id),
+        )
+        .map((p) => ({
+          id: crypto.randomUUID(),
+          madrasa_id: tenant,
+          device_user_id: p.pin,
+          user_type: p.type,
+          target_id: p.id,
+          target_name: p.name,
+          target_identifier: p.code,
+          class_name: p.className,
+          created_at: new Date().toISOString(),
+        }));
+      const existing = people.filter((p) => targets.has(p.id)).length;
+      const noPin = people.filter(
+        (p) => !targets.has(p.id) && !/^\d{1,32}$/.test(p.pin),
+      ).length;
+      return {
+        patch: add.length
+          ? { biometric_mappings: [...maps, ...add] }
+          : undefined,
+        result: {
+          success: true,
+          message: `নতুন ম্যাপিং ${add.length}টি। আগেই ম্যাপড ${existing}, সংখ্যাসূচক ID নেই ${noPin}, দ্ব্যর্থক/ব্যবহৃত ID ${people.length - add.length - existing - noPin}। অন্য ID নিজে ম্যাপ করুন।`,
+        },
+      };
+    });
+  } catch (e) {
+    return { success: false, message: message(e) };
+  }
+}
+export async function saveBiometricUserMapping(input: Partial<Mapping>) {
+  try {
+    const { tenant } = await operator(),
+      pin = input.device_user_id?.trim();
+    if (!pin || !/^\d{1,32}$/.test(pin)) throw Error("সংখ্যায় মেশিন ID দিন।");
+    const p = (await roster(tenant)).find(
+      (p) => p.id === input.target_id && p.type === input.user_type,
+    );
+    if (!p) throw Error("প্রতিষ্ঠানের শিক্ষার্থী বা শিক্ষক নির্বাচন করুন।");
+    await patchTenantJson(tenant, (meta) => {
+      const maps: Mapping[] = meta.biometric_mappings || [],
+        rest = maps.filter((m) => m.id !== input.id);
+      if (input.id && maps.length === rest.length)
+        throw Error("ম্যাপিংটি আর নেই। রিফ্রেশ করুন।");
+      if (
+        rest.some((m) =>
+          [m.device_user_id, m.rfid_card_no].some(
+            (k) => k && (k === pin || k === input.rfid_card_no?.trim()),
+          ),
+        )
+      )
+        throw Error(
+          "এই মেশিন/কার্ড ID আগে থেকেই ম্যাপ করা। বিদ্যমান ম্যাপিং সম্পাদনা করুন।",
+        );
+      const m: Mapping = {
+        id: input.id || crypto.randomUUID(),
+        madrasa_id: tenant,
+        device_user_id: pin,
+        user_type: p.type,
+        target_id: p.id,
+        target_name: p.name,
+        target_identifier: p.code,
+        class_name: p.className,
+        rfid_card_no: input.rfid_card_no?.trim(),
+        fingerprint_registered: input.fingerprint_registered,
+        face_registered: input.face_registered,
+        created_at:
+          maps.find((m) => m.id === input.id)?.created_at ||
+          new Date().toISOString(),
+      };
+      return { patch: { biometric_mappings: [m, ...rest] }, result: null };
+    });
+    refresh();
+    return { success: true };
+  } catch (e) {
+    return { error: message(e) };
+  }
+}
+export async function deleteBiometricUserMapping(id: string) {
+  try {
+    const { tenant } = await operator();
+    await patchTenantJson(tenant, (meta) => {
+      const maps: Mapping[] = meta.biometric_mappings || [];
+      if (!maps.some((m) => m.id === id)) throw Error("ম্যাপিংটি পাওয়া যায়নি।");
+      return {
+        patch: { biometric_mappings: maps.filter((m) => m.id !== id) },
+        result: null,
+      };
+    });
+    refresh();
+    return { success: true };
+  } catch (e) {
+    return { error: message(e) };
+  }
+}
+export async function importBiometricLogsFromFile(
+  text: string,
+  fileName: string,
+  deviceId: string,
+  audience = "all",
+) {
+  try {
+    const { tenant, audit } = await operator();
+    if (text.length > 800000) throw Error("ছোট ফাইলে ভাগ করে ইমপোর্ট করুন।");
+    const { records, rejected } = parsePunchReport(text);
+    const errors = rejected.map((r) => `লাইন ${r.line}: ${r.reason}`);
+    if (!records.length)
+      return { success: false, message: "কোনো বৈধ পাঞ্চ নেই।", errors };
+    const out = await ingestPunches(
+      tenant,
+      deviceId,
+      records,
+      "usb_import",
+      audience,
+    );
+    await audit({
+      action: "BIOMETRIC_FILE_IMPORTED",
+      entityType: "biometric_device",
+      entityId: deviceId,
+      summary: `ইমপোর্ট: হাজিরা ${out.totalProcessed}, অপেক্ষায় ${out.unmappedCount}, বাতিল ${rejected.length}, ডুপ্লিকেট ${out.duplicates}`,
+      metadata: { failed: out.failed },
+    });
+    attendanceChanged();
+    return {
+      ...out,
+      success: out.failed === 0,
+      errors,
+      totalParsed: records.length,
+      rejectedCount: rejected.length,
+      uniqueDates: [...new Set(records.map((r) => r.date))],
+      message: `${fileName}: নিশ্চিত পাঞ্চ ${out.totalProcessed}, নতুন ব্যক্তি-দিন ${out.attendanceDaysCreated}, ম্যাপিং অপেক্ষায় ${out.unmappedCount}${out.unknownIds.length ? " (ID: " + out.unknownIds.join(", ") + ")" : ""}, ডুপ্লিকেট ${out.duplicates}, বাতিল ${rejected.length}, ফিল্টারে বাদ ${out.skipped}, লেখা ব্যর্থ ${out.failed}।`,
+    };
+  } catch (e) {
+    return { success: false, message: message(e) };
+  }
+}
+export async function replayBiometricEvent(
+  device: string,
+  id: string,
+  mapping: string,
+  target: string,
+) {
+  try {
+    const { tenant, audit } = await operator();
+    const r = await replayPunch(tenant, device, id, mapping, target);
+    if (r.totalProcessed || r.failed)
+      await audit({
+        action: "BIOMETRIC_PUNCH_REPLAYED",
+        entityType: "biometric_device",
+        entityId: device,
+        summary: `পুনঃপ্রক্রিয়া: নিশ্চিত ${r.totalProcessed}, ব্যর্থ ${r.failed}`,
+      });
+    attendanceChanged();
+    return {
+      success: !r.failed,
+      message: r.failed
+        ? "বিদ্যমান হাজিরা বা ম্যাপিং যাচাই করুন।"
+        : `পুনঃপ্রক্রিয়ায় ${r.totalProcessed}টি পাঞ্চ নিশ্চিত হয়েছে।`,
+    };
+  } catch (e) {
+    return { success: false, message: message(e) };
   }
 }

@@ -1,3 +1,4 @@
+import {logAuditEvent} from "@/lib/audit-log";
 import {mobileDonation} from "@/lib/finance/mobile-donors";
 import { validateMobilePosting } from "@/lib/finance/mobile-posting";
 import { createMobileTableHandlers } from "@/lib/mobile-api";
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 const { GET, POST } = createMobileTableHandlers({
   allowPortalRead:false,
   table: "donations",
+  afterCreate:async(row,ctx)=>(await logAuditEvent({madrasaId:ctx.madrasaId,actorId:ctx.userId,module:"finance",action:"DONATION_RECEIPT_CREATED",entityType:"donation",entityId:row.id,entityLabel:row.receipt_no,summary:`দান-রসিদ তৈরি: ${row.receipt_no || row.id}`,metadata:{channel:"mobile"}})).success,
   presentRow:mobileDonation,
   beforeWrite: validateMobilePosting("deposit"),
   module: "zakat",

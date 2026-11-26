@@ -94,8 +94,9 @@ export async function withSessionStack(
                 ...buildEnv,
                 SUPABASE_SERVICE_ROLE_KEY: service,
                 MOBILE_API_KEY: mobileKey,
+                DISABLE_IN_APP_SCHEDULER: "true",
               },
-              stdio: ["ignore", "ignore", "ignore", "ipc"],
+              stdio: ["ignore", "ignore", process.env.QAWMI_TRACE_TEST_ERRORS === "1" ? "inherit" : "ignore", "ipc"],
             },
           );
           try {
@@ -107,7 +108,7 @@ export async function withSessionStack(
             ]);
             await check({
               db,
-              lite, storage,
+              lite, storage, serviceClient: lite.getClient({apikey: service}),
               anon,
               api,
               mobileKey,

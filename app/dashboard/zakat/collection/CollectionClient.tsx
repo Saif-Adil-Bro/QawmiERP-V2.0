@@ -200,6 +200,7 @@ export default function CollectionClient({
       }
 
       if (res?.success && res.donation) {
+        if(res.auditWarning) setSuccessToast(res.auditWarning);
         // If a new donor was auto created, add to state
         if (res.createdDonor) {
           setDonorList(prev => [res.createdDonor!, ...prev]);

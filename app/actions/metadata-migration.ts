@@ -1,5 +1,6 @@
 "use server";
 
+import { patchTenantJson } from "@/lib/tenant-json-patch";
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
 import { getAuthMadrasaId } from "@/app/actions/students";
@@ -407,18 +408,10 @@ export async function runMetadataToTablesMigration(): Promise<{
       }
       // Prune already-migrated fallback entries from metadata so they never linger alongside SQL rows
       try {
-        const { mergeJsonStore } = await import("@/lib/madrasa-store");
-        await mergeJsonStore(madrasaId, "meta", (current) => {
-          const existing = Array.isArray(current.system_audit_logs_fallback)
-            ? current.system_audit_logs_fallback
-            : [];
-          const remaining = existing.filter(
-            (entry: any) => !migratedLegacyIds.has(String(entry?.id || ""))
-          );
-          return {
-            ...current,
-            system_audit_logs_fallback: remaining,
-          };
+        await patchTenantJson(madrasaId, current => {
+          const existing = current.system_audit_logs_fallback || [];
+          const remaining = existing.filter((entry: any) => !migratedLegacyIds.has(String(entry?.id || "")));
+          return { patch: remaining.length===existing.length ? undefined : {system_audit_logs_fallback:remaining}, result:null };
         });
       } catch {
         // non-fatal cleanup; canonical reader still deduplicates by legacy_id
