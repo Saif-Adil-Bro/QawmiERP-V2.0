@@ -82,12 +82,17 @@ export async function runMonthlyFeeGenerationCron(opts: {
           getFeeMetadata(madrasaId),
           billingSession(admin, madrasaId),
           getMadrasaMetadata(madrasaId, true),
-          admin
-            .from("student_fees")
-            .select("student_id, fee_type_id, billing_period, month_name, year")
-            .eq("madrasa_id", madrasaId)
-            .then((r) => (r.error ? [] : r.data || []))
-            .catch(() => []),
+          (async () => {
+            try {
+              const r = await admin
+                .from("student_fees")
+                .select("student_id, fee_type_id, billing_period, month_name, year")
+                .eq("madrasa_id", madrasaId);
+              return r.error ? [] : r.data || [];
+            } catch {
+              return [];
+            }
+          })(),
         ]);
         // DEC-1 Strict Deduplication: union of metadata book.student_fees, legacy metadata, AND SQL student_fees
         // keyed strictly by (student_id, fee_type_id, normalized billing_period)

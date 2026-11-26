@@ -51,7 +51,7 @@ async function persistJobLog(
 ): Promise<string | undefined> {
   if (!madrasaId) return undefined;
 
-  const normalizedRecord = {
+  const normalizedRecord: Record<string, any> = {
     duration_ms: 0,
     processed_count: 0,
     success_count: 0,
