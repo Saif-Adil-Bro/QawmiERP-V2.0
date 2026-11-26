@@ -1,4 +1,4 @@
-import { runMasterCronDispatch } from "@/lib/automation/master-dispatcher";
+import type { runMasterCronDispatch } from "@/lib/automation/master-dispatcher";
 import {
   getStructuredMadrasaSetting,
   saveStructuredMadrasaSetting,
@@ -94,7 +94,10 @@ export async function getPersistedSchedulerHeartbeat(madrasaId:string) {
   return res.value || null;
 }
 
-export async function recordDispatchHeartbeat(result:Awaited<ReturnType<typeof runMasterCronDispatch>>,source:'cron'|'in-app') {
+export async function recordDispatchHeartbeat(
+  result: Awaited<ReturnType<typeof runMasterCronDispatch>>,
+  source: "cron" | "in-app" | "manual",
+) {
   const state=getRuntimeState(), now=new Date().toISOString();
   state.lastTickAt=now; state.lastTriggerSource=source; state.tickCount++;
   state.lastDispatchedCount=result.totalExecuted; state.lastTenantsChecked=result.tenantsChecked;
@@ -139,6 +142,9 @@ export async function runInAppSchedulerTick(): Promise<{
   state.lastTriggerSource = "in-app";
 
   try {
+    const { runMasterCronDispatch } = await import(
+      "@/lib/automation/master-dispatcher"
+    );
     const result = await runMasterCronDispatch({ triggerSource: "cron" });
     await recordDispatchHeartbeat(result,"in-app");
     return {ok:result.ok,totalExecuted:result.totalExecuted,tenantsChecked:result.tenantsChecked,...(state.lastError?{error:state.lastError}:{})};

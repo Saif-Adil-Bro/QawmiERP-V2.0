@@ -29,6 +29,8 @@ import {
 import { toBanglaNumber } from "@/lib/numberToBangla";
 
 const MODULE_LABELS_BN: Record<string, string> = {
+  attendance: "হাজিরা ও ছুটি",
+  biometric: "বায়োমেট্রিক ডিভাইস",
   exams: "পরীক্ষা ও ফলাফল",
   finance: "অর্থ ও খরচ",
   fees: "ফি ও কালেকশন",
@@ -41,6 +43,14 @@ const MODULE_LABELS_BN: Record<string, string> = {
   security: "নিরাপত্তা (Security)",
   locks: "ডাটা লক ও ফ্রিজ",
   migration: "ডাটা মাইগ্রেশন",
+  boarding: "বোর্ডিং ও বাজার",
+  anomaly: "আর্থিক অসঙ্গতি (Anomaly)",
+  ai: "এআই কো-পাইলট (AI)",
+  approvals: "অনুমোদন ওয়ার্কফ্লো",
+  automation: "অটোমেশন ও ক্রন",
+  notifications: "নোটিফিকেশন",
+  webhooks: "ওয়েবহুক ও ইন্টিগ্রেশন",
+  analytics: "বিশ্লেষণ",
   generic: "সিস্টেম",
 };
 

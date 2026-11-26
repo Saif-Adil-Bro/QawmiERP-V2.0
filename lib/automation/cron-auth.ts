@@ -51,11 +51,21 @@ async function persistJobLog(
 ): Promise<string | undefined> {
   if (!madrasaId) return undefined;
 
+  const normalizedRecord = {
+    duration_ms: 0,
+    processed_count: 0,
+    success_count: 0,
+    failed_count: 0,
+    summary: {},
+    error_message: null,
+    ...record,
+  };
+
   try {
     const admin = await createAdminClient();
     const { data, error } = await admin
       .from("job_execution_logs")
-      .upsert({ madrasa_id: madrasaId, ...record },{onConflict:"id"})
+      .upsert({ madrasa_id: madrasaId, ...normalizedRecord }, { onConflict: "id" })
       .select("id")
       .maybeSingle();
 
@@ -64,21 +74,31 @@ async function persistJobLog(
     }
 
     if (error && !isMissingTableError(error)) {
-      console.error("Failed to persist job_execution_logs:", error);
-      return undefined;
+      console.warn(
+        "job_execution_logs SQL upsert failed, falling back to structured setting:",
+        error.code,
+        error.message,
+      );
     }
-  } catch {
-    // fall through to fallback
+  } catch (err) {
+    console.warn("job_execution_logs SQL exception, falling back:", err);
   }
 
-  // Fallback to madrasa_settings when job_execution_logs table is missing
+  // Fallback to madrasa_settings whenever SQL table is missing or rejects the row (e.g. CHECK constraint on RUNNING)
   try {
-    const stored=await changeAutomationList(madrasaId,FALLBACK_LOGS_KEY,list=>[
-      {madrasa_id:madrasaId,...record,created_at:record.started_at},...list.filter(r=>r.id!==record.id)
-    ].slice(0,200));
-    return stored?record.id:undefined;
-  } catch(err){console.error("Could not record cron attempt",err);return undefined;}
-
+    const stored = await changeAutomationList(madrasaId, FALLBACK_LOGS_KEY, (list) => [
+      {
+        madrasa_id: madrasaId,
+        ...normalizedRecord,
+        created_at: normalizedRecord.started_at || new Date().toISOString(),
+      },
+      ...list.filter((r) => r.id !== normalizedRecord.id),
+    ].slice(0, 200));
+    return stored ? String(normalizedRecord.id) : undefined;
+  } catch (err) {
+    console.error("Could not record cron attempt", err);
+    return undefined;
+  }
 }
 
 /**

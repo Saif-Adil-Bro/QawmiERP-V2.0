@@ -7,21 +7,35 @@ export async function resolveFailedLoginMadrasaId(
 ) {
   if (resolvedTenant) return resolvedTenant; // supplied by server-side identity lookup, never the request body
   const db = await createAdminClient();
-  if (email.includes("@")) {
+  const cleaned = String(email || "").trim().toLowerCase();
+  if (cleaned.includes("@")) {
     const { data, error } = await db
       .from("users")
       .select("madrasa_id")
-      .eq("email", email.trim().toLowerCase())
+      .ilike("email", cleaned)
       .limit(2);
     if (error) throw Error("Could not verify login tenant");
-    if (data?.length === 1 && data[0].madrasa_id)
-      return String(data[0].madrasa_id);
+    const uniqueTenants = Array.from(
+      new Set((data || []).map((r: any) => r?.madrasa_id).filter(Boolean).map(String)),
+    );
+    if (uniqueTenants.length === 1) return uniqueTenants[0];
+
+    const { data: teacherRows } = await db
+      .from("teachers")
+      .select("madrasa_id")
+      .ilike("email", cleaned)
+      .limit(2);
+    const teacherTenants = Array.from(
+      new Set((teacherRows || []).map((r: any) => r?.madrasa_id).filter(Boolean).map(String)),
+    );
+    if (teacherTenants.length === 1) return teacherTenants[0];
   }
   // An unknown login cannot be attributed to an arbitrary school on a shared instance.
   const { data, error } = await db.from("madrasas").select("id").limit(2);
   if (error) throw Error("Could not verify login tenant");
   return data?.length === 1 ? String(data[0].id) : null;
 }
+
 export async function recordFailedLogin(
   identifier: string,
   channel: string,
@@ -29,16 +43,19 @@ export async function recordFailedLogin(
 ) {
   try {
     const madrasaId = await resolveFailedLoginMadrasaId(identifier, tenant);
+    const safeIdentifier = String(identifier || "unknown").trim().slice(0, 120);
     if (madrasaId) {
       const r = await logAuditEvent({
         madrasaId,
-        actorName: "অননুমোদিত লগইন",
+        actorName: safeIdentifier || "অননুমোদিত লগইন",
+        actorEmail: safeIdentifier.includes("@") ? safeIdentifier : null,
         module: "security",
         action: "LOGIN_FAILED",
         entityType: "auth_session",
-        summary: "লগইন প্রচেষ্টা ব্যর্থ হয়েছে।",
+        entityLabel: safeIdentifier,
+        summary: `লগইন প্রচেষ্টা ব্যর্থ হয়েছে (${safeIdentifier})।`,
         severity: "WARNING",
-        metadata: { channel },
+        metadata: { channel, identifier: safeIdentifier },
       });
       if (r.success) return;
     }

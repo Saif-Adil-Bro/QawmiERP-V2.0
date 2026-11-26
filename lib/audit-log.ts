@@ -9,6 +9,8 @@ import { patchTenantJson } from "@/lib/tenant-json-patch";
 export type AuditSeverity = "INFO" | "WARNING" | "CRITICAL";
 
 export type AuditModuleKey =
+  | "attendance"
+  | "biometric"
   | "exams"
   | "finance"
   | "fees"
@@ -72,6 +74,8 @@ export interface SystemAuditLogRecord {
 }
 
 export const AUDIT_MODULE_LABELS_BN: Record<string, string> = {
+  attendance: "হাজিরা ও ছুটি",
+  biometric: "বায়োমেট্রিক ডিভাইস",
   exams: "পরীক্ষা ও ফলাফল",
   finance: "অর্থ ও খরচ",
   fees: "ফি ও কালেকশন",
@@ -506,14 +510,26 @@ export async function logAuditEvent(input: AuditEventInput): Promise<{
       return { success: true, storage: "sql", id: data.id };
     }
 
-    // Retry with actor_id = null if FK or UUID constraint failed on users(id)
-    if (error && rowPayload.actor_id !== null && !isMissingTableError(error)) {
+    // Retry with safe nullable UUID fields if FK or UUID type constraint failed (e.g. non-UUID entity_id or actor_id)
+    if (
+      error &&
+      !isMissingTableError(error) &&
+      (rowPayload.actor_id !== null ||
+        (rowPayload.entity_id !== null && !isValidUuid(rowPayload.entity_id)))
+    ) {
+      const safeEntityId = isValidUuid(rowPayload.entity_id)
+        ? String(rowPayload.entity_id).trim()
+        : null;
       const retryPayload = {
         ...rowPayload,
         actor_id: null,
+        entity_id: safeEntityId,
         metadata: {
           ...mergedMeta,
-          original_actor_id: rowPayload.actor_id,
+          ...(rowPayload.actor_id ? { original_actor_id: rowPayload.actor_id } : {}),
+          ...(rowPayload.entity_id && !safeEntityId
+            ? { original_entity_id: rowPayload.entity_id }
+            : {}),
         },
       };
       const retryRes = await adminClient

@@ -10,7 +10,11 @@ import {
   getDeviceConnectionStatus,
 } from "@/lib/biometric";
 import {
-  getBiometricSnapshot, getBiometricRoster, replayBiometricEvent,
+  getBiometricSnapshot,
+  getBiometricRoster,
+  replayBiometricEvent,
+  previewUnmappedBiometricReplayAction,
+  replayAllUnmappedBiometricEventsAction,
   saveBiometricDevice,
   deleteBiometricDevice,
   testBiometricDeviceConnection,
@@ -248,7 +252,51 @@ export default function BiometricDevicesClient() {
     }
   };
 
+  const handleBatchReplayUnmapped = (dateFilter?: string) =>
+    run(async () => {
+      let targetDate = dateFilter;
+      let preview = await previewUnmappedBiometricReplayAction(targetDate);
+      if (!preview.success) {
+        showToast("error", preview.message || "আনম্যাপড পাঞ্চ যাচাই করা যায়নি।");
+        return;
+      }
+      if (preview.totalPunches === 0 && targetDate) {
+        const allPreview = await previewUnmappedBiometricReplayAction(undefined);
+        if (allPreview.success && allPreview.totalPunches > 0) {
+          preview = allPreview;
+          targetDate = undefined;
+        }
+      }
+      if (preview.totalPunches === 0) {
+        showToast(
+          "info",
+          "পুনঃপ্রক্রিয়া করার মতো কোনো ম্যাপড পুরোনো পাঞ্চ পাওয়া যায়নি।",
+        );
+        return;
+      }
+      const namesPreview =
+        preview.peopleNames.length > 0
+          ? ` (${preview.peopleNames.slice(0, 4).join(", ")}${preview.peopleNames.length > 4 ? " ও আরও" : ""})`
+          : "";
+      const datesText =
+        preview.uniqueDates.length > 0
+          ? ` তারিখ: ${preview.uniqueDates.join(", ")}।`
+          : "";
+      setConfirmation({
+        text: `${toBanglaNumber(preview.totalPunches)}টি পুরোনো আনম্যাপড পাঞ্চ (${toBanglaNumber(preview.uniquePeople)} জন${namesPreview}) বর্তমান ম্যাপিং অনুযায়ী পুনঃপ্রক্রিয়া করবেন?${datesText} বিদ্যমান ম্যানুয়াল অনুপস্থিতি/ছুটি বদলাবে না।`,
+        run: async () => {
+          const r = await replayAllUnmappedBiometricEventsAction(targetDate);
+          showToast(r.success ? "success" : "info", r.message);
+          await loadAllData();
+        },
+      });
+    });
+
   const handleProcessUploadedFile = async () => {
+    if (!importDeviceId) {
+      showToast("error", "ইমপোর্টের আগে একটি ডিভাইস নির্বাচন করুন");
+      return;
+    }
     if (!fileContent || !selectedFile) {
       showToast("error", "অনুগ্রহ করে একটি লগ ফাইল আপলোড করুন");
       return;
@@ -302,12 +350,47 @@ export default function BiometricDevicesClient() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {confirmation && <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/50 p-4" onKeyDown={e=>{if(e.key==='Escape')setConfirmation(null);}}>
-        <section role="alertdialog" aria-modal="true" aria-labelledby="bio-confirm" className="max-w-md rounded-2xl bg-white p-6 shadow-xl">
-          <p id="bio-confirm" className="font-semibold">{confirmation.text}</p><div className="mt-5 flex justify-end gap-4">
-          <button autoFocus onClick={()=>setConfirmation(null)}>বাতিল</button>
-          <button className="rounded-lg bg-blue-700 text-white px-4 py-2" disabled={isPending} onClick={()=>{const fn=confirmation.run;setConfirmation(null);run(fn);}}>নিশ্চিত করুন</button></div>
-        </section></div>}
+      {confirmation && (
+        <div
+          className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/50 p-4"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setConfirmation(null);
+          }}
+        >
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="bio-confirm"
+            className="max-w-md w-full rounded-2xl bg-white p-6 shadow-xl border border-slate-200"
+          >
+            <p id="bio-confirm" className="font-semibold text-slate-900 leading-relaxed">
+              {confirmation.text}
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setConfirmation(null)}
+                className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-300 text-slate-700 font-bold text-sm hover:bg-slate-50 transition"
+              >
+                বাতিল
+              </button>
+              <button
+                type="button"
+                className="min-h-[44px] rounded-xl bg-blue-700 hover:bg-blue-800 text-white px-4 py-2 font-bold text-sm transition disabled:opacity-60"
+                disabled={isPending}
+                onClick={() => {
+                  const fn = confirmation.run;
+                  setConfirmation(null);
+                  run(fn);
+                }}
+              >
+                নিশ্চিত করুন
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       {/* Toast Alert */}
       {toastMessage && (
         <div
@@ -691,6 +774,16 @@ export default function BiometricDevicesClient() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  onClick={() => handleBatchReplayUnmapped(undefined)}
+                  disabled={isPending}
+                  className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 active:scale-95 transition"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>পুরোনো আনম্যাপড পাঞ্চ পুনঃপ্রক্রিয়া</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={handleAutoGenerateMappings}
                   disabled={isPending}
                   className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 active:scale-95 transition"
@@ -972,23 +1065,87 @@ export default function BiometricDevicesClient() {
             {/* Import Result Alert */}
             {importResult && (
               <div
-                className={`p-4 rounded-xl border text-xs leading-relaxed ${
+                className={`p-4 rounded-xl border text-xs leading-relaxed space-y-3 ${
                   importResult.success
                     ? "bg-emerald-50 border-emerald-200 text-emerald-900"
                     : "bg-rose-50 border-rose-200 text-rose-900"
                 }`}
               >
-                <div className="font-bold text-sm flex items-center gap-2 mb-1">
+                <div className="font-bold text-sm flex items-center gap-2">
                   {importResult.success ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   ) : (
-                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                   )}
                   <span>{importResult.message}</span>
                 </div>
-                {importResult.errors?.length>0 && <ul className="max-h-40 overflow-auto pl-5 list-disc">{importResult.errors.map((s:string)=><li key={s}>{s}</li>)}</ul>}
+
+                {typeof importResult.totalParsed === "number" && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-[11px]">
+                    <div className="bg-white/80 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                      <span className="text-slate-500 block">বৈধ লাইন</span>
+                      <strong className="text-slate-900 text-sm">
+                        {toBanglaNumber(importResult.totalParsed || 0)}
+                      </strong>
+                    </div>
+                    <div className="bg-white/80 border border-emerald-200 rounded-lg px-2.5 py-1.5">
+                      <span className="text-emerald-700 block">নিশ্চিত পাঞ্চ</span>
+                      <strong className="text-emerald-900 text-sm">
+                        {toBanglaNumber(importResult.totalProcessed || 0)}
+                      </strong>
+                    </div>
+                    <div className="bg-white/80 border border-blue-200 rounded-lg px-2.5 py-1.5">
+                      <span className="text-blue-700 block">নতুন হাজিরা</span>
+                      <strong className="text-blue-900 text-sm">
+                        {toBanglaNumber(importResult.attendanceDaysCreated || 0)}
+                      </strong>
+                    </div>
+                    <div className="bg-white/80 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                      <span className="text-amber-700 block">আনম্যাপড ID</span>
+                      <strong className="text-amber-900 text-sm">
+                        {toBanglaNumber(importResult.unmappedCount || 0)}
+                      </strong>
+                    </div>
+                    <div className="bg-white/80 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                      <span className="text-slate-600 block">ডুপ্লিকেট বাদ</span>
+                      <strong className="text-slate-900 text-sm">
+                        {toBanglaNumber(importResult.duplicates || 0)}
+                      </strong>
+                    </div>
+                    <div className="bg-white/80 border border-rose-200 rounded-lg px-2.5 py-1.5">
+                      <span className="text-rose-700 block">বাতিল লাইন</span>
+                      <strong className="text-rose-900 text-sm">
+                        {toBanglaNumber(importResult.rejectedCount || 0)}
+                      </strong>
+                    </div>
+                  </div>
+                )}
+
+                {importResult.unknownIds && importResult.unknownIds.length > 0 && (
+                  <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900">
+                    <span className="font-bold">সতর্কতা — আনম্যাপড মেশিন ID: </span>
+                    <span className="font-mono font-bold">
+                      {importResult.unknownIds.join(", ")}
+                    </span>
+                    <span className="block text-[11px] mt-0.5">
+                      এই ID-গুলো ম্যাপ করার পর &quot;পুরোনো আনম্যাপড পাঞ্চ পুনঃপ্রক্রিয়া&quot; ক্লিক করে হাজিরা যুক্ত করুন।
+                    </span>
+                  </div>
+                )}
+
+                {importResult.errors?.length > 0 && (
+                  <div className="p-2.5 rounded-lg bg-rose-50/90 border border-rose-200 text-rose-900">
+                    <p className="font-bold mb-1">বাতিলকৃত লাইনসমূহ:</p>
+                    <ul className="max-h-40 overflow-auto pl-5 list-disc space-y-0.5">
+                      {importResult.errors.map((s: string) => (
+                        <li key={s}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {importResult.uniqueDates && importResult.uniqueDates.length > 0 && (
-                  <p className="text-[11px] text-slate-600 mt-1">
+                  <p className="text-[11px] text-slate-600">
                     তারিখসমূহ: {importResult.uniqueDates.join(", ")}
                   </p>
                 )}
@@ -1010,8 +1167,17 @@ export default function BiometricDevicesClient() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <select aria-label="পাঞ্চের ডিভাইস" value={logDeviceFilter} onChange={e=>{setLogDeviceFilter(e.target.value);setCursors([]);}} className="rounded border p-1 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleBatchReplayUnmapped(logDateFilter || undefined)}
+                  disabled={isPending}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>পুরোনো আনম্যাপড পাঞ্চ পুনঃপ্রক্রিয়া</span>
+                </button>
+                <select aria-label="পাঞ্চের ডিভাইস" value={logDeviceFilter} onChange={e=>{setLogDeviceFilter(e.target.value);setCursors([]);}} className="rounded-xl border border-slate-300 px-2.5 py-1.5 text-xs font-semibold bg-white outline-none">
                   <option value="all">সব ডিভাইস (সরানো ডিভাইসসহ)</option>{devices.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
                 <input aria-label="পাঞ্চের তারিখ"
@@ -1242,8 +1408,47 @@ export default function BiometricDevicesClient() {
                 </div>
               </div>
 
-              <label className="block text-xs font-bold">অবস্থান (ঐচ্ছিক)<input className="block w-full p-2 border rounded-lg" value={editingDevice.location || ''} onChange={e=>setEditingDevice({...editingDevice,location:e.target.value})}/></label>
-              {editingDevice.protocol==='lan_tcp' && <div className="flex gap-3"><label>LAN IP<input className="block p-2 border" value={editingDevice.ip_address || ''} onChange={e=>setEditingDevice({...editingDevice,ip_address:e.target.value})}/></label><label>পোর্ট<input className="block p-2 border" type="number" min="1" max="65535" value={editingDevice.port || ''} onChange={e=>setEditingDevice({...editingDevice,port:e.target.value?Number(e.target.value):undefined})}/></label></div>}
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-700">অবস্থান (ঐচ্ছিক)</label>
+                <input
+                  type="text"
+                  placeholder="যেমন: প্রবেশদ্বার, অফিস কক্ষ"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-medium outline-none"
+                  value={editingDevice.location || ""}
+                  onChange={(e) => setEditingDevice({ ...editingDevice, location: e.target.value })}
+                />
+              </div>
+              {editingDevice.protocol === "lan_tcp" && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-700">লোকাল LAN IP (ঐচ্ছিক)</label>
+                    <input
+                      type="text"
+                      placeholder="যেমন: 192.168.1.201"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono outline-none"
+                      value={editingDevice.ip_address || ""}
+                      onChange={(e) => setEditingDevice({ ...editingDevice, ip_address: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-700">পোর্ট (ঐচ্ছিক)</label>
+                    <input
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono outline-none"
+                      type="number"
+                      min="1"
+                      max="65535"
+                      placeholder="যেমন: 4370"
+                      value={editingDevice.port || ""}
+                      onChange={(e) =>
+                        setEditingDevice({
+                          ...editingDevice,
+                          port: e.target.value ? Number(e.target.value) : undefined,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              )}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
                 <span className="font-bold text-slate-700 text-xs">ডিভাইস সিক্রেট টোকেন (Secret Token):</span>
                 <div className="flex items-center gap-2">

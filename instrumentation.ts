@@ -10,7 +10,7 @@ export async function register() {
     process.env.CAPACITOR_STATIC_BUILD !== "true"
   ) {
     const { startInAppAutomationScheduler } = await import(
-      "@/lib/automation/in-app-scheduler"
+      "@/lib/automation/scheduler-runtime"
     );
     startInAppAutomationScheduler();
   }

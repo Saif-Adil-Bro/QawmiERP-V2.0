@@ -46,10 +46,20 @@ export async function getClassTeacherSubjects(classId: string) {
   const madrasaId = await getAuthMadrasaId(supabase, user);
   if (!madrasaId) return [];
 
+  // Verify the requested class belongs to this tenant (or shared seeded class)
+  const { data: clsRow } = await adminClient
+    .from("classes")
+    .select("id, madrasa_id")
+    .eq("id", classId)
+    .maybeSingle();
+  if (!clsRow || (clsRow.madrasa_id && clsRow.madrasa_id !== madrasaId)) {
+    return [];
+  }
+
   const { data } = await adminClient
     .from("teacher_subjects")
-    .select("id, teacher_id, class_id, subject_id, teachers(id, first_name, last_name, designation)")
-    .eq("madrasa_id", madrasaId)
+    .select("id, madrasa_id, teacher_id, class_id, subject_id, teachers(id, first_name, last_name, designation)")
+    .or(`madrasa_id.eq.${madrasaId},madrasa_id.is.null`)
     .eq("class_id", classId);
 
   return (data || []).map((row: any) => ({
@@ -88,20 +98,66 @@ export async function assignSubjectToTeacher(teacherId: string, classId: string,
   const resolvedTeacherId=await resolveTeacherUuid(teacherId,finalMadrasaId);
   if (!resolvedTeacherId)return {error:"শিক্ষকের আইডি সঠিক নয়।"};
 
-  const { error } = await adminClient.from("teacher_subjects").insert({
-    madrasa_id: finalMadrasaId,
-    teacher_id: resolvedTeacherId,
-    class_id: classId,
-    subject_id: subjectId,
+  // Observation (ক): Keep one canonical subject-teacher per (class_id, subject_id) within the tenant
+  // so assigning from a teacher's profile never leaves a conflicting assignment on another teacher.
+  const { data: prevRows } = await adminClient
+    .from("teacher_subjects")
+    .select("id, teacher_id")
+    .or(`madrasa_id.eq.${finalMadrasaId},madrasa_id.is.null`)
+    .eq("class_id", classId)
+    .eq("subject_id", subjectId);
+
+  const replacedTeacherIds = Array.from(
+    new Set(
+      (prevRows || [])
+        .map((r: any) => String(r.teacher_id || ""))
+        .filter((tid) => tid && tid !== resolvedTeacherId),
+    ),
+  );
+
+  const rpcSave = await adminClient.rpc("round7_set_subject_teacher", {
+    t: finalMadrasaId,
+    c: classId,
+    s: subjectId,
+    replacement: resolvedTeacherId,
   });
 
-  if (error) {
-    if (error.code === '23505') {
-      const {data}=await adminClient.from("teacher_subjects").select("id").match({madrasa_id:finalMadrasaId,teacher_id:resolvedTeacherId,class_id:classId,subject_id:subjectId}).maybeSingle();
-      if (data) return {success:true,teacherId:resolvedTeacherId};
+  if (rpcSave.error) {
+    // Fallback if RPC unavailable: clean other teachers' rows in this tenant and upsert cleanly
+    const staleIds = (prevRows || [])
+      .filter((r: any) => String(r.teacher_id || "") !== resolvedTeacherId)
+      .map((r: any) => r.id);
+    if (staleIds.length > 0) {
+      await adminClient.from("teacher_subjects").delete().in("id", staleIds);
     }
-    console.error("assignSubjectToTeacher error:", error);
-    return { error: `বিষয় এসাইন করতে সমস্যা হয়েছে: ${error.message}` };
+    const alreadyExists = (prevRows || []).some(
+      (r: any) => String(r.teacher_id || "") === resolvedTeacherId,
+    );
+    if (!alreadyExists) {
+      const { error } = await adminClient.from("teacher_subjects").insert({
+        madrasa_id: finalMadrasaId,
+        teacher_id: resolvedTeacherId,
+        class_id: classId,
+        subject_id: subjectId,
+      });
+      if (error && error.code !== "23505") {
+        console.error("assignSubjectToTeacher error:", error);
+        return { error: `বিষয় এসাইন করতে সমস্যা হয়েছে: ${error.message}` };
+      }
+    }
+  } else {
+    // Also clean any legacy madrasa_id IS NULL rows for other teachers on this same (class_id, subject_id)
+    await adminClient
+      .from("teacher_subjects")
+      .delete()
+      .is("madrasa_id", null)
+      .eq("class_id", classId)
+      .eq("subject_id", subjectId)
+      .neq("teacher_id", resolvedTeacherId);
+  }
+
+  for (const prevTid of replacedTeacherIds) {
+    revalidatePath(`/dashboard/teachers/${prevTid}/subjects`);
   }
 
   await logAuditEvent({
@@ -136,9 +192,45 @@ export async function setClassSubjectTeacher(classId: string, subjectId: string,
   const clear=!teacherId || teacherId==="NONE";
   const resolvedTeacherId=clear?null:await resolveTeacherUuid(teacherId, finalMadrasaId);
   if(!clear && !resolvedTeacherId) return {error:"শিক্ষকের আইডি সঠিক নয়।"};
-  const saved=await adminClient.rpc('round7_set_subject_teacher',{t:finalMadrasaId,c:classId,s:subjectId,replacement:resolvedTeacherId});
-  if(saved.error) return {error:`শিক্ষক বরাদ্দ সেভ হয়নি: ${saved.error.message}`};
-  if(clear){
+  const { data: prevClassRows } = await adminClient
+    .from("teacher_subjects")
+    .select("id, teacher_id")
+    .or(`madrasa_id.eq.${finalMadrasaId},madrasa_id.is.null`)
+    .eq("class_id", classId)
+    .eq("subject_id", subjectId);
+
+  const saved = await adminClient.rpc("round7_set_subject_teacher", {
+    t: finalMadrasaId,
+    c: classId,
+    s: subjectId,
+    replacement: resolvedTeacherId,
+  });
+  if (saved.error) return { error: `শিক্ষক বরাদ্দ সেভ হয়নি: ${saved.error.message}` };
+
+  // Also purge any legacy madrasa_id IS NULL duplicate rows for this class+subject
+  if (clear) {
+    await adminClient
+      .from("teacher_subjects")
+      .delete()
+      .is("madrasa_id", null)
+      .eq("class_id", classId)
+      .eq("subject_id", subjectId);
+  } else if (resolvedTeacherId) {
+    await adminClient
+      .from("teacher_subjects")
+      .delete()
+      .is("madrasa_id", null)
+      .eq("class_id", classId)
+      .eq("subject_id", subjectId)
+      .neq("teacher_id", resolvedTeacherId);
+  }
+
+  for (const prev of prevClassRows || []) {
+    if (prev.teacher_id && prev.teacher_id !== resolvedTeacherId) {
+      revalidatePath(`/dashboard/teachers/${prev.teacher_id}/subjects`);
+    }
+  }
+  if (clear) {
     await logAuditEvent({
       madrasaId: finalMadrasaId,
       actorId: guard.userId,

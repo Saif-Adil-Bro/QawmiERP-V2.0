@@ -82,7 +82,35 @@ export default function ClassSubjectsManager({
     }
     return map;
   });
-  
+
+  // Observation (ক): Detect when legacy/duplicate rows have multiple teachers for the same class+subject
+  const [duplicateTeachersBySubject, setDuplicateTeachersBySubject] = useState<
+    Record<string, Array<{ teacherId: string; name: string }>>
+  >(() => {
+    const grouped: Record<string, Map<string, string>> = {};
+    for (const row of initialTeacherSubjects || []) {
+      if (!row.subject_id || !row.teacher_id) continue;
+      if (!grouped[row.subject_id]) grouped[row.subject_id] = new Map();
+      const tObj = Array.isArray(row.teachers) ? row.teachers[0] : row.teachers;
+      const fromAvailable = availableTeachers.find((t) => t.id === row.teacher_id);
+      const tName =
+        fromAvailable?.name ||
+        `${tObj?.first_name || ""} ${tObj?.last_name || ""}`.trim() ||
+        row.teacher_id;
+      grouped[row.subject_id].set(row.teacher_id, tName);
+    }
+    const conflicts: Record<string, Array<{ teacherId: string; name: string }>> = {};
+    for (const [subId, map] of Object.entries(grouped)) {
+      if (map.size > 1) {
+        conflicts[subId] = Array.from(map.entries()).map(([teacherId, name]) => ({
+          teacherId,
+          name,
+        }));
+      }
+    }
+    return conflicts;
+  });
+
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [selectedTeacherId, setSelectedTeacherId] = useState("");
   const [isPending, setIsPending] = useState(false);
@@ -91,8 +119,10 @@ export default function ClassSubjectsManager({
   const [pendingDeleteItem, setPendingDeleteItem] = useState<AssignedSubjectItem | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const pendingRef = useRef(false);
+  const unsavedRef = useRef(false);
   const submittingRef = useRef(false);
   const releaseGuardRef = useRef<(() => void) | null>(null);
+  const hasUnsavedSelection = Boolean(selectedSubjectId || selectedTeacherId);
 
   const activeSavesCountRef = useRef(0);
 
@@ -133,13 +163,22 @@ export default function ClassSubjectsManager({
     }
   };
 
-  // S2 (R1 / B25) ফিক্স: শেল + কম্পোনেন্ট উভয় স্তরে সক্রিয় beforeunload গার্ড
+  // S2 (R1 / B25) ফিক্স: অসংরক্ষিত ড্রপডাউন নির্বাচন ও চলমান সেভ উভয় অবস্থাতেই beforeunload গার্ড সক্রিয় রাখা
+  useEffect(() => {
+    unsavedRef.current = hasUnsavedSelection;
+    if (!hasUnsavedSelection) return;
+    const releaseUnsavedGuard = acquireSaveGuard("class-subjects-unsaved-selection");
+    return () => {
+      releaseUnsavedGuard();
+    };
+  }, [hasUnsavedSelection]);
+
   useEffect(() => {
     installGlobalSaveGuardListeners();
 
     // The shared beforeunload handler owns the native browser prompt.
     const handleClickCapture = (e: MouseEvent) => {
-      if (!pendingRef.current && !hasActiveSaveGuards()) return;
+      if (!pendingRef.current && !unsavedRef.current && !hasActiveSaveGuards()) return;
       const target = e.target as HTMLElement | null;
       const anchor = target?.closest?.("a[href]");
       if (anchor) {
@@ -147,7 +186,9 @@ export default function ClassSubjectsManager({
         e.stopPropagation();
         setToast({
           type: "error",
-          message: "বিষয় বণ্টন সেভ হচ্ছে — অনুগ্রহ করে সেভ শেষ হওয়া পর্যন্ত কয়েক সেকেন্ড অপেক্ষা করুন।",
+          message: pendingRef.current
+            ? "বিষয় বণ্টন সেভ হচ্ছে — অনুগ্রহ করে সেভ শেষ হওয়া পর্যন্ত কয়েক সেকেন্ড অপেক্ষা করুন।"
+            : "অসংরক্ষিত বিষয়/শিক্ষক নির্বাচন রয়েছে — সংরক্ষণ করুন অথবা নির্বাচন বাতিল করে অন্য পেজে যান।",
         });
       }
     };
@@ -195,6 +236,12 @@ export default function ClassSubjectsManager({
       } else {
         const resolvedId = res?.teacherId || teacherId || "";
         setSubjectTeachers((prev) => ({ ...prev, [subjectId]: resolvedId }));
+        setDuplicateTeachersBySubject((prev) => {
+          if (!prev[subjectId]) return prev;
+          const next = { ...prev };
+          delete next[subjectId];
+          return next;
+        });
         const teacherObj = availableTeachers.find((t) => t.id === teacherId || t.id === resolvedId);
         setToast({
           type: "success",
@@ -408,6 +455,33 @@ export default function ClassSubjectsManager({
         </div>
       )}
 
+      {/* S2 Unsaved Dropdown Selection Warning Banner */}
+      {hasUnsavedSelection && !isPending && !deletingId && !savingTeacherForSubject && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="unsaved-selection-banner"
+          className="p-4 rounded-2xl border border-amber-300 bg-amber-50 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs text-xs sm:text-sm"
+        >
+          <div className="flex items-center gap-2.5 font-semibold">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <span>
+              অসংরক্ষিত নির্বাচন রয়েছে — সংরক্ষণ না করে পেজ রিলোড বা বন্ধ করলে বাছাইকৃত বিষয়/শিক্ষক মুছে যাবে।
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedSubjectId("");
+              setSelectedTeacherId("");
+            }}
+            className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 text-xs font-bold shrink-0 cursor-pointer"
+          >
+            নির্বাচন বাতিল
+          </button>
+        </div>
+      )}
+
       {/* Toast Alert */}
       {toast && (
         <div
@@ -489,14 +563,41 @@ export default function ClassSubjectsManager({
                                   কোড: {sub.code}
                                 </span>
                               )}
-                              {sub?.description && (
-                                <span className="text-xs text-slate-500 truncate">
-                                  {sub.description}
-                                </span>
+                                {sub?.description && (
+                                  <span className="text-xs text-slate-500 truncate">
+                                    {sub.description}
+                                  </span>
+                                )}
+                              </div>
+                              {duplicateTeachersBySubject[item.subject_id]?.length > 1 && (
+                                <div className="mt-1.5 inline-flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-900">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  <span>
+                                    একাধিক শিক্ষক বরাদ্দ পাওয়া গেছে:{" "}
+                                    {duplicateTeachersBySubject[item.subject_id]
+                                      .map((t) => t.name)
+                                      .join(", ")}
+                                  </span>
+                                  {currentTeacherId && (
+                                    <button
+                                      type="button"
+                                      disabled={isSavingTeacher}
+                                      onClick={() =>
+                                        handleTeacherChange(
+                                          item.subject_id,
+                                          currentTeacherId,
+                                          sub?.name || "বিষয়"
+                                        )
+                                      }
+                                      className="underline font-bold text-amber-950 hover:text-emerald-800 cursor-pointer"
+                                    >
+                                      একক শিক্ষকে সমন্বয় করুন
+                                    </button>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </div>
-                        </div>
 
                         <div className="flex items-center gap-2.5 self-end sm:self-auto">
                           <div className="flex items-center gap-1.5">

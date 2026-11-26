@@ -78,24 +78,40 @@ export async function runMonthlyFeeGenerationCron(opts: {
         // A school with no active pupils has nothing to bill; a missing term
         // for a school WITH pupils, on the other hand, must not appear green.
         if(!students.length) return {processedCount:0,successCount:0,failedCount:0,summary:{billingPeriod,generatedCount:0,skippedExisting:0,reason:"No active students"}};
-        const [book,activeSession,legacy]=await Promise.all([getFeeMetadata(madrasaId),billingSession(admin,madrasaId),getMadrasaMetadata(madrasaId,true)]);
-        // DEC-1 Strict Deduplication: union of both metadata book.student_fees AND SQL student_fees
+        const [book, activeSession, legacy, sqlFeesRes] = await Promise.all([
+          getFeeMetadata(madrasaId),
+          billingSession(admin, madrasaId),
+          getMadrasaMetadata(madrasaId, true),
+          admin
+            .from("student_fees")
+            .select("student_id, fee_type_id, billing_period, month_name, year")
+            .eq("madrasa_id", madrasaId)
+            .then((r) => (r.error ? [] : r.data || []))
+            .catch(() => []),
+        ]);
+        // DEC-1 Strict Deduplication: union of metadata book.student_fees, legacy metadata, AND SQL student_fees
         // keyed strictly by (student_id, fee_type_id, normalized billing_period)
         const existingSet = new Set<string>();
-        for (const f of book.student_fees || []) {
-          if (f?.student_id && f?.fee_type_id && f?.billing_period) {
+        const registerExisting = (f: any) => {
+          if (!f?.student_id || !f?.fee_type_id) return;
+          if (f.billing_period) {
             existingSet.add(
-              buildMonthlyFeeDedupKey(f.student_id, f.fee_type_id, f.billing_period)
+              buildMonthlyFeeDedupKey(f.student_id, f.fee_type_id, f.billing_period),
             );
           }
-        }
-        for (const f of legacy.student_fees || []) {
-          if (f?.student_id && f?.fee_type_id && f?.billing_period) {
+          if (f.month_name && f.year) {
             existingSet.add(
-              buildMonthlyFeeDedupKey(f.student_id, f.fee_type_id, f.billing_period)
+              buildMonthlyFeeDedupKey(
+                f.student_id,
+                f.fee_type_id,
+                `${f.month_name} ${f.year}`,
+              ),
             );
           }
-        }
+        };
+        for (const f of book.student_fees || []) registerExisting(f);
+        for (const f of legacy.student_fees || []) registerExisting(f);
+        for (const f of sqlFeesRes || []) registerExisting(f);
         let processedCount = 0;
         let successCount = 0;
         let failedCount = 0;

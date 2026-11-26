@@ -23,13 +23,24 @@ export default function AssignTeacherSubjectForm({
   const [successMsg, setSuccessMsg] = useState("");
   const [navBlockedNotice, setNavBlockedNotice] = useState(false);
   const pendingRef = useRef(false);
+  const unsavedRef = useRef(false);
   const preArmReleaseRef = useRef<(() => void) | null>(null);
+  const hasUnsavedSelection = Boolean(selectedValue);
+
+  useEffect(() => {
+    unsavedRef.current = hasUnsavedSelection;
+    if (!hasUnsavedSelection) return;
+    const releaseUnsaved = acquireSaveGuard("teacher-subject-unsaved-selection");
+    return () => {
+      releaseUnsaved();
+    };
+  }, [hasUnsavedSelection]);
 
   useEffect(() => {
     installGlobalSaveGuardListeners();
     // The shared beforeunload handler owns the native browser prompt.
     const handleAnchorClickCapture = (e: MouseEvent) => {
-      if (!pendingRef.current && !hasActiveSaveGuards()) return;
+      if (!pendingRef.current && !unsavedRef.current && !hasActiveSaveGuards()) return;
       const target = e.target as HTMLElement | null;
       const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (anchor && anchor.href && !anchor.href.startsWith("javascript:")) {
@@ -137,13 +148,41 @@ export default function AssignTeacherSubjectForm({
         </div>
       )}
 
-      {navBlockedNotice && isPending && (
+      {hasUnsavedSelection && !isPending && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="unsaved-selection-banner"
+          className="p-3 bg-amber-50 text-amber-950 rounded-xl text-xs font-semibold border border-amber-300 flex items-center justify-between gap-2"
+        >
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>অসংরক্ষিত নির্বাচন রয়েছে — সংরক্ষণ না করে পেজ রিলোড বা বন্ধ করলে বাছাই করা বিষয় হারিয়ে যাবে।</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedValue("");
+              setNavBlockedNotice(false);
+            }}
+            className="px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 text-[11px] font-bold shrink-0 cursor-pointer"
+          >
+            বাতিল
+          </button>
+        </div>
+      )}
+
+      {navBlockedNotice && (isPending || hasUnsavedSelection) && (
         <div
           role="alert"
           className="p-2.5 bg-amber-100 text-amber-950 rounded-xl text-xs font-bold border border-amber-300 flex items-center gap-2"
         >
           <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0" />
-          <span>সেভ শেষ না হওয়া পর্যন্ত অন্য পেজে যাওয়া সাময়িকভাবে বন্ধ রাখা হয়েছে।</span>
+          <span>
+            {isPending
+              ? "সেভ শেষ না হওয়া পর্যন্ত অন্য পেজে যাওয়া সাময়িকভাবে বন্ধ রাখা হয়েছে।"
+              : "অসংরক্ষিত নির্বাচন রয়েছে — আগে বিষয়টি এসাইন করুন অথবা নির্বাচন বাতিল করে অন্য পেজে যান।"}
+          </span>
         </div>
       )}
 

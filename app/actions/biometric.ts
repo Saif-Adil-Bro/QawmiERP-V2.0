@@ -8,7 +8,12 @@ import { rows } from "@/lib/portal/queries";
 import { toDhakaDateString } from "@/lib/date-utils";
 import { patchTenantJson } from "@/lib/tenant-json-patch";
 import { storeDevice } from "@/lib/biometric-registry";
-import { ingestPunches, replayPunch } from "@/lib/biometric-ingest";
+import {
+  collectReplayableUnmappedPunches,
+  ingestPunches,
+  isBiometricStorageMissingError,
+  replayPunch,
+} from "@/lib/biometric-ingest";
 import {
   historicalPunch,
   getDeviceConnectionStatus,
@@ -32,6 +37,14 @@ function attendanceChanged() {
   refresh();
   for (const p of ["", "/students", "/teachers", "/reports"])
     revalidatePath("/dashboard/attendance" + p);
+}
+
+function extractNumericPin(raw: unknown): string {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (/^\d{1,32}$/.test(value)) return value;
+  const suffix = /^[A-Za-z]+[-_](\d{1,32})$/.exec(value)?.[1];
+  return suffix || "";
 }
 
 // The registry tab needs one summary, not a roster and a day of logs. For the
@@ -65,22 +78,51 @@ export async function getBiometricSnapshot(
   }
   const [recent, totals] = await Promise.all([
     date === undefined
-      ? { data: [], error: null }
+      ? { data: [] as Log[], error: null }
       : q
           .order("punch_time", { ascending: false })
           .order("id", { ascending: false })
           .limit(size + 1),
     db.rpc("biometric_event_counts", { t: tenant, today }),
   ]);
-  if (recent.error || totals.error) throw Error("পাঞ্চের খাতা পড়া যায়নি।");
+
+  if (recent.error && !isBiometricStorageMissingError(recent.error)) {
+    throw Error("পাঞ্চের খাতা পড়া যায়নি।");
+  }
+  if (totals.error && !isBiometricStorageMissingError(totals.error)) {
+    throw Error("পাঞ্চের খাতা পড়া যায়নি।");
+  }
+
+  const recentRows: Log[] =
+    !recent.error && Array.isArray(recent.data) ? (recent.data as Log[]) : [];
+  const totalsRows =
+    !totals.error && Array.isArray(totals.data) ? totals.data : [];
+
   const legacy = uniquePunchLogs(meta.biometric_logs || []),
     counts = new Map<string, number>(),
     uncertain = new Map<string, number>();
   let totalPunchesToday = 0;
-  for (const r of totals.data || []) {
-    counts.set(r.device, Number(r.total));
-    totalPunchesToday += Number(r.today_count);
+
+  if (totalsRows.length > 0) {
+    for (const r of totalsRows) {
+      counts.set(r.device, Number(r.total));
+      totalPunchesToday += Number(r.today_count);
+    }
+  } else if (totals.error && !recent.error) {
+    // RPC missing but table may exist: compute lightweight counts from table
+    const fallbackCounts = await db
+      .from("biometric_punch_events")
+      .select("device_id, punch_date")
+      .eq("madrasa_id", tenant)
+      .limit(5000);
+    if (!fallbackCounts.error && Array.isArray(fallbackCounts.data)) {
+      for (const r of fallbackCounts.data) {
+        counts.set(r.device_id, (counts.get(r.device_id) || 0) + 1);
+        if (r.punch_date === today) totalPunchesToday++;
+      }
+    }
   }
+
   for (const l of legacy) {
     if (historicalPunch(l)) {
       counts.set(l.device_id, (counts.get(l.device_id) || 0) + 1);
@@ -99,7 +141,7 @@ export async function getBiometricSnapshot(
               (Date.parse(l.punch_time) === Date.parse(before.time) &&
                 l.id < before.id)),
         );
-  const all = uniquePunchLogs([...((recent.data as Log[]) || []), ...old]).sort(
+  const all = uniquePunchLogs([...recentRows, ...old]).sort(
     (a, b) =>
       Date.parse(b.punch_time) - Date.parse(a.punch_time) ||
       (a.id > b.id ? -1 : 1),
@@ -155,6 +197,7 @@ export async function saveBiometricDevice(input: Partial<Device>) {
     return { error: message(e) };
   }
 }
+
 export async function deleteBiometricDevice(
   id: string,
   serial: string,
@@ -192,6 +235,7 @@ export async function deleteBiometricDevice(
     return { error: message(e) };
   }
 }
+
 export async function testBiometricDeviceConnection(id: string) {
   try {
     const { tenant, audit } = await operator(),
@@ -216,6 +260,7 @@ export async function testBiometricDeviceConnection(id: string) {
     return { isOnline: false, message: message(e) };
   }
 }
+
 async function roster(tenant: string) {
   const db = await createAdminClient();
   const [ss, ts, meta] = await Promise.all([
@@ -225,21 +270,26 @@ async function roster(tenant: string) {
     rows(() => db.from("teachers").select("*").eq("madrasa_id", tenant)),
     getMadrasaMetadata(tenant, true),
   ]);
+  const staffMetaById = new Map<string, { biometric_user_id?: string; staff_id_code?: string }>();
+  if (Array.isArray(meta.staff_members)) {
+    for (const sm of meta.staff_members) {
+      if (sm?.id) staffMetaById.set(String(sm.id), sm);
+    }
+  }
   return [
     ...ss.map((row) => {
       const s = hydrateStudentWithMetadata(row, meta),
-        code = String(s.student_id || "").trim();
-      const pin = String(
-        row.biometric_user_id ||
-          (
-            meta.student_profiles?.[row.id] as
-              { biometric_user_id?: string } | undefined
-          )?.biometric_user_id ||
-          (/^\d+$/.test(code)
-            ? code
-            : /^[A-Za-z]+[-_](\d+)$/.exec(code)?.[1]) ||
-          "",
-      );
+        code = String(s.student_id || row.roll_number || "").trim();
+      const profileBioId = (
+        meta.student_profiles?.[row.id] as
+          | { biometric_user_id?: string }
+          | undefined
+      )?.biometric_user_id;
+      const pin =
+        extractNumericPin(row.biometric_user_id) ||
+        extractNumericPin(profileBioId) ||
+        extractNumericPin(s.student_id) ||
+        extractNumericPin(row.roll_number);
       return {
         id: row.id,
         type: "student" as const,
@@ -249,27 +299,38 @@ async function roster(tenant: string) {
         className: s.class_name || row.classes?.name || "",
       };
     }),
-    ...ts.map((t) => ({
-      id: t.id,
-      type: "teacher" as const,
-      name: `${t.first_name} ${t.last_name || ""}`.trim(),
-      code: String(t.staff_id_code || ""),
-      pin: String(t.biometric_user_id || ""),
-      className: "",
-    })),
+    ...ts.map((t) => {
+      const sm = staffMetaById.get(String(t.id));
+      const code = String(t.staff_id_code || sm?.staff_id_code || "").trim();
+      const pin =
+        extractNumericPin(t.biometric_user_id) ||
+        extractNumericPin(sm?.biometric_user_id) ||
+        extractNumericPin(code);
+      return {
+        id: t.id,
+        type: "teacher" as const,
+        name: `${t.first_name} ${t.last_name || ""}`.trim(),
+        code,
+        pin,
+        className: String(t.designation || ""),
+      };
+    }),
   ];
 }
+
 export async function getBiometricRoster() {
   return roster((await operator()).tenant);
 }
 
 export async function autoGenerateUserMappings() {
   try {
-    const { tenant } = await operator(),
+    const { tenant, audit } = await operator(),
       people = await roster(tenant),
       counts = new Map<string, number>();
-    for (const p of people) counts.set(p.pin, (counts.get(p.pin) || 0) + 1);
-    return await patchTenantJson(tenant, (meta) => {
+    for (const p of people) {
+      if (p.pin) counts.set(p.pin, (counts.get(p.pin) || 0) + 1);
+    }
+    const res = await patchTenantJson(tenant, (meta) => {
       const maps: Mapping[] = meta.biometric_mappings || [],
         used = new Set(maps.flatMap((m) => [m.device_user_id, m.rfid_card_no])),
         targets = new Set(maps.map((m) => m.target_id));
@@ -296,30 +357,46 @@ export async function autoGenerateUserMappings() {
       const noPin = people.filter(
         (p) => !targets.has(p.id) && !/^\d{1,32}$/.test(p.pin),
       ).length;
+      const ambiguous = people.length - add.length - existing - noPin;
       return {
         patch: add.length
           ? { biometric_mappings: [...maps, ...add] }
           : undefined,
         result: {
           success: true,
-          message: `নতুন ম্যাপিং ${add.length}টি। আগেই ম্যাপড ${existing}, সংখ্যাসূচক ID নেই ${noPin}, দ্ব্যর্থক/ব্যবহৃত ID ${people.length - add.length - existing - noPin}। অন্য ID নিজে ম্যাপ করুন।`,
+          addedCount: add.length,
+          existingCount: existing,
+          message: `নতুন ম্যাপিং ${add.length}টি। আগেই ম্যাপড ${existing}, সংখ্যাসূচক ID নেই ${noPin}, দ্ব্যর্থক/ব্যবহৃত ID ${ambiguous}। অন্য ID নিজে ম্যাপ করুন।`,
         },
       };
     });
+    await audit({
+      action: "BIOMETRIC_AUTO_MAPPED",
+      entityType: "biometric_mapping",
+      entityLabel: "স্বয়ংক্রিয় ম্যাপিং",
+      summary: res.message,
+      metadata: {
+        addedCount: res.addedCount,
+        existingCount: res.existingCount,
+      },
+    });
+    refresh();
+    return res;
   } catch (e) {
     return { success: false, message: message(e) };
   }
 }
+
 export async function saveBiometricUserMapping(input: Partial<Mapping>) {
   try {
-    const { tenant } = await operator(),
+    const { tenant, audit } = await operator(),
       pin = input.device_user_id?.trim();
     if (!pin || !/^\d{1,32}$/.test(pin)) throw Error("সংখ্যায় মেশিন ID দিন।");
     const p = (await roster(tenant)).find(
       (p) => p.id === input.target_id && p.type === input.user_type,
     );
     if (!p) throw Error("প্রতিষ্ঠানের শিক্ষার্থী বা শিক্ষক নির্বাচন করুন।");
-    await patchTenantJson(tenant, (meta) => {
+    const saved = await patchTenantJson(tenant, (meta) => {
       const maps: Mapping[] = meta.biometric_mappings || [],
         rest = maps.filter((m) => m.id !== input.id);
       if (input.id && maps.length === rest.length)
@@ -350,7 +427,16 @@ export async function saveBiometricUserMapping(input: Partial<Mapping>) {
           maps.find((m) => m.id === input.id)?.created_at ||
           new Date().toISOString(),
       };
-      return { patch: { biometric_mappings: [m, ...rest] }, result: null };
+      return { patch: { biometric_mappings: [m, ...rest] }, result: m };
+    });
+    await audit({
+      action: input.id
+        ? "BIOMETRIC_MAPPING_UPDATED"
+        : "BIOMETRIC_MAPPING_SAVED",
+      entityType: "biometric_mapping",
+      entityId: saved.id,
+      entityLabel: `${saved.target_name} (ID: ${saved.device_user_id})`,
+      summary: `বায়োমেট্রিক ম্যাপিং ${input.id ? "সম্পাদনা" : "সংরক্ষণ"}: ${saved.target_name} → মেশিন ID ${saved.device_user_id}`,
     });
     refresh();
     return { success: true };
@@ -358,16 +444,25 @@ export async function saveBiometricUserMapping(input: Partial<Mapping>) {
     return { error: message(e) };
   }
 }
+
 export async function deleteBiometricUserMapping(id: string) {
   try {
-    const { tenant } = await operator();
-    await patchTenantJson(tenant, (meta) => {
+    const { tenant, audit } = await operator();
+    const removed = await patchTenantJson(tenant, (meta) => {
       const maps: Mapping[] = meta.biometric_mappings || [];
-      if (!maps.some((m) => m.id === id)) throw Error("ম্যাপিংটি পাওয়া যায়নি।");
+      const found = maps.find((m) => m.id === id);
+      if (!found) throw Error("ম্যাপিংটি পাওয়া যায়নি।");
       return {
         patch: { biometric_mappings: maps.filter((m) => m.id !== id) },
-        result: null,
+        result: found,
       };
+    });
+    await audit({
+      action: "BIOMETRIC_MAPPING_DELETED",
+      entityType: "biometric_mapping",
+      entityId: id,
+      entityLabel: `${removed.target_name} (ID: ${removed.device_user_id})`,
+      summary: `বায়োমেট্রিক ম্যাপিং মুছে ফেলা হয়েছে: ${removed.target_name} (ID: ${removed.device_user_id})`,
     });
     refresh();
     return { success: true };
@@ -375,6 +470,7 @@ export async function deleteBiometricUserMapping(id: string) {
     return { error: message(e) };
   }
 }
+
 export async function importBiometricLogsFromFile(
   text: string,
   fileName: string,
@@ -383,11 +479,33 @@ export async function importBiometricLogsFromFile(
 ) {
   try {
     const { tenant, audit } = await operator();
+    if (!deviceId?.trim()) {
+      return {
+        success: false,
+        message: "ইমপোর্টের আগে একটি নিবন্ধিত ডিভাইস নির্বাচন করুন।",
+      };
+    }
+    const meta = await getMadrasaMetadata(tenant, true);
+    const devices: Device[] = Array.isArray(meta.biometric_devices)
+      ? meta.biometric_devices
+      : [];
+    if (!devices.some((d) => d.id === deviceId)) {
+      return {
+        success: false,
+        message: "নির্বাচিত ডিভাইসটি প্রতিষ্ঠানের তালিকায় পাওয়া যায়নি।",
+      };
+    }
     if (text.length > 800000) throw Error("ছোট ফাইলে ভাগ করে ইমপোর্ট করুন।");
     const { records, rejected } = parsePunchReport(text);
     const errors = rejected.map((r) => `লাইন ${r.line}: ${r.reason}`);
     if (!records.length)
-      return { success: false, message: "কোনো বৈধ পাঞ্চ নেই।", errors };
+      return {
+        success: false,
+        message: "কোনো বৈধ পাঞ্চ নেই।",
+        errors,
+        totalParsed: 0,
+        rejectedCount: rejected.length,
+      };
     const out = await ingestPunches(
       tenant,
       deviceId,
@@ -400,7 +518,12 @@ export async function importBiometricLogsFromFile(
       entityType: "biometric_device",
       entityId: deviceId,
       summary: `ইমপোর্ট: হাজিরা ${out.totalProcessed}, অপেক্ষায় ${out.unmappedCount}, বাতিল ${rejected.length}, ডুপ্লিকেট ${out.duplicates}`,
-      metadata: { failed: out.failed },
+      metadata: {
+        fileName,
+        failed: out.failed,
+        unmappedIds: out.unknownIds,
+        rejectedCount: rejected.length,
+      },
     });
     attendanceChanged();
     return {
@@ -416,6 +539,7 @@ export async function importBiometricLogsFromFile(
     return { success: false, message: message(e) };
   }
 }
+
 export async function replayBiometricEvent(
   device: string,
   id: string,
@@ -441,5 +565,106 @@ export async function replayBiometricEvent(
     };
   } catch (e) {
     return { success: false, message: message(e) };
+  }
+}
+
+export async function previewUnmappedBiometricReplayAction(
+  dateFilter?: string,
+) {
+  try {
+    const { tenant } = await operator();
+    const { summary } = await collectReplayableUnmappedPunches(
+      tenant,
+      dateFilter || undefined,
+    );
+    return {
+      success: true,
+      ...summary,
+    };
+  } catch (e) {
+    return {
+      success: false,
+      totalPunches: 0,
+      uniquePeople: 0,
+      uniqueDates: [] as string[],
+      peopleNames: [] as string[],
+      message: message(e),
+    };
+  }
+}
+
+export async function replayAllUnmappedBiometricEventsAction(
+  dateFilter?: string,
+) {
+  try {
+    const { tenant, audit } = await operator();
+    const { candidates, summary } = await collectReplayableUnmappedPunches(
+      tenant,
+      dateFilter || undefined,
+    );
+    if (candidates.length === 0) {
+      return {
+        success: true,
+        replayed: 0,
+        attendanceDaysCreated: 0,
+        failed: 0,
+        message: "পুনঃপ্রক্রিয়া করার মতো কোনো ম্যাপড পুরোনো পাঞ্চ নেই।",
+      };
+    }
+
+    let replayed = 0;
+    let attendanceDaysCreated = 0;
+    let failed = 0;
+
+    for (const item of candidates) {
+      try {
+        const res = await replayPunch(
+          tenant,
+          item.log.device_id,
+          item.log.id,
+          item.mapping.id,
+          item.mapping.target_id,
+        );
+        replayed += Number(res.totalProcessed || 0);
+        attendanceDaysCreated += Number(
+          "attendanceDaysCreated" in res ? res.attendanceDaysCreated || 0 : 0,
+        );
+        failed += Number(res.failed || 0);
+      } catch {
+        failed++;
+      }
+    }
+
+    await audit({
+      action: "BIOMETRIC_UNMAPPED_BATCH_REPLAYED",
+      entityType: "biometric_punch",
+      entityLabel: dateFilter ? `পুনঃপ্রক্রিয়া (${dateFilter})` : "সকল তারিখ",
+      summary: `পুরোনো আনম্যাপড পাঞ্চ পুনঃপ্রক্রিয়া: নিশ্চিত ${replayed}টি, নতুন ব্যক্তি-দিন ${attendanceDaysCreated}, ব্যর্থ/বিদ্যমান হাজিরা সংরক্ষিত ${failed}টি`,
+      metadata: {
+        dateFilter: dateFilter || "all",
+        dates: summary.uniqueDates,
+        peopleCount: summary.uniquePeople,
+        replayed,
+        attendanceDaysCreated,
+        failed,
+      },
+    });
+    attendanceChanged();
+
+    return {
+      success: failed === 0,
+      replayed,
+      attendanceDaysCreated,
+      failed,
+      message: `পুনঃপ্রক্রিয়া সম্পন্ন: ${replayed}টি পাঞ্চ নিশ্চিত, ${attendanceDaysCreated}টি নতুন হাজিরা যুক্ত হয়েছে${failed > 0 ? `, ${failed}টি বিদ্যমান হাজিরা/ম্যাপিং যাচাই বাকি` : ""}।`,
+    };
+  } catch (e) {
+    return {
+      success: false,
+      replayed: 0,
+      attendanceDaysCreated: 0,
+      failed: 0,
+      message: message(e),
+    };
   }
 }

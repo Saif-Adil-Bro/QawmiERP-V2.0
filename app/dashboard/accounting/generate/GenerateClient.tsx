@@ -907,7 +907,19 @@ export default function GenerateClient({
                           {batch.billingPeriod}
                         </h3>
                         <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {batch.studentCount} জন শিক্ষার্থী
+                          মোট {batch.studentCount} জন শিক্ষার্থী
+                          {typeof batch.dueStudentCount === "number" &&
+                          batch.dueStudentCount !== batch.studentCount
+                            ? ` (${batch.dueStudentCount} জন বকেয়া${
+                                batch.waivedStudentCount > 0
+                                  ? ` · ${batch.waivedStudentCount} জন মওকুফ`
+                                  : ""
+                              }${
+                                batch.paidStudentCount > 0
+                                  ? ` · ${batch.paidStudentCount} জন পরিশোধিত`
+                                  : ""
+                              })`
+                            : ""}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 mt-1">

@@ -1,5 +1,15 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getMadrasaMetadataUncached } from "@/lib/sessions";
+import { getMadrasaMetadataUncached, saveMadrasaMetadata } from "@/lib/sessions";
+
+function isMissingRpcError(error: any): boolean {
+  const code = String(error?.code || "");
+  const msg = String(error?.message || "");
+  return (
+    code === "42883" ||
+    code === "PGRST202" ||
+    /Could not find the function|function .* does not exist/i.test(msg)
+  );
+}
 
 /** Compare-and-swap only the registry keys the callback changes. The planner
  * may be retried; never perform I/O in it. No cached row or xmin/URL filters. */
@@ -25,7 +35,15 @@ export async function patchTenantJson<T>(
       expected,
       patch,
     });
-    if (error) throw Error(error.message);
+    if (error) {
+      if (isMissingRpcError(error)) {
+        const merged = { ...meta, ...patch };
+        const saved = await saveMadrasaMetadata(tenant, merged);
+        if (!saved) throw Error("তথ্য সংরক্ষণ করা যায়নি। আবার চেষ্টা করুন।");
+        return result;
+      }
+      throw Error(error.message);
+    }
     if (data === true) return result;
   }
   throw Error("একই সময়ে তথ্য বদলেছে। রিফ্রেশ করে আবার চেষ্টা করুন।");

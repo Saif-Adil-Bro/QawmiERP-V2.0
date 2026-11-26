@@ -15,6 +15,7 @@ import {
 import {
   getAutomationRulesAction,getAutomationHeartbeatAction,
   getJobExecutionLogsAction,
+  runMasterDispatcherNowAction,
   saveAutomationRuleAction,
   triggerAutomationJobAction,
 } from "@/app/actions/automation";
@@ -209,6 +210,27 @@ export default function AutomationSettingsClient({ initialRules, initialLogs, in
     });
   };
 
+  const handleRunDispatcherNow = () => {
+    setFeedback(null);
+    startTransition(async () => {
+      const res = await runMasterDispatcherNowAction();
+      if (res.error) {
+        setFeedback({ type: "err", text: res.error });
+      } else {
+        const execCount = res.totalExecuted || 0;
+        const skipCount = res.skippedCount || 0;
+        setFeedback({
+          type: "ok",
+          text:
+            execCount > 0
+              ? `শিডিউলার চেক সম্পন্ন: ${toBanglaNumber(execCount)}টি নির্ধারিত জব চলেছে (${(res.executedRuleKeys || []).join(", ")}), ${toBanglaNumber(skipCount)}টি পরবর্তী সময়ের জন্য অপেক্ষমাণ।`
+              : `শিডিউলার চেক সম্পন্ন: এই মুহূর্তে কোনো নির্ধারিত জব বকেয়া ছিল না (${toBanglaNumber(skipCount)}টি পরবর্তী সময়ের জন্য অপেক্ষমাণ)।`,
+        });
+        reload();
+      }
+    });
+  };
+
   return (
     <div className="space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -221,15 +243,26 @@ export default function AutomationSettingsClient({ initialRules, initialLogs, in
             অ্যাপ থেকেই প্রতিটি অটোমেশন জবের সময়সূচি (বাংলাদেশ সময় BDT), চালু/বন্ধ ও ম্যানুয়াল রান নিয়ন্ত্রণ করুন
           </p>
         </div>
-        <button
-          type="button"
-          onClick={reload}
-          disabled={isPending}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-        >
-          <RefreshCw className={`h-4 w-4 ${isPending ? "animate-spin" : ""}`} />
-          রিফ্রেশ করুন
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleRunDispatcherNow}
+            disabled={isPending}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            <Play className="h-4 w-4" />
+            শিডিউলার চেক চালান
+          </button>
+          <button
+            type="button"
+            onClick={reload}
+            disabled={isPending}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+          >
+            <RefreshCw className={`h-4 w-4 ${isPending ? "animate-spin" : ""}`} />
+            রিফ্রেশ করুন
+          </button>
+        </div>
       </div>
 
       {readError && <p role="alert" className="rounded-lg border border-rose-200 p-3 text-rose-800">{readError}</p>}

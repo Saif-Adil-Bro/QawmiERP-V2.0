@@ -1419,15 +1419,21 @@ export async function getGeneratedFeeBatches() {
       feeTypeNames: Set<string>;
       feeTypeIds: Set<string>;
       totalStudents: Set<string>;
+      dueStudents: Set<string>;
+      paidStudents: Set<string>;
+      waivedStudents: Set<string>;
+      invoiceCount: number;
       totalPayable: number;
       totalPaid: number;
       totalDue: number;
       unpaidCount: number;
       paidCount: number;
+      waivedCount: number;
       createdAt: string;
     }>();
 
     studentFees.forEach((f) => {
+      if (!f?.student_id || !f?.billing_period) return;
       const key = `${f.session_id}_${f.billing_period}`;
       let batch = batchMap.get(key);
       if (!batch) {
@@ -1437,38 +1443,75 @@ export async function getGeneratedFeeBatches() {
           feeTypeNames: new Set(),
           feeTypeIds: new Set(),
           totalStudents: new Set(),
+          dueStudents: new Set(),
+          paidStudents: new Set(),
+          waivedStudents: new Set(),
+          invoiceCount: 0,
           totalPayable: 0,
           totalPaid: 0,
           totalDue: 0,
           unpaidCount: 0,
           paidCount: 0,
+          waivedCount: 0,
           createdAt: f.created_at || new Date().toISOString(),
         };
         batchMap.set(key, batch);
       }
 
+      const payable = Number(f.payable_amount || 0);
+      const paid = Number(f.paid_amount || 0);
+      const due = Number(f.due_amount || 0);
+      const isWaived = String(f.status || "").toUpperCase() === "WAIVED" || (payable === 0 && due === 0 && paid === 0);
+
       batch.feeTypeNames.add(f.fee_type_name);
       batch.feeTypeIds.add(f.fee_type_id);
       batch.totalStudents.add(f.student_id);
-      batch.totalPayable += f.payable_amount || 0;
-      batch.totalPaid += f.paid_amount || 0;
-      batch.totalDue += f.due_amount || 0;
-      if (Number(f.paid_amount || 0) > 0) batch.paidCount++;
-      if (Number(f.due_amount || 0) > 0) batch.unpaidCount++;
+      batch.invoiceCount += 1;
+      batch.totalPayable += payable;
+      batch.totalPaid += paid;
+      batch.totalDue += due;
+      if (paid > 0) {
+        batch.paidCount++;
+        batch.paidStudents.add(f.student_id);
+      }
+      if (due > 0) {
+        batch.unpaidCount++;
+        batch.dueStudents.add(f.student_id);
+      }
+      if (isWaived) {
+        batch.waivedCount++;
+        batch.waivedStudents.add(f.student_id);
+      }
     });
 
-    return Array.from(batchMap.values()).map((b) => ({
-      billingPeriod: b.billingPeriod,
-      sessionId: b.sessionId,
-      feeTypeNames: Array.from(b.feeTypeNames),
-      studentCount: b.totalStudents.size,
-      totalPayable: b.totalPayable,
-      totalPaid: b.totalPaid,
-      totalDue: b.totalDue,
-      unpaidCount: b.unpaidCount,
-      paidCount: b.paidCount,
-      createdAt: b.createdAt,
-    })).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return Array.from(batchMap.values()).map((b) => {
+      // A student who has ANY unpaid invoice is counted in dueStudents;
+      // students whose entire batch is waived (no due, no paid) are counted in waivedOnlyStudents.
+      const waivedOnlyStudents = Array.from(b.waivedStudents).filter(
+        (sid) => !b.dueStudents.has(sid) && !b.paidStudents.has(sid)
+      ).length;
+      const fullyPaidOnlyStudents = Array.from(b.paidStudents).filter(
+        (sid) => !b.dueStudents.has(sid)
+      ).length;
+
+      return {
+        billingPeriod: b.billingPeriod,
+        sessionId: b.sessionId,
+        feeTypeNames: Array.from(b.feeTypeNames),
+        studentCount: b.totalStudents.size,
+        dueStudentCount: b.dueStudents.size,
+        waivedStudentCount: waivedOnlyStudents,
+        paidStudentCount: fullyPaidOnlyStudents,
+        invoiceCount: b.invoiceCount,
+        totalPayable: b.totalPayable,
+        totalPaid: b.totalPaid,
+        totalDue: b.totalDue,
+        unpaidCount: b.unpaidCount,
+        paidCount: b.paidCount,
+        waivedCount: b.waivedCount,
+        createdAt: b.createdAt,
+      };
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   } catch (err) {
     console.error("Error in getGeneratedFeeBatches:", err);
     return [];
