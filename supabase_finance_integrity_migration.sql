@@ -800,13 +800,13 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION public.finance_apply_recovery(t uuid, actor uuid, plan jsonb) RETURNS void
-LANGUAGE plpgsql SET search_path='' AS $$
+LANGUAGE plpgsql SET search_path='' SET qawmi.registry_write='on' AS $$
 DECLARE
   m jsonb:=public.portal_locked_metadata(t); op text:=plan->>'operation'; ref jsonb; k text; old_rows jsonb; incoming jsonb; r jsonb; saved jsonb;
   meta_keys text[]; tab oid; f record; ok boolean; cols text; setters text; i int; stats jsonb:=plan->'audit';
   -- Independent SQL fence: never accept a finance book, parent of a book,
   -- identity, session, approval, audit or arbitrary table/metadata key.
-  safe_tables constant text[]:=ARRAY['routines','exam_routines','hifz_logs','kitab_logs','attendance','teacher_attendance','leaves','exams','exam_subjects','exam_results','question_bank','exam_papers','books','book_issues','notices','sms_templates','sms_logs','alumni'];
+  safe_tables constant text[]:=ARRAY['routines','exam_routines','hifz_logs','kitab_logs','attendance','teacher_attendance','biometric_punch_events','leaves','exams','exam_subjects','exam_results','question_bank','exam_papers','books','book_issues','notices','sms_templates','sms_logs','alumni'];
   safe_keys constant text[]:=ARRAY['routines','exam_routines','hifz_logs','kitab_logs','hifz_records','biometric_devices','biometric_mappings','biometric_logs','teacher_attendance','student_leaves','teacher_leaves','student_leave_applications','teacher_leave_applications','leaves','published_exams','exam_end_dates','exam_subjects','question_bank','exam_papers','exam_papers_data','id_cards','id_card_templates','id_card_counter','id_card_builder_config','id_card_audit_logs','certificates','certificate_templates','certificate_audit_logs','certificate_counter','certificate_types','certificate_prefix','verification_logs','books','book_issues','library_books','parent_feedbacks','parent_appointments','absence_alerts','notices','sms_templates','sms_logs','sms_gateway','system_notifications','read_notification_ids','alumni'];
 BEGIN
   SELECT value INTO STRICT ref FROM jsonb_array_elements(m->'backup_history') WHERE value->>'id'=plan->>'snapshot_id' AND value->>'type'='AUTO_SNAPSHOT';
@@ -821,7 +821,7 @@ BEGIN
   -- Maintenance runs while writers are paused. Refuse a busy table rather
   -- than racing a payment, or deleting rows inserted after the safety export.
   FOR k IN SELECT jsonb_object_keys(plan->'tables') ORDER BY 1 LOOP
-    IF NOT k=ANY(safe_tables) OR (op='wipe' AND k NOT IN ('exams','exam_subjects','exam_results','attendance','teacher_attendance','hifz_logs','kitab_logs')) THEN RAISE EXCEPTION 'Recovery table outside scope'; END IF;
+    IF NOT k=ANY(safe_tables) OR (op='wipe' AND k NOT IN ('exams','exam_subjects','exam_results','attendance','teacher_attendance','biometric_punch_events','hifz_logs','kitab_logs')) THEN RAISE EXCEPTION 'Recovery table outside scope'; END IF;
     old_rows:=plan#>ARRAY['tables',k,'before']; incoming:=plan#>ARRAY['tables',k,'rows'];
     IF jsonb_typeof(old_rows) IS DISTINCT FROM 'array' OR jsonb_typeof(incoming) IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'Invalid snapshot'; END IF;
     IF to_regclass(format('public.%I',k)) IS NULL THEN
@@ -893,7 +893,7 @@ GRANT EXECUTE ON FUNCTION public.finance_backup_note(uuid,uuid,jsonb),public.fin
 -- Compare exact old display labels to canonical Gregorian months; preserve history
 -- and leave Hijri periods distinct. Mirrors lib/finance/bill-period.ts.
 CREATE OR REPLACE FUNCTION public.finance_bill_period(v text) RETURNS text LANGUAGE sql IMMUTABLE STRICT SET search_path='' AS $$
-  SELECT coalesce(m[2]||'-'||lpad(array_position(string_to_array('january february march april may june july august september october november december',' '),lower(m[1]))::text,2,'0'),btrim(v))
+  SELECT CASE WHEN btrim(v) ~ '^[0-9]{4}-(0[1-9]|1[0-2])-[0-9]{2}$' THEN left(btrim(v),7) ELSE coalesce(m[2]||'-'||lpad(array_position(string_to_array('january february march april may june july august september october november december',' '),lower(m[1]))::text,2,'0'),btrim(v)) END
   FROM (SELECT regexp_match(btrim(v),'^(?:[^()]+\()?([a-z]+)\)?\s+([0-9]{4})$','i') m) x
 $$;
 REVOKE ALL ON FUNCTION public.finance_bill_period(text) FROM PUBLIC,anon,authenticated;
@@ -943,7 +943,15 @@ BEGIN
       IF nullif(v.billing_period,'') IS NULL OR nullif(v.session_id,'') IS NULL OR (v.status=CASE WHEN v.payable_amount=0 THEN 'WAIVED' ELSE 'UNPAID' END) IS NOT TRUE OR
         public.finance_active_fee_type(p_tenant,meta,rel,v.fee_type_id) IS NOT TRUE OR EXISTS(SELECT FROM jsonb_each_text(nxt) x WHERE x.key IN ('base_amount','discount_amount','paid_amount','fine_amount','payable_amount','due_amount') AND x.value::numeric<>round(x.value::numeric,2)) THEN RAISE EXCEPTION 'বিলের খাত, সময়কাল ও অঙ্ক যাচাই করুন।'; END IF;
       IF v.fund_name IS DISTINCT FROM (public.finance_posting_fund(p_tenant,v.fund_id,'deposit','','')->>'name') THEN RAISE EXCEPTION 'বিলের ফান্ড যাচাই করুন।'; END IF;
-      IF actual IS NULL AND rel AND EXISTS(SELECT FROM public.student_fees b WHERE b.madrasa_id=p_tenant AND b.student_id=v.student_id AND b.session_id=v.session_id AND b.fee_type_id=v.fee_type_id AND public.finance_bill_period(b.billing_period)=public.finance_bill_period(v.billing_period)) THEN RAISE EXCEPTION 'একই বিল ইতিমধ্যে আছে।'; END IF;
+      -- The tenant row is locked before either book is inspected. Session is
+      -- write authorization, NOT part of the monthly invoice's identity.
+      IF actual IS NULL AND (EXISTS(SELECT FROM public.student_fees b WHERE b.madrasa_id=p_tenant
+        AND (b.student_id,b.fee_type_id,public.finance_bill_period(b.billing_period))=
+            (v.student_id,v.fee_type_id,public.finance_bill_period(v.billing_period))) OR
+        EXISTS(SELECT FROM jsonb_array_elements(bills) b WHERE
+          (b->>'student_id',b->>'fee_type_id',public.finance_bill_period(b->>'billing_period'))=
+          (v.student_id::text,v.fee_type_id,public.finance_bill_period(v.billing_period))))
+      THEN RAISE EXCEPTION 'একই বিল ইতিমধ্যে আছে।' USING ERRCODE='QB001'; END IF;
       IF rel THEN
         IF NOT EXISTS(SELECT FROM public.fee_types WHERE id=v.fee_type_id AND madrasa_id=p_tenant) THEN RAISE EXCEPTION 'আগে এই প্রতিষ্ঠানের ফি খাত তৈরি করুন।'; END IF;
         IF actual IS NULL THEN

@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeGuard } from "@/lib/action-authorization";
 import { isMissingTableError } from "@/lib/audit-log";
-import { getStructuredMadrasaSetting, saveStructuredMadrasaSetting } from "@/lib/structured-config";
+import {changeAutomationList} from "@/lib/automation/setting-cas";
+import { getStructuredMadrasaSetting } from "@/lib/structured-config";
 import {
-  DEFAULT_AUTOMATION_RULES,
   executeAutomationJob,
-  mergeRulesWithDefaults,
+  jobSucceeded, mergeRulesWithDefaults,
   recordManualRuleExecution,
   type AutomationJobKey,
 } from "@/lib/automation/master-dispatcher";
@@ -17,6 +17,15 @@ import {
   DEFAULT_CRON_TIMEZONE,
   isValidCronExpression,
 } from "@/lib/automation/schedule-evaluator";
+
+export async function getAutomationHeartbeatAction(){
+  const guard=await writeGuard('automation');
+  if(!guard.allowed || !guard.madrasaId)return {heartbeat:null,error:'হার্টবিট দেখার অনুমতি নেই।'};
+  try {
+    const {getPersistedSchedulerHeartbeat}=await import('@/lib/automation/in-app-scheduler');
+    return {heartbeat:await getPersistedSchedulerHeartbeat(guard.madrasaId)};
+  }catch{return {heartbeat:null,error:'শিডিউলার হার্টবিট পড়া যায়নি।'};}
+}
 
 const FALLBACK_RULES_KEY = "automation_rules";
 const FALLBACK_LOGS_KEY = "job_execution_logs";
@@ -111,19 +120,11 @@ export async function saveAutomationRuleAction(input: {
   }
 
   if (isMissingTableError(error)) {
-    const fb = await getStructuredMadrasaSetting<any[]>(
-      authz.madrasaId,
-      "automation",
-      FALLBACK_RULES_KEY
-    );
-    const list =
-      Array.isArray(fb.value) && fb.value.length > 0
-        ? [...fb.value]
-        : [...DEFAULT_AUTOMATION_RULES];
-    const idx = list.findIndex((r) => r.rule_key === record.rule_key);
-    if (idx >= 0) list[idx] = { ...list[idx], ...record };
-    else list.push(record);
-    await saveStructuredMadrasaSetting(authz.madrasaId, "automation", FALLBACK_RULES_KEY, list);
+    await changeAutomationList(authz.madrasaId,FALLBACK_RULES_KEY,stored=>{
+      const list=[...stored],idx=list.findIndex(r=>r.rule_key===record.rule_key);
+      if(idx<0)list.push(record);else list[idx]={...list[idx],...record};
+      return list;
+    });
     revalidatePath("/dashboard/settings/automation");
     return { success: true, rule: record };
   }
@@ -166,7 +167,8 @@ export async function triggerAutomationJobAction(jobKey: AutomationJobKey) {
   if (!authz.madrasaId) return { error: "মাদ্রাসা পাওয়া যায়নি" };
 
   const res: any = await executeAutomationJob(jobKey, authz.madrasaId, "manual");
-  await recordManualRuleExecution(authz.madrasaId, jobKey).catch(() => {});
+  const ok=jobSucceeded(res);
+  if(ok)await recordManualRuleExecution(authz.madrasaId,jobKey);
   revalidatePath("/dashboard/settings/automation");
-  return { success: res?.ok !== false, result: res };
+  return { success:ok, result:res, ...(ok?{}:{error:"কাজ সম্পূর্ণ হয়নি। এক্সিকিউশন লগ যাচাই করুন।"}) };
 }

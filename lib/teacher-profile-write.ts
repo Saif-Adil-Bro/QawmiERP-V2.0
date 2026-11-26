@@ -23,11 +23,14 @@ export async function resolveTeacherUuid(
   if (uuid.test(input) && (await exists(input))) return input;
   const meta = await getMadrasaMetadata(tenant, true);
   const matches = (meta.staff_members || []).filter(
-    (s: any) => s.id === input || s.legacy_id === input,
+    (s: any) => (!s.madrasa_id || s.madrasa_id === tenant) && (s.id === input || s.legacy_id === input),
   );
   if (matches.length !== 1) return null;
-  const staff = matches[0],
-    legacy = !uuid.test(staff.id),
+  const staff = matches[0];
+  // Directory ids are sometimes the old text key, with a live SQL UUID in
+  // the explicit link. Reuse it instead of creating another teacher.
+  for(const link of [staff.teacher_id,staff.legacy_id]) if(uuid.test(link || '') && await exists(link))return link;
+  const legacy = !uuid.test(staff.id),
     id = legacy ? crypto.randomUUID() : staff.id;
   if (!(await exists(id))) {
     // Never upsert by id: a stale staff alias must not overwrite a different tenant's row.

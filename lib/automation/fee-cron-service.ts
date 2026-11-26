@@ -1,10 +1,12 @@
+import {getStructuredMadrasaSetting} from "@/lib/structured-config";
+import {getMadrasaMetadata} from "@/lib/sessions";
 import {getFeeMetadata} from "@/lib/fee-store";
 import {billPeriodKey} from '@/lib/finance/bill-period';
 import {billingSession} from '@/lib/finance/billing-session';
 import {monthlyCharges} from '@/lib/finance/monthly-charges';
 import {rows} from "@/lib/portal/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isMissingTableError, logAuditEvent } from "@/lib/audit-log";
+import { logAuditEvent } from "@/lib/audit-log";
 import { toDhakaMonthString } from "@/lib/date-utils";
 import { dispatchNotification } from "@/lib/notifications/orchestrator";
 import { toBanglaNumber } from "@/lib/numberToBangla";
@@ -21,7 +23,7 @@ export function buildMonthlyFeeDedupKey(
   billingPeriod: string
 ): string {
   const raw = String(billingPeriod || "").trim();
-  const period = /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 7) : billPeriodKey(raw);
+  const period = billPeriodKey(raw);
   return `${String(studentId).trim()}::${String(feeTypeId).trim()}::${period}`;
 }
 
@@ -33,23 +35,12 @@ async function getTargetMadrasaIds(madrasaId?: string | null): Promise<string[]>
 }
 
 async function isRuleEnabled(madrasaId: string, ruleKey: string): Promise<boolean> {
-  try {
-    const admin = await createAdminClient();
-    const { data, error } = await admin
-      .from("automation_rules")
-      .select("is_enabled")
-      .eq("madrasa_id", madrasaId)
-      .eq("rule_key", ruleKey)
-      .maybeSingle();
-
-    if (!error && data) {
-      return data.is_enabled !== false;
-    }
-    if (error && !isMissingTableError(error)) throw error;
-  } catch(e) {
-    if(!isMissingTableError(e)) throw e;
-  }
-  return true;
+  const admin=await createAdminClient();
+  const {data,error}=await admin.from("automation_rules").select("is_enabled").eq("madrasa_id",madrasaId).eq("rule_key",ruleKey).maybeSingle();
+  if(!error) return data?.is_enabled !== false;
+  if(!['42P01','PGRST205'].includes(error.code)) throw Error(error.message);
+  const fb=await getStructuredMadrasaSetting<any[]>(madrasaId,'automation','automation_rules',true);
+  return fb.value?.find(r=>r.rule_key===ruleKey)?.is_enabled !== false;
 }
 
 export async function runMonthlyFeeGenerationCron(opts: {
@@ -82,20 +73,12 @@ export async function runMonthlyFeeGenerationCron(opts: {
         }
 
         const admin = await createAdminClient();
-        const [roster, book, activeSession, sqlExistingFees] = await Promise.all([
-          rows(() => admin.from("students").select("*").eq("madrasa_id", madrasaId)),
-          getFeeMetadata(madrasaId),
-          billingSession(admin, madrasaId),
-          rows(() =>
-            admin
-              .from("student_fees")
-              .select("student_id, fee_type_id, billing_period, session_id")
-              .eq("madrasa_id", madrasaId)
-          ),
-        ]);
-        const students = roster.filter(
-          (s) => !s.status || String(s.status).toUpperCase() === "ACTIVE"
-        );
+        const roster=await rows(()=>admin.from("students").select("*").eq("madrasa_id",madrasaId));
+        const students=roster.filter(s=>!s.status || String(s.status).toUpperCase()==="ACTIVE");
+        // A school with no active pupils has nothing to bill; a missing term
+        // for a school WITH pupils, on the other hand, must not appear green.
+        if(!students.length) return {processedCount:0,successCount:0,failedCount:0,summary:{billingPeriod,generatedCount:0,skippedExisting:0,reason:"No active students"}};
+        const [book,activeSession,legacy]=await Promise.all([getFeeMetadata(madrasaId),billingSession(admin,madrasaId),getMadrasaMetadata(madrasaId,true)]);
         // DEC-1 Strict Deduplication: union of both metadata book.student_fees AND SQL student_fees
         // keyed strictly by (student_id, fee_type_id, normalized billing_period)
         const existingSet = new Set<string>();
@@ -106,7 +89,7 @@ export async function runMonthlyFeeGenerationCron(opts: {
             );
           }
         }
-        for (const f of sqlExistingFees || []) {
+        for (const f of legacy.student_fees || []) {
           if (f?.student_id && f?.fee_type_id && f?.billing_period) {
             existingSet.add(
               buildMonthlyFeeDedupKey(f.student_id, f.fee_type_id, f.billing_period)
@@ -161,14 +144,11 @@ export async function runMonthlyFeeGenerationCron(opts: {
               due_amount: payable,
               status: payable === 0 ? "WAIVED" : "UNPAID",
             };
-            const { error: insErr } = await admin.rpc("finance_edit_bills", {
-              p_tenant: madrasaId,
-              p_changes: [{ id, before: null, after }],
-              p_audit: null,
-            });
-
-            if (insErr) {
+            const {data:created,error:insErr}=await admin.rpc("round7_create_scheduled_bill",{t:madrasaId,bill:after});
+            if (insErr || typeof created!=="boolean") {
               failedCount++;
+            } else if (!created) {
+              skippedExisting++;
             } else {
               successCount++;
               existingSet.add(dedupKey);

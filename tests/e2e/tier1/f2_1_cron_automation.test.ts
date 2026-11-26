@@ -118,10 +118,12 @@ describe("Tier 1 — Feature 2.1: Scheduled Cron & Automation Engine (Happy Path
 
     // The HTTP job creates unpaid bills via the same protected RPC as the web form.
     // Database CAS/constraints/rollback are exercised by run-finance-integrity.mjs.
-    harness.db.registerRpc('finance_edit_bills',args=>{
-      assert.equal(args.p_tenant,MADRASA_A_ID);
-      for(const c of args.p_changes as any[]){assert.equal(c.before,null);assert.equal(c.after.paid_amount,0);assert.equal(c.after.fund_id,'fund-general');harness.db.seed('student_fees',c.after);}
-      return null;
+    harness.db.registerRpc('round7_create_scheduled_bill',args=>{
+      assert.equal(args.t,MADRASA_A_ID);
+      const bill=args.bill as any;
+      assert.equal(bill.paid_amount,0);assert.equal(bill.fund_id,'fund-general');
+      harness.db.seed('student_fees',bill);
+      return true;
     });
     const firstRes = await monthlyHandler(
       harness.createRequest("/api/cron/monthly-fees", {

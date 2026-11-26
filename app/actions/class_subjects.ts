@@ -6,27 +6,12 @@ import { revalidatePath } from "next/cache";
 import { logAuditEvent } from "@/lib/audit-log";
 
 export async function getClassSubjects(classId: string) {
-  try {
-    const adminClient = await createAdminClient();
-    const { data, error } = await adminClient
-      .from("class_subjects")
-      .select("*, subjects(*)")
-      .eq("class_id", classId);
-
-    if (error) {
-      console.error("Error fetching class subjects with admin client:", error);
-      const supabase = await createClient();
-      const { data: userFetchData } = await supabase
-        .from("class_subjects")
-        .select("*, subjects(*)")
-        .eq("class_id", classId);
-      return userFetchData || [];
-    }
-    return data || [];
-  } catch (err) {
-    console.error("Exception in getClassSubjects:", err);
-    return [];
-  }
+  const {webIdentity}=await import("@/lib/portal/identity");
+  const i=await webIdentity(true);if(!i)return [];
+  const {rows}=await import("@/lib/portal/queries");
+  return rows(()=>i.db.from("class_subjects").select("*,classes!inner(id,madrasa_id),subjects(*)")
+    .eq("class_id",classId).or(`madrasa_id.eq.${i.tenant},madrasa_id.is.null`)
+    .or(`madrasa_id.eq.${i.tenant},madrasa_id.is.null`,{referencedTable:'classes'}));
 }
 
 export async function assignSubjectToClass(classId: string, subjectId: string) {
@@ -48,7 +33,7 @@ export async function assignSubjectToClass(classId: string, subjectId: string) {
         .single(),
       adminClient
         .from("class_subjects")
-        .select("id")
+        .select("*, subjects(*)")
         .eq("class_id", classId)
         .eq("subject_id", subjectId)
         .maybeSingle(),
@@ -71,14 +56,21 @@ export async function assignSubjectToClass(classId: string, subjectId: string) {
     }
 
     // P2-Fix: cross-tenant guard — classId অন্য মাদ্রাসার হলে সেখানে row insert করা যাবে না
-    if (clsData?.madrasa_id && clsData.madrasa_id !== __authz.madrasaId) {
+    if (!clsData || (clsData.madrasa_id && clsData.madrasa_id !== __authz.madrasaId)) {
       return { error: "জামাত খুঁজে পাওয়া যায়নি।" };
     }
 
     if (existing) {
-      return { error: "এই বিষয়টি ইতিমধ্যেই এই জামাতে বরাদ্দ করা হয়েছে।" };
+      if(existing.madrasa_id && existing.madrasa_id!==madrasaId)return {error:"বিষয় বরাদ্দটি এই প্রতিষ্ঠানের নয়।"};
+      return {success:true,item:existing};
     }
 
+    const subject=await adminClient.from("subjects").select("id,madrasa_id").eq("id",subjectId).maybeSingle();
+    if(!subject.data)return {error:"বিষয় পাওয়া যায়নি।"};
+    if(subject.data.madrasa_id && subject.data.madrasa_id!==madrasaId){
+      const {getSubjects}=await import("./subjects");
+      if(!(await getSubjects()).some(s=>s.id===subjectId))return {error:"বিষয়টি এই প্রতিষ্ঠানের ক্যাটালগে নেই।"};
+    }
     // 3. Try insert with madrasa_id
     const insertPayload: any = {
       class_id: classId,

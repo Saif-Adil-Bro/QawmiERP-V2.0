@@ -35,9 +35,8 @@ export async function POST(
     let resolvedTeacherId: string | null = null;
     if (teacherId) {
       const tRes = await setClassSubjectTeacher(classId, subjectId, teacherId);
-      if (!tRes?.error) {
-        resolvedTeacherId = tRes?.teacherId || teacherId;
-      }
+      if (!tRes?.success) return NextResponse.json({...result,teacherWarning:tRes?.error || "শিক্ষকের বরাদ্দ সংরক্ষণ হয়নি।",resolvedTeacherId:null});
+      resolvedTeacherId = tRes.teacherId || teacherId;
     }
 
     return NextResponse.json(

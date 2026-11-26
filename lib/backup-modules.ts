@@ -154,7 +154,7 @@ const BACKUP_MODULE_SPECS: Record<string, BackupModuleSpec> = {
     metadataKeys: ["hifz_logs", "kitab_logs", "hifz_records"],
   },
   attendance: {
-    tables: ["attendance", "teacher_attendance"],
+    tables: ["attendance", "teacher_attendance", "biometric_punch_events"],
     metadataKeys: ["biometric_devices", "biometric_mappings", "biometric_logs", "teacher_attendance"],
   },
   exams: {
@@ -289,8 +289,8 @@ const BACKUP_MODULE_SPECS: Record<string, BackupModuleSpec> = {
     ],
   },
   audit_logs: {
-    tables: ["fee_audit_logs"],
-    metadataKeys: ["audit_logs", "backup_history", "system_audit_logs", "activity_logs"],
+    tables: ["system_audit_logs", "fee_audit_logs"],
+    metadataKeys: ["audit_logs", "backup_history", "system_audit_logs", "system_audit_logs_fallback", "activity_logs"],
   },
 };
 

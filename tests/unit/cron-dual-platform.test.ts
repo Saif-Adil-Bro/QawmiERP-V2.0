@@ -52,9 +52,11 @@ describe("cron auth — Vercel & Railway/GitHub Actions use the same Bearer cont
 describe("cron config consistency", () => {
   const workflow = fs.readFileSync(path.join(ROOT, ".github/workflows/cron-jobs.yml"), "utf8");
 
-  it("GitHub workflow schedules the master dispatcher every 15 minutes", () => {
+  it("keeps the 15-minute Actions dispatcher and a daily Vercel fallback at 07:00 Dhaka", () => {
     expect(workflow).toContain('cron: "*/15 * * * *"');
     expect(workflow).toContain("/api/cron/dispatch");
+    const vercel = JSON.parse(fs.readFileSync(path.join(ROOT, "vercel.json"), "utf8"));
+    expect(vercel.crons).toEqual([{ path: "/api/cron/dispatch", schedule: "0 1 * * *" }]);
   });
 
   it("every cron route file exists and exports force-dynamic", () => {

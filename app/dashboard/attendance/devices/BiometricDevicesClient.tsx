@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   BiometricDevice,
   BiometricUserMapping,
@@ -10,19 +10,15 @@ import {
   getDeviceConnectionStatus,
 } from "@/lib/biometric";
 import {
-  getBiometricDevices,
+  getBiometricSnapshot, getBiometricRoster, replayBiometricEvent,
   saveBiometricDevice,
   deleteBiometricDevice,
   testBiometricDeviceConnection,
-  getBiometricUserMappings,
   saveBiometricUserMapping,
   deleteBiometricUserMapping,
   autoGenerateUserMappings,
-  getBiometricPunchLogs,
   importBiometricLogsFromFile,
-  getBiometricOverviewStats,
 } from "@/app/actions/biometric";
-import { getClasses, getStudents } from "@/app/actions/students";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import {
   Fingerprint,
@@ -57,7 +53,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { format } from "date-fns";
+import { toDhakaDateString } from "@/lib/date-utils";
 
 export default function BiometricDevicesClient() {
   const [activeTab, setActiveTab] = useState<
@@ -68,11 +64,20 @@ export default function BiometricDevicesClient() {
   const [mappings, setMappings] = useState<BiometricUserMapping[]>([]);
   const [punchLogs, setPunchLogs] = useState<BiometricPunchLog[]>([]);
   const [classesList, setClassesList] = useState<any[]>([]);
-  const [studentsList, setStudentsList] = useState<any[]>([]);
+  const [people,setPeople] = useState<Awaited<ReturnType<typeof getBiometricRoster>>>([]);
+  const [loadError,setLoadError] = useState('');
+  const requestSeq=useRef(0);
+  const [confirmation, setConfirmation] = useState<{text:string; run:()=>Promise<void>} | null>(null);
+  const [cursors,setCursors]=useState<{time:string;id:string}[]>([]);
+  const [hasMore,setHasMore]=useState(false);
+  const [testing,setTesting]=useState('');
   const [stats, setStats] = useState<any>(null);
 
   const [loading, setLoading] = useState(true);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setPending] = useState(false);
+  const busy = useRef(false);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
   // Modals & UI States
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
@@ -96,7 +101,7 @@ export default function BiometricDevicesClient() {
   const [mappingUserTypeFilter, setMappingUserTypeFilter] = useState("all");
   const [mappingClassFilter, setMappingClassFilter] = useState("all");
 
-  const [logDateFilter, setLogDateFilter] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [logDateFilter, setLogDateFilter] = useState(toDhakaDateString());
   const [logDeviceFilter, setLogDeviceFilter] = useState("all");
 
   // Notifications / Feedback
@@ -108,42 +113,37 @@ export default function BiometricDevicesClient() {
 
   // Load all data
   const loadAllData = async () => {
-    setLoading(true);
+    const seq=++requestSeq.current;
+    setLoading(true); setLoadError('');
     try {
-      const [devs, maps, logs, st, cls, stds] = await Promise.all([
-        getBiometricDevices(),
-        getBiometricUserMappings(),
-        getBiometricPunchLogs({ limit: 150 }),
-        getBiometricOverviewStats(),
-        getClasses(),
-        getStudents(),
-      ]);
-
-      setDevices(devs || []);
-      setMappings(maps || []);
-      setPunchLogs(logs || []);
-      setStats(st);
-      setClassesList(cls || []);
-      setStudentsList(stds || []);
-      if (devs && devs.length > 0 && !importDeviceId) {
-        setImportDeviceId(devs[0].id);
-      }
-    } catch (err) {
-      console.error("Error loading biometric data:", err);
-      showToast("error", "তথ্য লোড করতে সমস্যা হয়েছে");
-    } finally {
-      setLoading(false);
-    }
+      const {devices:devs,mappings:maps,logs,stats,hasMore}=await getBiometricSnapshot(activeTab==='logs'?logDateFilter:undefined,logDeviceFilter,cursors.at(-1));
+      if(seq!==requestSeq.current) return;
+      setDevices(devs);setMappings(maps);setPunchLogs(logs);setHasMore(hasMore);setStats(stats);
+      setClassesList([...new Set(maps.map(m=>m.class_name).filter(Boolean))].map(name=>({id:name,name})));
+      setImportDeviceId(id=>devs.some(d=>d.id===id)?id:devs[0]?.id || '');
+    } catch {if(seq===requestSeq.current) {setLoadError('তথ্য পড়া যায়নি — রিফ্রেশ করুন।');setStats(null);}}
+    finally {if(seq===requestSeq.current) setLoading(false);}
   };
-
-  useEffect(() => {
-    loadAllData();
-  }, []);
-
+  useEffect(()=>{void loadAllData();},[activeTab==='logs',logDateFilter,logDeviceFilter,cursors]);
+  useEffect(()=>{
+    if(!isMappingModalOpen) return;
+    let current=true;
+    getBiometricRoster().then(rows=>{if(current)setPeople(rows);}).catch(()=>showToast('error','শিক্ষার্থী/শিক্ষক তালিকা পড়া যায়নি।'));
+    return ()=>{current=false;};
+  },[isMappingModalOpen]);
+  const run = async (fn: () => Promise<void>) => {
+    if (busy.current) return;
+    busy.current = true;
+    setPending(true);
+    try { await fn(); }
+    catch { showToast('error','সার্ভার ফল নিশ্চিত করা যায়নি। রিফ্রেশ করে দেখুন।'); }
+    finally { busy.current = false; setPending(false); }
+  };
   const showToast = (type: "success" | "error" | "info", text: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
     setToastMessage({ type, text });
-    setTimeout(() => {
-      setToastMessage(null);
+    toastTimer.current = setTimeout(() => {
+      toastTimer.current = null; setToastMessage(null);
     }, 4500);
   };
 
@@ -159,11 +159,10 @@ export default function BiometricDevicesClient() {
       name: "",
       device_model: "ZKTeco_K40",
       serial_number: `ZK-${Date.now().toString().slice(-6)}`,
-      ip_address: "192.168.1.201",
-      port: 4370,
+      ip_address: "",
       protocol: "cloud_push",
       target_audience: "all",
-      location: "প্রধান প্রবেশদ্বার",
+      location: "",
       status: "active",
       secret_token: generateDeviceToken("bio"),
       notes: "",
@@ -183,66 +182,32 @@ export default function BiometricDevicesClient() {
       return;
     }
 
-    startTransition(async () => {
+    run(async () => {
       const res = await saveBiometricDevice(editingDevice);
       if (res.success) {
-        showToast("success", "ডিভাইস সফলভাবে সংরক্ষণ করা হয়েছে");
+        const saved=res.device;
+        setDevices(list=>list.some(d=>d.id===saved.id)?list.map(d=>d.id===saved.id?{...d,...saved,total_punches_count:d.total_punches_count}:d):[saved,...list]);
+        showToast(res.warning?"info":"success", res.warning || "ডিভাইস সফলভাবে সংরক্ষণ করা হয়েছে");
         setIsDeviceModalOpen(false);
         setEditingDevice(null);
-        loadAllData();
+        await loadAllData();
       } else {
         showToast("error", res.error || "ডিভাইস সংরক্ষণ ব্যর্থ হয়েছে");
       }
     });
   };
 
-  const handleDeleteDevice = async (id: string, name: string) => {
-    if (!confirm(`আপনি কি নিশ্চিতভাবে "${name}" ডিভাইসটি মুছে ফেলতে চান?`)) {
-      return;
-    }
-    startTransition(async () => {
-      const res = await deleteBiometricDevice(id);
-      if (res.success) {
-        showToast("success", "ডিভাইস সফলভাবে মুছে ফেলা হয়েছে");
-        loadAllData();
-      } else {
-        showToast("error", res.error || "ডিলিট ব্যর্থ হয়েছে");
-      }
-    });
-  };
-
-  const handleTestConnection = async (dev: BiometricDevice) => {
-    startTransition(async () => {
-      const res = await testBiometricDeviceConnection(dev.id);
-      if (res.isOnline) {
-        showToast("success", res.message);
-      } else {
-        showToast("info", res.message);
-      }
-      loadAllData();
-    });
-  };
-
-  // Auto Mapping Action
-  const handleAutoGenerateMappings = async () => {
-    if (
-      !confirm(
-        "মাদরাসার সকল শিক্ষার্থী ও শিক্ষকের জন্য স্বয়ংক্রিয়ভাবে বায়োমেট্রিক আইডি ম্যাপিং করতে চান?"
-      )
-    ) {
-      return;
-    }
-    startTransition(async () => {
-      const res = await autoGenerateUserMappings();
-      if (res.success) {
-        showToast("success", res.message);
-        loadAllData();
-      } else {
-        showToast("error", res.message || "ম্যাপিং তৈরি ব্যর্থ হয়েছে");
-      }
-    });
-  };
-
+  const handleDeleteDevice = (device:BiometricDevice) => setConfirmation({
+    text:`“${device.name}” (সিরিয়াল ${device.serial_number}) মুছে ফেলবেন? পুরনো পাঞ্চ ও হাজিরা থাকবে।`,
+    run:async()=>{const r=await deleteBiometricDevice(device.id,device.serial_number,device.name);
+      if(r.success)setDevices(list=>list.filter(d=>d.id!==device.id));
+      showToast(r.success?'info':'error', r.error || r.warning || 'ডিভাইস মুছে ফেলা হয়েছে।'); if(r.success) await loadAllData();}
+  });
+  const handleTestConnection = (dev:BiometricDevice) => run(async()=>{
+    setTesting(dev.id);try {const r=await testBiometricDeviceConnection(dev.id);showToast(r.isOnline?'success':'info',r.message);}finally{setTesting('');}
+  });
+  const handleAutoGenerateMappings = () => setConfirmation({text:'অফিসিয়াল সংখ্যাসূচক ID দিয়ে দ্ব্যর্থহীন মিলগুলো ম্যাপ করবেন? আগের ম্যাপিং বদলাবে না।',
+    run:async()=>{const r=await autoGenerateUserMappings();showToast(r.success?'info':'error',r.message);if(r.success) await loadAllData();}});
   // Save Mapping
   const handleSaveMapping = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,29 +216,23 @@ export default function BiometricDevicesClient() {
       return;
     }
 
-    startTransition(async () => {
+    run(async () => {
       const res = await saveBiometricUserMapping(editingMapping);
       if (res.success) {
-        showToast("success", "ম্যাপিং সফলভাবে সংরক্ষণ করা হয়েছে");
+        showToast("success", "ম্যাপিং সংরক্ষিত। আগের পাঞ্চ মিলাতে রিয়েলটাইম পাঞ্চ লগ খুলুন।");
         setIsMappingModalOpen(false);
         setEditingMapping(null);
-        loadAllData();
+        await loadAllData();
       } else {
         showToast("error", res.error || "ম্যাপিং সংরক্ষণ ব্যর্থ হয়েছে");
       }
     });
   };
 
-  const handleDeleteMapping = async (id: string) => {
-    if (!confirm("আপনি কি এই ইউজার ম্যাপিংটি মুছে ফেলতে চান?")) return;
-    startTransition(async () => {
-      const res = await deleteBiometricUserMapping(id);
-      if (res.success) {
-        showToast("success", "ম্যাপিং মুছে ফেলা হয়েছে");
-        loadAllData();
-      }
-    });
-  };
+  const handleDeleteMapping = (id: string) => setConfirmation({text:"এই ইউজার ম্যাপিংটি মুছবেন? পুরোনো হাজিরা থাকবে।",run:async()=>{
+    const res=await deleteBiometricUserMapping(id);
+    if(res.success){await loadAllData();showToast("success","ম্যাপিং মুছে ফেলা হয়েছে");}else showToast("error",res.error || "ম্যাপিং সরানো যায়নি।");
+  }});
 
   // File Upload Handling
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -295,7 +254,7 @@ export default function BiometricDevicesClient() {
       return;
     }
 
-    startTransition(async () => {
+    run(async () => {
       const res = await importBiometricLogsFromFile(
         fileContent,
         selectedFile.name,
@@ -305,7 +264,7 @@ export default function BiometricDevicesClient() {
       setImportResult(res);
       if (res.success) {
         showToast("success", res.message);
-        loadAllData();
+        await loadAllData();
       } else {
         showToast("error", res.message || "ফাইল প্রসেসিং ব্যর্থ হয়েছে");
       }
@@ -343,10 +302,16 @@ export default function BiometricDevicesClient() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {confirmation && <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/50 p-4" onKeyDown={e=>{if(e.key==='Escape')setConfirmation(null);}}>
+        <section role="alertdialog" aria-modal="true" aria-labelledby="bio-confirm" className="max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <p id="bio-confirm" className="font-semibold">{confirmation.text}</p><div className="mt-5 flex justify-end gap-4">
+          <button autoFocus onClick={()=>setConfirmation(null)}>বাতিল</button>
+          <button className="rounded-lg bg-blue-700 text-white px-4 py-2" disabled={isPending} onClick={()=>{const fn=confirmation.run;setConfirmation(null);run(fn);}}>নিশ্চিত করুন</button></div>
+        </section></div>}
       {/* Toast Alert */}
       {toastMessage && (
         <div
-          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl shadow-xl border text-sm font-semibold transition-all transform animate-in slide-in-from-bottom-5 ${
+          role="status" className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl shadow-xl border text-sm font-semibold transition-all transform animate-in slide-in-from-bottom-5 ${
             toastMessage.type === "success"
               ? "bg-emerald-900 text-emerald-50 border-emerald-700"
               : toastMessage.type === "error"
@@ -391,7 +356,7 @@ export default function BiometricDevicesClient() {
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
-            onClick={loadAllData}
+            onClick={()=>void loadAllData()}
             disabled={loading}
             className="px-3.5 py-2 text-xs sm:text-sm font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 active:scale-95 transition flex items-center gap-2 shadow-xs"
           >
@@ -419,11 +384,11 @@ export default function BiometricDevicesClient() {
           <div>
             <p className="text-[11px] sm:text-xs font-semibold text-slate-500">মোট সংযুক্ত ডিভাইস</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-900">
-              {toBanglaNumber(devices.length)}{" "}
+              {stats ? toBanglaNumber(devices.length) : "—"}{" "}
               <span className="text-xs font-medium text-slate-500">
                 (
                 <span className="text-emerald-600 font-bold">
-                  {toBanglaNumber(devices.filter((d) => getDeviceConnectionStatus(d).status === "online").length)} লাইভ
+                  {stats ? toBanglaNumber(stats.onlineDevices) : "—"} লাইভ
                 </span>
                 {devices.filter((d) => getDeviceConnectionStatus(d).status === "waiting").length > 0 && (
                   <>
@@ -444,10 +409,10 @@ export default function BiometricDevicesClient() {
             <Activity className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-[11px] sm:text-xs font-semibold text-slate-500">আজকের লাইভ পাঞ্চ</p>
+            <p className="text-[11px] sm:text-xs font-semibold text-slate-500">আজকের অনন্য পাঞ্চ</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-900">
-              {toBanglaNumber(stats?.totalPunchesToday || 0)}{" "}
-              <span className="text-xs font-medium text-slate-500">উপস্থিতি</span>
+              {stats ? toBanglaNumber(stats.totalPunchesToday) : "—"}{" "}
+              <span className="text-xs font-medium text-slate-500">পাঞ্চ</span>
             </h3>
           </div>
         </div>
@@ -459,7 +424,7 @@ export default function BiometricDevicesClient() {
           <div>
             <p className="text-[11px] sm:text-xs font-semibold text-slate-500">ম্যাপ করা আইডি</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-900">
-              {toBanglaNumber(mappings.length)}{" "}
+              {stats ? toBanglaNumber(mappings.length) : "—"}{" "}
               <span className="text-xs font-medium text-slate-500">জন</span>
             </h3>
           </div>
@@ -472,13 +437,14 @@ export default function BiometricDevicesClient() {
           <div>
             <p className="text-[11px] sm:text-xs font-semibold text-slate-500">ক্লাউড পুশ গেটওয়ে</p>
             <h3 className="text-sm sm:text-base font-bold text-emerald-700 flex items-center gap-1.5 mt-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-              <span>অনলাইন ও প্রস্তুত</span>
+              <span className={`w-2.5 h-2.5 rounded-full ${stats?.onlineDevices ? "bg-emerald-500 animate-ping":"bg-slate-400"}`} />
+              <span>{stats ? (stats.onlineDevices ? `${toBanglaNumber(stats.onlineDevices)}টি লাইভ ডিভাইস` : "লাইভ ডিভাইস নেই") : loadError?"যাচাই হয়নি":"যাচাই হচ্ছে…"}</span>
             </h3>
           </div>
         </div>
       </div>
 
+      {loadError && <p role="alert" className="text-rose-700">{loadError}</p>}
       {/* Main Tabs Navigation */}
       <div className="flex border-b border-slate-200 bg-white rounded-2xl p-1.5 shadow-xs overflow-x-auto gap-1">
         <button
@@ -491,7 +457,7 @@ export default function BiometricDevicesClient() {
           }`}
         >
           <Server className="w-4 h-4" />
-          <span>ডিভাইস তালিকা ({toBanglaNumber(devices.length)})</span>
+          <span>ডিভাইস তালিকা ({stats ? toBanglaNumber(devices.length) : "—"})</span>
         </button>
 
         <button
@@ -504,7 +470,7 @@ export default function BiometricDevicesClient() {
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>আইডি ও ইউজার ম্যাপিং ({toBanglaNumber(mappings.length)})</span>
+          <span>আইডি ও ইউজার ম্যাপিং ({stats ? toBanglaNumber(mappings.length) : "—"})</span>
         </button>
 
         <button
@@ -550,7 +516,7 @@ export default function BiometricDevicesClient() {
       {/* TAB 1: DEVICES LIST */}
       {activeTab === "devices" && (
         <div className="space-y-5">
-          {devices.length === 0 ? (
+          {loading || loadError ? <p role="status">{loadError || "ডিভাইস তালিকা পড়া হচ্ছে…"}</p> : devices.length === 0 ? (
             <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center space-y-4">
               <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto">
                 <Fingerprint className="w-8 h-8" />
@@ -624,11 +590,11 @@ export default function BiometricDevicesClient() {
                           <span className="font-semibold text-slate-500">সিরিয়াল / ক্লাউড আইডি:</span>
                           <span className="font-mono font-bold text-slate-800">{device.serial_number}</span>
                         </div>
-                        {device.ip_address && (
+                        {device.protocol === "lan_tcp" && device.ip_address && (
                           <div className="flex items-center justify-between">
                             <span className="font-semibold text-slate-500">লোকাল আইপি ও পোর্ট:</span>
                             <span className="font-mono text-slate-700">
-                              {device.ip_address}:{device.port || 4370}
+                              {device.ip_address}{device.port ? `:${device.port}` : ""}
                             </span>
                           </div>
                         )}
@@ -655,7 +621,7 @@ export default function BiometricDevicesClient() {
                         <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
                           <span className="font-semibold text-slate-500">মোট পাঞ্চ রেকর্ড:</span>
                           <span className="font-bold text-blue-600">
-                            {toBanglaNumber(device.total_punches_count || 0)} বার
+                            {toBanglaNumber(device.total_punches_count || 0)} বার{device.unverified_history_count ? ` · পুরোনো ${toBanglaNumber(device.unverified_history_count)}টি যাচাই বাকি` : ""}
                           </span>
                         </div>
                       </div>
@@ -678,11 +644,11 @@ export default function BiometricDevicesClient() {
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => handleTestConnection(device)}
+                          disabled={isPending} aria-busy={testing===device.id} onClick={() => handleTestConnection(device)}
                           title="কানেকশন টেস্ট"
                           className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-slate-200/60 rounded-lg transition"
                         >
-                          <Zap className="w-4 h-4" />
+                          {testing===device.id ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Zap className="w-4 h-4" />}
                         </button>
                         <button
                           type="button"
@@ -694,7 +660,7 @@ export default function BiometricDevicesClient() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteDevice(device.id, device.name)}
+                          onClick={() => handleDeleteDevice(device)}
                           title="মুছে ফেলুন"
                           className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                         >
@@ -812,7 +778,7 @@ export default function BiometricDevicesClient() {
                   {filteredMappings.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="py-8 text-center text-slate-500">
-                        কোনো ইউজার ম্যাপিং পাওয়া যায়নি। &quot;এক ক্লিকে স্বয়ংক্রিয় ম্যাপিং&quot; বাটনে ক্লিক করে সব ছাত্র-শিক্ষকের আইডি লিংক করুন।
+                        {loadError || (loading ? "ম্যাপিং পড়া হচ্ছে…" : "কোনো মিল পাওয়া যায়নি। মেশিন ID যাচাই করে ম্যাপ করুন।")}
                       </td>
                     </tr>
                   ) : (
@@ -1020,6 +986,7 @@ export default function BiometricDevicesClient() {
                   )}
                   <span>{importResult.message}</span>
                 </div>
+                {importResult.errors?.length>0 && <ul className="max-h-40 overflow-auto pl-5 list-disc">{importResult.errors.map((s:string)=><li key={s}>{s}</li>)}</ul>}
                 {importResult.uniqueDates && importResult.uniqueDates.length > 0 && (
                   <p className="text-[11px] text-slate-600 mt-1">
                     তারিখসমূহ: {importResult.uniqueDates.join(", ")}
@@ -1044,15 +1011,22 @@ export default function BiometricDevicesClient() {
               </div>
 
               <div className="flex items-center gap-2">
-                <input
+                <select aria-label="পাঞ্চের ডিভাইস" value={logDeviceFilter} onChange={e=>{setLogDeviceFilter(e.target.value);setCursors([]);}} className="rounded border p-1 text-xs">
+                  <option value="all">সব ডিভাইস (সরানো ডিভাইসসহ)</option>{devices.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+                <input aria-label="পাঞ্চের তারিখ"
                   type="date"
                   value={logDateFilter}
-                  onChange={(e) => setLogDateFilter(e.target.value)}
+                  onChange={(e) => {setLogDateFilter(e.target.value);setCursors([]);}}
                   className="px-3 py-1.5 text-xs font-semibold border border-slate-300 rounded-xl outline-none"
                 />
               </div>
             </div>
 
+            <div className="flex gap-4 text-sm">
+              {cursors.length>0 && <button disabled={loading} onClick={()=>setCursors(c=>c.slice(0,-1))}>আগের পৃষ্ঠা</button>}
+              {hasMore && <button disabled={loading} onClick={()=>{const last=punchLogs.at(-1);if(last)setCursors(c=>[...c,{time:last.punch_time,id:last.id}]);}}>পরের পৃষ্ঠা</button>}
+            </div>
             {/* Logs Table */}
             <div className="overflow-x-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left text-xs border-collapse">
@@ -1071,14 +1045,14 @@ export default function BiometricDevicesClient() {
                   {filteredLogs.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-8 text-center text-slate-500">
-                        নির্বাচিত তারিখে কোনো পাঞ্চ লগ পাওয়া যায়নি।
+                        {loadError || (loading ? "পাঞ্চ পড়া হচ্ছে…" : "নির্বাচিত তারিখ/ডিভাইসে কোনো পাঞ্চ পাওয়া যায়নি।")}
                       </td>
                     </tr>
                   ) : (
                     filteredLogs.map((log) => (
                       <tr key={log.id} className="hover:bg-slate-50 transition">
                         <td className="py-2 px-3 font-mono text-slate-600">
-                          {format(new Date(log.punch_time), "dd/MM/yyyy hh:mm:ss a")}
+                          {Number.isFinite(Date.parse(log.punch_time)) ? new Date(log.punch_time).toLocaleString("en-GB",{timeZone:"Asia/Dhaka"}) : "যাচাই প্রয়োজন"}
                         </td>
                         <td className="py-2 px-3 font-mono font-bold text-blue-700">
                           {log.device_user_id}
@@ -1101,8 +1075,12 @@ export default function BiometricDevicesClient() {
                                 : "bg-amber-50 text-amber-700 border border-amber-200"
                             }`}
                           >
-                            {log.status === "processed" ? "উপস্থিতি সফল" : "আনম্যাপড ID"}
+                            {log.issue || (log.status === "processed" ? "উপস্থিতি সফল" : log.status === 'unmapped' ? "আনম্যাপড ID" : "হাজিরা যাচাই বাকি")}
                           </span>
+                          {log.status!=='processed' && (()=>{
+                            const matches=mappings.filter(m=>m.device_user_id===log.device_user_id || m.rfid_card_no===log.device_user_id), m=matches[0];
+                            return !log.issue?.startsWith('মূল লাইন') && matches.length===1 && <button className="block mx-auto underline text-blue-700" onClick={()=>setConfirmation({text:`${log.device_name}, ID ${log.device_user_id}, ${log.punch_date}: ${m.target_name}-এর হাজিরা যাচাই করে এই পাঞ্চটি পুনঃপ্রক্রিয়া করবেন?`,run:async()=>{const r=await replayBiometricEvent(log.device_id,log.id,m.id,m.target_id);showToast(r.success?'success':'error',r.message);await loadAllData();}})}>পুনঃপ্রক্রিয়া</button>;
+                          })()}
                         </td>
                       </tr>
                     ))
@@ -1264,6 +1242,8 @@ export default function BiometricDevicesClient() {
                 </div>
               </div>
 
+              <label className="block text-xs font-bold">অবস্থান (ঐচ্ছিক)<input className="block w-full p-2 border rounded-lg" value={editingDevice.location || ''} onChange={e=>setEditingDevice({...editingDevice,location:e.target.value})}/></label>
+              {editingDevice.protocol==='lan_tcp' && <div className="flex gap-3"><label>LAN IP<input className="block p-2 border" value={editingDevice.ip_address || ''} onChange={e=>setEditingDevice({...editingDevice,ip_address:e.target.value})}/></label><label>পোর্ট<input className="block p-2 border" type="number" min="1" max="65535" value={editingDevice.port || ''} onChange={e=>setEditingDevice({...editingDevice,port:e.target.value?Number(e.target.value):undefined})}/></label></div>}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
                 <span className="font-bold text-slate-700 text-xs">ডিভাইস সিক্রেট টোকেন (Secret Token):</span>
                 <div className="flex items-center gap-2">
@@ -1433,55 +1413,13 @@ export default function BiometricDevicesClient() {
                 </select>
               </div>
 
-              {editingMapping.user_type === "student" ? (
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">শিক্ষার্থী নির্বাচন করুন *</label>
-                  <select
-                    required
-                    value={editingMapping.target_id || ""}
-                    onChange={(e) => {
-                      const sel = studentsList.find((s) => s.id === e.target.value);
-                      setEditingMapping({
-                        ...editingMapping,
-                        target_id: e.target.value,
-                        target_name: `${sel?.first_name || ""} ${sel?.last_name || ""}`.trim(),
-                        target_identifier: sel?.student_id || `রোল: ${sel?.roll_number}`,
-                        class_name: Array.isArray(sel?.classes) ? sel?.classes[0]?.name : sel?.classes?.name,
-                        device_user_id:
-                          editingMapping.device_user_id ||
-                          String(sel?.roll_number || sel?.student_id?.replace(/\D/g, "") || ""),
-                      });
-                    }}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-medium outline-none bg-white"
-                  >
-                    <option value="">-- শিক্ষার্থী বেছে নিন --</option>
-                    {studentsList.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.first_name} {s.last_name} (রোল: {s.roll_number || "N/A"})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700">উস্তাদ / স্টাফের নাম *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="উস্তাদের নাম লিখুন"
-                    value={editingMapping.target_name || ""}
-                    onChange={(e) =>
-                      setEditingMapping({
-                        ...editingMapping,
-                        target_name: e.target.value,
-                        target_id: editingMapping.target_id || `tch_${Date.now()}`,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-medium outline-none"
-                  />
-                </div>
-              )}
-
+              <label className="block font-bold text-slate-700">{editingMapping.user_type === 'student'?'শিক্ষার্থী':'শিক্ষক'} নির্বাচন করুন *
+                <select required value={editingMapping.target_id || ''} onChange={e=>{
+                  const p=people.find(p=>p.id===e.target.value && p.type===editingMapping.user_type);
+                  setEditingMapping({...editingMapping,target_id:p?.id || '',target_name:p?.name || '',target_identifier:p?.code || '',class_name:p?.className || '',device_user_id:editingMapping.device_user_id || p?.pin || ''});
+                }} className="block w-full p-2 border rounded-lg"><option value="">-- নির্বাচন করুন --</option>
+                {people.filter(p=>p.type===editingMapping.user_type).map(p=><option key={p.id} value={p.id}>{p.name} {p.code} {p.className}</option>)}
+                </select></label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="block font-bold text-slate-700">

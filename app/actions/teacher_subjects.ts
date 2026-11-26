@@ -1,10 +1,11 @@
 "use server";
-import { webIdentity, teacherScope, teacherSchedule, hasRole, type TeacherStaffHint } from '@/lib/portal/identity';
+import { webIdentity, teacherScope, teacherSchedule, hasRole } from '@/lib/portal/identity';
 import {studentRoles, teacherRoles} from '@/lib/portal/rules';
 
 import { writeGuard } from "@/lib/action-authorization";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import {rows} from "@/lib/portal/queries";
 import {resolveTeacherUuid} from '@/lib/teacher-profile-write';
 import { logAuditEvent } from "@/lib/audit-log";
 
@@ -18,49 +19,21 @@ export async function getTeacherSubjects(teacherId: string) {
   const isStaffViewer = staffGuard.allowed || staffReadGuard.allowed;
   if (!hasRole(i, teacherRoles) && !isStaffViewer) return [];
   // When an explicit teacherId is passed by a staff/admin viewer, always resolve that teacher's scope
-  const s = await teacherScope(i, isStaffViewer ? teacherId : undefined);
+  const s = await teacherScope(i, isStaffViewer ? teacherId : undefined,true);
   return s.assignments;
 }
 
 export async function getAvailableClassSubjects() {
-  const supabase = await createClient();
-  const adminClient = await createAdminClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const { getAuthMadrasaId } = await import("./students");
-  const madrasaId = user ? await getAuthMadrasaId(supabase, user) : null;
-
-  let query = adminClient
-    .from("class_subjects")
-    .select("*, classes(*), subjects(*)");
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("Error fetching available class subjects:", error);
-    return [];
-  }
-
-  const rawRows = (data || []).filter((row: any) => {
-    if (!madrasaId) return true;
-    const classTenant = row.classes?.madrasa_id || row.madrasa_id;
-    return !classTenant || classTenant === madrasaId;
-  });
-
-  // Hydrate missing classes or subjects in case FK join returned null
-  const [{ data: allClasses }, { data: allSubjects }] = await Promise.all([
-    adminClient.from("classes").select("id, name, madrasa_id"),
-    adminClient.from("subjects").select("id, name, code, madrasa_id"),
-  ]);
-  const classMap = new Map((allClasses || []).map((c: any) => [c.id, c]));
-  const subjectMap = new Map((allSubjects || []).map((s: any) => [s.id, s]));
-
-  return rawRows
-    .map((row: any) => ({
-      ...row,
-      classes: row.classes || classMap.get(row.class_id) || null,
-      subjects: row.subjects || subjectMap.get(row.subject_id) || null,
-    }))
-    .filter((row: any) => row.classes?.name && row.subjects?.name);
+  const access=await writeGuard("staffRead");
+  if(!access.allowed || !access.madrasaId) return [];
+  const db=await createAdminClient(), tenant=access.madrasaId;
+  // A global/seed subject is selectable via a link to one of OUR classes.
+  // Do not scan all tenants' directories or hydrate arbitrary orphan links.
+  const result=await rows(()=>db.from("class_subjects")
+    .select("id,class_id,subject_id,classes!inner(id,name,madrasa_id),subjects(id,name,code)")
+    .or(`madrasa_id.eq.${tenant},madrasa_id.is.null`)
+    .or(`madrasa_id.eq.${tenant},madrasa_id.is.null`,{referencedTable:'classes'}));
+  return result.filter(r=>r.classes?.name && r.subjects?.name && (!r.classes.madrasa_id || r.classes.madrasa_id===tenant));
 }
 
 export async function getClassTeacherSubjects(classId: string) {
@@ -91,62 +64,29 @@ export async function getClassTeacherSubjects(classId: string) {
 export async function assignSubjectToTeacher(teacherId: string, classId: string, subjectId: string) {
   // ⛔ CR-2: সার্ভার-সাইড authorization guard — লগইন, অ্যাকাউন্ট স্ট্যাটাস,
   // টেন্যান্ট (মাদ্রাসা) ও মডিউল-পারমিশন যাচাই। আগে এখানে কেবল `if (!user)` ছিল।
-  {
-    const __authz = await writeGuard("staff");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "অননুমোদিত অ্যাক্সেস (অনুগ্রহ করে লগইন করুন)" };
-
-  const { getAuthMadrasaId } = await import("./students");
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) {
-    return { error: "সিস্টেমে কোনো মাদ্রাসা পাওয়া যায়নি।" };
-  }
-
-  const resolvedTeacherId = await resolveTeacherUuid(teacherId, finalMadrasaId);
-  if (!resolvedTeacherId) {
-    return { error: "শিক্ষকের আইডি সঠিক নয়।" };
-  }
-
-  const adminClient = await createAdminClient();
-
+  const guard=await writeGuard("staff");
+  if(!guard.allowed)return guard.fallback;
+  const finalMadrasaId=guard.madrasaId;
+  if(!finalMadrasaId || !guard.userId)return {error:"প্রতিষ্ঠান ও ব্যবহারকারী যাচাই করা যায়নি।"};
+  const adminClient=await createAdminClient();
   const [classRow, subjectRow, classSubLink] = await Promise.all([
     adminClient.from("classes").select("id, name, madrasa_id").eq("id", classId).maybeSingle(),
     adminClient.from("subjects").select("id, name, madrasa_id").eq("id", subjectId).maybeSingle(),
     adminClient
       .from("class_subjects")
-      .select("id")
+      .select("id,madrasa_id")
       .eq("class_id", classId)
       .eq("subject_id", subjectId)
       .maybeSingle(),
   ]);
 
-  if (
-    !classRow.data ||
-    !subjectRow.data ||
-    (classRow.data.madrasa_id && classRow.data.madrasa_id !== finalMadrasaId)
-  ) {
-    return { error: "জামাত বা বিষয় এই প্রতিষ্ঠানের নয়।" };
-  }
-
-  // S2 Fix: Allow subject if it belongs to this tenant, is global (madrasa_id is null),
-  // is linked via class_subjects for this class, or is in the visible subject catalog.
-  if (
-    subjectRow.data.madrasa_id &&
-    subjectRow.data.madrasa_id !== finalMadrasaId &&
-    !classSubLink.data
-  ) {
-    const { getSubjects } = await import("./subjects");
-    const visibleCatalog = await getSubjects();
-    const isInVisibleCatalog = (visibleCatalog || []).some((s: any) => s.id === subjectId);
-    if (!isInVisibleCatalog) {
-      return { error: "জামাত বা বিষয় এই প্রতিষ্ঠানের নয়।" };
-    }
-  }
+  // Keep the original FK of a shared seeded book, but only via this
+  // tenant's actual class-subject link. A visible name alone is not a grant.
+  if(!classRow.data || !subjectRow.data || !classSubLink.data ||
+     (classRow.data.madrasa_id && classRow.data.madrasa_id!==finalMadrasaId) ||
+     (classSubLink.data.madrasa_id && classSubLink.data.madrasa_id!==finalMadrasaId)) return {error:"এই জামাতের বিষয় বরাদ্দ পাওয়া যায়নি।"};
+  const resolvedTeacherId=await resolveTeacherUuid(teacherId,finalMadrasaId);
+  if (!resolvedTeacherId)return {error:"শিক্ষকের আইডি সঠিক নয়।"};
 
   const { error } = await adminClient.from("teacher_subjects").insert({
     madrasa_id: finalMadrasaId,
@@ -157,7 +97,8 @@ export async function assignSubjectToTeacher(teacherId: string, classId: string,
 
   if (error) {
     if (error.code === '23505') {
-      return { error: "এই জামাতে এই শিক্ষকের জন্য ইতিমধ্যেই এই বিষয়টি নিযুক্ত করা হয়েছে।" };
+      const {data}=await adminClient.from("teacher_subjects").select("id").match({madrasa_id:finalMadrasaId,teacher_id:resolvedTeacherId,class_id:classId,subject_id:subjectId}).maybeSingle();
+      if (data) return {success:true,teacherId:resolvedTeacherId};
     }
     console.error("assignSubjectToTeacher error:", error);
     return { error: `বিষয় এসাইন করতে সমস্যা হয়েছে: ${error.message}` };
@@ -165,8 +106,8 @@ export async function assignSubjectToTeacher(teacherId: string, classId: string,
 
   await logAuditEvent({
     madrasaId: finalMadrasaId,
-    actorId: user.id,
-    actorEmail: user.email || null,
+    actorId: guard.userId,
+    actorEmail: guard.actorEmail,
     module: "staff",
     action: "TEACHER_SUBJECT_ASSIGNED",
     entityType: "teacher_subject",
@@ -186,34 +127,22 @@ export async function assignSubjectToTeacher(teacherId: string, classId: string,
 }
 
 export async function setClassSubjectTeacher(classId: string, subjectId: string, teacherId: string | null) {
-  {
-    const __authz = await writeGuard("classes");
-    if (!__authz.allowed) return __authz.fallback;
-  }
-
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "অননুমোদিত অ্যাক্সেস (অনুগ্রহ করে লগইন করুন)" };
-
-  const { getAuthMadrasaId } = await import("./students");
-  const finalMadrasaId = await getAuthMadrasaId(supabase, user);
-  if (!finalMadrasaId) return { error: "সিস্টেমে কোনো মাদ্রাসা পাওয়া যায়নি।" };
-
+  const guard=await writeGuard("classes");
+  if(!guard.allowed)return guard.fallback;
+  const finalMadrasaId=guard.madrasaId;
+  if(!finalMadrasaId || !guard.userId)return {error:"প্রতিষ্ঠান ও ব্যবহারকারী যাচাই করা যায়নি।"};
   const adminClient = await createAdminClient();
 
-  // Remove any existing teacher assignment for this class + subject in this tenant
-  await adminClient
-    .from("teacher_subjects")
-    .delete()
-    .eq("madrasa_id", finalMadrasaId)
-    .eq("class_id", classId)
-    .eq("subject_id", subjectId);
-
-  if (!teacherId || teacherId === "NONE") {
+  const clear=!teacherId || teacherId==="NONE";
+  const resolvedTeacherId=clear?null:await resolveTeacherUuid(teacherId, finalMadrasaId);
+  if(!clear && !resolvedTeacherId) return {error:"শিক্ষকের আইডি সঠিক নয়।"};
+  const saved=await adminClient.rpc('round7_set_subject_teacher',{t:finalMadrasaId,c:classId,s:subjectId,replacement:resolvedTeacherId});
+  if(saved.error) return {error:`শিক্ষক বরাদ্দ সেভ হয়নি: ${saved.error.message}`};
+  if(clear){
     await logAuditEvent({
       madrasaId: finalMadrasaId,
-      actorId: user.id,
-      actorEmail: user.email || null,
+      actorId: guard.userId,
+      actorEmail: guard.actorEmail,
       module: "staff",
       action: "CLASS_SUBJECT_TEACHER_CLEARED",
       entityType: "teacher_subject",
@@ -227,26 +156,10 @@ export async function setClassSubjectTeacher(classId: string, subjectId: string,
     return { success: true, teacherId: null };
   }
 
-  const resolvedTeacherId = await resolveTeacherUuid(teacherId, finalMadrasaId);
-  if (!resolvedTeacherId) {
-    return { error: "শিক্ষকের আইডি সঠিক নয়।" };
-  }
-
-  const { error } = await adminClient.from("teacher_subjects").insert({
-    madrasa_id: finalMadrasaId,
-    teacher_id: resolvedTeacherId,
-    class_id: classId,
-    subject_id: subjectId,
-  });
-
-  if (error) {
-    return { error: `বিষয় শিক্ষক নির্ধারণে সমস্যা হয়েছে: ${error.message}` };
-  }
-
   await logAuditEvent({
     madrasaId: finalMadrasaId,
-    actorId: user.id,
-    actorEmail: user.email || null,
+    actorId: guard.userId,
+    actorEmail: guard.actorEmail,
     module: "staff",
     action: "CLASS_SUBJECT_TEACHER_SET",
     entityType: "teacher_subject",
@@ -379,32 +292,19 @@ export interface TeacherAcademicSchedule {
   teacherId: string;
   assignedSubjects: TeacherAssignedSubject[];
   inChargeClasses: TeacherInChargeClass[];
+  routineUnavailable?:boolean;
   routines: TeacherRoutineScheduleItem[];
 }
 
 export async function getTeacherAcademicSchedule(
   staffId: string,
-  staffHint?: TeacherStaffHint,
 ): Promise<TeacherAcademicSchedule> {
-  const i = await webIdentity();
-  if (i && !hasRole(i, studentRoles)) {
-    // PB-06 Fix: If staffId is explicitly provided and the caller has staff or staffRead access (e.g. Admin viewing a teacher drawer),
-    // always pass staffId + staffHint to teacherScope so admin users who also hold a teacher role don't see their own empty scope instead of the target teacher!
-    if (staffId) {
-      const canViewStaff =
-        (await writeGuard("staff")).allowed ||
-        (await writeGuard("staffRead")).allowed ||
-        hasRole(i, ["super_admin", "admin", "muhtamim", "naib_muhtamim", "hr_manager", "office_staff"]);
-      if (canViewStaff) {
-        return teacherSchedule(i, await teacherScope(i, staffId, staffHint));
-      }
-    }
-    if (hasRole(i, teacherRoles)) {
-      return teacherSchedule(
-        i,
-        await teacherScope(i, staffId || undefined, staffId ? staffHint : undefined),
-      );
-    }
-  }
-  return { teacherId: "", isTeachingStaff: false, assignedSubjects: [], inChargeClasses: [], routines: [] };
+  const i = await webIdentity(true);
+  if (!i || hasRole(i, studentRoles)) throw new Error("শিক্ষকের বরাদ্দ দেখার অনুমতি নেই।");
+  const guard = await writeGuard("staffRead");
+  const canInspect = guard.allowed || (await writeGuard("staff")).allowed;
+  if (!canInspect && !hasRole(i, teacherRoles)) throw new Error("শিক্ষকের বরাদ্দ দেখার অনুমতি নেই।");
+  const scope = await teacherScope(i, canInspect ? staffId : undefined,true);
+  if (canInspect && !scope.keys.length) throw Error("কর্মীর সঙ্গে শিক্ষকের প্রোফাইল মেলেনি।");
+  return teacherSchedule(i,scope,true);
 }

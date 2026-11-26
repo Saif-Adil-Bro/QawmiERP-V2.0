@@ -137,12 +137,7 @@ export default function ClassSubjectsManager({
   useEffect(() => {
     installGlobalSaveGuardListeners();
 
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!pendingRef.current && !hasActiveSaveGuards()) return;
-      e.preventDefault();
-      e.returnValue = "";
-      return "";
-    };
+    // The shared beforeunload handler owns the native browser prompt.
     const handleClickCapture = (e: MouseEvent) => {
       if (!pendingRef.current && !hasActiveSaveGuards()) return;
       const target = e.target as HTMLElement | null;
@@ -156,10 +151,8 @@ export default function ClassSubjectsManager({
         });
       }
     };
-    window.addEventListener("beforeunload", handleBeforeUnload);
     window.addEventListener("click", handleClickCapture, { capture: true });
     return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("click", handleClickCapture, { capture: true });
       disarmSaveGuard();
     };
@@ -196,7 +189,7 @@ export default function ClassSubjectsManager({
         }),
       });
       const res = await response.json().catch(() => ({}));
-      if (!response.ok || res?.error) {
+      if (!response.ok || !res?.success || res?.error) {
         setSubjectTeachers((prev) => ({ ...prev, [subjectId]: prevTeacherId }));
         setToast({ type: "error", message: res?.error || "বিষয় শিক্ষক নির্ধারণ করতে সমস্যা হয়েছে।" });
       } else {
@@ -266,7 +259,7 @@ export default function ClassSubjectsManager({
       });
       const res = await response.json().catch(() => ({}));
 
-      if (!response.ok || res?.error) {
+      if (!response.ok || !res?.success || res?.error) {
         // Rollback
         setAssigned((prev) => prev.filter((item) => item.id !== tempId));
         setToast({
@@ -288,15 +281,15 @@ export default function ClassSubjectsManager({
             )
           );
         }
-        if (teacherToAssign) {
+        if (res.resolvedTeacherId) {
           setSubjectTeachers((prev) => ({
             ...prev,
             [subToAssign.id]: res?.resolvedTeacherId || teacherToAssign,
           }));
         }
         setToast({
-          type: "success",
-          message: `"${subToAssign.name}" বিষয়টি সফলভাবে ${className} জামাতে বরাদ্দ করা হয়েছে!`,
+          type: res.teacherWarning ? "error" : "success",
+          message: res.teacherWarning ? `বিষয় সেভ হয়েছে; শিক্ষক সেভ হয়নি: ${res.teacherWarning}` : `"${subToAssign.name}" বিষয়টি সফলভাবে ${className} জামাতে বরাদ্দ করা হয়েছে!`,
         });
       }
     } catch (err: any) {

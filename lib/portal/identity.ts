@@ -1,12 +1,11 @@
+import {parseRoutineItem} from "@/lib/routine-helper";
 import { SessionUnavailableError } from "../current-app-session";
 import {
   canViewUnmaskedField,
   maskStudentSensitiveFields,
 } from "../pii-masking";
 import {
-  extractTeacherCandidateNames,
   normalizeBengaliTeacherName,
-  normalizePhoneKey,
   resolveTeacherIdentity,
   teacherDisplay,
 } from "../teacher-identity";
@@ -137,45 +136,25 @@ export async function linkedStudents(i: Identity, requested?: string | null) {
   return { students, child: selected(students, requested), meta };
 }
 
-export type TeacherStaffHint = {
-  legacyId?: string | null;
-  teacherId?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  fullNameBn?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-};
-
-const ANY_UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const isUnmaskedValue = (v: unknown): string => {
-  if (typeof v !== "string") return "";
-  const trimmed = v.trim();
-  if (!trimmed || trimmed.includes("*")) return "";
-  return trimmed;
-};
-
 // Authenticated identity and administrator-maintained links only. A name, partial phone, or
 // user_editable_metadata value is not a teacher assignment. Validate class IDs against the tenant.
 export async function teacherScope(
   i: Identity,
   staffId?: string,
-  staffHint?: TeacherStaffHint,
+  profile = false,
 ) {
   const { tenant, db } = i;
   const meta = await getMadrasaMetadata(tenant, true);
   const [teachers, tenantUsers] = await Promise.all([
     rows(() => db.from("teachers").select("*").eq("madrasa_id", tenant)),
-    rows(() =>
+    staffId ? rows(() =>
       db
         .from("users")
-        .select("id, email, full_name, phone, teacher_id, role")
+        .select("id,email,full_name,teacher_id")
         .eq("madrasa_id", tenant),
-    ),
+    ) : [],
   ]);
-  const staffMembers = Array.isArray(meta.staff_members) ? meta.staff_members : [];
+  const staffMembers = Array.isArray(meta.staff_members) ? meta.staff_members.filter((s:any)=>!s.madrasa_id || s.madrasa_id===tenant) : [];
   let { teacher, staff, keys } = resolveTeacherIdentity(
     teachers,
     staffMembers,
@@ -188,151 +167,32 @@ export async function teacherScope(
         },
   );
 
-  // PB-06 Bridge: When admin inspects a staff profile via staffId, bridge across metadata staff_members,
-  // tenant users (email/phone/auth_user_id/normalized Bengali or English name -> user.teacher_id),
-  // and SQL teachers (including duplicate rows sharing verified phone/name/email without conflicting auth).
+  // Administrative directory ids may refer to a staff record, its previous id,
+  // a tenant user, or the SQL teacher. Only trust server-owned rows for aliases;
+  // display hints from the browser must not grant another teacher's timetable.
   const matchedUserNames: string[] = [];
+  const targetKeys = new Set(keys);
   if (staffId) {
-    const keySet = new Set<string>(keys);
-    keySet.add(staffId);
-    if (staffHint?.legacyId) keySet.add(staffHint.legacyId);
-    if (staffHint?.teacherId) keySet.add(staffHint.teacherId);
-
-    if (!staff) {
-      staff =
-        staffMembers.find(
-          (s: any) =>
-            s.id === staffId ||
-            s.legacy_id === staffId ||
-            s.teacher_id === staffId ||
-            (staffHint?.legacyId &&
-              (s.id === staffHint.legacyId || s.legacy_id === staffHint.legacyId)),
-        ) || null;
+    const email = String(staff?.contact?.email || teacher?.email || "").trim().toLowerCase();
+    const authId = teacher?.auth_user_id || staff?.auth_user_id;
+    const users = tenantUsers.filter(u => u.id === staffId || u.id === authId || targetKeys.has(u.teacher_id) ||
+      (!authId && email && String(u.email || "").toLowerCase() === email));
+    for (const u of users) {
+      if (authId && u.id !== authId) continue;
+      targetKeys.add(u.id);
+      if (!u.teacher_id) continue;
+      const linked = resolveTeacherIdentity(teachers, staffMembers, {linkedId:u.teacher_id});
+      if (linked.teacher?.auth_user_id && linked.teacher.auth_user_id !== u.id) continue;
+      for (const id of linked.keys) targetKeys.add(id);
+      teacher ??= linked.teacher;
+      staff ??= linked.staff;
+      if (u.full_name) matchedUserNames.push(u.full_name);
     }
-    if (staff) {
-      if (staff.id) keySet.add(staff.id);
-      if (staff.legacy_id) keySet.add(staff.legacy_id);
-      if (staff.teacher_id) keySet.add(staff.teacher_id);
-    }
-
-    const hintRecord = staffHint
-      ? {
-          full_name_bn: staffHint.fullNameBn,
-          first_name: staffHint.firstName,
-          last_name: staffHint.lastName,
-        }
-      : null;
-
-    const candidateEmails = new Set<string>(
-      [
-        isUnmaskedValue(staff?.contact?.email),
-        isUnmaskedValue(staff?.email),
-        isUnmaskedValue(teacher?.email),
-        isUnmaskedValue(staffHint?.email),
-      ]
-        .filter(Boolean)
-        .map((e) => e.toLowerCase()),
-    );
-    const candidatePhones = new Set<string>(
-      [
-        isUnmaskedValue(staff?.contact?.phone),
-        isUnmaskedValue(staff?.phone),
-        isUnmaskedValue(teacher?.phone),
-        isUnmaskedValue(staffHint?.phone),
-      ]
-        .map((p) => normalizePhoneKey(p))
-        .filter(Boolean),
-    );
-    const candidateNames = new Set<string>([
-      ...extractTeacherCandidateNames(staff),
-      ...extractTeacherCandidateNames(teacher),
-      ...extractTeacherCandidateNames(hintRecord),
-    ]);
-
-    const knownAuthIds = new Set<string>(
-      [staff?.auth_user_id, teacher?.auth_user_id].filter(Boolean),
-    );
-
-    const matchedUsers = tenantUsers.filter((u: any) => {
-      if (keySet.has(u.id) || (u.teacher_id && keySet.has(u.teacher_id))) {
-        return true;
-      }
-      if (knownAuthIds.has(u.id)) return true;
-      const uEmail = String(u.email || "").trim().toLowerCase();
-      if (uEmail && candidateEmails.has(uEmail)) return true;
-      const uPhone = normalizePhoneKey(u.phone);
-      if (uPhone && candidatePhones.has(uPhone)) return true;
-      const uName = normalizeBengaliTeacherName(u.full_name);
-      if (uName && candidateNames.has(uName)) return true;
-      return false;
-    });
-
-    for (const u of matchedUsers) {
-      if (u.teacher_id) keySet.add(u.teacher_id);
-      if (u.id) knownAuthIds.add(u.id);
-      const uEmail = String(u.email || "").trim().toLowerCase();
-      if (uEmail) candidateEmails.add(uEmail);
-      const uPhone = normalizePhoneKey(u.phone);
-      if (uPhone) candidatePhones.add(uPhone);
-      if (u.full_name) {
-        matchedUserNames.push(String(u.full_name).trim());
-        const uNorm = normalizeBengaliTeacherName(u.full_name);
-        if (uNorm) candidateNames.add(uNorm);
-      }
-    }
-
-    const matchedTeachers = teachers.filter((t: any) => {
-      if (keySet.has(t.id)) return true;
-      if (t.auth_user_id && knownAuthIds.has(t.auth_user_id)) return true;
-      // Do not bridge into a SQL teacher explicitly bound to a different auth account
-      if (
-        knownAuthIds.size > 0 &&
-        t.auth_user_id &&
-        !knownAuthIds.has(t.auth_user_id)
-      ) {
-        return false;
-      }
-      const tEmail = String(t.email || "").trim().toLowerCase();
-      if (tEmail && candidateEmails.has(tEmail)) return true;
-      const tPhone = normalizePhoneKey(t.phone);
-      if (tPhone && candidatePhones.has(tPhone)) return true;
-      const tNames = extractTeacherCandidateNames(t);
-      if (tNames.some((n) => candidateNames.has(n))) return true;
-      return false;
-    });
-
-    for (const mt of matchedTeachers) {
-      if (mt.id) keySet.add(mt.id);
-    }
-    if (!teacher && matchedTeachers.length > 0) {
-      teacher = matchedTeachers[0];
-    }
-
-    // Also include sibling staff records matching the same teacher ID / phone / normalized name
-    // so meta.class_teachers keyed by an older or duplicate staff ID still resolves.
-    for (const sm of staffMembers) {
-      const smMatch =
-        keySet.has(sm.id) ||
-        (sm.legacy_id && keySet.has(sm.legacy_id)) ||
-        (sm.teacher_id && keySet.has(sm.teacher_id)) ||
-        (candidatePhones.size > 0 &&
-          candidatePhones.has(normalizePhoneKey(sm.contact?.phone || sm.phone))) ||
-        extractTeacherCandidateNames(sm).some((n) => candidateNames.has(n));
-      if (smMatch) {
-        if (sm.id) keySet.add(sm.id);
-        if (sm.legacy_id) keySet.add(sm.legacy_id);
-        if (sm.teacher_id) keySet.add(sm.teacher_id);
-      }
-    }
-
-    keys = Array.from(keySet);
   }
-
-  const teacherUuidKeys = Array.from(
-    new Set(
-      [teacher?.id, ...keys].filter((k) => k && ANY_UUID_RE.test(String(k))),
-    ),
-  );
+  keys = [...targetKeys];
+  // Never pass a metadata alias to a UUID column. The directory/assignment
+  // source of truth is membership in this tenant's SQL teachers, not ID syntax.
+  const teacherUuidKeys = teachers.filter(t=>targetKeys.has(t.id)).map(t=>t.id);
   const [allClasses, rawAssignments, direct] = await Promise.all([
     rows(() => {
       const q = db.from("classes").select("*");
@@ -359,7 +219,7 @@ export async function teacherScope(
           }
         })
       : [],
-    teacherUuidKeys.length > 0
+    !profile && teacherUuidKeys.length > 0
       ? rows(() =>
           db
             .from("routines")
@@ -396,6 +256,7 @@ export async function teacherScope(
 
   const seenAssignmentPairs = new Set<string>();
   const assignments = rawAssignments
+    .filter(a=>classLookup.has(String(a.class_id)))
     .map((a: any) => {
       const cls =
         (Array.isArray(a.classes) ? a.classes[0] : a.classes) ||
@@ -418,7 +279,7 @@ export async function teacherScope(
       return true;
     });
 
-  const display = teacherDisplay(teacher, staff, i.userRow.full_name);
+  const display = teacherDisplay(teacher, staff, staffId ? "" : i.userRow.full_name);
   const targetNames = new Set(
     [
       display.name,
@@ -427,8 +288,6 @@ export async function teacherScope(
         .filter(Boolean)
         .join(" "),
       [teacher?.first_name, teacher?.last_name].filter(Boolean).join(" "),
-      staffHint?.fullNameBn,
-      [staffHint?.firstName, staffHint?.lastName].filter(Boolean).join(" "),
       ...matchedUserNames,
       !staffId ? i.userRow?.full_name : "",
     ]
@@ -447,6 +306,9 @@ export async function teacherScope(
       meta.class_teachers?.[c.id]?.teacher_id,
     ].some((v) => v && keys.includes(v));
     if (byKey) return true;
+    // A stored id wins over a namesake. Name-only links are historical display
+    // metadata, usable only in a permission-checked staff preview.
+    if (!staffId || meta.class_teachers?.[c.id]?.teacher_id || c.class_teacher_id || c.in_charge_teacher_id) return false;
     const assignedName = String(
       meta.class_teachers?.[c.id]?.teacher_name || "",
     ).trim();
@@ -478,7 +340,7 @@ export async function teacherScope(
     classes,
     assignments,
     inCharge,
-    keys,
+    keys, teacherUuidKeys,
   };
 }
 const cachedTeacherScope = cache(async () => {
@@ -498,17 +360,14 @@ export const webTeacher = async (allowAdmin = false) => {
   return ctx;
 };
 export type TeacherScope = Awaited<ReturnType<typeof teacherScope>>;
-export async function teacherSchedule(i: Identity, s: TeacherScope) {
+export async function teacherSchedule(i: Identity, s: TeacherScope, profile = false) {
   // A class/subject assignment grants roster access, not every slot on its timetable.
-  const teacherUuidKeys = Array.from(
-    new Set(
-      [s.teacher?.id, ...s.keys].filter(
-        (k) => k && ANY_UUID_RE.test(String(k)),
-      ),
-    ),
-  );
+  const teacherUuidKeys = s.teacherUuidKeys;
+  let routineUnavailable = false;
   const visible =
-    teacherUuidKeys.length > 0 && s.classes.length > 0
+    profile && teacherUuidKeys.length ? await rows(()=>i.db.from("routines").select("*, classes(id,name), subjects(id,name)").eq("madrasa_id",i.tenant).in("teacher_id",teacherUuidKeys).order("start_time"))
+        .then(rs=>rs.map(r=>({...parseRoutineItem(r),class_name:r.classes?.name,subject_name:r.subjects?.name})))
+        .catch(()=>{routineUnavailable=true;return [];}) : teacherUuidKeys.length > 0 && s.classes.length > 0
       ? await routines(
           i.db,
           i.tenant,
@@ -529,7 +388,7 @@ export async function teacherSchedule(i: Identity, s: TeacherScope) {
       class_id: c.id,
       class_name: c.name,
     })),
-    routines: visible,
+    routines: visible, routineUnavailable,
   };
 }
 export async function teacherStudents(

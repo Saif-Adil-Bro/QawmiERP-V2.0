@@ -412,6 +412,7 @@ export type MobileWriteCheck = (input: {
 }) => Promise<NextResponse | undefined>;
 
 export interface TableCrudConfig {
+  afterCreate?: (row:any,ctx:MobileAuthContext)=>Promise<boolean>;
   beforeRead?: (input:{req:NextRequest; db:Awaited<ReturnType<typeof createAdminClient>>;tenant:string;id?:string;config:TableCrudConfig})=>Promise<NextResponse|undefined>;
   beforeWrite?: MobileWriteCheck;
   presentRow?: (row:any,ctx:MobileAuthContext)=>any;
@@ -550,7 +551,8 @@ export function createMobileTableHandlers(config: TableCrudConfig) {
         return mobileError(error.message, 400, "DB_INSERT_ERROR");
       }
 
-      return mobileSuccess(config.presentRow?config.presentRow(data,auth.ctx):data, "Created successfully", undefined, 201, req);
+      const audited=await config.afterCreate?.(data,auth.ctx);
+      return mobileSuccess(config.presentRow?config.presentRow(data,auth.ctx):data, audited===false?"Created; audit needs review (do not resubmit)":"Created successfully", undefined, 201, req);
     } catch (err: any) {
       return mobileError(err?.message || "Server error", 500, "INTERNAL_ERROR");
     }

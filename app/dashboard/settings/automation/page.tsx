@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import {
-  getAutomationRulesAction,
+  getAutomationRulesAction,getAutomationHeartbeatAction,
   getJobExecutionLogsAction,
 } from "@/app/actions/automation";
 import AutomationSettingsClient from "./AutomationSettingsClient";
@@ -15,13 +15,14 @@ export default async function AutomationSettingsPage() {
     redirect("/login");
   }
 
-  const [rulesRes, logsRes] = await Promise.all([
+  const [rulesRes, logsRes, health] = await Promise.all([
     getAutomationRulesAction(),
-    getJobExecutionLogsAction(50),
+    getJobExecutionLogsAction(50),getAutomationHeartbeatAction(),
   ]);
 
   return (
     <AutomationSettingsClient
+      initialHeartbeat={health.heartbeat} initialError={rulesRes.error || logsRes.error || health.error}
       initialRules={rulesRes.rules || []}
       initialLogs={logsRes.logs || []}
     />
