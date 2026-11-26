@@ -15,10 +15,9 @@ import {
   replayPunch,
 } from "@/lib/biometric-ingest";
 import {
-  historicalPunch,
+  computeUnifiedBiometricPunchCounters,
   getDeviceConnectionStatus,
   parsePunchReport,
-  uniquePunchLogs,
   type BiometricDevice as Device,
   type BiometricPunchLog as Log,
   type BiometricUserMapping as Mapping,
@@ -47,8 +46,8 @@ function extractNumericPin(raw: unknown): string {
   return suffix || "";
 }
 
-// The registry tab needs one summary, not a roster and a day of logs. For the
-// log tab use the last displayed (instant,id) as a stable tenant-scoped cursor.
+// Compute device card totals, today's header counter, and log page rows from
+// the exact same unified deduplicated punch store (biometric_punch_events + legacy book).
 export async function getBiometricSnapshot(
   date?: string,
   deviceId = "all",
@@ -59,105 +58,76 @@ export async function getBiometricSnapshot(
   const db = await createAdminClient(),
     today = toDhakaDateString();
   const size = 100;
-  let q = db
-    .from("biometric_punch_events")
-    .select("*")
-    .eq("madrasa_id", tenant);
-  if (date) q = q.eq("punch_date", date);
-  if (deviceId !== "all") q = q.eq("device_id", deviceId);
+
   if (before) {
     if (
       !/^[A-Za-z0-9_-]{1,160}$/.test(before.id) ||
       !Number.isFinite(Date.parse(before.time))
-    )
+    ) {
       throw Error("লগের পৃষ্ঠা মেলেনি।");
-    const iso = new Date(before.time).toISOString();
-    q = q.or(
-      `punch_time.lt.${iso},and(punch_time.eq.${iso},id.lt.${before.id})`,
-    );
-  }
-  const [recent, totals] = await Promise.all([
-    date === undefined
-      ? { data: [] as Log[], error: null }
-      : q
-          .order("punch_time", { ascending: false })
-          .order("id", { ascending: false })
-          .limit(size + 1),
-    db.rpc("biometric_event_counts", { t: tenant, today }),
-  ]);
-
-  if (recent.error && !isBiometricStorageMissingError(recent.error)) {
-    throw Error("পাঞ্চের খাতা পড়া যায়নি।");
-  }
-  if (totals.error && !isBiometricStorageMissingError(totals.error)) {
-    throw Error("পাঞ্চের খাতা পড়া যায়নি।");
-  }
-
-  const recentRows: Log[] =
-    !recent.error && Array.isArray(recent.data) ? (recent.data as Log[]) : [];
-  const totalsRows =
-    !totals.error && Array.isArray(totals.data) ? totals.data : [];
-
-  const legacy = uniquePunchLogs(meta.biometric_logs || []),
-    counts = new Map<string, number>(),
-    uncertain = new Map<string, number>();
-  let totalPunchesToday = 0;
-
-  if (totalsRows.length > 0) {
-    for (const r of totalsRows) {
-      counts.set(r.device, Number(r.total));
-      totalPunchesToday += Number(r.today_count);
     }
-  } else if (totals.error && !recent.error) {
-    // RPC missing but table may exist: compute lightweight counts from table
-    const fallbackCounts = await db
+  }
+
+  // Fetch all tenant PG punch events in bounded pages so counts and log page
+  // always share one single source of truth (graceful fallback if table absent).
+  const pgRows: Log[] = [];
+  const pageSize = 1000;
+  const maxPages = 20;
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+    const res = await db
       .from("biometric_punch_events")
-      .select("device_id, punch_date")
+      .select("*")
       .eq("madrasa_id", tenant)
-      .limit(5000);
-    if (!fallbackCounts.error && Array.isArray(fallbackCounts.data)) {
-      for (const r of fallbackCounts.data) {
-        counts.set(r.device_id, (counts.get(r.device_id) || 0) + 1);
-        if (r.punch_date === today) totalPunchesToday++;
+      .order("punch_time", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to);
+
+    if (res.error) {
+      if (isBiometricStorageMissingError(res.error)) {
+        break;
       }
+      throw Error("পাঞ্চের খাতা পড়া যায়নি।");
     }
+    const batch = Array.isArray(res.data) ? (res.data as Log[]) : [];
+    pgRows.push(...batch);
+    if (batch.length < pageSize) break;
   }
 
-  for (const l of legacy) {
-    if (historicalPunch(l)) {
-      counts.set(l.device_id, (counts.get(l.device_id) || 0) + 1);
-      if (l.punch_date === today) totalPunchesToday++;
-    } else uncertain.set(l.device_id, (uncertain.get(l.device_id) || 0) + 1);
-  }
-  const old =
+  const legacyRows: Log[] = Array.isArray(meta.biometric_logs)
+    ? meta.biometric_logs
+    : [];
+
+  const { unifiedLogs, deviceCounts, unverifiedCounts, totalPunchesToday } =
+    computeUnifiedBiometricPunchCounters(pgRows, legacyRows, today);
+
+  const beforeMs = before ? Date.parse(before.time) : null;
+  const filteredLogs =
     date === undefined
       ? []
-      : legacy.filter(
+      : unifiedLogs.filter(
           (l) =>
             (!date || l.punch_date === date) &&
-            (deviceId === "all" || deviceId === l.device_id) &&
+            (deviceId === "all" || l.device_id === deviceId) &&
             (!before ||
-              Date.parse(l.punch_time) < Date.parse(before.time) ||
-              (Date.parse(l.punch_time) === Date.parse(before.time) &&
+              Date.parse(l.punch_time) < (beforeMs as number) ||
+              (Date.parse(l.punch_time) === (beforeMs as number) &&
                 l.id < before.id)),
         );
-  const all = uniquePunchLogs([...recentRows, ...old]).sort(
-    (a, b) =>
-      Date.parse(b.punch_time) - Date.parse(a.punch_time) ||
-      (a.id > b.id ? -1 : 1),
-  );
+
   const devices: Device[] = (meta.biometric_devices || []).map((d: Device) => ({
     ...d,
-    total_punches_count: counts.get(d.id) || 0,
-    unverified_history_count: uncertain.get(d.id) || 0,
+    total_punches_count: deviceCounts.get(d.id) || 0,
+    unverified_history_count: unverifiedCounts.get(d.id) || 0,
   }));
   const mappings: Mapping[] = meta.biometric_mappings || [],
     active = devices.filter((d) => d.status === "active");
   return {
     devices,
     mappings,
-    logs: all.slice(0, size),
-    hasMore: all.length > size,
+    logs: filteredLogs.slice(0, size),
+    hasMore: filteredLogs.length > size,
     stats: {
       madrasaId: tenant,
       totalDevices: devices.length,
@@ -615,6 +585,7 @@ export async function replayAllUnmappedBiometricEventsAction(
     let replayed = 0;
     let attendanceDaysCreated = 0;
     let failed = 0;
+    const failureReasons = new Set<string>();
 
     for (const item of candidates) {
       try {
@@ -630,11 +601,13 @@ export async function replayAllUnmappedBiometricEventsAction(
           "attendanceDaysCreated" in res ? res.attendanceDaysCreated || 0 : 0,
         );
         failed += Number(res.failed || 0);
-      } catch {
+      } catch (err) {
         failed++;
+        failureReasons.add(message(err));
       }
     }
 
+    const reasonList = Array.from(failureReasons).slice(0, 3);
     await audit({
       action: "BIOMETRIC_UNMAPPED_BATCH_REPLAYED",
       entityType: "biometric_punch",
@@ -647,6 +620,7 @@ export async function replayAllUnmappedBiometricEventsAction(
         replayed,
         attendanceDaysCreated,
         failed,
+        ...(reasonList.length ? { failureReasons: reasonList } : {}),
       },
     });
     attendanceChanged();
@@ -656,7 +630,7 @@ export async function replayAllUnmappedBiometricEventsAction(
       replayed,
       attendanceDaysCreated,
       failed,
-      message: `পুনঃপ্রক্রিয়া সম্পন্ন: ${replayed}টি পাঞ্চ নিশ্চিত, ${attendanceDaysCreated}টি নতুন হাজিরা যুক্ত হয়েছে${failed > 0 ? `, ${failed}টি বিদ্যমান হাজিরা/ম্যাপিং যাচাই বাকি` : ""}।`,
+      message: `পুনঃপ্রক্রিয়া সম্পন্ন: ${replayed}টি পাঞ্চ নিশ্চিত, ${attendanceDaysCreated}টি নতুন হাজিরা যুক্ত হয়েছে${failed > 0 ? `, ${failed}টি বিদ্যমান হাজিরা/ম্যাপিং যাচাই বাকি${reasonList.length ? ` (${reasonList.join("; ")})` : ""}` : ""}।`,
     };
   } catch (e) {
     return {

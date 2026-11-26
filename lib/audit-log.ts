@@ -243,7 +243,7 @@ function triggerAuditRevalidate() {
   }
 }
 
-function buildAuditSemanticKey(row: Partial<SystemAuditLogRecord>): string {
+export function buildAuditSemanticKey(row: Partial<SystemAuditLogRecord>): string {
   const epoch = Date.parse(row.created_at || "");
   const tsSecond = Number.isFinite(epoch)
     ? new Date(epoch).toISOString().slice(0, 19)
@@ -255,11 +255,65 @@ function buildAuditSemanticKey(row: Partial<SystemAuditLogRecord>): string {
     .trim()
     .toLowerCase();
   const entityId = String(row.entity_id || "").trim();
+  const severity = String(row.severity || "INFO")
+    .trim()
+    .toUpperCase();
   const summaryPrefix = String(row.summary || "")
     .trim()
     .slice(0, 80);
   if (!tsSecond || !action) return "";
-  return `${action}|${mod}|${entityId}|${tsSecond}|${summaryPrefix}`;
+  return `${action}|${mod}|${entityId}|${severity}|${tsSecond}|${summaryPrefix}`;
+}
+
+/**
+ * Canonical audit log merger & deduplicator (Round-6 parity fix restored).
+ * Deduplicates fallback rows against SQL rows by:
+ *   1. Exact `id` match
+ *   2. `metadata.legacy_id` match (migrated fallback rows in SQL)
+ *   3. Semantic match (`buildAuditSemanticKey`: action + module + entity_id + severity + timestamp second + summary)
+ * Distinct SQL rows with unique IDs are never collapsed against each other.
+ */
+export function mergeAndDeduplicateAuditLogs(
+  sqlLogs: SystemAuditLogRecord[],
+  fallbackLogs: SystemAuditLogRecord[],
+  tenantId?: string,
+): SystemAuditLogRecord[] {
+  const merged: SystemAuditLogRecord[] = [];
+  const seenIds = new Set<string>();
+  const sqlSemanticKeys = new Set<string>();
+
+  for (const r of sqlLogs || []) {
+    if (!r || !r.id) continue;
+    if (tenantId && r.madrasa_id && r.madrasa_id !== tenantId) continue;
+    if (seenIds.has(r.id)) continue;
+    seenIds.add(r.id);
+    if (r.metadata?.legacy_id) {
+      seenIds.add(String(r.metadata.legacy_id));
+    }
+    const semKey = buildAuditSemanticKey(r);
+    if (semKey) sqlSemanticKeys.add(semKey);
+    merged.push(r);
+  }
+
+  for (const fb of fallbackLogs || []) {
+    if (!fb || !fb.id) continue;
+    if (tenantId && fb.madrasa_id && fb.madrasa_id !== tenantId) continue;
+    if (seenIds.has(fb.id)) continue;
+    if (fb.metadata?.legacy_id && seenIds.has(String(fb.metadata.legacy_id))) {
+      continue;
+    }
+    const semKey = buildAuditSemanticKey(fb);
+    if (semKey && sqlSemanticKeys.has(semKey)) continue;
+    seenIds.add(fb.id);
+    merged.push(fb);
+  }
+
+  merged.sort(
+    (a, b) =>
+      Date.parse(b.created_at) - Date.parse(a.created_at) ||
+      String(b.id).localeCompare(String(a.id)),
+  );
+  return merged;
 }
 
 export type AuditStats = {
@@ -363,12 +417,8 @@ export async function fetchCanonicalAuditLogsAndCount(
     (r): r is SystemAuditLogRecord =>
       !!r && (!r.madrasa_id || r.madrasa_id === tenant),
   );
-  const ids = new Set(fallback.map((r) => r.id));
-  // Old migrated records sometimes lack a legacy_id. Never collapse two new
-  // events just because they share a second and an action code.
-  const oldKeys = new Set(
-    fallback.filter((r) => !isValidUuid(r.id)).map(buildAuditSemanticKey),
-  );
+  const seenSqlIds = new Set<string>();
+  const sqlSemanticKeys = new Set<string>();
   const sqlTop: SystemAuditLogRecord[] = [];
   let storage: "sql" | "fallback" = "sql";
   const pageSize = 500,
@@ -402,9 +452,11 @@ export async function fetchCanonicalAuditLogsAndCount(
     }
     if (!Array.isArray(data)) throw Error("অডিট খাতার উত্তর অসম্পূর্ণ।");
     for (const r of data as unknown as SystemAuditLogRecord[]) {
-      ids.delete(r.id);
-      if (r.metadata?.legacy_id) ids.delete(String(r.metadata.legacy_id));
-      oldKeys.delete(buildAuditSemanticKey(r));
+      if (!r?.id || seenSqlIds.has(r.id)) continue;
+      seenSqlIds.add(r.id);
+      if (r.metadata?.legacy_id) seenSqlIds.add(String(r.metadata.legacy_id));
+      const semKey = buildAuditSemanticKey(r);
+      if (semKey) sqlSemanticKeys.add(semKey);
       if (matches(r)) {
         count(r);
         if (sqlTop.length < limit) sqlTop.push(r);
@@ -412,22 +464,28 @@ export async function fetchCanonicalAuditLogsAndCount(
     }
     if (data.length < pageSize) break;
   }
-  const display = [...sqlTop];
+
+  // Deduplicate fallback rows against the full SQL stream (exact id, legacy_id, and semantic key)
+  const seenFallbackIds = new Set<string>();
+  const survivingFallback: SystemAuditLogRecord[] = [];
   for (const r of fallback) {
-    if (
-      !ids.delete(r.id) ||
-      (!isValidUuid(r.id) && !oldKeys.has(buildAuditSemanticKey(r))) ||
-      !matches(r)
-    )
+    if (!r?.id) continue;
+    if (seenSqlIds.has(r.id) || seenFallbackIds.has(r.id)) continue;
+    if (r.metadata?.legacy_id && seenSqlIds.has(String(r.metadata.legacy_id))) {
       continue;
+    }
+    const semKey = buildAuditSemanticKey(r);
+    if (semKey && sqlSemanticKeys.has(semKey)) continue;
+    seenFallbackIds.add(r.id);
+    if (!matches(r)) continue;
     count(r);
-    if (limit) display.push(r);
+    if (limit) survivingFallback.push(r);
   }
-  display.sort(
-    (a, b) =>
-      Date.parse(b.created_at) - Date.parse(a.created_at) ||
-      b.id.localeCompare(a.id),
-  );
+
+  const display = limit
+    ? mergeAndDeduplicateAuditLogs(sqlTop, survivingFallback, tenant)
+    : [];
+
   return {
     logs: display.slice(0, limit),
     totalCount: stats.total,

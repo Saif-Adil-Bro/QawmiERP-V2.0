@@ -26,6 +26,7 @@ export default function AssignTeacherSubjectForm({
   const unsavedRef = useRef(false);
   const preArmReleaseRef = useRef<(() => void) | null>(null);
   const hasUnsavedSelection = Boolean(selectedValue);
+  unsavedRef.current = hasUnsavedSelection;
 
   useEffect(() => {
     unsavedRef.current = hasUnsavedSelection;
@@ -38,7 +39,14 @@ export default function AssignTeacherSubjectForm({
 
   useEffect(() => {
     installGlobalSaveGuardListeners();
-    // The shared beforeunload handler owns the native browser prompt.
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!pendingRef.current && !unsavedRef.current && !hasActiveSaveGuards()) {
+        return undefined;
+      }
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    };
     const handleAnchorClickCapture = (e: MouseEvent) => {
       if (!pendingRef.current && !unsavedRef.current && !hasActiveSaveGuards()) return;
       const target = e.target as HTMLElement | null;
@@ -49,8 +57,10 @@ export default function AssignTeacherSubjectForm({
         setNavBlockedNotice(true);
       }
     };
+    window.addEventListener("beforeunload", handleBeforeUnload);
     document.addEventListener("click", handleAnchorClickCapture, true);
     return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("click", handleAnchorClickCapture, true);
       if (preArmReleaseRef.current) {
         preArmReleaseRef.current();

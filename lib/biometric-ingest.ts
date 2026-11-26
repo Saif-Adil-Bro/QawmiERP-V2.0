@@ -55,6 +55,33 @@ function audienceAllows(
   return true;
 }
 
+export function classifyExistingAttendanceForBiometric(row: {
+  status?: string | null;
+  leave_request_id?: string | null;
+}): "already_present" | "upgrade_to_present" | "leave_protected" | "conflict" {
+  const norm = String(row.status || "")
+    .trim()
+    .toLowerCase();
+  const hasLeave = Boolean(
+    row.leave_request_id && String(row.leave_request_id).trim(),
+  );
+  if (hasLeave || norm === "leave") {
+    return "leave_protected";
+  }
+  if (norm === "present" || norm === "late") {
+    return "already_present";
+  }
+  if (
+    norm === "" ||
+    norm === "pending" ||
+    norm === "unmarked" ||
+    norm === "absent"
+  ) {
+    return "upgrade_to_present";
+  }
+  return "conflict";
+}
+
 async function applyAttendanceFallback(
   tenant: string,
   mapping: Mapping,
@@ -62,18 +89,41 @@ async function applyAttendanceFallback(
 ): Promise<"created" | "already_present" | "conflict" | "error"> {
   const db = await createAdminClient();
   if (mapping.user_type === "student") {
+    const { data: studentRow, error: studentErr } = await db
+      .from("students")
+      .select("id")
+      .eq("madrasa_id", tenant)
+      .eq("id", mapping.target_id)
+      .maybeSingle();
+    if (studentErr || !studentRow) return "error";
+
     const { data: existing, error: readErr } = await db
       .from("attendance")
-      .select("id, status, leave_request_id")
-      .eq("madrasa_id", tenant)
+      .select("id, madrasa_id, status, leave_request_id")
       .eq("student_id", mapping.target_id)
       .eq("date", date)
+      .or(`madrasa_id.eq.${tenant},madrasa_id.is.null`)
       .maybeSingle();
     if (readErr) return "error";
     if (existing) {
-      if (existing.leave_request_id) return "conflict";
-      if (existing.status === "Present") return "already_present";
-      return "conflict";
+      const verdict = classifyExistingAttendanceForBiometric(existing);
+      if (verdict === "leave_protected" || verdict === "conflict") {
+        return "conflict";
+      }
+      if (verdict === "already_present") {
+        if (!existing.madrasa_id) {
+          await db
+            .from("attendance")
+            .update({ madrasa_id: tenant })
+            .eq("id", existing.id);
+        }
+        return "already_present";
+      }
+      const { error: updErr } = await db
+        .from("attendance")
+        .update({ status: "Present", madrasa_id: tenant })
+        .eq("id", existing.id);
+      return updErr ? "error" : "created";
     }
     const { error: insErr } = await db.from("attendance").insert({
       madrasa_id: tenant,
@@ -90,18 +140,41 @@ async function applyAttendanceFallback(
     return "created";
   }
 
+  const { data: teacherRow, error: teacherErr } = await db
+    .from("teachers")
+    .select("id")
+    .eq("madrasa_id", tenant)
+    .eq("id", mapping.target_id)
+    .maybeSingle();
+  if (teacherErr || !teacherRow) return "error";
+
   const { data: existing, error: readErr } = await db
     .from("teacher_attendance")
-    .select("id, status, leave_request_id")
-    .eq("madrasa_id", tenant)
+    .select("id, madrasa_id, status, leave_request_id")
     .eq("teacher_id", mapping.target_id)
     .eq("date", date)
+    .or(`madrasa_id.eq.${tenant},madrasa_id.is.null`)
     .maybeSingle();
   if (readErr) return "error";
   if (existing) {
-    if (existing.leave_request_id) return "conflict";
-    if (existing.status === "Present") return "already_present";
-    return "conflict";
+    const verdict = classifyExistingAttendanceForBiometric(existing);
+    if (verdict === "leave_protected" || verdict === "conflict") {
+      return "conflict";
+    }
+    if (verdict === "already_present") {
+      if (!existing.madrasa_id) {
+        await db
+          .from("teacher_attendance")
+          .update({ madrasa_id: tenant })
+          .eq("id", existing.id);
+      }
+      return "already_present";
+    }
+    const { error: updErr } = await db
+      .from("teacher_attendance")
+      .update({ status: "Present", madrasa_id: tenant })
+      .eq("id", existing.id);
+    return updErr ? "error" : "created";
   }
   const { error: insErr } = await db.from("teacher_attendance").insert({
     madrasa_id: tenant,
@@ -130,7 +203,31 @@ async function postFallback(
   const devices: Device[] = Array.isArray(meta.biometric_devices)
     ? meta.biometric_devices
     : [];
-  const dev = devices.find((d) => d.id === deviceId);
+  const existingLogs = uniquePunchLogs(
+    Array.isArray(meta.biometric_logs) ? meta.biometric_logs : [],
+  );
+  const matchedDev = devices.find((d) => d.id === deviceId);
+  const replayLogMeta = replay
+    ? existingLogs.find((l) => l.id === replay.id && l.device_id === deviceId)
+    : undefined;
+  const dev: Device | undefined =
+    matchedDev ||
+    (replay
+      ? ({
+          id: deviceId,
+          madrasa_id: tenant,
+          name: replayLogMeta?.device_name || deviceId,
+          device_model: "Custom",
+          serial_number: "",
+          protocol: "offline_usb",
+          target_audience: "all",
+          status: "active",
+          secret_token: "",
+          total_punches_count: 0,
+          created_at: "",
+          updated_at: "",
+        } as Device)
+      : undefined);
   if (!dev) throw Error("ডিভাইসটি পাওয়া যায়নি।");
   if (credential) {
     if (dev.status !== "active") throw Error("ডিভাইসটি সক্রিয় নয়।");
@@ -143,9 +240,6 @@ async function postFallback(
   const mappings: Mapping[] = Array.isArray(meta.biometric_mappings)
     ? meta.biometric_mappings
     : [];
-  const existingLogs = uniquePunchLogs(
-    Array.isArray(meta.biometric_logs) ? meta.biometric_logs : [],
-  );
   const seenKeys = new Set<string>(
     existingLogs
       .filter((l) => l.device_id === deviceId && (!replay || l.id !== replay.id))

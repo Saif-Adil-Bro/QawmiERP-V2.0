@@ -6,7 +6,11 @@ import {
   normalizeBengaliTeacherName,
   resolveTeacherIdentity,
 } from "@/lib/teacher-identity";
-import { emptyAuditStats } from "@/lib/audit-log";
+import {
+  emptyAuditStats,
+  mergeAndDeduplicateAuditLogs,
+  type SystemAuditLogRecord,
+} from "@/lib/audit-log";
 import {
   normalizeBengaliSearchText,
   normalizeStudentFeeFilterParam,
@@ -92,6 +96,51 @@ describe("FOLLOWUP 6 — Priority 2 Audit Count Parity & N9 Events", () => {
     expect(stats.moduleCounts).toEqual({});
   });
 
+  it("deduplicates migrated SQL + fallback rows by legacy_id (44 real vs 88 double-counted)", () => {
+    const fallbackRows: SystemAuditLogRecord[] = Array.from({ length: 44 }, (_, i) => ({
+      id: `legacy-audit-${i + 1}`,
+      madrasa_id: "madrasa-1",
+      module: "fees",
+      action: "MONTHLY_FEES_GENERATED",
+      entity_id: `2026-${String((i % 12) + 1).padStart(2, "0")}`,
+      summary: `Batch #${i + 1}`,
+      severity: "INFO",
+      created_at: `2026-11-20T08:${String(i % 60).padStart(2, "0")}:00.000Z`,
+    }));
+
+    const sqlRows: SystemAuditLogRecord[] = fallbackRows.map((fb, i) => ({
+      ...fb,
+      id: `10000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+      metadata: { legacy_id: fb.id },
+    }));
+
+    const merged = mergeAndDeduplicateAuditLogs(sqlRows, fallbackRows, "madrasa-1");
+    expect(merged).toHaveLength(44);
+    expect(merged.every((r) => r.id.startsWith("10000000-"))).toBe(true);
+  });
+
+  it("deduplicates SQL + fallback duplicates semantically even when legacy_id is absent", () => {
+    const sqlRow: SystemAuditLogRecord = {
+      id: "20000000-0000-4000-8000-000000000001",
+      madrasa_id: "madrasa-1",
+      module: "finance",
+      action: "DONATION_RECEIPT_CREATED",
+      entity_id: "don-42",
+      summary: "দান-রসিদ তৈরি: ZR-2026-0042",
+      severity: "INFO",
+      created_at: "2026-11-23T06:15:10.120Z",
+    };
+    const fallbackDup: SystemAuditLogRecord = {
+      ...sqlRow,
+      id: "fb-audit-don-42",
+      created_at: "2026-11-23T06:15:10.890Z",
+    };
+
+    const merged = mergeAndDeduplicateAuditLogs([sqlRow], [fallbackDup], "madrasa-1");
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe(sqlRow.id);
+  });
+
   it("uses shared canonical audit counter in both Audit Logs & Backup stats and logs N9 events", () => {
     const auditSrc = readSource("app/actions/system-audit.ts");
     const backupSrc = readSource("app/actions/backup.ts");
@@ -118,12 +167,16 @@ describe("FOLLOWUP 6 — Priority 3 (S2) Save Protection & Keepalive API", () =>
     expect(apiSrc).toContain("removeSubjectFromTeacher");
   });
 
-  it("uses keepalive: true & acquireSaveGuard in teacher subject forms", () => {
+  it("uses keepalive: true, beforeunload & acquireSaveGuard in teacher & class subject forms", () => {
     const assignSrc = readSource("app/dashboard/teachers/[id]/subjects/AssignTeacherSubjectForm.tsx");
+    const classSubjectsSrc = readSource("app/dashboard/classes/[id]/subjects/ClassSubjectsManager.tsx");
     const removeSrc = readSource("app/dashboard/teachers/[id]/subjects/RemoveTeacherSubjectButton.tsx");
 
     expect(assignSrc).toContain("keepalive: true");
+    expect(assignSrc).toContain("beforeunload");
     expect(assignSrc).toContain("acquireSaveGuard");
+    expect(classSubjectsSrc).toContain("beforeunload");
+    expect(classSubjectsSrc).toContain("acquireSaveGuard");
     expect(removeSrc).toContain("keepalive: true");
     expect(removeSrc).toContain("বিষয় বরাদ্দ বাতিল করুন");
   });
@@ -190,6 +243,7 @@ describe("FOLLOWUP 6 — DEC-1 Hybrid Automation Scheduler (Vercel Hobby + GitHu
     expect(schedSrc).toContain("runMasterCronDispatch");
     expect(actionsSrc).toContain("getSchedulerHealthAction");
     expect(actionsSrc).toContain("runMasterDispatcherNowAction");
+    expect(uiSrc).toContain("scheduler-health-card");
     expect(uiSrc).toContain("শিডিউলার চেক চালান");
   });
 });

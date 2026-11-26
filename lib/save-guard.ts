@@ -19,6 +19,8 @@ export function hasActiveSaveGuards(): boolean {
   return Boolean(set && set.size > 0);
 }
 
+let listenerAttached = false;
+
 function beforeUnloadHandler(event: BeforeUnloadEvent): string | undefined {
   if (!hasActiveSaveGuards()) return undefined;
   event.preventDefault();
@@ -30,19 +32,27 @@ function beforeUnloadHandler(event: BeforeUnloadEvent): string | undefined {
 function syncWindowOnBeforeUnload() {
   if (typeof window === "undefined") return;
   if (hasActiveSaveGuards()) {
+    if (!listenerAttached) {
+      window.addEventListener("beforeunload", beforeUnloadHandler);
+      listenerAttached = true;
+    }
     window.onbeforeunload = beforeUnloadHandler;
-  } else if (window.onbeforeunload === beforeUnloadHandler) {
-    window.onbeforeunload = null;
+  } else {
+    if (listenerAttached) {
+      window.removeEventListener("beforeunload", beforeUnloadHandler);
+      listenerAttached = false;
+    }
+    if (window.onbeforeunload === beforeUnloadHandler) {
+      window.onbeforeunload = null;
+    }
   }
 }
 
 export function installGlobalSaveGuardListeners(): () => void {
   if (typeof window === "undefined") return () => {};
   getTokenSet();
-  // Install only while an actual write is outstanding (also preserves bfcache).
   syncWindowOnBeforeUnload();
   return () => {
-    // Keep global window listener registered for the lifetime of the SPA session
     syncWindowOnBeforeUnload();
   };
 }

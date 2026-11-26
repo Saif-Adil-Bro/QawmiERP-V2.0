@@ -266,7 +266,11 @@ export default function AutomationSettingsClient({ initialRules, initialLogs, in
       </div>
 
       {readError && <p role="alert" className="rounded-lg border border-rose-200 p-3 text-rose-800">{readError}</p>}
-      <section aria-label="শিডিউলার হার্টবিট" className="rounded-xl border border-slate-200 p-4 text-sm space-y-1">
+      <section
+        data-testid="scheduler-health-card"
+        aria-label="শিডিউলার হার্টবিট"
+        className="rounded-xl border border-slate-200 p-4 text-sm space-y-1"
+      >
         <h2 className="font-bold">শিডিউলার হার্টবিট</h2>
         {!heartbeat?.lastTickAt ? <p>ডিসপ্যাচার চলার প্রমাণ এখনো নেই। হোস্ট ও cron ট্রিগার যাচাই করুন।</p> : <>
           <p>শেষ ডিসপ্যাচ: {formatBdtDateTime(heartbeat.lastTickAt)} ({heartbeat.lastTriggerSource})। শেষ সফল ডিসপ্যাচ: {formatBdtDateTime(heartbeat.lastSuccessAt)}।</p>

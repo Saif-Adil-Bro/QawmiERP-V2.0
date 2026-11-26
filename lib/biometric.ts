@@ -219,6 +219,52 @@ export function uniquePunchLogs(logs: BiometricPunchLog[]) {
 }
 
 /**
+ * Computes device punch counters and today's unique punch counter from the exact same
+ * deduplicated punch stream (`uniquePunchLogs`) rendered on the Biometric Logs tab.
+ */
+export function computeUnifiedBiometricPunchCounters(
+  pgLogs: BiometricPunchLog[],
+  legacyLogs: BiometricPunchLog[],
+  todayDhaka: string,
+) {
+  const unifiedLogs = uniquePunchLogs([...(pgLogs || []), ...(legacyLogs || [])]).sort(
+    (a, b) =>
+      Date.parse(b.punch_time) - Date.parse(a.punch_time) ||
+      (a.id > b.id ? -1 : 1),
+  );
+  const deviceCounts = new Map<string, number>();
+  const unverifiedCounts = new Map<string, number>();
+  let totalPunchesToday = 0;
+
+  for (const log of unifiedLogs) {
+    deviceCounts.set(log.device_id, (deviceCounts.get(log.device_id) || 0) + 1);
+    const verified = historicalPunch(log);
+    if (!verified) {
+      unverifiedCounts.set(
+        log.device_id,
+        (unverifiedCounts.get(log.device_id) || 0) + 1,
+      );
+    }
+    const effectiveDate =
+      verified?.date ||
+      log.punch_date ||
+      (Number.isFinite(Date.parse(log.punch_time))
+        ? toDhakaDateString(new Date(log.punch_time))
+        : "");
+    if (effectiveDate === todayDhaka) {
+      totalPunchesToday++;
+    }
+  }
+
+  return {
+    unifiedLogs,
+    deviceCounts,
+    unverifiedCounts,
+    totalPunchesToday,
+  };
+}
+
+/**
  * Generate a random secure token for device authentication
  */
 export function generateDeviceToken(prefix: string = "bio"): string {

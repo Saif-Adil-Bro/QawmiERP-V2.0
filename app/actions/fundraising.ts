@@ -609,6 +609,7 @@ export async function saveMahfilTransaction(mahfilId: string, txn: Partial<Mahfi
     if (!(bdtPoisha(txn.amount) ?? 0)) return {error:"লেনদেনের অঙ্ক সঠিক নয়।"};
     if (txn.id && [...(targetMahfil.settlements || []),targetMahfil.settlement].some(s=>s?.mahfil_txn_id===txn.id)) return {error:"সমন্বিত ভাউচার আলাদাভাবে বদলানো যাবে না।"};
     const txns = targetMahfil.transactions || [];
+    let createdIncomeTxn: MahfilTransaction | null = null;
     if (txn.id) {
       const idx = txns.findIndex((t: MahfilTransaction) => t.id === txn.id);
       if (idx !== -1) {
@@ -633,6 +634,9 @@ export async function saveMahfilTransaction(mahfilId: string, txn: Partial<Mahfi
         voucher_no: txn.voucher_no || "",
       };
       txns.unshift(newTxn);
+      if (newTxn.type === "INCOME") {
+        createdIncomeTxn = newTxn;
+      }
     }
 
     targetMahfil.transactions = txns;
@@ -640,6 +644,26 @@ export async function saveMahfilTransaction(mahfilId: string, txn: Partial<Mahfi
 
     meta.mahfils = mahfils;
     await replaceSources(activeMadrasaId,before,meta);
+
+    if (createdIncomeTxn) {
+      await logAuditEvent({
+        madrasaId: activeMadrasaId,
+        module: "finance",
+        action: "DONATION_RECEIPT_CREATED",
+        entityType: "mahfil_donation",
+        entityId: createdIncomeTxn.id,
+        entityLabel: createdIncomeTxn.receipt_no || createdIncomeTxn.voucher_no || createdIncomeTxn.id,
+        summary: `মাহফিল অনুদান রসিদ তৈরি (${targetMahfil.title || "মাহফিল"}): ৳${createdIncomeTxn.amount}`,
+        newValue: {
+          id: createdIncomeTxn.id,
+          amount: createdIncomeTxn.amount,
+          receipt_no: createdIncomeTxn.receipt_no,
+          voucher_no: createdIncomeTxn.voucher_no,
+          category: createdIncomeTxn.category,
+        },
+        metadata: { source: "mahfil_income", mahfil_id: mahfilId },
+      });
+    }
 
     try {
       revalidatePath(`/dashboard/fundraising/mahfil/${mahfilId}`);

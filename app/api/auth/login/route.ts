@@ -129,7 +129,11 @@ export async function POST(req: NextRequest) {
 
     const login = await completeAppLogin(supabase, data.session, "web", remember, req.headers);
     if (!login.ok) {
-      await recordFailedLogin(targetEmail,"web",matchedStudent?.madrasa_id);
+      await recordFailedLogin(
+        targetEmail,
+        "web",
+        matchedStudent?.madrasa_id || (data.user.user_metadata?.madrasa_id as string | undefined),
+      );
       return NextResponse.json({ error: login.message }, { status: login.status, headers: privateResponseHeaders });
     }
     const {perms:ctx} = login;

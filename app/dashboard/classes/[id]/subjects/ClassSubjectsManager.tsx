@@ -164,6 +164,8 @@ export default function ClassSubjectsManager({
   };
 
   // S2 (R1 / B25) ফিক্স: অসংরক্ষিত ড্রপডাউন নির্বাচন ও চলমান সেভ উভয় অবস্থাতেই beforeunload গার্ড সক্রিয় রাখা
+  unsavedRef.current = hasUnsavedSelection;
+
   useEffect(() => {
     unsavedRef.current = hasUnsavedSelection;
     if (!hasUnsavedSelection) return;
@@ -176,7 +178,14 @@ export default function ClassSubjectsManager({
   useEffect(() => {
     installGlobalSaveGuardListeners();
 
-    // The shared beforeunload handler owns the native browser prompt.
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!pendingRef.current && !unsavedRef.current && !hasActiveSaveGuards()) {
+        return undefined;
+      }
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    };
     const handleClickCapture = (e: MouseEvent) => {
       if (!pendingRef.current && !unsavedRef.current && !hasActiveSaveGuards()) return;
       const target = e.target as HTMLElement | null;
@@ -192,8 +201,10 @@ export default function ClassSubjectsManager({
         });
       }
     };
+    window.addEventListener("beforeunload", handleBeforeUnload);
     window.addEventListener("click", handleClickCapture, { capture: true });
     return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("click", handleClickCapture, { capture: true });
       disarmSaveGuard();
     };
