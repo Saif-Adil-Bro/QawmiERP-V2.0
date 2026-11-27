@@ -357,8 +357,8 @@ export function normalizeStudentIdCode(rawInput?: any, fallbackCounter = 1): str
     return String(480000 + cnt);
   }
 
-  // Strip prefixes like QM-, CERT-, STU-, ID-, etc.
-  const clean = str.replace(/^(QM-|CERT-|STU-|ID-)/i, "").trim();
+  // Strip single or chained prefixes like QM-, CERT-, STU-, ID-, AHM-MUSE-, etc.
+  const clean = str.replace(/^(?:[A-Za-z][A-Za-z0-9]{0,7}-)+/i, "").trim();
 
   // If already exactly a 6-digit number starting with 480 (e.g. 480001, 480011)
   if (/^480\d+$/.test(clean)) {

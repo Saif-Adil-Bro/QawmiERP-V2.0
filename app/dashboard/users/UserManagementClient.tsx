@@ -49,6 +49,7 @@ import {
 } from "@/lib/permissions";
 import { toBanglaNumber } from "@/lib/numberToBangla";
 import { getStudentIdNumber, convertToBanglaNumber } from "@/lib/student-utils";
+import { resolveMadrasaPrefix } from "@/lib/madrasa-prefix";
 import RoleManagementView from "@/components/permissions/RoleManagementView";
 import UserSecurityModal from "@/components/permissions/UserSecurityModal";
 import ApprovalsCenterView from "@/components/permissions/ApprovalsCenterView";
@@ -103,7 +104,7 @@ export default function UserManagementClient({
   initialSecurityProfiles = {},
   madrasaInfo,
 }: Props) {
-  const madrasaPrefix = (madrasaInfo?.prefix || madrasaInfo?.short_code || "AHH").trim().toUpperCase();
+  const madrasaPrefix = resolveMadrasaPrefix(madrasaInfo);
 
   // Navigation Section Tabs
   const [sectionTab, setSectionTab] = useState<"accounts" | "roles" | "approvals" | "audit">("accounts");

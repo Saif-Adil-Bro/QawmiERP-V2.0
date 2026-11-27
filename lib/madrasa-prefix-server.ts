@@ -1,5 +1,47 @@
 import { createAdminClient } from "@/lib/supabase/server";
-import { extractMadrasaPrefix, generateSuggestedPrefix, findUniquePrefix } from "./madrasa-prefix";
+import {
+  extractMadrasaPrefix,
+  extractSavedMadrasaPrefix,
+  generateSuggestedPrefix,
+  findUniquePrefix,
+  resolveMadrasaPrefix,
+} from "./madrasa-prefix";
+
+/**
+ * Resolves a single tenant's prefix on the server in strict priority order:
+ * 1. Saved prefix (metadata id_prefix / prefix / short_code / madrasa_info.prefix / registration_no)
+ * 2. Derived from that madrasah's own name
+ * 3. Neutral generic default ("QM")
+ */
+export async function getMadrasaPrefixById(
+  madrasaId?: string | null,
+  meta?: any,
+  dbClient?: any
+): Promise<string> {
+  const fromMeta = extractSavedMadrasaPrefix(meta);
+  if (fromMeta) return fromMeta;
+
+  if (madrasaId) {
+    try {
+      const db = dbClient || (await createAdminClient());
+      const { data: madrasaRow } = await db
+        .from("madrasas")
+        .select("*")
+        .eq("id", madrasaId)
+        .maybeSingle();
+      if (madrasaRow) {
+        return resolveMadrasaPrefix(
+          { ...madrasaRow, metadata: meta || (madrasaRow as any).metadata },
+          madrasaRow.name || meta?.name || ""
+        );
+      }
+    } catch {
+      // Fall through to metadata/name/QM resolution
+    }
+  }
+
+  return resolveMadrasaPrefix(meta);
+}
 
 /**
  * Fetches all existing prefixes across all madrasas in the database.

@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
         await recordFailedLogin(rawIdentifier,"web");
         return NextResponse.json(
           {
-            error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: MUSE-480004 বা 480001) অথবা ইমেইল প্রদান করুন।`,
+            error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: QM-480001 বা 480001) অথবা ইমেইল প্রদান করুন।`,
           },
           { status: 404 }
         );

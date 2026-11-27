@@ -398,7 +398,23 @@ export function hydrateStudentWithMetadata(student: any, meta: any) {
     blood_group: profile.blood_group || student.blood_group || admission?.blood_group || "",
     date_of_birth: profile.date_of_birth || student.date_of_birth || admission?.date_of_birth || "",
     gender: profile.gender || student.gender || admission?.gender || "",
-    madrasa_prefix: meta?.prefix || meta?.short_code || student.madrasa_prefix || "",
-    prefix: meta?.prefix || meta?.short_code || student.prefix || "",
+    madrasa_prefix:
+      meta?.id_prefix ||
+      meta?.prefix ||
+      meta?.short_code ||
+      meta?.madrasa_info?.id_prefix ||
+      meta?.madrasa_info?.prefix ||
+      meta?.madrasa_info?.short_code ||
+      student.madrasa_prefix ||
+      "",
+    prefix:
+      meta?.id_prefix ||
+      meta?.prefix ||
+      meta?.short_code ||
+      meta?.madrasa_info?.id_prefix ||
+      meta?.madrasa_info?.prefix ||
+      meta?.madrasa_info?.short_code ||
+      student.prefix ||
+      "",
   };
 }

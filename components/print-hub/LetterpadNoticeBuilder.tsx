@@ -1,6 +1,7 @@
 "use client";
 
 import { toDhakaDateString } from "@/lib/date-utils";
+import { resolveMadrasaPrefix } from "@/lib/madrasa-prefix";
 import React, { useState, useEffect } from "react";
 import {
   FileText,
@@ -154,7 +155,7 @@ export default function LetterpadNoticeBuilder({ madrasaInfo }: LetterpadNoticeB
   const mAddress = madrasaInfo?.address || "কাতিয়ারচর, কিশোরগঞ্জ সদর, কিশোরগঞ্জ।";
   const mPhone = madrasaInfo?.phone || madrasaInfo?.contact_phone || "+8801749424277";
   const logoUrl = madrasaInfo?.logo_url || "";
-  const prefix = madrasaInfo?.prefix || "AHM";
+  const prefix = resolveMadrasaPrefix(madrasaInfo);
 
   // Template States
   const [selectedPresetId, setSelectedPresetId] = useState("general_notice");

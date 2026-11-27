@@ -1,4 +1,8 @@
-import { extractMadrasaPrefix, formatStudentIdWithPrefix } from "./madrasa-prefix";
+import {
+  extractMadrasaPrefix,
+  formatStudentIdWithPrefix,
+  normalizeStudentIdWithPrefix,
+} from "./madrasa-prefix";
 
 /**
  * Centralized utilities for student calculations and formatting.
@@ -12,38 +16,37 @@ let cachedClientIdYearFormat: IdYearFormat = "hijri";
 
 /**
  * Register or update the active madrasa prefix globally in memory & localStorage.
+ * Client-only: never mutates module state on the server where multiple tenants share a process.
  */
 export function setActiveMadrasaPrefix(prefix: string | null | undefined) {
+  if (typeof window === "undefined") return;
   if (prefix && typeof prefix === "string") {
     const clean = prefix.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (clean) {
       cachedClientMadrasaPrefix = clean;
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("active_madrasa_prefix", clean);
-        } catch {}
-      }
+      try {
+        localStorage.setItem("active_madrasa_prefix", clean);
+      } catch {}
     }
   }
 }
 
 /**
- * Retrieve the current active madrasa prefix.
+ * Retrieve the current active madrasa prefix (client-only).
  */
 export function getActiveMadrasaPrefix(): string {
+  if (typeof window === "undefined") return "";
   if (cachedClientMadrasaPrefix) return cachedClientMadrasaPrefix;
-  if (typeof window !== "undefined") {
-    try {
-      const stored =
-        localStorage.getItem("active_madrasa_prefix") ||
-        localStorage.getItem("pad_madrasa_prefix") ||
-        localStorage.getItem("madrasa_prefix");
-      if (stored) {
-        cachedClientMadrasaPrefix = stored.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-        return cachedClientMadrasaPrefix;
-      }
-    } catch {}
-  }
+  try {
+    const stored =
+      localStorage.getItem("active_madrasa_prefix") ||
+      localStorage.getItem("pad_madrasa_prefix") ||
+      localStorage.getItem("madrasa_prefix");
+    if (stored) {
+      cachedClientMadrasaPrefix = stored.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+      return cachedClientMadrasaPrefix;
+    }
+  } catch {}
   return "";
 }
 
@@ -136,16 +139,7 @@ export function getStudentIdNumber(
   );
 
   const normalizeExplicit = (raw: string): string => {
-    const cleanId = raw.trim().toUpperCase();
-    if (prefix) {
-      if (cleanId.startsWith(`${prefix}-`)) return cleanId;
-      if (cleanId.startsWith(prefix)) {
-        const remainder = cleanId.slice(prefix.length).replace(/^-+/, "");
-        return remainder ? `${prefix}-${remainder}` : cleanId;
-      }
-      return `${prefix}-${cleanId.replace(/^-+/, "")}`;
-    }
-    return cleanId;
+    return normalizeStudentIdWithPrefix(raw, prefix);
   };
 
   // Check if explicitId is duplicated by an earlier student in allStudents

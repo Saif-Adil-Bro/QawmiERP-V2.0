@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { StudentIDCard, normalizeStudentIdCode, IDCardFieldVisibility } from "@/lib/id-card-management";
 import { getActiveMadrasaPrefix } from "@/lib/student-utils";
-import { extractMadrasaPrefix } from "@/lib/madrasa-prefix";
+import { extractMadrasaPrefix, normalizeStudentIdWithPrefix } from "@/lib/madrasa-prefix";
 import { IdCard, Phone } from "lucide-react";
 
 export type IDCardTemplateType =
@@ -321,25 +321,13 @@ export default function StudentIdCardTemplate({
 
   let studentIdCode = "";
   if (snapshot.student_id_code && typeof snapshot.student_id_code === "string" && snapshot.student_id_code.trim()) {
-    const raw = snapshot.student_id_code.trim().toUpperCase();
-    const cleanNumber = raw.replace(/^(QM-|CERT-|STU-|ID-)/i, "");
-    if (madrasaPrefix) {
-      studentIdCode = cleanNumber.startsWith(madrasaPrefix) ? cleanNumber : `${madrasaPrefix}${cleanNumber}`;
-    } else {
-      studentIdCode = cleanNumber;
-    }
+    studentIdCode = normalizeStudentIdWithPrefix(snapshot.student_id_code, madrasaPrefix);
   } else if (card.card_number && typeof card.card_number === "string" && card.card_number.trim()) {
-    const raw = card.card_number.trim().toUpperCase();
-    const cleanNumber = raw.replace(/^(QM-|CERT-|STU-|ID-)/i, "");
-    if (madrasaPrefix) {
-      studentIdCode = cleanNumber.startsWith(madrasaPrefix) ? cleanNumber : `${madrasaPrefix}${cleanNumber}`;
-    } else {
-      studentIdCode = cleanNumber;
-    }
+    studentIdCode = normalizeStudentIdWithPrefix(card.card_number, madrasaPrefix);
   } else {
     const rawStudentId = card.student_number || snapshot.roll_number || "480001";
     const clean = normalizeStudentIdCode(rawStudentId, 1);
-    studentIdCode = madrasaPrefix ? `${madrasaPrefix}${clean}` : clean;
+    studentIdCode = normalizeStudentIdWithPrefix(clean, madrasaPrefix);
   }
 
   const className = snapshot.class_name || "—";

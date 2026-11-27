@@ -121,6 +121,18 @@ export async function linkedStudents(i: Identity, requested?: string | null) {
     ids = previewRows.map((r: any) => r.id).filter(Boolean);
   }
   const meta = await getMadrasaMetadata(i.tenant, true);
+  const { getMadrasaPrefixById } = await import("@/lib/madrasa-prefix-server");
+  const { getStudentIdNumber } = await import("@/lib/student-utils");
+  const prefix = await getMadrasaPrefixById(i.tenant, meta, i.db);
+  const allTenantStudents = ids.length
+    ? await rows(() =>
+        i.db
+          .from("students")
+          .select("id, created_at")
+          .eq("madrasa_id", i.tenant)
+          .order("created_at", { ascending: true }),
+      )
+    : [];
   const students = !ids.length
     ? []
     : (
@@ -132,8 +144,23 @@ export async function linkedStudents(i: Identity, requested?: string | null) {
             .in("id", ids)
             .order("roll_number"),
         )
-      ).map((s) => hydrateStudentWithMetadata(s, meta));
-  return { students, child: selected(students, requested), meta };
+      )
+        .map((s) => hydrateStudentWithMetadata(s, meta))
+        .map((s) => {
+          const computedId = getStudentIdNumber(
+            s,
+            allTenantStudents.length ? allTenantStudents : [s],
+            prefix,
+          );
+          return {
+            ...s,
+            madrasa_prefix: prefix,
+            prefix,
+            student_id: computedId,
+            student_id_formatted: computedId,
+          };
+        });
+  return { students, child: selected(students, requested), meta, madrasaPrefix: prefix };
 }
 
 // Authenticated identity and administrator-maintained links only. A name, partial phone, or
@@ -406,7 +433,8 @@ export async function teacherStudents(
       .order("created_at", { ascending: true }),
   );
   const { getStudentIdNumber } = await import("@/lib/student-utils");
-  const prefix = scope.meta?.id_prefix || "MUSE";
+  const { getMadrasaPrefixById } = await import("@/lib/madrasa-prefix-server");
+  const prefix = await getMadrasaPrefixById(i.tenant, scope.meta, i.db);
   const classMap = new Map<string, string>(
     scope.classes.map((c: any) => [String(c.id), String(c.name || "")])
   );
@@ -424,15 +452,11 @@ export async function teacherStudents(
     .filter((s) => ["ACTIVE", "IRREGULAR"].includes(s.student_status))
     .map((s) => {
       // School directory fields only. Do not serialize financial, medical or ID-document metadata to Teacher clients.
-      const rawId =
-        s.student_id_formatted ||
-        s.student_id ||
-        getStudentIdNumber(s, allTenantStudents.length ? allTenantStudents : [s], prefix);
-      const cleanPrefix = String(prefix).replace(/[-_\s]+$/g, "").toUpperCase();
-      const computedId =
-        rawId && cleanPrefix && /^\d+$/.test(String(rawId).trim())
-          ? `${cleanPrefix}-${String(rawId).trim()}`
-          : rawId;
+      const computedId = getStudentIdNumber(
+        s,
+        allTenantStudents.length ? allTenantStudents : [s],
+        prefix,
+      );
       const resolvedClassName =
         (Array.isArray(s.classes) ? s.classes[0]?.name : s.classes?.name) ||
         s.class_name ||

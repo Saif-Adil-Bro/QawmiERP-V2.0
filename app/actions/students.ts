@@ -13,7 +13,8 @@ import {
   ExtendedStudentProfile,
   hydrateStudentWithMetadata,
 } from "@/lib/sessions";
-import { getStudentIdNumber, generateNextUniqueStudentId, isUuid, getActiveMadrasaPrefix } from "@/lib/student-utils";
+import { getStudentIdNumber, generateNextUniqueStudentId, isUuid } from "@/lib/student-utils";
+import { getMadrasaPrefixById } from "@/lib/madrasa-prefix-server";
 
 export async function getStudents() {
   try {
@@ -72,18 +73,15 @@ export async function getStudents() {
       const madrasaId = rawStudents[0]?.madrasa_id || (await getAuthMadrasaId(supabase));
       if (madrasaId) {
         const meta = await getMadrasaMetadata(madrasaId);
-        const prefix = getActiveMadrasaPrefix() || (meta as any)?.id_prefix || meta?.madrasa_info?.prefix || "MUSE";
+        const prefix = await getMadrasaPrefixById(madrasaId, meta);
         const hydrated = rawStudents.map((std: any) => hydrateStudentWithMetadata(std, meta));
         return hydrated.map((st: any) => {
-          const officialId = getStudentIdNumber(st, hydrated, prefix);
-          const cleanPrefix = prefix.replace(/[-_\s]+$/, "").toUpperCase();
-          const formattedId =
-            cleanPrefix && !officialId.toUpperCase().startsWith(cleanPrefix)
-              ? `${cleanPrefix}-${officialId}`
-              : officialId;
+          const formattedId = getStudentIdNumber(st, hydrated, prefix);
           return maskStudentSensitiveFields(
             {
               ...st,
+              madrasa_prefix: prefix,
+              prefix,
               student_id: formattedId,
               student_id_formatted: formattedId,
             },
@@ -95,18 +93,15 @@ export async function getStudents() {
       console.warn("Hydrate students metadata warning:", hydrateErr);
     }
 
-    const fallbackPrefix = getActiveMadrasaPrefix() || "MUSE";
+    const fallbackPrefix = await getMadrasaPrefixById(rawStudents[0]?.madrasa_id);
     return rawStudents.map((st: any) => {
-      const officialId = getStudentIdNumber(st, rawStudents, fallbackPrefix);
-      const cleanPrefix = fallbackPrefix.replace(/[-_\s]+$/, "").toUpperCase();
-      const formattedId =
-        cleanPrefix && !officialId.toUpperCase().startsWith(cleanPrefix)
-          ? `${cleanPrefix}-${officialId}`
-          : officialId;
+      const formattedId = getStudentIdNumber(st, rawStudents, fallbackPrefix);
       return maskStudentSensitiveFields(
         {
           ...st,
-          student_id: (!st.student_id || isUuid(st.student_id)) ? formattedId : st.student_id,
+          madrasa_prefix: fallbackPrefix,
+          prefix: fallbackPrefix,
+          student_id: (!st.student_id || isUuid(st.student_id)) ? formattedId : formattedId,
           student_id_formatted: formattedId,
         },
         maskingCtx.allowUnmasked
@@ -166,7 +161,16 @@ export async function getStudentById(id: string) {
         const mId = student.madrasa_id || (await getAuthMadrasaId(supabase));
         if (mId) {
           const meta = await getMadrasaMetadata(mId);
+          const prefix = await getMadrasaPrefixById(mId, meta);
           student = hydrateStudentWithMetadata(student, meta);
+          const formattedId = getStudentIdNumber(student, undefined, prefix);
+          student = {
+            ...student,
+            madrasa_prefix: prefix,
+            prefix,
+            student_id: formattedId,
+            student_id_formatted: formattedId,
+          };
         }
       } catch (metaErr) {
         console.warn("Hydrate student metadata warning:", metaErr);
@@ -558,7 +562,7 @@ export async function createStudent(prevState: any, formData: FormData) {
         .from("students")
         .select("id, created_at")
         .eq("madrasa_id", finalMadrasaId);
-      const prefix = getActiveMadrasaPrefix() || meta?.madrasa_info?.prefix || "";
+      const prefix = await getMadrasaPrefixById(finalMadrasaId, meta, adminForIds);
       const usedIds = new Set<string>();
       Object.values(meta.student_profiles).forEach((p: any) => {
         const existingCode = p?.student_id_formatted || p?.student_id;
@@ -885,7 +889,7 @@ export async function updateStudent(prevState: any, formData: FormData) {
           .from("students")
           .select("id, created_at")
           .eq("madrasa_id", madrasaId);
-        const prefix = getActiveMadrasaPrefix() || meta?.madrasa_info?.prefix || "";
+        const prefix = await getMadrasaPrefixById(madrasaId, meta, adminForIds);
         safeOldId = generateNextUniqueStudentId(
           allMadrasaStudents || [{ id, created_at: new Date().toISOString() }],
           { id, created_at: (existingProfile as any).created_at || new Date().toISOString() },
@@ -1393,7 +1397,7 @@ export async function bulkCreateStudents(
       const sessions = meta.sessions || [];
       const currentSession = sessions.find((s) => s.is_current) || sessions[0];
       const enrollments = meta.enrollments || [];
-      const prefix = getActiveMadrasaPrefix() || meta?.madrasa_info?.prefix || "";
+      const prefix = await getMadrasaPrefixById(finalMadrasaId, meta, adminClient);
 
       // Fetch all students for standard ID formatting calculation
       const { data: allMadrasaStudents } = await adminClient

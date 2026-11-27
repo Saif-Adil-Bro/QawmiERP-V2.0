@@ -7,7 +7,7 @@ export const getPortalStudentData = cache(
   async (requestedStudentId?: string) => {
     const i = await webIdentity();
     if (!i || !hasRole(i, [...studentRoles, "super_admin", "admin", "muhtamim"])) return null;
-    const { students, child, meta } = await linkedStudents(
+    const { students, child, meta, madrasaPrefix } = await linkedStudents(
       i,
       requestedStudentId,
     );
@@ -18,7 +18,7 @@ export const getPortalStudentData = cache(
       user: i.user,
       userData: i.userRow,
       madrasaId: i.tenant,
-      madrasaPrefix: meta.prefix || meta.short_code || "",
+      madrasaPrefix: madrasaPrefix || meta.id_prefix || meta.prefix || meta.short_code || "",
       adminClient: i.db,
       supabase: await createClient(),
     };

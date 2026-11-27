@@ -9,6 +9,7 @@ import {
   checkPrefixAvailabilityAction 
 } from "@/app/actions/tenant";
 import { uploadImageAuto } from "@/lib/uploadHelper";
+import { resolveMadrasaPrefix } from "@/lib/madrasa-prefix";
 import { 
   Building2, MapPin, Phone, Mail, Upload, Loader2, CheckCircle, 
   AlertTriangle, Globe, FileImage, PenTool, Hash, Calendar, 
@@ -61,7 +62,7 @@ export default function SettingsClient({
 
   // Form Fields
   const [name, setName] = useState(madrasa.name || "");
-  const initialPrefix = madrasa.prefix || madrasa.short_code || madrasa.metadata?.prefix || madrasa.metadata?.short_code || "AHH";
+  const initialPrefix = resolveMadrasaPrefix(madrasa);
   const [prefix, setPrefix] = useState(initialPrefix);
   const [prefixStatus, setPrefixStatus] = useState<{ available?: boolean; message?: string; suggested?: string } | null>(null);
   const [isSuggestingPrefix, setIsSuggestingPrefix] = useState(false);
@@ -751,13 +752,13 @@ export default function SettingsClient({
                         value={prefix}
                         onChange={(e) => handlePrefixChange(e.target.value)}
                         className="w-full text-center font-mono text-base font-bold tracking-wider uppercase px-3 py-2 bg-white dark:bg-slate-950 border-2 border-emerald-300 dark:border-emerald-700 rounded-xl text-emerald-900 dark:text-emerald-300 focus:ring-2 focus:ring-emerald-500 focus:outline-none shadow-sm"
-                        placeholder="AH"
+                        placeholder="QM"
                       />
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 bg-white/80 dark:bg-slate-900/90 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
                       <span className="text-slate-500 dark:text-slate-400">আইডি ফরম্যাট প্রিভিউ:</span>
                       <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded">
-                        {prefix || "AH"}-480001
+                        {prefix || "QM"}-480001
                       </span>
                     </div>
                   </div>
@@ -788,7 +789,7 @@ export default function SettingsClient({
                       <span>স্বতন্ত্র প্রাতিষ্ঠানিক প্রিফিক্স কোড</span>
                     </div>
                     <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                      এটি আপনার মাদরাসার প্রতিটি শিক্ষার্থীর স্বয়ংক্রিয় পরিচিতি কোড (ID) তৈরিতে ব্যবহৃত হয়। শিক্ষার্থী ও অভিভাবকগণ সরাসরি আইডি নম্বর (যেমন: <strong className="font-mono text-emerald-800 dark:text-emerald-300">{prefix || "JMD"}-{idYearFormat === "gregorian" ? "26" : "48"}0001</strong>) কিংবা হাইফেন ব্যতীতও পোর্টালে অনায়াসে লগইন করতে পারবেন।
+                      এটি আপনার মাদরাসার প্রতিটি শিক্ষার্থীর স্বয়ংক্রিয় পরিচিতি কোড (ID) তৈরিতে ব্যবহৃত হয়। শিক্ষার্থী ও অভিভাবকগণ সরাসরি আইডি নম্বর (যেমন: <strong className="font-mono text-emerald-800 dark:text-emerald-300">{prefix || "QM"}-{idYearFormat === "gregorian" ? "26" : "48"}0001</strong>) কিংবা হাইফেন ব্যতীতও পোর্টালে অনায়াসে লগইন করতে পারবেন।
                     </p>
                   </div>
                 </div>
@@ -803,7 +804,7 @@ export default function SettingsClient({
                       </label>
                     </div>
                     <div className="text-[11px] font-mono font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/70 px-2.5 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 shrink-0">
-                      লাইভ প্রিভিউ: {prefix || "AH"}-{idYearFormat === "gregorian" ? "26" : "48"}0001
+                      লাইভ প্রিভিউ: {prefix || "QM"}-{idYearFormat === "gregorian" ? "26" : "48"}0001
                     </div>
                   </div>
 
@@ -833,7 +834,7 @@ export default function SettingsClient({
                         )}
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                        যেমন: ১৪৪৮ হিজরির জন্য <strong className="text-slate-700 dark:text-slate-200">{prefix || "AH"}-480001</strong> (কওমি শাওয়াল-টু-শাবান সেশনের জন্য আদর্শ)।
+                        যেমন: ১৪৪৮ হিজরির জন্য <strong className="text-slate-700 dark:text-slate-200">{prefix || "QM"}-480001</strong> (কওমি শাওয়াল-টু-শাবান সেশনের জন্য আদর্শ)।
                       </p>
                     </label>
 
@@ -862,7 +863,7 @@ export default function SettingsClient({
                         )}
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                        যেমন: ২০২৬ সনের জন্য <strong className="text-slate-700 dark:text-slate-200">{prefix || "AH"}-260001</strong> (জানুয়ারি-ডিসেম্বর সেশনের জন্য আদর্শ)।
+                        যেমন: ২০২৬ সনের জন্য <strong className="text-slate-700 dark:text-slate-200">{prefix || "QM"}-260001</strong> (জানুয়ারি-ডিসেম্বর সেশনের জন্য আদর্শ)।
                       </p>
                     </label>
 

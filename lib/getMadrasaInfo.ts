@@ -1,6 +1,6 @@
 import { getDefaultMadrasaId } from "@/lib/madrasa-default";
 import { createClient, createAdminClient, getAuthUser } from "@/lib/supabase/server";
-import { extractMadrasaPrefix, generateSuggestedPrefix } from "@/lib/madrasa-prefix";
+import { resolveMadrasaPrefix } from "@/lib/madrasa-prefix";
 
 /**
  * মাদ্রাসার সম্পূর্ণ তথ্য — `metadata` সহ।
@@ -175,14 +175,13 @@ export async function getMadrasaInfo(specificMadrasaId?: string): Promise<Madras
           }
         }
 
-        const resolvedPrefix =
-          meta.prefix ||
-          meta.short_code ||
-          (fullMadrasa as any).prefix ||
-          (fullMadrasa as any).short_code ||
-          extractMadrasaPrefix(fullMadrasa) ||
-          generateSuggestedPrefix(fullMadrasa.name || "") ||
-          "";
+        const resolvedPrefix = resolveMadrasaPrefix(
+          {
+            ...fullMadrasa,
+            metadata: meta,
+          },
+          meta.name || fullMadrasa.name || ""
+        );
 
         madrasaInfo = {
           id: fullMadrasa.id || targetMadrasaId,

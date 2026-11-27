@@ -18,7 +18,7 @@ import {
   normalizeStudentIdCode,
 } from "@/lib/id-card-management";
 import { getStudentIdNumber } from "@/lib/student-utils";
-import { extractMadrasaPrefix } from "@/lib/madrasa-prefix";
+import { getMadrasaPrefixById } from "@/lib/madrasa-prefix-server";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -59,12 +59,7 @@ export async function getIdCardsData(filters?: {
       .eq("madrasa_id", madrasaId);
     const studentMap = new Map((allMadrasaStudents || []).map((s: any) => [s.id, s]));
 
-    const madrasaPrefix = (
-      meta.prefix ||
-      meta.short_code ||
-      (meta.madrasas ? extractMadrasaPrefix(meta.madrasas) : "") ||
-      ""
-    ).trim().toUpperCase();
+    const madrasaPrefix = await getMadrasaPrefixById(madrasaId, meta, adminClient);
 
     cards = cards.map((card, idx) => {
       let updatedCard = { ...card };
@@ -265,12 +260,7 @@ export async function issueStudentIdCard(payload: {
     counter += 1;
     meta.id_card_counter = counter;
 
-    const madrasaPrefix = (
-      meta.prefix ||
-      meta.short_code ||
-      (meta.madrasas ? extractMadrasaPrefix(meta.madrasas) : "") ||
-      ""
-    ).trim().toUpperCase();
+    const madrasaPrefix = await getMadrasaPrefixById(madrasaId, meta);
 
     const studentIdCode = getStudentIdNumber(student, undefined, madrasaPrefix);
     const cardNumber = studentIdCode;
@@ -400,12 +390,7 @@ export async function bulkGenerateIdCards(payload: {
     const expiry = payload.expiry_date || `${Number(dhakaToday.slice(0, 4)) + 1}${dhakaToday.slice(4)}`;
     const yearShort = targetSession?.academic_year?.split("-")?.[0]?.slice(-2) || String(getDhakaYear()).slice(-2);
 
-    const madrasaPrefix = (
-      meta.prefix ||
-      meta.short_code ||
-      (meta.madrasas ? extractMadrasaPrefix(meta.madrasas) : "") ||
-      ""
-    ).trim().toUpperCase();
+    const madrasaPrefix = await getMadrasaPrefixById(madrasaId, meta);
 
     let createdCount = 0;
     const createdCards: StudentIDCard[] = [];
@@ -520,7 +505,13 @@ export async function reissueStudentIdCard(cardId: string, reason?: string) {
     meta.id_card_counter = counter;
 
     const yearShort = String(getDhakaYear()).slice(-2);
-    const cardNumber = formatCardNumber(yearShort, counter);
+    const madrasaPrefix = await getMadrasaPrefixById(madrasaId, meta);
+    const cardNumber = formatCardNumber(
+      yearShort,
+      counter,
+      oldCard.snapshot?.student_id_code || oldCard.card_number,
+      madrasaPrefix
+    );
     const verificationId = generateVerificationToken();
 
     const today = toDhakaDateString();

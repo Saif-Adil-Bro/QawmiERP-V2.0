@@ -49,10 +49,10 @@ export function resolveCanonicalStudentCode(
   madrasaPrefix?: string
 ): string {
   const numCode = resolveCanonicalStudentNumericCode(student, fallbackIndex);
-  const prefix = (madrasaPrefix || (student?.madrasas ? extractMadrasaPrefix(student.madrasas) : "") || "AHM")
+  const prefix = (madrasaPrefix || (student?.madrasas ? extractMadrasaPrefix(student.madrasas) : "") || "QM")
     .trim()
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
+    .replace(/[^A-Z0-9]/g, "") || "QM";
   return `${prefix}${numCode}`;
 }
 
@@ -146,8 +146,8 @@ export async function findStudentByIdentifier(identifier: string): Promise<Resol
   if (!result) return null;
 
   // Build comprehensive candidate emails list & check public.users for linked accounts
-  const pLower = (explicitPrefix || result.madrasaPrefix || "ahm").toLowerCase();
-  const mPrefixLower = (result.madrasaPrefix || "ahm").toLowerCase();
+  const pLower = (explicitPrefix || result.madrasaPrefix || "qm").toLowerCase();
+  const mPrefixLower = (result.madrasaPrefix || "qm").toLowerCase();
   const num = result.numericStudentId;
 
   const emailSet = new Set<string>();
@@ -264,7 +264,7 @@ function searchStudentsList(
     matchedStudents.forEach((s, idx) => {
       if (found) return;
       const num = `480${String(idx + 1).padStart(3, "0")}`;
-      const pre = ((s.madrasa_id && madrasaMap.get(s.madrasa_id)?.prefix) || "ahm").toLowerCase();
+      const pre = ((s.madrasa_id && madrasaMap.get(s.madrasa_id)?.prefix) || "qm").toLowerCase();
       if (
         cleanEmailCode === `${pre}${num}` ||
         cleanEmailCode === num ||
@@ -306,7 +306,7 @@ function searchStudentsList(
     (found.madrasa_id && madrasaMap.get(found.madrasa_id)) || {
       id: found.madrasa_id || "",
       name: "মাদরাসা",
-      prefix: parsed.prefix || "AHM",
+      prefix: parsed.prefix || "QM",
     };
 
   const canonicalStudentId = resolveCanonicalStudentCode(found, foundIndex, madrasaInfo.prefix);
@@ -476,11 +476,11 @@ export async function syncAllStudentsDefaultLogins(madrasaId?: string): Promise<
     const prefix = (
       (s.madrasa_id && madrasaPrefixMap.get(s.madrasa_id)) ||
       (madrasaId && madrasaPrefixMap.get(madrasaId)) ||
-      "AHM"
+      "QM"
     )
       .trim()
       .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "");
+      .replace(/[^A-Z0-9]/g, "") || "QM";
 
     // Deterministic 1-to-N sequential code: AHM480001 to AHM480034
     const seqNum = idx + 1;

@@ -254,8 +254,8 @@ export function normalizeStudentIdCode(rawInput?: any, fallbackCounter = 1, defa
     return String(baseNumber + cnt);
   }
 
-  // Strip prefixes like QM-, CERT-, STU-, ID-, AHH-, AH-, etc.
-  const clean = str.replace(/^([A-Za-z0-9]+-)/i, "").trim();
+  // Strip single or chained prefixes like QM-, CERT-, STU-, ID-, AHM-MUSE-, etc.
+  const clean = str.replace(/^(?:[A-Za-z][A-Za-z0-9]*-)+/i, "").trim();
 
   // If already a valid 6-digit number (e.g. 480001, 260001, etc.)
   if (/^\d{6}$/.test(clean)) {

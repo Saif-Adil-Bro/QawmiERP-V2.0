@@ -52,7 +52,7 @@ export async function login(prevState: any, formData: FormData) {
       } else if (!rawIdentifier.includes("@")) {
         await recordFailedLogin(rawIdentifier, "web_action");
         return {
-          error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: MUSE-480004 বা 480001) প্রদান করুন।`,
+          error: `প্রদত্ত আইডি বা রোল (${rawIdentifier}) অনুযায়ী কোনো শিক্ষার্থী খুঁজে পাওয়া যায়নি। আপনার সঠিক শিক্ষার্থী আইডি (যেমন: QM-480001 বা 480001) প্রদান করুন।`,
         };
       }
     }
